@@ -249,7 +249,8 @@ export interface ListNotesQuery {
 export interface ListNotesResponse {
   notes: NoteSummary[]
   nextCursor: string | null
-  total: number
+  /** Only computed on the first page of a listing; later keyset pages return null. */
+  total: number | null
 }
 
 export interface CreateNoteBody {

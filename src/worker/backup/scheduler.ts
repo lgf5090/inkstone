@@ -12,6 +12,10 @@ const USER_PAGE_SIZE = 100
 const BACKUP_SCHEDULE_EARLY_TOLERANCE_MS = 5 * 60 * 1000
 const BACKUP_RETRY_INTERVAL_MS = 60 * 60 * 1000
 const CHANGE_LOG_TRIM_INTERVAL_MS = 24 * 60 * 60 * 1000
+const CHANGE_LOG_TRIM_ROWS = 1000
+const CHANGE_LOG_TRIM_ROUNDS = 10
+/** Accounts only enter the trim loop once they are this far past the retention target. */
+const CHANGE_LOG_TRIM_SLACK = 1000
 const CHANGE_LOG_TRIM_META_KEY = 'change-log-trim-last-success-v1'
 const CHANGE_LOG_TRIM_LEASE_KEY = 'change-log-trim-lease-v1'
 
@@ -137,21 +141,38 @@ async function trimChangeLog(env: Env): Promise<void> {
       .bind(afterUserId, USER_PAGE_SIZE)
       .all<{ user_id: string }>()
     if (results.length === 0) break
-    for (const row of results) {
-      await env.DB.prepare(
-        `DELETE FROM changes WHERE seq IN (
-           SELECT seq FROM changes WHERE user_id = ?1 AND seq < (
-             SELECT MIN(seq) FROM (
-               SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
-             )
-           ) ORDER BY seq LIMIT 1000
-         )`,
-      )
-        .bind(row.user_id, LIMITS.changeLogKept)
-        .run()
+    const pageIds = results.map((row) => row.user_id)
+    // One aggregate pass finds the accounts that actually over-retained; previously every
+    // account paid a DELETE, and each DELETE could only remove TRIM_ROWS_PER_ROUND rows.
+    const { results: overRetained } = await env.DB.prepare(
+      `SELECT user_id FROM changes WHERE user_id IN (SELECT value FROM json_each(?1))
+        GROUP BY user_id HAVING COUNT(*) > ?2`,
+    )
+      .bind(JSON.stringify(pageIds), LIMITS.changeLogKept + CHANGE_LOG_TRIM_SLACK)
+      .all<{ user_id: string }>()
+    const candidates = new Set(overRetained.map((row) => row.user_id))
+    for (const user_id of pageIds) {
+      if (candidates.has(user_id)) await trimUserChanges(env.DB, user_id)
     }
-    afterUserId = results[results.length - 1]!.user_id
+    afterUserId = pageIds[pageIds.length - 1]!
     if (results.length < USER_PAGE_SIZE) break
+  }
+}
+
+async function trimUserChanges(db: D1Database, userId: string): Promise<void> {
+  for (let round = 0; round < CHANGE_LOG_TRIM_ROUNDS; round++) {
+    const result = await db.prepare(
+      `DELETE FROM changes WHERE seq IN (
+         SELECT seq FROM changes WHERE user_id = ?1 AND seq < (
+           SELECT MIN(seq) FROM (
+             SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
+           )
+         ) ORDER BY seq LIMIT ?3
+       )`,
+    )
+      .bind(userId, LIMITS.changeLogKept, CHANGE_LOG_TRIM_ROWS)
+      .run()
+    if ((result.meta.changes ?? 0) < CHANGE_LOG_TRIM_ROWS) break
   }
 }
 

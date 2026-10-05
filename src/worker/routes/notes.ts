@@ -155,12 +155,21 @@ notesRoutes.get('/', async (c) => {
   const listStatement = cursor.kind === 'legacy'
     ? c.env.DB.prepare(listSql).bind(...binds, limit + 1, cursor.offset)
     : c.env.DB.prepare(listSql).bind(...binds, limit + 1)
-  const [countResult, listResult] = await c.env.DB.batch([
-    c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
-    listStatement,
-  ])
+  // A keyset page continues a listing the client already counted; re-counting scans every
+  // visible row (up to LIMITS.notesMaxPerUser) again on each page turn.
+  const countTotal = cursor.kind !== 'keyset'
+  const results = await c.env.DB.batch(countTotal
+    ? [
+        c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
+        listStatement,
+      ]
+    : [listStatement])
+  const countResult = countTotal ? results[0] : undefined
+  const listResult = countTotal ? results[1] : results[0]
 
-  const total = Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
+  const total = countTotal
+    ? Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
+    : null
   const rows = listResult?.results as NoteRow[] | undefined ?? []
   const pageRows = rows.slice(0, limit)
   const notes = pageRows.map(toNoteSummary)

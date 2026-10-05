@@ -547,7 +547,7 @@ export function createDemoBackend(): DemoBackend {
     }
     return c.json(response)
   })
-  app.post('/api/search/reindex', (c) => c.json({ ok: true as const, indexed: state.notes.size }))
+  app.post('/api/search/reindex', (c) => c.json({ ok: true as const, queued: state.notes.size }))
   app.get('/api/graph', (c) => {
     const mode = c.req.query('mode') === 'local' ? 'local' : 'global'
     const centerId = c.req.query('center') || null

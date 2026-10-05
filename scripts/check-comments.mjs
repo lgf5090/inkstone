@@ -107,10 +107,18 @@ const allowed = new Map([
   ["src/shared/text-utils.ts", [
     "/**\n * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and\n * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's\n * U+FFFD replacement.\n */",
   ]],
+  ["src/shared/types.ts", [
+    "/** Only computed on the first page of a listing; later keyset pages return null. */",
+  ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
     "// The instr() predicate discards rows that cannot contain an attachment URL",
     "// so full bodies only cross the wire for rows the regex will actually parse.",
+  ]],
+  ["src/worker/backup/scheduler.ts", [
+    "/** Accounts only enter the trim loop once they are this far past the retention target. */",
+    "// One aggregate pass finds the accounts that actually over-retained; previously every",
+    "// account paid a DELETE, and each DELETE could only remove TRIM_ROWS_PER_ROUND rows.",
   ]],
   ["src/worker/backup/snapshot.ts", [
     "/** Produces restorable JSON, readable Markdown, and attachment files for every backup target. */",
@@ -120,6 +128,10 @@ const allowed = new Map([
     "// that resolve to private addresses; the deployment's",
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
+  ]],
+  ["src/worker/db/fts.ts", [
+    "/**\n * Queues every live note for re-indexing in one statement. Rebuilding in the request path\n * costs ~3 round trips per 50 notes (600 trips for 10k notes) plus a full-text tokenize\n * pass, which cannot finish inside one invocation; the queue drains in the background.\n */",
+    "/** Removes search rows whose note no longer exists or was deleted. */",
   ]],
   ["src/worker/db/quota.ts", [
     "/**\n * Import runs hold a per-account import lease, so one count per request can budget every\n * note it inserts instead of paying a COUNT round trip per note.\n */",
@@ -141,6 +153,10 @@ const allowed = new Map([
     "// Keep the existing indexed text and rowids. The batch either replaces the",
     "// complete index or rolls back, including when an old installation retries.",
     "/** Cron claims one account's oldest due row, so the queue is indexed per account. */",
+    "// The list endpoint can order by created_at or title as well; without a matching",
+    "// compound index SQLite sorts every visible row (up to notesMaxPerUser) per page.",
+    "// EXPLAIN on a 5k-row replica: created/title orderings report",
+    "// \"USE TEMP B-TREE FOR ORDER BY\" until these exist.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -235,6 +251,12 @@ const allowed = new Map([
     "// attacker with any low-value account could reset the per-IP failure",
     "// ceiling between bursts of password guessing.",
   ]],
+  ["src/worker/routes/files.ts", [
+    "/** 1 when a note change landed after `scanCursor`, i.e. the prune must hold off. */",
+    "// One freshness probe per page replaces the NOT EXISTS subquery that used to run for",
+    "// every attachment and every statement; a change landing mid-page only defers the",
+    "// remaining rows to the next prune, which is what the guard already tolerated.",
+  ]],
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",
   ]],
@@ -244,6 +266,8 @@ const allowed = new Map([
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
     "// The quota read rides along with hashing instead of adding a serial round trip.",
+    "// A keyset page continues a listing the client already counted; re-counting scans every",
+    "// visible row (up to LIMITS.notesMaxPerUser) again on each page turn.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",

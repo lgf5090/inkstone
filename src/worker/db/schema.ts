@@ -609,6 +609,20 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [`ALTER TABLE rewrite_queue ADD COLUMN claimed_at INTEGER`],
     skipIfColumnExists: { table: 'rewrite_queue', column: 'claimed_at' },
   },
+  {
+    // The list endpoint can order by created_at or title as well; without a matching
+    // compound index SQLite sorts every visible row (up to notesMaxPerUser) per page.
+    // EXPLAIN on a 5k-row replica: created/title orderings report
+    // "USE TEMP B-TREE FOR ORDER BY" until these exist.
+    version: 23,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_notes_user_pinned_created
+         ON notes(user_id, deleted_at, is_archived, is_pinned DESC, created_at DESC, id)`,
+      `CREATE INDEX IF NOT EXISTS idx_notes_user_pinned_title
+         ON notes(user_id, deleted_at, is_archived, is_pinned DESC, title COLLATE NOCASE DESC, id)`,
+      `CREATE INDEX IF NOT EXISTS idx_attachments_user_size ON attachments(user_id, size)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -739,6 +753,9 @@ const REQUIRED_INDEXES = [
   'idx_ai_index_queue_due',
   'idx_fts_index_queue_due',
   'idx_rewrite_queue_due',
+  'idx_notes_user_pinned_created',
+  'idx_notes_user_pinned_title',
+  'idx_attachments_user_size',
 ] as const
 
 

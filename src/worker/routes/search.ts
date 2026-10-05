@@ -4,7 +4,7 @@ import { segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { drainFtsQueue, rebuildFtsIndex } from '../db/fts'
+import { drainFtsQueue, FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
 import { NOTE_COLUMNS, toNoteSummary, type NoteRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -676,8 +676,10 @@ searchRoutes.post('/search/reindex', requireAuth, async (c) => {
       }
       throw error
     }
-    const count = await rebuildFtsIndex(c.env.DB, userId)
-    return c.json({ ok: true, indexed: count })
+    const queued = await queueAllNotesForFtsIndex(c.env.DB, userId)
+    await purgeStaleFtsRows(c.env.DB, userId)
+    scheduleFtsDrain(c, FTS_DRAIN_ALL_BATCH)
+    return c.json({ ok: true, queued })
   } finally {
     await release()
   }
