@@ -3,7 +3,7 @@ import { parseFrontMatter } from '@shared/markdown-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { BackupRun } from '@shared/types'
 import { stringify as stringifyYaml } from 'yaml'
-import { readAttachmentObject } from '../attachments/backend'
+import { readAttachmentObject, readAttachmentObjectRange } from '../attachments/backend'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
 import { attachmentCleanupTarget, attachmentObjectKey, type AttachmentObjectStorage } from '../attachments/keys'
 import { persistAttachmentWithinQuota } from '../attachments/storage'
@@ -23,6 +23,10 @@ import { createMcpNote, editMcpNote, organizeMcpNote, type McpWriteContext } fro
 interface LibraryContext extends McpWriteContext {
   origin: string
 }
+
+/** Matches parseFrontMatter's own 64 KiB safety limit, so scanning never truncates. */
+const FRONT_MATTER_SCAN_CHARS = 65_536
+const FRONT_MATTER_SCAN_NOTES = 500
 
 interface FolderRow {
   id: string
@@ -188,8 +192,12 @@ export async function queryMcpNoteProperties(
   },
 ) {
   const { results } = await db.prepare(
-    `SELECT id, title, substr(content, 1, 65536) AS content, rev, updated_at FROM notes
-      WHERE user_id = ?1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 500`,
+    // parseFrontMatter can only match a document starting with an optional BOM and '---',
+    // so every other body can be skipped storage-side instead of shipping 500 full texts.
+    `SELECT id, title, substr(content, 1, ${FRONT_MATTER_SCAN_CHARS}) AS content, rev, updated_at FROM notes
+      WHERE user_id = ?1 AND deleted_at IS NULL
+        AND (substr(content, 1, 3) = '---' OR substr(content, 1, 4) = char(65279) || '---')
+      ORDER BY updated_at DESC LIMIT ${FRONT_MATTER_SCAN_NOTES}`,
   ).bind(userId).all<{ id: string; title: string; content: string; rev: number; updated_at: number }>()
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))
   const matches = []
@@ -207,7 +215,7 @@ export async function queryMcpNoteProperties(
     })
     if (matches.length >= limit) break
   }
-  return { results: matches, scanned: results.length, scan_limit: 500 }
+  return { results: matches, scanned: results.length, scan_limit: FRONT_MATTER_SCAN_NOTES }
 }
 
 export async function createMcpFolder(
@@ -810,11 +818,10 @@ export async function readMcpAttachment(
     created_at: number
   }>()
   if (!row) throw ApiError.notFound('Attachment not found')
-  const bytes = await readAttachmentObject(env, row.storage, attachmentObjectKey(row))
+  const window = attachmentReadWindow(row.size, input.cursor, input.maxBytes)
+  const bytes = await readAttachmentObjectRange(env, row.storage, attachmentObjectKey(row), window.start, window.length)
+    ?? await readAttachmentWindowFallback(env, row.storage, attachmentObjectKey(row), window)
   if (!bytes) throw ApiError.notFound('Attachment data is missing')
-  const start = Math.max(0, Math.min(bytes.byteLength, Math.trunc(input.cursor ?? 0)))
-  const maxBytes = Math.max(1024, Math.min(1024 * 1024, Math.trunc(input.maxBytes ?? 256 * 1024)))
-  const end = Math.min(bytes.byteLength, start + maxBytes)
   return {
     id: row.id,
     note_id: row.note_id,
@@ -823,12 +830,42 @@ export async function readMcpAttachment(
     size: row.size,
     sha256: row.sha256,
     encoding: 'base64',
-    data: toBase64(bytes.slice(start, end)),
-    start_offset: start,
-    end_offset: end,
-    has_more: end < bytes.byteLength,
-    next_cursor: end < bytes.byteLength ? end : null,
+    data: toBase64(bytes),
+    start_offset: window.start,
+    end_offset: window.end,
+    has_more: window.end < row.size,
+    next_cursor: window.end < row.size ? window.end : null,
   }
+}
+
+export const ATTACHMENT_READ_MIN_BYTES = 1024
+export const ATTACHMENT_READ_MAX_BYTES = 1024 * 1024
+export const ATTACHMENT_READ_DEFAULT_BYTES = 256 * 1024
+
+/** Chunk bounds for read_attachment, kept pure so the arithmetic is testable. */
+export function attachmentReadWindow(size: number, cursor?: number, maxBytes?: number): {
+  start: number
+  end: number
+  length: number
+} {
+  const start = Math.max(0, Math.min(size, Math.trunc(cursor ?? 0)))
+  const wanted = Math.max(
+    ATTACHMENT_READ_MIN_BYTES,
+    Math.min(ATTACHMENT_READ_MAX_BYTES, Math.trunc(maxBytes ?? ATTACHMENT_READ_DEFAULT_BYTES)),
+  )
+  const end = Math.min(size, start + wanted)
+  return { start, end, length: end - start }
+}
+
+/** KV has no ranged get, so only that backend still pays for a full object read. */
+async function readAttachmentWindowFallback(
+  env: Env,
+  storage: AttachmentObjectStorage,
+  key: string,
+  window: { start: number; end: number },
+): Promise<Uint8Array | null> {
+  const bytes = await readAttachmentObject(env, storage, key)
+  return bytes ? bytes.slice(window.start, window.end) : null
 }
 
 export async function uploadMcpAttachment(

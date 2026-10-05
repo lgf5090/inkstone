@@ -110,6 +110,9 @@ const allowed = new Map([
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",
   ]],
+  ["src/worker/attachments/backend.ts", [
+    "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
+  ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
     "// The instr() predicate discards rows that cannot contain an attachment URL",
@@ -221,6 +224,13 @@ const allowed = new Map([
     "/**\n * Static API keys for MCP access.\n *\n * Small or generic MCP clients (scripts, SDKs, unnamed agents) cannot run the\n * OAuth 2.1 dance, so they authenticate with a plain `Authorization: Bearer\n * <key>` header — the universal HTTP standard. The OAuth provider resolves\n * these tokens through its official `resolveExternalToken` hook; the key is\n * never stored or returned again, only its SHA-256 hash.\n */",
     "// 32 random bytes encoded as unpadded base64url is exactly 43 characters.",
     "/**\n * Resolves a bearer token to an account. Returns null for unknown, revoked,\n * or malformed keys so the OAuth provider can answer with 401 invalid_token.\n */",
+  ]],
+  ["src/worker/mcp/library.ts", [
+    "/** Matches parseFrontMatter's own 64 KiB safety limit, so scanning never truncates. */",
+    "// parseFrontMatter can only match a document starting with an optional BOM and '---',",
+    "// so every other body can be skipped storage-side instead of shipping 500 full texts.",
+    "/** Chunk bounds for read_attachment, kept pure so the arithmetic is testable. */",
+    "/** KV has no ranged get, so only that backend still pays for a full object read. */",
   ]],
   ["src/worker/mcp/oauth.ts", [
     "// Static API keys let small or generic MCP clients authenticate with a",

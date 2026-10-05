@@ -64,6 +64,25 @@ export async function putAttachmentObject(
   })
 }
 
+/**
+ * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers
+ * must fall back to readAttachmentObject and slice in the isolate.
+ */
+export async function readAttachmentObjectRange(
+  env: Env,
+  storage: AttachmentObjectStorage,
+  key: string,
+  offset: number,
+  length: number,
+): Promise<Uint8Array | null> {
+  if (storage !== 'r2') return null
+  if (!env.FILES) throw new Error('R2 attachment storage is not configured')
+  if (length <= 0) return new Uint8Array()
+  const object = await env.FILES.get(key, { range: { offset, length } })
+  if (!object) return null
+  return new Uint8Array(await object.arrayBuffer())
+}
+
 export async function readAttachmentObject(
   env: Env,
   storage: AttachmentObjectStorage,
