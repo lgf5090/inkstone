@@ -38,9 +38,16 @@ const allowed = new Map([
     "// Private browsing or a locked-down browser can reject local preferences.",
     "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
     "// Draw-only toggles just need one repaint.",
+    "// Squared compare instead of Math.hypot: pointermove fires up to 240 times a second and",
+    "// hypot does overflow scaling work this path never needs.",
   ]],
   ["src/client/features/list/NoteList.tsx", [
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
+  ]],
+  ["src/client/features/preview/Outline.tsx", [
+    "// One pass per layout change instead of one querySelector + one layout read per",
+    "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
+    "// Heads are in document order, so the active one is the last entry at or above top.",
   ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
@@ -62,8 +69,19 @@ const allowed = new Map([
     "// (cursor) no longer refetches, and stale links stay visible until the",
     "// fresh payload arrives.",
   ]],
+  ["src/client/features/workspace/VersionsPanel.tsx", [
+    "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
+    "// tail used to cost one object per line of the whole file (60k) before being truncated.",
+  ]],
   ["src/client/features/workspace/reading-position.ts", [
     "// Reading position is optional when browser storage is unavailable.",
+  ]],
+  ["src/client/features/workspace/sync-scroll.ts", [
+    "// Scrolling asks for the curve once per frame; rebuilding it walked and re-allocated",
+    "// every anchor (2858 at 1 MB notes) 60 times a second.",
+  ]],
+  ["src/client/features/workspace/versions-diff.test.ts", [
+    "/** The pre-change implementation: materialize every line, then truncate the array. */",
   ]],
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
@@ -83,6 +101,9 @@ const allowed = new Map([
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
     "// Preload the other locale in background for instant switching, but don't block init",
+  ]],
+  ["src/client/lib/markdown/embeds.ts", [
+    "/**\n * Embed bodies live in the note store, but every debounced preview re-ran the full render\n * pipeline (parse + markdown-it + sanitize) per embed, and the per-call fetch cache made two\n * panes embedding the same note ask the network twice. Both caches are exact: a key is only\n * reused while the markdown it was built from is still identical.\n */",
   ]],
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",

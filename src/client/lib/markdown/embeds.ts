@@ -1,5 +1,4 @@
 import { parseFrontMatter } from '@shared/markdown-utils'
-import type { Note } from '@shared/types'
 import { api } from '../api'
 import { t } from '../i18n'
 import { findNoteByTitle, useNotes } from '../../store/notes'
@@ -15,7 +14,6 @@ interface ResolveOptions {
 interface ResolveContext extends ResolveOptions {
   rendered: number
   totalChars: number
-  fetchCache: Map<string, Promise<Note>>
   rootScope: EmbedScope
 }
 
@@ -36,6 +34,37 @@ const MAX_DEPTH = 4
 const MAX_EMBEDS = 24
 const MAX_TOTAL_CHARS = 2_000_000
 
+/**
+ * Embed bodies live in the note store, but every debounced preview re-ran the full render
+ * pipeline (parse + markdown-it + sanitize) per embed, and the per-call fetch cache made two
+ * panes embedding the same note ask the network twice. Both caches are exact: a key is only
+ * reused while the markdown it was built from is still identical.
+ */
+const RENDERED_EMBED_CACHE_MAX = 64
+const renderedEmbeds = new Map<string, { markdown: string; html: string }>()
+const pendingEmbedFetches = new Map<string, Promise<string>>()
+
+function renderEmbedMarkdown(signature: string, markdown: string): string {
+  const cached = renderedEmbeds.get(signature)
+  if (cached && cached.markdown === markdown) return cached.html
+  const html = renderMarkdown(markdown).html
+  if (cached) renderedEmbeds.delete(signature)
+  if (renderedEmbeds.size >= RENDERED_EMBED_CACHE_MAX) renderedEmbeds.clear()
+  renderedEmbeds.set(signature, { markdown, html })
+  return html
+}
+
+async function fetchEmbedContent(noteId: string): Promise<string> {
+  const existing = pendingEmbedFetches.get(noteId)
+  if (existing) return await existing
+  const request = api.notes.get(noteId).then((note) => note.content)
+  pendingEmbedFetches.set(noteId, request)
+  void request.catch(() => null).then(() => {
+    if (pendingEmbedFetches.get(noteId) === request) pendingEmbedFetches.delete(noteId)
+  })
+  return await request
+}
+
 
 export async function resolveNoteEmbeds(root: HTMLElement, options: ResolveOptions): Promise<void> {
   const rootScope: EmbedScope = {
@@ -47,7 +76,6 @@ export async function resolveNoteEmbeds(root: HTMLElement, options: ResolveOptio
     ...options,
     rendered: 0,
     totalChars: 0,
-    fetchCache: new Map(),
     rootScope,
   }
   await resolveWithin(root, context, 0, new Set([`${rootScope.identity}##`]), rootScope)
@@ -101,8 +129,8 @@ async function resolveWithin(
       const body = embed.querySelector<HTMLElement>('.note-embed-body')
       const head = embed.querySelector<HTMLElement>('.note-embed-head')
       if (!body) continue
-      const rendered = renderMarkdown(resolved.markdown)
-      body.innerHTML = rendered.html
+      const rendered = renderEmbedMarkdown(resolved.signature, resolved.markdown)
+      body.innerHTML = rendered
       body.querySelectorAll<HTMLInputElement>('input.task-list-item-checkbox').forEach((input) => {
         input.disabled = true
         input.removeAttribute('data-task-line')
@@ -152,12 +180,7 @@ async function resolveTarget(
     if (local !== undefined) {
       content = local
     } else {
-      let request = context.fetchCache.get(summary.id)
-      if (!request) {
-        request = api.notes.get(summary.id)
-        context.fetchCache.set(summary.id, request)
-      }
-      content = (await request).content
+      content = await fetchEmbedContent(summary.id)
     }
   }
 
