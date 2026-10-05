@@ -9,7 +9,8 @@ import {
   FolderOpen,
   ImageDown,
   Maximize2,
-  Minimize2,
+  Minimize,
+  Expand,
   Minus,
   PanelRightClose,
   Plus,
@@ -78,6 +79,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [paintError, setPaintError] = useState<unknown>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [previewExcerpt, setPreviewExcerpt] = useState<string | null>(null)
+  const [touch] = useState(() => matchMedia('(pointer: coarse)').matches)
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
   const openNote = useNotes((state) => state.openNote)
@@ -389,7 +391,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         <Tooltip label={t('graph.export_svg')}><IconButton label={t('graph.export_svg')} size="sm" disabled={!hasGraph || exportActions.isExporting} onClick={exportActions.exportSvg}><Download size={14}/></IconButton></Tooltip>
         <Tooltip label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')}>
           <IconButton label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')} size="sm" active={isFullscreen} onClick={toggleFullscreen}>
-            {isFullscreen ? <Minimize2 size={13}/> : <Maximize2 size={13}/>}
+            {isFullscreen ? <Minimize size={13}/> : <Expand size={13}/>}
           </IconButton>
         </Tooltip>
         <Tooltip label={t('graph.settings')}><IconButton label={t('graph.settings')} size="sm" active={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Settings2 size={14}/></IconButton></Tooltip>
@@ -438,8 +440,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             data={data}
             hover={hover}
             selected={selected}
-            hint={t('graph.interaction_hint')}
-            hintBrief={t('graph.interaction_hint_brief')}
+            hint={touch ? t('graph.interaction_hint_touch') : t('graph.interaction_hint')}
+            hintBrief={touch ? t('graph.interaction_hint_touch_brief') : t('graph.interaction_hint_brief')}
             legend={legend}
             legendActive={legendActive}
             onLegendSelect={onLegendSelect}
@@ -447,6 +449,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             onFocusNode={(id) => controlsRef.current?.selectNode(id)}
             preview={preview}
             announcement={announcement}
+            unresolvedCount={counts.unresolved}
           />
           {paintError && <GraphPaintError error={paintError} onRetry={() => {
             setPaintError(null)

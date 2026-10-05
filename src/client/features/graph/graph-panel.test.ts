@@ -1037,3 +1037,27 @@ describe('graph settings drawer additions', () => {
     expect(lastRequest().limit).toBe(350)
   })
 })
+
+describe('graph legend durability', () => {
+  it('names the hollow ring even when nothing is grouped by colour', async () => {
+    await mount()
+    await act(async () => {
+      const response = graphResponse(TITLES)
+      response.nodes.push({
+        id: 'unresolved:ghost',
+        title: 'Ghost',
+        kind: 'unresolved',
+        degree: 1,
+        inDegree: 1,
+        outDegree: 0,
+        folderId: null,
+        folderName: null,
+        folderColor: null,
+        tags: [],
+      })
+      pendingResolvers.shift()!(response)
+    })
+    const legend = document.querySelector('[role="list"][aria-label]')
+    expect(legend?.textContent).toContain(t('graph.unresolved_legend'))
+  })
+})
