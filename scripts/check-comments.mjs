@@ -339,6 +339,7 @@ const allowed = new Map([
     "// The mutation already committed. Keep the pending row so a retry goes",
     "// through the recovery path instead of re-executing and colliding",
     "// (e.g. create_note with the same id).",
+    "/**\n   * Shapes what the cache table persists. The write tools return a full note, but their\n   * responses never expose the body, and storing it would keep a second copy of every edited\n   * note in mcp_operations (approaching D1's row limit for a 1.9 MB note).\n   */",
   ]],
   ["src/worker/mcp/retrieval.ts", [
     "// AI unavailable, rate-limited, or malformed response: degrade to lexical.",
@@ -355,6 +356,7 @@ const allowed = new Map([
     "/** Appended to a write batch so the response body costs no extra round trip. */",
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
+    "/**\n * What mcp_operations persists: the write tools' responses never expose the body (see\n * noteResult in server.ts), so caching it would store a second copy of every edited note and\n * push a 1.9 MB note past D1's row limit.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -446,6 +448,8 @@ const allowed = new Map([
   ]],
   ["tests/mcp-write-readback.test.ts", [
     "// Counts the statements that pull the note body: the whole point of the read-back merge.",
+    "// The cached/returned note carries no body: the tool response never exposed one.",
+    "// The conflict payload is built from a fresh full read, so it still carries the body.",
   ]],
   ["tests/note-list-tags.test.ts", [
     "// Corrupt row on purpose: tags owned by another account must never surface on this page.",

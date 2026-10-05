@@ -41,6 +41,10 @@ beforeEach(() => {
   }
 })
 
+const storedResponse = (operationId: string) => JSON.parse(
+  String(sqlite.prepare('SELECT response_json FROM mcp_operations WHERE operation_id = ?').get(operationId)?.response_json),
+) as Record<string, unknown>
+
 const row = () => sqlite.prepare('SELECT rev, is_starred, deleted_at, content FROM notes WHERE id = ?').get('n1')
 
 describe('MCP organize/trash read-back', () => {
@@ -51,7 +55,9 @@ describe('MCP organize/trash read-back', () => {
       expectedRev: 3,
       starred: true,
     })
-    expect(note).toMatchObject({ id: 'n1', rev: 4, isStarred: true, content: 'body' })
+    // The cached/returned note carries no body: the tool response never exposed one.
+    expect(note).toMatchObject({ id: 'n1', rev: 4, isStarred: true, content: '' })
+    expect(storedResponse('op-star-0001')).toMatchObject({ id: 'n1', rev: 4, content: '' })
     expect(bodyReads).toBe(1)
     expect(row()).toMatchObject({ rev: 4, is_starred: 1, deleted_at: null })
   })
@@ -75,12 +81,13 @@ describe('MCP organize/trash read-back', () => {
       expectedRev: 1,
       archived: true,
     })).rejects.toMatchObject({ status: 409, details: { server: { rev: 2, content: 'other' } } })
+    // The conflict payload is built from a fresh full read, so it still carries the body.
     expect(bodyReads - before).toBe(1)
   })
 
   it('trashes with a metadata-only pre-read and one body read', async () => {
     const note = await trashMcpNote(context, { operationId: 'op-trash-0005', noteId: 'n1', expectedRev: 3 })
-    expect(note).toMatchObject({ id: 'n1', rev: 4, content: 'body' })
+    expect(note).toMatchObject({ id: 'n1', rev: 4, content: '' })
     expect(row()?.deleted_at).not.toBeNull()
     expect(bodyReads).toBe(1)
   })

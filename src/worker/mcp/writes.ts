@@ -44,6 +44,7 @@ export async function createMcpNote(
     tool: 'create_note',
     request: input,
     recovery: { noteId: id },
+    project: withoutBody,
     recover: async (recovery) => {
       const noteId = typeof recovery?.noteId === 'string' ? recovery.noteId : ''
       return noteId ? loadNoteOrNull(context.env.DB, context.userId, noteId) : null
@@ -118,6 +119,7 @@ export async function editMcpNote(
     tool: 'edit_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
       const current = await loadNoteRow(context.env.DB, context.userId, input.noteId)
       await assertExpectedRevision(context, current, input.expectedRev)
@@ -150,6 +152,7 @@ export async function organizeMcpNote(
     tool: 'organize_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
       // Organizing never reads the body, so the pre-read is metadata only; the response body
       // comes from the single read-back inside patchNote's batch.
@@ -177,6 +180,7 @@ export async function trashMcpNote(
     tool: 'trash_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
       const row = await loadNoteMetaRow(context.env.DB, context.userId, input.noteId)
       await assertExpectedRevision(context, row, input.expectedRev)
@@ -236,6 +240,7 @@ export async function restoreMcpNote(
     tool: 'restore_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
       const row = await loadNoteRow(context.env.DB, context.userId, input.noteId)
       await assertExpectedRevision(context, row, input.expectedRev)
@@ -476,6 +481,15 @@ async function loadNoteOrNull(db: D1Database, userId: string, id: string): Promi
     `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
   ).bind(id, userId).first<NoteRow>()
   return row ? toNote(row) : null
+}
+
+/**
+ * What mcp_operations persists: the write tools' responses never expose the body (see
+ * noteResult in server.ts), so caching it would store a second copy of every edited note and
+ * push a 1.9 MB note past D1's row limit.
+ */
+function withoutBody(note: Note): Note {
+  return { ...note, content: '' }
 }
 
 /** Appended to a write batch so the response body costs no extra round trip. */

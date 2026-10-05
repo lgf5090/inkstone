@@ -21,6 +21,12 @@ export async function runIdempotent<T>(options: {
   request: unknown
   recovery?: Record<string, unknown>
   recover?: (recovery: Record<string, unknown> | undefined) => Promise<T | null>
+  /**
+   * Shapes what the cache table persists. The write tools return a full note, but their
+   * responses never expose the body, and storing it would keep a second copy of every edited
+   * note in mcp_operations (approaching D1's row limit for a 1.9 MB note).
+   */
+  project?: (value: T) => T
   execute: () => Promise<T>
 }): Promise<T> {
   const operationId = normalizeOperationId(options.operationId)
@@ -50,7 +56,12 @@ export async function runIdempotent<T>(options: {
     }
     const stored = parseJson(existing.response_json)
     if (!isPending(stored)) return stored as T
-    const recovered = await options.recover?.(stored.recovery)
+    const recoveredRaw = await options.recover?.(stored.recovery)
+    const recovered = recoveredRaw === null || recoveredRaw === undefined
+      ? recoveredRaw
+      : options.project
+        ? options.project(recoveredRaw)
+        : recoveredRaw
     if (recovered !== null && recovered !== undefined) {
       await storeResponse(options.db, options.userId, operationId, recovered)
       return recovered
@@ -63,7 +74,7 @@ export async function runIdempotent<T>(options: {
 
   let result: T
   try {
-    result = await options.execute()
+    result = options.project ? options.project(await options.execute()) : await options.execute()
   } catch (error) {
     // The mutation itself failed before committing; remove the pending row
     // so the client can retry the same operation_id cleanly.
