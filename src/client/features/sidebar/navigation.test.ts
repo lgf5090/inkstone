@@ -235,4 +235,62 @@ describe('search list', () => {
         expect(container.querySelector('[data-note-list]')?.textContent).toContain(note.title);
         expect(container.querySelector('[role="status"]')?.textContent).toBe(t('navigation.local_search_only'));
     });
+
+    it('finds an archived note through full-text search', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(api, 'search').mockRejectedValue(new Error('offline'));
+        useNotes.setState({ notes: { [note.id]: note, 'note-archived': { ...note, id: 'note-archived', title: 'Archived zebra', isArchived: true } } });
+        useUi.getState().openSearchList();
+        await act(() => root.render(createElement(NoteList)));
+        await input('zebra');
+        expect(container.querySelector('[data-note-list]')?.textContent).toContain('Archived zebra');
+    });
+
+    it('keeps archived notes out of the unfiltered full-text list', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(api, 'search').mockRejectedValue(new Error('offline'));
+        useNotes.setState({ notes: { [note.id]: note, 'note-archived': { ...note, id: 'note-archived', title: 'Archived zebra', isArchived: true } } });
+        useUi.getState().openSearchList();
+        await act(() => root.render(createElement(NoteList)));
+        const list = container.querySelector('[data-note-list]')!;
+        expect(list.textContent).toContain(note.title);
+        expect(list.textContent).not.toContain('Archived zebra');
+    });
+
+    it('searches a body that is cached after the query was already typed', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(api, 'search').mockRejectedValue(new Error('offline'));
+        useNotes.setState({ contents: {} });
+        useUi.getState().openSearchList();
+        await act(() => root.render(createElement(NoteList)));
+        await input('zqjxr');
+        expect(container.querySelector('[data-note-list]')?.textContent).not.toContain(note.title);
+        await act(async () => {
+            useNotes.setState({ contents: { [note.id]: 'a body holding the zqjxr marker' } });
+        });
+        expect(container.querySelector('[data-note-list]')?.textContent).toContain(note.title);
+    });
+
+    it('keeps the query when the viewport crosses the desktop breakpoint', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(api, 'search').mockRejectedValue(new Error('offline'));
+        let wide = true;
+        const changeHandlers = new Set<() => void>();
+        vi.stubGlobal('matchMedia', (query: string) => ({
+            get matches() {
+                return query.includes('1180') ? wide : query.includes('768');
+            },
+            addEventListener: (_type: string, handler: () => void) => { changeHandlers.add(handler); },
+            removeEventListener: (_type: string, handler: () => void) => { changeHandlers.delete(handler); },
+        }));
+        useUi.getState().openSearchList();
+        await act(() => root.render(createElement(NoteList)));
+        await input('Nested');
+        expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('Nested');
+        await act(async () => {
+            wide = false;
+            for (const handler of [...changeHandlers]) handler();
+        });
+        expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('Nested');
+    });
 });

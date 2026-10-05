@@ -17,7 +17,7 @@ import { t, translateServiceMessage } from "../../lib/i18n";
 import { useSettingsResource } from './resource';
 import { backupTargetsResource, backupRunsResource } from './resources';
 export function BackupSettings() {
-    const settings = useSession((s) => s.settings);
+    const backup = useSession((s) => s.settings.backup);
     const update = useSession((s) => s.updateSettings);
     const toast = useUi((s) => s.toast);
     const [targets, setTargets] = useSettingsResource(backupTargetsResource);
@@ -121,14 +121,14 @@ export function BackupSettings() {
             </div>
             <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t("settings.each_backup_goes_independently_to_every_enabled_target_it_includes_notes")}</p>
           </div>
-          <Button size="sm" variant="primary" icon={running ? undefined : <Zap size={13}/>} loading={running} disabled={!enabled} onClick={() => void runBackup()}>{t("settings.back_up_now")}</Button>
+          <Button data-setting-title={t("settings.back_up_now")} size="sm" variant="primary" icon={running ? undefined : <Zap size={13}/>} loading={running} disabled={!enabled} onClick={() => void runBackup()}>{t("settings.back_up_now")}</Button>
         </div>
       </section>
 
       { }
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.backup_target")}</h3>
+          <h3 data-setting-title={t("settings.backup_target")} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.backup_target")}</h3>
           <Button size="sm" variant="secondary" icon={<Plus size={13}/>} onClick={() => setEditing('new')}>{t("settings.add_target")}</Button>
         </div>
 
@@ -143,7 +143,7 @@ export function BackupSettings() {
       <section>
         <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.automatic_backups")}</h3>
         <SettingRow title={t("settings.frequency")} description={t("settings.runs_from_cloudflare_cron_the_page_does_not_need_to_stay_open")}>
-          <Select aria-label={t("settings.frequency")} className="min-w-36" value={settings.backup.schedule} onChange={(event) => void update({ backup: { schedule: event.target.value as BackupSchedule } })}>
+          <Select aria-label={t("settings.frequency")} className="min-w-36" value={backup.schedule} onChange={(event) => void update({ backup: { schedule: event.target.value as BackupSchedule } })}>
             <option value="off">{t("common.close")}</option>
             <option value="hourly">{t("settings.hourly")}</option>
             <option value="sixHourly">{t("settings.every_6_hours")}</option>
@@ -154,17 +154,17 @@ export function BackupSettings() {
           </Select>
         </SettingRow>
         <SettingRow title={t("settings.backup_retention")} description={t("settings.backup_retention_description")}>
-          <Select aria-label={t("settings.backup_retention")} className="min-w-36" value={settings.backup.retentionCount} onChange={(event) => void update({ backup: { retentionCount: Number(event.target.value) } })}>
+          <Select aria-label={t("settings.backup_retention")} className="min-w-36" value={backup.retentionCount} onChange={(event) => void update({ backup: { retentionCount: Number(event.target.value) } })}>
             <option value="0">{t("settings.keep_all_backups")}</option>
             {[7, 14, 30, 90, 365].map((count) => <option key={count} value={count}>{t("settings.keep_latest_backups", { count })}</option>)}
-            {settings.backup.retentionCount > 0 && ![7, 14, 30, 90, 365].includes(settings.backup.retentionCount) && <option value={settings.backup.retentionCount}>{t("settings.keep_latest_backups", { count: settings.backup.retentionCount })}</option>}
+            {backup.retentionCount > 0 && ![7, 14, 30, 90, 365].includes(backup.retentionCount) && <option value={backup.retentionCount}>{t("settings.keep_latest_backups", { count: backup.retentionCount })}</option>}
           </Select>
         </SettingRow>
       </section>
 
       { }
       <section>
-        <h3 className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.latest_backups")}</h3>
+        <h3 data-setting-title={t("settings.latest_backups")} className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.latest_backups")}</h3>
         {runs.length === 0 ? (<p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-4 text-center text-[12px] text-[var(--text-quaternary)]">{t("settings.no_backup_record_yet")}</p>) : (<ul className="space-y-1">
             {runs.slice(0, 12).map((run) => (<RunRow key={run.id} run={run}/>))}
           </ul>)}

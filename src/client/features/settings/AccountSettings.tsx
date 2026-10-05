@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Camera, KeyRound, LogOut, ShieldCheck, UserRound } from 'lucide-react'
 import { PROFILE_NAME_MAX_LENGTH } from '@shared/avatar'
 import { LIMITS } from '@shared/constants'
@@ -9,8 +9,9 @@ import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { AvatarPicker } from './AvatarPicker'
 import { TotpSettings } from './TotpSettings'
+
+const AvatarPicker = lazy(() => import('./AvatarPicker').then((m) => ({ default: m.AvatarPicker })))
 
 export function AccountSettings() {
   const user = useSession((state) => state.user)
@@ -21,7 +22,7 @@ export function AccountSettings() {
       <ProfileSection />
 
       <section>
-        <h3 className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+        <h3 data-setting-title={t("settings.sign_in_security")} className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
           {t("settings.sign_in_security")}
         </h3>
         <div className="space-y-2">
@@ -89,7 +90,7 @@ function ProfileSection() {
 
   return (
     <section>
-      <h3 className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+      <h3 data-setting-title={t('settings.personal_profile')} className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
         {t('settings.personal_profile')}
       </h3>
       <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
@@ -160,12 +161,14 @@ function ProfileSection() {
         </form>
       </div>
 
-      <AvatarPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        displayName={user.name}
-        preference={user.avatarUrl}
-      />
+      {pickerOpen && (<Suspense fallback={null}>
+          <AvatarPicker
+            open
+            onClose={() => setPickerOpen(false)}
+            displayName={user.name}
+            preference={user.avatarUrl}
+          />
+        </Suspense>)}
     </section>
   )
 }
@@ -195,6 +198,7 @@ function LogoutButton() {
       size="sm"
       variant="ghost"
       icon={<LogOut size={13} />}
+      data-setting-title={t("common.exit")}
       loading={busy}
       onClick={() => void run()}
     >

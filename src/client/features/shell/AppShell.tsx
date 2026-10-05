@@ -22,7 +22,8 @@ import { t } from "../../lib/i18n";
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { scheduleSettingsWarmup } from '../settings/sections';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
-const CommandPalette = lazy(() => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette })));
+const importCommandPalette = () => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette }));
+const CommandPalette = lazy(importCommandPalette);
 const ShortcutsPanel = lazy(() => import('../command/ShortcutsPanel').then((m) => ({ default: m.ShortcutsPanel })));
 const GraphPanel = lazy(() => import('../graph/GraphPanel').then((m) => ({ default: m.GraphPanel })));
 const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ default: m.SharePanel })));
@@ -37,13 +38,24 @@ export function AppShell() {
       // Keep settings prewarming out of the boot + first-sync window.
       const timer = window.setTimeout(() => {
         if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => void scheduleSettingsWarmup(), { timeout: 15_000 });
+          window.requestIdleCallback(() => scheduleSettingsWarmup(0), { timeout: 15_000 });
         } else {
-          void scheduleSettingsWarmup();
+          scheduleSettingsWarmup(0);
         }
       }, 4_000);
       return () => window.clearTimeout(timer);
     }, [userId]);
+    useEffect(() => {
+      // Ctrl+Shift+P is the first thing a returning user presses, and a cold chunk plus
+      // `fallback={null}` reads as the shortcut being ignored.
+      const warm = () => { void importCommandPalette(); };
+      if (typeof window.requestIdleCallback === 'function') {
+        const handle = window.requestIdleCallback(warm, { timeout: 3_000 });
+        return () => window.cancelIdleCallback(handle);
+      }
+      const timer = window.setTimeout(warm, 1_200);
+      return () => window.clearTimeout(timer);
+    }, []);
     const checkForUpdates = useUpdate((s) => s.check);
     useSyncEngine();
     useGlobalHotkeys();
@@ -199,7 +211,7 @@ function OverlayHost() {
     return (<>
       {panel === 'settings' && <SettingsPanel key={userId} onClose={closePanel}/>}
       <Suspense fallback={null}>
-        {(panel === 'command' || panel === 'search') && <CommandPalette key={panel} initialQuery={panel === 'command' ? '> ' : ''} onClose={closePanel}/>}
+        {panel === 'command' && <CommandPalette initialQuery="> " onClose={closePanel}/>}
         {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
         {panel === 'graph' && <GraphPanel onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}

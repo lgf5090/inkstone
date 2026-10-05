@@ -30,6 +30,11 @@ const allowed = new Map([
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
     "// themselves fence markers.",
+    "// A tab item lives inside an open set by definition, so only the set-level openers",
+    "// have to check whether an earlier container is still waiting for its closer.",
+  ]],
+  ["src/client/editor/completion.ts", [
+    "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
   ]],
   ["src/client/editor/live-preview.ts", [
     "// Preserve the source line under the pointer, including rows inside tables/lists.",
@@ -43,6 +48,14 @@ const allowed = new Map([
     "// Only the OAuth consent page may be resumed after sign-in, so a crafted ?next",
     "// can never send the browser somewhere else with an authenticated session.",
   ]],
+  ["src/client/features/command/CommandPalette.tsx", [
+    "// The pointer already sits on its row; scrolling would move other rows under it and",
+    "// re-trigger the highlight, so only keyboard movement scrolls.",
+  ]],
+  ["src/client/features/command/palette-perf.test.ts", [
+    "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
+    "/** React synthesises onMouseEnter from native mouseover, so a raw mouseenter never reaches it. */",
+  ]],
   ["src/client/features/graph/GraphPanel.tsx", [
     "// Private browsing or a locked-down browser can reject local preferences.",
     "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
@@ -54,6 +67,14 @@ const allowed = new Map([
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
     "// Only rendered rows ask for their position, so the map covers the window instead of",
     "// allocating one entry per note on every filter change.",
+    "// Body text only ever reaches the search key through this record, so the memo has to",
+    "// depend on it; reading it imperatively left freshly-opened notes unsearchable.",
+    "// Crossing the tablet/desktop width is a layout change, not a new context: wiping the",
+    "// query there loses a search the user is still typing.",
+    "// Browsing the search panel shows the same collection as the sidebar, but typing into it",
+    "// means \"find the note\", and the server layer already answers that including archived",
+    "// notes; scoping the local layer to the view made archived notes findable online and",
+    "// invisible offline.",
   ]],
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
@@ -63,12 +84,19 @@ const allowed = new Map([
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
     "// Heads are in document order, so the active one is the last entry at or above top.",
   ]],
+  ["src/client/features/preview/markdown-tabs.ts", [
+    "// A nested group numbers its own panels from zero, so an outer click that reached inside",
+    "// would relabel the inner buttons and hide the panel the inner group has selected.",
+    "/** Opens every collapsed block and selects every tab panel the target sits inside. */",
+  ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
   ]],
   ["src/client/features/shell/AppShell.tsx", [
     "// Keep settings prewarming out of the boot + first-sync window.",
+    "// Ctrl+Shift+P is the first thing a returning user presses, and a cold chunk plus",
+    "// `fallback={null}` reads as the shortcut being ignored.",
   ]],
   ["src/client/features/sidebar/ExplorerNote.tsx", [
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
@@ -115,16 +143,22 @@ const allowed = new Map([
     "// refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.",
     "// A downloaded .html has no CSP around it and is often opened away from the instance,",
     "// so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.",
-    "// The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),",
-    "// which needs scripts; an exported or printed document has none, so all three have to",
-    "// be resolved here. Embeds go first because their expanded bodies carry their own",
-    "// placeholders, and they are filled by the same passes over the whole document.",
     "// `false` because the exported page is always the light scheme.",
     "// Attachments reach 25 MB each, so the fetches are capped in flight and always time out",
     "// rather than hanging an export on a stalled object.",
+    "// Embeds resolve first: their expanded bodies carry their own images, placeholders and",
+    "// tab sets, and every pass below runs over the whole document, so going early covers them.",
+    "// A tab panel only becomes visible through a click, and a collapsed <details> only through",
+    "// a toggle; an exported .html carries no script and a print frame is sandboxed without",
+    "// allow-scripts, so everything the author hid would simply be missing.",
+    "// The bar only exists to switch panels, and nothing can switch them here.",
+    "// The copy button and the diagram retry only exist because the preview has scripts.",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
+  ]],
+  ["src/client/lib/hooks.ts", [
+    "/**\n * A clock safe to keep in a dependency list: it only changes on a tick boundary,\n * so a caller that re-renders on pointer movement does not re-derive its inputs.\n */",
   ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
@@ -148,6 +182,23 @@ const allowed = new Map([
     "// A line with neither marker cannot change state, so rebuild-by-character is pure",
     "// overhead. The inComment test must stay: inside an open %% block the loop below",
     "// blanks the line instead of copying it.",
+    "// Like an unclosed ``` fence, an unclosed container claims the rest of its own context",
+    "// instead of throwing the author's text away.",
+    "// A tab set without any tab-item still holds the author's content, so render",
+    "// the body as ordinary blocks instead of consuming it.",
+    "// An item that never closes runs to the end of its own set, so the typed text stays",
+    "// readable instead of discarding the whole group.",
+    "// One closer line closes the innermost container it can serve, so a `:::` inside a",
+    "// `::::` set ends that inner block instead of truncating its parent.",
+    "// A recognised directive opens a container; an unknown `::: name` still has to hold its",
+    "// own closer, or a directive the renderer does not know would steal its parent's close.",
+    "// An empty target would render a box that resolves to nothing and shows nothing, so the",
+    "// author's text stays visible instead.",
+    "// The whole target goes into the attribute, alias included: an attachment embed reads its",
+    "// `|600x400` size back out of it, and stripping it here would lose the size and turn the",
+    "// label into a bare number.",
+    "// markdown-it fills alt from the label children at render time, so the size suffix has to",
+    "// come off `token.content` and be removed from the last text child, not from the alt attr.",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
@@ -228,6 +279,9 @@ const allowed = new Map([
     "/** Code point count without materialising `[...text]`, which costs one array slot per character. */",
     "// The CJK ranges are all BMP, so scanning UTF-16 units matches the per-code-point test",
     "// while surrogate pairs (which decode outside those ranges) stay uncounted either way.",
+    "/**\n * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written\n * on an item line is not a link anywhere else either. Blanked in place: the offsets that\n * `replaceTagInContent` splices with have to stay valid.\n */",
+    "/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */",
+    "/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -310,6 +364,7 @@ const allowed = new Map([
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
     "/** Fan-out above this size is deferred to the background rewrite queue. */",
+    "/**\n * Recompute the display-only columns from the note bodies, one keyset page per call.\n * `rev` and `content_hash` are matched in the guard but left alone: a rebuild is not an\n * edit, and bumping them would make every client re-download notes nobody changed.\n */",
   ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",
@@ -469,6 +524,16 @@ const allowed = new Map([
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
   ]],
+  ["src/worker/routes/search.ts", [
+    "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
+    "// note is not live, so an in:trash query has nothing left in notes_fts to match against;",
+    "// it is served by likeSearch instead. Keeping trash indexed would trade a niche ranking",
+    "// improvement for an index lifecycle that has to survive restore and purge races.",
+    "// A term-less query (folder:/tag:/is: only) must not emit `ORDER BY 0`: SQLite reads a bare",
+    "// integer there as a result-column ordinal and rejects 0 outright.",
+    "// The folder view is recursive, so folder: has to walk the subtree too. UNION rather than",
+    "// UNION ALL keeps a parent_id cycle from looping forever.",
+  ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
     "// View counts are display-only; dropping them beats paying an O(n) sweep per request",
@@ -582,6 +647,11 @@ const allowed = new Map([
   ["tests/rewrite-drain.test.ts", [
     "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",
     "// emulates the claim TTL expiring between cron rounds.",
+  ]],
+  ["tests/search-folder-scope.test.ts", [
+    "// A parent_id cycle has to terminate rather than spin.",
+    "// Control for the folder tests below: this query never reaches the folder clause, so the",
+    "// same failure here means the defect is in the shared ORDER BY, not in folder scoping.",
   ]],
   ["tests/semantic-scan-window.test.ts", [
     "/** The query embedding the stub always returns; a match scores 1, everything else 0. */",

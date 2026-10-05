@@ -1,9 +1,8 @@
-import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, Moon, Palette, Pencil, Plus, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
-import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { fuzzyFilter, splitByRanges, type FuzzyMatch } from '../../lib/fuzzy';
 import { useDebounced, useNow } from '../../lib/hooks';
@@ -28,6 +27,14 @@ interface Item {
     match?: FuzzyMatch;
     run: () => void;
 }
+interface Cursor {
+    index: number;
+    fromPointer: boolean;
+}
+const ROW_CLASS = 'flex w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left';
+const ROW_ACTIVE_CLASS = `${ROW_CLASS} bg-[var(--accent-soft)]`;
+const ROW_ICON_CLASS = 'shrink-0 text-[var(--text-quaternary)]';
+const ROW_ICON_ACTIVE_CLASS = 'shrink-0 text-[var(--accent)]';
 export function CommandPalette({ onClose, initialQuery = '' }: {
     onClose: () => void;
     initialQuery?: string;
@@ -35,7 +42,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const locale = useLocale();
     const [query, setQuery] = useState(initialQuery);
     const deferredQuery = useDeferredValue(query);
-    const [cursor, setCursor] = useState(0);
+    const [cursor, setCursor] = useState<Cursor>({ index: 0, fromPointer: false });
     const [remote, setRemote] = useState<{
         query: string;
         results: SearchHit[];
@@ -53,6 +60,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const deleteNote = useNotes((s) => s.deleteNote);
     const patchNote = useNotes((s) => s.patchNote);
     const activeNoteId = useUi((s) => s.activeNoteId);
+    const activeNote = useNotes((s) => (activeNoteId ? s.notes[activeNoteId] ?? null : null));
     const recentNoteIds = useUi((s) => s.recentNoteIds);
     const openPanel = useUi((s) => s.openPanel);
     const openView = useUi((s) => s.openView);
@@ -63,11 +71,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     useEscape(true, onClose);
     useLockScroll(true);
     useDialogFocus(true, panelRef, inputRef);
-    const executeItem = (item: Item) => {
-
+    const executeItem = useCallback((item: Item) => {
         onClose();
         item.run();
-    };
+    }, [onClose]);
+    const hoverItem = useCallback((index: number) => setCursor((current) => (current.index === index && current.fromPointer ? current : { index, fromPointer: true })), []);
+    const moveCursor = useCallback((offset: number, length: number) => setCursor((current) => {
+        const index = Math.max(0, Math.min(length - 1, current.index + offset));
+        return index === current.index && !current.fromPointer ? current : { index, fromPointer: false };
+    }), []);
 
     useEffect(() => {
         const text = debounced.trim();
@@ -88,7 +100,6 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         return () => controller.abort();
     }, [debounced]);
     const commands = useMemo<Omit<Item, 'score' | 'match'>[]>(() => {
-        const activeNote = activeNoteId ? notes[activeNoteId] : null;
         const isDark = document.documentElement.dataset.theme === 'dark';
         return [
             {
@@ -243,12 +254,11 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
             },
         ];
     }, [
-        activeNoteId,
+        activeNote,
         appearanceTheme,
         locale,
         createFolder,
         deleteNote,
-        notes,
         openPanel,
         openView,
         patchNote,
@@ -385,12 +395,18 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         }
         return [...map.entries()];
     }, [items]);
-    useEffect(() => setCursor(0), [query]);
+    useEffect(() => setCursor({ index: 0, fromPointer: false }), [query]);
     useEffect(() => {
-        setCursor((current) => items.length ? Math.min(current, items.length - 1) : 0);
+        setCursor((current) => {
+            const index = items.length ? Math.min(current.index, items.length - 1) : 0;
+            return index === current.index && !current.fromPointer ? current : { index, fromPointer: false };
+        });
     }, [items.length]);
     useEffect(() => {
-        const el = listRef.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`);
+        // The pointer already sits on its row; scrolling would move other rows under it and
+        // re-trigger the highlight, so only keyboard movement scrolls.
+        if (cursor.fromPointer) return;
+        const el = listRef.current?.querySelector<HTMLElement>(`[data-index="${cursor.index}"]`);
         el?.scrollIntoView({ block: 'nearest' });
     }, [cursor]);
     const onKeyDown = (event: React.KeyboardEvent) => {
@@ -398,28 +414,28 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         const ctrlNavigation = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
         if (event.key === 'ArrowDown' || (event.key === 'n' && ctrlNavigation)) {
             event.preventDefault();
-            setCursor((c) => items.length ? Math.min(items.length - 1, c + 1) : 0);
+            moveCursor(1, items.length);
         }
         else if (event.key === 'ArrowUp' || (event.key === 'p' && ctrlNavigation)) {
             event.preventDefault();
-            setCursor((c) => Math.max(0, c - 1));
+            moveCursor(-1, items.length);
         }
         else if (event.key === 'Enter') {
             event.preventDefault();
-            const item = items[cursor];
+            const item = items[cursor.index];
             if (item)
                 executeItem(item);
         }
     };
     let flatIndex = -1;
     return createPortal(<div className="app-viewport-fixed fixed z-[240] flex items-end justify-center md:items-start md:px-4 md:pt-[13vh]">
-      <div className="anim-fade absolute inset-0 bg-[var(--scrim)] backdrop-blur-[3px]" onClick={onClose} aria-hidden="true"/>
+      <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
 
       <div ref={panelRef} className="anim-pop relative flex h-[min(82dvh,var(--app-viewport-height,100dvh))] w-full max-w-[660px] flex-col overflow-hidden rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:h-auto md:rounded-[var(--r-2xl)] md:border-b md:pb-0" role="dialog" aria-modal="true" aria-labelledby={labelId} tabIndex={-1}>
         <h2 id={labelId} className="sr-only">{t("common.search_notes_or_run_a_command")}</h2>
         <div className="flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-4">
           <Search size={16} className="shrink-0 text-[var(--text-quaternary)]"/>
-          <input ref={inputRef} role="combobox" aria-label={t("common.search_notes_or_run_a_command")} aria-expanded="true" aria-controls={listId} aria-activedescendant={items[cursor] ? `${listId}-option-${cursor}` : undefined} aria-autocomplete="list" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown} placeholder={t("command.search_notes_or_type_a_command")} className="h-[52px] flex-1 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
+          <input ref={inputRef} role="combobox" aria-label={t("common.search_notes_or_run_a_command")} aria-expanded="true" aria-controls={listId} aria-activedescendant={items[cursor.index] ? `${listId}-option-${cursor.index}` : undefined} aria-autocomplete="list" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown} placeholder={t("command.search_notes_or_type_a_command")} className="h-[52px] flex-1 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"/>
           <span className="hidden md:inline-flex"><Kbd keys={['Esc']}/></span>
           <span className="md:hidden">
             <Tooltip label={t("common.close")} side="left">
@@ -437,27 +453,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 </div>
                 {groupItems.map((item) => {
                 flatIndex++;
-                const index = flatIndex;
-                const active = index === cursor;
-                const parts = item.match
-                    ? splitByRanges(item.label, item.match.ranges)
-                    : [{ text: item.label, hit: false }];
-                return (<button key={item.id} id={`${listId}-option-${index}`} type="button" role="option" aria-selected={active} tabIndex={-1} data-index={index} onMouseMove={() => setCursor(index)} onClick={() => executeItem(item)} className={cn('flex w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left', 'transition-colors duration-[80ms]', active ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
-                      <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
-                        {item.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] text-[var(--text-primary)]">
-                          {parts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
-                                {part.text}
-                              </mark>) : (<span key={i}>{part.text}</span>))}
-                        </span>
-                        {item.detail && (<span className="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]">
-                            {item.detail}
-                          </span>)}
-                      </span>
-                      {item.combo && <Kbd combo={item.combo}/>}
-                    </button>);
+                return (<PaletteRow key={item.id} item={item} index={flatIndex} active={flatIndex === cursor.index} listId={listId} onHover={hoverItem} onInvoke={executeItem}/>);
             })}
               </div>)))}
         </div>
@@ -473,3 +469,31 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
       </div>
     </div>, document.body);
 }
+const PaletteRow = memo(function PaletteRow({ item, index, active, listId, onHover, onInvoke, }: {
+    item: Item;
+    index: number;
+    active: boolean;
+    listId: string;
+    onHover: (index: number) => void;
+    onInvoke: (item: Item) => void;
+}) {
+    const parts = item.match ? splitByRanges(item.label, item.match.ranges) : null;
+    return (<button id={`${listId}-option-${index}`} type="button" role="option" aria-selected={active} tabIndex={-1} data-index={index} onMouseEnter={() => onHover(index)} onClick={() => onInvoke(item)} className={active ? ROW_ACTIVE_CLASS : ROW_CLASS}>
+        <span className={active ? ROW_ICON_ACTIVE_CLASS : ROW_ICON_CLASS}>
+          {item.icon}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] text-[var(--text-primary)]">
+            {parts
+          ? parts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
+                    {part.text}
+                  </mark>) : (<span key={i}>{part.text}</span>))
+          : item.label}
+          </span>
+          {item.detail && (<span className="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]">
+              {item.detail}
+            </span>)}
+        </span>
+        {item.combo && <Kbd combo={item.combo}/>}
+      </button>);
+});

@@ -47,16 +47,24 @@ export function useRelativeTime(timestamp: number, enabled = true): string {
   return relativeTime(timestamp)
 }
 
+/**
+ * A clock safe to keep in a dependency list: it only changes on a tick boundary,
+ * so a caller that re-renders on pointer movement does not re-derive its inputs.
+ */
 export function useNow(intervalMs = 60_000, enabled = true): number {
-  const [tick, setTick] = useState(0)
   const interval = Number.isFinite(intervalMs) ? Math.max(1_000, Math.floor(intervalMs)) : 60_000
+  const [slot, setSlot] = useState(() => Math.floor(Date.now() / interval))
   useEffect(() => {
     if (!enabled) return
-    const delay = Math.max(1, interval - (Date.now() % interval))
-    const timer = window.setTimeout(() => setTick((value) => value + 1), delay)
+    const current = Math.floor(Date.now() / interval)
+    if (current !== slot) {
+      setSlot(current)
+      return
+    }
+    const timer = window.setTimeout(() => setSlot(slot + 1), Math.max(1, (slot + 1) * interval - Date.now()))
     return () => window.clearTimeout(timer)
-  }, [enabled, interval, tick])
-  return Date.now()
+  }, [enabled, interval, slot])
+  return slot * interval
 }
 
 

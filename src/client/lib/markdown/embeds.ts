@@ -3,6 +3,9 @@ import { api } from '../api'
 import { t } from '../i18n'
 import { findNoteByTitle, useNotes } from '../../store/notes'
 import { decodeDataValue } from './data-attr'
+import type { Attachment } from '@shared/types'
+import type { WikiTarget } from './renderer'
+import { attachmentFileName, isAttachmentTarget, parseEmbedSize, renderAttachmentEmbed } from './attachments'
 import { parseWikiTarget, renderMarkdown } from './renderer'
 
 interface ResolveOptions {
@@ -81,6 +84,33 @@ export async function resolveNoteEmbeds(root: HTMLElement, options: ResolveOptio
   await resolveWithin(root, context, 0, new Set([`${rootScope.identity}##`]), rootScope)
 }
 
+const pendingAttachmentFetches = new Map<string, Promise<Attachment | null>>()
+
+async function fetchAttachmentByName(name: string): Promise<Attachment | null> {
+  const key = name.toLowerCase()
+  const existing = pendingAttachmentFetches.get(key)
+  if (existing) return await existing
+  const request = api.files.byName(name).then((result) => result.files[0] ?? null)
+  pendingAttachmentFetches.set(key, request)
+  void request.catch(() => null).then(() => {
+    if (pendingAttachmentFetches.get(key) === request) pendingAttachmentFetches.delete(key)
+  })
+  return await request
+}
+
+async function resolveAttachmentEmbed(embed: HTMLElement, target: WikiTarget): Promise<void> {
+  try {
+    const file = await fetchAttachmentByName(attachmentFileName(target.noteTitle))
+    if (!file) {
+      showError(embed, t("markdown.embedded_note_not_found"))
+      return
+    }
+    renderAttachmentEmbed(embed, file, parseEmbedSize(target.alias))
+  } catch {
+    showError(embed, t("markdown.could_not_load_embedded_content"))
+  }
+}
+
 async function resolveWithin(
   root: HTMLElement,
   context: ResolveContext,
@@ -100,6 +130,10 @@ async function resolveWithin(
 
     const raw = decodeDataValue(embed.dataset.embedTarget)
     const target = parseWikiTarget(raw)
+    if (isAttachmentTarget(target.noteTitle)) {
+      await resolveAttachmentEmbed(embed, target)
+      continue
+    }
     const example = embed.closest<HTMLElement>('[data-markdown-example]')
     const exampleSource = decodeDataValue(example?.dataset.markdownExample)
     const targetScope = exampleSource

@@ -1,8 +1,10 @@
 import {
   cloneElement,
   isValidElement,
+  useEffect,
   useId,
   useRef,
+  useState,
   type InputHTMLAttributes,
   type ReactNode,
   type Ref,
@@ -281,9 +283,21 @@ export function Slider({
   'aria-describedby'?: string
   'aria-required'?: boolean
 }) {
+  const [draft, setDraft] = useState<number | null>(null)
+  const pending = useRef(value)
+  const frame = useRef(0)
+  const shown = draft ?? value
   const range = max - min
-  const rawPct = range > 0 && Number.isFinite(value) ? ((value - min) / range) * 100 : 0
+  const rawPct = range > 0 && Number.isFinite(shown) ? ((shown - min) / range) * 100 : 0
   const pct = Math.min(100, Math.max(0, rawPct))
+  const commit = () => {
+    if (!frame.current) return
+    cancelAnimationFrame(frame.current)
+    frame.current = 0
+    onChange(pending.current)
+    setDraft(null)
+  }
+  useEffect(() => () => cancelAnimationFrame(frame.current), [])
   return (
     <div className={cn('flex items-center gap-3', className)}>
       <input
@@ -293,17 +307,29 @@ export function Slider({
         aria-labelledby={ariaLabelledBy}
         aria-describedby={ariaDescribedBy}
         aria-required={ariaRequired}
-        aria-valuetext={`${value}${suffix ?? ''}`}
+        aria-valuetext={`${shown}${suffix ?? ''}`}
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={shown}
+        onChange={(e) => {
+          const next = Number(e.target.value)
+          pending.current = next
+          setDraft(next)
+          if (frame.current) return
+          frame.current = requestAnimationFrame(() => {
+            frame.current = 0
+            onChange(pending.current)
+          })
+        }}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
         className="ink-slider h-[18px] flex-1 cursor-pointer appearance-none bg-transparent"
         style={{ '--pct': `${pct}%` } as React.CSSProperties}
       />
       <span className="w-11 shrink-0 text-right text-[12px] tabular text-[var(--text-tertiary)]">
-        {value}
+        {shown}
         {suffix}
       </span>
     </div>
@@ -369,6 +395,7 @@ export function SettingRow({
 }) {
   return (
     <div
+      data-setting-title={title}
       className={cn(
         'setting-row flex flex-col items-stretch justify-between gap-2 py-3 md:flex-row md:items-center md:gap-6',
         'border-b border-[var(--border-subtle)] last:border-b-0',

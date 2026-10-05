@@ -39,6 +39,7 @@ const apiCodeMessages: Record<string, MessageKey> = {
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();
+let resourcesVersion = 0;
 let initPromise: Promise<void> | null = null;
 const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = {
     'en-US': () => import('@shared/locales/en-US').then((m) => m.EN_US_MESSAGES as unknown as Record<string, string>),
@@ -50,10 +51,12 @@ async function ensureLocaleLoaded(target: AppLocale): Promise<void> {
     const data = await localeLoaders[target]();
     messages[target] = data;
     loadedLocales.add(target);
+    resourcesVersion += 1;
     if (target === 'en-US') {
         enMessagesCache = data;
         englishMessageKeys = new Map(Object.entries(data).map(([key, value]) => [value as string, key as MessageKey]));
     }
+    listeners.forEach((listener) => listener());
 }
 export async function initI18n(): Promise<void> {
     if (initPromise) return initPromise;
@@ -76,6 +79,22 @@ export function t(key: MessageKey, params?: Params): string {
         const value = params[name];
         return value == null ? whole : String(value);
     });
+}
+export function localizedTexts(key: MessageKey): string[] {
+    const order: AppLocale[] = locale === 'zh-CN' ? ['zh-CN', 'en-US'] : ['en-US', 'zh-CN'];
+    const out: string[] = [];
+    for (const target of order) {
+        const value = messages[target][key] ?? (target === 'en-US' ? enMessagesCache?.[key] : undefined);
+        if (value && !out.includes(value))
+            out.push(value);
+    }
+    return out;
+}
+export function getLocaleResources(): number {
+    return resourcesVersion;
+}
+export function useLocaleResources(): number {
+    return useSyncExternalStore(subscribeLocale, getLocaleResources, getLocaleResources);
 }
 export function translateApiError(code: string, fallback: string): string {
     const key = apiCodeMessages[code];

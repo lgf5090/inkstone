@@ -159,6 +159,22 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
+/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */
+const EMBED_SIZE_RE = /^\d{1,5}(?:[xX]\d{1,5})?$/
+
+export function parseEmbedSizeSpec(value: string | null | undefined): { width: number | null; height: number | null } | null {
+  const spec = value?.trim()
+  if (!spec || !EMBED_SIZE_RE.test(spec)) return null
+  const [width, height] = spec.toLowerCase().split('x')
+  return { width: Number(width) || null, height: Number(height) || null }
+}
+
+/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */
+export function wikiLinkText(target: string, alias?: string | null): string {
+  const value = alias && alias.trim() && !EMBED_SIZE_RE.test(alias.trim()) ? alias : target
+  return (value.split(/[\\/]/).pop() ?? value).trim()
+}
+
 const TAG_RE = /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/gu
 const TAG_COLLATOR = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
@@ -175,7 +191,19 @@ function isEscaped(text: string, index: number): boolean {
   return slashes % 2 === 1
 }
 
-function tagSearchText(text: string): string {
+/**
+ * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written
+ * on an item line is not a link anywhere else either. Blanked in place: the offsets that
+ * `replaceTagInContent` splices with have to stay valid.
+ */
+function blankTabLabels(text: string): string {
+  return text
+    .replace(/^([ \t]{0,3}:{3,}(?:\{tab-item\}|[ \t]*tab-item)(?![\w-]))[^\r\n]*$/gm, (whole, head: string) => head + ' '.repeat(whole.length - head.length))
+    .replace(/^([ \t]*@tab)(?![\w-])[^\r\n]*$/gim, (whole, head: string) => head + ' '.repeat(whole.length - head.length))
+}
+
+function tagSearchText(input: string): string {
+  const text = blankTabLabels(input)
   const protectedChars = new Uint8Array(text.length)
   const protect = (start: number, end: number) => {
     const boundedStart = Math.max(0, start)
@@ -425,7 +453,7 @@ export interface WikiLink {
 
 
 export function extractWikiLinks(content: string): WikiLink[] {
-  const safe = stripCodeRegions(splitFrontMatter(content).body)
+  const safe = blankTabLabels(stripCodeRegions(splitFrontMatter(content).body))
   const seen = new Set<string>()
   const out: WikiLink[] = []
   for (const m of safe.matchAll(WIKI_RE)) {
@@ -682,10 +710,22 @@ export function replaceWikiLinkTarget(content: string, from: string, to: string)
   return lines.join('\n')
 }
 
+function stripContainerMarkers(text: string): string {
+  return text
+    .replace(/^[ \t]{0,3}:{3,}.*$/gm, (line) => {
+      const afterColons = line.replace(/^[ \t]{0,3}:{3,}[ \t]*/, '')
+      const keyword = /^(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item)(?![\w-]))[ \t]*/.exec(afterColons)
+      const label = keyword ? afterColons.slice(keyword[0].length) : afterColons
+      return /^\[[^\]\n]*\]$/.test(label.trim()) ? label.trim().slice(1, -1) : label
+    })
+    .replace(/^[ \t]*@tab[ \t]+/gm, '')
+    .replace(/^[ \t]*\[![A-Za-z][A-Za-z0-9_-]{0,31}\][+-]?[ \t]*/gm, '')
+}
+
 export function deriveTitle(content: string, fallback = "Untitled note"): string {
   const { body, meta } = splitFrontMatter(content)
   if (meta.title) return trimTitle(meta.title)
-  const safe = stripCodeRegions(body)
+  const safe = stripContainerMarkers(stripCodeRegions(body))
   const lines = safe.split('\n')
   for (const line of lines) {
     const h = /^[ \t]{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line)
@@ -744,7 +784,7 @@ function stripLinkTargets(text: string, requireBang: boolean): string {
 
 function inlinePlain(line: string): string {
   return stripLinkTargets(stripLinkTargets(line, true), false)
-    .replace(/\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => b || a)
+    .replace(/!?\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => wikiLinkText(a, b))
     .replace(/(\*\*|__)(.*?)\1/g, '$2')
     .replace(/(\*|_)(.*?)\1/g, '$2')
     .replace(/~~(.*?)~~/g, '$1')
@@ -760,6 +800,7 @@ export function toPlainText(md: string): string {
   t = t.replace(/^ {0,3}(?:[-*_][ \t]*){3,}$/gm, '')
   t = t.replace(/^[ \t]{0,3}#{1,6}\s+/gm, '')
   t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, '')
+  t = stripContainerMarkers(t)
   t = t.replace(/^[ \t]*[-*+][ \t]+\[[ xX]\][ \t]+/gm, '')
   t = t.replace(/^[ \t]*[-*+][ \t]+/gm, '')
   t = t.replace(/^[ \t]*\d+[.)][ \t]+/gm, '')
@@ -767,7 +808,7 @@ export function toPlainText(md: string): string {
     /^[ \t]*\|[\s:|-]+\|[ \t]*$/.test(row) ? '' : row.replace(/\|/g, ' '),
   )
   t = stripLinkTargets(stripLinkTargets(t, true), false)
-  t = t.replace(/\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => b || a)
+  t = t.replace(/!?\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => wikiLinkText(a, b))
   t = t.replace(/\$\$([\s\S]*?)\$\$/g, ' $1 ')
   t = t.replace(/\$([^$\n]+)\$/g, ' $1 ')
   t = t.replace(/(\*\*|__)(.*?)\1/g, '$2')

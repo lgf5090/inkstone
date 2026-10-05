@@ -101,7 +101,7 @@ export function DataSettings() {
     }, [loadStats]);
     return (<div className="space-y-6">
       <section>
-        <h3 className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.overview")}</h3>
+        <h3 data-setting-title={t("settings.overview")} className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.overview")}</h3>
         {stats === null ? (statsError ? (<div role="alert" className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_25%,var(--border-subtle))] bg-[var(--bg-base)] px-3 py-3">
             <AlertCircle size={14} className="mt-0.5 shrink-0 text-[var(--danger)]"/>
             <div className="min-w-0 flex-1">
@@ -202,7 +202,7 @@ export function DataSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.maintenance")}</h3>
+        <h3 data-setting-title={t("settings.maintenance")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.maintenance")}</h3>
 
         <SettingRow title={t("settings.rebuild_search_index")} description={t("settings.try_this_when_your_search_results_don_t_look_right")}>
           <Button size="sm" variant="secondary" icon={<RefreshCw size={13}/>} loading={busy === 'reindex'} disabled={busy !== null} onClick={() => run('reindex', async () => {
@@ -214,6 +214,31 @@ export function DataSettings() {
                 toast({ title: t("settings.rebuild_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
             }
         })}>{t("settings.rebuild_index")}</Button>
+        </SettingRow>
+
+        <SettingRow title={t("settings.rebuild_summaries")} description={t("settings.rebuild_summaries_desc")}>
+          <Button size="sm" variant="secondary" icon={<RefreshCw size={13}/>} loading={busy === 'summaries'} disabled={busy !== null} onClick={() => run('summaries', async () => {
+            try {
+                let total = 0;
+                let cursor: string | null = null;
+                let pages = 0;
+                for (;;) {
+                    const res = await api.notes.rebuildDerived(cursor);
+                    total += res.updated;
+                    cursor = res.nextCursor;
+                    if (!cursor || ++pages >= 400)
+                        break;
+                }
+                void loadStats();
+                toast({
+                    title: t(cursor ? "settings.rebuild_summaries_partial" : "settings.rebuild_summaries_done", { count: total }),
+                    tone: 'success',
+                });
+            }
+            catch (err) {
+                toast({ title: t("settings.rebuild_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
+            }
+        })}>{t("settings.rebuild_summaries")}</Button>
         </SettingRow>
 
         <SettingRow title={t("settings.clean_unreferenced_attachments")} description={t("settings.delete_pictures_and_files_that_no_longer_appear_in_any_notes")}>
