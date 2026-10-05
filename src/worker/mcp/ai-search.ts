@@ -16,7 +16,7 @@ import type { Env } from '../env'
 export const AI_EMBEDDING_MODEL = '@cf/baai/bge-m3'
 const AI_EMBEDDING_DIMS = 1024
 const EMBED_TEXT_MAX_CHARS = 4_000
-const MAX_SEMANTIC_VECTORS = 8_000
+const MAX_SEMANTIC_VECTORS = 200
 const SEMANTIC_TOP_K = 40
 const DRAIN_USERS_PER_RUN = 10
 const DRAIN_PER_USER = 25
@@ -335,10 +335,10 @@ export async function searchSemanticNotes(
       LIMIT ?${binds.length}`,
   ).bind(...binds).all<EmbeddingRow>()
   if (!results.length) return []
-
+  const queryNorm = vectorNorm(queryVector)
   const scored = results.map((row) => ({
     row,
-    score: cosineSimilarity(queryVector, decodeVector(row.vector)),
+    score: cosineSimilarityPrecomputed(queryVector, queryNorm, decodeVector(row.vector)),
   }))
   scored.sort((a, b) =>
     b.score - a.score ||
@@ -424,18 +424,30 @@ export function decodeVector(buffer: ArrayBuffer): Float32Array {
   return view.length === AI_EMBEDDING_DIMS ? view : view.slice(0, AI_EMBEDDING_DIMS)
 }
 
-export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+export function vectorNorm(v: Float32Array): number {
+  let sum = 0
+  for (let i = 0; i < v.length; i++) {
+    sum += v[i]! * v[i]!
+  }
+  return Math.sqrt(sum)
+}
+
+export function cosineSimilarityPrecomputed(a: Float32Array, normA: number, b: Float32Array): number {
+  if (normA === 0) return 0
   const length = Math.min(a.length, b.length)
   let dot = 0
-  let normA = 0
   let normB = 0
   for (let index = 0; index < length; index++) {
     dot += a[index]! * b[index]!
-    normA += a[index]! * a[index]!
     normB += b[index]! * b[index]!
   }
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB)
+  const denominator = normA * Math.sqrt(normB)
   return denominator === 0 ? 0 : dot / denominator
+}
+
+export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  const normA = vectorNorm(a)
+  return cosineSimilarityPrecomputed(a, normA, b)
 }
 
 export function semanticSnippet(excerpt: string, radius = 90): string {
