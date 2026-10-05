@@ -73,6 +73,9 @@ export function NoteList() {
     const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
     const notes = useVisibleNotes();
     const allNotes = useNotes((s) => s.notes);
+    // Body text only ever reaches the search key through this record, so the memo has to
+    // depend on it; reading it imperatively left freshly-opened notes unsearchable.
+    const contents = useNotes((s) => (searchList ? s.contents : null));
     const folders = useNotes((s) => s.folders);
     const tags = useNotes((s) => s.tags);
     const loading = useNotes((s) => s.loading);
@@ -88,11 +91,12 @@ export function NoteList() {
     const sortButtonRef = useRef<HTMLButtonElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const [startIndex, setStartIndex] = useState(0);
-    const now = useNow();
-    const nowMinute = Math.floor(now / 60_000) * 60_000;
+    const nowMinute = useNow();
     const tagColors = useMemo(() => new Map((tags ?? []).map((item) => [item.name, item.color])), [tags]);
 
-    useEffect(() => setFilter(''), [view, folderId, tag, searchList, breakpoint]);
+    // Crossing the tablet/desktop width is a layout change, not a new context: wiping the
+    // query there loses a search the user is still typing.
+    useEffect(() => setFilter(''), [view, folderId, tag, searchList]);
     useEffect(() => {
         if (searchList) filterRef.current?.focus();
     }, [searchList, searchRequest]);
@@ -120,8 +124,7 @@ export function NoteList() {
     const filtered = useMemo(() => {
         if (!deferredFilter.trim())
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
-        const currentContents = searchList ? useNotes.getState().contents : null;
-        const local = fuzzyFilter(notes, deferredFilter, (n) => searchKeyOfNote(n, searchList ? currentContents : null), 200).map(({ item, match }) => ({
+        const local = fuzzyFilter(notes, deferredFilter, (n) => searchKeyOfNote(n, contents), 200).map(({ item, match }) => ({
             note: item,
             ranges: match.ranges.filter(([s]) => s < item.title.length),
         }));
@@ -133,7 +136,7 @@ export function NoteList() {
             seen.add(note.id);
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
-    }, [notes, deferredFilter, searchList, remote, allNotes]);
+    }, [notes, deferredFilter, searchList, remote, allNotes, contents]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
