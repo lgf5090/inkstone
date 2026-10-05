@@ -387,11 +387,11 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         <Tooltip label={t('common.zoom_in')}><IconButton label={t('common.zoom_in')} size="sm" disabled={!hasGraph} onClick={() => controlsRef.current?.zoomIn()}><Plus size={14}/></IconButton></Tooltip>
         <Tooltip label={t('graph.export_png')}><IconButton label={t('graph.export_png')} size="sm" disabled={!hasGraph || exportActions.isExporting} onClick={exportActions.exportPng}><ImageDown size={14}/></IconButton></Tooltip>
         <Tooltip label={t('graph.export_svg')}><IconButton label={t('graph.export_svg')} size="sm" disabled={!hasGraph || exportActions.isExporting} onClick={exportActions.exportSvg}><Download size={14}/></IconButton></Tooltip>
-        {typeof document !== 'undefined' && 'fullscreenElement' in document && <Tooltip label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')}>
+        <Tooltip label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')}>
           <IconButton label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')} size="sm" active={isFullscreen} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize2 size={13}/> : <Maximize2 size={13}/>}
           </IconButton>
-        </Tooltip>}
+        </Tooltip>
         <Tooltip label={t('graph.settings')}><IconButton label={t('graph.settings')} size="sm" active={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Settings2 size={14}/></IconButton></Tooltip>
         <Tooltip label={t('common.close')} combo="escape" side="left"><IconButton label={t('common.close')} size="sm" onClick={onClose} className="ml-1"><X size={16}/></IconButton></Tooltip>
       </div>
