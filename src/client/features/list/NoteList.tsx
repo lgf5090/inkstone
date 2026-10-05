@@ -51,7 +51,6 @@ export function NoteList() {
     const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
     const notes = useVisibleNotes();
     const allNotes = useNotes((s) => s.notes);
-    const contents = useNotes((s) => s.contents);
     const folders = useNotes((s) => s.folders);
     const tags = useNotes((s) => s.tags);
     const loading = useNotes((s) => s.loading);
@@ -99,7 +98,8 @@ export function NoteList() {
     const filtered = useMemo(() => {
         if (!deferredFilter.trim())
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
-        const local = fuzzyFilter(notes, deferredFilter, (n) => `${n.title} ${searchList ? contents[n.id] ?? n.excerpt : n.excerpt} ${n.tags.join(' ')}`, 200).map(({ item, match }) => ({
+        const currentContents = searchList ? useNotes.getState().contents : null;
+        const local = fuzzyFilter(notes, deferredFilter, (n) => `${n.title} ${searchList && currentContents ? currentContents[n.id] ?? n.excerpt : n.excerpt} ${n.tags.join(' ')}`, 200).map(({ item, match }) => ({
             note: item,
             ranges: match.ranges.filter(([s]) => s < item.title.length),
         }));
@@ -111,7 +111,7 @@ export function NoteList() {
             seen.add(note.id);
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
-    }, [notes, deferredFilter, searchList, remote, allNotes, contents]);
+    }, [notes, deferredFilter, searchList, remote, allNotes]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredPositions = useMemo(() => new Map(filteredIds.map((id, index) => [id, index + 1])), [filteredIds]);
     const filteredIdsRef = useRef(filteredIds);
