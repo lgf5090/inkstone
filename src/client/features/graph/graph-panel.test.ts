@@ -19,15 +19,18 @@ type MessageKey = Parameters<typeof t>[0]
 type Draw = { op: string; args: number[] }
 
 let draws: Draw[] = []
+let strokes: string[] = []
+let texts: string[] = []
 let frameQueue = new Map<number, FrameRequestCallback>()
 let nextFrameId = 1
 let pendingResolvers: Array<(value: GraphResponse) => void> = []
 let graphCalls: GraphParams[] = []
 let reducedMotion = false
+let themeName = 'light'
 let root: Root
 let container: HTMLDivElement
 
-function graphResponse(titles: string[]): GraphResponse {
+function graphResponse(titles: string[], folderName: string | null = null): GraphResponse {
   return {
     nodes: titles.map((title, index) => ({
       id: `note-${index}`,
@@ -36,8 +39,8 @@ function graphResponse(titles: string[]): GraphResponse {
       degree: 1,
       inDegree: 1,
       outDegree: 1,
-      folderId: null,
-      folderName: null,
+      folderId: folderName ? 'k'.repeat(26) : null,
+      folderName,
       folderColor: null,
       tags: [],
     })),
@@ -54,15 +57,38 @@ function graphResponse(titles: string[]): GraphResponse {
   }
 }
 
+function installComputedStyle() {
+  vi.stubGlobal('getComputedStyle', () => ({
+    getPropertyValue: (name: string) => {
+      if (name === '--graph-edge') return themeName === 'dark' ? '#101010' : '#efefef'
+      if (name === '--graph-edge-dim') return themeName === 'dark' ? '#222222' : '#dddddd'
+      if (name === '--graph-node') return '#333333'
+      if (name === '--graph-label') return '#444444'
+      if (name === '--accent') return '#555555'
+      if (name === '--font-ui') return 'Inter'
+      return ''
+    },
+  }))
+}
+
 function installCanvas() {
   HTMLCanvasElement.prototype.getContext = function getContext() {
-    return new Proxy({} as Record<string, unknown>, {
-      get: (_target, prop) => (...args: number[]) => {
-        if (prop === 'arc' || prop === 'translate' || prop === 'scale') {
-          draws.push({ op: String(prop), args })
+    const store: Record<string, unknown> = {}
+    return new Proxy(store, {
+      get: (target, prop) => {
+        if (prop in target) return target[prop as string]
+        return (...args: number[]) => {
+          if (prop === 'arc' || prop === 'translate' || prop === 'scale') {
+            draws.push({ op: String(prop), args })
+          }
+          if (prop === 'stroke') strokes.push(String(target.strokeStyle))
+          if (prop === 'fillText') texts.push(String(target.fillStyle))
         }
       },
-      set: () => true,
+      set: (target, prop, value) => {
+        target[prop as string] = value
+        return true
+      },
     })
   } as unknown as HTMLCanvasElement['getContext']
 }
@@ -86,6 +112,8 @@ async function pump(frames: number) {
     if (!batch.length) return false
     frameQueue.clear()
     draws = []
+    strokes = []
+    texts = []
     await act(async () => {
       batch.forEach((callback) => callback(index * 16))
     })
@@ -213,9 +241,13 @@ beforeEach(async () => {
     disconnect() {}
   })
   installCanvas()
+  installComputedStyle()
   installRaf()
   reducedMotion = false
+  themeName = 'light'
   draws = []
+  strokes = []
+  texts = []
   graphCalls = []
   pendingResolvers = []
   localStorage.clear()
@@ -348,6 +380,62 @@ describe('graph preference durability', () => {
     const stored = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')
     expect(stored.repulsion).toBe(1500)
     root = createRoot(container)
+  })
+})
+
+describe('graph canvas palette', () => {
+  it('draws edges from an opaque graph token rather than a translucent border token', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    expect(strokes[0]).toBe('#efefef')
+    expect(strokes[0]).not.toMatch(/17%|0\.17/)
+  })
+
+  it('repaints with the new palette when the theme changes', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    expect(strokes[0]).toBe('#efefef')
+
+    themeName = 'dark'
+    await act(async () => {
+      document.documentElement.dataset.theme = 'dark'
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await pump(1)
+    expect(strokes[0]).toBe('#101010')
+    delete document.documentElement.dataset.theme
+  })
+
+  it('labels notes with the label token, not the secondary text token at reduced alpha', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    expect(texts[0]).toBe('#444444')
+  })
+})
+
+describe('graph header and legend', () => {
+  it('renders the counts from one message instead of concatenated fragments', async () => {
+    await mount()
+    await takeRequest()
+    const heading = document.querySelector('header h2')?.parentElement?.textContent ?? ''
+    expect(heading).toContain(t('graph.stats', { notes: TITLES.length, links: TITLES.length - 1 }))
+  })
+
+  it('shows a legend when colour is the only grouping cue', async () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: 'global', groupBy: 'folder' }))
+    await mount()
+    await act(async () => {
+      pendingResolvers.shift()!(graphResponse(TITLES, 'Alpha'))
+    })
+    const legend = document.querySelector('[role="list"][aria-label]')
+    expect(legend).not.toBeNull()
+    expect(legend?.textContent).toContain('Alpha')
   })
 })
 

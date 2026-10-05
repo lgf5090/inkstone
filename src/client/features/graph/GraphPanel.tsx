@@ -82,7 +82,40 @@ interface CanvasState {
   frame: number
   raf: number
   needsFit: boolean
+  palette: Palette
   schedule: (() => void) | null
+}
+
+interface Palette {
+  edge: string
+  edgeDim: string
+  node: string
+  accent: string
+  label: string
+  font: string
+}
+
+const FALLBACK_PALETTE: Palette = {
+  edge: '#6b7280',
+  edgeDim: '#9ca3af',
+  node: '#777777',
+  accent: '#4f46e5',
+  label: '#555555',
+  font: 'sans-serif',
+}
+
+function readPalette(): Palette {
+  if (typeof document === 'undefined') return FALLBACK_PALETTE
+  const style = getComputedStyle(document.documentElement)
+  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
+  return {
+    edge: token('--graph-edge', FALLBACK_PALETTE.edge),
+    edgeDim: token('--graph-edge-dim', FALLBACK_PALETTE.edgeDim),
+    node: token('--graph-node', FALLBACK_PALETTE.node),
+    accent: token('--accent', FALLBACK_PALETTE.accent),
+    label: token('--graph-label', FALLBACK_PALETTE.label),
+    font: token('--font-ui', FALLBACK_PALETTE.font),
+  }
 }
 
 export function graphScaleAfterWheel(scale: number, deltaY: number): number {
@@ -125,7 +158,7 @@ function booleanPreference(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
-function nodeColor(node: CanvasNode, groupBy: GroupBy, fallback: string): string {
+function nodeColor(node: GraphNode, groupBy: GroupBy, fallback: string): string {
   if (groupBy === 'folder') return organizerColorOrNull(node.folderColor) ?? fallback
   if (groupBy === 'tag') return organizerColorOrNull(node.tags[0]?.color) ?? fallback
   return fallback
@@ -295,7 +328,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const stateRef = useRef<CanvasState>({
     nodes: [], edges: [], scale: 1, offsetX: 0, offsetY: 0,
     dragging: null, pointers: new Map(), pinch: null,
-    frame: 0, raf: 0, needsFit: false, schedule: null,
+    frame: 0, raf: 0, needsFit: false, palette: FALLBACK_PALETTE, schedule: null,
   })
 
   useEscape(true, onClose)
@@ -443,13 +476,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     resize()
     const observer = new ResizeObserver(resize)
     observer.observe(canvas)
-    const style = getComputedStyle(document.documentElement)
-    const colors = {
-      edge: style.getPropertyValue('--border-strong').trim() || 'rgba(127,127,127,.35)',
-      node: style.getPropertyValue('--text-tertiary').trim() || '#777',
-      accent: style.getPropertyValue('--accent').trim() || '#4f46e5',
-      text: style.getPropertyValue('--text-secondary').trim() || '#555',
-    }
+    state.palette = readPalette()
     const schedule = () => { if (!state.raf) state.raf = requestAnimationFrame(tick) }
     const tick = () => {
       state.raf = 0
@@ -474,11 +501,13 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       ctx.translate(state.offsetX, state.offsetY)
       ctx.scale(state.scale, state.scale)
       const emphasizedId = hoverRef.current?.id ?? selectedIdRef.current
+      const palette = state.palette
       ctx.lineWidth = 1 / state.scale
       for (const edge of state.edges) {
         const related = emphasizedId === edge.a.id || emphasizedId === edge.b.id
-        ctx.strokeStyle = related ? colors.accent : colors.edge
-        ctx.globalAlpha = related ? 0.9 : emphasizedId ? 0.14 : 0.42
+        const edgeColor = related ? palette.accent : emphasizedId ? palette.edgeDim : palette.edge
+        ctx.strokeStyle = edgeColor
+        ctx.globalAlpha = related ? 0.95 : 1
         ctx.beginPath(); ctx.moveTo(edge.a.x, edge.a.y); ctx.lineTo(edge.b.x, edge.b.y); ctx.stroke()
         if (prefsRef.current.arrows) {
           const angle = Math.atan2(edge.b.y - edge.a.y, edge.b.x - edge.a.x)
@@ -489,7 +518,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           ctx.moveTo(x, y)
           ctx.lineTo(x - Math.cos(angle - Math.PI / 6) * size, y - Math.sin(angle - Math.PI / 6) * size)
           ctx.lineTo(x - Math.cos(angle + Math.PI / 6) * size, y - Math.sin(angle + Math.PI / 6) * size)
-          ctx.closePath(); ctx.fillStyle = related ? colors.accent : colors.edge; ctx.fill()
+          ctx.closePath(); ctx.fillStyle = edgeColor; ctx.fill()
         }
       }
       ctx.globalAlpha = 1
@@ -497,8 +526,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         const active = node.id === activeNoteIdRef.current
         const emphasized = node.id === emphasizedId
         ctx.beginPath(); ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2)
-        ctx.fillStyle = active || emphasized ? colors.accent : nodeColor(node, prefsRef.current.groupBy, colors.node)
-        ctx.globalAlpha = emphasizedId && !emphasized && !active ? 0.34 : 1
+        ctx.fillStyle = active || emphasized ? palette.accent : nodeColor(node, prefsRef.current.groupBy, palette.node)
+        ctx.globalAlpha = emphasizedId && !emphasized && !active ? 0.55 : 1
         if (node.kind === 'unresolved') {
           ctx.strokeStyle = ctx.fillStyle
           ctx.lineWidth = 1.5 / state.scale
@@ -507,19 +536,19 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           ctx.fill()
         }
         if (active || selectedIdRef.current === node.id) {
-          ctx.strokeStyle = colors.accent; ctx.globalAlpha = 0.42; ctx.lineWidth = 3 / state.scale
+          ctx.strokeStyle = palette.accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 3 / state.scale
           ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 4, 0, Math.PI * 2); ctx.stroke()
         }
       }
       ctx.globalAlpha = 1
       if (prefsRef.current.labels && (state.scale > 0.68 || emphasizedId)) {
-        ctx.font = `${11 / state.scale}px ${style.getPropertyValue('--font-ui')}`
+        ctx.font = `${11 / state.scale}px ${palette.font}`
         ctx.textAlign = 'center'
         for (const node of state.nodes) {
           const emphasized = node.id === emphasizedId
           if (!emphasized && node.degree < 1 && state.scale < 1.1) continue
-          ctx.fillStyle = emphasized ? colors.accent : colors.text
-          ctx.globalAlpha = emphasized ? 1 : emphasizedId ? 0.26 : 0.72
+          ctx.fillStyle = emphasized ? palette.accent : palette.label
+          ctx.globalAlpha = emphasized || !emphasizedId ? 1 : 0.6
           const label = node.title.length > 18 ? `${truncateText(node.title, 18)}…` : node.title
           ctx.fillText(label, node.x, node.y + node.r + 12 / state.scale)
         }
@@ -530,11 +559,20 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     }
     state.schedule = schedule
     schedule()
+    const themeObserver = new MutationObserver(() => {
+      state.palette = readPalette()
+      schedule()
+    })
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-accent', 'data-background'],
+    })
     const fitTimer = window.setTimeout(fitGraph, 1500)
     return () => {
       window.clearTimeout(fitTimer)
       cancelAnimationFrame(state.raf)
       state.raf = 0; state.schedule = null
+      themeObserver.disconnect()
       observer.disconnect()
     }
   }, [data, fitGraph])
@@ -617,6 +655,21 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   }, [createNote, onClose, openNote])
 
   const selected = data?.nodes.find((node) => node.id === selectedId) ?? null
+  const counts = useMemo(() => {
+    const unresolved = data?.nodes.filter((node) => node.kind === 'unresolved').length ?? 0
+    return { notes: (data?.nodes.length ?? 0) - unresolved, links: data?.edges.length ?? 0, unresolved }
+  }, [data])
+  const legend = useMemo(() => {
+    if (!data || prefs.groupBy === 'none') return []
+    const seen = new Map<string, string>()
+    for (const node of data.nodes) {
+      const name = prefs.groupBy === 'folder' ? node.folderName ?? '' : node.tags[0]?.name ?? ''
+      if (!name || seen.has(name)) continue
+      const color = nodeColor(node, prefs.groupBy, FALLBACK_PALETTE.node)
+      seen.set(name, color)
+    }
+    return [...seen.entries()].slice(0, 8).map(([name, color]) => ({ name, color }))
+  }, [data, prefs.groupBy])
   const menuItems: MenuItem[] = context ? [
     { id: 'open', label: context.node.kind === 'unresolved' ? t('graph.create_note') : t('graph.open_note'), icon: <FolderOpen size={14}/>, onSelect: () => {
       if (context.node.kind === 'unresolved') void createNote?.({ title: context.node.title, open: true })
@@ -639,9 +692,10 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 md:px-4">
       <div className="mr-1 flex min-w-0 items-baseline gap-2.5">
         <h2 id={titleId} className="text-[14px] font-semibold tracking-[-0.014em]">{t('common.graph')}</h2>
-        {data && <span className="whitespace-nowrap text-[11.5px] text-[var(--text-quaternary)]">
-          {data.nodes.filter((node) => node.kind === 'note').length}{t('graph.notes')}{data.edges.length}{t('graph.links')}
-          {data.nodes.some((node) => node.kind === 'unresolved') && ` · ${data.nodes.filter((node) => node.kind === 'unresolved').length}${t('graph.unresolved_short')}`}
+        {data && <span className="whitespace-nowrap text-[11.5px] text-[var(--text-tertiary)]">
+          {counts.unresolved
+            ? t('graph.stats_with_unresolved', { notes: counts.notes, links: counts.links, unresolved: counts.unresolved })
+            : t('graph.stats', { notes: counts.notes, links: counts.links })}
         </span>}
       </div>
       <div className="flex h-8 items-center rounded-[var(--r-md)] bg-[var(--bg-inset)] p-0.5" role="group" aria-label={t('graph.scope')}>
@@ -655,17 +709,17 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <label className="flex h-8 min-w-[150px] flex-1 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2.5 md:max-w-[320px]">
-        <Search size={13} className="shrink-0 text-[var(--text-quaternary)]"/>
+        <Search size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
         <span className="sr-only">{t('graph.search_notes')}</span>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('graph.search_notes')}
-          className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--text-quaternary)]"/>
+          className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--text-tertiary)]"/>
         {search && <button type="button" aria-label={t('common.clear')} onClick={() => setSearch('')}><X size={12}/></button>}
       </label>
       <div className="ml-auto flex items-center gap-1">
         <Tooltip label={t('common.zoom_out')}><IconButton label={t('common.zoom_out')} size="sm" disabled={!data?.nodes.length} onClick={() => {
           const state = stateRef.current; state.scale = Math.max(0.2, state.scale - 0.2); state.schedule?.()
         }}><Minus size={14}/></IconButton></Tooltip>
-        <Tooltip label={t('graph.fit')}><IconButton label={t('graph.reset')} size="sm" disabled={!data?.nodes.length} onClick={fitGraph}><Maximize2 size={13}/></IconButton></Tooltip>
+        <Tooltip label={t('graph.fit')}><IconButton label={t('graph.fit')} size="sm" disabled={!data?.nodes.length} onClick={fitGraph}><Maximize2 size={13}/></IconButton></Tooltip>
         <Tooltip label={t('common.zoom_in')}><IconButton label={t('common.zoom_in')} size="sm" disabled={!data?.nodes.length} onClick={() => {
           const state = stateRef.current; state.scale = Math.min(4, state.scale + 0.2); state.schedule?.()
         }}><Plus size={14}/></IconButton></Tooltip>
@@ -775,9 +829,20 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           </div>}
           {(hover || selected) && <div className="pointer-events-none absolute bottom-4 left-1/2 max-w-[80vw] -translate-x-1/2 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3.5 py-1.5 text-[12px] shadow-[var(--shadow-pop)]">
             <span className="max-w-[50vw] truncate">{(hover ?? selected)!.title || t('common.untitled_note')}</span>
-            <span className="ml-2 text-[var(--text-quaternary)]">{t('graph.direction_counts', { incoming: (hover ?? selected)!.inDegree, outgoing: (hover ?? selected)!.outDegree })}</span>
+            <span className="ml-2 text-[var(--text-tertiary)]">{t('graph.direction_counts', { incoming: (hover ?? selected)!.inDegree, outgoing: (hover ?? selected)!.outDegree })}</span>
           </div>}
-          <div className="pointer-events-none absolute top-3 left-4 hidden text-[11px] text-[var(--text-quaternary)] md:block">{t('graph.interaction_hint')}</div>
+          <div className="pointer-events-none absolute top-3 left-4 hidden text-[11px] text-[var(--text-tertiary)] md:block">{t('graph.interaction_hint')}</div>
+          {(legend.length > 0 || counts.unresolved > 0) && <div role="list" aria-label={t('graph.legend')}
+            className="pointer-events-none absolute top-3 right-4 max-w-[42%] rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)] shadow-[var(--shadow-pop)]">
+            {legend.map((item) => <div key={item.name} role="listitem" className="flex min-w-0 items-center gap-1.5 py-0.5">
+              <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ background: item.color }}/>
+              <span className="min-w-0 truncate">{item.name}</span>
+            </div>)}
+            {counts.unresolved > 0 && <div role="listitem" className="flex min-w-0 items-center gap-1.5 py-0.5">
+              <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full border-[1.5px] border-[var(--graph-node)]"/>
+              <span className="min-w-0 truncate">{t('graph.unresolved_legend')}</span>
+            </div>}
+          </div>}
         </>}
       </main>
 
@@ -808,7 +873,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
 }
 
 function GraphSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
-  return <section className="mb-5"><h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--text-quaternary)]">{icon}{title}</h4><div className="space-y-2.5">{children}</div></section>
+  return <section className="mb-5"><h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--text-tertiary)]">{icon}{title}</h4><div className="space-y-2.5">{children}</div></section>
 }
 
 function GraphSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
@@ -820,5 +885,5 @@ function GraphToggle({ label, checked, onChange }: { label: string; checked: boo
 }
 
 function GraphRange({ label, min, max, step, value, onChange }: { label: string; min: number; max: number; step: number; value: number; onChange: (value: number) => void }) {
-  return <label className="block text-[12px] text-[var(--text-secondary)]"><span className="mb-1 flex justify-between"><span>{label}</span><span className="tabular-nums text-[var(--text-quaternary)]">{value}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="w-full accent-[var(--accent)]"/></label>
+  return <label className="block text-[12px] text-[var(--text-secondary)]"><span className="mb-1 flex justify-between"><span>{label}</span><span className="tabular-nums text-[var(--text-tertiary)]">{value}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="w-full accent-[var(--accent)]"/></label>
 }

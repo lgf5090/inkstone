@@ -82,6 +82,11 @@
   --text-quaternary: oklch(43% 0.008 265);
   --text-inverse: oklch(16% 0.008 265);
 
+  --graph-edge: oklch(66% 0.02 265);
+  --graph-edge-dim: oklch(52% 0.014 265);
+  --graph-node: oklch(56% 0.009 265);
+  --graph-label: oklch(74% 0.012 265);
+
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 40%);
   --shadow-pop: 0 0 0 1px oklch(100% 0 0 / 7%), 0 8px 24px -6px oklch(0% 0 0 / 60%),
     0 20px 48px -12px oklch(0% 0 0 / 45%);
@@ -136,6 +141,11 @@
   /* Small labels are used on both the editor and the darker sunken sidebar. */
   --text-quaternary: oklch(51% 0.008 265);
   --text-inverse: oklch(99% 0 0);
+
+  --graph-edge: oklch(46% 0.02 265);
+  --graph-edge-dim: oklch(62% 0.014 265);
+  --graph-node: oklch(58% 0.009 265);
+  --graph-label: oklch(38% 0.012 265);
 
   --shadow-sm: 0 1px 2px oklch(20% 0.01 265 / 6%);
   --shadow-pop: 0 0 0 1px oklch(20% 0.01 265 / 6%), 0 2px 4px -1px oklch(20% 0.01 265 / 5%),
