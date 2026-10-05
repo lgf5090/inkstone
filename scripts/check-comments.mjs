@@ -2,23 +2,62 @@ import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 
+const UPDATE = process.argv.includes('--update')
+const RUNNER_DIRECTIVE = /^\/\/ @vitest-environment [\w-]+$/
+const DECL_BLOCK = '\nconst allowed = new Map([\n'
+const MAP_TAIL = '\n])\n'
+
 const allowed = new Map([
   ["scripts/check-i18n.mjs", [
     "// The OAuth consent page is a self-contained HTML document with its own",
     "// language switch (cookie-based); it does not use the React i18n layer.",
   ]],
+  ["src/client/components/primitives.tsx", [
+    "// dicebear ships full micah style data; keep it out of the boot chunk.",
+  ]],
+  ["src/client/editor/CodeEditor.tsx", [
+    "// Preserve undo history across mode changes once editing has started.",
+  ]],
+  ["src/client/editor/codeLanguages.ts", [
+    "// Highlighting removed: no code languages are loaded.",
+    "// Kept as empty array so the editor behaves as plain Markdown without syntax colors.",
+  ]],
+  ["src/client/editor/live-preview.ts", [
+    "// Preserve the source line under the pointer, including rows inside tables/lists.",
+    "/** Decorations change presentation only; all editing, undo, search and saving use Markdown. */",
+    "// Keep typing synchronous and cheap. Reparse after a short idle window; never",
+    "// display stale HTML for a block whose source was touched in the meantime.",
+  ]],
   ["src/client/features/graph/GraphPanel.tsx", [
     "// Private browsing or a locked-down browser can reject local preferences.",
+    "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
+    "// Draw-only toggles just need one repaint.",
   ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
   ]],
+  ["src/client/features/shell/AppShell.tsx", [
+    "// Keep settings prewarming out of the boot + first-sync window.",
+  ]],
+  ["src/client/features/workspace/BacklinksPanel.tsx", [
+    "// Debounced refresh on note revision changes; unrelated sync traffic",
+    "// (cursor) no longer refetches, and stale links stay visible until the",
+    "// fresh payload arrives.",
+  ]],
+  ["src/client/features/workspace/reading-position.ts", [
+    "// Reading position is optional when browser storage is unavailable.",
+  ]],
+  ["src/client/lib/collator.ts", [
+    "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
+  ]],
   ["src/client/lib/i18n.ts", [
-    "/** Provides typed runtime localization with complete English and Simplified Chinese resources. */",
+    "/** Provides typed runtime localization with on-demand locale loading. */",
+    "// Preload the other locale in background for instant switching, but don't block init",
   ]],
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",
+    "/** Parse once with the full document environment so reference links retain their targets. */",
   ]],
   ["src/client/lib/sync.ts", [
     "/**\n   * Applies live setting changes (realtime toggle, poll interval) without\n   * tearing down the engine, its WebSocket, or its leadership claim.\n   */",
@@ -27,6 +66,8 @@ const allowed = new Map([
   ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
+    "// Keep the current document for fast reads; only slow reads need a loading page.",
+    "// Loaded content keeps its revision until the full note arrives.",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",
@@ -37,12 +78,26 @@ const allowed = new Map([
     "// they would be silently dropped. Dynamic import keeps the session",
     "// store free of a circular dependency on the notes store.",
   ]],
+  ["src/client/styles/editor.css", [
+    "/* Live preview shares the preview typography without nesting scroll containers. */",
+  ]],
+  ["src/client/styles/tokens.css", [
+    "/* Small labels are used on both the editor and the darker sunken sidebar. */",
+  ]],
+  ["src/shared/constants.ts", [
+    "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
+  ]],
   ["src/shared/markdown-utils.ts", [
     "/** Provides pure Markdown analysis shared by the browser and Worker runtimes. */",
     "// md-example fences are rendered as live markdown by the client renderer,",
     "// so references inside them count even though stripCodeRegions discards",
     "// them as ordinary code regions.",
     "// A closing fence may only be followed by spaces or tabs.",
+  ]],
+  ["src/worker/attachments/references.ts", [
+    "// Retained versions must remain restorable after unused attachments are pruned.",
+    "// The instr() predicate discards rows that cannot contain an attachment URL",
+    "// so full bodies only cross the wire for rows the regex will actually parse.",
   ]],
   ["src/worker/backup/snapshot.ts", [
     "/** Produces restorable JSON, readable Markdown, and attachment files for every backup target. */",
@@ -52,6 +107,9 @@ const allowed = new Map([
     "// that resolve to private addresses; the deployment's",
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
+  ]],
+  ["src/worker/db/rows.ts", [
+    "/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */",
   ]],
   ["src/worker/db/schema.ts", [
     "/** Defines the idempotent final D1 schema initialized by every Worker isolate. */",
@@ -64,9 +122,12 @@ const allowed = new Map([
     "// Existing installations must converge additively. CREATE IF NOT EXISTS",
     "// never rewrites user data; running table creation before indexes also",
     "// lets a partially initialized database recover missing feature tables.",
+    "// Keep the existing indexed text and rowids. The batch either replaces the",
+    "// complete index or rolls back, including when an old installation retries.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
+    "/** Fan-out above this size is deferred to the background rewrite queue. */",
   ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",
@@ -79,10 +140,19 @@ const allowed = new Map([
     "// without that flag to keep codex compatible; the standard RFC 9207 `iss`",
     "// parameter is still appended to callbacks for conforming clients.",
   ]],
+  ["src/worker/lib/oauth-request.ts", [
+    "// Rebuild after consuming the bounded body so the provider can read it once.",
+  ]],
   ["src/worker/lib/request.ts", [
     "// CF-Connecting-IP is injected by the Cloudflare edge and cannot be",
     "// spoofed there. On any other runtime the header is client-controlled,",
     "// so ignore it rather than trusting it for throttling.",
+  ]],
+  ["src/worker/lib/rewrite-drain.ts", [
+    "/**\n * Drains fan-out rewrites (note renames, tag renames/deletions) that were\n * deferred because they touched more notes than the inline budget allows.\n * Rows are claimed with a guarded DELETE ... RETURNING so overlapping cron\n * runs cannot double-process them.\n */",
+  ]],
+  ["src/worker/lib/update-check.ts", [
+    "/** Isolate-level TTL cache: the published version changes daily at most. */",
   ]],
   ["src/worker/mcp/ai-search.ts", [
     "/**\n * Private AI semantic search for the MCP module.\n *\n * Notes are embedded with Workers AI (`@cf/baai/bge-m3`, 1024 dims,\n * multilingual) and the vectors live in D1 — no public query endpoint, one\n * index per account. Content changes are queued and drained in the\n * background; when the AI binding is missing or the model call fails the\n * feature degrades to plain lexical search instead of failing (the old\n * behavior that surfaced as HTTP 503s).\n */",
@@ -96,6 +166,9 @@ const allowed = new Map([
     "/**\n * Reciprocal-rank fusion: merges two ranked lists into one by rank, so a\n * note that ranks well in both lexical and semantic search surfaces above\n * one that only appears in a single index.\n */",
     "/** Calls the Workers AI embedding model and returns a Float32Array. */",
     "/** Handles both the `{ data: [{ embedding }] }` and `{ shape, data }` shapes. */",
+    "/**\n * Drains a couple of queued embeddings right after a write so semantic\n * results stay fresh between cron runs. Never blocks the response.\n */",
+    "/** Calls the Workers AI embedding model for many texts in one round trip. */",
+    "/** Query embeddings repeat constantly across MCP calls; cache per isolate. */",
   ]],
   ["src/worker/mcp/api-keys.ts", [
     "/**\n * Static API keys for MCP access.\n *\n * Small or generic MCP clients (scripts, SDKs, unnamed agents) cannot run the\n * OAuth 2.1 dance, so they authenticate with a plain `Authorization: Bearer\n * <key>` header — the universal HTTP standard. The OAuth provider resolves\n * these tokens through its official `resolveExternalToken` hook; the key is\n * never stored or returned again, only its SHA-256 hash.\n */",
@@ -139,9 +212,23 @@ const allowed = new Map([
     "// Never move the client's cursor backwards, even if it reported a",
     "// seq ahead of the server (e.g. data was trimmed).",
   ]],
+  ["src/worker/routes/transfer.ts", [
+    "// sha256/size were computed at persist time; re-downloading every matching",
+    "// object to re-hash it doubles import transfer for no extra assurance.",
+  ]],
+  ["tests/fts-tenant-index.test.ts", [
+    "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
+    "// tenant phrase filter runs inside the inverted index, not as an UNINDEXED",
+    "// post-scan.",
+  ]],
+  ["vite.config.ts", [
+    "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",
+  ]],
 ])
 const found = new Map()
+const foundAll = new Map()
 const failures = []
+let approvedCount = 0
 const roots = ['src', 'scripts', 'tests']
 const files = [
   ...roots.filter((root) => fs.existsSync(root)).flatMap((root) => [...walk(path.resolve(root))]),
@@ -157,13 +244,16 @@ for (const file of files) {
   else if (extension === '.toml' && /^[ \t]*#/m.test(text)) failures.push(`${relative(file)} contains a TOML comment`)
 }
 
-let approvedCount = 0
-for (const [file, comments] of allowed) {
-  approvedCount += comments.length
-  const seen = found.get(file)
-  for (const comment of comments) {
-    if (!seen?.has(comment)) {
-      failures.push(`${file} no longer contains an approved comment; remove it from the allowlist: ${preview(comment)}`)
+if (UPDATE) {
+  rebuildAllowlist()
+} else {
+  for (const [file, comments] of allowed) {
+    approvedCount += comments.length
+    const seen = found.get(file)
+    for (const comment of comments) {
+      if (!seen?.has(comment)) {
+        failures.push(`${file} no longer contains an approved comment; remove it from the allowlist: ${preview(comment)}`)
+      }
     }
   }
 }
@@ -189,7 +279,7 @@ function scanScript(file, text) {
 
   const comments = /\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g
   for (const match of text.matchAll(comments)) {
-    if (!insideLiteral(match.index)) check(file, match[0])
+    if (!insideLiteral(match.index) && !RUNNER_DIRECTIVE.test(match[0])) check(file, match[0])
   }
 
   function collectLiterals(node) {
@@ -219,12 +309,23 @@ function scanCss(file, text) {
       continue
     }
     if (char === '"' || char === "'") quote = char
-    else if (char === '/' && text[index + 1] === '*') failures.push(`${relative(file)} contains a CSS comment`)
+    else if (char === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2)
+      if (end < 0) {
+        failures.push(`${relative(file)} contains an unterminated CSS comment`)
+        return
+      }
+      check(file, text.slice(index, end + 2))
+      index = end + 1
+    }
   }
 }
 
 function check(file, comment) {
   const name = relative(file)
+  const all = foundAll.get(name) ?? new Set()
+  all.add(comment)
+  foundAll.set(name, all)
   if (!allowed.get(name)?.includes(comment)) {
     failures.push(`${name} contains an unapproved code comment: ${preview(comment)}`)
     return
@@ -249,4 +350,30 @@ function* walk(directory) {
     if (entry.isDirectory()) yield* walk(target)
     else yield target
   }
+}
+
+function rebuildAllowlist() {
+  const names = [...new Set([...allowed.keys(), ...foundAll.keys()])].sort()
+  const next = []
+  for (const name of names) {
+    const seen = foundAll.get(name)
+    if (!seen) continue
+    const old = allowed.get(name) ?? []
+    const kept = old.filter((comment) => seen.has(comment))
+    const added = [...seen].filter((comment) => !kept.includes(comment))
+    const comments = [...kept, ...added]
+    if (comments.length) next.push([name, comments])
+  }
+  const blocks = next.map(([name, comments]) =>
+    `  [${JSON.stringify(name)}, [\n${comments.map((comment) => `    ${JSON.stringify(comment)},`).join('\n')}\n  ]],`)
+  const scriptPath = path.resolve('scripts/check-comments.mjs')
+  const source = fs.readFileSync(scriptPath, 'utf8')
+  const start = source.indexOf(DECL_BLOCK)
+  const end = source.indexOf(MAP_TAIL, start)
+  if (start < 0 || end < 0) throw new Error('allowlist block markers not found')
+  const head = start + DECL_BLOCK.length
+  const updated = `${source.slice(0, head)}${blocks.join('\n')}${source.slice(end)}`
+  fs.writeFileSync(scriptPath, updated)
+  console.log(`comment allowlist rebuilt: ${next.reduce((total, [, comments]) => total + comments.length, 0)} approved comments across ${next.length} files`)
+  process.exit(0)
 }
