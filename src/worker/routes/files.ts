@@ -33,6 +33,7 @@ interface AttachmentRow {
   filename: string
   mime: string
   size: number
+  sha256: string
   width: number | null
   height: number | null
   storage: AttachmentObjectStorage
@@ -187,7 +188,7 @@ filesRoutes.get('/:id', async (c) => {
   const shareSlug = c.req.query('share')
 
   const row = await c.env.DB.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
+    `SELECT id, user_id, note_id, filename, mime, size, sha256, width, height, storage, created_at
        FROM attachments WHERE id = ?1`,
   )
     .bind(id)
@@ -208,7 +209,7 @@ filesRoutes.get('/:id', async (c) => {
       .first<{ slug: string; password_hash: string | null; content: string }>()
     allowed = Boolean(
       share &&
-        extractAttachmentIds(share.content).includes(row.id) &&
+        (share.content.includes(row.id) && extractAttachmentIds(share.content).includes(row.id)) &&
         (!share.password_hash ||
           (await verifyShareAssetSession(
             c.env.DB,
@@ -220,9 +221,22 @@ filesRoutes.get('/:id', async (c) => {
   }
   if (!allowed) throw ApiError.unauthenticated('You do not have access to this attachment')
 
+  const etag = `"${row.sha256}"`
+  const ifNoneMatch = c.req.header('if-none-match')
+  if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === row.sha256)) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        'ETag': etag,
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      },
+    })
+  }
+
   const headers = new Headers({
     'Content-Type': row.mime,
-    'Cache-Control': 'private, no-store',
+    'Cache-Control': 'private, max-age=31536000, immutable',
+    'ETag': etag,
     'Content-Disposition': `${isInlineSafe(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeContentDispositionFilename(row.filename)}`,
     'X-Content-Type-Options': 'nosniff',
   })
