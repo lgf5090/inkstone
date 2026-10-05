@@ -12,7 +12,7 @@ import type {
   ViewKind,
 } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, splitTags, toNote, toNoteSummary, type NoteRow } from '../db/rows'
+import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
 import {
   buildNoteDerivedStatements,
@@ -147,14 +147,16 @@ notesRoutes.get('/', async (c) => {
     }
   }
 
-  const listSql = cursor.kind === 'legacy'
-    ? `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where} ORDER BY ${orderBy}
+  const pageFrom = cursor.kind === 'legacy'
+    ? `FROM notes n WHERE ${where} ORDER BY ${orderBy}
        LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`
-    : `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where} ORDER BY ${orderBy}
+    : `FROM notes n WHERE ${where} ORDER BY ${orderBy}
        LIMIT ?${binds.length + 1}`
-  const listStatement = cursor.kind === 'legacy'
-    ? c.env.DB.prepare(listSql).bind(...binds, limit + 1, cursor.offset)
-    : c.env.DB.prepare(listSql).bind(...binds, limit + 1)
+  const pageBinds = cursor.kind === 'legacy'
+    ? [...binds, limit + 1, cursor.offset]
+    : [...binds, limit + 1]
+  const listStatement = c.env.DB.prepare(`SELECT ${NOTE_COLUMNS_NOTAGS} ${pageFrom}`).bind(...pageBinds)
+  const tagStatement = c.env.DB.prepare(noteTagsQueryForPage(pageFrom)).bind(...pageBinds)
   // A keyset page continues a listing the client already counted; re-counting scans every
   // visible row (up to LIMITS.notesMaxPerUser) again on each page turn.
   const countTotal = cursor.kind !== 'keyset'
@@ -162,15 +164,18 @@ notesRoutes.get('/', async (c) => {
     ? [
         c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
         listStatement,
+        tagStatement,
       ]
-    : [listStatement])
-  const countResult = countTotal ? results[0] : undefined
-  const listResult = countTotal ? results[1] : results[0]
+    : [listStatement, tagStatement])
+  const [countResult, listResult, tagResult] = countTotal
+    ? results
+    : [undefined, results[0], results[1]]
 
   const total = countTotal
     ? Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
     : null
   const rows = listResult?.results as NoteRow[] | undefined ?? []
+  attachNoteTags(rows, (tagResult?.results as NoteTagRow[] | undefined) ?? [])
   const pageRows = rows.slice(0, limit)
   const notes = pageRows.map(toNoteSummary)
   const body: ListNotesResponse = {
@@ -523,6 +528,23 @@ notesRoutes.patch('/:id', async (c) => {
     statements.push(noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now))
   }
 
+  // Whether another note already answers to either title decides the wiki-link rewrite, so
+  // it rides along with the mutation instead of costing the rename path its own round trip.
+  let ambiguityIndex = -1
+  if (newTitle !== row.title) {
+    ambiguityIndex = statements.length
+    statements.push(c.env.DB.prepare(
+      `SELECT 1 AS found FROM notes
+        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
+        LIMIT 1`,
+    ).bind(
+      userId,
+      id,
+      normalizeLinkKey(row.title),
+      normalizeLinkKey(newTitle),
+    ))
+  }
+
   statements.push(
     c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
@@ -541,16 +563,7 @@ notesRoutes.patch('/:id', async (c) => {
   const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
   let rewroteInbound = false
   if (newTitle !== row.title) {
-    const ambiguous = await c.env.DB.prepare(
-      `SELECT 1 AS found FROM notes
-        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
-        LIMIT 1`,
-    ).bind(
-      userId,
-      id,
-      normalizeLinkKey(row.title),
-      normalizeLinkKey(newTitle),
-    ).first<{ found: number }>()
+    const ambiguous = (results[ambiguityIndex]?.results?.length ?? 0) > 0
     if (!ambiguous) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,

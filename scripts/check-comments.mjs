@@ -169,6 +169,10 @@ const allowed = new Map([
   ]],
   ["src/worker/db/rows.ts", [
     "/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */",
+    "/** Listing columns without tags; pair with noteTagsQueryForPage so a page pays one join. */",
+    "/**\n * The per-row subquery is the cheap shape for a handful of rows: SQLite runs it once per\n * note. A page of 500 turns it into 500 index walks whose tags are never indexed for it,\n * so listings use NOTE_COLUMNS_NOTAGS plus noteTagsQueryForPage in the same batch.\n */",
+    "/**\n * Mirrors an already-built page query (`from` is the `FROM notes n WHERE … ORDER BY … LIMIT …`\n * tail) to fetch that page's tags as flat rows. `?1` must be bound to the account id.\n */",
+    "/** Rewrites rows in place so the existing mappers keep reading `tag_names`. */",
   ]],
   ["src/worker/db/schema.ts", [
     "/** Defines the idempotent final D1 schema initialized by every Worker isolate. */",
@@ -307,6 +311,8 @@ const allowed = new Map([
     "// The quota read rides along with hashing instead of adding a serial round trip.",
     "// A keyset page continues a listing the client already counted; re-counting scans every",
     "// visible row (up to LIMITS.notesMaxPerUser) again on each page turn.",
+    "// Whether another note already answers to either title decides the wiki-link rewrite, so",
+    "// it rides along with the mutation instead of costing the rename path its own round trip.",
   ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
@@ -353,6 +359,11 @@ const allowed = new Map([
     "// CJK range boundaries: 2E80/9FFF and F900/FAFF are counted, neighbours are not.",
     "// A multi-line comment body carries no marker on its own lines, so those lines must",
     "// still be blanked by the inComment branch rather than passed through.",
+  ]],
+  ["tests/note-list-tags.test.ts", [
+    "// Corrupt row on purpose: tags owned by another account must never surface on this page.",
+    "// The routes read a mid-batch SELECT by index (count, page, tags) while still using",
+    "// results.at(-1) for the change seq, so position alignment is load bearing.",
   ]],
   ["tests/rewrite-drain.test.ts", [
     "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",

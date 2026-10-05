@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import type { SyncDeletion, SyncResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS, tagSelectQuery, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
+import { NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, tagSelectQuery, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type NoteTagRow, type TagRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -104,14 +104,17 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
 
   const [notes, folders, tags] = await Promise.all([
-    loadInChunks(noteIds, (ids) =>
-      c.env.DB.prepare(
-        `SELECT ${NOTE_COLUMNS} FROM notes n
-          WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`,
-      )
-        .bind(userId, ...ids)
-        .all<NoteRow>(),
-    ),
+    loadInChunks(noteIds, async (ids) => {
+      const pageFrom = `FROM notes n
+          WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`
+      const [page, tagRows] = await c.env.DB.batch([
+        c.env.DB.prepare(`SELECT ${NOTE_COLUMNS_NOTAGS} ${pageFrom}`).bind(userId, ...ids),
+        c.env.DB.prepare(noteTagsQueryForPage(pageFrom)).bind(userId, ...ids),
+      ])
+      const results = (page?.results as NoteRow[] | undefined) ?? []
+      attachNoteTags(results, (tagRows?.results as NoteTagRow[] | undefined) ?? [])
+      return { results }
+    }),
     facetsFull
       ? c.env.DB.prepare(
           `SELECT ${FOLDER_SELECT} FROM folders f
@@ -203,14 +206,21 @@ async function fullSnapshot(
   cursor: number,
   after: string,
 ): Promise<SyncResponse> {
+  const notePageFrom = `FROM notes n WHERE n.user_id = ?1
+          AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`
   const [notes, folders, tags] = await Promise.all([
     db
-      .prepare(
-        `SELECT ${NOTE_COLUMNS} FROM notes n WHERE n.user_id = ?1
-          AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
-      )
-      .bind(userId, after, LIMITS.syncBatchSize + 1)
-      .all<NoteRow>(),
+      .batch([
+        db.prepare(
+          `SELECT ${NOTE_COLUMNS_NOTAGS} ${notePageFrom}`,
+        ).bind(userId, after, LIMITS.syncBatchSize + 1),
+        db.prepare(noteTagsQueryForPage(notePageFrom)).bind(userId, after, LIMITS.syncBatchSize + 1),
+      ])
+      .then(([page, tagRows]) => {
+        const results = (page?.results as NoteRow[] | undefined) ?? []
+        attachNoteTags(results, (tagRows?.results as NoteTagRow[] | undefined) ?? [])
+        return { results }
+      }),
     !after
       ? db
           .prepare(
