@@ -81,6 +81,7 @@ interface CanvasState {
   pinch: { distance: number; scale: number; centerX: number; centerY: number } | null
   frame: number
   raf: number
+  needsFit: boolean
   schedule: (() => void) | null
 }
 
@@ -130,6 +131,118 @@ function nodeColor(node: CanvasNode, groupBy: GroupBy, fallback: string): string
   return fallback
 }
 
+function nodeRadius(node: GraphNode, nodeScale: number): number {
+  return (4 + Math.min(9, Math.sqrt(node.degree) * 2.4)) * nodeScale
+}
+
+function spiralPoint(index: number): { x: number; y: number } {
+  const angle = index * 2.399963
+  const radius = 18 * Math.sqrt(index)
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius }
+}
+
+function stepPhysics(
+  nodes: CanvasNode[],
+  edges: Array<{ a: CanvasNode; b: CanvasNode }>,
+  repulsion: number,
+  linkDistance: number,
+  held: CanvasNode | null,
+): number {
+  const grid = new Map<string, CanvasNode[]>()
+  for (const node of nodes) {
+    const key = `${Math.floor(node.x / SPATIAL_CELL_SIZE)}:${Math.floor(node.y / SPATIAL_CELL_SIZE)}`
+    let list = grid.get(key)
+    if (!list) { list = []; grid.set(key, list) }
+    list.push(node)
+  }
+  const applyRepulsion = (a: CanvasNode, b: CanvasNode) => {
+    let dx = b.x - a.x, dy = b.y - a.y
+    let distanceSquared = dx * dx + dy * dy
+    if (distanceSquared < 0.01) {
+      dx = (Math.random() - 0.5) * 0.6
+      dy = (Math.random() - 0.5) * 0.6
+      distanceSquared = 0.36
+    }
+    if (distanceSquared > MAX_REPULSION_DIST_SQ) return
+    const distance = Math.sqrt(distanceSquared)
+    const force = repulsion / distanceSquared
+    const fx = dx / distance * force, fy = dy / distance * force
+    a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy
+  }
+  for (const [key, cell] of grid) {
+    const colon = key.indexOf(':')
+    const cx = Number(key.slice(0, colon))
+    const cy = Number(key.slice(colon + 1))
+    for (let i = 0; i < cell.length; i++) {
+      const a = cell[i]!
+      for (let j = i + 1; j < cell.length; j++) {
+        applyRepulsion(a, cell[j]!)
+      }
+    }
+    const neighbors = [
+      grid.get(`${cx + 1}:${cy}`),
+      grid.get(`${cx - 1}:${cy + 1}`),
+      grid.get(`${cx}:${cy + 1}`),
+      grid.get(`${cx + 1}:${cy + 1}`),
+    ]
+    for (const neighbor of neighbors) {
+      if (!neighbor) continue
+      for (let i = 0; i < cell.length; i++) {
+        const a = cell[i]!
+        for (let j = 0; j < neighbor.length; j++) {
+          applyRepulsion(a, neighbor[j]!)
+        }
+      }
+    }
+  }
+  for (const a of nodes) {
+    a.vx -= a.x * 0.0022
+    a.vy -= a.y * 0.0022
+  }
+  for (const edge of edges) {
+    const dx = edge.b.x - edge.a.x, dy = edge.b.y - edge.a.y
+    const distance = Math.hypot(dx, dy) || 1
+    const force = (distance - linkDistance) * 0.008
+    const fx = dx / distance * force, fy = dy / distance * force
+    edge.a.vx += fx; edge.a.vy += fy; edge.b.vx -= fx; edge.b.vy -= fy
+  }
+  let movement = 0
+  for (const node of nodes) {
+    if (node === held) continue
+    node.vx *= 0.86; node.vy *= 0.86
+    const moveX = Math.max(-8, Math.min(8, node.vx))
+    const moveY = Math.max(-8, Math.min(8, node.vy))
+    node.x += moveX; node.y += moveY
+    movement += Math.abs(moveX) + Math.abs(moveY)
+  }
+  return movement
+}
+
+function settleScene(state: CanvasState, prefs: GraphPreferences) {
+  for (let index = 0; index < PHYSICS_FRAME_LIMIT; index++) {
+    const movement = stepPhysics(
+      state.nodes, state.edges, prefs.repulsion, prefs.linkDistance, state.dragging?.node ?? null,
+    )
+    if (index > 30 && movement < state.nodes.length * 0.03) break
+  }
+  state.frame = PHYSICS_FRAME_LIMIT
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function persistPreferences(prefs: GraphPreferences): string | null {
+  const serialized = JSON.stringify(prefs)
+  try {
+    localStorage.setItem(GRAPH_PREFS_KEY, serialized)
+  } catch {
+    // Private browsing or a locked-down browser can reject local preferences.
+    return null
+  }
+  return serialized
+}
+
 function normalizedResponse(response: GraphResponse): GraphResponse {
   const nodes = response.nodes.map((node) => ({
     ...node,
@@ -161,6 +274,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [data, setData] = useState<GraphResponse | null>(null)
+  const [pending, setPending] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [hover, setHover] = useState<CanvasNode | null>(null)
@@ -170,6 +284,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const createNote = useNotes((state) => state.createNote)
   const folders = useNotes((state) => state.folders ?? [])
   const tags = useNotes((state) => state.tags ?? [])
+  const hydrated = useNotes((state) => state.hydrated)
   const activeNoteId = useUi((state) => state.activeNoteId)
   const hoverRef = useRef<CanvasNode | null>(null)
   const selectedIdRef = useRef<string | null>(null)
@@ -180,7 +295,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const stateRef = useRef<CanvasState>({
     nodes: [], edges: [], scale: 1, offsetX: 0, offsetY: 0,
     dragging: null, pointers: new Map(), pinch: null,
-    frame: 0, raf: 0, schedule: null,
+    frame: 0, raf: 0, needsFit: false, schedule: null,
   })
 
   useEscape(true, onClose)
@@ -193,50 +308,70 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   }, [search])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(GRAPH_PREFS_KEY, JSON.stringify(prefs))
-      } catch {
-        // Private browsing or a locked-down browser can reject local preferences.
-      }
-    }, 300)
+    const timer = window.setTimeout(() => persistPreferences(prefs), 300)
     return () => window.clearTimeout(timer)
   }, [prefs])
 
+  useEffect(() => () => {
+    persistPreferences(prefsRef.current)
+  }, [])
+
+  const centerId = prefs.mode === 'local' ? activeNoteId ?? undefined : undefined
+  const folderFilter = prefs.folderId && (!hydrated || folders.some((folder) => folder.id === prefs.folderId))
+    ? prefs.folderId
+    : ''
+  const tagFilter = prefs.tag && (!hydrated || tags.some((item) => item.name === prefs.tag)) ? prefs.tag : ''
+
   const request: GraphQuery = useMemo(() => ({
     mode: prefs.mode,
-    center: prefs.mode === 'local' ? activeNoteId ?? undefined : undefined,
+    center: centerId,
     depth: prefs.depth,
     q: query || undefined,
-    folderId: prefs.folderId || undefined,
-    tag: prefs.tag || undefined,
+    folderId: folderFilter || undefined,
+    tag: tagFilter || undefined,
     includeOrphans: prefs.includeOrphans,
     includeUnresolved: prefs.includeUnresolved,
     limit: 350,
-  }), [activeNoteId, prefs.mode, prefs.depth, prefs.folderId, prefs.tag, prefs.includeOrphans, prefs.includeUnresolved, query])
+  }), [centerId, prefs.mode, prefs.depth, folderFilter, tagFilter, prefs.includeOrphans, prefs.includeUnresolved, query])
+
+  const localBlocked = request.mode === 'local' && !request.center
+  const filtersActive = Boolean(query || folderFilter || tagFilter || !prefs.includeOrphans)
+  const clearFilters = () => {
+    setSearch('')
+    setQuery('')
+    setPrefs((current) => ({
+      ...current,
+      folderId: '',
+      tag: '',
+      includeOrphans: DEFAULT_PREFERENCES.includeOrphans,
+    }))
+  }
 
   useEffect(() => {
-    if (request.mode === 'local' && !request.center) {
+    if (localBlocked) {
       setData(null)
-      setLoadError(t('graph.local_requires_note'))
+      setPending(false)
+      setLoadError(null)
       return
     }
     const controller = new AbortController()
     let cancelled = false
-    setData(null)
+    setPending(true)
     setLoadError(null)
     api.graph(request, controller.signal).then((response) => {
-      if (!cancelled) setData(normalizedResponse(response))
+      if (cancelled) return
+      setPending(false)
+      setData(normalizedResponse(response))
     }).catch((error) => {
-      if (!cancelled && (error as Error)?.name !== 'AbortError') {
-        setLoadError(error instanceof Error ? error.message : String(error))
-      }
+      if (cancelled || (error as Error)?.name === 'AbortError') return
+      setPending(false)
+      setLoadError(error instanceof Error ? error.message : String(error))
     })
     return () => {
       cancelled = true
       controller.abort()
     }
-  }, [request, reload])
+  }, [request, reload, localBlocked])
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId
@@ -273,16 +408,16 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     hoverRef.current = null
     setHover(null)
     setSelectedId((current) => data.nodes.some((node) => node.id === current) ? current : null)
+    const carried = new Map(state.nodes.map((node) => [node.id, { x: node.x, y: node.y }]))
     state.nodes = data.nodes.map((node, index) => {
-      const angle = index * 2.399963
-      const radius = 18 * Math.sqrt(index)
+      const held = carried.get(node.id) ?? spiralPoint(index)
       return {
         ...node,
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
+        x: held.x,
+        y: held.y,
         vx: 0,
         vy: 0,
-        r: (4 + Math.min(9, Math.sqrt(node.degree) * 2.4)) * prefs.nodeScale,
+        r: nodeRadius(node, prefs.nodeScale),
       }
     })
     const byId = new Map(state.nodes.map((node) => [node.id, node]))
@@ -290,9 +425,9 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       const a = byId.get(edge.source), b = byId.get(edge.target)
       return a && b ? [{ a, b }] : []
     })
-    state.frame = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-      ? PHYSICS_FRAME_LIMIT
-      : 0
+    state.frame = 0
+    state.needsFit = true
+    if (prefersReducedMotion()) settleScene(state, prefsRef.current)
     const resize = () => {
       const dpr = Math.min(2, devicePixelRatio || 1)
       const rect = canvas.getBoundingClientRect()
@@ -321,76 +456,18 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       const rect = canvas.getBoundingClientRect()
       if (state.frame < PHYSICS_FRAME_LIMIT) {
         state.frame++
-        const grid = new Map<string, typeof state.nodes[number][]>()
-        for (let i = 0; i < state.nodes.length; i++) {
-          const n = state.nodes[i]!
-          const key = `${Math.floor(n.x / SPATIAL_CELL_SIZE)}:${Math.floor(n.y / SPATIAL_CELL_SIZE)}`
-          let list = grid.get(key)
-          if (!list) { list = []; grid.set(key, list) }
-          list.push(n)
-        }
-        const applyRepulsion = (a: typeof state.nodes[number], b: typeof state.nodes[number]) => {
-          let dx = b.x - a.x, dy = b.y - a.y
-          let distanceSquared = dx * dx + dy * dy
-          if (distanceSquared < 0.01) {
-            dx = (Math.random() - 0.5) * 0.6
-            dy = (Math.random() - 0.5) * 0.6
-            distanceSquared = 0.36
-          }
-          if (distanceSquared > MAX_REPULSION_DIST_SQ) return
-          const distance = Math.sqrt(distanceSquared)
-          const force = prefsRef.current.repulsion / distanceSquared
-          const fx = dx / distance * force, fy = dy / distance * force
-          a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy
-        }
-        for (const [key, cell] of grid) {
-          const colon = key.indexOf(':')
-          const cx = Number(key.slice(0, colon))
-          const cy = Number(key.slice(colon + 1))
-          for (let i = 0; i < cell.length; i++) {
-            const a = cell[i]!
-            for (let j = i + 1; j < cell.length; j++) {
-              applyRepulsion(a, cell[j]!)
-            }
-          }
-          const neighbors = [
-            grid.get(`${cx + 1}:${cy}`),
-            grid.get(`${cx - 1}:${cy + 1}`),
-            grid.get(`${cx}:${cy + 1}`),
-            grid.get(`${cx + 1}:${cy + 1}`),
-          ]
-          for (const neighbor of neighbors) {
-            if (!neighbor) continue
-            for (let i = 0; i < cell.length; i++) {
-              const a = cell[i]!
-              for (let j = 0; j < neighbor.length; j++) {
-                applyRepulsion(a, neighbor[j]!)
-              }
-            }
-          }
-        }
-        for (let i = 0; i < state.nodes.length; i++) {
-          const a = state.nodes[i]!
-          a.vx -= a.x * 0.0022
-          a.vy -= a.y * 0.0022
-        }
-        for (const edge of state.edges) {
-          const dx = edge.b.x - edge.a.x, dy = edge.b.y - edge.a.y
-          const distance = Math.hypot(dx, dy) || 1
-          const force = (distance - prefsRef.current.linkDistance) * 0.008
-          const fx = dx / distance * force, fy = dy / distance * force
-          edge.a.vx += fx; edge.a.vy += fy; edge.b.vx -= fx; edge.b.vy -= fy
-        }
-        let movement = 0
-        for (const node of state.nodes) {
-          if (state.dragging?.node === node) continue
-          node.vx *= 0.86; node.vy *= 0.86
-          const moveX = Math.max(-8, Math.min(8, node.vx))
-          const moveY = Math.max(-8, Math.min(8, node.vy))
-          node.x += moveX; node.y += moveY
-          movement += Math.abs(moveX) + Math.abs(moveY)
-        }
+        const movement = stepPhysics(
+          state.nodes,
+          state.edges,
+          prefsRef.current.repulsion,
+          prefsRef.current.linkDistance,
+          state.dragging?.node ?? null,
+        )
         if (state.frame > 30 && movement < state.nodes.length * 0.03) state.frame = PHYSICS_FRAME_LIMIT
+      }
+      if (state.needsFit && state.frame >= PHYSICS_FRAME_LIMIT) {
+        state.needsFit = false
+        fitGraph()
       }
       ctx.clearRect(0, 0, rect.width, rect.height)
       ctx.save()
@@ -453,19 +530,25 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     }
     state.schedule = schedule
     schedule()
-    const fitTimer = window.setTimeout(fitGraph, 120)
+    const fitTimer = window.setTimeout(fitGraph, 1500)
     return () => {
       window.clearTimeout(fitTimer)
       cancelAnimationFrame(state.raf)
       state.raf = 0; state.schedule = null
       observer.disconnect()
     }
-  }, [data, fitGraph, prefs.nodeScale])
+  }, [data, fitGraph])
+
+  useEffect(() => {
+    for (const node of stateRef.current.nodes) node.r = nodeRadius(node, prefs.nodeScale)
+    stateRef.current.schedule?.()
+  }, [prefs.nodeScale, data])
 
   useEffect(() => {
     // Physics-parameter tweaks resume the simulation without rebuilding nodes.
     const state = stateRef.current
-    state.frame = 0
+    state.frame = Math.min(state.frame, PHYSICS_FRAME_LIMIT - 45)
+    state.needsFit = true
     state.schedule?.()
   }, [prefs.linkDistance, prefs.repulsion])
 
@@ -592,11 +675,20 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     </header>
 
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
-      <main className="relative min-w-0 flex-1">
-        {loadError ? <Empty art="notes" title={t('graph.could_not_load_graph')} description={loadError}
+      <main aria-busy={pending} className="relative min-w-0 flex-1">
+        {pending && <div role="status" className="absolute inset-x-0 top-0 h-0.5 bg-[var(--accent)] opacity-60">
+          <span className="sr-only">{t('graph.building_graph')}</span>
+        </div>}
+        {localBlocked ? <Empty art="notes" title={t('graph.local_requires_note')}
+          description={t('graph.open_a_note_to_see_its_neighbourhood')}
+          action={<Button size="sm" variant="secondary" onClick={() => changePref('mode', 'global')}>{t('graph.use_global')}</Button>}/>
+        : loadError ? <Empty art="notes" title={t('graph.could_not_load_graph')} description={loadError}
           action={<Button size="sm" variant="secondary" onClick={() => setReload((value) => value + 1)}>{t('common.retry')}</Button>}/>
         : !data ? <LoadingBlock label={t('graph.building_graph')}/>
-        : data.nodes.length === 0 ? <Empty art="notes" title={t('graph.nothing_to_graph_yet')} description={t('graph.connect_notes_with_wiki_links_and_their_graph_will_appear_here')}/>
+        : data.nodes.length === 0 ? (filtersActive
+          ? <Empty art="notes" title={t('graph.filtered_empty')} description={t('graph.filtered_empty_hint')}
+            action={<Button size="sm" variant="secondary" onClick={clearFilters}>{t('graph.clear_filters')}</Button>}/>
+          : <Empty art="notes" title={t('graph.nothing_to_graph_yet')} description={t('graph.connect_notes_with_wiki_links_and_their_graph_will_appear_here')}/>)
         : <>
           <canvas ref={canvasRef} tabIndex={0} role="application" aria-label={t('graph.graph_canvas_accessible')}
             className="size-full touch-none cursor-grab outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] active:cursor-grabbing"
@@ -692,8 +784,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       {settingsOpen && <aside aria-label={t('graph.settings')} className="absolute inset-y-0 right-0 z-10 w-[min(88vw,300px)] overflow-y-auto border-l border-[var(--border-subtle)] bg-[var(--bg-base)] p-4 shadow-[-8px_0_24px_rgba(0,0,0,.06)] md:static md:shadow-none">
         <div className="mb-4 flex items-center justify-between"><h3 className="text-[13px] font-semibold">{t('graph.settings')}</h3><Tooltip label={t('common.close')}><IconButton size="sm" label={t('common.close')} onClick={() => setSettingsOpen(false)}><X size={14}/></IconButton></Tooltip></div>
         <GraphSection icon={<Filter size={13}/>} title={t('graph.filters')}>
-          <GraphSelect label={t('graph.folder')} value={prefs.folderId} onChange={(value) => changePref('folderId', value)} options={[['', t('graph.all_folders')], ...folders.map((folder) => [folder.id, folder.name] as [string, string])]}/>
-          <GraphSelect label={t('graph.tag')} value={prefs.tag} onChange={(value) => changePref('tag', value)} options={[['', t('graph.all_tags')], ...tags.map((item) => [item.name, item.name] as [string, string])]}/>
+          <GraphSelect label={t('graph.folder')} value={folderFilter} onChange={(value) => changePref('folderId', value)} options={[['', t('graph.all_folders')], ...folders.map((folder) => [folder.id, folder.name] as [string, string])]}/>
+          <GraphSelect label={t('graph.tag')} value={tagFilter} onChange={(value) => changePref('tag', value)} options={[['', t('graph.all_tags')], ...tags.map((item) => [item.name, item.name] as [string, string])]}/>
           <GraphToggle label={t('graph.show_orphans')} checked={prefs.includeOrphans} onChange={(value) => changePref('includeOrphans', value)}/>
           <GraphToggle label={t('graph.show_unresolved')} checked={prefs.includeUnresolved} onChange={(value) => changePref('includeUnresolved', value)}/>
           {prefs.mode === 'local' && <GraphSelect label={t('graph.depth')} value={String(prefs.depth)} onChange={(value) => changePref('depth', Number(value))} options={[["1", '1'], ["2", '2'], ["3", '3']]}/>} 
