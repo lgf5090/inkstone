@@ -3,6 +3,7 @@ import { configureCodeBlockCollapsing, decorateCodeBlock, toggleCodeBlockCollaps
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
 import { selectMarkdownTab } from './markdown-tabs'
+import { patchChildren } from './Preview'
 
 describe('preview interaction state', () => {
   it('namespaces interactive IDs for separate preview instances', () => {
@@ -51,6 +52,30 @@ describe('preview interaction state', () => {
     expect(rebuilt.querySelector<HTMLDetailsElement>('details')!.open).toBe(false)
     expect(rebuilt.querySelectorAll<HTMLButtonElement>('[data-tab-button]')[1]!.getAttribute('aria-selected')).toBe('true')
     expect(rebuilt.querySelectorAll<HTMLElement>('[data-tab-panel]')[0]!.hidden).toBe(true)
+  })
+
+  it('preserves preview host attributes and reconciles children in-place', () => {
+    const host = document.createElement('div')
+    host.className = 'ink-prose'
+    host.setAttribute('data-preview-content', '')
+    host.setAttribute('data-prose', '')
+    host.setAttribute('data-font', 'sans')
+    host.innerHTML = '<p>Initial line</p>'
+
+    const staging = document.createElement('div')
+    staging.innerHTML = '<p>Updated line</p><h2>Section heading</h2>'
+
+    const initialP = host.firstElementChild
+    patchChildren(host, staging)
+
+    expect(host.className).toBe('ink-prose')
+    expect(host.getAttribute('data-preview-content')).toBe('')
+    expect(host.getAttribute('data-prose')).toBe('')
+    expect(host.getAttribute('data-font')).toBe('sans')
+    expect(host.firstElementChild).toBe(initialP)
+    expect(host.firstElementChild?.textContent).toBe('Updated line')
+    expect(host.lastElementChild?.tagName).toBe('H2')
+    expect(host.lastElementChild?.textContent).toBe('Section heading')
   })
 })
 

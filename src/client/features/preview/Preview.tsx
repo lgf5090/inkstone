@@ -175,7 +175,7 @@ export const Preview = memo(function Preview({
           if (!host.hasChildNodes()) {
             host.replaceChildren(...staging.cloneNode(true).childNodes)
           } else {
-            patchDom(host, staging)
+            patchChildren(host, staging)
           }
           if (snapshot && scroller) restorePreviewViewport(scroller, host, snapshot)
         }
@@ -545,7 +545,33 @@ function previewPaddingTop(scroller: HTMLElement): number {
   return Number.isFinite(value) ? value : 0
 }
 
-function patchDom(dest: Node, src: Node): void {
+export function patchChildren(destEl: HTMLElement, srcEl: HTMLElement): void {
+  const destChildren = destEl.childNodes
+  const srcChildren = srcEl.childNodes
+  const srcLen = srcChildren.length
+  let destLen = destChildren.length
+
+  while (destLen > srcLen) {
+    destEl.removeChild(destChildren[destLen - 1]!)
+    destLen--
+  }
+
+  for (let i = 0; i < srcLen; i++) {
+    const srcChild = srcChildren[i]!
+    if (i < destLen) {
+      const destChild = destChildren[i]!
+      if (destChild.nodeType === srcChild.nodeType && destChild.nodeName === srcChild.nodeName) {
+        patchDom(destChild, srcChild)
+      } else {
+        destEl.replaceChild(srcChild.cloneNode(true), destChild)
+      }
+    } else {
+      destEl.appendChild(srcChild.cloneNode(true))
+    }
+  }
+}
+
+export function patchDom(dest: Node, src: Node): void {
   if (dest.nodeType !== src.nodeType || dest.nodeName !== src.nodeName) {
     dest.parentElement?.replaceChild(src.cloneNode(true), dest)
     return
@@ -584,28 +610,6 @@ function patchDom(dest: Node, src: Node): void {
       }
     }
 
-    const destChildren = destEl.childNodes
-    const srcChildren = srcEl.childNodes
-    const srcLen = srcChildren.length
-    let destLen = destChildren.length
-
-    while (destLen > srcLen) {
-      destEl.removeChild(destChildren[destLen - 1]!)
-      destLen--
-    }
-
-    for (let i = 0; i < srcLen; i++) {
-      const srcChild = srcChildren[i]!
-      if (i < destLen) {
-        const destChild = destChildren[i]!
-        if (destChild.nodeType === srcChild.nodeType && destChild.nodeName === srcChild.nodeName) {
-          patchDom(destChild, srcChild)
-        } else {
-          destEl.replaceChild(srcChild.cloneNode(true), destChild)
-        }
-      } else {
-        destEl.appendChild(srcChild.cloneNode(true))
-      }
-    }
+    patchChildren(destEl, srcEl)
   }
 }
