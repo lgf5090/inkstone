@@ -19,6 +19,27 @@ function buttons(group: HTMLElement): HTMLButtonElement[] {
     return [...group.querySelectorAll<HTMLButtonElement>(':scope > .tab-list [data-tab-button]')]
 }
 
+describe('image size suffixes', () => {
+    it('turns the label suffix into width and height without leaving the pipe behind', () => {
+        expect(html('![my alt|80](i.png)')).toContain('alt="my alt"')
+        expect(html('![my alt|80](i.png)')).toContain('width="80"')
+        expect(html('![alt|640x480](i.png)')).toContain('width="640"')
+        expect(html('![alt|640x480](i.png)')).toContain('height="480"')
+        expect(html('![a **b**|200](i.png)')).toContain('alt="a b"')
+    })
+
+    it('leaves a label that merely contains a pipe alone', () => {
+        expect(html('![alt|weird](i.png)')).toContain('alt="alt|weird"')
+        expect(html('![alt|weird](i.png)')).not.toContain('width=')
+    })
+
+    it('labels an attachment embed by file name, not by its size', () => {
+        expect(html('![[photo.png|120x90]]')).toContain('<span class="note-embed-head">photo.png</span>')
+        expect(html('![[Note#Sec|Shown]]')).toContain('<span class="note-embed-head">Shown</span>')
+        expect(html('![[photo.png]]')).toContain('<span class="note-embed-head">photo.png</span>')
+    })
+})
+
 describe('colon containers nest the whole syntax set', () => {
     const inner = [
         ['heading', '## H\n'],

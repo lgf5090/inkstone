@@ -173,6 +173,8 @@ const allowed = new Map([
     "// The whole target goes into the attribute, alias included: an attachment embed reads its",
     "// `|600x400` size back out of it, and stripping it here would lose the size and turn the",
     "// label into a bare number.",
+    "// markdown-it fills alt from the label children at render time, so the size suffix has to",
+    "// come off `token.content` and be removed from the last text child, not from the alt attr.",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
@@ -254,6 +256,8 @@ const allowed = new Map([
     "// The CJK ranges are all BMP, so scanning UTF-16 units matches the per-code-point test",
     "// while surrogate pairs (which decode outside those ranges) stay uncounted either way.",
     "/**\n * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written\n * on an item line is not a link anywhere else either. Blanked in place: the offsets that\n * `replaceTagInContent` splices with have to stay valid.\n */",
+    "/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */",
+    "/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

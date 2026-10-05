@@ -1,7 +1,9 @@
 import type { Attachment } from '@shared/types'
 
+import { parseEmbedSizeSpec } from '@shared/markdown-utils'
+
 const ASSET_EXT = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|svg|pdf|txt|md|json|zip|mp3|wav|m4a|ogg|flac|mp4|webm|mov|m4v)$/i
-const SIZE_SPEC = /^\d{1,5}(?:[xX]\d{1,5})?$/
+
 
 export interface EmbedSize {
   width: number | null
@@ -18,10 +20,7 @@ export function attachmentFileName(target: string): string {
 }
 
 export function parseEmbedSize(value: string | null): EmbedSize | null {
-  if (!value || !SIZE_SPEC.test(value.trim()))
-    return null
-  const [width, height] = value.trim().toLowerCase().split('x')
-  return { width: Number(width) || null, height: Number(height) || null }
+  return parseEmbedSizeSpec(value)
 }
 
 export function splitAltSize(alt: string): { alt: string; size: EmbedSize | null } {

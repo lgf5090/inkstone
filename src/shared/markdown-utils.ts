@@ -159,6 +159,22 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
+/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */
+const EMBED_SIZE_RE = /^\d{1,5}(?:[xX]\d{1,5})?$/
+
+export function parseEmbedSizeSpec(value: string | null | undefined): { width: number | null; height: number | null } | null {
+  const spec = value?.trim()
+  if (!spec || !EMBED_SIZE_RE.test(spec)) return null
+  const [width, height] = spec.toLowerCase().split('x')
+  return { width: Number(width) || null, height: Number(height) || null }
+}
+
+/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */
+export function wikiLinkText(target: string, alias?: string | null): string {
+  const value = alias && alias.trim() && !EMBED_SIZE_RE.test(alias.trim()) ? alias : target
+  return (value.split(/[\\/]/).pop() ?? value).trim()
+}
+
 const TAG_RE = /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/gu
 const TAG_COLLATOR = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
@@ -768,7 +784,7 @@ function stripLinkTargets(text: string, requireBang: boolean): string {
 
 function inlinePlain(line: string): string {
   return stripLinkTargets(stripLinkTargets(line, true), false)
-    .replace(/\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => b || a)
+    .replace(/!?\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => wikiLinkText(a, b))
     .replace(/(\*\*|__)(.*?)\1/g, '$2')
     .replace(/(\*|_)(.*?)\1/g, '$2')
     .replace(/~~(.*?)~~/g, '$1')
@@ -792,7 +808,7 @@ export function toPlainText(md: string): string {
     /^[ \t]*\|[\s:|-]+\|[ \t]*$/.test(row) ? '' : row.replace(/\|/g, ' '),
   )
   t = stripLinkTargets(stripLinkTargets(t, true), false)
-  t = t.replace(/\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => b || a)
+  t = t.replace(/!?\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => wikiLinkText(a, b))
   t = t.replace(/\$\$([\s\S]*?)\$\$/g, ' $1 ')
   t = t.replace(/\$([^$\n]+)\$/g, ' $1 ')
   t = t.replace(/(\*\*|__)(.*?)\1/g, '$2')

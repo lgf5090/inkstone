@@ -33,6 +33,20 @@ describe('tab labels are plain text everywhere', () => {
   })
 })
 
+describe('embed labels in plain text', () => {
+  it('keeps the file name when the alias is only a size', () => {
+    expect(toPlainText('![[photo.png|120x90]] tail')).toBe('photo.png tail')
+    expect(toPlainText('![[assets/sub/photo.png|600]]')).toBe('assets/sub/photo.png'.split('/').pop() ?? '')
+    expect(deriveExcerpt('# T\n\n![[photo.png|120x90]]\n\nBODY')).toContain('BODY')
+  })
+
+  it('prefers a real alias and drops the embed bang', () => {
+    expect(toPlainText('![[Note#Section|Shown]]')).toBe('Shown')
+    expect(toPlainText('[[Note|Shown]]')).toBe('Shown')
+    expect(toPlainText('![[Note]]')).toBe('Note')
+  })
+})
+
 describe('container markers in plain text', () => {
   it('drops the colon fence lines but keeps each tab label', () => {
     expect(toPlainText(TAB_NOTE).trim()).toBe('Writing\nBody text here')

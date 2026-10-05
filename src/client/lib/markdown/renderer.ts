@@ -8,7 +8,7 @@ import mark from 'markdown-it-mark';
 import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
 import { getLocale, t } from '../i18n';
-import { splitAltSize } from './attachments';
+import { parseEmbedSize, splitAltSize } from './attachments';
 import { encodeDataValue } from './data-attr';
 export interface Heading {
     level: number;
@@ -329,7 +329,8 @@ md.renderer.rules.note_embed = (tokens, index) => {
     // `|600x400` size back out of it, and stripping it here would lose the size and turn the
     // label into a bare number.
     const parsed = parseWikiTarget(source);
-    return `<div class="note-embed loading" data-embed-target="${escapeAttr(encodeDataValue(source))}"><span class="note-embed-head">${escapeHtml(parsed.alias || parsed.raw)}</span><div class="note-embed-body" aria-busy="true">${escapeHtml(t("common.loading"))}</div></div>`;
+    const label = parsed.alias && parseEmbedSize(parsed.alias) ? parsed.noteTitle || parsed.raw : parsed.alias || parsed.raw;
+    return `<div class="note-embed loading" data-embed-target="${escapeAttr(encodeDataValue(source))}"><span class="note-embed-head">${escapeHtml(label)}</span><div class="note-embed-body" aria-busy="true">${escapeHtml(t("common.loading"))}</div></div>`;
 };
 md.renderer.rules.wikilink = (tokens, index) => {
     const parsed = parseWikiTarget(tokens[index]!.content);
@@ -539,8 +540,13 @@ md.renderer.rules.image = (tokens, index, options, env, self) => {
     token.attrSet('loading', 'lazy');
     token.attrSet('decoding', 'async');
     token.attrSet('referrerpolicy', 'no-referrer');
-    const sized = splitAltSize(token.attrGet('alt') ?? '');
+    // markdown-it fills alt from the label children at render time, so the size suffix has to
+    // come off `token.content` and be removed from the last text child, not from the alt attr.
+    const sized = splitAltSize(token.content ?? '');
     if (sized.size) {
+        const label = [...(token.children ?? [])].reverse().find((child) => child.type === 'text');
+        if (label)
+            label.content = label.content.replace(/\|[ \t]*\d{1,5}(?:[xX][ \t]*\d{1,5})?[ \t]*$/, '');
         token.attrSet('alt', sized.alt);
         if (sized.size.width)
             token.attrSet('width', String(sized.size.width));
