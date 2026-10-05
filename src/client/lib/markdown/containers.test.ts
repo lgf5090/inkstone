@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderMarkdown } from './renderer'
-import { selectMarkdownTab } from '@/features/preview/markdown-tabs'
+import { revealPreviewTarget, selectMarkdownTab } from '@/features/preview/markdown-tabs'
 
 function html(source: string): string {
     return renderMarkdown(source).html
@@ -208,6 +208,49 @@ describe('tab groups stay independent when nested', () => {
         expect(innerButtons[1]!.tabIndex).toBe(0)
         expect(innerSecond.hidden).toBe(false)
         expect(outer.querySelector<HTMLElement>(':scope > [data-tab-panel="1"]')!.hidden).toBe(true)
+        host.remove()
+    })
+
+    it('a heading inside an unselected nested panel is revealed before the jump', () => {
+        const host = mounted([
+            ':::: tabs',
+            '::: tab-item Out',
+            ':::: tabs',
+            '::: tab-item In1',
+            'first',
+            ':::',
+            '::: tab-item In2',
+            '## Deep',
+            ':::',
+            '::::',
+            ':::',
+            '::::',
+        ].join('\n'))
+        const outer = host.querySelector<HTMLElement>('[data-tabs]')!
+        const inner = host.querySelector<HTMLElement>('[data-tab-panel="0"] [data-tabs]')!
+        const deep = host.querySelector<HTMLElement>('#deep')!
+        const innerSecond = inner.querySelector<HTMLElement>(':scope > [data-tab-panel="1"]')!
+        const innerFirst = inner.querySelector<HTMLElement>(':scope > [data-tab-panel="0"]')!
+        expect(innerSecond.hidden).toBe(true)
+
+        revealPreviewTarget(deep)
+
+        expect(innerSecond.hidden).toBe(false)
+        expect(innerFirst.hidden).toBe(true)
+        expect([...inner.querySelectorAll<HTMLElement>(':scope > .tab-list [data-tab-button]')]
+            .map((button) => button.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+        expect(outer.querySelector<HTMLElement>(':scope > [data-tab-panel="0"]')!.hidden).toBe(false)
+        host.remove()
+    })
+
+    it('a heading inside a collapsed details block opens it', () => {
+        const host = mounted('::: details - Collapsed\n## Deep\n:::')
+        const block = host.querySelector<HTMLDetailsElement>('details')!
+        expect(block.open).toBe(false)
+
+        revealPreviewTarget(host.querySelector('#deep'))
+
+        expect(block.open).toBe(true)
         host.remove()
     })
 

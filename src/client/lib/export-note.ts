@@ -88,16 +88,42 @@ const IMAGE_FETCH_TIMEOUT_MS = 30_000
 async function prepareExportBody(note: { title: string; content: string }): Promise<{ body: string; hasMath: boolean }> {
   const rendered = renderMarkdown(note.content)
   const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
-  await inlinePrivateImages(doc)
-  // The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),
-  // which needs scripts; an exported or printed document has none, so all three have to
-  // be resolved here. Embeds go first because their expanded bodies carry their own
-  // placeholders, and they are filled by the same passes over the whole document.
-  // `false` because the exported page is always the light scheme.
+  // Embeds resolve first: their expanded bodies carry their own images, placeholders and
+  // tab sets, and every pass below runs over the whole document, so going early covers them.
   await resolveNoteEmbeds(doc.body, { currentContent: note.content, currentTitle: note.title })
+  await inlinePrivateImages(doc)
+  // `false` because the exported page is always the light scheme.
   await renderMath(doc)
   await renderPendingMermaid(doc, false)
+  expandHiddenBlocks(doc.body)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
+}
+
+// A tab panel only becomes visible through a click, and a collapsed <details> only through
+// a toggle; an exported .html carries no script and a print frame is sandboxed without
+// allow-scripts, so everything the author hid would simply be missing.
+function expandHiddenBlocks(root: HTMLElement): void {
+  root.querySelectorAll<HTMLDetailsElement>('details').forEach((block) => {
+    block.open = true
+  })
+  root.querySelectorAll<HTMLElement>('[data-tabs]').forEach((group) => {
+    const labels = [...group.querySelectorAll<HTMLElement>(':scope > .tab-list [data-tab-button]')]
+      .map((button) => button.textContent?.trim() ?? '')
+    // The bar only exists to switch panels, and nothing can switch them here.
+    group.querySelector(':scope > .tab-list')?.remove()
+    group.querySelectorAll<HTMLElement>(':scope > [data-tab-panel]').forEach((panel, index) => {
+      panel.removeAttribute('aria-labelledby')
+      panel.removeAttribute('role')
+      panel.hidden = false
+      const label = labels[index]
+      if (label) {
+        const heading = document.createElement('p')
+        heading.className = 'tab-panel-label'
+        heading.textContent = label
+        panel.prepend(heading)
+      }
+    })
+  })
 }
 
 async function inlinePrivateImages(doc: Document): Promise<void> {
@@ -183,11 +209,13 @@ li { margin: 0.25em 0; }
 li.task-list-item { list-style: none; }
 input.task-list-item-checkbox { margin-right: 0.45em; transform: translateY(1px); }
 details { margin: 0.9em 0; padding: 0.7em 1em; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; }
-summary { cursor: pointer; font-weight: 600; }
+summary { font-weight: 600; }
 details[open] summary { margin-bottom: 0.4em; }
+.tab-panel { margin: 0.9em 0; }
+.tab-panel-label { margin: 0 0 0.4em; font-weight: 600; color: #4b5563; break-after: avoid; }
 .callout { border-left: 4px solid #6b7280; border-radius: 6px; padding: 0.65em 1em; margin: 0.9em 0; background: #f9fafb; }
-.callout[data-callout="warning"] { border-color: #d97706; }
-.callout[data-callout="danger"], .callout[data-callout="error"] { border-color: #dc2626; }
+.callout[data-callout="warning"], .callout[data-callout="question"] { border-color: #d97706; }
+.callout[data-callout="danger"], .callout[data-callout="failure"] { border-color: #dc2626; }
 .callout[data-callout="success"], .callout[data-callout="tip"] { border-color: #16a34a; }
 .callout[data-callout="info"], .callout[data-callout="note"] { border-color: #2563eb; }
 .callout-title { font-weight: 600; margin-bottom: 0.25em; }

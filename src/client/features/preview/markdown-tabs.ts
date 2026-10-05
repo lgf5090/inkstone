@@ -24,6 +24,20 @@ export function selectMarkdownTab(button: HTMLButtonElement): void {
   })
 }
 
+/** Opens every collapsed block and selects every tab panel the target sits inside. */
+export function revealPreviewTarget(target: Element | null | undefined): void {
+  for (let node = target?.parentElement ?? null; node; node = node.parentElement) {
+    if (node.matches('details'))
+      (node as HTMLDetailsElement).open = true
+    if (!node.matches('[data-tab-panel]'))
+      continue
+    const group = node.parentElement?.closest<HTMLElement>('[data-tabs]')
+    const button = group && groupTabButtons(group).find((candidate) => candidate.dataset.tabButton === node.dataset.tabPanel)
+    if (button && button.getAttribute('aria-selected') !== 'true')
+      selectMarkdownTab(button)
+  }
+}
+
 export function moveMarkdownTabFocus(button: HTMLButtonElement, key: string): void {
   const buttons = [
     ...(button.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[data-tab-button]') ?? []),

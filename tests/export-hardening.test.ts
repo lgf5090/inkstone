@@ -160,6 +160,78 @@ it('draws the note’s diagram into the printed document instead of a spinner', 
   expect(html).not.toContain('mermaid-block loading')
 })
 
+const TAB_BODY = [
+  '# Tabs',
+  '',
+  ':::: tabs',
+  '::: tab-item First',
+  'FIRST-MARKER',
+  ':::',
+  '::: tab-item Second',
+  'SECOND-MARKER',
+  ':::',
+  '::::',
+  '',
+  '::: details Hidden block',
+  'DETAILS-MARKER',
+  ':::',
+  '',
+  '> [!tip]- Folded tip',
+  '> CALLOUT-MARKER',
+].join('\n')
+
+function parseDocument(html: string): Document {
+  return new DOMParser().parseFromString(html, 'text/html')
+}
+
+it('prints every tab panel instead of only the selected one', async () => {
+  const { html } = await capturePrint(TAB_BODY)
+  const doc = parseDocument(html)
+  const panels = [...doc.querySelectorAll<HTMLElement>('[data-tab-panel]')]
+  expect(panels).toHaveLength(2)
+  expect(panels.map((panel) => panel.hasAttribute('hidden'))).toEqual([false, false])
+  expect(html).toContain('FIRST-MARKER')
+  expect(html).toContain('SECOND-MARKER')
+  expect(doc.querySelectorAll('[data-tab-button]')).toHaveLength(0)
+  expect(panels.map((panel) => panel.querySelector('.tab-panel-label')?.textContent)).toEqual(['First', 'Second'])
+})
+
+it('prints collapsed details and folded callouts open, with their titles', async () => {
+  const { html } = await capturePrint(TAB_BODY)
+  expect(html).toContain('DETAILS-MARKER')
+  expect(html).toContain('CALLOUT-MARKER')
+  const doc = parseDocument(html)
+  const blocks = [...doc.querySelectorAll<HTMLElement>('details')]
+  expect(blocks.length).toBeGreaterThan(1)
+  expect(blocks.every((block) => block.hasAttribute('open'))).toBe(true)
+  expect(html).toContain('Hidden block')
+  expect(html).toContain('Folded tip')
+})
+
+it('expands the interactive blocks that arrive inside a transclusion', async () => {
+  const { html } = await capturePrint([
+    '# Outer',
+    '',
+    'lead paragraph',
+    '',
+    '![[#Inner tabs]]',
+    '',
+    '## Inner tabs',
+    '',
+    ':::: tabs',
+    '::: tab-item Only',
+    'EMBED-TAB-MARKER',
+    ':::',
+    '::::',
+  ].join('\n'))
+  const body = html.slice(html.indexOf('note-embed-body'))
+  expect(body).toContain('EMBED-TAB-MARKER')
+  const panel = parseDocument(body).querySelector<HTMLElement>('[data-tab-panel]')
+  expect(panel, body.slice(0, 200)).not.toBeNull()
+  expect(panel!.hasAttribute('hidden')).toBe(false)
+  expect(panel!.querySelector('.tab-panel-label')?.textContent).toBe('Only')
+})
+
 const EMBED_BODY = [
   '# Outer',
   '',

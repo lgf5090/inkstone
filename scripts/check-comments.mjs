@@ -30,6 +30,8 @@ const allowed = new Map([
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
     "// themselves fence markers.",
+    "// A tab item lives inside an open set by definition, so only the set-level openers",
+    "// have to check whether an earlier container is still waiting for its closer.",
   ]],
   ["src/client/editor/live-preview.ts", [
     "// Preserve the source line under the pointer, including rows inside tables/lists.",
@@ -66,6 +68,7 @@ const allowed = new Map([
   ["src/client/features/preview/markdown-tabs.ts", [
     "// A nested group numbers its own panels from zero, so an outer click that reached inside",
     "// would relabel the inner buttons and hide the panel the inner group has selected.",
+    "/** Opens every collapsed block and selects every tab panel the target sits inside. */",
   ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
@@ -119,13 +122,15 @@ const allowed = new Map([
     "// refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.",
     "// A downloaded .html has no CSP around it and is often opened away from the instance,",
     "// so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.",
-    "// The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),",
-    "// which needs scripts; an exported or printed document has none, so all three have to",
-    "// be resolved here. Embeds go first because their expanded bodies carry their own",
-    "// placeholders, and they are filled by the same passes over the whole document.",
     "// `false` because the exported page is always the light scheme.",
     "// Attachments reach 25 MB each, so the fetches are capped in flight and always time out",
     "// rather than hanging an export on a stalled object.",
+    "// Embeds resolve first: their expanded bodies carry their own images, placeholders and",
+    "// tab sets, and every pass below runs over the whole document, so going early covers them.",
+    "// A tab panel only becomes visible through a click, and a collapsed <details> only through",
+    "// a toggle; an exported .html carries no script and a print frame is sandboxed without",
+    "// allow-scripts, so everything the author hid would simply be missing.",
+    "// The bar only exists to switch panels, and nothing can switch them here.",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
