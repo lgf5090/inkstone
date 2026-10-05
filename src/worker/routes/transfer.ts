@@ -439,6 +439,10 @@ async function importBackupFileBatch(
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await importBackupAttachment(c.env, userId, entry, bytes, ctx)
   }
+  const plannedNoteIds = planned
+    .map((item) => item.note?.id)
+    .filter(Boolean) as string[]
+  await prefetchExistingNoteIndexes(c.env.DB, userId, plannedNoteIds, ctx)
   for (const item of planned.filter((entry) => entry.note)) {
     const entry = item.note!
     const bytes = new Uint8Array(await item.file.arrayBuffer())
@@ -773,6 +777,11 @@ async function importBundle(
   }
 
   const noteIdMap = new Map<string, string>()
+
+  const bundleSourceIds = bundle.notes
+    .map((note) => (isValidId(note?.id) ? note.id : undefined))
+    .filter(Boolean) as string[]
+  await prefetchExistingNoteIndexes(c.env.DB, userId, bundleSourceIds, ctx)
 
   try {
     for (const note of bundle.notes) {
@@ -1152,6 +1161,61 @@ function rewriteAttachmentReferences(content: string, idMap: ReadonlyMap<string,
       return destinationId ? `${prefix}${destinationId}` : match
     },
   )
+}
+
+async function prefetchExistingNoteIndexes(
+  db: D1Database,
+  userId: string,
+  sourceIds: readonly string[],
+  ctx: ImportContext,
+): Promise<void> {
+  if (!ctx.byId) ctx.byId = new Map()
+  const uniqueNeeded = Array.from(new Set(sourceIds.filter((id) => !ctx.byId!.has(id))))
+  if (!uniqueNeeded.length) return
+
+  const CHUNK = 50
+  for (let i = 0; i < uniqueNeeded.length; i += CHUNK) {
+    const chunk = uniqueNeeded.slice(i, i + CHUNK)
+    const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(', ')
+
+    const directRows = await db.prepare(
+      `SELECT n.id, n.title, n.rev, n.updated_at
+         FROM notes n
+        WHERE n.user_id = ?1 AND n.id IN (${placeholders})`,
+    ).bind(userId, ...chunk).all<ExistingNoteIndex>()
+    for (const note of directRows.results) {
+      ctx.byId.set(note.id, note)
+    }
+
+    const mappingRows = await db.prepare(
+      `SELECT source_id, target_id
+         FROM import_mappings
+        WHERE user_id = ?1 AND entity = 'note' AND source_id IN (${placeholders})`,
+    ).bind(userId, ...chunk).all<{ source_id: string; target_id: string }>()
+
+    if (mappingRows.results.length) {
+      const targetIds = Array.from(new Set(mappingRows.results.map((m) => m.target_id)))
+      const targetPlaceholders = targetIds.map((_, idx) => `?${idx + 2}`).join(', ')
+      const targetNotes = await db.prepare(
+        `SELECT n.id, n.title, n.rev, n.updated_at
+           FROM notes n
+          WHERE n.user_id = ?1 AND n.id IN (${targetPlaceholders})`,
+      ).bind(userId, ...targetIds).all<ExistingNoteIndex>()
+      const targetMap = new Map(targetNotes.results.map((n) => [n.id, n]))
+      for (const m of mappingRows.results) {
+        const found = targetMap.get(m.target_id)
+        if (found) {
+          ctx.byId.set(m.source_id, found)
+        }
+      }
+    }
+
+    for (const id of chunk) {
+      if (!ctx.byId.has(id)) {
+        ctx.byId.set(id, null)
+      }
+    }
+  }
 }
 
 async function loadExistingNoteIndex(
