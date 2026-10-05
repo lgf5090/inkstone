@@ -17,6 +17,7 @@ import {
   listMcpApiKeys,
   revokeMcpApiKey,
 } from '../mcp/api-keys'
+import { collectGrantIds } from '../mcp/credentials'
 import {
   getMcpPreferences,
   isMcpEnabled,
@@ -177,25 +178,6 @@ async function collectGrants(
     cursor = page.cursor
   } while (cursor && output.length < 500)
   return output
-}
-
-async function collectGrantIds(
-  oauth: NonNullable<AppBindings['Bindings']['OAUTH_PROVIDER']>,
-  userId: string,
-): Promise<string[]> {
-  const ids: string[] = []
-  let cursor: string | undefined
-  const seenCursors = new Set<string>()
-  do {
-    const page = await oauth.listUserGrants(userId, { limit: 100, cursor })
-    ids.push(...page.items.map((grant) => grant.id))
-    cursor = page.cursor
-    if (cursor && seenCursors.has(cursor)) {
-      throw new Error('OAuth grant pagination returned a repeated cursor')
-    }
-    if (cursor) seenCursors.add(cursor)
-  } while (cursor)
-  return ids
 }
 
 function configuredOrigin(request: Request, configured?: string): string {

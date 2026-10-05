@@ -214,6 +214,8 @@ const allowed = new Map([
     "// identity-scoped throttling keys, never the shared per-IP buckets, or an",
     "// attacker with any low-value account could reset the per-IP failure",
     "// ceiling between bursts of password guessing.",
+    "// Malformed names collapse to one shared identity, so they keep only the",
+    "// per-IP buckets: otherwise strangers could lock out a user who mistypes.",
   ]],
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",
@@ -239,6 +241,10 @@ const allowed = new Map([
     "// tenant phrase filter runs inside the inverted index, not as an UNINDEXED",
     "// post-scan.",
   ]],
+  ["tests/login-throttle-targets.test.ts", [
+    "// Malformed names all hash to one identity, so an anonymous caller used to be able",
+    "// to lock out anybody who mistyped their username by filling that shared bucket.",
+  ]],
   ["tests/markdown-scan-bounds.test.ts", [
     "/** One md-example fence costs 17 bytes; nesting requires a strictly longer outer fence. */",
     "// Pruning and backups delete or omit files on the strength of these ids, so an",
@@ -249,6 +255,22 @@ const allowed = new Map([
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
+  ]],
+  ["tests/register-setup-token.test.ts", [
+    "// The server has required this token since S-04, but the console never learned to send",
+    "// it, so an operator who followed SECURITY.md could not create the first account.",
+  ]],
+  ["tests/setup-token.test.ts", [
+    "// Twelve guesses per ten minutes, then the fourteenth request is refused outright:",
+    "// ordering this after the comparison left the zero-user window unthrottled.",
+  ]],
+  ["tests/throttle-lock-decay.test.ts", [
+    "// The per-slug global work budget from shareVerifyThrottleTargets: 60 attempts per ten",
+    "// minutes, punished with a fixed 60 second lock.",
+    "// The 61st failure inside the window locks the shared slug key.",
+    "// Without the restart, one request per minute kept the slug locked indefinitely:",
+    "// a lock freezes last_fail_at, so the window never rolls over while traffic continues.",
+    "// Work stays bounded, but the lock is no longer self-sustaining across four hours.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",

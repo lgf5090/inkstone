@@ -223,8 +223,8 @@ shareRoutes.post('/:slug', async (c) => {
     }
     const targets = shareVerifyThrottleTargets(slug, requestClientIp(c))
     try {
-      await consumeAttemptBudget(c.env.DB, targets.workTargets)
       await assertNotLocked(c.env.DB, targets.lockTargets)
+      await consumeAttemptBudget(c.env.DB, targets.workTargets)
     } catch (err) {
       if (err instanceof ThrottleError) {
         throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {

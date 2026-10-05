@@ -270,10 +270,10 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
   auth: {
-    register: (username: string, password: string, locale: AppLocale = getLocale()) =>
+    register: (username: string, password: string, locale: AppLocale = getLocale(), setupToken?: string) =>
       request<SessionInfo>('/api/auth/register', {
         method: 'POST',
-        body: { username, password, locale },
+        body: setupToken ? { username, password, locale, setupToken } : { username, password, locale },
       }),
     login: (username: string, password: string) =>
       request<PasswordLoginResult>('/api/auth/login', { method: 'POST', body: { username, password } }),

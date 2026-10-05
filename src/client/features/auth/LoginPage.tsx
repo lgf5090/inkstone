@@ -27,6 +27,8 @@ export function LoginPage() {
   const [challenge, setChallenge] = useState<TotpLoginChallenge | null>(null)
   const [verificationCode, setVerificationCode] = useState('')
   const [recoveryMode, setRecoveryMode] = useState(false)
+  const [setupRequired, setSetupRequired] = useState(false)
+  const [setupToken, setSetupToken] = useState('')
   const busyRef = useRef(false)
   const registerMode = mode === 'register' || firstRun
   const showModeSwitch = !firstRun && site?.registrationOpen
@@ -67,7 +69,7 @@ export function LoginPage() {
     busyRef.current = true
     setBusy(true)
     try {
-      if (registerMode) await passwordRegister(username.trim(), password)
+      if (registerMode) await passwordRegister(username.trim(), password, setupToken || undefined)
       else {
         const nextChallenge = await passwordLogin(username.trim(), password)
         if (nextChallenge) {
@@ -83,6 +85,7 @@ export function LoginPage() {
     } catch (caught) {
       busyRef.current = false
       setBusy(false)
+      if (caught instanceof ApiError && caught.code === 'setup_token_required') setSetupRequired(true)
       setError(caught instanceof ApiError ? caught.message : t("auth.network_error_try_again"))
     }
   }
@@ -171,6 +174,18 @@ export function LoginPage() {
                 autoComplete={registerMode ? 'new-password' : 'current-password'}
               />
             </>
+          )}
+          {!challenge && registerMode && setupRequired && (
+            <Input
+              aria-label={t("auth.setup_token")}
+              type="password"
+              value={setupToken}
+              maxLength={LIMITS.passwordMaxLength}
+              onChange={(event) => setSetupToken(event.target.value)}
+              disabled={busy}
+              placeholder={t("auth.setup_token")}
+              autoComplete="off"
+            />
           )}
           {!challenge && registerMode && (
             <Input

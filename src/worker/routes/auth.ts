@@ -34,6 +34,7 @@ import { JSON_BODY_LIMITS, readJson, requestClientIp } from '../lib/request'
 import { commitChange } from '../lib/notify'
 import { createSession, destroyOtherSessions, destroySession } from '../lib/session-store'
 import { createTotpLoginChallenge, hasEnabledTotp } from '../lib/totp-service'
+import { revokeLongLivedCredentials } from '../mcp/credentials'
 import {
   assertNotLocked,
   clearLoginFailures,
@@ -57,14 +58,19 @@ export { normalizeAvatarPreference } from '../avatars/storage'
 
 export function loginThrottleTargets(username: string, ip: string): ThrottleTarget[] {
   const identity = throttleIdentity(username)
-  return [
+  const targets: ThrottleTarget[] = [
     { key: `login:${ip}:${identity}`, freeFails: 5 },
     { key: `login-ip:${ip}`, freeFails: 25 },
-    // Account-wide cap so a distributed botnet cannot retry one account
-    // from many IPs forever; cleared on every successful sign-in, so a
-    // normal user only ever notices it after 30 failed attempts per hour.
-    { key: `login-account:${identity}`, freeFails: 30 },
   ]
+  // Account-wide cap so a distributed botnet cannot retry one account
+  // from many IPs forever; cleared on every successful sign-in, so a
+  // normal user only ever notices it after 30 failed attempts per hour.
+  // Malformed names collapse to one shared identity, so they keep only the
+  // per-IP buckets: otherwise strangers could lock out a user who mistypes.
+  if (identity !== '_invalid') {
+    targets.push({ key: `login-account:${identity}`, freeFails: 30 })
+  }
+  return targets
 }
 
 export function loginWorkTargets(username: string, ip: string) {
@@ -154,13 +160,6 @@ authRoutes.post('/register', async (c) => {
     throw new ApiError(403, 'registration_closed', 'Registration is closed on this instance')
   }
 
-  if (await setupTokenRequired(c.env)) {
-    const provided = typeof body.setupToken === 'string' ? body.setupToken : ''
-    if (!provided || !timingSafeEqual(provided, c.env.SETUP_TOKEN as string)) {
-      throw new ApiError(403, 'setup_token_required', 'A valid setup token is required to create the first account')
-    }
-  }
-
   await enforceAttemptBudget(c.env.DB, [
     {
       key: `register-work:${requestClientIp(c)}`,
@@ -168,6 +167,18 @@ authRoutes.post('/register', async (c) => {
       windowMs: 10 * 60 * 1000,
     },
   ])
+
+  if (await setupTokenRequired(c.env)) {
+    const expected = c.env.SETUP_TOKEN ?? ''
+    if (expected.length < 16) {
+      throw new ApiError(500, 'server_misconfigured', 'SETUP_TOKEN must be at least 16 characters')
+    }
+    const provided = typeof body.setupToken === 'string' ? body.setupToken : ''
+    if (!provided || !timingSafeEqual(provided, expected)) {
+      await dummyVerify()
+      throw new ApiError(403, 'setup_token_required', 'A valid setup token is required to create the first account')
+    }
+  }
 
   const db = c.env.DB
   const id = newId()
@@ -381,6 +392,7 @@ authRoutes.post('/password', async (c) => {
   }
 
   await destroyOtherSessions(db, user.id, c.get('sessionId'))
+  await revokeLongLivedCredentials(db, c.env.OAUTH_PROVIDER, user.id)
   const token = await rotateSession(c, user.id)
   writeSessionCookie(c, token)
   return c.json({ ok: true })
