@@ -1016,22 +1016,22 @@ notesRoutes.get('/:id/backlinks', async (c) => {
   ).bind(id, userId).first<{ title: string }>()
   if (!target) throw ApiError.notFound('Note not found')
   const needle = `[[${target.title}`
-
+  // One lower() copy and one instr per row: SQLite does not share the repeated
+  // lower(n.content) subexpression across the three references below.
   const { results } = await c.env.DB.prepare(
-    `SELECT n.id, n.title,
-       instr(lower(n.content), lower(?3)) AS hit,
-       length(n.content) AS len,
-       substr(n.content,
-         CASE WHEN instr(lower(n.content), lower(?3)) > 61
-              THEN instr(lower(n.content), lower(?3)) - 60 ELSE 1 END,
-         ?4) AS window
-     FROM links l
-       JOIN notes n ON n.id = l.source_note_id
-      WHERE l.user_id = ?1 AND l.target_note_id = ?2
-        AND n.deleted_at IS NULL AND n.id != ?2
-       ORDER BY n.updated_at DESC LIMIT 50`,
+    `SELECT id, title, len,
+       substr(content, MAX(hit - 60, 1), ?4) AS window
+     FROM (
+       SELECT n.id AS id, n.title AS title, n.content AS content,
+              instr(lower(n.content), ?3) AS hit, length(n.content) AS len
+         FROM links l
+           JOIN notes n ON n.id = l.source_note_id
+        WHERE l.user_id = ?1 AND l.target_note_id = ?2
+          AND n.deleted_at IS NULL AND n.id != ?2
+        ORDER BY n.updated_at DESC LIMIT 50
+     )`,
   )
-    .bind(userId, id, needle, needle.length + 150)
+    .bind(userId, id, needle.toLowerCase(), needle.length + 150)
     .all<{ id: string; title: string; hit: number; len: number; window: string }>()
 
   return c.json({
