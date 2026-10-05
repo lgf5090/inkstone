@@ -1,5 +1,6 @@
 import type { TargetRow } from './engine'
 import { backupArchivePath } from './archive'
+import { forEachConcurrent } from './concurrency'
 import type { Snapshot } from './snapshot'
 
 export async function retainSuccessfulBackup(
@@ -26,12 +27,21 @@ export async function retainSuccessfulBackup(
      WHERE user_id = ?1 AND target_id = ?2 AND destination = ?3
      ORDER BY created_at DESC, archive_path DESC LIMIT 51 OFFSET ?4`,
   ).bind(target.user_id, target.id, destination, keep).all<{ archive_path: string }>()
-  for (const row of results.slice(0, 50)) {
-    if (row.archive_path === archivePath || !/^backups\/inkstone-backup-\d{8}-\d{6}-\d{3}\.zip$/.test(row.archive_path)) continue
-    await remove(row.archive_path)
-    await db.prepare(
-      `DELETE FROM backup_archives WHERE user_id = ?1 AND target_id = ?2 AND destination = ?3 AND archive_path = ?4`,
-    ).bind(target.user_id, target.id, destination, row.archive_path).run()
+  const doomed = results.slice(0, 50)
+    .map((row) => row.archive_path)
+    .filter((path) => path !== archivePath
+      && /^backups\/inkstone-backup-\d{8}-\d{6}-\d{3}\.zip$/.test(path))
+  if (!doomed.length) {
+    if (results.length > 50) throw new Error('Old backup cleanup will continue after the next successful backup')
+    return
   }
+  // 50 removals were 50 serial R2 deletes each followed by its own D1 DELETE; one batched
+  // delete plus bounded-parallel removals keeps the same end state in 1 round trip.
+  await forEachConcurrent(doomed, 5, (path) => remove(path))
+  const placeholders = doomed.map((_, index) => `?${index + 4}`).join(', ')
+  await db.prepare(
+    `DELETE FROM backup_archives
+      WHERE user_id = ?1 AND target_id = ?2 AND destination = ?3 AND archive_path IN (${placeholders})`,
+  ).bind(target.user_id, target.id, destination, ...doomed).run()
   if (results.length > 50) throw new Error('Old backup cleanup will continue after the next successful backup')
 }

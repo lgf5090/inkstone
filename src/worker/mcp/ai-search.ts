@@ -101,16 +101,36 @@ export async function getAiSearchStatus(
   }
 }
 
+const AI_PREF_MEMO_MS = 30_000
+const AI_PREF_MEMO_MAX = 512
+const aiPrefMemo = new Map<string, { db: D1Database; enabled: boolean; expiresAt: number }>()
+
 export async function setAiSearchEnabled(
   db: D1Database,
   userId: string,
   enabled: boolean,
 ): Promise<void> {
+  aiPrefMemo.delete(userId)
   await setMeta(db, aiSearchPrefKey(userId), enabled ? '1' : '0')
 }
 
 export async function isAiSearchEnabled(db: D1Database, userId: string): Promise<boolean> {
   return await getMeta(db, aiSearchPrefKey(userId)) === '1'
+}
+
+/**
+ * Drain-only view of the preference. `noteIndexQueueStatement` keeps the authoritative
+ * guard in SQL, so a stale entry can only skip or start an empty background drain; it
+ * never queues work the account is not allowed to have.
+ */
+async function isAiSearchEnabledMemoized(db: D1Database, userId: string): Promise<boolean> {
+  const now = Date.now()
+  const cached = aiPrefMemo.get(userId)
+  if (cached && cached.db === db && cached.expiresAt > now) return cached.enabled
+  const enabled = await isAiSearchEnabled(db, userId)
+  if (aiPrefMemo.size >= AI_PREF_MEMO_MAX) aiPrefMemo.clear()
+  aiPrefMemo.set(userId, { db, enabled, expiresAt: now + AI_PREF_MEMO_MS })
+  return enabled
 }
 
 // Stored in app_meta instead of a column on mcp_preferences: D1 does not
@@ -282,7 +302,7 @@ export function scheduleAiDrainForNote(
 
 async function drainUserQueueForWrites(env: Env, userId: string, budgetOf: () => number): Promise<number> {
   if (!env.AI) return 0
-  if (!await isAiSearchEnabled(env.DB, userId)) return 0
+  if (!await isAiSearchEnabledMemoized(env.DB, userId)) return 0
   return drainUserQueue(env, userId, budgetOf)
 }
 

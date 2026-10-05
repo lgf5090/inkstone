@@ -68,6 +68,10 @@ const allowed = new Map([
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
     "/**\n   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per\n   * change used to cost ~1.9 ms even though the debounced write happens once.\n   */",
   ]],
+  ["src/client/lib/export-note.ts", [
+    "// Attachments reach 25 MB each, so the fetches are capped in flight and always time out",
+    "// rather than hanging an export on a stalled object.",
+  ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
     "// Preload the other locale in background for instant switching, but don't block init",
@@ -137,6 +141,10 @@ const allowed = new Map([
   ["src/worker/backup/archive.ts", [
     "// The restore limits are the real ceiling: a ZIP that can never be imported back is",
     "// not a backup, and building it would buffer hundreds of MB in this isolate.",
+  ]],
+  ["src/worker/backup/retention.ts", [
+    "// 50 removals were 50 serial R2 deletes each followed by its own D1 DELETE; one batched",
+    "// delete plus bounded-parallel removals keeps the same end state in 1 round trip.",
   ]],
   ["src/worker/backup/scheduler.ts", [
     "/** Accounts only enter the trim loop once they are this far past the retention target. */",
@@ -239,6 +247,7 @@ const allowed = new Map([
     "// Nothing committed: the whole window was pushed back with a retry delay, so",
     "// re-reading it in this run would only repeat the same failure.",
     "/**\n * Keeps one failing note from freezing the account's queue: the row is re-armed with a\n * retry delay, and dropped after EMBED_MAX_ATTEMPTS so the head always advances. The\n * note keeps `created_at` as its identity guard so a newer edit is never penalised.\n */",
+    "/**\n * Drain-only view of the preference. `noteIndexQueueStatement` keeps the authoritative\n * guard in SQL, so a stale entry can only skip or start an empty background drain; it\n * never queues work the account is not allowed to have.\n */",
   ]],
   ["src/worker/mcp/api-keys.ts", [
     "/**\n * Static API keys for MCP access.\n *\n * Small or generic MCP clients (scripts, SDKs, unnamed agents) cannot run the\n * OAuth 2.1 dance, so they authenticate with a plain `Authorization: Bearer\n * <key>` header — the universal HTTP standard. The OAuth provider resolves\n * these tokens through its official `resolveExternalToken` hook; the key is\n * never stored or returned again, only its SHA-256 hash.\n */",
@@ -298,6 +307,11 @@ const allowed = new Map([
     "// The quota read rides along with hashing instead of adding a serial round trip.",
     "// A keyset page continues a listing the client already counted; re-counting scans every",
     "// visible row (up to LIMITS.notesMaxPerUser) again on each page turn.",
+  ]],
+  ["src/worker/routes/share.ts", [
+    "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
+    "// View counts are display-only; dropping them beats paying an O(n) sweep per request",
+    "// or growing the isolate without bound under many distinct visitors.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",

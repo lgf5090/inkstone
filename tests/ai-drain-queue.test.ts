@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { drainAiIndexQueue } from '../src/worker/mcp/ai-search'
+import { drainAiIndexQueue, scheduleAiDrain, setAiSearchEnabled } from '../src/worker/mcp/ai-search'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -129,5 +129,56 @@ describe('drainAiIndexQueue', () => {
     const { processed } = await drainAiIndexQueue(fixture.env, 20)
     expect(processed).toBe(0)
     expect(fixture.calls.length).toBe(0)
+  })
+})
+
+const prefReadsOf = (db: D1Database) => {
+  const prepare = db.prepare.bind(db)
+  let reads = 0
+  Object.defineProperty(db, 'prepare', {
+    value: (sql: string) => {
+      if (sql.startsWith('SELECT value FROM app_meta')) reads++
+      return prepare(sql)
+    },
+  })
+  return () => reads
+}
+
+function drainContext() {
+  const settled: Promise<unknown>[] = []
+  return {
+    ctx: { waitUntil: (promise: Promise<unknown>) => settled.push(promise) },
+    async settle() {
+      await Promise.all(settled.splice(0))
+    },
+  }
+}
+
+describe('scheduleAiDrain preference check', () => {
+  it('reads the AI preference once across back-to-back drains of the same account', async () => {
+    const quiet = seed(0)
+    quiet.sqlite.prepare('DELETE FROM app_meta').run()
+    const reads = prefReadsOf(quiet.env.DB)
+    const { ctx, settle } = drainContext()
+    for (let round = 0; round < 3; round++) {
+      scheduleAiDrain({ env: quiet.env, executionCtx: ctx }, USER, 2)
+      await settle()
+    }
+    expect(reads()).toBe(1)
+    expect(quiet.calls.length).toBe(0)
+  })
+
+  it('starts draining as soon as the preference is turned on in this isolate', async () => {
+    const fixture = seed(1)
+    fixture.sqlite.prepare('DELETE FROM app_meta').run()
+    const { ctx, settle } = drainContext()
+    scheduleAiDrain({ env: fixture.env, executionCtx: ctx }, USER, 2)
+    await settle()
+    expect(fixture.calls.length).toBe(0)
+    await setAiSearchEnabled(fixture.env.DB, USER, true)
+    scheduleAiDrain({ env: fixture.env, executionCtx: ctx }, USER, 2)
+    await settle()
+    expect(fixture.calls.length).toBe(1)
+    expect(indexedCount(fixture.sqlite)).toBe(1)
   })
 })
