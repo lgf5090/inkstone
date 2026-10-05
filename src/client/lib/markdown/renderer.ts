@@ -696,6 +696,11 @@ function stripObsidianComments(source: string): string {
         }
         if (fenceChar)
             return line;
+        // A line with neither marker cannot change state, so rebuild-by-character is pure
+        // overhead. The inComment test must stay: inside an open %% block the loop below
+        // blanks the line instead of copying it.
+        if (!inComment && !body.includes('%') && !body.includes('`'))
+            return line;
         let output = '';
         let inlineTicks = 0;
         for (let index = 0; index < body.length;) {
@@ -831,6 +836,8 @@ function createNonce(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 function materializeTrustedTasks(html: string, nonce: string): string {
+    if (!html.includes('data-task-placeholder'))
+        return html;
     const template = document.createElement('template');
     template.innerHTML = html;
     template.content.querySelectorAll<HTMLElement>('[data-task-placeholder]').forEach((placeholder) => {

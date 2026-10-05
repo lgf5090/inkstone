@@ -280,7 +280,6 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 : commands.map<Item>((item) => ({ ...item, score: 0 }));
         }
         const remoteResults = remote.query === text ? remote.results : [];
-        const noteList = Object.values(notes).filter((n) => !n.deletedAt);
         if (!text) {
 
             const recent = recentNoteIds
@@ -302,6 +301,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 .map<Item>((c) => ({ ...c, score: 0 }));
             return [...recent, ...quick];
         }
+        const noteList = Object.values(notes).filter((n) => !n.deletedAt);
         const matchedCommands = fuzzyFilter(commands, text, (c) => c.label, 8).map<Item>(({ item, match }) => ({ ...item, score: match.score + 60, match }));
         const matchedNotes = fuzzyFilter(noteList, text, (n) => n.title, 14).map<Item>(({ item, match }) => ({
             id: `note-${item.id}`,
