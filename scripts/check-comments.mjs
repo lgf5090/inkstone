@@ -562,6 +562,9 @@ const allowed = new Map([
     "// remaining pages.",
     "// Never move the client's cursor backwards, even if it reported a",
     "// seq ahead of the server (e.g. data was trimmed).",
+    "// Tag counts are a projection over `note_tags`, and a note write only emits a `note` change",
+    "// row. Without this the delta would carry stale counts forever. Note deletions never reach",
+    "// `noteIds` (they become `deletions`), so the flag has to read the raw change rows.",
   ]],
   ["src/worker/routes/tags.ts", [
     "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
@@ -679,6 +682,10 @@ const allowed = new Map([
   ["tests/setup-token.test.ts", [
     "// Twelve guesses per ten minutes, then the fourteenth request is refused outright:",
     "// ordering this after the comparison left the zero-user window unthrottled.",
+  ]],
+  ["tests/tag-count-live-sync.test.ts", [
+    "// `since <= 0` makes the route answer with a full snapshot, which always carries full facets.",
+    "// Every delta assertion therefore needs a change row behind it to stay on the delta branch.",
   ]],
   ["tests/throttle-lock-decay.test.ts", [
     "// The per-slug global work budget from shareVerifyThrottleTargets: 60 attempts per ten",

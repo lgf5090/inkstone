@@ -1319,6 +1319,12 @@ function commitPendingSummaryDerivation(id: string): void {
             return state;
         }
         shellChanged = true;
+        const contributes = summary.deletedAt === null && !summary.isArchived;
+        const facetTags = contributes && tags !== summary.tags
+            ? adjustTagCountsForNoteEdit(state.tags, summary.tags, tags)
+            : state.tags;
+        if (facetTags !== state.tags)
+            tagStateGeneration++;
         return {
             notes: {
                 ...state.notes,
@@ -1331,10 +1337,32 @@ function commitPendingSummaryDerivation(id: string): void {
                     updatedAt: pending.updatedAt,
                 },
             },
+            tags: facetTags,
         };
     });
     if (shellChanged)
         scheduleShellSave(pending.get);
+}
+export function adjustTagCountsForNoteEdit(
+    tags: Tag[],
+    previous: readonly string[],
+    next: readonly string[],
+): Tag[] {
+    const before = new Set(previous.map(tagNameKey));
+    const after = new Set(next.map(tagNameKey));
+    let changed = false;
+    const out = tags.map((tag) => {
+        const key = tagNameKey(tag.name);
+        const delta = (after.has(key) ? 1 : 0) - (before.has(key) ? 1 : 0);
+        if (delta === 0)
+            return tag;
+        changed = true;
+        return { ...tag, count: Math.max(0, tag.count + delta) };
+    });
+    return changed ? out : tags;
+}
+function tagNameKey(name: string): string {
+    return name.normalize('NFKC').toLocaleLowerCase();
 }
 function equalStringArrays(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((value, index) => value === b[index]);

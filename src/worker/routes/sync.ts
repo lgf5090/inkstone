@@ -98,7 +98,10 @@ syncRoutes.get('/', requireAuth, async (c) => {
     else if (item.entity === 'folder') folderIds.push(item.id)
     else if (item.entity === 'tag') tagIds.push(item.id)
   }
-  const facetsFull = false
+  // Tag counts are a projection over `note_tags`, and a note write only emits a `note` change
+  // row. Without this the delta would carry stale counts forever. Note deletions never reach
+  // `noteIds` (they become `deletions`), so the flag has to read the raw change rows.
+  const facetsFull = changes.some((ch) => ch.entity === 'note')
   const settingsChanged = [...latest.values()].some((item) => item.entity === 'settings')
   const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
