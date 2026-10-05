@@ -6,6 +6,14 @@ import { highlightWithPrism } from './prism';
 
 const OPTIONAL_RENDERER_LOAD_TIMEOUT_MS = 15000;
 
+function directElementChild(parent: HTMLElement, tagName: string): HTMLElement | null {
+    for (let node = parent.firstElementChild; node; node = node.nextElementSibling) {
+        if (node.tagName === tagName)
+            return node as HTMLElement;
+    }
+    return null;
+}
+
 export function decorateCodeBlock(block: HTMLElement): void {
     const pre = block.querySelector<HTMLElement>('pre');
     const code = pre?.querySelector<HTMLElement>('code');
@@ -36,6 +44,7 @@ export function decorateCodeBlock(block: HTMLElement): void {
         .filter((value) => Number.isInteger(value) && value > 0));
     const numbered = block.dataset.lineNumbers === 'true';
     block.classList.toggle('has-line-numbers', numbered);
+    decoratedLineCounts.set(block, lines.length);
     lines.forEach((line, index) => {
         line.dataset.lineNumber = String(start + index);
         line.classList.toggle('highlighted', highlighted.has(index + 1));
@@ -66,10 +75,12 @@ function splitNodeAtNewlines(node: Node): Node[][] {
 }
 
 const codeHighlightCache = new Map<string, { html: string; language: string } | null>();
+const decoratedLineCounts = new WeakMap<HTMLElement, number>();
 
 async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
     await Promise.all([...root.querySelectorAll<HTMLElement>('.code-block')].map(async (block) => {
-        const code = block.querySelector<HTMLElement>(':scope > pre > code');
+        const pre = directElementChild(block, 'PRE');
+        const code = pre ? directElementChild(pre, 'CODE') : null;
         if (!code)
             return;
         const source = (code.textContent ?? '').replace(/\n$/, '');
@@ -108,8 +119,9 @@ export function configureCodeBlockCollapsing(root: HTMLElement, collapseLines: n
     const threshold = Number.isInteger(collapseLines) && collapseLines >= 8 ? collapseLines : 0;
     root.querySelectorAll<HTMLElement>('.code-block:not(.markdown-example-code)').forEach((block) => {
         const button = block.querySelector<HTMLButtonElement>('[data-code-collapse]');
-        const pre = block.querySelector<HTMLElement>(':scope > pre');
-        const lineCount = block.querySelectorAll(':scope pre code > .line').length;
+        const pre = directElementChild(block, 'PRE');
+        const known = decoratedLineCounts.get(block);
+        const lineCount = known === undefined ? block.querySelectorAll<HTMLElement>(':scope pre code > .line').length : known;
         const wasExpanded = block.classList.contains('is-code-expanded');
         block.classList.remove('is-code-collapsed', 'is-code-expanded');
         delete block.dataset.codeCollapseLines;
