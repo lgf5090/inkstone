@@ -489,6 +489,12 @@ export function createDemoBackend(): DemoBackend {
     if (typeof body.color === 'string' && !/^#[0-9a-f]{6}$/i.test(body.color)) {
       return apiError(400, 'bad_request', 'Tag color must be a six-digit hexadecimal color')
     }
+    if (body.isPinned !== undefined && typeof body.isPinned !== 'boolean') {
+      return apiError(400, 'bad_request', 'isPinned must be a boolean')
+    }
+    if (typeof body.name === 'string' && body.isPinned !== undefined) {
+      return apiError(400, 'bad_request', 'Rename and pinning have to be sent as separate requests')
+    }
     if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== current.name) {
       const requestedName = body.name.trim().replace(/^#/, '')
       const existing = listTags(state).find((tag) => tag.id !== current.id
@@ -507,10 +513,14 @@ export function createDemoBackend(): DemoBackend {
         ? body.color
         : state.tagColors.get(nextName) ?? state.tagColors.get(current.name) ?? null)
       state.tagColors.delete(current.name)
+      state.tagPins.set(nextName,
+        state.tagPins.get(current.name) === true || state.tagPins.get(nextName) === true)
+      if (nextName !== current.name) state.tagPins.delete(current.name)
       state.cursor++
       return c.json({ ok: true as const, renamed })
     }
     if (body.color === null || typeof body.color === 'string') state.tagColors.set(current.name, body.color)
+    if (typeof body.isPinned === 'boolean') state.tagPins.set(current.name, body.isPinned)
     state.cursor++
     return c.json(listTags(state).find((tag) => tag.id === current.id) ?? current)
   })
@@ -526,6 +536,7 @@ export function createDemoBackend(): DemoBackend {
     }
     state.tagIds.delete(current.name)
     state.tagColors.delete(current.name)
+    state.tagPins.delete(current.name)
     state.cursor++
     return c.json({ ok: true as const, affected })
   })
@@ -660,7 +671,7 @@ export function createDemoBackend(): DemoBackend {
       full: changed,
       hasMore: false,
       nextKey: null,
-      facetsFull: true,
+      facetsFull: changed,
       settingsChanged: false,
       profileChanged: false,
       notes: changed ? [...state.notes.values()].map(summarize) : [],
