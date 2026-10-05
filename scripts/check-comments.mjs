@@ -188,6 +188,11 @@ const allowed = new Map([
   ["src/worker/backup/archive.ts", [
     "// The restore limits are the real ceiling: a ZIP that can never be imported back is",
     "// not a backup, and building it would buffer hundreds of MB in this isolate.",
+    "/** Files whose consistency re-read is in flight while the ZIP consumes the current one. */",
+    "// Each file is still re-read at the moment its entry is produced (that is the consistency",
+    "// guarantee), but the re-reads are now pipelined: waiting one D1 round trip per note made a",
+    "// 5000 note backup spend 40–75 s purely waiting between entries.",
+    "// A cancelled consumer must not leave the in-flight re-reads as unhandled rejections.",
   ]],
   ["src/worker/backup/retention.ts", [
     "// 50 removals were 50 serial R2 deletes each followed by its own D1 DELETE; one batched",
@@ -397,6 +402,10 @@ const allowed = new Map([
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
+  ]],
+  ["tests/backup-archive-gate.test.ts", [
+    "// Emitting the declared length is what lets a test consume the archive to completion:",
+    "// the size guard in archive.ts rejects a short re-read.",
   ]],
   ["tests/doubles/d1-sqlite.ts", [
     "// node:sqlite happily runs a write through .all(), so the statement kind has to be",
