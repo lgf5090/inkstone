@@ -22,9 +22,8 @@ export function AppearanceSettings({
 }: {
   accents: { name: AccentName; swatch: string; foreground: string }[]
 }) {
-  const settings = useSession((s) => s.settings)
+  const appearance = useSession((s) => s.settings.appearance)
   const update = useSession((s) => s.updateSettings)
-  const appearance = settings.appearance
 
   return (
     <div>

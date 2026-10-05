@@ -43,7 +43,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 } = {}) {
     const { note, content, loaded } = useActiveNote(pane);
     const loadError = useNotes((s) => note ? s.noteLoadErrors[note.id] : undefined);
-    const settings = useSession((s) => s.settings);
+    const editorSettings = useSession((s) => s.settings.editor);
+    const previewSettings = useSession((s) => s.settings.preview);
     const userId = useSession((s) => s.user?.id);
     const updateSettings = useSession((s) => s.updateSettings);
     const editContent = useNotes((s) => s.editContent);
@@ -135,9 +136,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const mobilePane = useUi((s) => s.mobilePane);
     const layout = isMobile ? (mobilePane === 'preview' ? 'preview' : 'live') : grouped && pane !== 'active'
             ? workspacePaneLayouts[pane]
-            : settings.preview.layout;
+            : previewSettings.layout;
     const showEditor = layout !== 'preview';
-    const livePreviewEnabled = settings.editor.livePreview;
+    const livePreviewEnabled = editorSettings.livePreview;
     const showPreview = layout !== 'live';
     const showSplit = layout === 'split';
     const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0;
@@ -237,7 +238,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         command(view);
         view.focus();
     }, [view]);
-    const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, settings.preview.syncScroll && showSplit);
+    const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, previewSettings.syncScroll && showSplit);
     const jumpToHeading = useCallback((heading: Heading) => {
         if (view && showEditor) {
             const line = Math.min(view.state.doc.lines, heading.line + 1);
@@ -492,11 +493,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         </div>
       </header>
 
-      {settings.editor.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
+      {editorSettings.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
 
       <div ref={containerRef} className={cn("flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
-            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={settings.editor} sources={sources} handlers={handlers} onReady={onEditorReady}/>
+            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}

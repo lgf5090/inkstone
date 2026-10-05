@@ -224,17 +224,30 @@ export function mergeSettings(partial: unknown): UserSettings {
 }
 
 
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'backup', 'sync'] as const
+
+function sameFlatRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
+}
+
 export function mergeSettingsPatch(current: unknown, patch: unknown): UserSettings {
   const previous = asRecord(current)
   const incoming = asRecord(patch)
   const combined: Record<string, unknown> = { ...previous }
-  for (const section of ['appearance', 'editor', 'preview', 'backup', 'sync'] as const) {
-    combined[section] = {
-      ...asRecord(previous[section]),
-      ...asRecord(incoming[section]),
-    }
+  for (const section of SETTINGS_SECTIONS) {
+    const delta = asRecord(incoming[section])
+    combined[section] = Object.keys(delta).length
+      ? { ...asRecord(previous[section]), ...delta }
+      : previous[section]
   }
-  return mergeSettings(combined)
+  const next: Record<string, unknown> = { ...mergeSettings(combined) }
+  for (const section of SETTINGS_SECTIONS) {
+    const before = asRecord(previous[section])
+    if (Object.keys(before).length && sameFlatRecord(asRecord(next[section]), before))
+      next[section] = before
+  }
+  return next as unknown as UserSettings
 }
 
 function cloneDefaultSettings(): UserSettings {

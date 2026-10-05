@@ -2,10 +2,9 @@ import { Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
 export function EditorSettings() {
-    const settings = useSession((s) => s.settings);
+    const editor = useSession((s) => s.settings.editor);
+    const preview = useSession((s) => s.settings.preview);
     const update = useSession((s) => s.updateSettings);
-    const editor = settings.editor;
-    const preview = settings.preview;
     return (<div className="space-y-6">
       <section>
         <SettingRow title={t("settings.editor_font")}>

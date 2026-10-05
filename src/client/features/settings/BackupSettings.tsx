@@ -17,7 +17,7 @@ import { t, translateServiceMessage } from "../../lib/i18n";
 import { useSettingsResource } from './resource';
 import { backupTargetsResource, backupRunsResource } from './resources';
 export function BackupSettings() {
-    const settings = useSession((s) => s.settings);
+    const backup = useSession((s) => s.settings.backup);
     const update = useSession((s) => s.updateSettings);
     const toast = useUi((s) => s.toast);
     const [targets, setTargets] = useSettingsResource(backupTargetsResource);
@@ -143,7 +143,7 @@ export function BackupSettings() {
       <section>
         <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.automatic_backups")}</h3>
         <SettingRow title={t("settings.frequency")} description={t("settings.runs_from_cloudflare_cron_the_page_does_not_need_to_stay_open")}>
-          <Select aria-label={t("settings.frequency")} className="min-w-36" value={settings.backup.schedule} onChange={(event) => void update({ backup: { schedule: event.target.value as BackupSchedule } })}>
+          <Select aria-label={t("settings.frequency")} className="min-w-36" value={backup.schedule} onChange={(event) => void update({ backup: { schedule: event.target.value as BackupSchedule } })}>
             <option value="off">{t("common.close")}</option>
             <option value="hourly">{t("settings.hourly")}</option>
             <option value="sixHourly">{t("settings.every_6_hours")}</option>
@@ -154,10 +154,10 @@ export function BackupSettings() {
           </Select>
         </SettingRow>
         <SettingRow title={t("settings.backup_retention")} description={t("settings.backup_retention_description")}>
-          <Select aria-label={t("settings.backup_retention")} className="min-w-36" value={settings.backup.retentionCount} onChange={(event) => void update({ backup: { retentionCount: Number(event.target.value) } })}>
+          <Select aria-label={t("settings.backup_retention")} className="min-w-36" value={backup.retentionCount} onChange={(event) => void update({ backup: { retentionCount: Number(event.target.value) } })}>
             <option value="0">{t("settings.keep_all_backups")}</option>
             {[7, 14, 30, 90, 365].map((count) => <option key={count} value={count}>{t("settings.keep_latest_backups", { count })}</option>)}
-            {settings.backup.retentionCount > 0 && ![7, 14, 30, 90, 365].includes(settings.backup.retentionCount) && <option value={settings.backup.retentionCount}>{t("settings.keep_latest_backups", { count: settings.backup.retentionCount })}</option>}
+            {backup.retentionCount > 0 && ![7, 14, 30, 90, 365].includes(backup.retentionCount) && <option value={backup.retentionCount}>{t("settings.keep_latest_backups", { count: backup.retentionCount })}</option>}
           </Select>
         </SettingRow>
       </section>
