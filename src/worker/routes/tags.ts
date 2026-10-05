@@ -219,9 +219,9 @@ tagsRoutes.patch('/:id', async (c) => {
         WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND color IS ?4)
        RETURNING seq`,
     ).bind(userId, id, now, color)
-    const [updated] = await c.env.DB.batch([update, change])
-    if (!updated?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
-    await broadcastCursor(c, (updated as D1Result<{ seq: number }>).results?.[0]?.seq)
+    const colorBatch = await c.env.DB.batch([update, change])
+    if (!colorBatch[0]?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+    await broadcastCursor(c, (colorBatch[1] as D1Result<{ seq: number }>).results?.[0]?.seq)
   }
   const row = await c.env.DB.prepare(
     tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
