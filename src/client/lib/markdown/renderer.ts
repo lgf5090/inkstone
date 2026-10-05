@@ -671,19 +671,39 @@ export interface MarkdownBlock {
 export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[]; headings: Heading[] } {
     const env = emptyEnvironment();
     const tokens = md.parse(stripObsidianComments(source), env);
-    const blocks: MarkdownBlock[] = [];
+    const groups: Array<{ startLine: number; endLine: number; raw: string }> = [];
+    let tail = '';
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i]!;
-        if (!token.map || token.level !== 0 || token.nesting === -1) continue;
+        if (token.level !== 0 || token.nesting === -1) continue;
         let end = i + 1;
         if (token.nesting === 1) {
             let depth = 1;
             while (end < tokens.length && depth > 0) depth += tokens[end++]!.nesting;
         }
         const raw = md.renderer.render(tokens.slice(i, end), md.options, env);
-        const html = materializeTrustedTasks(DOMPurify.sanitize(raw, PURIFY_CONFIG), env.taskNonce);
-        if (html.trim()) blocks.push({ startLine: token.map[0], endLine: token.map[1], html });
+        if (token.map)
+            groups.push({ startLine: token.map[0], endLine: token.map[1], raw });
+        else
+            tail += raw;
         i = end - 1;
+    }
+    if (tail && groups.length)
+        groups[groups.length - 1]!.raw += tail;
+    const blocks: MarkdownBlock[] = [];
+    if (!groups.length)
+        return { blocks, headings: env.headings };
+    const marker = `${env.taskNonce}:`;
+    const frame = document.createElement('template');
+    frame.innerHTML = materializeTrustedTasks(DOMPurify.sanitize(groups.map((group, index) => `<div data-render-group="${marker}${index}">${group.raw}</div>`).join(''), PURIFY_CONFIG), env.taskNonce);
+    for (const child of Array.from(frame.content.children)) {
+        const key = (child as HTMLElement).dataset?.renderGroup;
+        if (typeof key !== 'string' || !key.startsWith(marker))
+            continue;
+        const group = groups[Number(key.slice(marker.length))];
+        const html = child.innerHTML;
+        if (group && html.trim())
+            blocks.push({ startLine: group.startLine, endLine: group.endLine, html });
     }
     return { blocks, headings: env.headings };
 }

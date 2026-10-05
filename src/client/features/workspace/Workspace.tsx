@@ -172,8 +172,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             const next = container.getBoundingClientRect().width;
             setContainerWidth((current) => Math.abs(current - next) < 0.5 ? current : next);
         };
-        measure();
         if (typeof ResizeObserver === 'undefined') {
+            measure();
             window.addEventListener('resize', measure);
             return () => window.removeEventListener('resize', measure);
         }

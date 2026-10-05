@@ -473,7 +473,7 @@ function restorePreviewViewport(
   snapshot: PreviewViewport,
 ): void {
   if (snapshot.atTop) {
-    if (scroller.scrollTop > 0.5) scroller.scrollTop = 0
+    if (snapshot.scrollTop > 0.5) scroller.scrollTop = 0
     return
   }
   if (snapshot.atBottom) {
