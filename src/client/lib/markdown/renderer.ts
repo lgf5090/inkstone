@@ -970,11 +970,10 @@ function findDirectiveTabSegments(state: {
         let contentStart = line + 1;
         let selected = false;
         while (contentStart < close) {
-            const option = /^:([a-z][a-z0-9_-]*):(?:[ \t]+.*)?$/i.exec(blockLine(state, contentStart));
+            const option = /^:selected:?(?:[ \t]+[^\r\n]*)?$/i.exec(blockLine(state, contentStart));
             if (!option)
                 break;
-            if (option[1]!.toLowerCase() === 'selected')
-                selected = true;
+            selected = true;
             contentStart++;
         }
         if (contentStart < close && !blockLine(state, contentStart).trim())
@@ -996,7 +995,11 @@ function colonFenceMark(text: string): { length: number; opens: boolean } | null
     const rest = text.slice(run[0].length);
     if (!rest.trim())
         return { length: run[0]!.length, opens: false };
-    return COLON_CONTAINER_BODY.test(rest) ? { length: run[0]!.length, opens: true } : null;
+    // A recognised directive opens a container; an unknown `::: name` still has to hold its
+    // own closer, or a directive the renderer does not know would steal its parent's close.
+    if (COLON_CONTAINER_BODY.test(rest) || /^[ \t]*[A-Za-z][-\w]{0,31}/.test(rest))
+        return { length: run[0]!.length, opens: true };
+    return null;
 }
 function findColonFenceEnd(state: {
     src: string;

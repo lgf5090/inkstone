@@ -175,7 +175,19 @@ function isEscaped(text: string, index: number): boolean {
   return slashes % 2 === 1
 }
 
-function tagSearchText(text: string): string {
+/**
+ * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written
+ * on an item line is not a link anywhere else either. Blanked in place: the offsets that
+ * `replaceTagInContent` splices with have to stay valid.
+ */
+function blankTabLabels(text: string): string {
+  return text
+    .replace(/^([ \t]{0,3}:{3,}(?:\{tab-item\}|[ \t]*tab-item)(?![\w-]))[^\r\n]*$/gm, (whole, head: string) => head + ' '.repeat(whole.length - head.length))
+    .replace(/^([ \t]*@tab)(?![\w-])[^\r\n]*$/gim, (whole, head: string) => head + ' '.repeat(whole.length - head.length))
+}
+
+function tagSearchText(input: string): string {
+  const text = blankTabLabels(input)
   const protectedChars = new Uint8Array(text.length)
   const protect = (start: number, end: number) => {
     const boundedStart = Math.max(0, start)
@@ -425,7 +437,7 @@ export interface WikiLink {
 
 
 export function extractWikiLinks(content: string): WikiLink[] {
-  const safe = stripCodeRegions(splitFrontMatter(content).body)
+  const safe = blankTabLabels(stripCodeRegions(splitFrontMatter(content).body))
   const seen = new Set<string>()
   const out: WikiLink[] = []
   for (const m of safe.matchAll(WIKI_RE)) {

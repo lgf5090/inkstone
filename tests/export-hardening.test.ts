@@ -208,6 +208,14 @@ it('prints collapsed details and folded callouts open, with their titles', async
   expect(html).toContain('Folded tip')
 })
 
+it('carries no control that needs scripts the export does not ship', async () => {
+  const { html } = await capturePrint(TAB_BODY + '\n\n```ts\nconst a = 1\n```\n')
+  const doc = parseDocument(html)
+  expect(doc.querySelectorAll('[data-copy]')).toHaveLength(0)
+  expect(doc.querySelectorAll('[data-mermaid-retry]')).toHaveLength(0)
+  expect(html).toContain('const a = 1')
+})
+
 it('expands the interactive blocks that arrive inside a transclusion', async () => {
   const { html } = await capturePrint([
     '# Outer',

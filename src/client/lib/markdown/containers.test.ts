@@ -140,6 +140,30 @@ describe('colon container syntax tolerance', () => {
         expect(opened).toContain(' open')
     })
 
+    it('takes :selected with or without the trailing colon', () => {
+        for (const option of [':selected', ':selected:']) {
+            const host = document.createElement('div')
+            host.innerHTML = html(`:::: tabs\n::: tab-item A\nx\n:::\n::: tab-item B\n${option}\ny\n:::\n::::`)
+            const panels = [...host.querySelectorAll<HTMLElement>('[data-tab-panel]')]
+            expect([panels[0]!.hidden, panels[1]!.hidden], option).toEqual([true, false])
+        }
+    })
+
+    it('drops only real option lines, not arbitrary text', () => {
+        const panel = panelOf(':::: tabs\n::: tab-item A\n:keepme:\nx\n:::\n::::', 0)
+        expect(panel.textContent).toContain(':keepme:')
+    })
+
+    it('lets an unknown directive keep its own closer', () => {
+        const host = document.createElement('div')
+        host.innerHTML = html(':::: tabs\n::: tab-item A\n::: note X\nbody text\n:::\n:::\n::::')
+        expect(host.querySelectorAll('[data-tabs]')).toHaveLength(1)
+        const panel = host.querySelector<HTMLElement>('[data-tab-panel="0"]')!
+        expect(panel.textContent).toContain('body text')
+        expect(panel.textContent).toContain('::: note X')
+        expect(host.children).toHaveLength(1)
+    })
+
     it('leaves an unknown colon directive alone', () => {
         expect(html('::: note T\nbody\n:::')).toContain('::: note T')
     })

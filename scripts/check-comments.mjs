@@ -131,6 +131,7 @@ const allowed = new Map([
     "// a toggle; an exported .html carries no script and a print frame is sandboxed without",
     "// allow-scripts, so everything the author hid would simply be missing.",
     "// The bar only exists to switch panels, and nothing can switch them here.",
+    "// The copy button and the diagram retry only exist because the preview has scripts.",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
@@ -165,6 +166,8 @@ const allowed = new Map([
     "// readable instead of discarding the whole group.",
     "// One closer line closes the innermost container it can serve, so a `:::` inside a",
     "// `::::` set ends that inner block instead of truncating its parent.",
+    "// A recognised directive opens a container; an unknown `::: name` still has to hold its",
+    "// own closer, or a directive the renderer does not know would steal its parent's close.",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
@@ -245,6 +248,7 @@ const allowed = new Map([
     "/** Code point count without materialising `[...text]`, which costs one array slot per character. */",
     "// The CJK ranges are all BMP, so scanning UTF-16 units matches the per-code-point test",
     "// while surrogate pairs (which decode outside those ranges) stay uncounted either way.",
+    "/**\n * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written\n * on an item line is not a link anywhere else either. Blanked in place: the offsets that\n * `replaceTagInContent` splices with have to stay valid.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

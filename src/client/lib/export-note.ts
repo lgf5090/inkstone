@@ -96,7 +96,13 @@ async function prepareExportBody(note: { title: string; content: string }): Prom
   await renderMath(doc)
   await renderPendingMermaid(doc, false)
   expandHiddenBlocks(doc.body)
+  stripInertControls(doc.body)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
+}
+
+// The copy button and the diagram retry only exist because the preview has scripts.
+function stripInertControls(root: HTMLElement): void {
+  root.querySelectorAll('[data-copy], [data-mermaid-retry]').forEach((control) => control.remove())
 }
 
 // A tab panel only becomes visible through a click, and a collapsed <details> only through

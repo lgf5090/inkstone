@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, toPlainText } from './markdown-utils'
+import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, replaceTagInContent, toPlainText } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -8,6 +8,30 @@ const TAB_NOTE = [
   ':::',
   '::::',
 ].join('\n')
+
+describe('tab labels are plain text everywhere', () => {
+  const labelled = [':::: tabs', '::: tab-item [[Label Note]]', '[[Body Note]]', ':::', '::::'].join('\n')
+
+  it('does not turn a tab label into a link the preview cannot follow', () => {
+    expect(extractWikiLinks(labelled).map((link) => link.target)).toEqual(['Body Note'])
+  })
+
+  it('does not count a tag that only exists as a label', () => {
+    expect(extractTags(':::: tabs\n::: tab-item #labeltag\n#bodytag\n:::\n::::')).toEqual(['bodytag'])
+    expect(extractTags(':::: tabs\n@tab #labeltag\n#bodytag\n::::')).toEqual(['bodytag'])
+  })
+
+  it('still counts a wikilink or tag in a details or callout title, which do render it', () => {
+    expect(extractWikiLinks('::: details [[Sided Note]]\nbody\n:::').map((link) => link.target)).toEqual(['Sided Note'])
+    expect(extractTags('> [!note] #titledtag\nbody')).toEqual(['titledtag'])
+  })
+
+  it('renames the real tag without corrupting the label it skipped', () => {
+    const note = ':::: tabs\n::: tab-item #solo\nsee #solo here\n:::\n::::'
+    const renamed = replaceTagInContent(note, 'solo', 'single')
+    expect(renamed).toBe(':::: tabs\n::: tab-item #solo\nsee #single here\n:::\n::::')
+  })
+})
 
 describe('container markers in plain text', () => {
   it('drops the colon fence lines but keeps each tab label', () => {
