@@ -27,7 +27,7 @@ import { useUi } from '../../store/ui'
 import { useNotes, findNoteByTitle } from '../../store/notes'
 import { useSession } from '../../store/session'
 import { previewSourceAnchors } from './preview-anchors'
-import { moveMarkdownTabFocus, selectMarkdownTab } from './markdown-tabs'
+import { moveMarkdownTabFocus, revealPreviewTarget, selectMarkdownTab } from './markdown-tabs'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
 import { preferredScrollBehavior } from '../../lib/motion'
 
@@ -363,6 +363,7 @@ export const Preview = memo(function Preview({
 
       }
       const heading = hostRef.current?.querySelector(`#${CSS.escape(id)}`)
+      revealPreviewTarget(heading)
       heading?.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'start' })
     }
   }
@@ -426,6 +427,7 @@ function scrollToWikiTarget(
 }
 
 function scrollElementIntoView(element: Element | null | undefined): void {
+  revealPreviewTarget(element)
   element?.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' })
 }
 

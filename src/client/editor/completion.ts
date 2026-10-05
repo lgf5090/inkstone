@@ -100,6 +100,25 @@ const LANGUAGES = [
     'c', 'cpp', 'csharp', 'php', 'ruby', 'sql', 'bash', 'shell', 'powershell', 'json', 'yaml',
     'toml', 'xml', 'html', 'css', 'scss', 'markdown', 'diff', 'dockerfile', 'nginx', 'mermaid',
 ];
+const CONTAINER_DIRECTIVES = ['details', 'tabs', 'tab-item', '{tab-set}', '{tab-item}'];
+const CONTAINER_LINE_RE = /^(:{3,})[ \t]*([a-zA-Z{}_-]*)$/;
+
+export function containerDirectiveSource(context: CompletionContext): CompletionResult | null {
+    const before = context.matchBefore(CONTAINER_LINE_RE);
+    if (!before)
+        return null;
+    const marker = /^(:{3,})/.exec(before.text)![1]!;
+    return {
+        from: before.from + marker.length,
+        options: CONTAINER_DIRECTIVES.map((directive) => ({
+            label: directive,
+            type: 'keyword',
+            apply: `${directive} `,
+        })),
+        validFor: /^[a-zA-Z{}_-]*$/,
+    };
+}
+
 export function codeFenceSource(context: CompletionContext): CompletionResult | null {
     const before = context.matchBefore(/^```([a-zA-Z0-9+#-]*)$/);
     if (!before)

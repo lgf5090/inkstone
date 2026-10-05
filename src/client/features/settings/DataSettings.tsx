@@ -216,6 +216,31 @@ export function DataSettings() {
         })}>{t("settings.rebuild_index")}</Button>
         </SettingRow>
 
+        <SettingRow title={t("settings.rebuild_summaries")} description={t("settings.rebuild_summaries_desc")}>
+          <Button size="sm" variant="secondary" icon={<RefreshCw size={13}/>} loading={busy === 'summaries'} disabled={busy !== null} onClick={() => run('summaries', async () => {
+            try {
+                let total = 0;
+                let cursor: string | null = null;
+                let pages = 0;
+                for (;;) {
+                    const res = await api.notes.rebuildDerived(cursor);
+                    total += res.updated;
+                    cursor = res.nextCursor;
+                    if (!cursor || ++pages >= 400)
+                        break;
+                }
+                void loadStats();
+                toast({
+                    title: t(cursor ? "settings.rebuild_summaries_partial" : "settings.rebuild_summaries_done", { count: total }),
+                    tone: 'success',
+                });
+            }
+            catch (err) {
+                toast({ title: t("settings.rebuild_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });
+            }
+        })}>{t("settings.rebuild_summaries")}</Button>
+        </SettingRow>
+
         <SettingRow title={t("settings.clean_unreferenced_attachments")} description={t("settings.delete_pictures_and_files_that_no_longer_appear_in_any_notes")}>
           <Button size="sm" variant="secondary" icon={<Sparkles size={13}/>} loading={busy === 'prune'} disabled={busy !== null} onClick={() => run('prune', async () => {
             const ok = await confirm({

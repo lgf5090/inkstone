@@ -76,7 +76,7 @@ describe('toPlainText link stripping', () => {
 
   it('keeps working for wiki links and images without targets', () => {
     expect(toPlainText('a [[Note|label]] b')).toBe('a label b')
-    expect(toPlainText('![[embed]]')).toBe('!embed')
+    expect(toPlainText('![[embed]]')).toBe('embed')
   })
 
   it('stays linear on content that makes the regex pass backtrack per opening bracket', () => {

@@ -10,9 +10,9 @@ import type { EditorSettings } from '@shared/types';
 import { cn } from '../lib/cn';
 import { editorTheme } from './theme';
 import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } from './decorations';
-import { codeFenceSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
+import { codeFenceSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
 import { pasteExtension, type PasteHandlers } from './paste';
-import { completeCodeFenceOnEnter, smartEnter, tableTab } from './commands';
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, smartEnter, tableTab } from './commands';
 import { editorKeymap } from './shortcuts';
 import { livePreview } from './live-preview';
 import type { Heading } from '../lib/markdown/renderer';
@@ -80,6 +80,7 @@ export function CodeEditor({ value, live = false, noteTitle = '', onHeadings, on
                     wikiLinkSource(() => cbRef.current.sources),
                     tagSource(() => cbRef.current.sources),
                     codeFenceSource,
+                    containerDirectiveSource,
                 ],
                 activateOnTyping: true,
                 closeOnBlur: true,
@@ -97,7 +98,7 @@ export function CodeEditor({ value, live = false, noteTitle = '', onHeadings, on
             typewriterPlugin,
             pasteExtension(cbRef.current.handlers),
             keymap.of([
-                { key: 'Enter', run: (view) => completeCodeFenceOnEnter(view) || smartEnter(view) },
+                { key: 'Enter', run: (view) => completeCodeFenceOnEnter(view) || completeColonFenceOnEnter(view) || smartEnter(view) },
                 { key: 'Tab', run: (view) => acceptCompletion(view) || tableTab(view) },
                 ...editorKeymap,
             ]),

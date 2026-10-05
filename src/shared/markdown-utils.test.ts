@@ -1,5 +1,85 @@
 import { describe, expect, it } from 'vitest'
-import { extractAttachmentIds, extractTags } from './markdown-utils'
+import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, replaceTagInContent, toPlainText } from './markdown-utils'
+
+const TAB_NOTE = [
+  ':::: tabs',
+  '::: tab-item Writing',
+  'Body text here',
+  ':::',
+  '::::',
+].join('\n')
+
+describe('tab labels are plain text everywhere', () => {
+  const labelled = [':::: tabs', '::: tab-item [[Label Note]]', '[[Body Note]]', ':::', '::::'].join('\n')
+
+  it('does not turn a tab label into a link the preview cannot follow', () => {
+    expect(extractWikiLinks(labelled).map((link) => link.target)).toEqual(['Body Note'])
+  })
+
+  it('does not count a tag that only exists as a label', () => {
+    expect(extractTags(':::: tabs\n::: tab-item #labeltag\n#bodytag\n:::\n::::')).toEqual(['bodytag'])
+    expect(extractTags(':::: tabs\n@tab #labeltag\n#bodytag\n::::')).toEqual(['bodytag'])
+  })
+
+  it('still counts a wikilink or tag in a details or callout title, which do render it', () => {
+    expect(extractWikiLinks('::: details [[Sided Note]]\nbody\n:::').map((link) => link.target)).toEqual(['Sided Note'])
+    expect(extractTags('> [!note] #titledtag\nbody')).toEqual(['titledtag'])
+  })
+
+  it('renames the real tag without corrupting the label it skipped', () => {
+    const note = ':::: tabs\n::: tab-item #solo\nsee #solo here\n:::\n::::'
+    const renamed = replaceTagInContent(note, 'solo', 'single')
+    expect(renamed).toBe(':::: tabs\n::: tab-item #solo\nsee #single here\n:::\n::::')
+  })
+})
+
+describe('embed labels in plain text', () => {
+  it('keeps the file name when the alias is only a size', () => {
+    expect(toPlainText('![[photo.png|120x90]] tail')).toBe('photo.png tail')
+    expect(toPlainText('![[assets/sub/photo.png|600]]')).toBe('assets/sub/photo.png'.split('/').pop() ?? '')
+    expect(deriveExcerpt('# T\n\n![[photo.png|120x90]]\n\nBODY')).toContain('BODY')
+  })
+
+  it('prefers a real alias and drops the embed bang', () => {
+    expect(toPlainText('![[Note#Section|Shown]]')).toBe('Shown')
+    expect(toPlainText('[[Note|Shown]]')).toBe('Shown')
+    expect(toPlainText('![[Note]]')).toBe('Note')
+  })
+})
+
+describe('container markers in plain text', () => {
+  it('drops the colon fence lines but keeps each tab label', () => {
+    expect(toPlainText(TAB_NOTE).trim()).toBe('Writing\nBody text here')
+  })
+
+  it('keeps a bracketed details label without the brackets or markers', () => {
+    expect(toPlainText('::: details [Click to expand]\nhiding\n:::').trim()).toBe('Click to expand\nhiding')
+  })
+
+  it('drops a callout type marker but keeps its title', () => {
+    expect(toPlainText('> [!WARNING]- Careful\nmore').trim()).toBe('Careful\nmore')
+  })
+
+  it('titles a note that opens with a tab set after the first real label', () => {
+    expect(deriveTitle(`${TAB_NOTE}\n\n# Heading later`)).toBe('Heading later')
+    expect(deriveTitle('::: details [Click to expand]\nhiding\n:::')).toBe('Click to expand')
+    expect(deriveTitle(TAB_NOTE)).toBe('Writing')
+  })
+
+  it('keeps excerpt and word counts free of container syntax', () => {
+    expect(deriveExcerpt(TAB_NOTE)).toBe('Body text here')
+    expect(countText(TAB_NOTE).words).toBe(4)
+  })
+
+  it('leaves ordinary colons and lists untouched', () => {
+    expect(toPlainText('::: not a directive\n- a: b').trim()).toBe('not a directive\na: b')
+    expect(toPlainText('time:: 12:00')).toContain('time:: 12:00')
+  })
+
+  it('ignores container-looking lines inside code fences', () => {
+    expect(toPlainText('```\n:::: tabs\n```').trim()).toBe('')
+  })
+})
 
 describe('extractTags', () => {
   it('handles an unterminated inline-code marker with a mismatched trailing marker', () => {

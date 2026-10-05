@@ -20,6 +20,7 @@ import { optimizeImageFile } from '../../lib/image';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { Preview } from '../preview/Preview';
 import { Outline } from '../preview/Outline';
+import { revealPreviewTarget } from '../preview/markdown-tabs';
 import { SplitResizer } from '../shell/Resizer';
 import { EditorToolbar } from './EditorToolbar';
 import { BacklinksPanel } from './BacklinksPanel';
@@ -247,6 +248,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             view.focus();
         }
         const target = previewScrollerRef.current?.querySelector<HTMLElement>(`#${CSS.escape(heading.slug)}`);
+        revealPreviewTarget(target);
         target?.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'start', inline: 'nearest' });
     }, [view, showEditor]);
     useEffect(() => {

@@ -14,8 +14,11 @@ import type {
 import type { AppBindings } from '../env'
 import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
+import { acquireLease } from '../lib/lease'
+import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
 import {
   buildNoteDerivedStatements,
+  rebuildDerivedFields,
   INLINE_REWRITE_LIMIT,
   FTS_QUEUE_CONFLICT_SQL,
   rewriteQueueStatement,
@@ -1409,3 +1412,38 @@ async function resolveFolderId(
   if (!row) throw ApiError.badRequest('Folder not found')
   return row.id
 }
+
+notesRoutes.post('/rebuild-derived', async (c) => {
+  const userId = c.get('userId')
+  const body = await c.req.json().catch(() => ({})) as { cursor?: string | null }
+  const cursor = typeof body.cursor === 'string' && body.cursor ? body.cursor : null
+  const release = await acquireLease(
+    c.env.DB,
+    `derived-rebuild:${userId}`,
+    5 * 60 * 1000,
+    'Summary rebuild is already running',
+  )
+  try {
+    try {
+      await consumeAttemptBudget(c.env.DB, [{
+        key: `derived-rebuild:${userId}`,
+        maxAttempts: 600,
+        windowMs: 10 * 60 * 1000,
+        lockMs: 60 * 1000,
+      }])
+    } catch (error) {
+      if (error instanceof ThrottleError) {
+        throw new ApiError(
+          429,
+          'too_many_attempts',
+          `Too many rebuild requests. Try again in ${error.retryAfterSec} seconds`,
+          { retryAfter: error.retryAfterSec },
+        )
+      }
+      throw error
+    }
+    return c.json({ ok: true, ...(await rebuildDerivedFields(c.env.DB, userId, cursor)) })
+  } finally {
+    await release()
+  }
+})

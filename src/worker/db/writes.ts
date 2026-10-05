@@ -1,5 +1,5 @@
 /** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */
-import { extractTags, extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, extractTags, extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils'
 import { newId } from '../lib/id'
 
 
@@ -281,5 +281,49 @@ export async function runBatched(
   for (let i = 0; i < statements.length; i += chunk) {
     const slice = statements.slice(i, i + chunk)
     if (slice.length) await db.batch(slice)
+  }
+}
+
+export const DERIVED_REBUILD_PAGE = 50
+
+export interface DerivedRebuildPage {
+  updated: number
+  nextCursor: string | null
+}
+
+/**
+ * Recompute the display-only columns from the note bodies, one keyset page per call.
+ * `rev` and `content_hash` are matched in the guard but left alone: a rebuild is not an
+ * edit, and bumping them would make every client re-download notes nobody changed.
+ */
+export async function rebuildDerivedFields(
+  db: D1Database,
+  userId: string,
+  afterId: string | null,
+  limit = DERIVED_REBUILD_PAGE,
+): Promise<DerivedRebuildPage> {
+  const page = await db
+    .prepare(
+      `SELECT id, content, rev, content_hash FROM notes
+        WHERE user_id = ?1 AND deleted_at IS NULL AND (?3 IS NULL OR id > ?3)
+        ORDER BY id ASC LIMIT ?2`,
+    )
+    .bind(userId, limit + 1, afterId)
+    .all<{ id: string; content: string; rev: number; content_hash: string }>()
+  const rows = page.results ?? []
+  const batch = rows.slice(0, limit)
+  const statements = batch.map((row) => {
+    const { words, chars } = countText(row.content)
+    return db
+      .prepare(
+        `UPDATE notes SET excerpt = ?1, word_count = ?2, char_count = ?3
+          WHERE id = ?4 AND user_id = ?5 AND rev = ?6 AND content_hash = ?7`,
+      )
+      .bind(deriveExcerpt(row.content), words, chars, row.id, userId, row.rev, row.content_hash)
+  })
+  await runBatched(db, statements)
+  return {
+    updated: batch.length,
+    nextCursor: rows.length > limit ? batch[batch.length - 1]?.id ?? null : null,
   }
 }

@@ -1,6 +1,6 @@
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
-import { completeCodeFenceOnEnter, insertMathBlock, setHeading, toggleComment } from './commands'
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertMathBlock, setHeading, toggleComment } from './commands'
 import { renderMarkdown } from '../lib/markdown/renderer'
 
 function runFenceCompletion(doc: string, cursor = doc.length) {
@@ -77,5 +77,55 @@ describe('toolbar formatting commands', () => {
     expect(renderMarkdown(state.doc.toString()).html).toContain('Public')
     toggleComment({ state, dispatch: (transaction) => { state = transaction.state } })
     expect(state.doc.toString()).toBe(doc)
+  })
+})
+
+function runColonCompletion(doc: string, cursor = doc.length) {
+  const state = EditorState.create({ doc, selection: EditorSelection.cursor(cursor) })
+  let next = state
+  const handled = completeColonFenceOnEnter({ state, dispatch: (transaction) => { next = transaction.state } })
+  return { handled, doc: next.doc.toString(), head: next.selection.main.head }
+}
+
+describe('completeColonFenceOnEnter', () => {
+  it('closes a details block and leaves the caret on the empty body line', () => {
+    const result = runColonCompletion('::: details Notes')
+    expect(result.handled).toBe(true)
+    expect(result.doc).toBe('::: details Notes\n\n:::')
+    expect(result.head).toBe(18)
+  })
+
+  it('repeats the marker the author typed', () => {
+    const result = runColonCompletion(':::: tabs')
+    expect(result.doc).toBe(':::: tabs\n\n::::')
+    expect(result.head).toBe(10)
+  })
+
+  it('closes a tab item that already sits inside an open set', () => {
+    const result = runColonCompletion(':::: tabs\n::: tab-item A')
+    expect(result.handled).toBe(true)
+    expect(result.doc).toBe(':::: tabs\n::: tab-item A\n\n:::')
+  })
+
+  it('leaves a closer line alone', () => {
+    const result = runColonCompletion(':::: tabs\n::: tab-item A\n\n:::')
+    expect(result.handled).toBe(false)
+    expect(result.doc).toBe(':::: tabs\n::: tab-item A\n\n:::')
+  })
+
+  it('does not fire inside a code fence', () => {
+    const result = runColonCompletion('```md\n::: tabs')
+    expect(result.handled).toBe(false)
+  })
+
+  it('does not fire on an unknown directive or on a brace-only line', () => {
+    expect(runColonCompletion('::: note X').handled).toBe(false)
+    expect(runColonCompletion(':::::').handled).toBe(false)
+  })
+
+  it('round-trips through the renderer after completion', () => {
+    const { doc } = runColonCompletion(':::details Notes')
+    expect(doc).toBe(':::details Notes\n\n:::')
+    expect(renderMarkdown(doc).html).toContain('<summary>Notes</summary>')
   })
 })

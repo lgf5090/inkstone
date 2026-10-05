@@ -264,6 +264,18 @@ filesRoutes.get('/:id', async (c) => {
 
 filesRoutes.get('/', requireAuth, async (c) => {
   const userId = c.get('userId')
+  const wanted = c.req.query('name')?.trim().toLowerCase()
+  if (wanted) {
+    const row = await c.env.DB
+      .prepare(
+        `SELECT id, user_id, note_id, filename, mime, size, width, height, storage, created_at
+           FROM attachments WHERE user_id = ?1 AND lower(filename) = ?2
+          ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .bind(userId, wanted)
+      .first<AttachmentRow>()
+    return c.json({ files: row ? [toAttachment(row)] : [] })
+  }
   const cursor = parseAttachmentListCursor(c.req.query('cursor'))
   const statement = cursor
     ? c.env.DB.prepare(

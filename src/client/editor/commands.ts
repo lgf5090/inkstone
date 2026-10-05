@@ -503,6 +503,67 @@ export const completeCodeFenceOnEnter: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
+const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set)\}?(?![\w-])[ \t]*(.*)$/;
+const COLON_CLOSER_RE = /^[ \t]{0,3}(:{3,})[ \t]*$/;
+
+export const completeColonFenceOnEnter: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    if (!range.empty)
+        return false;
+    const line = state.doc.lineAt(range.head);
+    const match = COLON_FENCE_RE.exec(line.text);
+    if (!match)
+        return false;
+    // A tab item lives inside an open set by definition, so only the set-level openers
+    // have to check whether an earlier container is still waiting for its closer.
+    if (range.head !== line.to || openFenceBeforeLine(state, line.number))
+        return false;
+    if (match[2] !== 'tab-item' && openContainerBeforeLine(state, line.number))
+        return false;
+    const marker = match[1]!;
+    dispatch(state.update({
+        changes: { from: range.head, insert: `\n\n${marker}` },
+        selection: EditorSelection.cursor(range.head + 1),
+        scrollIntoView: true,
+        userEvent: 'input.complete',
+    }));
+    return true;
+};
+
+function openContainerBeforeLine(state: EditorState, lineNumber: number): boolean {
+    const open: number[] = [];
+    let codeFence: { char: string; length: number } | null = null;
+    for (let number = 1; number < lineNumber; number++) {
+        const text = state.doc.line(number).text;
+        const code = FENCE_RE.exec(text);
+        if (code) {
+            const marker = code[1]!;
+            if (!codeFence)
+                codeFence = { char: marker[0]!, length: marker.length };
+            else if (marker[0] === codeFence.char && marker.length >= codeFence.length && /^[ \t]*$/.test(code[2]!))
+                codeFence = null;
+            continue;
+        }
+        if (codeFence)
+            continue;
+        const opening = COLON_FENCE_RE.exec(text);
+        if (opening) {
+            open.push(opening[1]!.length);
+            continue;
+        }
+        const closer = COLON_CLOSER_RE.exec(text);
+        if (!closer)
+            continue;
+        for (let depth = open.length - 1; depth >= 0; depth--) {
+            if (open[depth]! <= closer[1]!.length) {
+                open.length = depth;
+                break;
+            }
+        }
+    }
+    return open.length > 0;
+}
+
 function openFenceBeforeLine(state: EditorState, lineNumber: number): boolean {
     let opening: { char: string; length: number } | null = null;
     for (let number = 1; number < lineNumber; number++) {
