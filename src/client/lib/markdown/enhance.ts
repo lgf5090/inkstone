@@ -63,25 +63,39 @@ function splitNodeAtNewlines(node: Node): Node[][] {
     });
 }
 
+const codeHighlightCache = new Map<string, { html: string; language: string } | null>();
+
 async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
     await Promise.all([...root.querySelectorAll<HTMLElement>('.code-block')].map(async (block) => {
         const code = block.querySelector<HTMLElement>(':scope > pre > code');
         if (!code)
             return;
         const source = (code.textContent ?? '').replace(/\n$/, '');
-        try {
-            const highlighted = await highlightWithPrism(source, block.dataset.lang ?? '');
-            if (highlighted) {
-                code.innerHTML = highlighted.html;
-                code.classList.add(`language-${highlighted.language}`);
+        const lang = block.dataset.lang ?? '';
+        const key = `${lang}\u0000${source}`;
+        let highlighted = codeHighlightCache.get(key);
+        if (highlighted === undefined) {
+            try {
+                highlighted = await highlightWithPrism(source, lang);
+                if (codeHighlightCache.size >= 250) {
+                    const first = codeHighlightCache.keys().next().value;
+                    if (first) codeHighlightCache.delete(first);
+                }
+                codeHighlightCache.set(key, highlighted);
             }
-            else {
+            catch (err) {
                 code.textContent = source;
+                console.warn(t("markdown.inkstone_code_highlighting_failed_showing_plain_text"), err);
+                decorateCodeBlock(block);
+                return;
             }
         }
-        catch (err) {
+        if (highlighted) {
+            code.innerHTML = highlighted.html;
+            code.classList.add(`language-${highlighted.language}`);
+        }
+        else {
             code.textContent = source;
-            console.warn(t("markdown.inkstone_code_highlighting_failed_showing_plain_text"), err);
         }
         decorateCodeBlock(block);
     }));

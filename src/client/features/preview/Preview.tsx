@@ -74,20 +74,21 @@ export const Preview = memo(function Preview({
   const debounced = useDebounced(content, 90)
   const rendered = useMemo(() => renderMarkdown(debounced), [debounced, locale])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''
-  const [committedHtml, setCommittedHtml] = useState(rendered.html)
-  const committedHtmlRef = useRef(committedHtml)
+  const committedHtmlRef = useRef('')
   const committedSourceRef = useRef(debounced)
   const preparationRef = useRef(0)
   const mermaidRevisionRef = useRef(0)
-  const pendingViewportRef = useRef<PreviewViewport | null>(null)
   const initialRenderRestoredRef = useRef(false)
   const copyResetTimersRef = useRef(new Map<HTMLElement, number>())
   const wikiNavigationRef = useRef(0)
   const wikiScrollCleanupRef = useRef<() => void>(() => {})
   const [mermaidEpoch, setMermaidEpoch] = useState(0)
 
-
-  const htmlObj = useMemo(() => ({ __html: committedHtml }), [committedHtml])
+  useLayoutEffect(() => {
+    if (hostRef.current && !hostRef.current.hasChildNodes() && rendered.html) {
+      hostRef.current.innerHTML = rendered.html
+    }
+  }, [])
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? 'dark')
 
   useEffect(() => {
@@ -168,10 +169,21 @@ export const Preview = memo(function Preview({
       if (nextHtml !== committedHtmlRef.current) {
         const scroller = scrollerRef.current
         const host = hostRef.current
-        pendingViewportRef.current =
-          scroller && host ? capturePreviewViewport(scroller, host) : null
+        const snapshot = scroller && host ? capturePreviewViewport(scroller, host) : null
         committedHtmlRef.current = nextHtml
-        setCommittedHtml(nextHtml)
+        if (host) {
+          if (!host.hasChildNodes()) {
+            host.replaceChildren(...staging.cloneNode(true).childNodes)
+          } else {
+            patchDom(host, staging)
+          }
+          if (snapshot && scroller) restorePreviewViewport(scroller, host, snapshot)
+        }
+        if (!initialRenderRestoredRef.current && scroller) {
+          initialRenderRestoredRef.current = true
+          onInitialRender?.(scroller)
+        }
+        onRendered?.()
       }
       setMermaidEpoch((current) => current + 1)
     }
@@ -202,19 +214,6 @@ export const Preview = memo(function Preview({
       mermaidRevisionRef.current++
     }
   }, [mermaidEpoch, settings.preview.mermaid, startMermaidRender])
-
-  useLayoutEffect(() => {
-    const snapshot = pendingViewportRef.current
-    pendingViewportRef.current = null
-    const scroller = scrollerRef.current
-    const host = hostRef.current
-    if (snapshot && scroller && host) restorePreviewViewport(scroller, host, snapshot)
-    if (!initialRenderRestoredRef.current && scroller) {
-      initialRenderRestoredRef.current = true
-      onInitialRender?.(scroller)
-    }
-    onRendered?.()
-  }, [committedHtml, onInitialRender, onRendered, scrollerRef])
 
 
   const onClick = (event: React.MouseEvent) => {
@@ -397,7 +396,6 @@ export const Preview = memo(function Preview({
         data-font={settings.appearance.proseFont}
         data-preview-content
         className="ink-prose"
-        dangerouslySetInnerHTML={htmlObj}
       />
     </div>
   )
@@ -545,4 +543,69 @@ function previewAnchorSignature(element: HTMLElement): string {
 function previewPaddingTop(scroller: HTMLElement): number {
   const value = Number.parseFloat(getComputedStyle(scroller).paddingTop)
   return Number.isFinite(value) ? value : 0
+}
+
+function patchDom(dest: Node, src: Node): void {
+  if (dest.nodeType !== src.nodeType || dest.nodeName !== src.nodeName) {
+    dest.parentElement?.replaceChild(src.cloneNode(true), dest)
+    return
+  }
+
+  if (dest.nodeType === Node.TEXT_NODE) {
+    if (dest.nodeValue !== src.nodeValue) {
+      dest.nodeValue = src.nodeValue
+    }
+    return
+  }
+
+  if (dest.nodeType === Node.ELEMENT_NODE) {
+    const destEl = dest as HTMLElement
+    const srcEl = src as HTMLElement
+
+    if (destEl.hasAttribute('data-mermaid') && srcEl.hasAttribute('data-mermaid')) {
+      if (destEl.getAttribute('data-mermaid') === srcEl.getAttribute('data-mermaid') && destEl.dataset.rendered) {
+        return
+      }
+    }
+
+    const srcAttrs = srcEl.attributes
+    const destAttrs = destEl.attributes
+
+    for (let i = destAttrs.length - 1; i >= 0; i--) {
+      const attr = destAttrs[i]!
+      if (!srcEl.hasAttribute(attr.name)) {
+        destEl.removeAttribute(attr.name)
+      }
+    }
+    for (let i = 0; i < srcAttrs.length; i++) {
+      const attr = srcAttrs[i]!
+      if (destEl.getAttribute(attr.name) !== attr.value) {
+        destEl.setAttribute(attr.name, attr.value)
+      }
+    }
+
+    const destChildren = destEl.childNodes
+    const srcChildren = srcEl.childNodes
+    const srcLen = srcChildren.length
+    let destLen = destChildren.length
+
+    while (destLen > srcLen) {
+      destEl.removeChild(destChildren[destLen - 1]!)
+      destLen--
+    }
+
+    for (let i = 0; i < srcLen; i++) {
+      const srcChild = srcChildren[i]!
+      if (i < destLen) {
+        const destChild = destChildren[i]!
+        if (destChild.nodeType === srcChild.nodeType && destChild.nodeName === srcChild.nodeName) {
+          patchDom(destChild, srcChild)
+        } else {
+          destEl.replaceChild(srcChild.cloneNode(true), destChild)
+        }
+      } else {
+        destEl.appendChild(srcChild.cloneNode(true))
+      }
+    }
+  }
 }
