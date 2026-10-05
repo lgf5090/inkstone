@@ -411,6 +411,17 @@
   }
 }
 
+@keyframes ink-settings-target {
+  from {
+    background-color: var(--accent-softer);
+    outline-color: var(--accent-ring);
+  }
+  to {
+    background-color: transparent;
+    outline-color: transparent;
+  }
+}
+
 .anim-fade {
   animation: ink-fade-in var(--dur-base) var(--ease-out) both;
 }
@@ -615,6 +626,12 @@
 }
 .mobile-library-sheet [role='tree'] button,
 .mobile-library-sheet section button { min-height: 44px; }
+.setting-row[data-settings-target] {
+  animation: ink-settings-target 1.6s var(--ease-out) both;
+  border-radius: var(--r-lg);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
 .mobile-settings-content .setting-row {
   flex-direction: row;
   align-items: center;

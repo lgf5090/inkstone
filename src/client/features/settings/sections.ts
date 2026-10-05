@@ -1,7 +1,20 @@
 import { backupRunsResource, backupTargetsResource, mcpResource, statsResource, totpResource } from './resources'
 import { useSession } from '../../store/session'
+import type { MessageKey } from '../../lib/i18n'
 
 export type SettingsSection = 'appearance' | 'editor' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'about'
+
+export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
+  appearance: 'settings.appearance',
+  editor: 'settings.editor',
+  backup: 'settings.backup',
+  sync: 'settings.sync',
+  mcp: 'settings.mcp',
+  account: 'settings.account',
+  data: 'settings.data',
+  shares: 'share.shared_notes',
+  about: 'settings.about',
+}
 
 export const settingsLoaders = {
   editor: () => import('./EditorSettings').then((m) => ({ default: m.EditorSettings })),
