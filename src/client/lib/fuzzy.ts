@@ -7,10 +7,33 @@ export interface FuzzyMatch {
 }
 
 
+const LOWER_CACHE_BUDGET_CHARS = 2_000_000
+const loweredCache = new Map<string, string>()
+let loweredCacheChars = 0
+
+/**
+ * Listings call this once per row per keystroke with a haystack the row already keeps a
+ * stable reference to, so V8's cached string hash makes the lookup O(1) while
+ * text.toLowerCase() would re-copy the whole body every time.
+ */
+function lowered(text: string): string {
+  const hit = loweredCache.get(text)
+  if (hit !== undefined) return hit
+  const lower = text.toLowerCase()
+  if (lower.length > LOWER_CACHE_BUDGET_CHARS) return lower
+  loweredCache.set(text, lower)
+  loweredCacheChars += text.length
+  if (loweredCacheChars > LOWER_CACHE_BUDGET_CHARS) {
+    loweredCache.clear()
+    loweredCacheChars = lower.length
+  }
+  return lower
+}
+
 export function fuzzyMatch(text: string, query: string): FuzzyMatch | null {
   if (!query) return { score: 0, ranges: [] }
 
-  const haystack = text.toLowerCase()
+  const haystack = lowered(text)
   const needle = query.toLowerCase().trim()
   if (!needle) return { score: 0, ranges: [] }
 

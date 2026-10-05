@@ -284,11 +284,14 @@ function serializedPersistedState(state: UiState): string {
   return JSON.stringify(out)
 }
 
-function persist(state: UiState): void {
-  const serialized = serializedPersistedState(state)
-  if (serialized === lastPersisted) return
+function schedulePersist(): void {
+  // The subscriber fires on every notification, including the ones that change nothing
+  // persisted (toasts, selection). Serializing 22 keys per keystroke cost more than the
+  // localStorage write the 220 ms debounce already coalesces, so serialization waits too.
   window.clearTimeout(persistTimer)
   persistTimer = window.setTimeout(() => {
+    const serialized = serializedPersistedState(useUi.getState())
+    if (serialized === lastPersisted) return
     try {
       localStorage.setItem(STORAGE_KEY, serialized)
       lastPersisted = serialized
@@ -500,7 +503,7 @@ export const useUi = create<UiState>((set, get) => ({
 }))
 
 lastPersisted = serializedPersistedState(useUi.getState())
-useUi.subscribe(persist)
+useUi.subscribe(schedulePersist)
 
 export function applyThemeToDom(state: Pick<UiState, 'theme' | 'accent' | 'background' | 'fontScale'>): void {
   const root = document.documentElement

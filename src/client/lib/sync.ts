@@ -9,6 +9,7 @@ import { useSession } from '../store/session'
 const HEARTBEAT_MS = 25_000
 const SAFETY_POLL_MS = 5 * 60_000
 const MAX_BACKOFF_MS = 30_000
+const LEADER_RECLAIM_MS = 60_000
 
 export class SyncEngine {
   private socket: WebSocket | null = null
@@ -318,7 +319,10 @@ export class SyncEngine {
   }
 
   private onFocus = () => {
-    this.claimLeadership()
+    // Claims are "latest wins", so re-claiming on every focus made the tab you touched last
+    // the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and
+    // re-ran a full pull. One reclaim per minute still takes over after the leader closes.
+    if (!this.isLeader && Date.now() - this.ownClaimAt > LEADER_RECLAIM_MS) this.claimLeadership()
     this.schedulePull(200)
   }
 

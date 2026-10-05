@@ -4,9 +4,13 @@ import type { Note, SyncResponse } from '@shared/types'
 const mocks = vi.hoisted(() => ({ queue: [] as any[], get: vi.fn(), patch: vi.fn(), create: vi.fn() }))
 vi.mock('../lib/db', () => ({
   localDb: {
-    scheduleShellSave: vi.fn(), setContent: vi.fn(async () => {}), dropContent: vi.fn(async () => {}),
+    scheduleShellSave: vi.fn(), setContent: vi.fn(async () => {}), setContentBatch: vi.fn(async () => {}),
+    dropContent: vi.fn(async () => {}),
     getOutbox: async () => mocks.queue,
     enqueueOutbox: async (item: any) => { mocks.queue = [...mocks.queue.filter((q) => q.id !== item.id), item] },
+    enqueueOutboxBatch: async (items: any[]) => {
+      for (const item of items) mocks.queue = [...mocks.queue.filter((q) => q.id !== item.id), item]
+    },
     completeOutboxItem: async (id: string, writeId: string) => {
       mocks.queue = mocks.queue.filter((q) => q.id !== id || q.writeId !== writeId)
     },

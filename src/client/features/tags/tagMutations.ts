@@ -103,7 +103,9 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
 
   let refreshed = true
   try {
-    await useNotes.getState().pull({ force: true })
+    // The delta carries every note the server-side rewrite touched, and pull() falls back
+    // to a full snapshot on its own when the server says the cursor is stale.
+    await useNotes.getState().pull()
     rewriteLoadedNoteContents(tag.name, destination)
   } catch {
     refreshed = false
@@ -150,7 +152,9 @@ export async function deleteTag(tag: Tag): Promise<void> {
 
   let refreshed = true
   try {
-    await useNotes.getState().pull({ force: true })
+    // The delta carries every note the server-side rewrite touched, and pull() falls back
+    // to a full snapshot on its own when the server says the cursor is stale.
+    await useNotes.getState().pull()
     rewriteLoadedNoteContents(tag.name, null)
   } catch {
     refreshed = false

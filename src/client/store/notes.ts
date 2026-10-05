@@ -131,10 +131,14 @@ function withContentsEntry(contents: Record<string, string>, id: string, text: s
         ...dirty.keys(),
     ]);
     for (const noteId of pendingNoteMutations.keys()) protectedIds.add(noteId);
+    // The size is tracked by hand: Object.keys(next) inside this loop made eviction O(K²)
+    // exactly when the protected set pushes the survivors to the back of the key order.
+    let remaining = keys.length;
     for (const key of keys) {
-        if (Object.keys(next).length <= CONTENTS_CACHE_MAX) break;
+        if (remaining <= CONTENTS_CACHE_MAX) break;
         if (protectedIds.has(key)) continue;
         delete next[key];
+        remaining--;
     }
     return next;
 }
@@ -383,25 +387,23 @@ export const useNotes = create<NotesState>((set, get) => ({
             }
         }
         const previousNoteIds = payload.full ? Object.keys(get().notes) : [];
-        set((state) => {
-            const notes = reconcileNotes(state.notes, payload.notes, payload.deletions, payload.full);
-            const replaceFacets = payload.full || payload.facetsFull;
-            const remoteFolders = replaceFacets
-                ? reconcileList(state.folders, payload.folders, folderEqual)
-                : mergeById(state.folders, payload.folders, payload.deletions, 'folder', folderEqual);
-            const folders = applyPendingFolderMutations(remoteFolders);
-            const tags = replaceFacets
-                ? reconcileList(state.tags, payload.tags, tagEqual)
-                : mergeById(state.tags, payload.tags, payload.deletions, 'tag', tagEqual);
-            if (notes === state.notes &&
-                folders === state.folders &&
-                tags === state.tags &&
-                payload.cursor === state.cursor) {
-                return state;
-            }
-            if (folders !== state.folders)
+        const before = get();
+        const notes = reconcileNotes(before.notes, payload.notes, payload.deletions, payload.full);
+        const replaceFacets = payload.full || payload.facetsFull;
+        const remoteFolders = replaceFacets
+            ? reconcileList(before.folders, payload.folders, folderEqual)
+            : mergeById(before.folders, payload.folders, payload.deletions, 'folder', folderEqual);
+        const folders = applyPendingFolderMutations(remoteFolders);
+        const tags = replaceFacets
+            ? reconcileList(before.tags, payload.tags, tagEqual)
+            : mergeById(before.tags, payload.tags, payload.deletions, 'tag', tagEqual);
+        // zustand happens to call an updater once, but a set() that bumps module counters and
+        // writes to IDB would double-fire the moment that stops holding.
+        if (notes !== before.notes || folders !== before.folders || tags !== before.tags
+            || payload.cursor !== before.cursor) {
+            if (folders !== before.folders)
                 folderStateGeneration++;
-            if (tags !== state.tags)
+            if (tags !== before.tags)
                 tagStateGeneration++;
             localDb.scheduleShellSave(() => ({
                 notes,
@@ -409,15 +411,19 @@ export const useNotes = create<NotesState>((set, get) => ({
                 tags,
                 cursor: payload.cursor,
             }));
-            return { notes, folders, tags, cursor: payload.cursor };
-        });
-        reconcileFolderUi(get().folders);
-        const stale: Array<{ id: string; rev: number }> = [];
-        for (const remote of payload.notes) {
-            if (hasOwnContent(get().contents, remote.id) && !dirty.has(remote.id))
-                stale.push({ id: remote.id, rev: remote.rev });
+            set({ notes, folders, tags, cursor: payload.cursor });
         }
-        void queueRevalidations(stale, set, get);
+        reconcileFolderUi(get().folders);
+        // A full snapshot carries fresh summaries for every note, and openNote() revalidates a
+        // body the moment it is displayed, so the fan-out only spent requests on closed panes.
+        if (!payload.full) {
+            const stale: Array<{ id: string; rev: number }> = [];
+            for (const remote of payload.notes) {
+                if (hasOwnContent(get().contents, remote.id) && !dirty.has(remote.id))
+                    stale.push({ id: remote.id, rev: remote.rev });
+            }
+            void queueRevalidations(stale, set, get);
+        }
         const candidates = payload.full ? [...previousNoteIds, ...deletionIds] : deletionIds;
         for (const id of new Set(candidates)) {
             if (get().notes[id])
@@ -1345,6 +1351,7 @@ const pendingOutboxWrites = new Map<string, PendingOutboxEntry>();
 const pendingContentWrites = new Map<string, CachedNoteContent>();
 let localDbWriteTimer: number | null = null;
 const LOCAL_DB_WRITE_DELAY_MS = 300;
+const BLUR_FLUSH_THROTTLE_MS = 1_000;
 
 function scheduleLocalDbFlush(): void {
     if (localDbWriteTimer !== null)
@@ -1367,27 +1374,35 @@ export async function flushLocalDbWrites(): Promise<void> {
     pendingOutboxWrites.clear();
     pendingContentWrites.clear();
 
-    for (const [, entry] of currentOutbox) {
-        try {
-            await localDb.enqueueOutbox(entry.item);
+    // One transaction for the whole flush: enqueueOutbox() rewrites the entire queue, so
+    // doing it per item cost K reads and K clones of an array that itself grows with K.
+    try {
+        await localDb.enqueueOutboxBatch(currentOutbox.map(([, entry]) => entry.item));
+        for (const [, entry] of currentOutbox) {
             for (const r of entry.resolvers)
                 r(true);
-        } catch {
+        }
+    } catch {
+        for (const [, entry] of currentOutbox) {
             for (const r of entry.resolvers)
                 r(false);
         }
     }
-    for (const [id, content] of currentContent) {
-        try {
-            await localDb.setContent(id, content);
-        } catch { }
-    }
+    await localDb.setContentBatch(currentContent);
 }
 
 if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', () => void flushLocalDbWrites());
     window.addEventListener('beforeunload', () => void flushLocalDbWrites());
-    window.addEventListener('blur', () => void flushLocalDbWrites());
+    // Alt-Tab storms used to rewrite the whole shell + outbox on every focus change. The
+    // debounced timer still covers the tab while it is open, and pagehide stays immediate.
+    let lastBlurFlushAt = 0;
+    window.addEventListener('blur', () => {
+        const now = Date.now();
+        if (now - lastBlurFlushAt < BLUR_FLUSH_THROTTLE_MS) return;
+        lastBlurFlushAt = now;
+        void flushLocalDbWrites();
+    });
 }
 
 function stageNoteTextWrite(id: string, content: string, title: string | undefined, set: SetNotesState, get: () => NotesState): void {

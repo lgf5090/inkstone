@@ -53,6 +53,10 @@ const allowed = new Map([
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
     "// change re-renders every visible row in the explorer.",
   ]],
+  ["src/client/features/tags/tagMutations.ts", [
+    "// The delta carries every note the server-side rewrite touched, and pull() falls back",
+    "// to a full snapshot on its own when the server says the cursor is stale.",
+  ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
@@ -67,10 +71,14 @@ const allowed = new Map([
   ["src/client/lib/db.ts", [
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
     "/**\n   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per\n   * change used to cost ~1.9 ms even though the debounced write happens once.\n   */",
+    "/**\n   * One transaction for a whole flush. enqueueOutbox() reads and rewrites the entire queue,\n   * so calling it per queued write costs K reads plus K clones of an array that grows with K.\n   */",
   ]],
   ["src/client/lib/export-note.ts", [
     "// Attachments reach 25 MB each, so the fetches are capped in flight and always time out",
     "// rather than hanging an export on a stalled object.",
+  ]],
+  ["src/client/lib/fuzzy.ts", [
+    "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
   ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
@@ -87,6 +95,9 @@ const allowed = new Map([
     "/**\n   * Applies live setting changes (realtime toggle, poll interval) without\n   * tearing down the engine, its WebSocket, or its leadership claim.\n   */",
     "// The engine is created exactly once; later setting changes are pushed",
     "// through updateConfig instead of rebuilding the whole engine.",
+    "// Claims are \"latest wins\", so re-claiming on every focus made the tab you touched last",
+    "// the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and",
+    "// re-ran a full pull. One reclaim per minute still takes over after the leader closes.",
   ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
@@ -95,6 +106,16 @@ const allowed = new Map([
     "// Both split panes are on screen, and dirty notes hold unsent bodies: evicting any of",
     "// them leaves that pane stuck on its loading skeleton.",
     "/**\n * A sync page can carry 500 notes whose cached bodies we hold, and each revalidation is a\n * whole-note GET plus a full-content IndexedDB write; unbounded fan-out froze the tab.\n */",
+    "// The size is tracked by hand: Object.keys(next) inside this loop made eviction O(K²)",
+    "// exactly when the protected set pushes the survivors to the back of the key order.",
+    "// zustand happens to call an updater once, but a set() that bumps module counters and",
+    "// writes to IDB would double-fire the moment that stops holding.",
+    "// A full snapshot carries fresh summaries for every note, and openNote() revalidates a",
+    "// body the moment it is displayed, so the fan-out only spent requests on closed panes.",
+    "// One transaction for the whole flush: enqueueOutbox() rewrites the entire queue, so",
+    "// doing it per item cost K reads and K clones of an array that itself grows with K.",
+    "// Alt-Tab storms used to rewrite the whole shell + outbox on every focus change. The",
+    "// debounced timer still covers the tab while it is open, and pagehide stays immediate.",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",
@@ -104,6 +125,11 @@ const allowed = new Map([
     "// Push unsaved offline edits before clearing local data, otherwise",
     "// they would be silently dropped. Dynamic import keeps the session",
     "// store free of a circular dependency on the notes store.",
+  ]],
+  ["src/client/store/ui.ts", [
+    "// The subscriber fires on every notification, including the ones that change nothing",
+    "// persisted (toasts, selection). Serializing 22 keys per keystroke cost more than the",
+    "// localStorage write the 220 ms debounce already coalesces, so serialization waits too.",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
