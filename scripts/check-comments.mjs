@@ -224,6 +224,9 @@ const allowed = new Map([
     "// the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and",
     "// re-ran a full pull. One reclaim per minute still takes over after the leader closes.",
   ]],
+  ["src/client/lib/tag-tree.ts", [
+    "/**\n * A parent that matches on its own keeps its whole subtree, so `work` still shows `work/meeting`;\n * a parent that only leads to a match is kept unhighlighted so the child stays reachable.\n */",
+  ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
   ]],

@@ -1,9 +1,8 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ChevronRight, Clock, CornerUpLeft, FilePlus2, FileText, FolderClosed, FolderInput, FolderOpen, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Plus, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, ChevronRight, Clock, CornerUpLeft, FilePlus2, FileText, FolderClosed, FolderInput, FolderOpen, FolderPlus, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
 import { LIMITS } from '@shared/constants';
-import type { NoteSummary, Tag, ViewKind } from '@shared/types';
-import { compareTagNames } from '@shared/markdown-utils';
+import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primitives';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
@@ -13,8 +12,7 @@ import { useUpdate } from '../../store/update';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { folderDescendantIds, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { FolderAppearance, FolderPicker } from '../folders/FolderPicker';
-import { TagAppearance } from '../tags/TagAppearance';
-import { createTag, deleteTag, renameTag, setTagColor } from '../tags/tagMutations';
+import { SidebarTags } from '../tags/SidebarTags';
 import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
@@ -53,7 +51,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
         </div>
 
         <FolderSection />
-        <TagSection />
+        <SidebarTags />
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">
@@ -641,154 +639,6 @@ function FolderMotionIcon({ open, drawing }: {
       <FolderClosed size={14} className="folder-motion-icon__closed"/>
       <FolderOpen size={14} className="folder-motion-icon__open"/>
     </span>);
-}
-export function TagSection({ mobile = false }: { mobile?: boolean }) {
-    const tags = useNotes((s) => s.tags);
-    const view = useUi((s) => s.view);
-    const listVisible = useUi((s) => !s.listCollapsed && !s.searchList);
-    const activeTag = useUi((s) => s.tag);
-    const openView = useUi((s) => s.openView);
-    const [expanded, setExpanded] = useState(false);
-    const [creating, setCreating] = useState(false);
-    const [renamingId, setRenamingId] = useState<string | null>(null);
-    const [appearanceId, setAppearanceId] = useState<string | null>(null);
-    const sortedTags = useMemo(() => [...tags]
-            .sort((a, b) => b.count - a.count || compareTagNames(a.name, b.name)), [tags]);
-    const visible = expanded ? sortedTags : sortedTags.slice(0, 8);
-    const appearanceTag = appearanceId
-        ? tags.find((tag) => tag.id === appearanceId) ?? null
-        : null;
-    const finishCreate = (value: string) => {
-        setCreating(false);
-        const id = createTag(value);
-        if (!id)
-            return;
-        const tag = useNotes.getState().tags.find((candidate) => candidate.id === id);
-        if (tag)
-            openView('tag', { tag: tag.name });
-    };
-    return (<>
-      <section className="mt-4">
-      <div className="group/head flex items-center justify-between pr-1">
-        {mobile ? <button data-navigation-item type="button" onClick={() => openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button> : <SectionLabel>{t("navigation.tag")}</SectionLabel>}
-        <Tooltip label={t("tags.new")} side="right">
-          <IconButton label={t("tags.new")} size="sm" onClick={() => setCreating(true)} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
-            <Plus size={13}/>
-          </IconButton>
-        </Tooltip>
-      </div>
-      <div className="mt-0.5 space-y-px">
-        {creating && <TagDraftRow onFinish={finishCreate} onCancel={() => setCreating(false)}/>}
-        {!sortedTags.length && !creating && (<button type="button" onClick={() => setCreating(true)} className="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]">
-            <Plus size={13}/>{t("tags.create_first")}
-          </button>)}
-        {visible.map((tag) => (<TagRow key={tag.id} tag={tag} active={(mobile || listVisible) && view === 'tag' && activeTag === tag.name} renaming={renamingId === tag.id} onOpen={() => openView('tag', { tag: tag.name })} onStartRename={() => setRenamingId(tag.id)} onFinishRename={(value) => {
-            setRenamingId(null);
-            void renameTag(tag, value);
-        }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(tag.id)}/>))}
-
-        {sortedTags.length > 8 && (<button type="button" onClick={() => setExpanded((v) => !v)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
-            {expanded ? t("common.collapse") : t("sidebar.show_all_value0_tags", { value0: sortedTags.length })}
-          </button>)}
-      </div>
-      </section>
-      <TagAppearance open={Boolean(appearanceTag)} tag={appearanceTag} onChange={(color) => {
-            if (appearanceTag)
-                void setTagColor(appearanceTag, color);
-        }} onClose={() => setAppearanceId(null)}/>
-    </>);
-}
-function TagDraftRow({ onFinish, onCancel }: {
-    onFinish: (value: string) => void;
-    onCancel: () => void;
-}) {
-    const finishedRef = useRef(false);
-    const finish = (value: string) => {
-        if (finishedRef.current)
-            return;
-        finishedRef.current = true;
-        onFinish(value);
-    };
-    return (<div className="flex h-10 items-center gap-2 rounded-[var(--r-md)] px-2 md:h-[30px]">
-      <Hash size={13} className="shrink-0 text-[var(--text-quaternary)]"/>
-      <input aria-label={t("tags.new")} autoFocus placeholder={t("tags.new_placeholder")} onBlur={(event) => {
-            if (event.currentTarget.value.trim())
-                finish(event.currentTarget.value);
-            else
-                onCancel();
-        }} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                finish(event.currentTarget.value);
-            if (event.key === 'Escape') {
-                finishedRef.current = true;
-                onCancel();
-            }
-            event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
-    </div>);
-}
-function TagRow({ tag, active, renaming, onOpen, onStartRename, onFinishRename, onCancelRename, onEditColor, }: {
-    tag: Tag;
-    active: boolean;
-    renaming: boolean;
-    onOpen: () => void;
-    onStartRename: () => void;
-    onFinishRename: (value: string) => void;
-    onCancelRename: () => void;
-    onEditColor: () => void;
-}) {
-    const menu = useContextMenu();
-    const rowRef = useRef<HTMLDivElement>(null);
-    const [menuOpen, setMenuOpen] = useState(false);
-    const finishedRef = useRef(false);
-    const finishRename = (value: string) => {
-        if (finishedRef.current)
-            return;
-        finishedRef.current = true;
-        onFinishRename(value);
-    };
-    const menuItems: MenuItem[] = [
-        { id: 'rename', label: t("tags.rename"), icon: <Pencil size={13}/>, onSelect: onStartRename },
-        { id: 'color', label: t("tags.color"), icon: <Palette size={13}/>, onSelect: onEditColor },
-        { id: 'delete', label: t("tags.delete"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void deleteTag(tag) },
-    ];
-    return (<div ref={rowRef} onContextMenu={(event) => {
-            setMenuOpen(false);
-            menu.onContextMenu(event);
-        }} className={cn('group relative flex h-11 items-center gap-2 rounded-[var(--r-md)] px-2 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
-            ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
-      <Hash size={13} className="shrink-0" style={{ color: tag.color ?? (active ? 'var(--accent)' : 'var(--text-quaternary)') }}/>
-      {renaming ? (<input aria-label={t("tags.rename")} autoFocus defaultValue={tag.name} onFocus={() => {
-            finishedRef.current = false;
-        }} onBlur={(event) => finishRename(event.currentTarget.value)} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                finishRename(event.currentTarget.value);
-            if (event.key === 'Escape') {
-                finishedRef.current = true;
-                onCancelRename();
-            }
-            event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button data-navigation-item type="button" aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={onStartRename} className="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">
-          {tag.name}
-        </button>)}
-      {!renaming && (<>
-          <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">
-            {tag.count > 0 ? tag.count : ''}
-          </span>
-          <Tooltip label={t("common.more_actions")} side="left">
-            <IconButton label={t("common.more_actions")} size="sm" onClick={(event) => {
-                event.stopPropagation();
-                menu.close();
-                setMenuOpen(true);
-            }} className="shrink-0 opacity-100 transition-opacity md:absolute md:right-1 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100">
-              <MoreHorizontal size={13}/>
-            </IconButton>
-          </Tooltip>
-        </>)}
-      <Menu anchor={rowRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
-      {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
-    </div>);
 }
 function useDropState<T>(idle: T) {
     const [state, setState] = useState(idle);

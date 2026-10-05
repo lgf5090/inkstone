@@ -7,7 +7,8 @@ import { useDialogFocus, useEscape, useLockScroll } from '../../components/overl
 import { IconButton } from '../../components/primitives';
 import { useUi } from '../../store/ui';
 import { useNavigationCounts, useNotes } from '../../store/notes';
-import { FolderSection, TagSection } from '../sidebar/Sidebar';
+import { FolderSection } from '../sidebar/Sidebar';
+import { SidebarTags } from '../tags/SidebarTags';
 
 export function MobileLibraryFilters() {
     const [open, setOpen] = useState<'menu' | 'tag' | 'folder' | null>(null);
@@ -66,7 +67,7 @@ export function MobileLibraryFilters() {
         }}>
             {open === 'menu' ? items.map(({ view: key, label, icon: Icon, count }) => <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => { openView(key); close(); }} className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] active:bg-[var(--bg-active)]', key === 'archived' && 'mt-3 border-t border-[var(--border-subtle)]', view === key && 'bg-[var(--accent-soft)] text-[var(--accent)]')}>
                 <Icon size={16} aria-hidden="true"/><span className="flex-1">{label}</span><span className="text-[var(--text-tertiary)]">{count}</span>
-            </button>) : open === 'folder' ? <FolderSection mobile/> : <TagSection mobile/>}
+            </button>) : open === 'folder' ? <FolderSection mobile/> : <SidebarTags mobile/>}
             </div>
           </div>
         </div>, document.body)}
