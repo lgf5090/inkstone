@@ -4,6 +4,7 @@ import type { Env } from './env'
 import { initializeDatabase } from './db/schema'
 import { drainAllFtsQueues } from './db/fts'
 import { drainAiIndexQueue } from './mcp/ai-search'
+import { drainRewriteQueues } from './lib/rewrite-drain'
 import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
@@ -43,7 +44,7 @@ export default {
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
-      await initializeDatabase(env)
+      const { ftsEnabled } = await initializeDatabase(env)
       await Promise.all([
         runScheduledBackups(env),
         runAttachmentCleanup(env),
@@ -53,6 +54,7 @@ export default {
         providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),
+        drainRewriteQueues(env, ftsEnabled, 5),
       ])
     })())
   },

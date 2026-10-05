@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import type { SyncDeletion, SyncResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
+import { NOTE_COLUMNS, tagSelectQuery, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -14,19 +14,6 @@ export const CHANGE_BOUNDS_SQL = `SELECT
   (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1) AS hi`
 
 const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at`
-
-const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
-  COUNT(n.id) AS note_count`
-
-function tagSelectQuery(whereClause: string): string {
-  return `SELECT ${TAG_SELECT}
-    FROM tags t
-    LEFT JOIN note_tags nt ON nt.tag_id = t.id
-    LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id
-      AND n.deleted_at IS NULL AND n.is_archived = 0
-   WHERE ${whereClause}
-   GROUP BY t.id, t.name, t.color, t.created_at`
-}
 
 
 syncRoutes.get('/', requireAuth, async (c) => {

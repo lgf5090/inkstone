@@ -22,6 +22,7 @@ const DRAIN_USERS_PER_RUN = 10
 const DRAIN_PER_USER = 25
 const AI_DRAIN_CURSOR_META_KEY = 'ai-index-drain-user-v1'
 const ENQUEUE_CHUNK = 200
+const EMBED_CHUNK = 16
 export const RRF_K = 60
 
 export type AiIndexKind = 'embed' | 'delete'
@@ -57,6 +58,7 @@ interface EmbeddingRow {
   rev: number
   updated_at: number
   vector: ArrayBuffer
+  norm: number | null
 }
 
 export interface SemanticFilters {
@@ -229,16 +231,36 @@ export async function drainAiIndexQueue(env: Env, max: number): Promise<{ proces
   return { processed }
 }
 
+/**
+ * Drains a couple of queued embeddings right after a write so semantic
+ * results stay fresh between cron runs. Never blocks the response.
+ */
+export function scheduleAiDrainForNote(
+  c: { env: Env; executionCtx?: { waitUntil: (promise: Promise<unknown>) => void } | undefined },
+  userId: string,
+): void {
+  if (!c.executionCtx) return
+  c.executionCtx.waitUntil(drainUserQueueForWrites(c.env, userId).catch((error) => {
+    console.warn('[inkstone] Background embedding drain failed:', error instanceof Error ? error.message : error)
+  }))
+}
+
+async function drainUserQueueForWrites(env: Env, userId: string, max = 2): Promise<void> {
+  if (!env.AI) return
+  if (!await isAiSearchEnabled(env.DB, userId)) return
+  await drainUserQueue(env, userId, max)
+}
+
 async function drainUserQueue(env: Env, userId: string, max: number): Promise<number> {
   const { results } = await env.DB.prepare(
     `SELECT note_id, kind, created_at FROM ai_index_queue
       WHERE user_id = ?1 ORDER BY created_at ASC LIMIT ?2`,
   ).bind(userId, max).all<QueueRow>()
   let done = 0
-  for (const item of results) {
+  for (let offset = 0; offset < results.length; offset += EMBED_CHUNK) {
+    const chunk = results.slice(offset, offset + EMBED_CHUNK)
     try {
-      await processQueueItem(env, userId, item)
-      done++
+      done += await processQueueChunk(env, userId, chunk)
     } catch (error) {
       console.warn('[inkstone] AI index drain paused:', error instanceof Error ? error.message : error)
       break
@@ -247,68 +269,80 @@ async function drainUserQueue(env: Env, userId: string, max: number): Promise<nu
   return done
 }
 
-async function processQueueItem(env: Env, userId: string, item: QueueRow): Promise<void> {
+async function processQueueChunk(env: Env, userId: string, items: QueueRow[]): Promise<number> {
   const db = env.DB
   const ai = env.AI
-  if (!ai) return
+  if (!ai || !items.length) return 0
   const queueGuard = `EXISTS (SELECT 1 FROM ai_index_queue
     WHERE user_id = ?3 AND note_id = ?4 AND kind = ?5 AND created_at = ?6)`
   const insertQueueGuard = `EXISTS (SELECT 1 FROM ai_index_queue
-    WHERE user_id = ?6 AND note_id = ?7 AND kind = ?8 AND created_at = ?9)`
-  if (item.kind === 'delete') {
-    await db.batch([
-      db.prepare(
-        `DELETE FROM ai_note_embeddings
-          WHERE user_id = ?1 AND note_id = ?2 AND ${queueGuard}`,
-      ).bind(userId, item.note_id, userId, item.note_id, item.kind, item.created_at),
-      db.prepare(
-        `DELETE FROM ai_index_queue
-          WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
-      ).bind(userId, item.note_id, item.kind, item.created_at),
-    ])
-    return
-  }
-  const note = await db.prepare(
-    `SELECT title, substr(content, 1, ?3) AS content FROM notes
-      WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(item.note_id, userId, EMBED_TEXT_MAX_CHARS).first<{ title: string; content: string }>()
-  if (!note) {
-    await db.batch([
-      db.prepare(
-        `DELETE FROM ai_note_embeddings
-          WHERE user_id = ?1 AND note_id = ?2 AND ${queueGuard}`,
-      ).bind(userId, item.note_id, userId, item.note_id, item.kind, item.created_at),
-      db.prepare(
-        `DELETE FROM ai_index_queue
-          WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
-      ).bind(userId, item.note_id, item.kind, item.created_at),
-    ])
-    return
-  }
-  const text = `${note.title}\n${note.content}`.slice(0, EMBED_TEXT_MAX_CHARS)
-  const vector = await embedText(ai, text)
-  await db.batch([
+    WHERE user_id = ?7 AND note_id = ?8 AND kind = ?9 AND created_at = ?10)`
+  const cleanup = (item: QueueRow): D1PreparedStatement[] => [
     db.prepare(
-      `INSERT INTO ai_note_embeddings (user_id, note_id, model, vector, indexed_at)
-       SELECT ?1, ?2, ?3, ?4, ?5 WHERE ${insertQueueGuard}
-       ON CONFLICT(user_id, note_id) DO UPDATE SET
-         vector = excluded.vector, indexed_at = excluded.indexed_at`,
-    ).bind(
-      userId,
-      item.note_id,
-      AI_EMBEDDING_MODEL,
-      encodeVector(vector),
-      Date.now(),
-      userId,
-      item.note_id,
-      item.kind,
-      item.created_at,
-    ),
+      `DELETE FROM ai_note_embeddings
+        WHERE user_id = ?1 AND note_id = ?2 AND ${queueGuard}`,
+    ).bind(userId, item.note_id, userId, item.note_id, item.kind, item.created_at),
     db.prepare(
       `DELETE FROM ai_index_queue
         WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
     ).bind(userId, item.note_id, item.kind, item.created_at),
-  ])
+  ]
+
+  const statements: D1PreparedStatement[] = []
+  const embeds: QueueRow[] = []
+  for (const item of items) {
+    if (item.kind === 'delete') statements.push(...cleanup(item))
+    else embeds.push(item)
+  }
+  if (embeds.length) {
+    const { results: noteRows } = await db.prepare(
+      `SELECT id, title, substr(content, 1, ?3) AS content FROM notes
+        WHERE user_id = ?1 AND deleted_at IS NULL
+          AND id IN (SELECT value FROM json_each(?2))`,
+    ).bind(userId, JSON.stringify(embeds.map((item) => item.note_id)), EMBED_TEXT_MAX_CHARS)
+      .all<{ id: string; title: string; content: string }>()
+    const byId = new Map(noteRows.map((row) => [row.id, row]))
+    const present: Array<{ item: QueueRow; text: string }> = []
+    for (const item of embeds) {
+      const note = byId.get(item.note_id)
+      if (!note) {
+        statements.push(...cleanup(item))
+        continue
+      }
+      present.push({ item, text: `${note.title}\n${note.content}`.slice(0, EMBED_TEXT_MAX_CHARS) })
+    }
+    if (present.length) {
+      const vectors = await embedTexts(ai, present.map((entry) => entry.text))
+      present.forEach(({ item }, index) => {
+        const vector = vectors[index]!
+        statements.push(
+          db.prepare(
+            `INSERT INTO ai_note_embeddings (user_id, note_id, model, vector, indexed_at, norm)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE ${insertQueueGuard}
+             ON CONFLICT(user_id, note_id) DO UPDATE SET
+               vector = excluded.vector, indexed_at = excluded.indexed_at, norm = excluded.norm`,
+          ).bind(
+            userId,
+            item.note_id,
+            AI_EMBEDDING_MODEL,
+            encodeVector(vector),
+            Date.now(),
+            vectorNorm(vector),
+            userId,
+            item.note_id,
+            item.kind,
+            item.created_at,
+          ),
+          db.prepare(
+            `DELETE FROM ai_index_queue
+              WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
+          ).bind(userId, item.note_id, item.kind, item.created_at),
+        )
+      })
+    }
+  }
+  await db.batch(statements)
+  return items.length
 }
 
 /**
@@ -324,11 +358,11 @@ export async function searchSemanticNotes(
   filters: SemanticFilters,
 ): Promise<SemanticSearchHit[] | null> {
   if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
-  const queryVector = await embedText(env.AI, query)
+  const queryVector = await embedQueryText(env.AI, query)
   const { binds, where } = semanticWhere(userId, filters)
   binds.push(MAX_SEMANTIC_VECTORS)
   const { results } = await db.prepare(
-    `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector
+    `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector, e.norm
        FROM ai_note_embeddings e JOIN notes n
          ON n.id = e.note_id AND n.user_id = e.user_id
       WHERE ${where}
@@ -339,7 +373,7 @@ export async function searchSemanticNotes(
   const queryNorm = vectorNorm(queryVector)
   const scored = results.map((row) => ({
     row,
-    score: cosineSimilarityPrecomputed(queryVector, queryNorm, decodeVector(row.vector)),
+    score: cosineSimilarityPrecomputed(queryVector, queryNorm, decodeVector(row.vector), row.norm ?? undefined),
   }))
   scored.sort((a, b) =>
     b.score - a.score ||
@@ -395,10 +429,34 @@ export function fuseByRrf<T extends { id: string }>(
   )
 }
 
+/** Calls the Workers AI embedding model for many texts in one round trip. */
+export async function embedTexts(
+  ai: NonNullable<Env['AI']>,
+  texts: string[],
+): Promise<Float32Array[]> {
+  if (!texts.length) return []
+  const result = await ai.run(AI_EMBEDDING_MODEL, { text: texts })
+  return extractEmbeddings(result, texts.length)
+}
+
 /** Calls the Workers AI embedding model and returns a Float32Array. */
 export async function embedText(ai: NonNullable<Env['AI']>, text: string): Promise<Float32Array> {
-  const result = await ai.run(AI_EMBEDDING_MODEL, { text: [text] })
-  return extractEmbedding(result)
+  const [vector] = await embedTexts(ai, [text])
+  return vector!
+}
+
+const queryEmbedCache = new Map<string, { vector: Float32Array; expiresAt: number }>()
+const QUERY_EMBED_TTL_MS = 600_000
+const QUERY_EMBED_CACHE_MAX = 64
+
+/** Query embeddings repeat constantly across MCP calls; cache per isolate. */
+export async function embedQueryText(ai: NonNullable<Env['AI']>, text: string): Promise<Float32Array> {
+  const hit = queryEmbedCache.get(text)
+  if (hit && hit.expiresAt > Date.now()) return hit.vector
+  const vector = await embedText(ai, text)
+  if (queryEmbedCache.size >= QUERY_EMBED_CACHE_MAX) queryEmbedCache.clear()
+  queryEmbedCache.set(text, { vector, expiresAt: Date.now() + QUERY_EMBED_TTL_MS })
+  return vector
 }
 
 /** Handles both the `{ data: [{ embedding }] }` and `{ shape, data }` shapes. */
@@ -415,6 +473,14 @@ export function extractEmbedding(result: unknown): Float32Array {
   }
   throw new Error('Unexpected embedding response shape')
 }
+export function extractEmbeddings(result: unknown, expected: number): Float32Array[] {
+  const data = (result as { data?: unknown } | null)?.data
+  if (Array.isArray(data) && data.length === expected) {
+    return data.map((entry) => extractEmbedding({ data: [entry] }))
+  }
+  throw new Error('Unexpected embedding response shape')
+}
+
 
 export function encodeVector(vector: Float32Array): ArrayBuffer {
   return new Float32Array(vector).buffer
@@ -433,16 +499,21 @@ export function vectorNorm(v: Float32Array): number {
   return Math.sqrt(sum)
 }
 
-export function cosineSimilarityPrecomputed(a: Float32Array, normA: number, b: Float32Array): number {
+export function cosineSimilarityPrecomputed(
+  a: Float32Array,
+  normA: number,
+  b: Float32Array,
+  knownNormB?: number,
+): number {
   if (normA === 0) return 0
   const length = Math.min(a.length, b.length)
   let dot = 0
-  let normB = 0
+  let normBSquare = 0
   for (let index = 0; index < length; index++) {
     dot += a[index]! * b[index]!
-    normB += b[index]! * b[index]!
+    if (knownNormB === undefined) normBSquare += b[index]! * b[index]!
   }
-  const denominator = normA * Math.sqrt(normB)
+  const denominator = normA * (knownNormB ?? Math.sqrt(normBSquare))
   return denominator === 0 ? 0 : dot / denominator
 }
 

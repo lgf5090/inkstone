@@ -5,7 +5,7 @@ import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { toTag, tagSelectQuery, type TagRow } from '../db/rows'
-import { buildNoteDerivedStatements } from '../db/writes'
+import { buildNoteDerivedStatements, INLINE_REWRITE_LIMIT, rewriteQueueStatement } from '../db/writes'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -295,6 +295,7 @@ export async function rewriteTagInNotes(
   tagId: string,
   from: string,
   to: string | null,
+  forceInline = false,
 ): Promise<TagRewriteResult> {
   const { results } = await env.DB.prepare(
     `SELECT n.id FROM notes n
@@ -303,6 +304,13 @@ export async function rewriteTagInNotes(
   )
     .bind(tagId, userId)
     .all<{ id: string }>()
+
+  if (!forceInline && results.length > INLINE_REWRITE_LIMIT) {
+    await env.DB.batch([
+      rewriteQueueStatement(env.DB, userId, to === null ? 'tag-delete' : 'tag-rename', tagId, from, to ?? ''),
+    ])
+    return { rewritten: 0, rollback: async () => {} }
+  }
 
   let rewritten = 0
   const rewrittenNotes: RewrittenTagNote[] = []

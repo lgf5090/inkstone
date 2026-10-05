@@ -15,7 +15,9 @@ import type { AppBindings } from '../env'
 import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, splitTags, toNote, toNoteSummary, type NoteRow } from '../db/rows'
 import {
   buildNoteDerivedStatements,
+  INLINE_REWRITE_LIMIT,
   FTS_QUEUE_CONFLICT_SQL,
+  rewriteQueueStatement,
   LINK_TARGET_SUBQUERY,
   pruneOrphanTags,
 } from '../db/writes'
@@ -25,7 +27,7 @@ import { isValidId, newId } from '../lib/id'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { aiDeleteNeededSql, noteIndexQueueStatement } from '../mcp/ai-search'
+import { aiDeleteNeededSql, noteIndexQueueStatement, scheduleAiDrainForNote } from '../mcp/ai-search'
 
 export const notesRoutes = new Hono<AppBindings>()
 
@@ -339,7 +341,10 @@ notesRoutes.post('/', async (c) => {
   if (!created) throw ApiError.conflict('This note id is already in use')
   const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, changeSeq)
-  if (insertResult?.meta.changes) scheduleFtsDrain(c)
+  if (insertResult?.meta.changes) {
+    scheduleFtsDrain(c)
+    scheduleAiDrainForNote(c, userId)
+  }
   const note = toNote(created)
   return c.json(note, insertResult?.meta.changes ? 201 : 200)
 })
@@ -547,6 +552,9 @@ notesRoutes.patch('/:id', async (c) => {
       if (rewrite.skipped) {
         console.warn(`Could not update ${rewrite.skipped} wiki-link source notes after renaming note ${id}`)
       }
+      if (rewrite.deferred) {
+        console.info(`Deferred ${rewrite.deferred} wiki-link source note rewrites for note ${id} to the background queue`)
+      }
       rewroteInbound = rewrite.rewritten > 0
     } else {
       await c.env.DB.prepare(
@@ -566,7 +574,10 @@ notesRoutes.patch('/:id', async (c) => {
     }
   }
   await broadcastCursor(c, rewroteInbound ? undefined : changeResult?.results?.[0]?.seq)
-  if (contentChanged || newTitle !== row.title) scheduleFtsDrain(c)
+  if (contentChanged || newTitle !== row.title) {
+    scheduleFtsDrain(c)
+    scheduleAiDrainForNote(c, userId)
+  }
   const nextTags = contentChanged ? (derivedTags ?? extractTags(newContent)) : null
   return c.json(toNote(applyPatchRow(row, sets, binds, nextTags)))
 })
@@ -678,6 +689,7 @@ notesRoutes.post('/:id/restore', async (c) => {
   const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
+  scheduleAiDrainForNote(c, userId)
   const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
   return c.json(note)
 })
@@ -847,6 +859,7 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   const duplicateSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, duplicateSeq)
   scheduleFtsDrain(c)
+  scheduleAiDrainForNote(c, userId)
   const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
   return c.json(note, 201)
 })
@@ -986,6 +999,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   const restoreSeq = (restoreBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, restoreSeq)
   scheduleFtsDrain(c)
+  scheduleAiDrainForNote(c, userId)
   const note = toNote((restoreBatch.at(-1) as D1Result<NoteRow>).results[0]!)
   return c.json(note)
 })
@@ -1051,14 +1065,15 @@ function backlinkContext(window: string, hit: number, len: number, needleLen: nu
   )
 }
 
-async function rewriteInboundWikiLinks(
+export async function rewriteInboundWikiLinks(
   db: D1Database,
   userId: string,
   targetNoteId: string,
   fromTitle: string,
   toTitle: string,
   ftsEnabled: boolean,
-): Promise<{ rewritten: number; skipped: number }> {
+  forceInline = false,
+): Promise<{ rewritten: number; skipped: number; deferred: number }> {
   const previousKey = normalizeLinkKey(fromTitle)
   const { results: candidates } = await db.prepare(
     `SELECT DISTINCT n.id FROM links l
@@ -1066,7 +1081,13 @@ async function rewriteInboundWikiLinks(
      WHERE l.user_id = ?1 AND l.target_note_id = ?2 AND l.target_key = ?3
        AND n.id <> ?2 AND n.deleted_at IS NULL`,
   ).bind(userId, targetNoteId, previousKey).all<{ id: string }>()
-  if (!candidates.length) return { rewritten: 0, skipped: 0 }
+  if (!candidates.length) return { rewritten: 0, skipped: 0, deferred: 0 }
+  if (!forceInline && candidates.length > INLINE_REWRITE_LIMIT) {
+    await db.batch([
+      rewriteQueueStatement(db, userId, 'note-title', targetNoteId, fromTitle, toTitle),
+    ])
+    return { rewritten: 0, skipped: 0, deferred: candidates.length }
+  }
   let rewritten = 0
   let skipped = 0
 
@@ -1175,7 +1196,7 @@ async function rewriteInboundWikiLinks(
       else skipped++
     }
   }
-  return { rewritten, skipped }
+  return { rewritten, skipped, deferred: 0 }
 }
 
 function sameTagSet(left: string[], right: string[]): boolean {
