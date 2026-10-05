@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, X, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
@@ -34,6 +34,7 @@ import { useSyncScroll } from './sync-scroll';
 import { captureReadingPosition, readReadingPosition, readingPositionKey, restoreReadingPosition, writeReadingPosition } from './reading-position';
 import { t, useLocale } from "../../lib/i18n";
 import { preferredScrollBehavior } from '../../lib/motion';
+const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
 const SPLIT_HANDLE_WIDTH = 1;
 const PREVIEW_BORDER_WIDTH = 1;
 const OUTLINE_WIDTH = 168;
@@ -60,6 +61,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const backlinksOpen = useUi((s) => s.backlinksOpen);
     const toggleOutline = useUi((s) => s.toggleOutline);
     const toggleBacklinks = useUi((s) => s.toggleBacklinks);
+    const localGraphOpen = useUi((s) => s.localGraphOpen);
+    const toggleLocalGraph = useUi((s) => s.toggleLocalGraph);
     const splitRatio = useUi((s) => s.splitRatio);
     const setLayout = useUi((s) => s.setLayout);
     const activeWorkspacePane = useUi((s) => s.activeWorkspacePane);
@@ -314,6 +317,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         ...(isMobile ? [
             { id: 'star', label: note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites"), checked: note.isStarred, onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }) },
             { id: 'backlinks', label: t("common.backlinks"), checked: backlinksOpen, onSelect: toggleBacklinks },
+            { id: 'local-graph', label: t("graph.local_graph"), checked: localGraphOpen, onSelect: toggleLocalGraph },
         ] : []),
         {
             id: 'versions',
@@ -363,6 +367,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             icon: <LinkIcon size={13}/>,
             checked: backlinksOpen && paneActive,
             onSelect: toggleBacklinks,
+        },
+        {
+            id: 'local-graph',
+            label: t("graph.local_graph"),
+            icon: <Waypoints size={13}/>,
+            checked: localGraphOpen && paneActive,
+            onSelect: toggleLocalGraph,
         },
         {
             id: 'outline',
@@ -462,6 +473,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
               <LinkIcon size={14}/>
             </IconButton>
           </Tooltip>
+          <Tooltip label={t("graph.local_graph")}>
+            <IconButton label={t("graph.local_graph")} size="sm" active={localGraphOpen} onClick={toggleLocalGraph}>
+              <Waypoints size={14}/>
+            </IconButton>
+          </Tooltip>
           </>}
           {!isMobile && (<Tooltip label={t("common.version_history")}>
               <IconButton label={t("common.version_history")} size="sm" onClick={() => openPanel('versions')}>
@@ -512,6 +528,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}
+      {localGraphOpen && paneActive && (<Suspense fallback={null}>
+          <LocalGraphPanel noteId={note.id} onClose={toggleLocalGraph} onOpenFullGraph={() => openPanel('graph')}/>
+        </Suspense>)}
 
       <Menu anchor={moreButtonRef} open={moreMenuOpen} onClose={() => setMoreMenuOpen(false)} items={grouped ? groupedItems : mobileItems} align="end" width={220}/>
       {isMobile && (<Drawer open={mobileOutlineOpen} onClose={() => setMobileOutlineOpen(false)} side="right" width={320} title={t("common.outline")}>

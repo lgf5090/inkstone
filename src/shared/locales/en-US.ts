@@ -144,6 +144,7 @@ export const EN_US_MESSAGES = {
     "command.no_matching_results": "No matching results",
     "command.open_favorites": "Open favorites",
     "command.open_graph": "Open graph",
+    "command.open_local_graph": "Open local graph",
     "command.open_trash": "Open trash",
     "command.recently_opened": "Recently opened",
     "command.redo": "Redo",

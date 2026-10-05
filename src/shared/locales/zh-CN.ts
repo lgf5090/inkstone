@@ -145,6 +145,7 @@ export const ZH_CN_MESSAGES = {
     "command.no_matching_results": "没有匹配的结果",
     "command.open_favorites": "打开收藏",
     "command.open_graph": "打开关系图谱",
+    "command.open_local_graph": "打开局部关系图",
     "command.open_trash": "打开回收站",
     "command.recently_opened": "最近打开",
     "command.redo": "重做",

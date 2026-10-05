@@ -63,6 +63,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const activeNote = useNotes((s) => (activeNoteId ? s.notes[activeNoteId] ?? null : null));
     const recentNoteIds = useUi((s) => s.recentNoteIds);
     const openPanel = useUi((s) => s.openPanel);
+    const toggleLocalGraph = useUi((s) => s.toggleLocalGraph);
     const openView = useUi((s) => s.openView);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
     const updateSettings = useSession((s) => s.updateSettings);
@@ -203,6 +204,14 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 icon: <Waypoints size={14}/>,
                 group: t("common.interface"),
                 run: () => openPanel('graph'),
+            },
+            {
+                id: 'cmd-local-graph',
+                kind: 'command',
+                label: t("command.open_local_graph"),
+                icon: <Waypoints size={14}/>,
+                group: t("common.interface"),
+                run: () => { if (useUi.getState().activeNoteId) toggleLocalGraph(); },
             },
             {
                 id: 'cmd-settings',
