@@ -455,17 +455,27 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     in_degree: number
     out_degree: number
   }
-  const degreeSelect = `
-    (SELECT COUNT(*) FROM (
-      SELECT target_key FROM links ld WHERE ld.source_note_id = n.id
-        AND ld.user_id = ? AND ld.target_note_id IS NOT NULL
-      UNION ALL
-      SELECT target_key FROM links ld WHERE ld.target_note_id = n.id
-        AND ld.user_id = n.user_id AND ld.source_note_id != n.id
-    )) AS degree,
-    (SELECT COUNT(*) FROM links li WHERE li.user_id = ? AND li.target_note_id = n.id) AS in_degree,
-    (SELECT COUNT(*) FROM links lo WHERE lo.user_id = ? AND lo.source_note_id = n.id
-      AND lo.target_note_id IS NOT NULL) AS out_degree`
+  const linkDegreeCte = `
+    link_edges AS (
+      SELECT source_note_id, target_note_id
+        FROM links
+       WHERE user_id = ? AND target_note_id IS NOT NULL
+    ),
+    link_counts AS (
+      SELECT note_id,
+             SUM(is_out) AS out_degree,
+             SUM(is_in) AS in_degree,
+             SUM(is_deg) AS degree
+      FROM (
+        SELECT source_note_id AS note_id, 1 AS is_out, 0 AS is_in, 1 AS is_deg
+          FROM link_edges
+        UNION ALL
+        SELECT target_note_id AS note_id, 0 AS is_out, 1 AS is_in,
+               CASE WHEN source_note_id = target_note_id THEN 0 ELSE 1 END AS is_deg
+          FROM link_edges
+      )
+      GROUP BY note_id
+    )`
 
   let rows: GraphRow[]
   let totalNodes = 0
@@ -485,14 +495,19 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     ), nearby AS (SELECT id, MIN(depth) AS depth FROM neighborhood GROUP BY id)`
     const prefixBinds = [centerId, userId, depth]
     const result = await c.env.DB.prepare(
-      `${neighborhood}
+      `${neighborhood},
+       ${linkDegreeCte}
        SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
-         ${degreeSelect}, nearby.depth
+         COALESCE(lc.degree, 0) AS degree,
+         COALESCE(lc.in_degree, 0) AS in_degree,
+         COALESCE(lc.out_degree, 0) AS out_degree,
+         nearby.depth
        FROM nearby JOIN notes n ON n.id = nearby.id
        LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
+       LEFT JOIN link_counts lc ON lc.note_id = n.id
        WHERE ${filters.join(' AND ')}
        ORDER BY nearby.depth ASC, degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
-    ).bind(...prefixBinds, userId, userId, userId, ...filterBinds, limit + 1).all<GraphRow>()
+    ).bind(...prefixBinds, userId, ...filterBinds, limit + 1).all<GraphRow>()
     rows = result.results
     const count = await c.env.DB.prepare(
       `${neighborhood} SELECT COUNT(*) AS count FROM nearby JOIN notes n ON n.id = nearby.id
@@ -501,12 +516,17 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     totalNodes = Number(count?.count ?? rows.length)
   } else {
     const result = await c.env.DB.prepare(
-      `SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
-         ${degreeSelect}
-       FROM notes n LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
+      `WITH ${linkDegreeCte}
+       SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
+         COALESCE(lc.degree, 0) AS degree,
+         COALESCE(lc.in_degree, 0) AS in_degree,
+         COALESCE(lc.out_degree, 0) AS out_degree
+       FROM notes n
+       LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
+       LEFT JOIN link_counts lc ON lc.note_id = n.id
        WHERE ${filters.join(' AND ')}
        ORDER BY degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
-    ).bind(userId, userId, userId, ...filterBinds, limit + 1).all<GraphRow>()
+    ).bind(userId, ...filterBinds, limit + 1).all<GraphRow>()
     rows = result.results
     const count = await c.env.DB.prepare(
       `SELECT COUNT(*) AS count FROM notes n WHERE ${filters.join(' AND ')}`,
