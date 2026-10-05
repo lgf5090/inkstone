@@ -6,7 +6,7 @@ import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
 import type { AppLocale, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
-import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem } from '../lib/db';
+import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds } from '../lib/folders';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
@@ -439,6 +439,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         };
         const feedbackTimer = window.setTimeout(selectTarget, NOTE_SWITCH_FEEDBACK_DELAY_MS);
         try {
+            await flushLocalDbWrites();
             const cached = await localDb.getContent(id);
             let currentSummary = get().notes[id];
             if (requestSequence !== openSequences[targetPane] ||
@@ -628,6 +629,7 @@ export const useNotes = create<NotesState>((set, get) => ({
     },
     async flush(options) {
         commitAllPendingSummaryDerivations();
+        await flushLocalDbWrites();
         if (options?.immediate)
             window.clearTimeout(saveTimer);
         if (dirty.size)
@@ -1302,6 +1304,59 @@ function commitPendingSummaryDerivation(id: string): void {
 function equalStringArrays(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((value, index) => value === b[index]);
 }
+interface PendingOutboxEntry {
+    item: OutboxItem;
+    resolvers: Array<(value: boolean) => void>;
+}
+const pendingOutboxWrites = new Map<string, PendingOutboxEntry>();
+const pendingContentWrites = new Map<string, CachedNoteContent>();
+let localDbWriteTimer: number | null = null;
+const LOCAL_DB_WRITE_DELAY_MS = 300;
+
+function scheduleLocalDbFlush(): void {
+    if (localDbWriteTimer !== null)
+        return;
+    localDbWriteTimer = window.setTimeout(() => {
+        localDbWriteTimer = null;
+        void flushLocalDbWrites();
+    }, LOCAL_DB_WRITE_DELAY_MS);
+}
+
+export async function flushLocalDbWrites(): Promise<void> {
+    if (localDbWriteTimer !== null) {
+        window.clearTimeout(localDbWriteTimer);
+        localDbWriteTimer = null;
+    }
+    if (pendingOutboxWrites.size === 0 && pendingContentWrites.size === 0)
+        return;
+    const currentOutbox = Array.from(pendingOutboxWrites.entries());
+    const currentContent = Array.from(pendingContentWrites.entries());
+    pendingOutboxWrites.clear();
+    pendingContentWrites.clear();
+
+    for (const [, entry] of currentOutbox) {
+        try {
+            await localDb.enqueueOutbox(entry.item);
+            for (const r of entry.resolvers)
+                r(true);
+        } catch {
+            for (const r of entry.resolvers)
+                r(false);
+        }
+    }
+    for (const [id, content] of currentContent) {
+        try {
+            await localDb.setContent(id, content);
+        } catch { }
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => void flushLocalDbWrites());
+    window.addEventListener('beforeunload', () => void flushLocalDbWrites());
+    window.addEventListener('blur', () => void flushLocalDbWrites());
+}
+
 function stageNoteTextWrite(id: string, content: string, title: string | undefined, set: SetNotesState, get: () => NotesState): void {
     const state = get();
     const summary = state.notes[id];
@@ -1320,7 +1375,7 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
         rev: previousDirty?.rev ?? summary.rev,
         ...(title !== undefined ? { title } : {}),
     };
-    const persisted = localDb.enqueueOutbox({
+    const item: OutboxItem = {
         id: queueId,
         clientId: CLIENT_ID,
         writeId,
@@ -1329,7 +1384,21 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
         payload,
         attempts: 0,
         createdAt: Date.now(),
-    }).then(() => true, () => false);
+    };
+    let persisted: Promise<boolean>;
+    const existingEntry = pendingOutboxWrites.get(id);
+    if (existingEntry) {
+        existingEntry.item = item;
+        persisted = new Promise<boolean>((resolve) => {
+            existingEntry.resolvers.push(resolve);
+        });
+    } else {
+        const resolvers: Array<(value: boolean) => void> = [];
+        persisted = new Promise<boolean>((resolve) => {
+            resolvers.push(resolve);
+        });
+        pendingOutboxWrites.set(id, { item, resolvers });
+    }
     dirty.set(id, { content, contentDirty, ...(title !== undefined ? { title } : {}), rev: payload.rev, writeId, queueId, dependsOnWriteId, updatedAt, persisted });
     const titleChanged = title !== undefined && summary.title !== title;
     set((current) => ({
@@ -1344,7 +1413,7 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
         scheduleSummaryDerivation(id, content, updatedAt, set, get);
     if (titleChanged)
         scheduleShellSave(get);
-    void localDb.setContent(id, {
+    pendingContentWrites.set(id, {
         content,
         contentDirty,
         ...(title !== undefined ? { pendingTitle: title } : {}),
@@ -1352,6 +1421,7 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
         updatedAt,
         writeId,
     });
+    scheduleLocalDbFlush();
     const delay = Math.max(100, useSession.getState().settings.editor.autoSaveDelay);
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => void get().flush(), delay);
