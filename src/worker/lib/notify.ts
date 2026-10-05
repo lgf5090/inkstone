@@ -26,7 +26,7 @@ export async function commitChange(
 ): Promise<number> {
   const userId = c.get('userId')
   const cursor = await recordChange(c.env.DB, userId, entity, entityId, op)
-  c.executionCtx?.waitUntil(notifySyncHub(c.env.SYNC_HUB, userId, cursor, originOf(c)))
+  c.executionCtx?.waitUntil(notifySyncHub(c.env.SYNC_HUB, userId, cursor, originOf(c), c.env.DO_AUTH_KEY))
   return cursor
 }
 
@@ -53,7 +53,7 @@ export async function broadcastUserCursor(
   waitUntil?: (task: Promise<unknown>) => void,
 ): Promise<number> {
   const cursor = knownCursor ?? (await currentCursor(env.DB, userId))
-  const notification = notifySyncHub(env.SYNC_HUB, userId, cursor, origin)
+  const notification = notifySyncHub(env.SYNC_HUB, userId, cursor, origin, env.DO_AUTH_KEY)
   if (waitUntil) waitUntil(notification)
   else await notification
   return cursor

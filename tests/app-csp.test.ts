@@ -13,6 +13,7 @@ const authorizeUrl = 'http://localhost/authorize'
 
 let sqlite: DatabaseSync
 let env: Env
+let pkcelessEnv: Env
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
@@ -25,12 +26,26 @@ beforeAll(async () => {
         redirectUri: 'https://evil.example/cb',
         scope: ['notes:read', 'notes:write'],
         state: 'st',
+        codeChallenge: 'E9meltO2P9ExpfE2f0-8IhjdNruEkZ0t2k_1cw0cDDE',
+        codeChallengeMethod: 'S256',
       }),
       lookupClient: async () => ({
         clientName: 'Claude',
         clientUri: null,
         redirectUris: ['https://evil.example/cb'],
         scope: 'notes:read notes:write',
+      }),
+    },
+  } as unknown as Env
+  pkcelessEnv = {
+    ...env,
+    OAUTH_PROVIDER: {
+      ...env.OAUTH_PROVIDER,
+      parseAuthRequest: async () => ({
+        clientId: 'https://evil.example/c.json',
+        redirectUri: 'https://evil.example/cb',
+        scope: ['notes:read', 'notes:write'],
+        state: 'st',
       }),
     },
   } as unknown as Env
@@ -115,4 +130,20 @@ it('discloses an unregistered CIMD client source on the consent page', async () 
   const body = await (await fetchAuthorize(true)).text()
   expect(body).toContain('class="client-source"')
   expect(body).toContain('evil.example')
+})
+
+it('requires PKCE on authorization requests', async () => {
+  const response = await createApp().fetch(new Request(authorizeUrl, {
+    headers: { Cookie: `inkstone_session=${sessionToken}` },
+  }), pkcelessEnv)
+  expect(response.status).toBe(302)
+  const location = new URL(response.headers.get('location')!)
+  expect(location.searchParams.get('error')).toBe('invalid_request')
+})
+
+it('still sends security headers on API error responses', async () => {
+  const response = await createApp().fetch(new Request('http://localhost/api/definitely-missing'), env)
+  expect(response.status).toBe(404)
+  expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'")
+  expect(response.headers.get('X-Frame-Options')).toBe('DENY')
 })

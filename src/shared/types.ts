@@ -602,6 +602,7 @@ export type ApiErrorCode =
   | 'too_many_attempts'
   | 'registration_closed'
   | 'setup_token_required'
+  | 'note_quota_exceeded'
   | 'server_misconfigured'
   | 'two_factor_already_enabled'
   | 'two_factor_challenge_expired'

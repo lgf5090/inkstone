@@ -125,6 +125,17 @@ async function parseAuthorization(
   if (!oauth) return new Response('OAuth is unavailable', { status: 503 })
   try {
     const parsed = await oauth.parseAuthRequest(request)
+    if (!parsed.codeChallenge) {
+      return Response.redirect(
+        oauthErrorRedirect(
+          parsed,
+          'invalid_request',
+          'PKCE is required: missing code_challenge',
+          authorizationIssuer(request, parsed),
+        ),
+        302,
+      )
+    }
     const unsupported = parsed.scope.filter(
       (scope) => scope !== 'offline_access' && !(MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
     )

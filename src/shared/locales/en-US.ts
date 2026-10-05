@@ -932,7 +932,7 @@ export const EN_US_MESSAGES = {
     "share.incorrect_passcode": "Incorrect passcode",
     "share.in_trash": "In trash",
     "share.enter_a_passcode": "Enter a passcode first",
-    "share.passcode_too_short": "The passcode must be at least 4 characters",
+    "share.passcode_too_short": "The passcode must be at least 8 characters",
     "share.keep_current_expiration": "Keep current",
     "share.leave_blank_to_keep_the_current_passcode": "Leave blank to keep the current passcode",
     "share.link_revoked": "Link revoked",

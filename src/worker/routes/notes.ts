@@ -13,6 +13,7 @@ import type {
 } from '@shared/types'
 import type { AppBindings } from '../env'
 import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, splitTags, toNote, toNoteSummary, type NoteRow } from '../db/rows'
+import { assertNoteQuota } from '../db/quota'
 import {
   buildNoteDerivedStatements,
   changeStatement,
@@ -290,6 +291,7 @@ notesRoutes.post('/', async (c) => {
       .first<{ user_id: string }>()
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
+  await assertNoteQuota(c.env.DB, userId)
   const now = Date.now()
   const title = resolveNoteTitle(body.title)
   const excerpt = deriveExcerpt(content)
@@ -764,6 +766,7 @@ notesRoutes.post('/:id/duplicate', async (c) => {
       .first<{ user_id: string }>()
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
+  await assertNoteQuota(c.env.DB, userId)
   const now = Date.now()
   const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
   const content = source.content
