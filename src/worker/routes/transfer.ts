@@ -33,7 +33,7 @@ import {
   runBatched,
 } from '../db/writes'
 import { noteIndexQueueStatement, scheduleAiDrain } from '../mcp/ai-search'
-import { assertNoteQuota } from '../db/quota'
+import { consumeNoteQuota, openNoteQuotaBudget, type NoteQuotaBudget } from '../db/quota'
 import {
   assertBundleCanBeRestored,
   buildJsonExport,
@@ -355,6 +355,11 @@ interface ImportContext {
   ftsEnabled: boolean
   attachmentEntries?: Map<string, Uint8Array>
   assets?: ObsidianAssetIndex
+  /**
+   * One note-count snapshot budgeting the whole request. The import route holds an
+   * account-level lease for its duration, so re-counting per note is pure overhead.
+   */
+  quota?: NoteQuotaBudget
 }
 
 interface SelectedImportFile {
@@ -1534,7 +1539,8 @@ async function insertNote(
   ctx: ImportContext,
 ): Promise<string> {
   assertContentSize(input.content)
-  await assertNoteQuota(c.env.DB, userId)
+  if (!ctx.quota) ctx.quota = await openNoteQuotaBudget(c.env.DB, userId)
+  consumeNoteQuota(ctx.quota)
 
   let id = input.id ?? newId()
   const now = Date.now()

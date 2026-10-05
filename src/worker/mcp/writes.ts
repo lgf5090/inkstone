@@ -56,12 +56,15 @@ export async function createMcpNote(
       const now = Date.now()
       const excerpt = deriveExcerpt(content)
       const { words, chars } = countText(content)
-      const hash = await sha256Hex(content)
       const collision = await context.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
         .bind(id)
         .first<{ user_id: string }>()
       if (collision) throw ApiError.conflict('This note id is already in use')
-      await assertNoteQuota(context.env.DB, context.userId)
+      // The quota read rides along with hashing instead of adding a serial round trip.
+      const [hash] = await Promise.all([
+        sha256Hex(content),
+        assertNoteQuota(context.env.DB, context.userId),
+      ])
 
       const insert = context.env.DB.prepare(
         `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,

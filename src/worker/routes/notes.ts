@@ -292,12 +292,12 @@ notesRoutes.post('/', async (c) => {
       .first<{ user_id: string }>()
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
-  await assertNoteQuota(c.env.DB, userId)
   const now = Date.now()
   const title = resolveNoteTitle(body.title)
   const excerpt = deriveExcerpt(content)
   const { words, chars } = countText(content)
-  const hash = await sha256Hex(content)
+  // The quota read rides along with hashing instead of adding a serial round trip.
+  const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
   const folderId = await resolveFolderId(c.env.DB, userId, body.folderId ?? null)
 
   const insert = c.env.DB.prepare(
@@ -794,11 +794,11 @@ notesRoutes.post('/:id/duplicate', async (c) => {
       .first<{ user_id: string }>()
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
-  await assertNoteQuota(c.env.DB, userId)
   const now = Date.now()
   const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
   const content = source.content
-  const hash = await sha256Hex(content)
+  // The quota read rides along with hashing instead of adding a serial round trip.
+  const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
 
   const insert = c.env.DB.prepare(
     `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,

@@ -121,6 +121,9 @@ const allowed = new Map([
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
   ]],
+  ["src/worker/db/quota.ts", [
+    "/**\n * Import runs hold a per-account import lease, so one count per request can budget every\n * note it inserts instead of paying a COUNT round trip per note.\n */",
+  ]],
   ["src/worker/db/rows.ts", [
     "/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */",
   ]],
@@ -220,6 +223,9 @@ const allowed = new Map([
   ["src/worker/mcp/retrieval.ts", [
     "// AI unavailable, rate-limited, or malformed response: degrade to lexical.",
   ]],
+  ["src/worker/mcp/writes.ts", [
+    "// The quota read rides along with hashing instead of adding a serial round trip.",
+  ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
     "// from many IPs forever; cleared on every successful sign-in, so a",
@@ -237,6 +243,7 @@ const allowed = new Map([
     "// lower(n.content) subexpression across the three references below.",
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
+    "// The quota read rides along with hashing instead of adding a serial round trip.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",
@@ -254,6 +261,7 @@ const allowed = new Map([
     "// sha256/size were computed at persist time; re-downloading every matching",
     "// object to re-hash it doubles import transfer for no extra assurance.",
     "/** Imports queue thousands of embeddings at once; a cron-only drain would take days. */",
+    "/**\n   * One note-count snapshot budgeting the whole request. The import route holds an\n   * account-level lease for its duration, so re-counting per note is pure overhead.\n   */",
   ]],
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
