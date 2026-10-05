@@ -51,7 +51,6 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const patchNote = useNotes((s) => s.patchNote);
     const tags = useNotes((s) => s.tags);
     const folders = useNotes((s) => s.folders);
-    const notes = useNotes((s) => s.notes);
     const toast = useUi((s) => s.toast);
     const locale = useLocale();
     const openPanel = useUi((s) => s.openPanel);
@@ -188,13 +187,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         void updateSettings({ preview: { layout: next } });
     };
     const sources = useMemo(() => ({
-        notes: () => Object.values(notes)
+        notes: () => Object.values(useNotes.getState().notes ?? {})
             .filter((n) => !n.deletedAt && n.id !== note?.id)
             .sort((a, b) => b.updatedAt - a.updatedAt)
             .slice(0, 300)
             .map((n) => ({ id: n.id, title: n.title, excerpt: n.excerpt })),
-        tags: () => tags.map((t) => ({ name: t.name, count: t.count })),
-    }), [notes, tags, note?.id]);
+        tags: () => useNotes.getState().tags.map((t) => ({ name: t.name, count: t.count })),
+    }), [note?.id]);
     const handlers = useMemo(() => ({
         uploadFile: async (file: File) => {
             try {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, Moon, Palette, Pencil, Plus, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
@@ -34,6 +34,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
 }) {
     const locale = useLocale();
     const [query, setQuery] = useState(initialQuery);
+    const deferredQuery = useDeferredValue(query);
     const [cursor, setCursor] = useState(0);
     const [remote, setRemote] = useState<{
         query: string;
@@ -253,8 +254,25 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         patchNote,
         updateSettings,
     ]);
+    const folderMatchData = useMemo(() => {
+        const folderCounts = new Map<string, number>();
+        const folderById = new Map(folders.map((folder) => [folder.id, folder]));
+        for (const note of Object.values(notes)) {
+            if (!note.folderId || note.deletedAt || note.isArchived)
+                continue;
+            let currentId: string | null = note.folderId;
+            const seenFolders = new Set<string>();
+            while (currentId && !seenFolders.has(currentId)) {
+                seenFolders.add(currentId);
+                folderCounts.set(currentId, (folderCounts.get(currentId) ?? 0) + 1);
+                currentId = folderById.get(currentId)?.parentId ?? null;
+            }
+        }
+        const folderChoices = folders.map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }));
+        return { folderCounts, folderChoices };
+    }, [notes, folders]);
     const items = useMemo<Item[]>(() => {
-        const text = query.trim();
+        const text = deferredQuery.trim();
         if (text.startsWith('>')) {
             const term = text.slice(1).trim();
             return term
@@ -320,20 +338,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
             score: match.score,
             run: () => openView('tag', { tag: item.name }),
         }));
-        const folderCounts = new Map<string, number>();
-        const folderById = new Map(folders.map((folder) => [folder.id, folder]));
-        for (const note of Object.values(notes)) {
-            if (!note.folderId || note.deletedAt || note.isArchived)
-                continue;
-            let currentId: string | null = note.folderId;
-            const seenFolders = new Set<string>();
-            while (currentId && !seenFolders.has(currentId)) {
-                seenFolders.add(currentId);
-                folderCounts.set(currentId, (folderCounts.get(currentId) ?? 0) + 1);
-                currentId = folderById.get(currentId)?.parentId ?? null;
-            }
-        }
-        const folderChoices = folders.map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }));
+        const { folderCounts, folderChoices } = folderMatchData;
         const matchedFolders = fuzzyFilter(folderChoices, text, (choice) => choice.path, 5).map<Item>(({ item: choice, match }) => ({
             id: `folder-${choice.folder.id}`,
             kind: 'folder',
@@ -358,7 +363,8 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         }
         return all.sort((a, b) => b.score - a.score).slice(0, 40);
     }, [
-        query,
+        deferredQuery,
+        folderMatchData,
         locale,
         notes,
         tags,

@@ -175,6 +175,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const selectedIdRef = useRef<string | null>(null)
   const activeNoteIdRef = useRef(activeNoteId)
   const lastPointerEventAtRef = useRef(Number.NEGATIVE_INFINITY)
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
   const stateRef = useRef<CanvasState>({
     nodes: [], edges: [], scale: 1, offsetX: 0, offsetY: 0,
     dragging: null, pointers: new Map(), pinch: null,
@@ -191,11 +193,14 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   }, [search])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(GRAPH_PREFS_KEY, JSON.stringify(prefs))
-    } catch {
-      // Private browsing or a locked-down browser can reject local preferences.
-    }
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(GRAPH_PREFS_KEY, JSON.stringify(prefs))
+      } catch {
+        // Private browsing or a locked-down browser can reject local preferences.
+      }
+    }, 300)
+    return () => window.clearTimeout(timer)
   }, [prefs])
 
   const request: GraphQuery = useMemo(() => ({
@@ -334,7 +339,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           }
           if (distanceSquared > MAX_REPULSION_DIST_SQ) return
           const distance = Math.sqrt(distanceSquared)
-          const force = prefs.repulsion / distanceSquared
+          const force = prefsRef.current.repulsion / distanceSquared
           const fx = dx / distance * force, fy = dy / distance * force
           a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy
         }
@@ -372,7 +377,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         for (const edge of state.edges) {
           const dx = edge.b.x - edge.a.x, dy = edge.b.y - edge.a.y
           const distance = Math.hypot(dx, dy) || 1
-          const force = (distance - prefs.linkDistance) * 0.008
+          const force = (distance - prefsRef.current.linkDistance) * 0.008
           const fx = dx / distance * force, fy = dy / distance * force
           edge.a.vx += fx; edge.a.vy += fy; edge.b.vx -= fx; edge.b.vy -= fy
         }
@@ -398,7 +403,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         ctx.strokeStyle = related ? colors.accent : colors.edge
         ctx.globalAlpha = related ? 0.9 : emphasizedId ? 0.14 : 0.42
         ctx.beginPath(); ctx.moveTo(edge.a.x, edge.a.y); ctx.lineTo(edge.b.x, edge.b.y); ctx.stroke()
-        if (prefs.arrows) {
+        if (prefsRef.current.arrows) {
           const angle = Math.atan2(edge.b.y - edge.a.y, edge.b.x - edge.a.x)
           const x = edge.b.x - Math.cos(angle) * (edge.b.r + 2)
           const y = edge.b.y - Math.sin(angle) * (edge.b.r + 2)
@@ -415,7 +420,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         const active = node.id === activeNoteIdRef.current
         const emphasized = node.id === emphasizedId
         ctx.beginPath(); ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2)
-        ctx.fillStyle = active || emphasized ? colors.accent : nodeColor(node, prefs.groupBy, colors.node)
+        ctx.fillStyle = active || emphasized ? colors.accent : nodeColor(node, prefsRef.current.groupBy, colors.node)
         ctx.globalAlpha = emphasizedId && !emphasized && !active ? 0.34 : 1
         if (node.kind === 'unresolved') {
           ctx.strokeStyle = ctx.fillStyle
@@ -430,7 +435,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         }
       }
       ctx.globalAlpha = 1
-      if (prefs.labels && (state.scale > 0.68 || emphasizedId)) {
+      if (prefsRef.current.labels && (state.scale > 0.68 || emphasizedId)) {
         ctx.font = `${11 / state.scale}px ${style.getPropertyValue('--font-ui')}`
         ctx.textAlign = 'center'
         for (const node of state.nodes) {
@@ -455,7 +460,19 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       state.raf = 0; state.schedule = null
       observer.disconnect()
     }
-  }, [data, fitGraph, prefs.arrows, prefs.groupBy, prefs.labels, prefs.linkDistance, prefs.nodeScale, prefs.repulsion])
+  }, [data, fitGraph, prefs.nodeScale])
+
+  useEffect(() => {
+    // Physics-parameter tweaks resume the simulation without rebuilding nodes.
+    const state = stateRef.current
+    state.frame = 0
+    state.schedule?.()
+  }, [prefs.linkDistance, prefs.repulsion])
+
+  useEffect(() => {
+    // Draw-only toggles just need one repaint.
+    stateRef.current.schedule?.()
+  }, [prefs.arrows, prefs.labels, prefs.groupBy])
 
   const toWorld = useCallback((clientX: number, clientY: number) => {
     const state = stateRef.current

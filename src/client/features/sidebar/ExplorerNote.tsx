@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Archive, Columns2, FileText, FolderInput, MoreHorizontal, Star, Trash2 } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
+import { numericCollator } from '../../lib/collator';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { IconButton } from '../../components/primitives';
@@ -20,7 +21,8 @@ export function groupExplorerNotes(notes: Record<string, NoteSummary>, folders: 
         groups.set(parent, siblings);
     }
     for (const siblings of groups.values()) {
-        siblings.sort((a, b) => a.title.localeCompare(b.title, locale, { numeric: true, sensitivity: 'base' }) || a.id.localeCompare(b.id));
+        const collator = numericCollator(locale);
+        siblings.sort((a, b) => collator.compare(a.title, b.title) || a.id.localeCompare(b.id));
     }
     return groups;
 }

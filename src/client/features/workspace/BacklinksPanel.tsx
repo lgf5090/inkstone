@@ -14,27 +14,35 @@ export function BacklinksPanel({ noteId }: {
     const [reload, setReload] = useState(0);
     const openNote = useNotes((s) => s.openNote);
     const rev = useNotes((s) => s.notes[noteId]?.rev ?? 0);
-    const cursor = useNotes((s) => s.cursor);
+    useEffect(() => {
+        setLinks(null);
+    }, [noteId]);
     useEffect(() => {
         const controller = new AbortController();
         let cancelled = false;
-        setLinks(null);
-        setLoadError(null);
-        api.notes
-            .backlinks(noteId, controller.signal)
-            .then((res) => {
-            if (!cancelled)
-                setLinks(res.backlinks);
-        })
-            .catch((error) => {
-            if (!cancelled)
-                setLoadError(error instanceof Error ? error.message : String(error));
-        });
+        // Debounced refresh on note revision changes; unrelated sync traffic
+        // (cursor) no longer refetches, and stale links stay visible until the
+        // fresh payload arrives.
+        const timer = window.setTimeout(() => {
+            api.notes
+                .backlinks(noteId, controller.signal)
+                .then((res) => {
+                if (!cancelled) {
+                    setLinks(res.backlinks);
+                    setLoadError(null);
+                }
+            })
+                .catch((error) => {
+                if (!cancelled)
+                    setLoadError(error instanceof Error ? error.message : String(error));
+            });
+        }, 500);
         return () => {
             cancelled = true;
+            window.clearTimeout(timer);
             controller.abort();
         };
-    }, [noteId, rev, cursor, reload]);
+    }, [noteId, rev, reload]);
     return (<section className="max-h-[36%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-base)]">
       <div className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         <Link2 size={11}/>{t("common.backlinks")}{links && links.length > 0 && <span className="tabular">· {links.length}</span>}
