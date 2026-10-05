@@ -33,6 +33,9 @@ const allowed = new Map([
     "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
     "// Draw-only toggles just need one repaint.",
   ]],
+  ["src/client/features/preview/Lightbox.tsx", [
+    "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
+  ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
@@ -51,9 +54,24 @@ const allowed = new Map([
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
   ]],
+  ["src/client/lib/export-note.ts", [
+    "// Pinned so an exported document cannot silently load a different stylesheet: the hash",
+    "// is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.",
+    "// Same origin is what lets this code reach focus()/print(); without allow-scripts",
+    "// nothing inside the exported document can execute as this origin.",
+  ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
     "// Preload the other locale in background for instant switching, but don't block init",
+  ]],
+  ["src/client/lib/markdown/enhance.test.ts", [
+    "// The second pass used to swap the shared config for its own, which re-allowed the",
+    "// form controls and attributes the renderer deliberately forbids.",
+  ]],
+  ["src/client/lib/markdown/enhance.ts", [
+    "// Layered on the shared config so its forbidden tag and attribute lists keep applying.",
+    "// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,",
+    "// and DOMPurify sanitises the declarations themselves.",
   ]],
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",
@@ -153,6 +171,9 @@ const allowed = new Map([
     "// login fails even though the parameter is on the wire. Serve the metadata",
     "// without that flag to keep codex compatible; the standard RFC 9207 `iss`",
     "// parameter is still appended to callbacks for conforming clients.",
+  ]],
+  ["src/worker/lib/internal-auth.ts", [
+    "/**\n * The Durable Object guard is opt-in, but a secret that was created and left blank reads\n * as falsy, which silently switches the guard off. Say so instead.\n */",
   ]],
   ["src/worker/lib/oauth-request.ts", [
     "// Rebuild after consuming the bounded body so the provider can read it once.",

@@ -1,15 +1,16 @@
 import type { RealtimeMessage } from '@shared/types'
-import { timingSafeEqual } from '../lib/encoding'
 import type { Env } from '../env'
+import { evaluateInternalGuard } from '../lib/internal-auth'
 
 
 export class SyncHub implements DurableObject {
   constructor(private readonly state: DurableObjectState, private readonly env?: Env) {}
 
   async fetch(request: Request): Promise<Response> {
-    const internalKey = this.env?.DO_AUTH_KEY
-    if (internalKey && !timingSafeEqual(request.headers.get('X-Inkstone-Internal') ?? '', internalKey)) {
-      return new Response('Unauthorized', { status: 401 })
+    const guard = evaluateInternalGuard(this.env, request)
+    if (guard === 'denied') return new Response('Unauthorized', { status: 401 })
+    if (guard === 'misconfigured') {
+      return new Response('DO_AUTH_KEY is set but empty', { status: 500 })
     }
     const url = new URL(request.url)
 

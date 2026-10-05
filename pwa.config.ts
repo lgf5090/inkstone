@@ -130,7 +130,7 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
 function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: string[]): string {
 	return `const BUILD_ID = ${JSON.stringify(buildId)}
 	const SHELL_CACHE = ${JSON.stringify(`inkstone-shell-${buildId}`)}
-	const ASSET_CACHE = 'inkstone-assets-v1'
+	const ASSET_CACHE = ${JSON.stringify(`inkstone-assets-${buildId}`)}
 	const CORE_URLS = ${JSON.stringify(coreUrls)}
 	const ALL_OFFLINE_URLS = ${JSON.stringify(allUrls)}
 	const OPTIONAL_URLS = ALL_OFFLINE_URLS.filter((url) => !CORE_URLS.includes(url))
@@ -148,7 +148,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const previousShells = (await caches.keys()).filter((key) =>
-      key.startsWith('inkstone-shell-') && key !== SHELL_CACHE)
+      key.startsWith('inkstone-') && key !== SHELL_CACHE && key !== ASSET_CACHE)
     await cacheCoreResources()
     if (previousShells.length) await warmOfflineCache(false)
   })())
@@ -172,7 +172,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys()
     await Promise.all(keys
-      .filter((key) => key.startsWith('inkstone-shell-') && key !== SHELL_CACHE)
+      .filter((key) => key.startsWith('inkstone-') && key !== SHELL_CACHE && key !== ASSET_CACHE)
       .map((key) => caches.delete(key)))
     await self.clients.claim()
   })())

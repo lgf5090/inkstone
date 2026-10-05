@@ -150,10 +150,12 @@ function configuredOrigin(value?: string): string | null {
   try {
     const url = new URL(value)
     if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+      console.warn(`[inkstone] PUBLIC_URL must be https, got ${value}`)
       return null
     }
     return url.origin
   } catch {
+    console.warn(`[inkstone] PUBLIC_URL is not an absolute URL: ${value}`)
     return null
   }
 }

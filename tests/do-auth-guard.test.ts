@@ -1,3 +1,4 @@
+import { evaluateInternalGuard } from '../src/worker/lib/internal-auth'
 import { webcrypto } from 'node:crypto'
 import { beforeAll, expect, it, vi } from 'vitest'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
@@ -82,4 +83,25 @@ it('rejects sync hub notify without the internal key but serves it when unset', 
     body: '{}',
   }))
   expect(served.status).toBe(204)
+})
+
+it('treats a blank DO_AUTH_KEY as a misconfiguration rather than an open guard', async () => {
+  const request = new Request('https://vault.internal/encrypt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  expect(evaluateInternalGuard({ DO_AUTH_KEY: '' } as never, request)).toBe('misconfigured')
+  expect(evaluateInternalGuard({ DO_AUTH_KEY: '   ' } as never, request)).toBe('misconfigured')
+  expect(evaluateInternalGuard({} as never, request)).toBe('allowed')
+
+  const vault = new CredentialVault(vaultState(), { DO_AUTH_KEY: '' } as never)
+  expect((await vault.fetch(request)).status).toBe(500)
+
+  const hub = new SyncHub(hubState(), { DO_AUTH_KEY: '' } as never)
+  expect((await hub.fetch(new Request('https://hub.internal/notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }))).status).toBe(500)
 })

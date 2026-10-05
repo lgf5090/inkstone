@@ -49,9 +49,11 @@ export function Lightbox() {
           </IconButton>
         </Tooltip>
         <Tooltip label={t("preview.download_original_image")} side="bottom">
-          <a href={lightbox.src} download target="_blank" rel="noreferrer" aria-label={t("preview.download_original_image")} className="inline-flex size-9 items-center justify-center rounded-[var(--r-md)] text-white/70 transition-colors hover:bg-white/10 hover:text-white md:size-7">
+          {/* The lightbox reads the img IDL property, an absolute URL that never
+              passed the renderer’s protocol filter. */}
+          {/^(https?:|blob:)/i.test(lightbox.src) && (<a href={lightbox.src} download target="_blank" rel="noreferrer" aria-label={t("preview.download_original_image")} className="inline-flex size-9 items-center justify-center rounded-[var(--r-md)] text-white/70 transition-colors hover:bg-white/10 hover:text-white md:size-7">
             <Download size={16}/>
-          </a>
+          </a>)}
         </Tooltip>
         <Tooltip label={t("common.close")} combo="escape" side="bottom">
           <IconButton label={t("common.close")} onClick={close} className="text-white/70 hover:bg-white/10 hover:text-white">

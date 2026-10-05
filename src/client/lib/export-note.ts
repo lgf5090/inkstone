@@ -1,6 +1,9 @@
 import { renderMarkdown } from './markdown/renderer'
 
+// Pinned so an exported document cannot silently load a different stylesheet: the hash
+// is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.
 const KATEX_CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.css'
+const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5Tu2PRVfQ/7KLZC+Pi1p1'
 
 export function downloadTextFile(filename: string, text: string, mime: string): void {
   const blob = new Blob([text], { type: mime })
@@ -36,6 +39,9 @@ export async function exportNoteAsPdf(note: { title: string; content: string }, 
 async function printHtml(html: string): Promise<void> {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
+  // Same origin is what lets this code reach focus()/print(); without allow-scripts
+  // nothing inside the exported document can execute as this origin.
+  iframe.setAttribute('sandbox', 'allow-same-origin allow-modals allow-popups')
   iframe.style.position = 'fixed'
   iframe.style.right = '0'
   iframe.style.bottom = '0'
@@ -111,7 +117,7 @@ function htmlDocument(title: string, bodyHtml: string, language: string): string
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${safeTitle}</title>
-<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous">
+<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">
 <style>
 :root { color-scheme: light; }
 * { box-sizing: border-box; }

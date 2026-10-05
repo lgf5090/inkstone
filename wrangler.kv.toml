@@ -1,7 +1,8 @@
-name = "inkstone"
+name = "inkstone-kv"
 main = "src/worker/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+preview_urls = false
 
 [assets]
 directory = "./dist/client"
