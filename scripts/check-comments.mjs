@@ -331,6 +331,7 @@ const allowed = new Map([
     "// full OAuth 2.1 dance. Keys are hashed and revocable.",
     "// This path runs before the API handler, so ensure the schema exists",
     "// (cheap after the first request thanks to the initialization cache).",
+    "/** The account role gates tool availability and changes rarely, so it is read once per window. */",
   ]],
   ["src/worker/mcp/operations.ts", [
     "// The mutation itself failed before committing; remove the pending row",
@@ -341,6 +342,9 @@ const allowed = new Map([
   ]],
   ["src/worker/mcp/retrieval.ts", [
     "// AI unavailable, rate-limited, or malformed response: degrade to lexical.",
+  ]],
+  ["src/worker/mcp/settings.ts", [
+    "/**\n * Every MCP HTTP request needs the switch, and the endpoint is hit once per tool call, so the\n * single-key read is memoized per isolate. Flipping the switch in this isolate drops the entry\n * immediately; another isolate converges within the window.\n */",
   ]],
   ["src/worker/mcp/writes.ts", [
     "// The quota read rides along with hashing instead of adding a serial round trip.",
@@ -408,6 +412,7 @@ const allowed = new Map([
     "// object to re-hash it doubles import transfer for no extra assurance.",
     "/** Imports queue thousands of embeddings at once; a cron-only drain would take days. */",
     "/**\n   * One note-count snapshot budgeting the whole request. The import route holds an\n   * account-level lease for its duration, so re-counting per note is pure overhead.\n   */",
+    "/**\n * The two lookups a restored attachment needs — the import mapping for this hash, and the\n * oldest attachment that already carries this hash — in one round trip. They used to run as\n * separate queries for every entry of a restore.\n */",
   ]],
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",

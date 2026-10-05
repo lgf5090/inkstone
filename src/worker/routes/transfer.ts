@@ -498,18 +498,14 @@ async function importBackupAttachment(
     sha256: entry.sha256,
     createdAt: validTimestamp(entry.createdAt) || Date.now(),
   }
-  const existing = (await loadExistingAttachments(env.DB, userId, [entry.sha256])).get(entry.sha256)
-  if (existing?.user_id === userId && await existingAttachmentMatches(env, existing, candidate)) {
+  const restored = await findRestoredAttachment(env.DB, userId, entry.sha256)
+  if (restored.mapped?.user_id === userId
+    && await existingAttachmentMatches(env, restored.mapped, candidate)) {
     ctx.result.skippedAttachments++
     return
   }
 
-  const sameContent = await env.DB.prepare(
-    `SELECT id, user_id, filename, mime, size, sha256, storage
-       FROM attachments
-      WHERE user_id = ?1 AND sha256 = ?2
-      ORDER BY created_at ASC, id ASC LIMIT 1`,
-  ).bind(userId, entry.sha256).first<ExistingAttachmentRow>()
+  const sameContent = restored.byHash
   if (sameContent && await existingAttachmentMatches(env, sameContent, candidate)) {
     await upsertImportMappings(env.DB, userId, 'attachment', [
       { sourceId: entry.sha256, targetId: sameContent.id },
@@ -536,6 +532,36 @@ async function importBackupAttachment(
     throw error
   }
   ctx.result.createdAttachments++
+}
+
+/**
+ * The two lookups a restored attachment needs — the import mapping for this hash, and the
+ * oldest attachment that already carries this hash — in one round trip. They used to run as
+ * separate queries for every entry of a restore.
+ */
+async function findRestoredAttachment(
+  db: D1Database,
+  userId: string,
+  sha256: string,
+): Promise<{ mapped?: ExistingAttachmentRow, byHash?: ExistingAttachmentRow }> {
+  const [mapping, hash] = await db.batch([
+    db.prepare(
+      `SELECT a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
+         FROM import_mappings m
+         JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
+        WHERE m.user_id = ?1 AND m.entity = 'attachment' AND m.source_id = ?2`,
+    ).bind(userId, sha256),
+    db.prepare(
+      `SELECT id, user_id, filename, mime, size, sha256, storage
+         FROM attachments
+        WHERE user_id = ?1 AND sha256 = ?2
+        ORDER BY created_at ASC, id ASC LIMIT 1`,
+    ).bind(userId, sha256),
+  ])
+  return {
+    mapped: mapping?.results?.[0] as ExistingAttachmentRow | undefined,
+    byHash: hash?.results?.[0] as ExistingAttachmentRow | undefined,
+  }
 }
 
 const BACKUP_ATTACHMENT_URL_RE =
