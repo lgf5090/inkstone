@@ -40,6 +40,7 @@ export interface TagRow {
   id: string
   name: string
   color: string | null
+  is_pinned?: number
   created_at: number
   note_count?: number
 }
@@ -88,6 +89,7 @@ export function toTag(row: TagRow): Tag {
     id: row.id,
     name: row.name,
     color: row.color,
+    isPinned: row.is_pinned === 1,
     count: row.note_count ?? 0,
     createdAt: row.created_at,
   }
@@ -177,7 +179,7 @@ export const NOTE_CONTENT_COLUMNS = `n.id, n.user_id, n.folder_id, n.title, n.ex
   n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, n.position,
   n.content_hash, n.created_at, n.updated_at, n.deleted_at, n.content`
 
-const TAG_SELECT_COLUMNS = `t.id, t.name, t.color, t.created_at,
+const TAG_SELECT_COLUMNS = `t.id, t.name, t.color, t.is_pinned, t.created_at,
   COUNT(n.id) AS note_count`
 
 export function tagSelectQuery(whereClause: string): string {
@@ -187,5 +189,5 @@ export function tagSelectQuery(whereClause: string): string {
     LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id
       AND n.deleted_at IS NULL AND n.is_archived = 0
    WHERE ${whereClause}
-   GROUP BY t.id, t.name, t.color, t.created_at`
+   GROUP BY t.id, t.name, t.color, t.is_pinned, t.created_at`
 }

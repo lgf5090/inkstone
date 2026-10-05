@@ -1,16 +1,17 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronsUpDown, Hash, MoreHorizontal, Palette, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, CornerDownRight, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
-import { collectParentPaths, flattenTagTree, searchTagTree, buildTagTree } from '../../lib/tag-tree';
+import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, searchTagTree } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton, SectionLabel } from '../../components/primitives';
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
+import { ManageTagsModal } from './ManageTagsModal';
 import { TagAppearance } from './TagAppearance';
-import { createTag, deleteTag, renameTag, setTagColor } from './tagMutations';
+import { createTag, deleteTag, renameTag, setTagColor, setTagPinned } from './tagMutations';
 
 const COLLAPSED_ROW_LIMIT = 12;
 
@@ -26,7 +27,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const [cursor, setCursor] = useState(-1);
     const [renamingId, setRenamingId] = useState<string | null>(null);
     const [appearanceId, setAppearanceId] = useState<string | null>(null);
-    const [creating, setCreating] = useState(false);
+    const [draftParent, setDraftParent] = useState<string | null>(null);
+    const [manageOpen, setManageOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const tree = useMemo(() => buildTagTree(tags), [tags]);
@@ -49,9 +51,14 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         setCursor(next);
         scrollRowIntoView(listRef.current, next);
     };
+    const startDraft = (parent: string) => {
+        setDraftParent(parent);
+        if (parent)
+            setExpanded((previous) => previous.has(parent) ? previous : new Set([...previous, parent]));
+    };
     const finishCreate = (value: string) => {
-        setCreating(false);
-        const name = searching ? `${query.trim().replace(/\/$/, '')}/${value}` : value;
+        const name = draftParent ? childTagPath(draftParent, value) : value;
+        setDraftParent(null);
         const id = createTag(name);
         if (!id)
             return;
@@ -75,7 +82,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
               </IconButton>
             </Tooltip>)}
           <Tooltip label={t('tags.new')} side="left">
-            <IconButton label={t('tags.new')} size="sm" onClick={() => setCreating(true)} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
+            <IconButton label={t('tags.new')} size="sm" onClick={() => startDraft('')} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
               <Plus size={13}/>
             </IconButton>
           </Tooltip>
@@ -118,8 +125,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
       </>)}
 
       <div ref={listRef} role="tree" aria-label={t('navigation.tag')} className="mt-0.5 space-y-px">
-        {creating && <TagDraftRow leaf={searching ? query.trim() : null} onFinish={finishCreate} onCancel={() => setCreating(false)}/>}
-        {!tags.length && !creating && <button type="button" onClick={() => setCreating(true)} className="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]">
+        {draftParent !== null && <TagDraftRow leaf={draftParent} onFinish={finishCreate} onCancel={() => setDraftParent(null)}/>}
+        {!tags.length && draftParent === null && <button type="button" onClick={() => startDraft('')} className="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]">
             <Plus size={13}/>{t('tags.create_first')}
           </button>}
         {searching && !rows.length && <p className="flex items-center gap-2 px-2 py-2 text-[11.5px] text-[var(--text-quaternary)]">
@@ -132,7 +139,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTag === node.fullPath} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={() => open(node.fullPath)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, value);
-                }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(node.tag.id)}/>))}
+                }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(node.tag.id)} onCreateChild={startDraft} onManage={() => setManageOpen(true)}/>))}
         {!searching && flattened.length > COLLAPSED_ROW_LIMIT && (<button type="button" onClick={() => setListOpen((value) => !value)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
             {listOpen ? t('common.collapse') : t('sidebar.show_all_value0_tags', { value0: flattened.length })}
           </button>)}
@@ -142,6 +149,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
             if (appearanceTag)
                 void setTagColor(appearanceTag, color);
         }} onClose={() => setAppearanceId(null)}/>
+      <ManageTagsModal open={manageOpen} onClose={() => setManageOpen(false)}/>
     </>);
 }
 function toggleSet(previous: ReadonlySet<string>, value: string): Set<string> {
@@ -198,7 +206,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
     </div>);
 }
-function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onEditColor, }: {
+function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onEditColor, onCreateChild, onManage, }: {
     node: TagTreeNode;
     searching: boolean;
     query: string;
@@ -212,6 +220,8 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     onFinishRename: (value: string) => void;
     onCancelRename: () => void;
     onEditColor: () => void;
+    onCreateChild: (path: string) => void;
+    onManage: () => void;
 }) {
     const menu = useContextMenu();
     const rowRef = useRef<HTMLDivElement>(null);
@@ -227,8 +237,11 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     const menuItems: MenuItem[] = node.isVirtual
         ? [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle }]
         : [
+            { id: 'pin', label: node.tag.isPinned ? t('tags.unpin') : t('tags.pin'), icon: <Pin size={13}/>, onSelect: () => void setTagPinned(node.tag, !node.tag.isPinned) },
             { id: 'rename', label: t('tags.rename'), icon: <Pencil size={13}/>, onSelect: onStartRename },
+            { id: 'child', label: t('tags.new_child'), icon: <CornerDownRight size={13}/>, onSelect: () => onCreateChild(node.fullPath) },
             { id: 'color', label: t('tags.color'), icon: <Palette size={13}/>, onSelect: onEditColor },
+            { id: 'manage', label: t('tags.manage'), icon: <Settings2 size={13}/>, onSelect: onManage },
             { id: 'delete', label: t('tags.delete'), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void deleteTag(node.tag) },
         ];
     return (<div ref={rowRef} role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} aria-selected={active} data-tag-row data-row-index={node.isVirtual ? undefined : node.tag.id} onContextMenu={(event) => {
@@ -241,6 +254,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
             <ChevronRight size={13} className={cn('transition-transform duration-[var(--dur-fast)]', expanded && 'rotate-90')}/>
           </button>) : <span className="size-6 shrink-0 md:size-5"/>}
       <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? (active ? 'var(--accent)' : 'var(--text-quaternary)') }}/>
+      {node.tag.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
       {renaming ? (<input aria-label={t('tags.rename')} autoFocus defaultValue={node.name} onFocus={() => {
             finishedRef.current = false;
         }} onBlur={(event) => finishRename(event.currentTarget.value)} onKeyDown={(event) => {

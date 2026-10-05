@@ -184,6 +184,7 @@ export interface Tag {
   id: string
   name: string
   color: string | null
+  isPinned?: boolean
   count: number
   createdAt: number
 }

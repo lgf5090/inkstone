@@ -90,6 +90,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     name TEXT NOT NULL,
     color TEXT,
     is_manual INTEGER NOT NULL DEFAULT 0,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(user_id, name)`,
@@ -633,6 +634,11 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `CREATE INDEX IF NOT EXISTS idx_links_user_source ON links(user_id, source_note_id)`,
     ],
+  },
+  {
+    version: 25,
+    statements: [`ALTER TABLE tags ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0`],
+    skipIfColumnExists: { table: 'tags', column: 'is_pinned' },
   },
 ]
 

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Tag } from '@shared/types'
 import { buildTagTree, collectParentPaths, flattenTagTree, searchTagTree } from './tag-tree'
 
-function tag(name: string, count: number): Tag {
-  return { id: `id-${name}`, name, color: null, count, createdAt: 1 }
+function tag(name: string, count: number, isPinned = false): Tag {
+  return { id: `id-${name}`, name, color: null, isPinned, count, createdAt: 1 }
 }
 
 describe('buildTagTree', () => {
@@ -38,6 +38,18 @@ describe('buildTagTree', () => {
   it('orders siblings by rolled-up count then name', () => {
     const tree = buildTagTree([tag('aa', 1), tag('bb', 5), tag('cc', 5)])
     expect(tree.map((node) => node.name)).toEqual(['bb', 'cc', 'aa'])
+  })
+
+  it('floats a pinned tag above a busier one', () => {
+    const tree = buildTagTree([tag('aa', 1), tag('bb', 99, true), tag('cc', 5)])
+    expect(tree.map((node) => node.name)).toEqual(['bb', 'cc', 'aa'])
+  })
+
+  it('lifts an invented parent so a pinned descendant stays reachable', () => {
+    const tree = buildTagTree([tag('solo', 50), tag('deep/child/pinned', 1, true)])
+    expect(tree.map((node) => node.fullPath)).toEqual(['deep', 'solo'])
+    expect(tree[0]!.isPinned).toBe(true)
+    expect(tree[0]!.tag.id).toBe('virtual:deep')
   })
 })
 

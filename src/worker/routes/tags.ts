@@ -83,11 +83,17 @@ tagsRoutes.post('/', async (c) => {
 tagsRoutes.patch('/:id', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const body = await readJson<{ name?: string; color?: string | null }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ name?: string; color?: string | null; isPinned?: boolean }>(c, JSON_BODY_LIMITS.small)
+  if (body.isPinned !== undefined && typeof body.isPinned !== 'boolean') {
+    throw ApiError.badRequest('isPinned must be a boolean')
+  }
+  if (typeof body.name === 'string' && body.isPinned !== undefined) {
+    throw ApiError.badRequest('Rename and pinning have to be sent as separate requests')
+  }
 
-  const tag = await c.env.DB.prepare(`SELECT id, name, color FROM tags WHERE id = ?1 AND user_id = ?2`)
+  const tag = await c.env.DB.prepare(`SELECT id, name, color, is_pinned FROM tags WHERE id = ?1 AND user_id = ?2`)
     .bind(id, userId)
-    .first<{ id: string; name: string; color: string | null }>()
+    .first<{ id: string; name: string; color: string | null; is_pinned: number }>()
   if (!tag) throw ApiError.notFound('Tag not found')
 
   if (body.color !== undefined && body.color !== null && typeof body.color !== 'string') {
@@ -159,15 +165,16 @@ tagsRoutes.patch('/:id', async (c) => {
         WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
       const statements = [
         c.env.DB.prepare(
-          `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
+          `INSERT INTO tags (id, user_id, name, color, is_manual, is_pinned, created_at)
            SELECT ?4, ?2, ?5,
                   CASE WHEN ?6 = 1 THEN ?7 ELSE source.color END,
-                  1, ?8
+                  1, source.is_pinned, ?8
              FROM tags source
             WHERE source.id = ?1 AND source.user_id = ?2 AND source.name = ?3
            ON CONFLICT(user_id, name) DO UPDATE SET
              color = CASE WHEN ?6 = 1 THEN ?7 ELSE COALESCE(tags.color, excluded.color) END,
-             is_manual = 1`,
+             is_manual = 1,
+             is_pinned = MAX(tags.is_pinned, excluded.is_pinned)`,
         ).bind(id, userId, tag.name, targetId, destinationName, explicitColor, color, now),
         c.env.DB.prepare(
           `INSERT OR IGNORE INTO note_tags (note_id, tag_id)
@@ -207,6 +214,24 @@ tagsRoutes.patch('/:id', async (c) => {
       scheduleFtsDrain(c)
       return c.json({ ok: true, renamed: rewrite.rewritten })
     }
+  }
+
+  if (typeof body.isPinned === 'boolean' && body.isPinned !== (tag.is_pinned === 1)) {
+    const now = Date.now()
+    const pinned = body.isPinned ? 1 : 0
+    const update = c.env.DB.prepare(
+      `UPDATE tags SET is_pinned = ?1
+        WHERE id = ?2 AND user_id = ?3 AND name = ?4 AND is_pinned = ?5`,
+    ).bind(pinned, id, userId, tag.name, tag.is_pinned)
+    const change = c.env.DB.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'tag', ?2, 'upsert', ?3
+        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND is_pinned = ?4)
+       RETURNING seq`,
+    ).bind(userId, id, now, pinned)
+    const pinBatch = await c.env.DB.batch([update, change])
+    if (!pinBatch[0]?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+    await broadcastCursor(c, (pinBatch[1] as D1Result<{ seq: number }>).results?.[0]?.seq)
   }
 
   if (color !== tag.color) {

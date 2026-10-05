@@ -2733,6 +2733,7 @@ function tagEqual(a: Tag, b: Tag): boolean {
     return (a.id === b.id &&
         a.name === b.name &&
         a.color === b.color &&
+        Boolean(a.isPinned) === Boolean(b.isPinned) &&
         a.count === b.count &&
         a.createdAt === b.createdAt);
 }

@@ -12,6 +12,7 @@ export interface TagTreeNode {
   count: number
   totalCount: number
   isVirtual: boolean
+  isPinned: boolean
   children: TagTreeNode[]
 }
 
@@ -37,6 +38,7 @@ export function buildTagTree(tags: readonly Tag[]): TagTreeNode[] {
         node.tag = tag
         node.count = tag.count
         node.isVirtual = false
+        node.isPinned = Boolean(tag.isPinned)
       }
       siblings = node.children
     }
@@ -56,6 +58,7 @@ function createNode(fullPath: string, name: string, depth: number, tag: Tag | nu
     count: tag?.count ?? 0,
     totalCount: tag?.count ?? 0,
     isVirtual: tag === null,
+    isPinned: Boolean(tag?.isPinned),
     children: [],
   }
 }
@@ -65,12 +68,14 @@ function rollUpCounts(node: TagTreeNode): void {
   for (const child of node.children) {
     rollUpCounts(child)
     descendants += child.totalCount
+    if (child.isPinned) node.isPinned = true
   }
   node.totalCount = node.count + descendants
   node.children.sort(compareNodes)
 }
 
 function compareNodes(a: TagTreeNode, b: TagTreeNode): number {
+  if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1
   return b.totalCount - a.totalCount || compareTagNames(a.name, b.name)
 }
 
@@ -140,4 +145,9 @@ function countRealTags(nodes: readonly TagTreeNode[]): number {
 
 function keepAll(node: TagTreeNode): TagTreeNode {
   return { ...node, children: node.children.map(keepAll) }
+}
+
+export function childTagPath(parent: string, name: string): string {
+  const leaf = name.trim().replace(/^#+/, '').replace(/^\/+/, '')
+  return leaf ? `${parent}${TAG_PATH_SEPARATOR}${leaf}` : parent
 }
