@@ -133,15 +133,30 @@ interface LiveState {
     revision: number;
 }
 
+/**
+ * Reparsing the whole document costs tens to hundreds of ms on big notes, so the idle
+ * window widens with the document instead of reparsing on every keystroke pause.
+ */
+function parseDelayFor(state: EditorState): number {
+    if (state.doc.lines > 5000) return 600;
+    if (state.doc.lines > 2000) return 250;
+    return 90;
+}
+
+let docSourceCache: { doc: unknown; text: string } | null = null;
+
+/** Text.toString() rebuilds the whole document, so reuse it while the doc is unchanged. */
+function docSource(state: EditorState): string {
+    if (docSourceCache && docSourceCache.doc === state.doc) return docSourceCache.text;
+    const text = state.doc.toString();
+    docSourceCache = { doc: state.doc, text };
+    return text;
+}
+
 function decorate(state: EditorState, live: LiveState, title: string): DecorationSet {
     const ranges: Range<Decoration>[] = [];
     const hasEmbeds = live.blocks.some((b) => b.html.includes('data-embed-target'));
-    let cachedSource: string | null = null;
-    const getSource = () => {
-        if (cachedSource === null) cachedSource = state.doc.toString();
-        return cachedSource;
-    };
-    const source = hasEmbeds ? getSource() : '';
+    const source = hasEmbeds ? docSource(state) : '';
     for (const block of live.blocks) {
         if (block.startLine >= state.doc.lines || block.endLine <= block.startLine) continue;
         const from = state.doc.line(block.startLine + 1).from;
@@ -206,7 +221,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
         update(update: { docChanged: boolean; state: EditorState }) {
             if (update.docChanged) {
                 clearTimeout(this.parseTimer);
-                this.parseTimer = window.setTimeout(() => this.view.dispatch({ effects: refresh.of(false) }), 90);
+                this.parseTimer = window.setTimeout(() => this.view.dispatch({ effects: refresh.of(false) }), parseDelayFor(update.state));
             }
             const headings = update.state.field(field).headings;
             queueMicrotask(() => { if (this.view.state.field(field, false)) onHeadings(headings); });
