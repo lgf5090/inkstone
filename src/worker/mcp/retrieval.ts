@@ -1,6 +1,7 @@
 import { slugifyHeading } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import type { Note } from '@shared/types'
+import { drainFtsQueue } from '../db/fts'
 import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, toNoteSummary, type NoteRow } from '../db/rows'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
@@ -60,14 +61,33 @@ export async function searchMcpNotes(
   origin: string,
   ftsEnabled: boolean,
   options: McpSearchOptions,
+  executionCtx?: ExecutionContext,
 ): Promise<McpSearchResponse> {
   const limit = Math.max(1, Math.min(20, options.limit ?? 8))
   const mode = options.mode ?? 'auto'
   const lexicalQuery = composeLexicalQuery(options)
-  const { results: lexical } = await searchUserNotes(
-    env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled,
-  )
-  const lexicalHits: LexicalHit[] = lexical.map((hit) => ({
+  if (ftsEnabled) {
+    executionCtx?.waitUntil(drainFtsQueue(env.DB, userId, 50, true).catch((error) => {
+      console.warn('[inkstone] Background FTS drain failed:', error instanceof Error ? error.message : error)
+    }))
+  }
+  const wantsSemantic = mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
+  const [lexicalResult, semanticHits] = await Promise.all([
+    searchUserNotes(env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled, false),
+    wantsSemantic
+      ? searchSemanticNotes(env, env.DB, userId, options.query, {
+        tags: options.tags,
+        folder: options.folder,
+        starred: options.starred,
+        archived: options.archived,
+      }).catch((error) => {
+        // AI unavailable, rate-limited, or malformed response: degrade to lexical.
+        console.warn('[inkstone] Semantic search unavailable; using lexical:', error instanceof Error ? error.message : error)
+        return null
+      })
+      : Promise.resolve(null),
+  ])
+  const lexicalHits: LexicalHit[] = lexicalResult.results.map((hit) => ({
     id: hit.note.id,
     title: hit.note.title,
     url: noteUrl(origin, hit.note.id),
@@ -77,23 +97,6 @@ export async function searchMcpNotes(
     updatedAt: hit.note.updatedAt,
     excerpt: hit.note.excerpt,
   }))
-
-  const wantsSemantic = mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
-  let semanticHits: SemanticSearchHit[] | null = null
-  if (wantsSemantic) {
-    try {
-      semanticHits = await searchSemanticNotes(env, env.DB, userId, options.query, {
-        tags: options.tags,
-        folder: options.folder,
-        starred: options.starred,
-        archived: options.archived,
-      })
-    } catch (error) {
-      // AI unavailable, rate-limited, or malformed response: degrade to lexical.
-      console.warn('[inkstone] Semantic search unavailable; using lexical:', error instanceof Error ? error.message : error)
-      semanticHits = null
-    }
-  }
   if (!semanticHits || !semanticHits.length) {
     return {
       results: lexicalHits.slice(0, limit).map((hit) => ({ ...hit, source: 'lexical' as const })),

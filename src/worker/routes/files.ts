@@ -321,11 +321,12 @@ filesRoutes.delete('/:id', requireAuth, async (c) => {
   const results = await c.env.DB.batch(statements)
   if (!results.at(-1)?.meta.changes) throw ApiError.notFound('Attachment not found')
 
-  const cleanup = await drainAttachmentCleanup(c.env, userId).catch((error) => {
+  const cleanup = drainAttachmentCleanup(c.env, userId).catch((error) => {
     console.warn('[inkstone] Attachment deletion will retry later:', error)
-    return { processed: 0, pending: true }
   })
-  return c.json({ ok: true, cleanupPending: cleanup.pending })
+  if (c.executionCtx) c.executionCtx.waitUntil(cleanup)
+  else await cleanup
+  return c.json({ ok: true, cleanupPending: true })
 })
 
 filesRoutes.post('/prune', requireAuth, async (c) => {
@@ -440,11 +441,12 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
   }
   await flush()
 
-  const cleanup = await drainAttachmentCleanup(c.env, userId).catch((error) => {
+  const cleanup = drainAttachmentCleanup(c.env, userId).catch((error) => {
     console.warn('[inkstone] Attachment cleanup will retry later:', error)
-    return { processed: 0, pending: true }
   })
-  return c.json({ removed, freedBytes, cleanupPending: cleanup.pending })
+  if (c.executionCtx) c.executionCtx.waitUntil(cleanup)
+  else await cleanup
+  return c.json({ removed, freedBytes, cleanupPending: true })
 })
 
 export function matchesETag(header: string, tag: string): boolean {

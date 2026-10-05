@@ -321,9 +321,11 @@ authRoutes.put('/profile', requireAuth, async (c) => {
   }
 
   if (previousAvatar) {
-    await drainAttachmentCleanup(c.env, current.id).catch((error) => {
+    const cleanup = drainAttachmentCleanup(c.env, current.id).catch((error) => {
       console.warn('[inkstone] Replaced avatar cleanup will retry later:', error)
     })
+    if (c.executionCtx) c.executionCtx.waitUntil(cleanup)
+    else await cleanup
   }
 
   await commitChange(c, 'profile', current.id, 'upsert')

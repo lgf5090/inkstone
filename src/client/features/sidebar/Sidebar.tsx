@@ -423,7 +423,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     const patchFolder = useNotes((s) => s.patchFolder);
     const deleteFolder = useNotes((s) => s.deleteFolder);
     const patchNote = useNotes((s) => s.patchNote);
-    const directNoteCount = useNotes((s) => Object.values(s.notes ?? {}).filter((note) => note.folderId === node.id).length);
+    const directNoteCount = node.directNotes;
     const [dropState, setDropState] = useDropState<'none' | 'before' | 'inside' | 'after'>('none');
     const menu = useContextMenu();
     const buttonRef = useRef<HTMLDivElement>(null);

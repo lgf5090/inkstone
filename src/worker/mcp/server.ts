@@ -113,6 +113,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
         options.origin,
         options.ftsEnabled,
         { query, limit: 8, mode },
+        options.executionCtx,
       )
       const value = {
         results: found.results.map(({ id, title, url }) => ({ id, title, url })),
@@ -167,6 +168,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       options.origin,
       options.ftsEnabled,
       input,
+      options.executionCtx,
     )),
   )
 

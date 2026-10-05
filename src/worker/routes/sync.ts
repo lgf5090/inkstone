@@ -116,50 +116,48 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
 
-  const notes = await loadInChunks(noteIds, (ids) =>
-    c.env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS} FROM notes n
-        WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`,
-    )
-      .bind(userId, ...ids)
-      .all<NoteRow>(),
-  )
-
-  const folders = facetsFull
-    ? (
-        await c.env.DB.prepare(
+  const [notes, folders, tags] = await Promise.all([
+    loadInChunks(noteIds, (ids) =>
+      c.env.DB.prepare(
+        `SELECT ${NOTE_COLUMNS} FROM notes n
+          WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`,
+      )
+        .bind(userId, ...ids)
+        .all<NoteRow>(),
+    ),
+    facetsFull
+      ? c.env.DB.prepare(
           `SELECT ${FOLDER_SELECT} FROM folders f
             WHERE f.user_id = ?1 AND f.deleted_at IS NULL
             ORDER BY f.position ASC, f.created_at ASC, f.id ASC`,
         )
           .bind(userId)
           .all<FolderRow>()
-      ).results
-    : await loadInChunks(folderIds, (ids) =>
-        c.env.DB.prepare(
-          `SELECT ${FOLDER_SELECT} FROM folders f
-            WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-              AND f.id IN (${placeholders(ids.length, 2)})`,
-        )
-          .bind(userId, ...ids)
-          .all<FolderRow>(),
-      )
-
-  const tags = facetsFull
-    ? (
-        await c.env.DB.prepare(
+          .then((result) => result.results)
+      : loadInChunks(folderIds, (ids) =>
+          c.env.DB.prepare(
+            `SELECT ${FOLDER_SELECT} FROM folders f
+              WHERE f.user_id = ?1 AND f.deleted_at IS NULL
+                AND f.id IN (${placeholders(ids.length, 2)})`,
+          )
+            .bind(userId, ...ids)
+            .all<FolderRow>(),
+        ),
+    facetsFull
+      ? c.env.DB.prepare(
           `${tagSelectQuery('t.user_id = ?1')} ORDER BY t.name COLLATE NOCASE`,
         )
           .bind(userId)
           .all<TagRow>()
-      ).results
-    : await loadInChunks(tagIds, (ids) =>
-        c.env.DB.prepare(
-          `${tagSelectQuery(`t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`)} ORDER BY t.name COLLATE NOCASE`,
-        )
-          .bind(userId, ...ids)
-          .all<TagRow>(),
-      )
+          .then((result) => result.results)
+      : loadInChunks(tagIds, (ids) =>
+          c.env.DB.prepare(
+            `${tagSelectQuery(`t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`)} ORDER BY t.name COLLATE NOCASE`,
+          )
+            .bind(userId, ...ids)
+            .all<TagRow>(),
+        ),
+  ])
 
   const gotNotes = new Set(notes.map((n) => n.id))
   for (const id of noteIds) if (!gotNotes.has(id)) deletions.push({ entity: 'note', id })
