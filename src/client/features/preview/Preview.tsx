@@ -29,6 +29,7 @@ import { useSession } from '../../store/session'
 import { previewSourceAnchors } from './preview-anchors'
 import { moveMarkdownTabFocus, revealPreviewTarget, selectMarkdownTab } from './markdown-tabs'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
+import { NoteProperties } from './NoteProperties'
 import { preferredScrollBehavior } from '../../lib/motion'
 
 export interface PreviewProps {
@@ -73,7 +74,7 @@ export const Preview = memo(function Preview({
 
 
   const debounced = useDebounced(content, 90)
-  const rendered = useMemo(() => renderMarkdown(debounced), [debounced, locale])
+  const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true }), [debounced, locale])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''
   const committedHtmlRef = useRef('')
   const committedSourceRef = useRef(debounced)
@@ -391,6 +392,7 @@ export const Preview = memo(function Preview({
       data-preview-scroller
       onScroll={(event) => onScroll?.(event.currentTarget)}
     >
+      <NoteProperties noteId={sourceNoteId ?? null} content={debounced}/>
       <div
         ref={hostRef}
         onClick={onClick}

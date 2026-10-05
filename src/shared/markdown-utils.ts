@@ -656,6 +656,62 @@ function replaceTagInFrontMatter(
   return [header[0] ?? '---', ...(serialized ? serialized.split('\n') : []), closing]
 }
 
+export type FrontMatterValue = string | number | boolean | string[]
+
+type FrontMatterDocument = ReturnType<typeof parseDocument>
+
+export function setFrontMatterValue(
+  content: string,
+  key: string,
+  value: FrontMatterValue,
+): string {
+  return rewriteFrontMatter(content, (document) => {
+    document.set(key, value)
+    return true
+  })
+}
+
+export function deleteFrontMatterValue(content: string, key: string): string {
+  return rewriteFrontMatter(content, (document) => {
+    if (!document.has(key)) return false
+    document.delete(key)
+    return true
+  })
+}
+
+export function renameFrontMatterValue(content: string, from: string, to: string): string {
+  if (!from || from === to) return content
+  return rewriteFrontMatter(content, (document) => {
+    if (!document.has(from) || document.has(to)) return false
+    document.set(to, document.get(from))
+    document.delete(from)
+    return true
+  })
+}
+
+function rewriteFrontMatter(
+  content: string,
+  mutate: (document: FrontMatterDocument) => boolean,
+): string {
+  const parsed = parseFrontMatter(content)
+  if (parsed.errors.length) return content
+  const document = parseDocument(parsed.raw, { prettyErrors: false, uniqueKeys: true })
+  if (document.errors.length) return content
+  if (!mutate(document)) return content
+  const lines = content.split('\n')
+  const body = lines.slice(parsed.lineOffset)
+  const remaining = document.toJS({ maxAliasCount: 20 }) as unknown
+  if (remaining === null || remaining === undefined
+    || (isPlainRecord(remaining) && !Object.keys(remaining).length)) {
+    return body.join('\n')
+  }
+  const serialized = document.toString().replace(/\n$/, '')
+  if (!serialized.trim()) return body.join('\n')
+  const opening = parsed.lineOffset ? lines[0] ?? '---' : '---'
+  const closing = parsed.lineOffset ? lines[parsed.lineOffset - 1] ?? '---' : '---'
+  return [opening, ...serialized.split('\n'), closing, ...body].join('\n')
+}
+
 function replaceWikiLinkTargetLine(content: string, from: string, to: string): string {
   const fromKey = normalizeLinkKey(from)
   return content.replace(

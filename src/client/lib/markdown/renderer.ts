@@ -36,6 +36,7 @@ interface RenderEnvironment {
     tabSequence: number;
     exampleSequence: number;
     docId: string;
+    hideFrontMatter?: boolean;
 }
 export interface WikiTarget {
     raw: string;
@@ -90,7 +91,7 @@ md.block.ruler.before('hr', 'front_matter', (state, startLine, _endLine, silent)
     state.line = parsed.lineOffset;
     return true;
 });
-md.renderer.rules.front_matter = (tokens, index) => {
+md.renderer.rules.front_matter = (tokens, index, _options, env) => {
     const meta = tokens[index]!.meta as {
         data: Record<string, unknown>;
         errors: string[];
@@ -100,7 +101,7 @@ md.renderer.rules.front_matter = (tokens, index) => {
         return `<aside class="frontmatter-error" data-line="0"><strong>${escapeHtml(t("markdown.invalid_front_matter"))}</strong><ul>${details}</ul></aside>`;
     }
     const entries = Object.entries(meta.data);
-    if (!entries.length)
+    if (!entries.length || renderEnv(env).hideFrontMatter)
         return '';
     const rows = entries
         .map(([key, value]) => `<div class="frontmatter-row"><dt>${escapeHtml(key)}</dt><dd>${renderFrontMatterValue(value)}</dd></div>`)
@@ -708,8 +709,9 @@ export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[];
     return { blocks, headings: env.headings };
 }
 
-export function renderMarkdown(source: string): RenderResult {
+export function renderMarkdown(source: string, options?: { hideFrontMatter?: boolean }): RenderResult {
     const env = emptyEnvironment();
+    env.hideFrontMatter = options?.hideFrontMatter === true;
     const raw = md.render(stripObsidianComments(source), env);
     const sanitized = DOMPurify.sanitize(raw, PURIFY_CONFIG);
     const html = materializeTrustedTasks(sanitized, env.taskNonce);
