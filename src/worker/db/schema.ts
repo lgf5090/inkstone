@@ -110,6 +110,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_links_target ON links(user_id, target_key)`,
   `CREATE INDEX IF NOT EXISTS idx_links_target_note ON links(target_note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_links_user_target ON links(user_id, target_note_id)`,
 
   `CREATE TABLE IF NOT EXISTS note_versions (
     id TEXT PRIMARY KEY,
@@ -537,6 +538,12 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 13,
     statements: [BACKUP_ARCHIVES_TABLE, BACKUP_ARCHIVES_INDEX],
   },
+  {
+    version: 14,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_links_user_target ON links(user_id, target_note_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -634,6 +641,7 @@ const REQUIRED_INDEXES = [
   'idx_note_tags_tag',
   'idx_links_target',
   'idx_links_target_note',
+  'idx_links_user_target',
   'idx_versions_note',
   'idx_versions_user',
   'idx_attachments_user',
