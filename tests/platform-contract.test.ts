@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
+import { securityHeaders } from '../src/worker/lib/security-headers'
 
 // Nothing else in this repository reads the deployment configs or the lockfile, so the
 // claims in SECURITY.md had no mechanical check at all. These assertions are that check.
@@ -109,4 +110,22 @@ it('the only client IP rule set is the one that checks for cf', () => {
       .not.toContain('CF-Connecting-IP')
   }
   expect(read('../src/worker/mcp/oauth.ts')).toContain('requestClientIp(request)')
+})
+
+it('relaxes script-src for nothing but a dev HTML document', () => {
+  const strict = securityHeaders('https://note.test/')['Content-Security-Policy']
+  const dev = securityHeaders('https://note.test/', { allowDevInlineScripts: true })['Content-Security-Policy']
+
+  expect(strict).toContain("script-src 'self';")
+  expect(strict).not.toContain("script-src 'self' 'unsafe-inline'")
+  // the relaxation touches that one source expression and no other directive
+  expect(dev).toContain("script-src 'self' 'unsafe-inline';")
+  expect(dev.replace("script-src 'self' 'unsafe-inline'; ", "script-src 'self'; ")).toBe(strict)
+
+  // opting in requires a Vite dev build *and* an HTML response, so /api/* stays strict
+  const app = read('../src/worker/app.ts')
+  expect(app).toContain('import.meta.env?.DEV === true')
+  expect(app).toContain("includes('text/html')")
+  // the provider/MCP edge responses build their own headers and never opt in
+  expect(read('../src/worker/index.ts')).not.toContain('allowDevInlineScripts')
 })

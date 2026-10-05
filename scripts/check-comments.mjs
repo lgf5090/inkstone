@@ -212,6 +212,10 @@ const allowed = new Map([
   ["src/worker/lib/security-headers.ts", [
     "// The OAuth provider and the MCP handler answer their own responses, so the app",
     "// middleware never sees them and the headers have to be applied at the edge.",
+    "// Vite's dev server injects the React Fast Refresh bootstrap as an inline script,",
+    "// which our own `script-src 'self'` refuses — and without that bootstrap the SPA",
+    "// never mounts, so nobody can use `npm run dev`. Only a dev build serving an HTML",
+    "// document may set this; the contract test pins the gate.",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -284,6 +288,10 @@ const allowed = new Map([
     "// sha256/size were computed at persist time; re-downloading every matching",
     "// object to re-hash it doubles import transfer for no extra assurance.",
   ]],
+  ["src/worker/types/vite-env.d.ts", [
+    "// Only `DEV` is read by the Worker, and only through optional chaining, so a bundle",
+    "// that never went through Vite's replacement simply keeps the strict policy.",
+  ]],
   ["tests/export-hardening.test.ts", [
     "// Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so",
     "// pin the import itself: the bundled copy, inlined, is the only source allowed here.",
@@ -320,6 +328,9 @@ const allowed = new Map([
     "// recorded hashes were confirmed identical there; new drift must be deliberate.",
     "// The sanitising chain decides what the browser is allowed to execute, so a floating range",
     "// means one `npm install` can swap the implementation with no gate going red.",
+    "// the relaxation touches that one source expression and no other directive",
+    "// opting in requires a Vite dev build *and* an HTML response, so /api/* stays strict",
+    "// the provider/MCP edge responses build their own headers and never opt in",
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",

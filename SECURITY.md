@@ -83,4 +83,7 @@ Inkstone is self-hosted software, not a hosted service. Deployment owners are re
   proxy all users collapse into one bucket; deploy on Cloudflare or accept
   shared-bucket throttling.
 - **CSP.** `script-src 'self'` (no inline scripts) and `form-action 'self'`.
-  If you add inline scripts to `index.html`, you must update the policy.
+  If you add inline scripts to `index.html`, you must update the policy. The only
+  exception is a development build (`npm run dev`), which adds `'unsafe-inline'` to
+  `script-src` for the HTML document so Vite's React refresh bootstrap can run; the
+  flag folds to `false` in every deployed bundle, and API responses stay strict.

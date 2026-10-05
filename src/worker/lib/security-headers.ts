@@ -1,13 +1,21 @@
-export function securityHeaders(url: string): Record<string, string> {
+export interface SecurityHeaderOptions {
+  // Vite's dev server injects the React Fast Refresh bootstrap as an inline script,
+  // which our own `script-src 'self'` refuses — and without that bootstrap the SPA
+  // never mounts, so nobody can use `npm run dev`. Only a dev build serving an HTML
+  // document may set this; the contract test pins the gate.
+  allowDevInlineScripts?: boolean
+}
+export function securityHeaders(url: string, options: SecurityHeaderOptions = {}): Record<string, string> {
   const isHttps = new URL(url).protocol === 'https:'
   const imageSchemes = isHttps ? 'https:' : 'https: http:'
+  const scriptSrc = options.allowDevInlineScripts ? "script-src 'self' 'unsafe-inline'; " : "script-src 'self'; "
   const headers: Record<string, string> = {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Content-Security-Policy': [
-      "default-src 'self'; base-uri 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; ",
+      `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
       `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; `,
       "manifest-src 'self'; media-src 'self' blob:; form-action 'self'; frame-src 'none'; ",
       "frame-ancestors 'none'; object-src 'none'",

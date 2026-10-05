@@ -28,7 +28,9 @@ export function createApp() {
   app.onError((err, c) => errorResponse(c, err))
   app.use('*', async (c, next) => {
     await next()
-    for (const [name, value] of Object.entries(securityHeaders(c.req.url))) {
+    const devDocument = import.meta.env?.DEV === true
+      && (c.res.headers.get('content-type') ?? '').includes('text/html')
+    for (const [name, value] of Object.entries(securityHeaders(c.req.url, { allowDevInlineScripts: devDocument }))) {
       c.header(name, value)
     }
     if (c.req.path.startsWith('/api/') && !c.res.headers.has('Cache-Control')) {
