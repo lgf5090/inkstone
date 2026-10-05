@@ -4,7 +4,7 @@ import { segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { drainFtsQueue, FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
+import { FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
 import { NOTE_COLUMNS, toNoteSummary, type NoteRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -120,14 +120,16 @@ export async function searchUserNotes(
   raw: string,
   limit: number,
   ftsEnabled: boolean,
-  drain = true,
 ): Promise<UserSearchResult> {
   const query = parseQuery(truncateText(raw.trim(), 512))
   if (!raw.trim()) return { results: [], mode: ftsEnabled ? 'fts' : 'like', query }
 
+  // Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose
+  // note is not live, so an in:trash query has nothing left in notes_fts to match against;
+  // it is served by likeSearch instead. Keeping trash indexed would trade a niche ranking
+  // improvement for an index lifecycle that has to survive restore and purge races.
   if (ftsEnabled && query.terms.length && !query.trash) {
     try {
-      if (drain) await drainFtsQueue(db, userId, 50, true)
       const ftsHits = await ftsSearch(db, userId, query, limit)
       const pendingRows = await db
         .prepare(`SELECT DISTINCT note_id FROM fts_index_queue WHERE user_id = ?1 LIMIT 20`)
@@ -193,7 +195,7 @@ searchRoutes.get('/search', requireAuth, async (c) => {
 
   const { ftsEnabled } = c.get('database')
   scheduleFtsDrain(c, 50)
-  const result = await searchUserNotes(c.env.DB, userId, raw, limit, ftsEnabled, false)
+  const result = await searchUserNotes(c.env.DB, userId, raw, limit, ftsEnabled)
   const q = result.query
 
   const body: SearchResponse = {
@@ -223,7 +225,7 @@ async function ftsSearch(
   const binds: unknown[] = [`user_id : "${userId.replace(/"/g, '""')}" AND {title body} : (${match})`, userId]
   let where = `notes_fts MATCH ?1 AND notes_fts.user_id = ?2
     AND n.user_id = ?2 AND n.deleted_at IS NULL`
-  applyFilters(q, binds, (clause) => (where += clause))
+  applyFilters(q, binds, 2, (clause) => (where += clause))
   binds.push(q.terms[0]!)
   const contentWindow = contentWindowSql(binds.length)
   binds.push(limit)
@@ -277,7 +279,7 @@ async function likeSearch(
     termBindIndexes.push(i)
     where += ` AND (n.title LIKE ?${i} ESCAPE '\\' OR n.content LIKE ?${i} ESCAPE '\\')`
   }
-  applyFilters(q, binds, (clause) => (where += clause))
+  applyFilters(q, binds, 1, (clause) => (where += clause))
 
   const candidateLimit = q.terms.length ? Math.min(limit * 3, 600) : limit
   let contentSelect = 'n.excerpt'
@@ -286,14 +288,16 @@ async function likeSearch(
     contentSelect = contentWindowSql(binds.length)
   }
   binds.push(candidateLimit)
+  // A term-less query (folder:/tag:/is: only) must not emit `ORDER BY 0`: SQLite reads a bare
+  // integer there as a result-column ordinal and rejects 0 outright.
   const titleRank = termBindIndexes.length
-    ? termBindIndexes.map((index) => `(CASE WHEN n.title LIKE ?${index} ESCAPE '\\' THEN 10 ELSE 0 END)`).join(' + ')
-    : '0'
+    ? `${termBindIndexes.map((index) => `(CASE WHEN n.title LIKE ?${index} ESCAPE '\\' THEN 10 ELSE 0 END)`).join(' + ')}, `
+    : ''
   const { results } = await db
     .prepare(
       `SELECT ${NOTE_COLUMNS}, ${contentSelect} AS content FROM notes n
         WHERE ${where}
-        ORDER BY ${titleRank} DESC, n.updated_at DESC, n.id ASC
+        ORDER BY ${titleRank}n.updated_at DESC, n.id ASC
         LIMIT ?${binds.length}`,
     )
     .bind(...binds)
@@ -315,7 +319,7 @@ async function likeSearch(
   }))
 }
 
-function applyFilters(q: ParsedQuery, binds: unknown[], append: (clause: string) => void): void {
+function applyFilters(q: ParsedQuery, binds: unknown[], userIdParam: number, append: (clause: string) => void): void {
   if (q.starred === true) append(' AND n.is_starred = 1')
   if (q.archived === true) append(' AND n.is_archived = 1')
   else if (q.archived === false) append(' AND n.is_archived = 0')
@@ -330,9 +334,18 @@ function applyFilters(q: ParsedQuery, binds: unknown[], append: (clause: string)
   }
   if (q.folder) {
     binds.push(q.folder)
+    // The folder view is recursive, so folder: has to walk the subtree too. UNION rather than
+    // UNION ALL keeps a parent_id cycle from looping forever.
     append(
-      ` AND EXISTS (SELECT 1 FROM folders f WHERE f.id = n.folder_id
-          AND f.name = ?${binds.length} COLLATE NOCASE AND f.user_id = n.user_id)`,
+      ` AND n.folder_id IN (
+          WITH RECURSIVE folder_subtree(id) AS (
+            SELECT id FROM folders WHERE user_id = ?${userIdParam} AND name = ?${binds.length} COLLATE NOCASE
+            UNION
+            SELECT f.id FROM folders f JOIN folder_subtree s ON f.parent_id = s.id
+             WHERE f.user_id = ?${userIdParam}
+          )
+          SELECT id FROM folder_subtree
+        )`,
     )
   }
 }

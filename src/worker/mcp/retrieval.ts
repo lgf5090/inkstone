@@ -73,7 +73,7 @@ export async function searchMcpNotes(
   }
   const wantsSemantic = mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
   const [lexicalResult, semanticHits] = await Promise.all([
-    searchUserNotes(env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled, false),
+    searchUserNotes(env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled),
     wantsSemantic
       ? searchSemanticNotes(env, env.DB, userId, options.query, {
         tags: options.tags,

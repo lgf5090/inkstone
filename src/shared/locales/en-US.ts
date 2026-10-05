@@ -2,7 +2,7 @@ export const EN_US_MESSAGES = {
     "navigation.note_views": "Note views",
     "navigation.close_list": "Close note list",
     "navigation.searching": "Searching…",
-    "navigation.local_search_only": "Search is unavailable. Showing local matches.",
+    "navigation.local_search_only": "Search is unavailable. Local matches cover titles and previews only.",
     "mobile.account": "Me",
     "mobile.view": "View",
     "mobile.menu": "Menu",

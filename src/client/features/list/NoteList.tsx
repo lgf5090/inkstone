@@ -121,10 +121,17 @@ export function NoteList() {
             return `#${tag ?? ''}`;
         return t(VIEW_MESSAGE_KEYS[view]);
     }, [view, folderId, tag, folders, locale, searchList]);
+    // Browsing the search panel shows the same collection as the sidebar, but typing into it
+    // means "find the note", and the server layer already answers that including archived
+    // notes; scoping the local layer to the view made archived notes findable online and
+    // invisible offline.
+    const searchScope = useMemo(
+        () => (searchList ? Object.values(allNotes).filter((item) => !item.deletedAt) : notes),
+        [searchList, allNotes, notes]);
     const filtered = useMemo(() => {
         if (!deferredFilter.trim())
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
-        const local = fuzzyFilter(notes, deferredFilter, (n) => searchKeyOfNote(n, contents), 200).map(({ item, match }) => ({
+        const local = fuzzyFilter(searchScope, deferredFilter, (n) => searchKeyOfNote(n, contents), 200).map(({ item, match }) => ({
             note: item,
             ranges: match.ranges.filter(([s]) => s < item.title.length),
         }));
@@ -136,7 +143,7 @@ export function NoteList() {
             seen.add(note.id);
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
-    }, [notes, deferredFilter, searchList, remote, allNotes, contents]);
+    }, [notes, searchScope, deferredFilter, searchList, remote, allNotes, contents]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
