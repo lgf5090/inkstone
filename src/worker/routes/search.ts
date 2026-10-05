@@ -220,7 +220,7 @@ async function ftsSearch(
   const match = buildFtsQuery(q.terms)
   if (!match) return []
 
-  const binds: unknown[] = [`{title body} : (${match})`, userId]
+  const binds: unknown[] = [`user_id : "${userId.replace(/"/g, '""')}" AND {title body} : (${match})`, userId]
   let where = `notes_fts MATCH ?1 AND notes_fts.user_id = ?2
     AND n.user_id = ?2 AND n.deleted_at IS NULL`
   applyFilters(q, binds, (clause) => (where += clause))
@@ -494,44 +494,48 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
       WHERE neighborhood.depth < ?
     ), nearby AS (SELECT id, MIN(depth) AS depth FROM neighborhood GROUP BY id)`
     const prefixBinds = [centerId, userId, depth]
-    const result = await c.env.DB.prepare(
-      `${neighborhood},
-       ${linkDegreeCte}
-       SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
-         COALESCE(lc.degree, 0) AS degree,
-         COALESCE(lc.in_degree, 0) AS in_degree,
-         COALESCE(lc.out_degree, 0) AS out_degree,
-         nearby.depth
-       FROM nearby JOIN notes n ON n.id = nearby.id
-       LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
-       LEFT JOIN link_counts lc ON lc.note_id = n.id
-       WHERE ${filters.join(' AND ')}
-       ORDER BY nearby.depth ASC, degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
-    ).bind(...prefixBinds, userId, ...filterBinds, limit + 1).all<GraphRow>()
-    rows = result.results
-    const count = await c.env.DB.prepare(
-      `${neighborhood} SELECT COUNT(*) AS count FROM nearby JOIN notes n ON n.id = nearby.id
-       WHERE ${filters.join(' AND ')}`,
-    ).bind(...prefixBinds, ...filterBinds).first<{ count: number }>()
-    totalNodes = Number(count?.count ?? rows.length)
+    const [rowsResult, countResult] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `${neighborhood},
+         ${linkDegreeCte}
+         SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
+           COALESCE(lc.degree, 0) AS degree,
+           COALESCE(lc.in_degree, 0) AS in_degree,
+           COALESCE(lc.out_degree, 0) AS out_degree,
+           nearby.depth
+         FROM nearby JOIN notes n ON n.id = nearby.id
+         LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
+         LEFT JOIN link_counts lc ON lc.note_id = n.id
+         WHERE ${filters.join(' AND ')}
+         ORDER BY nearby.depth ASC, degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
+      ).bind(...prefixBinds, userId, ...filterBinds, limit + 1),
+      c.env.DB.prepare(
+        `${neighborhood} SELECT COUNT(*) AS count FROM nearby JOIN notes n ON n.id = nearby.id
+         WHERE ${filters.join(' AND ')}`,
+      ).bind(...prefixBinds, ...filterBinds),
+    ])
+    rows = (rowsResult as D1Result<GraphRow>).results
+    totalNodes = Number((countResult as D1Result<{ count: number }>).results?.[0]?.count ?? rows.length)
   } else {
-    const result = await c.env.DB.prepare(
-      `WITH ${linkDegreeCte}
-       SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
-         COALESCE(lc.degree, 0) AS degree,
-         COALESCE(lc.in_degree, 0) AS in_degree,
-         COALESCE(lc.out_degree, 0) AS out_degree
-       FROM notes n
-       LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
-       LEFT JOIN link_counts lc ON lc.note_id = n.id
-       WHERE ${filters.join(' AND ')}
-       ORDER BY degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
-    ).bind(userId, ...filterBinds, limit + 1).all<GraphRow>()
-    rows = result.results
-    const count = await c.env.DB.prepare(
-      `SELECT COUNT(*) AS count FROM notes n WHERE ${filters.join(' AND ')}`,
-    ).bind(...filterBinds).first<{ count: number }>()
-    totalNodes = Number(count?.count ?? rows.length)
+    const [rowsResult, countResult] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `WITH ${linkDegreeCte}
+         SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
+           COALESCE(lc.degree, 0) AS degree,
+           COALESCE(lc.in_degree, 0) AS in_degree,
+           COALESCE(lc.out_degree, 0) AS out_degree
+         FROM notes n
+         LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
+         LEFT JOIN link_counts lc ON lc.note_id = n.id
+         WHERE ${filters.join(' AND ')}
+         ORDER BY degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
+      ).bind(userId, ...filterBinds, limit + 1),
+      c.env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM notes n WHERE ${filters.join(' AND ')}`,
+      ).bind(...filterBinds),
+    ])
+    rows = (rowsResult as D1Result<GraphRow>).results
+    totalNodes = Number((countResult as D1Result<{ count: number }>).results?.[0]?.count ?? rows.length)
   }
 
   const noteLimit = includeUnresolved ? Math.max(1, limit - 50) : limit

@@ -108,12 +108,16 @@ foldersRoutes.post('/', async (c) => {
   const change = c.env.DB.prepare(
     `INSERT INTO changes (user_id, entity, entity_id, op, at)
      SELECT ?1, 'folder', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1)`,
+      WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1)
+     RETURNING seq`,
   ).bind(userId, id, now)
-  const [created] = await c.env.DB.batch([insert, change])
-  if (!created?.meta.changes) throw ApiError.conflict('The parent folder changed or a sibling already uses this name')
-  await broadcastCursor(c)
-  return c.json(await loadFolder(c.env.DB, userId, id), 201)
+  const folderReadback = c.env.DB.prepare(
+    `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`,
+  ).bind(id, userId)
+  const createdBatch = await c.env.DB.batch([insert, change, folderReadback])
+  if (!createdBatch[0]?.meta.changes) throw ApiError.conflict('The parent folder changed or a sibling already uses this name')
+  await broadcastCursor(c, (createdBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq)
+  return c.json(toFolder((createdBatch.at(-1) as D1Result<FolderRow>).results[0]!), 201)
 })
 
 foldersRoutes.patch('/:id', async (c) => {
@@ -247,12 +251,16 @@ foldersRoutes.patch('/:id', async (c) => {
   const change = c.env.DB.prepare(
     `INSERT INTO changes (user_id, entity, entity_id, op, at)
      SELECT ?1, 'folder', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1 AND updated_at = ?3)`,
+      WHERE EXISTS (SELECT 1 FROM folders WHERE id = ?2 AND user_id = ?1 AND updated_at = ?3)
+     RETURNING seq`,
   ).bind(userId, id, updatedAt)
-  const [updated] = await c.env.DB.batch([update, change])
-  if (!updated?.meta.changes) throw ApiError.conflict('The folder changed elsewhere or a sibling already uses this name')
-  await broadcastCursor(c)
-  return c.json(await loadFolder(c.env.DB, userId, id))
+  const patchReadback = c.env.DB.prepare(
+    `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.id = ?1 AND f.user_id = ?2`,
+  ).bind(id, userId)
+  const updatedBatch = await c.env.DB.batch([update, change, patchReadback])
+  if (!updatedBatch[0]?.meta.changes) throw ApiError.conflict('The folder changed elsewhere or a sibling already uses this name')
+  await broadcastCursor(c, (updatedBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq)
+  return c.json(toFolder((updatedBatch.at(-1) as D1Result<FolderRow>).results[0]!))
 })
 
 foldersRoutes.delete('/:id', async (c) => {

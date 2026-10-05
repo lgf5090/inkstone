@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cosineSimilarity,
+  extractEmbeddings,
   encodeVector,
   decodeVector,
   extractEmbedding,
@@ -77,5 +78,21 @@ describe('fuseByRrf', () => {
     expect(fused).toHaveLength(1)
     expect(fused[0]!.sources).toEqual(new Set(['lexical']))
     expect(fuseByRrf([], [])).toEqual([])
+  })
+})
+
+describe('extractEmbeddings', () => {
+  it('maps batch entries in order for both response shapes', () => {
+    const shaped = extractEmbeddings({ data: [{ embedding: [1, 0] }, { embedding: [0, 1] }] }, 2)
+    expect(shaped).toHaveLength(2)
+    expect(Array.from(shaped[0]!)).toEqual([1, 0])
+    expect(Array.from(shaped[1]!)).toEqual([0, 1])
+    const bare = extractEmbeddings({ data: [[1, 2], [3, 4]] }, 2)
+    expect(Array.from(bare[1]!)).toEqual([3, 4])
+  })
+
+  it('rejects a batch length mismatch or malformed body', () => {
+    expect(() => extractEmbeddings({ data: [{ embedding: [1] }] }, 2)).toThrow()
+    expect(() => extractEmbeddings({}, 1)).toThrow()
   })
 })

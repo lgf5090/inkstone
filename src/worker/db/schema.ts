@@ -75,6 +75,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_notes_user_updated
      ON notes(user_id, deleted_at, is_archived, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_user_pinned_updated
+     ON notes(user_id, deleted_at, is_archived, is_pinned DESC, updated_at DESC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(user_id, folder_id, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_starred ON notes(user_id, is_starred, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_trash ON notes(user_id, deleted_at)`,
@@ -323,6 +325,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     model TEXT NOT NULL,
     vector BLOB NOT NULL,
     indexed_at INTEGER NOT NULL,
+    norm REAL,
     PRIMARY KEY (user_id, note_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_embeddings_indexed
@@ -354,6 +357,16 @@ interface SchemaMigration {
   statements: readonly string[]
   skipIfColumnExists?: { table: string; column: string }
 }
+
+const REWRITE_QUEUE_TABLE = `CREATE TABLE IF NOT EXISTS rewrite_queue (
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  old_value TEXT NOT NULL,
+  new_value TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind, source_id)
+)`
 
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
@@ -544,11 +557,27 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_links_user_target ON links(user_id, target_note_id)`,
     ],
   },
+  {
+    version: 15,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_notes_user_pinned_updated
+         ON notes(user_id, deleted_at, is_archived, is_pinned DESC, updated_at DESC, id)`,
+    ],
+  },
+  {
+    version: 16,
+    statements: [`ALTER TABLE ai_note_embeddings ADD COLUMN norm REAL`],
+    skipIfColumnExists: { table: 'ai_note_embeddings', column: 'norm' },
+  },
+  {
+    version: 17,
+    statements: [REWRITE_QUEUE_TABLE],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   note_id,
-  user_id UNINDEXED,
+  user_id,
   title,
   body,
   tokenize = "unicode61 remove_diacritics 2"
@@ -590,7 +619,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   mcp_preferences: ['user_id', 'write_enabled', 'trash_enabled', 'updated_at'],
   mcp_operations: ['user_id', 'operation_id', 'tool', 'request_hash', 'response_json', 'created_at'],
   mcp_api_keys: ['id', 'user_id', 'name', 'key_hash', 'scopes', 'created_at', 'last_used_at', 'revoked_at'],
-  ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at'],
+  ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
 } as const
@@ -625,12 +654,14 @@ const REQUIRED_TABLES = [
   'ai_note_embeddings',
   'ai_index_queue',
   'fts_index_queue',
+  'rewrite_queue',
 ] as const
 
 const REQUIRED_INDEXES = [
   'idx_folders_user',
   'idx_folders_unique_sibling',
   'idx_notes_user_updated',
+  'idx_notes_user_pinned_updated',
   'idx_notes_folder',
   'idx_notes_starred',
   'idx_notes_trash',
@@ -728,18 +759,27 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
 }
 
 async function upgradeFtsIdentifiers(db: D1Database): Promise<void> {
+  await rebuildFtsIfLegacyShape(db, /note_id\s+UNINDEXED/i, 'notes_fts_identifiers')
+  await rebuildFtsIfLegacyShape(db, /user_id\s+UNINDEXED/i, 'notes_fts_tenant')
+}
+
+async function rebuildFtsIfLegacyShape(
+  db: D1Database,
+  legacyPattern: RegExp,
+  tempName: string,
+): Promise<void> {
   const table = await db.prepare(
     `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notes_fts'`,
   ).first<{ sql: string }>()
-  if (!table || !/note_id\s+UNINDEXED/i.test(table.sql)) return
+  if (!table || !legacyPattern.test(table.sql)) return
   // Keep the existing indexed text and rowids. The batch either replaces the
   // complete index or rolls back, including when an old installation retries.
   await db.batch([
-    db.prepare(FTS_STATEMENT.replace('notes_fts', 'notes_fts_identifiers')),
-    db.prepare(`INSERT INTO notes_fts_identifiers (rowid, note_id, user_id, title, body)
+    db.prepare(FTS_STATEMENT.replace('notes_fts', tempName)),
+    db.prepare(`INSERT INTO ${tempName} (rowid, note_id, user_id, title, body)
       SELECT rowid, note_id, user_id, title, body FROM notes_fts`),
     db.prepare(`DROP TABLE notes_fts`),
-    db.prepare(`ALTER TABLE notes_fts_identifiers RENAME TO notes_fts`),
+    db.prepare(`ALTER TABLE ${tempName} RENAME TO notes_fts`),
   ])
 }
 

@@ -1,7 +1,7 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react'
+import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react'
 import { cn } from '../lib/cn'
 import { prettyCombo } from '../lib/hotkeys'
-import { resolveAvatarSource } from '../lib/avatar'
+import { generatedAvatarSeed, isBitmapAvatarDataUrl, parseStoredAvatarUrl } from '@shared/avatar'
 
 
 export function Logo({ size = 20, className }: { size?: number; className?: string }) {
@@ -193,9 +193,25 @@ export function Avatar({
   className?: string
 }) {
   const seed = name.trim() || '?'
-  const resolvedSrc = resolveAvatarSource(src, seed)
-  const [failedSrc, setFailedSrc] = useState<string | null>(null)
-  const displaySrc = failedSrc === resolvedSrc ? resolveAvatarSource(null, seed) : resolvedSrc
+  const storedSrc = useMemo(() => {
+    if (isBitmapAvatarDataUrl(src)) return src
+    if (parseStoredAvatarUrl(src)) return src
+    return null
+  }, [src])
+  const [generatedSrc, setGeneratedSrc] = useState<string | null>(null)
+  const [fallbackSrc, setFallbackSrc] = useState<string | null>(null)
+  useEffect(() => {
+    if (storedSrc) return
+    let cancelled = false
+    // dicebear ships full micah style data; keep it out of the boot chunk.
+    void import('../lib/avatar').then(({ createAvatarDataUri }) => {
+      if (!cancelled) setGeneratedSrc(createAvatarDataUri(generatedAvatarSeed(src) ?? seed))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [src, seed, storedSrc])
+  const resolvedSrc = fallbackSrc ?? storedSrc ?? generatedSrc
   return (
     <span
       className={cn(
@@ -206,14 +222,23 @@ export function Avatar({
       )}
       style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
-      <img
-        src={displaySrc}
-        alt=""
-        width={size}
-        height={size}
-        onError={() => setFailedSrc(resolvedSrc)}
-        className="size-full object-cover"
-      />
+      {resolvedSrc ? (
+        <img
+          src={resolvedSrc}
+          alt=""
+          width={size}
+          height={size}
+          onError={() => {
+            if (fallbackSrc) return
+            void import('../lib/avatar').then(({ createAvatarDataUri }) =>
+              setFallbackSrc(createAvatarDataUri(seed)),
+            )
+          }}
+          className="size-full object-cover"
+        />
+      ) : (
+        <span aria-hidden>{seed.slice(0, 1).toUpperCase()}</span>
+      )}
     </span>
   )
 }

@@ -188,7 +188,7 @@ export async function queryMcpNoteProperties(
   },
 ) {
   const { results } = await db.prepare(
-    `SELECT id, title, content, rev, updated_at FROM notes
+    `SELECT id, title, substr(content, 1, 65536) AS content, rev, updated_at FROM notes
       WHERE user_id = ?1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 500`,
   ).bind(userId).all<{ id: string; title: string; content: string; rev: number; updated_at: number }>()
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))
@@ -678,26 +678,37 @@ export async function exploreMcpGraph(
   let frontier = [rootId]
   for (let level = 0; level <= cappedDepth && frontier.length && nodes.size < cappedNodes; level++) {
     const next = new Set<string>()
-    for (const id of frontier) {
-      const note = await db.prepare(
-        `SELECT id, title, excerpt FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-      ).bind(id, userId).first<{ id: string; title: string; excerpt: string }>()
-      if (!note) continue
-      nodes.set(id, note)
-      if (level === cappedDepth) continue
-      const { results } = await db.prepare(
-        `SELECT source_note_id, target_note_id FROM links
-          WHERE user_id = ?1 AND target_note_id IS NOT NULL
-            AND (source_note_id = ?2 OR target_note_id = ?2) LIMIT 100`,
-      ).bind(userId, id).all<{ source_note_id: string; target_note_id: string }>()
-      for (const edge of results) {
-        edges.set(`${edge.source_note_id}:${edge.target_note_id}`, {
-          source: edge.source_note_id,
-          target: edge.target_note_id,
-        })
-        const adjacent = edge.source_note_id === id ? edge.target_note_id : edge.source_note_id
-        if (!nodes.has(adjacent) && nodes.size + next.size < cappedNodes) next.add(adjacent)
-      }
+    const idsJson = JSON.stringify(frontier)
+    const statements: D1PreparedStatement[] = [
+      db.prepare(
+        `SELECT id, title, excerpt FROM notes
+          WHERE user_id = ?2 AND deleted_at IS NULL
+            AND id IN (SELECT value FROM json_each(?1))`,
+      ).bind(idsJson, userId),
+    ]
+    if (level < cappedDepth) {
+      statements.push(
+        db.prepare(
+          `SELECT source_note_id, target_note_id FROM links
+            WHERE user_id = ?1 AND target_note_id IS NOT NULL
+              AND (source_note_id IN (SELECT value FROM json_each(?2))
+                OR target_note_id IN (SELECT value FROM json_each(?2)))
+            LIMIT ?3`,
+        ).bind(userId, idsJson, 100 * frontier.length),
+      )
+    }
+    const [notesResult, linksResult] = await db.batch(statements)
+    for (const note of (notesResult as D1Result<{ id: string; title: string; excerpt: string }>).results) {
+      nodes.set(note.id, note)
+    }
+    const frontierSet = new Set(frontier)
+    for (const edge of ((linksResult as D1Result<{ source_note_id: string; target_note_id: string }> | undefined)?.results ?? [])) {
+      edges.set(`${edge.source_note_id}:${edge.target_note_id}`, {
+        source: edge.source_note_id,
+        target: edge.target_note_id,
+      })
+      const adjacent = frontierSet.has(edge.source_note_id) ? edge.target_note_id : edge.source_note_id
+      if (!nodes.has(adjacent) && nodes.size + next.size < cappedNodes) next.add(adjacent)
     }
     frontier = [...next]
   }

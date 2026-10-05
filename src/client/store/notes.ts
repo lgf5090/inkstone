@@ -1,5 +1,6 @@
 /** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */
 import { create, type StoreApi } from 'zustand';
+import { numericCollator } from '../lib/collator';
 import { useMemo } from 'react';
 import { countText, deriveExcerpt, extractTags, normalizeLinkKey, sortTagNames } from '@shared/markdown-utils';
 import { duplicateNoteTitle } from '@shared/text-utils';
@@ -107,6 +108,27 @@ interface PendingNoteMutation {
 }
 
 const pendingNoteMutations = new Map<string, PendingNoteMutation[]>();
+
+const CONTENTS_CACHE_MAX = 250;
+
+function withContentsEntry(contents: Record<string, string>, id: string, text: string): Record<string, string> {
+    const next: Record<string, string> = {};
+    for (const [key, value] of Object.entries(contents)) {
+        if (key !== id) next[key] = value;
+    }
+    next[id] = text;
+    const keys = Object.keys(next);
+    if (keys.length <= CONTENTS_CACHE_MAX) return next;
+    const activeId = useUi.getState().activeNoteId;
+    const protectedIds = new Set<string>([id, ...(activeId ? [activeId] : [])]);
+    for (const noteId of pendingNoteMutations.keys()) protectedIds.add(noteId);
+    for (const key of keys) {
+        if (Object.keys(next).length <= CONTENTS_CACHE_MAX) break;
+        if (protectedIds.has(key)) continue;
+        delete next[key];
+    }
+    return next;
+}
 const pendingNoteCreates = new Map<string, Promise<Note>>();
 
 interface PendingFolderMutation {
@@ -555,7 +577,7 @@ export const useNotes = create<NotesState>((set, get) => ({
                         ? { ...s.notes, [id]: { ...s.notes[id]!, rev: visibleRev,
                             ...(visibleTitle !== undefined ? { title: visibleTitle } : {}) } }
                         : s.notes,
-                    contents: { ...s.contents, [id]: visibleContent },
+                    contents: withContentsEntry(s.contents, id, visibleContent),
                     ...(restoredPending
                         ? { saveStatus: s.online ? 'dirty' as const : 'offline' as const }
                         : {}),
@@ -843,7 +865,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         };
         set((state) => ({
             notes: { ...state.notes, [id]: optimistic },
-            contents: { ...state.contents, [id]: content },
+            contents: withContentsEntry(state.contents, id, content),
         }));
         scheduleShellSave(get);
         void localDb.setContent(id, { content, rev: before.rev, updatedAt });
@@ -1822,7 +1844,7 @@ function restoreVersionSnapshot(id: string, optimistic: NoteSummary, before: Not
         restored = true;
         return {
             notes: { ...state.notes, [id]: applyPendingNoteMutations(id, before) },
-            contents: { ...state.contents, [id]: beforeContent },
+            contents: withContentsEntry(state.contents, id, beforeContent),
         };
     });
     if (!restored)
@@ -2759,7 +2781,7 @@ function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder
             result = (a.createdAt - b.createdAt) * dir;
             break;
         case 'title':
-            result = a.title.localeCompare(b.title, locale, { numeric: true, sensitivity: 'base' }) * dir;
+            result = numericCollator(locale).compare(a.title, b.title) * dir;
             break;
         case 'updated':
         default:

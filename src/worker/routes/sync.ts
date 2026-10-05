@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import type { SyncDeletion, SyncResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
+import { NOTE_COLUMNS, tagSelectQuery, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -14,19 +14,6 @@ export const CHANGE_BOUNDS_SQL = `SELECT
   (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1) AS hi`
 
 const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at`
-
-const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
-  COUNT(n.id) AS note_count`
-
-function tagSelectQuery(whereClause: string): string {
-  return `SELECT ${TAG_SELECT}
-    FROM tags t
-    LEFT JOIN note_tags nt ON nt.tag_id = t.id
-    LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id
-      AND n.deleted_at IS NULL AND n.is_archived = 0
-   WHERE ${whereClause}
-   GROUP BY t.id, t.name, t.color, t.created_at`
-}
 
 
 syncRoutes.get('/', requireAuth, async (c) => {
@@ -116,50 +103,48 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
 
-  const notes = await loadInChunks(noteIds, (ids) =>
-    c.env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS} FROM notes n
-        WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`,
-    )
-      .bind(userId, ...ids)
-      .all<NoteRow>(),
-  )
-
-  const folders = facetsFull
-    ? (
-        await c.env.DB.prepare(
+  const [notes, folders, tags] = await Promise.all([
+    loadInChunks(noteIds, (ids) =>
+      c.env.DB.prepare(
+        `SELECT ${NOTE_COLUMNS} FROM notes n
+          WHERE n.user_id = ?1 AND n.id IN (${placeholders(ids.length, 2)})`,
+      )
+        .bind(userId, ...ids)
+        .all<NoteRow>(),
+    ),
+    facetsFull
+      ? c.env.DB.prepare(
           `SELECT ${FOLDER_SELECT} FROM folders f
             WHERE f.user_id = ?1 AND f.deleted_at IS NULL
             ORDER BY f.position ASC, f.created_at ASC, f.id ASC`,
         )
           .bind(userId)
           .all<FolderRow>()
-      ).results
-    : await loadInChunks(folderIds, (ids) =>
-        c.env.DB.prepare(
-          `SELECT ${FOLDER_SELECT} FROM folders f
-            WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-              AND f.id IN (${placeholders(ids.length, 2)})`,
-        )
-          .bind(userId, ...ids)
-          .all<FolderRow>(),
-      )
-
-  const tags = facetsFull
-    ? (
-        await c.env.DB.prepare(
+          .then((result) => result.results)
+      : loadInChunks(folderIds, (ids) =>
+          c.env.DB.prepare(
+            `SELECT ${FOLDER_SELECT} FROM folders f
+              WHERE f.user_id = ?1 AND f.deleted_at IS NULL
+                AND f.id IN (${placeholders(ids.length, 2)})`,
+          )
+            .bind(userId, ...ids)
+            .all<FolderRow>(),
+        ),
+    facetsFull
+      ? c.env.DB.prepare(
           `${tagSelectQuery('t.user_id = ?1')} ORDER BY t.name COLLATE NOCASE`,
         )
           .bind(userId)
           .all<TagRow>()
-      ).results
-    : await loadInChunks(tagIds, (ids) =>
-        c.env.DB.prepare(
-          `${tagSelectQuery(`t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`)} ORDER BY t.name COLLATE NOCASE`,
-        )
-          .bind(userId, ...ids)
-          .all<TagRow>(),
-      )
+          .then((result) => result.results)
+      : loadInChunks(tagIds, (ids) =>
+          c.env.DB.prepare(
+            `${tagSelectQuery(`t.user_id = ?1 AND t.id IN (${placeholders(ids.length, 2)})`)} ORDER BY t.name COLLATE NOCASE`,
+          )
+            .bind(userId, ...ids)
+            .all<TagRow>(),
+        ),
+  ])
 
   const gotNotes = new Set(notes.map((n) => n.id))
   for (const id of noteIds) if (!gotNotes.has(id)) deletions.push({ entity: 'note', id })

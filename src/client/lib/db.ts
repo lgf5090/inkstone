@@ -232,7 +232,7 @@ export const localDb = {
       pendingShell = null
       pendingShellUserId = null
       if (snapshot) void localDb.saveShell(snapshot, userId)
-    }, 80)
+    }, 1200)
   },
 
   async getContent(id: string): Promise<CachedNoteContent | undefined> {

@@ -23,17 +23,16 @@ import {
 } from '../attachments/storage'
 import {
   hasAttachmentStorage,
-  readAttachmentObject,
   selectAttachmentStorage,
 } from '../attachments/backend'
-import { attachmentObjectKey, type AttachmentObjectStorage } from '../attachments/keys'
+import { type AttachmentObjectStorage } from '../attachments/keys'
 import type { AppBindings } from '../env'
 import {
   buildNoteDerivedStatements,
   pruneOrphanTags,
   runBatched,
 } from '../db/writes'
-import { enqueueNoteIndex } from '../mcp/ai-search'
+import { noteIndexQueueStatement } from '../mcp/ai-search'
 import {
   assertBundleCanBeRestored,
   buildJsonExport,
@@ -1124,11 +1123,9 @@ async function existingAttachmentMatches(
   candidate: PreparedAttachmentCandidate,
 ): Promise<boolean> {
   if (row.size !== candidate.bytes.byteLength || row.sha256 !== candidate.sha256) return false
-  if (!hasAttachmentStorage(env, row.storage)) return false
-  const bytes = await readAttachmentObject(env, row.storage, attachmentObjectKey(row))
-  if (!bytes) return false
-  return bytes.byteLength === candidate.bytes.byteLength &&
-    (await sha256Hex(bytes)) === candidate.sha256
+  // sha256/size were computed at persist time; re-downloading every matching
+  // object to re-hash it doubles import transfer for no extra assurance.
+  return hasAttachmentStorage(env, row.storage)
 }
 
 async function linkImportedAttachments(
@@ -1514,6 +1511,7 @@ async function updateImportedNote(
        SELECT ?1, 'note', ?2, 'upsert', ?3
         WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
     ).bind(userId, current.id, Date.now(), ...mutationValues),
+    noteIndexQueueStatement(c.env.DB, userId, current.id, 'embed', Date.now()),
   )
 
   const [result] = await c.env.DB.batch(statements)
@@ -1521,7 +1519,6 @@ async function updateImportedNote(
   existing.title = title
   existing.rev = nextRev
   existing.updated_at = updatedAt
-  await enqueueNoteIndex(c.env.DB, userId, current.id, 'embed')
   return 'updated'
 }
 
@@ -1605,6 +1602,7 @@ async function insertNote(
       ...derived,
       change,
       ...(mapping ? [mapping] : []),
+      ...(deleted ? [] : [noteIndexQueueStatement(c.env.DB, userId, id, 'embed', Date.now())]),
     ])
     if (result?.meta.changes) {
       inserted = true
@@ -1613,8 +1611,6 @@ async function insertNote(
     id = newId()
   }
   if (!inserted) throw new Error('Could not generate a unique note ID')
-
-  if (!deleted) await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
   return id
 }
 

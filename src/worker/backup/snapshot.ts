@@ -23,7 +23,7 @@ import {
   readAttachmentObjectStream,
 } from '../attachments/backend'
 import { attachmentObjectKey } from '../attachments/keys'
-import { NOTE_COLUMNS_FULL, toFolder, toNote, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
+import { NOTE_COLUMNS_FULL, NOTE_CONTENT_COLUMNS, toFolder, toNote, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
 import type { Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -96,7 +96,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
 
   while (true) {
     const page = await env.DB.prepare(
-      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
+      `SELECT ${NOTE_CONTENT_COLUMNS} FROM notes n
         WHERE n.user_id = ?1 AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
     ).bind(userId, afterId, NOTE_PAGE_SIZE).all<NoteRow>()
     if (!page.results.length) break
@@ -426,9 +426,9 @@ async function openPlannedNote(
   referencedIds: ReadonlySet<string>,
 ): Promise<ReadableStream<Uint8Array>> {
   const row = await env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
+    `SELECT n.title, n.content FROM notes n
       WHERE n.user_id = ?1 AND n.id = ?2 AND n.rev = ?3`,
-  ).bind(userId, noteId, expectedRev).first<NoteRow>()
+  ).bind(userId, noteId, expectedRev).first<{ title: string; content: string }>()
   if (!row) throw new Error(`A note changed while the backup was running: ${noteId}`)
   const bytes = encoder.encode(renderNoteBody(row.content, notePath, attachmentPaths, referencedIds))
   if ((await sha256Hex(bytes)) !== expectedSha256) {

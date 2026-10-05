@@ -19,6 +19,18 @@ import { folderPathLabel } from '../../lib/folders';
 import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
+
+const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
+function searchKeyOfNote(n: NoteSummary, contents: Record<string, string> | null): string {
+    const body = contents ? contents[n.id] ?? n.excerpt : n.excerpt;
+    const tags = n.tags.join(' ');
+    const cached = searchKeyCache.get(n.id);
+    if (cached && cached.rev === n.rev && cached.title === n.title && cached.body === body && cached.tags === tags) return cached.text;
+    const text = `${n.title} ${body} ${tags}`;
+    if (searchKeyCache.size > 2000) searchKeyCache.clear();
+    searchKeyCache.set(n.id, { rev: n.rev, title: n.title, body, tags, text });
+    return text;
+}
 const VIEW_MESSAGE_KEYS: Record<ViewKind, MessageKey> = {
     all: 'navigation.all_notes',
     recent: 'navigation.recently_edited',
@@ -67,6 +79,7 @@ export function NoteList() {
     const listRef = useRef<HTMLDivElement>(null);
     const [startIndex, setStartIndex] = useState(0);
     const now = useNow();
+    const nowMinute = Math.floor(now / 60_000) * 60_000;
     const tagColors = useMemo(() => new Map((tags ?? []).map((item) => [item.name, item.color])), [tags]);
 
     useEffect(() => setFilter(''), [view, folderId, tag, searchList, breakpoint]);
@@ -98,7 +111,7 @@ export function NoteList() {
         if (!deferredFilter.trim())
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
         const currentContents = searchList ? useNotes.getState().contents : null;
-        const local = fuzzyFilter(notes, deferredFilter, (n) => `${n.title} ${searchList && currentContents ? currentContents[n.id] ?? n.excerpt : n.excerpt} ${n.tags.join(' ')}`, 200).map(({ item, match }) => ({
+        const local = fuzzyFilter(notes, deferredFilter, (n) => searchKeyOfNote(n, searchList ? currentContents : null), 200).map(({ item, match }) => ({
             note: item,
             ranges: match.ranges.filter(([s]) => s < item.title.length),
         }));
@@ -123,7 +136,7 @@ export function NoteList() {
     const bottomSpacerHeight = Math.max(0, (filtered.length - endIndex) * itemHeight);
     const rendered = useMemo(() => isVirtual ? filtered.slice(safeStartIndex, endIndex) : filtered, [filtered, isVirtual, safeStartIndex, endIndex]);
     const renderedIds = useMemo(() => new Set(rendered.map((item) => item.note.id)), [rendered]);
-    const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', now, filtered.some((i) => i.note.isPinned)), [rendered, sort, view, locale, now, filtered]);
+    const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', nowMinute, filtered.some((i) => i.note.isPinned)), [rendered, sort, view, locale, nowMinute, filtered]);
     useEffect(() => {
         setStartIndex(0);
         listRef.current?.scrollTo?.({ top: 0 });

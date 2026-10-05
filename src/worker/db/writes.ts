@@ -19,6 +19,26 @@ export const LINK_TARGET_SUBQUERY = `(SELECT candidate.id FROM notes candidate
     AND candidate.title_key = links.target_key
   ORDER BY candidate.created_at ASC, candidate.id ASC LIMIT 1)`
 
+/** Fan-out above this size is deferred to the background rewrite queue. */
+export const INLINE_REWRITE_LIMIT = 20
+
+export type RewriteQueueKind = 'note-title' | 'tag-rename' | 'tag-delete'
+
+export function rewriteQueueStatement(
+  db: D1Database,
+  userId: string,
+  kind: RewriteQueueKind,
+  sourceId: string,
+  oldValue: string,
+  newValue: string,
+  now = Date.now(),
+): D1PreparedStatement {
+  return db.prepare(
+    `INSERT OR REPLACE INTO rewrite_queue (user_id, kind, source_id, old_value, new_value, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+  ).bind(userId, kind, sourceId, oldValue, newValue, now)
+}
+
 export function changeStatement(
   db: D1Database,
   userId: string,

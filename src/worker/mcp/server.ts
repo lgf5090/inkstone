@@ -113,6 +113,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
         options.origin,
         options.ftsEnabled,
         { query, limit: 8, mode },
+        options.executionCtx,
       )
       const value = {
         results: found.results.map(({ id, title, url }) => ({ id, title, url })),
@@ -167,6 +168,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
       options.origin,
       options.ftsEnabled,
       input,
+      options.executionCtx,
     )),
   )
 
@@ -965,6 +967,25 @@ async function customTool(
   })
 }
 
+type McpPreferencesValue = Awaited<ReturnType<typeof getMcpPreferences>>
+
+const preferencesMemo = new WeakMap<D1Database, Map<string, { value: Promise<McpPreferencesValue>; expiresAt: number }>>()
+const PREFERENCES_MEMO_MS = 5_000
+
+function getMcpPreferencesOnce(db: D1Database, userId: string): Promise<McpPreferencesValue> {
+  let byUser = preferencesMemo.get(db)
+  if (!byUser) {
+    byUser = new Map()
+    preferencesMemo.set(db, byUser)
+  }
+  const now = Date.now()
+  const entry = byUser.get(userId)
+  if (entry && entry.expiresAt > now) return entry.value
+  const value = getMcpPreferences(db, userId)
+  byUser.set(userId, { value, expiresAt: now + PREFERENCES_MEMO_MS })
+  return value
+}
+
 async function writeTool(
   ctx: ServerContext,
   options: InkstoneMcpServerOptions,
@@ -973,7 +994,7 @@ async function writeTool(
 ) {
   return safeTool(async () => {
     requireScope(ctx, options.auth, scope)
-    const preferences = await getMcpPreferences(options.env.DB, options.auth.userId)
+    const preferences = await getMcpPreferencesOnce(options.env.DB, options.auth.userId)
     if (scope === MCP_SCOPES.write && !preferences.writeEnabled) {
       throw ApiError.forbidden('MCP writes are disabled in Inkstone settings')
     }

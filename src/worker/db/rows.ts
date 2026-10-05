@@ -126,3 +126,21 @@ export const NOTE_COLUMNS = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n
     WHERE nt.note_id = n.id AND t.user_id = n.user_id) AS tag_names`
 
 export const NOTE_COLUMNS_FULL = `${NOTE_COLUMNS}, n.content`
+
+/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */
+export const NOTE_CONTENT_COLUMNS = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev,
+  n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, n.position,
+  n.content_hash, n.created_at, n.updated_at, n.deleted_at, n.content`
+
+const TAG_SELECT_COLUMNS = `t.id, t.name, t.color, t.created_at,
+  COUNT(n.id) AS note_count`
+
+export function tagSelectQuery(whereClause: string): string {
+  return `SELECT ${TAG_SELECT_COLUMNS}
+    FROM tags t
+    LEFT JOIN note_tags nt ON nt.tag_id = t.id
+    LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id
+      AND n.deleted_at IS NULL AND n.is_archived = 0
+   WHERE ${whereClause}
+   GROUP BY t.id, t.name, t.color, t.created_at`
+}

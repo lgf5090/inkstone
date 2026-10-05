@@ -33,7 +33,17 @@ export function AppShell() {
     const breakpoint = useBreakpoint();
     const role = useSession((s) => s.user?.role);
     const userId = useSession((s) => s.user?.id);
-    useEffect(() => scheduleSettingsWarmup(), [userId]);
+    useEffect(() => {
+      // Keep settings prewarming out of the boot + first-sync window.
+      const timer = window.setTimeout(() => {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => void scheduleSettingsWarmup(), { timeout: 15_000 });
+        } else {
+          void scheduleSettingsWarmup();
+        }
+      }, 4_000);
+      return () => window.clearTimeout(timer);
+    }, [userId]);
     const checkForUpdates = useUpdate((s) => s.check);
     useSyncEngine();
     useGlobalHotkeys();

@@ -11,7 +11,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { broadcastUserCursor } from '../lib/notify'
 import { assertContentSize } from '../lib/request'
-import { enqueueNoteIndex } from './ai-search'
+import { noteIndexQueueStatement, scheduleAiDrainForNote } from './ai-search'
 import { runIdempotent } from './operations'
 import { buildOutline } from './retrieval'
 
@@ -84,9 +84,9 @@ export async function createMcpNote(
           WHERE EXISTS (SELECT 1 FROM notes
             WHERE id = ?2 AND user_id = ?1 AND rev = 1 AND content_hash = ?4)`,
       ).bind(context.userId, id, now, hash)
-      await context.env.DB.batch([insert, ...derived, change])
+      await context.env.DB.batch([insert, ...derived, noteIndexQueueStatement(context.env.DB, context.userId, id, 'embed', now), change])
       const note = await loadNote(context.env.DB, context.userId, id)
-      await enqueueNoteIndex(context.env.DB, context.userId, id, 'embed')
+      scheduleAiDrainForNote({ env: context.env, executionCtx: context.executionCtx }, context.userId)
       await afterMutation(context)
       return note
     },
@@ -256,14 +256,14 @@ export async function restoreMcpNote(
           WHERE EXISTS (SELECT 1 FROM notes
             WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)`,
       ).bind(context.userId, row.id, now, nextRev)
-      const [updated] = await context.env.DB.batch([update, ...derived, change])
+      const [updated] = await context.env.DB.batch([update, ...derived, noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now), change])
       if (!updated?.meta.changes) {
         throw ApiError.conflict('This note was modified elsewhere', {
           server: await loadNote(context.env.DB, context.userId, row.id),
         })
       }
       const note = await loadNote(context.env.DB, context.userId, row.id)
-      await enqueueNoteIndex(context.env.DB, context.userId, row.id, 'embed')
+      scheduleAiDrainForNote({ env: context.env, executionCtx: context.executionCtx }, context.userId)
       await afterMutation(context)
       return note
     },
@@ -383,6 +383,9 @@ async function patchNote(
         WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
     ).bind(context.userId, row.id, now, ...mutationValues),
   )
+  if (contentChanged || newTitle !== row.title) {
+    statements.push(noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now))
+  }
   const [updated] = await context.env.DB.batch(statements)
   if (!updated?.meta.changes) {
     throw ApiError.conflict('This note was modified elsewhere', {
@@ -391,7 +394,7 @@ async function patchNote(
   }
   const note = await loadNote(context.env.DB, context.userId, row.id)
   if (contentChanged || newTitle !== row.title) {
-    await enqueueNoteIndex(context.env.DB, context.userId, row.id, 'embed')
+    scheduleAiDrainForNote({ env: context.env, executionCtx: context.executionCtx }, context.userId)
   }
   await afterMutation(context)
   return note
