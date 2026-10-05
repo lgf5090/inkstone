@@ -27,11 +27,22 @@ const allowed = new Map([
     "// Highlighting removed: no code languages are loaded.",
     "// Kept as empty array so the editor behaves as plain Markdown without syntax colors.",
   ]],
+  ["src/client/editor/commands.test.ts", [
+    "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is",
+    "// attached and focused; the shim keeps the completion path exercisable instead of untestable.",
+  ]],
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
     "// themselves fence markers.",
     "// A tab item lives inside an open set by definition, so only the set-level openers",
     "// have to check whether an earlier container is still waiting for its closer.",
+    "// Typing the markers opens the note list through activateOnTyping, but the toolbar had no",
+    "// way to ask for it: an inserted `[[]]` left the caret in an empty pair with no popup.",
+    "// The toolbar button still holds focus at this point and autocompletion runs with",
+    "// closeOnBlur, so the view has to be focused first or the popup is dismissed at once.",
+    "// The dropdown that held the button is still closing and reclaims focus after this",
+    "// command returns, so the popup has to be started one task later or it is dismissed",
+    "// straight away by closeOnBlur.",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",

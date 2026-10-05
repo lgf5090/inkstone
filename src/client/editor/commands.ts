@@ -1,10 +1,14 @@
+import { startCompletion } from '@codemirror/autocomplete';
 import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange, type StateCommand } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
 
 
-export function toggleWrap(open: string, close = open): StateCommand {
-    return ({ state, dispatch }) => {
+export function toggleWrap(open: string, close = open, options: { suggestWhenOpeningEmpty?: boolean } = {}): StateCommand {
+    return (target) => {
+        const { state, dispatch } = target;
+        const view = (target as { view?: EditorView }).view;
+        let openedEmpty = false;
         const changes = state.changeByRange((range) => {
             const surrounding = surroundingMarkers(state, range, open, close);
 
@@ -38,6 +42,8 @@ export function toggleWrap(open: string, close = open): StateCommand {
                     range: EditorSelection.range(from, to - contained.open - contained.close),
                 };
             }
+            if (!text)
+                openedEmpty = true;
             return {
                 changes: { from, to, insert: `${open}${text}${close}` },
                 range: text
@@ -46,6 +52,22 @@ export function toggleWrap(open: string, close = open): StateCommand {
             };
         });
         dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.format' }));
+        // Typing the markers opens the note list through activateOnTyping, but the toolbar had no
+        // way to ask for it: an inserted `[[]]` left the caret in an empty pair with no popup.
+        // The toolbar button still holds focus at this point and autocompletion runs with
+        // closeOnBlur, so the view has to be focused first or the popup is dismissed at once.
+        if (options.suggestWhenOpeningEmpty && openedEmpty && view) {
+            const target = view;
+            // The dropdown that held the button is still closing and reclaims focus after this
+            // command returns, so the popup has to be started one task later or it is dismissed
+            // straight away by closeOnBlur.
+            setTimeout(() => {
+                if (!document.contains(target.dom))
+                    return;
+                target.focus();
+                startCompletion(target);
+            }, 0);
+        }
         return true;
     };
 }
@@ -163,8 +185,8 @@ export const toggleStrikethrough = toggleWrap('~~');
 export const toggleHighlight = toggleWrap('==');
 export const toggleComment = toggleWrap('%%');
 export const toggleInlineMath = toggleWrap('$');
-export const toggleWikiLink = toggleWrap('[[', ']]');
-export const toggleNoteEmbed = toggleWrap('![[', ']]');
+export const toggleWikiLink = toggleWrap('[[', ']]', { suggestWhenOpeningEmpty: true });
+export const toggleNoteEmbed = toggleWrap('![[', ']]', { suggestWhenOpeningEmpty: true });
 export const toggleBlockReference = toggleWrap('[[#^', ']]');
 export const toggleQuote = toggleLinePrefix('> ', /^>\s?/);
 const ANY_LIST_PREFIX = /^(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/;

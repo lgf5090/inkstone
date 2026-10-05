@@ -1,4 +1,6 @@
+import type { EditorView } from '@codemirror/view'
 import { EditorSelection, EditorState } from '@codemirror/state'
+import { beforeAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertMathBlock, setHeading, toggleComment } from './commands'
 import { renderMarkdown } from '../lib/markdown/renderer'
@@ -86,6 +88,78 @@ function runColonCompletion(doc: string, cursor = doc.length) {
   const handled = completeColonFenceOnEnter({ state, dispatch: (transaction) => { next = transaction.state } })
   return { handled, doc: next.doc.toString(), head: next.selection.main.head }
 }
+
+// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is
+// attached and focused; the shim keeps the completion path exercisable instead of untestable.
+beforeAll(() => {
+  const proto = Range.prototype as unknown as { getClientRects?: () => DOMRectList }
+  if (!proto.getClientRects)
+    proto.getClientRects = () => [] as unknown as DOMRectList
+})
+
+async function runCommand(command: StateCommandLike, doc: string, caret: number, anchorTo?: number, withCompletions = false) {
+  const { EditorView } = await import('@codemirror/view')
+  const { autocompletion, completionStatus } = await import('@codemirror/autocomplete')
+  const { wikiLinkSource } = await import('./completion')
+  const selection = anchorTo === undefined ? EditorSelection.cursor(caret) : EditorSelection.range(caret, anchorTo)
+  const extensions = withCompletions ? [autocompletion({
+    override: [wikiLinkSource(() => ({
+      notes: () => [{ id: '1', title: 'Welcome to Inkstone', excerpt: '' }],
+      tags: () => [],
+    }))],
+  })] : []
+  const state = EditorState.create({ doc, selection, extensions })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const view = new EditorView({ state, parent: host })
+  await command({ state: view.state, dispatch: (value: Parameters<EditorView['dispatch']>[0]) => view.dispatch(value), view })
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  const result = {
+    text: view.state.doc.toString(),
+    head: view.state.selection.main.head,
+    status: completionStatus(view.state),
+  }
+  view.destroy()
+  host.remove()
+  return result
+}
+
+type StateCommandLike = (ctx: { state: EditorState; dispatch: (value: Parameters<EditorView['dispatch']>[0]) => void; view?: EditorView }) => boolean
+
+describe('toolbar wiki link insertion', () => {
+  it('inserts an empty pair with the caret inside, ready for the note list', async () => {
+    const { toggleWikiLink } = await import('./commands')
+    const result = await runCommand(toggleWikiLink as StateCommandLike, '', 0, undefined, true)
+    expect(result.text).toBe('[[]]')
+    expect(result.head).toBe(2)
+    expect(['active', 'pending'], result.text).toContain(result.status)
+  })
+
+  it('does the same for a note embed', async () => {
+    const { toggleNoteEmbed } = await import('./commands')
+    const result = await runCommand(toggleNoteEmbed as StateCommandLike, '', 0, undefined, true)
+    expect(result.text).toBe('![[]]')
+    expect(['active', 'pending'], result.text).toContain(result.status)
+  })
+
+  it('wraps a selection without touching the markers', async () => {
+    const { toggleWikiLink } = await import('./commands')
+    const result = await runCommand(toggleWikiLink as StateCommandLike, 'Welcome to Inkstone', 0, 19)
+    expect(result.text).toBe('[[Welcome to Inkstone]]')
+    expect(result.head).toBe(21)
+  })
+
+  it('unwraps an already linked selection', async () => {
+    const { toggleWikiLink } = await import('./commands')
+    const result = await runCommand(toggleWikiLink as StateCommandLike, '[[Welcome]]', 2, 9)
+    expect(result.text).toBe('Welcome')
+  })
+
+  it('leaves ordinary emphasis toggles alone', async () => {
+    const { toggleBold } = await import('./commands')
+    expect((await runCommand(toggleBold as StateCommandLike, '', 0)).text).toBe('****')
+  })
+})
 
 describe('completeColonFenceOnEnter', () => {
   it('closes a details block and leaves the caret on the empty body line', () => {
