@@ -260,7 +260,7 @@ export const useSession = create<SessionState>((set, get) => ({
     const next = mergeSettingsPatch(get().settings, patch)
     set({ settings: next })
     syncAppearanceToDom(next)
-    cacheCurrentSession(get())
+    cacheCurrentSession(get(), { defer: true })
     pendingSettingsPatch = mergeSettingsPatches(pendingSettingsPatch, patch)
     pendingSettingsShouldNotify ||= !options?.silent
 
@@ -400,9 +400,23 @@ async function persistSession(info: SessionInfo): Promise<void> {
   }
 }
 
-function cacheCurrentSession(state: SessionState): void {
-  if (!state.user || !state.site) return
-  void queueSessionCache({ user: state.user, site: state.site, settings: state.settings })
+let sessionCacheTimer: number | undefined
+
+function cacheCurrentSession(state: SessionState, options?: { defer?: boolean }): void {
+  const user = state.user
+  const site = state.site
+  if (!user || !site) return
+  const info: SessionInfo = { user, site, settings: state.settings }
+  if (!options?.defer) {
+    void queueSessionCache(info)
+    return
+  }
+  window.clearTimeout(sessionCacheTimer)
+  sessionCacheTimer = window.setTimeout(() => {
+    sessionCacheTimer = undefined
+    if (useSession.getState().user?.id !== user.id) return
+    void queueSessionCache(info)
+  }, 500)
 }
 
 function queueSessionCache(info: SessionInfo): Promise<void> {

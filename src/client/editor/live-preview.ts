@@ -214,7 +214,9 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
             this.observer = new MutationObserver(refreshView);
             this.observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'lang'] });
             this.unsubscribe = useSession.subscribe((state, previous) => {
-                if (state.settings.preview !== previous.settings.preview || state.settings.appearance !== previous.settings.appearance) refreshView();
+                if (state.settings.preview.math !== previous.settings.preview.math
+                    || state.settings.preview.mermaid !== previous.settings.preview.mermaid
+                    || state.settings.appearance.proseFont !== previous.settings.appearance.proseFont) refreshView();
             });
             queueMicrotask(() => { const value = view.state.field(field, false); if (value) onHeadings(value.headings); });
         }

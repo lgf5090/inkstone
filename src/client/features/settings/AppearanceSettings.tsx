@@ -22,9 +22,8 @@ export function AppearanceSettings({
 }: {
   accents: { name: AccentName; swatch: string; foreground: string }[]
 }) {
-  const settings = useSession((s) => s.settings)
+  const appearance = useSession((s) => s.settings.appearance)
   const update = useSession((s) => s.updateSettings)
-  const appearance = settings.appearance
 
   return (
     <div>
@@ -125,7 +124,7 @@ export function AppearanceSettings({
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t("settings.preview_typography")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t("settings.preview_typography")}
         </h3>
 

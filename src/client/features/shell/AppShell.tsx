@@ -38,9 +38,9 @@ export function AppShell() {
       // Keep settings prewarming out of the boot + first-sync window.
       const timer = window.setTimeout(() => {
         if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => void scheduleSettingsWarmup(), { timeout: 15_000 });
+          window.requestIdleCallback(() => scheduleSettingsWarmup(0), { timeout: 15_000 });
         } else {
-          void scheduleSettingsWarmup();
+          scheduleSettingsWarmup(0);
         }
       }, 4_000);
       return () => window.clearTimeout(timer);

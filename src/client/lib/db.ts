@@ -131,8 +131,8 @@ async function bindLocalUser(userId: string): Promise<void> {
     if (forceUserNamespaces && !supportsUserNamespaces) {
       await clearLocalData()
       forceUserNamespaces = false
+      await set(KEY.userId, userId, store)
     }
-    await set(KEY.userId, userId, store)
     return
   }
   if (!supportsUserNamespaces) {

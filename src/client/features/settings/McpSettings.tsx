@@ -339,7 +339,7 @@ export function McpSettings() {
           </div>
         </div>
         <div className="border-t border-[var(--border-subtle)] px-4 py-3">
-          <div className="mb-1 text-[11px] font-medium text-[var(--text-tertiary)]">{t('settings.mcp_endpoint')}</div>
+          <div data-setting-title={t('settings.mcp_endpoint')} className="mb-1 text-[11px] font-medium text-[var(--text-tertiary)]">{t('settings.mcp_endpoint')}</div>
           <div className="flex min-w-0 items-center gap-2">
             <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-2 text-[11.5px] text-[var(--text-secondary)]">
               {info.endpoint}
@@ -357,7 +357,7 @@ export function McpSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.mcp_permissions')} className="mb-1 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.mcp_permissions')}
         </h3>
         {info.canManageGlobal && (
@@ -389,7 +389,7 @@ export function McpSettings() {
       </section>
 
       <section>
-        <h3 className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.mcp_api_keys')} className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.mcp_api_keys')}
         </h3>
         <p className="mb-3 px-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
@@ -474,7 +474,7 @@ export function McpSettings() {
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <div className="flex items-center gap-1.5">
             <Sparkles size={13} className="text-[var(--accent)]" />
-            <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            <h3 data-setting-title={t('settings.mcp_ai_search')} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
               {t('settings.mcp_ai_search')}
             </h3>
             {aiSearch.available ? (
@@ -521,7 +521,7 @@ export function McpSettings() {
       </section>
 
       <section>
-        <h3 className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3 data-setting-title={t('settings.mcp_connect_clients')} className="mb-2 px-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
           {t('settings.mcp_connect_clients')}
         </h3>
         <p className="mb-3 px-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">
@@ -532,7 +532,7 @@ export function McpSettings() {
             <details key={snippet.id} className="group overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-[12.5px] font-medium text-[var(--text-primary)]">
                 <span>{snippet.name}</span>
-                <span className="text-[10.5px] font-normal text-[var(--text-quaternary)]">{t('settings.mcp_transport')}</span>
+                <span data-setting-title={t('settings.mcp_transport')} className="text-[10.5px] font-normal text-[var(--text-quaternary)]">{t('settings.mcp_transport')}</span>
               </summary>
               <div className="border-t border-[var(--border-subtle)] p-3">
                 <div className="flex items-start gap-2">
@@ -597,7 +597,7 @@ export function McpSettings() {
         <div className="flex items-start gap-3">
           <ShieldCheck size={16} className="mt-0.5 shrink-0 text-[var(--success)]" />
           <div>
-            <h3 className="text-[12.5px] font-medium text-[var(--text-primary)]">{t('settings.mcp_privacy')}</h3>
+            <h3 data-setting-title={t('settings.mcp_privacy')} className="text-[12.5px] font-medium text-[var(--text-primary)]">{t('settings.mcp_privacy')}</h3>
             <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-tertiary)]">{t('settings.mcp_privacy_desc')}</p>
           </div>
         </div>

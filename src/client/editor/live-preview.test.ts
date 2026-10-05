@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderMarkdownBlocks } from '../lib/markdown/renderer';
-import { mergeSettings, mergeSettingsPatch } from '@shared/constants';
+import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants';
 
 describe('live preview Markdown compatibility', () => {
     it('defaults to live rendering and preserves an explicit opt-out across settings updates', () => {
@@ -18,6 +18,37 @@ describe('live preview Markdown compatibility', () => {
             expect(settings.editor.tabSize).toBe(4);
         }
         for (const layout of ['split', 'preview']) expect(mergeSettings({ preview: { layout } }).preview.layout).toBe(layout);
+    });
+    it('keeps untouched sections identical so one write cannot re-render every subscriber', () => {
+        const base = mergeSettings({});
+        const afterEditor = mergeSettingsPatch(base, { editor: { showToolbar: false } });
+        expect(afterEditor.editor).not.toBe(base.editor);
+        expect(afterEditor.appearance).toBe(base.appearance);
+        expect(afterEditor.preview).toBe(base.preview);
+        expect(afterEditor.backup).toBe(base.backup);
+        expect(afterEditor.sync).toBe(base.sync);
+        const afterAppearance = mergeSettingsPatch(afterEditor, { appearance: { proseSize: 18 } });
+        expect(afterAppearance.editor).toBe(afterEditor.editor);
+        expect(afterAppearance.preview).toBe(afterEditor.preview);
+        expect(afterAppearance.appearance.proseSize).toBe(18);
+    });
+    it('reuses a section object only when every validated field really stayed put', () => {
+        const base = mergeSettings({ preview: { math: true } });
+        const sameValue = mergeSettingsPatch(base, { preview: { math: true }, appearance: { proseSize: base.appearance.proseSize } });
+        expect(sameValue.preview).toBe(base.preview);
+        expect(sameValue.appearance).toBe(base.appearance);
+        const flipped = mergeSettingsPatch(base, { preview: { math: false } });
+        expect(flipped.preview).not.toBe(base.preview);
+        expect(flipped.preview.math).toBe(false);
+        const clamped = mergeSettingsPatch(base, { appearance: { proseSize: 999 } });
+        expect(clamped.appearance).not.toBe(base.appearance);
+        expect(clamped.appearance.proseSize).toBe(22);
+    });
+    it('still fills in a section the stored settings never had', () => {
+        const partial = { appearance: DEFAULT_SETTINGS.appearance } as unknown;
+        const next = mergeSettingsPatch(partial, { sync: { realtime: false } });
+        expect(next.sync.realtime).toBe(false);
+        expect(next.preview).toEqual(DEFAULT_SETTINGS.preview);
     });
     it('retains document-wide references and source lines across nested blocks', () => {
         const source = '# Heading\n\n[Reference][ref]\n\n- [ ] one\n  - [x] two\n\n| A | B |\n| - | - |\n| C | D |\n\n[ref]: https://example.com';
