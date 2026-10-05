@@ -93,6 +93,16 @@ const allowed = new Map([
     "// so references inside them count even though stripCodeRegions discards",
     "// them as ordinary code regions.",
     "// A closing fence may only be followed by spaces or tabs.",
+    "// Each nesting level re-scans its own subtree, so uncapped md-example nesting makes",
+    "// the work quadratic in depth: one note can cost seconds of CPU per read, per save",
+    "// and per backup. Callers that only gate a read pass tighter limits than the ones",
+    "// whose counts decide deletion or backup completeness.",
+    "// A partial result would under-report references, and both attachment pruning and",
+    "// backups delete or omit files on the strength of those counts. One flat pass over",
+    "// the body is linear and over-counts code samples instead of missing a reference.",
+    "// Same result as the /( ! )\\[([^\\]]*)\\]\\([^)]*\\)/g pass, as one left-to-right scan:",
+    "// the regex backtracks across the rest of the text for every '[' whose '(' is never",
+    "// closed, which costs seconds on a note near the content size limit.",
   ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
@@ -201,6 +211,10 @@ const allowed = new Map([
     "// attacker with any low-value account could reset the per-IP failure",
     "// ceiling between bursts of password guessing.",
   ]],
+  ["src/worker/routes/files.ts", [
+    "// Anonymous share reads get a tighter work budget than the delete/backup paths:",
+    "// an unfinished scan here only withholds one asset, which is the safe direction.",
+  ]],
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",
   ]],
@@ -220,6 +234,14 @@ const allowed = new Map([
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
     "// tenant phrase filter runs inside the inverted index, not as an UNINDEXED",
     "// post-scan.",
+  ]],
+  ["tests/markdown-scan-bounds.test.ts", [
+    "/** One md-example fence costs 17 bytes; nesting requires a strictly longer outer fence. */",
+    "// Pruning and backups delete or omit files on the strength of these ids, so an",
+    "// unfinished descent must over-report rather than return a partial set.",
+    "// Expected values captured from the pre-rewrite implementation at fc61e80.",
+    "// 160 KB cost the regex version ~8.7 s and the blowup scales with the square of",
+    "// the length, so the 1.9 MB content cap extrapolates to ~20 min per call.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",
