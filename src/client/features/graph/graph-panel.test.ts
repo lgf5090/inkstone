@@ -556,6 +556,7 @@ function synthetic(id: string, x: number, y: number): CanvasNode {
     vx: 0,
     vy: 0,
     r: 6,
+    colorGroup: null,
   }
 }
 

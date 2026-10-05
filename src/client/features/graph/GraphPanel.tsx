@@ -1,338 +1,68 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  ArrowDownToLine,
   ArrowRight,
+  CornerDownRight,
   CircleDot,
+  Download,
   Filter,
   FolderOpen,
+  ImageDown,
   Maximize2,
+  Minimize2,
   Minus,
-  Network,
   PanelRightClose,
   Plus,
   Search,
   Settings2,
   X,
 } from 'lucide-react'
-import type { GraphNode, GraphQuery, GraphResponse } from '@shared/types'
-import { organizerColorOrNull } from '@shared/organizer-colors'
-import { truncateText } from '@shared/text-utils'
+import type { GraphQuery, GraphResponse } from '@shared/types'
+import { deriveExcerpt } from '@shared/markdown-utils'
 import { api } from '../../lib/api'
 import { Button, IconButton } from '../../components/primitives'
-import { Select, Segmented, Slider, Switch } from '../../components/form'
-import { Drawer, Menu, Tooltip, useDialogFocus, useEscape, useLockScroll, type MenuItem } from '../../components/overlay'
+import { Segmented } from '../../components/form'
+import { Menu, Tooltip, useDialogFocus, useEscape, useLockScroll, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
+import {
+  DEFAULT_PREFERENCES,
+  loadPreferences,
+  persistPreferences,
+  toggleListItem,
+  type GraphPreferences,
+} from '../../lib/graph-settings'
+import {
+  GRAPH_LEGEND_MAX,
+  GRAPH_PREFS_DEBOUNCE_MS,
+  GRAPH_PREVIEW_SHOW_MS,
+  GRAPH_SEARCH_DEBOUNCE_MS,
+} from './graph-panel/constants'
+import { GraphCanvas } from './graph-panel/canvas'
+import { createGraphState } from './graph-panel/canvas'
+import { useGraphExport } from './graph-panel/use-graph-export'
+import { GraphPaintError, GraphOverlays, type GraphPreviewCard } from './graph-panel/overlays'
+import { GraphSettingsPanel } from './graph-panel/settings'
+import {
+  colorLegends,
+  graphCounts,
+  graphSearchHits,
+  normalizedResponse,
+  readPalette,
+  type ColorLegendItem,
+} from './graph-panel/scene'
+import type { CanvasNode, CanvasState, GraphCanvasControls } from './graph-panel/types'
 
-const PHYSICS_FRAME_LIMIT = 180
-const SPATIAL_CELL_SIZE = 350
-const MAX_REPULSION_DIST_SQ = 120000
-const GRAPH_PREFS_KEY = 'inkstone.graph.preferences.v1'
-
-type GroupBy = 'none' | 'folder' | 'tag'
-interface GraphPreferences {
-  mode: 'global' | 'local'
-  depth: number
-  includeOrphans: boolean
-  includeUnresolved: boolean
-  arrows: boolean
-  labels: boolean
-  groupBy: GroupBy
-  folderId: string
-  tag: string
-  repulsion: number
-  linkDistance: number
-  nodeScale: number
-}
-
-const DEFAULT_PREFERENCES: GraphPreferences = {
-  mode: 'global',
-  depth: 1,
-  includeOrphans: true,
-  includeUnresolved: true,
-  arrows: true,
-  labels: true,
-  groupBy: 'none',
-  folderId: '',
-  tag: '',
-  repulsion: 900,
-  linkDistance: 76,
-  nodeScale: 1,
-}
-
-export interface CanvasNode extends GraphNode {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  r: number
-  pinned?: boolean
-}
-
-type Edge = { a: CanvasNode; b: CanvasNode }
-
-interface CanvasState {
-  nodes: CanvasNode[]
-  edges: Edge[]
-  scale: number
-  offsetX: number
-  offsetY: number
-  dragging: { node: CanvasNode | null; startX: number; startY: number; ox: number; oy: number } | null
-  pointers: Map<number, { x: number; y: number }>
-  pinch: { distance: number; scale: number; centerX: number; centerY: number } | null
-  frame: number
-  raf: number
-  needsFit: boolean
-  initialized: boolean
-  palette: Palette
-  emphasis: { id: string | null; neighbours: Set<string> }
-  schedule: (() => void) | null
-}
-
-interface Palette {
-  edge: string
-  edgeDim: string
-  node: string
-  accent: string
-  label: string
-  font: string
-}
-
-const FALLBACK_PALETTE: Palette = {
-  edge: '#6b7280',
-  edgeDim: '#9ca3af',
-  node: '#777777',
-  accent: '#4f46e5',
-  label: '#555555',
-  font: 'sans-serif',
-}
-
-function readPalette(): Palette {
-  if (typeof document === 'undefined') return FALLBACK_PALETTE
-  const style = getComputedStyle(document.documentElement)
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
-  return {
-    edge: token('--graph-edge', FALLBACK_PALETTE.edge),
-    edgeDim: token('--graph-edge-dim', FALLBACK_PALETTE.edgeDim),
-    node: token('--graph-node', FALLBACK_PALETTE.node),
-    accent: token('--accent', FALLBACK_PALETTE.accent),
-    label: token('--graph-label', FALLBACK_PALETTE.label),
-    font: token('--font-ui', FALLBACK_PALETTE.font),
-  }
-}
-
-export function graphScaleAfterWheel(scale: number, deltaY: number): number {
-  if (!Number.isFinite(deltaY) || deltaY === 0) return scale
-  return Math.min(4, Math.max(0.2, scale * (deltaY > 0 ? 0.92 : 1.08)))
-}
-
-function loadPreferences(): GraphPreferences {
-  if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCES
-  try {
-    const stored = JSON.parse(localStorage.getItem(GRAPH_PREFS_KEY) ?? '{}') as Partial<GraphPreferences>
-    return {
-      mode: stored.mode === 'local' ? 'local' : 'global',
-      depth: boundedPreference(stored.depth, DEFAULT_PREFERENCES.depth, 1, 3),
-      includeOrphans: booleanPreference(stored.includeOrphans, DEFAULT_PREFERENCES.includeOrphans),
-      includeUnresolved: booleanPreference(stored.includeUnresolved, DEFAULT_PREFERENCES.includeUnresolved),
-      arrows: booleanPreference(stored.arrows, DEFAULT_PREFERENCES.arrows),
-      labels: booleanPreference(stored.labels, DEFAULT_PREFERENCES.labels),
-      groupBy: stored.groupBy === 'folder' || stored.groupBy === 'tag' ? stored.groupBy : 'none',
-      folderId: typeof stored.folderId === 'string' && /^[0-9a-hjkmnp-tv-z]{26}$/.test(stored.folderId)
-        ? stored.folderId
-        : '',
-      tag: typeof stored.tag === 'string' ? truncateText(stored.tag.trim(), 60) : '',
-      repulsion: boundedPreference(stored.repulsion, DEFAULT_PREFERENCES.repulsion, 300, 1800),
-      linkDistance: boundedPreference(stored.linkDistance, DEFAULT_PREFERENCES.linkDistance, 40, 150),
-      nodeScale: boundedPreference(stored.nodeScale, DEFAULT_PREFERENCES.nodeScale, 0.7, 1.8),
-    }
-  } catch {
-    return DEFAULT_PREFERENCES
-  }
-}
-
-function boundedPreference(value: unknown, fallback: number, min: number, max: number): number {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.min(max, Math.max(min, value))
-    : fallback
-}
-
-function booleanPreference(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback
-}
-
-function nodeColor(node: GraphNode, groupBy: GroupBy, fallback: string): string {
-  if (groupBy === 'folder') return organizerColorOrNull(node.folderColor) ?? fallback
-  if (groupBy === 'tag') return organizerColorOrNull(node.tags[0]?.color) ?? fallback
-  return fallback
-}
-
-function nodeRadius(node: GraphNode, nodeScale: number): number {
-  return (4 + Math.min(9, Math.sqrt(node.degree) * 2.4)) * nodeScale
-}
-
-function spiralPoint(index: number): { x: number; y: number } {
-  const angle = index * 2.399963
-  const radius = 18 * Math.sqrt(index)
-  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius }
-}
-
-function stepPhysics(
-  nodes: CanvasNode[],
-  edges: Array<{ a: CanvasNode; b: CanvasNode }>,
-  repulsion: number,
-  linkDistance: number,
-  held: CanvasNode | null,
-): number {
-  const grid = new Map<string, CanvasNode[]>()
-  for (const node of nodes) {
-    const key = `${Math.floor(node.x / SPATIAL_CELL_SIZE)}:${Math.floor(node.y / SPATIAL_CELL_SIZE)}`
-    let list = grid.get(key)
-    if (!list) { list = []; grid.set(key, list) }
-    list.push(node)
-  }
-  const applyRepulsion = (a: CanvasNode, b: CanvasNode) => {
-    let dx = b.x - a.x, dy = b.y - a.y
-    let distanceSquared = dx * dx + dy * dy
-    if (distanceSquared < 0.01) {
-      dx = (Math.random() - 0.5) * 0.6
-      dy = (Math.random() - 0.5) * 0.6
-      distanceSquared = 0.36
-    }
-    if (distanceSquared > MAX_REPULSION_DIST_SQ) return
-    const distance = Math.sqrt(distanceSquared)
-    const force = repulsion / distanceSquared
-    const fx = dx / distance * force, fy = dy / distance * force
-    a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy
-  }
-  for (const [key, cell] of grid) {
-    const colon = key.indexOf(':')
-    const cx = Number(key.slice(0, colon))
-    const cy = Number(key.slice(colon + 1))
-    for (let i = 0; i < cell.length; i++) {
-      const a = cell[i]!
-      for (let j = i + 1; j < cell.length; j++) {
-        applyRepulsion(a, cell[j]!)
-      }
-    }
-    const neighbors = [
-      grid.get(`${cx + 1}:${cy}`),
-      grid.get(`${cx - 1}:${cy + 1}`),
-      grid.get(`${cx}:${cy + 1}`),
-      grid.get(`${cx + 1}:${cy + 1}`),
-    ]
-    for (const neighbor of neighbors) {
-      if (!neighbor) continue
-      for (let i = 0; i < cell.length; i++) {
-        const a = cell[i]!
-        for (let j = 0; j < neighbor.length; j++) {
-          applyRepulsion(a, neighbor[j]!)
-        }
-      }
-    }
-  }
-  for (const a of nodes) {
-    a.vx -= a.x * 0.0022
-    a.vy -= a.y * 0.0022
-  }
-  for (const edge of edges) {
-    const dx = edge.b.x - edge.a.x, dy = edge.b.y - edge.a.y
-    const distance = Math.hypot(dx, dy) || 1
-    const force = (distance - linkDistance) * 0.008
-    const fx = dx / distance * force, fy = dy / distance * force
-    edge.a.vx += fx; edge.a.vy += fy; edge.b.vx -= fx; edge.b.vy -= fy
-  }
-  let movement = 0
-  for (const node of nodes) {
-    if (node.pinned) { node.vx = 0; node.vy = 0; continue }
-    if (node === held) continue
-    node.vx *= 0.86; node.vy *= 0.86
-    const moveX = Math.max(-8, Math.min(8, node.vx))
-    const moveY = Math.max(-8, Math.min(8, node.vy))
-    node.x += moveX; node.y += moveY
-    movement += Math.abs(moveX) + Math.abs(moveY)
-  }
-  return movement
-}
-
-function settleScene(state: CanvasState, prefs: GraphPreferences) {
-  for (let index = 0; index < PHYSICS_FRAME_LIMIT; index++) {
-    const movement = stepPhysics(
-      state.nodes, state.edges, prefs.repulsion, prefs.linkDistance, state.dragging?.node ?? null,
-    )
-    if (index > 30 && movement < state.nodes.length * 0.03) break
-  }
-  state.frame = PHYSICS_FRAME_LIMIT
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-function persistPreferences(prefs: GraphPreferences): string | null {
-  const serialized = JSON.stringify(prefs)
-  try {
-    localStorage.setItem(GRAPH_PREFS_KEY, serialized)
-  } catch {
-    // Private browsing or a locked-down browser can reject local preferences.
-    return null
-  }
-  return serialized
-}
-
-const DIRECTION: Record<string, readonly [number, number]> = {
-  ArrowLeft: [-1, 0],
-  ArrowRight: [1, 0],
-  ArrowUp: [0, -1],
-  ArrowDown: [0, 1],
-}
-
-export function pickDirectional(nodes: CanvasNode[], from: CanvasNode, key: string): CanvasNode | null {
-  const dir = DIRECTION[key]
-  if (!dir) return null
-  let best: CanvasNode | null = null
-  let bestScore = Number.POSITIVE_INFINITY
-  for (const node of nodes) {
-    if (node === from) continue
-    const dx = node.x - from.x
-    const dy = node.y - from.y
-    const along = dx * dir[0] + dy * dir[1]
-    if (along <= 0) continue
-    const score = along + Math.abs(dx * dir[1] - dy * dir[0]) * 2
-    if (score < bestScore) { bestScore = score; best = node }
-  }
-  return best
-}
-
-function normalizedResponse(response: GraphResponse): GraphResponse {
-  const nodes = response.nodes.map((node) => ({
-    ...node,
-    kind: node.kind ?? 'note',
-    inDegree: node.inDegree ?? 0,
-    outDegree: node.outDegree ?? 0,
-    folderId: node.folderId ?? null,
-    folderName: node.folderName ?? null,
-    folderColor: node.folderColor ?? null,
-    tags: node.tags ?? [],
-  }))
-  return {
-    nodes,
-    edges: response.edges,
-    meta: response.meta ?? {
-      mode: 'global', centerId: null, depth: 1,
-      totalNodes: nodes.length, totalEdges: response.edges.length,
-      truncated: nodes.length >= 350, limit: 350,
-    },
-  }
-}
+export { pickDirectional } from './graph-panel/scene'
+export type { CanvasNode } from './graph-panel/types'
 
 export function GraphPanel({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const titleId = useId()
+  const stateRef = useRef<CanvasState>(createGraphState())
+  const controlsRef = useRef<GraphCanvasControls | null>(null)
   const [prefs, setPrefs] = useState(loadPreferences)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -342,28 +72,23 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [hover, setHover] = useState<CanvasNode | null>(null)
+  const [hoverAnchor, setHoverAnchor] = useState<{ x: number; y: number } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [context, setContext] = useState<{ x: number; y: number; node: CanvasNode } | null>(null)
+  const [paintError, setPaintError] = useState<unknown>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [previewExcerpt, setPreviewExcerpt] = useState<string | null>(null)
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
   const openNote = useNotes((state) => state.openNote)
   const createNote = useNotes((state) => state.createNote)
-  const folders = useNotes((state) => state.folders ?? [])
-  const tags = useNotes((state) => state.tags ?? [])
+  const folderList = useNotes((state) => state.folders)
+  const tagList = useNotes((state) => state.tags)
+  const folders = useMemo(() => folderList ?? [], [folderList])
+  const tags = useMemo(() => tagList ?? [], [tagList])
   const hydrated = useNotes((state) => state.hydrated)
   const activeNoteId = useUi((state) => state.activeNoteId)
   const showBacklinks = useUi((state) => state.showBacklinks)
-  const hoverRef = useRef<CanvasNode | null>(null)
-  const selectedIdRef = useRef<string | null>(null)
-  const activeNoteIdRef = useRef(activeNoteId)
-  const lastPointerEventAtRef = useRef(Number.NEGATIVE_INFINITY)
-  const matchedRef = useRef<Set<string> | null>(null)
-  const prefsRef = useRef(prefs)
-  prefsRef.current = prefs
-  const stateRef = useRef<CanvasState>({
-    nodes: [], edges: [], scale: 1, offsetX: 0, offsetY: 0,
-    dragging: null, pointers: new Map(), pinch: null,
-    frame: 0, raf: 0, needsFit: false, initialized: false, palette: FALLBACK_PALETTE,
-    emphasis: { id: null, neighbours: new Set<string>() }, schedule: null,
-  })
 
   useEscape(true, onClose)
   useEscape(settingsOpen, () => setSettingsOpen(false))
@@ -371,49 +96,54 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   useDialogFocus(true, panelRef)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setQuery(search.trim()), 220)
+    const timer = window.setTimeout(() => setQuery(search.trim()), GRAPH_SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
   }, [search])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => persistPreferences(prefs), 300)
+    const timer = window.setTimeout(() => persistPreferences(prefs), GRAPH_PREFS_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
   }, [prefs])
 
-  useEffect(() => () => {
-    persistPreferences(prefsRef.current)
+  useEffect(() => () => { persistPreferences(prefsRef.current) }, [])
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
-  const centerId = prefs.mode === 'local' ? activeNoteId ?? undefined : undefined
   const folderFilter = prefs.folderId && (!hydrated || folders.some((folder) => folder.id === prefs.folderId))
     ? prefs.folderId
     : ''
-  const tagFilter = prefs.tag && (!hydrated || tags.some((item) => item.name === prefs.tag)) ? prefs.tag : ''
+  const tagFilter = useMemo(() => (hydrated
+    ? prefs.tags.filter((name) => tags.some((tag) => tag.name === name))
+    : prefs.tags), [hydrated, prefs.tags, tags])
 
+  const centerId = prefs.mode === 'local' ? activeNoteId ?? undefined : undefined
   const request: GraphQuery = useMemo(() => ({
     mode: prefs.mode,
     center: centerId,
     depth: prefs.depth,
     q: query || undefined,
     folderId: folderFilter || undefined,
-    tag: tagFilter || undefined,
+    tags: tagFilter.length ? tagFilter : undefined,
+    tagsMatch: tagFilter.length > 1 ? prefs.tagsMatch : undefined,
     includeOrphans: prefs.includeOrphans,
     includeUnresolved: prefs.includeUnresolved,
-    limit: 350,
-  }), [centerId, prefs.mode, prefs.depth, folderFilter, tagFilter, prefs.includeOrphans, prefs.includeUnresolved, query])
+    showTagNodes: prefs.showTagNodes,
+    excluded: prefs.excludedNoteIds.length ? prefs.excludedNoteIds : undefined,
+    direction: prefs.mode === 'local' ? prefs.direction : undefined,
+    limit: prefs.limit,
+  }), [
+    centerId, folderFilter, prefs.direction, prefs.depth, prefs.excludedNoteIds,
+    prefs.includeOrphans, prefs.includeUnresolved, prefs.limit, prefs.mode,
+    prefs.showTagNodes, prefs.tagsMatch, query, tagFilter,
+  ])
 
   const localBlocked = request.mode === 'local' && !request.center
-  const filtersActive = Boolean(query || folderFilter || tagFilter || !prefs.includeOrphans)
-  const clearFilters = () => {
-    setSearch('')
-    setQuery('')
-    setPrefs((current) => ({
-      ...current,
-      folderId: '',
-      tag: '',
-      includeOrphans: DEFAULT_PREFERENCES.includeOrphans,
-    }))
-  }
+  const filtersActive = Boolean(query || folderFilter || tagFilter.length
+    || !prefs.includeOrphans || prefs.excludedNoteIds.length)
 
   useEffect(() => {
     if (localBlocked) {
@@ -441,390 +171,169 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     }
   }, [request, reload, localBlocked])
 
-  useEffect(() => {
-    activeNoteIdRef.current = activeNoteId
-    stateRef.current.schedule?.()
-  }, [activeNoteId])
-  useEffect(() => {
-    selectedIdRef.current = selectedId
-    stateRef.current.schedule?.()
-  }, [selectedId])
-
-  const fitGraph = useCallback(() => {
-    const canvas = canvasRef.current
-    const state = stateRef.current
-    if (!canvas || !state.nodes.length) return
-    const rect = canvas.getBoundingClientRect()
-    const hits = matchedRef.current
-    const focused = hits ? state.nodes.filter((node) => hits.has(node.id)) : []
-    const scope = focused.length ? focused : state.nodes
-    const xs = scope.map((node) => node.x)
-    const ys = scope.map((node) => node.y)
-    const minX = Math.min(...xs), maxX = Math.max(...xs)
-    const minY = Math.min(...ys), maxY = Math.max(...ys)
-    const width = Math.max(80, maxX - minX + 80)
-    const height = Math.max(80, maxY - minY + 80)
-    state.scale = Math.min(2.5, Math.max(0.2, Math.min(rect.width / width, rect.height / height)))
-    state.offsetX = rect.width / 2 - ((minX + maxX) / 2) * state.scale
-    state.offsetY = rect.height / 2 - ((minY + maxY) / 2) * state.scale
-    state.schedule?.()
-  }, [])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !data) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const state = stateRef.current
-    hoverRef.current = null
-    setHover(null)
-    setSelectedId((current) => data.nodes.some((node) => node.id === current) ? current : null)
-    const carried = new Map(state.nodes.map((node) => [node.id, { x: node.x, y: node.y }]))
-    state.nodes = data.nodes.map((node, index) => {
-      const held = carried.get(node.id) ?? spiralPoint(index)
-      return {
-        ...node,
-        x: held.x,
-        y: held.y,
-        vx: 0,
-        vy: 0,
-        r: nodeRadius(node, prefs.nodeScale),
-      }
-    })
-    const byId = new Map(state.nodes.map((node) => [node.id, node]))
-    state.edges = data.edges.flatMap((edge) => {
-      const a = byId.get(edge.source), b = byId.get(edge.target)
-      return a && b ? [{ a, b }] : []
-    })
-    state.frame = 0
-    state.needsFit = true
-    if (prefersReducedMotion()) settleScene(state, prefsRef.current)
-    const resize = () => {
-      const dpr = Math.min(2, devicePixelRatio || 1)
-      const rect = canvas.getBoundingClientRect()
-      canvas.width = Math.max(1, Math.round(rect.width * dpr))
-      canvas.height = Math.max(1, Math.round(rect.height * dpr))
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (!state.initialized) {
-        state.initialized = true
-        state.offsetX = rect.width / 2
-        state.offsetY = rect.height / 2
-      }
-      state.schedule?.()
-    }
-    resize()
-    const observer = new ResizeObserver(resize)
-    observer.observe(canvas)
-    state.palette = readPalette()
-    const schedule = () => { if (!state.raf) state.raf = requestAnimationFrame(tick) }
-    const tick = () => {
-      state.raf = 0
-      const rect = canvas.getBoundingClientRect()
-      if (state.frame < PHYSICS_FRAME_LIMIT) {
-        state.frame++
-        const movement = stepPhysics(
-          state.nodes,
-          state.edges,
-          prefsRef.current.repulsion,
-          prefsRef.current.linkDistance,
-          state.dragging?.node ?? null,
-        )
-        if (state.frame > 30 && movement < state.nodes.length * 0.03) state.frame = PHYSICS_FRAME_LIMIT
-      }
-      if (state.needsFit && state.frame >= PHYSICS_FRAME_LIMIT) {
-        state.needsFit = false
-        fitGraph()
-      }
-      ctx.clearRect(0, 0, rect.width, rect.height)
-      ctx.save()
-      ctx.translate(state.offsetX, state.offsetY)
-      ctx.scale(state.scale, state.scale)
-      const emphasizedId = hoverRef.current?.id ?? selectedIdRef.current
-      const palette = state.palette
-      if (state.emphasis.id !== (emphasizedId ?? null)) {
-        const neighbours = new Set<string>()
-        if (emphasizedId) {
-          for (const edge of state.edges) {
-            if (edge.a.id === emphasizedId) neighbours.add(edge.b.id)
-            else if (edge.b.id === emphasizedId) neighbours.add(edge.a.id)
-          }
-        }
-        state.emphasis = { id: emphasizedId ?? null, neighbours }
-      }
-      ctx.lineWidth = 1 / state.scale
-      const related: Edge[] = []
-      const dimmed: Edge[] = []
-      const plain: Edge[] = []
-      for (const edge of state.edges) {
-        if (emphasizedId && (edge.a.id === emphasizedId || edge.b.id === emphasizedId)) related.push(edge)
-        else if (emphasizedId) dimmed.push(edge)
-        else plain.push(edge)
-      }
-      const drawEdges = (list: Edge[], color: string, alpha: number) => {
-        if (!list.length) return
-        ctx.globalAlpha = alpha
-        ctx.strokeStyle = color
-        ctx.beginPath()
-        for (const edge of list) {
-          ctx.moveTo(edge.a.x, edge.a.y)
-          ctx.lineTo(edge.b.x, edge.b.y)
-        }
-        ctx.stroke()
-        if (!prefsRef.current.arrows) return
-        const size = Math.max(4, 5 / Math.sqrt(state.scale))
-        ctx.fillStyle = color
-        ctx.beginPath()
-        for (const edge of list) {
-          const angle = Math.atan2(edge.b.y - edge.a.y, edge.b.x - edge.a.x)
-          const x = edge.b.x - Math.cos(angle) * (edge.b.r + 2)
-          const y = edge.b.y - Math.sin(angle) * (edge.b.r + 2)
-          ctx.moveTo(x, y)
-          ctx.lineTo(x - Math.cos(angle - Math.PI / 6) * size, y - Math.sin(angle - Math.PI / 6) * size)
-          ctx.lineTo(x - Math.cos(angle + Math.PI / 6) * size, y - Math.sin(angle + Math.PI / 6) * size)
-          ctx.closePath()
-        }
-        ctx.fill()
-      }
-      drawEdges(related, palette.accent, 0.95)
-      drawEdges(dimmed, palette.edgeDim, 1)
-      drawEdges(plain, palette.edge, 1)
-      ctx.globalAlpha = 1
-      for (const node of state.nodes) {
-        const active = node.id === activeNoteIdRef.current
-        const emphasized = node.id === emphasizedId
-        const inFocus = emphasized || active || state.emphasis.neighbours.has(node.id)
-        ctx.globalAlpha = emphasizedId && !inFocus ? 0.55 : 1
-        ctx.beginPath(); ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2)
-        ctx.fillStyle = active || emphasized ? palette.accent : nodeColor(node, prefsRef.current.groupBy, palette.node)
-        if (node.kind === 'unresolved') {
-          ctx.strokeStyle = ctx.fillStyle
-          ctx.lineWidth = 1.5 / state.scale
-          ctx.stroke()
-        } else {
-          ctx.fill()
-        }
-        if (node.pinned) {
-          ctx.globalAlpha = 1; ctx.strokeStyle = palette.label; ctx.lineWidth = 1 / state.scale
-          ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 2.5, 0, Math.PI * 2); ctx.stroke()
-        }
-        if (matchedRef.current?.has(node.id)) {
-          ctx.globalAlpha = 1; ctx.strokeStyle = palette.accent; ctx.lineWidth = 2 / state.scale
-          ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 6.5, 0, Math.PI * 2); ctx.stroke()
-        }
-        if (active || selectedIdRef.current === node.id) {
-          ctx.strokeStyle = palette.accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 3 / state.scale
-          ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 4, 0, Math.PI * 2); ctx.stroke()
-        }
-      }
-      ctx.globalAlpha = 1
-      if (prefsRef.current.labels && (state.scale > 0.68 || emphasizedId)) {
-        ctx.font = `${11 / state.scale}px ${palette.font}`
-        ctx.textAlign = 'center'
-        for (const node of state.nodes) {
-          const emphasized = node.id === emphasizedId
-          if (!emphasized && node.degree < 1 && state.scale < 1.1) continue
-          ctx.fillStyle = emphasized ? palette.accent : palette.label
-          ctx.globalAlpha = emphasized || !emphasizedId ? 1 : 0.6
-          const label = node.title.length > 18 ? `${truncateText(node.title, 18)}…` : node.title
-          ctx.fillText(label, node.x, node.y + node.r + 12 / state.scale)
-        }
-      }
-      ctx.globalAlpha = 1
-      ctx.restore()
-      if (state.frame < PHYSICS_FRAME_LIMIT) schedule()
-    }
-    state.schedule = schedule
-    schedule()
-    const themeObserver = new MutationObserver(() => {
-      state.palette = readPalette()
-      schedule()
-    })
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-theme', 'data-accent', 'data-background'],
-    })
-    const fitTimer = window.setTimeout(fitGraph, 1500)
-    return () => {
-      window.clearTimeout(fitTimer)
-      cancelAnimationFrame(state.raf)
-      state.raf = 0; state.schedule = null
-      state.pointers.clear(); state.dragging = null; state.pinch = null
-      themeObserver.disconnect()
-      observer.disconnect()
-    }
-  }, [data, fitGraph])
-
-  useEffect(() => {
-    for (const node of stateRef.current.nodes) node.r = nodeRadius(node, prefs.nodeScale)
-    stateRef.current.schedule?.()
-  }, [prefs.nodeScale, data])
-
-  useEffect(() => {
-    // Physics-parameter tweaks resume the simulation without rebuilding nodes.
-    const state = stateRef.current
-    state.frame = Math.min(state.frame, PHYSICS_FRAME_LIMIT - 45)
-    state.needsFit = true
-    state.schedule?.()
-  }, [prefs.linkDistance, prefs.repulsion])
-
-  useEffect(() => {
-    // Draw-only toggles just need one repaint.
-    stateRef.current.schedule?.()
-  }, [prefs.arrows, prefs.labels, prefs.groupBy])
-
-  const toWorld = useCallback((clientX: number, clientY: number) => {
-    const state = stateRef.current
-    const rect = canvasRef.current!.getBoundingClientRect()
-    return { x: (clientX - rect.left - state.offsetX) / state.scale, y: (clientY - rect.top - state.offsetY) / state.scale }
-  }, [])
-  const nodeAt = useCallback((x: number, y: number): CanvasNode | null => {
-    const state = stateRef.current
-    const slop = 7 / state.scale
-    // Squared compare instead of Math.hypot: pointermove fires up to 240 times a second and
-    // hypot does overflow scaling work this path never needs.
-    for (let index = state.nodes.length - 1; index >= 0; index--) {
-      const node = state.nodes[index]!
-      const dx = node.x - x
-      const dy = node.y - y
-      const reach = node.r + slop
-      if (dx * dx + dy * dy <= reach * reach) return node
-    }
-    return null
-  }, [])
-
-  const beginDrag = useCallback((clientX: number, clientY: number, button: number) => {
-    if (button !== 0) return
-    const state = stateRef.current
-    const point = toWorld(clientX, clientY)
-    const node = nodeAt(point.x, point.y)
-    state.dragging = { node, startX: clientX, startY: clientY, ox: state.offsetX, oy: state.offsetY }
-    if (node) setSelectedId(node.id)
-  }, [nodeAt, toWorld])
-  const moveDrag = useCallback((clientX: number, clientY: number) => {
-    const state = stateRef.current
-    const point = toWorld(clientX, clientY)
-    if (state.dragging) {
-      if (state.dragging.node) {
-        state.dragging.node.x = point.x; state.dragging.node.y = point.y
-        state.dragging.node.vx = 0; state.dragging.node.vy = 0
-        state.frame = Math.min(state.frame, PHYSICS_FRAME_LIMIT - 30)
-      } else {
-        state.offsetX = state.dragging.ox + clientX - state.dragging.startX
-        state.offsetY = state.dragging.oy + clientY - state.dragging.startY
-      }
-      state.schedule?.(); return
-    }
-    const node = nodeAt(point.x, point.y)
-    if (hoverRef.current?.id !== node?.id) {
-      hoverRef.current = node; setHover(node); state.schedule?.()
-    }
-  }, [nodeAt, toWorld])
-  const endDrag = useCallback((clientX: number, clientY: number) => {
-    const state = stateRef.current
-    const drag = state.dragging
-    state.dragging = null
-    if (!drag) return
-    const moved = Math.abs(clientX - drag.startX) + Math.abs(clientY - drag.startY)
-    if (drag.node && moved >= 5) {
-      drag.node.pinned = true
-      state.schedule?.()
-    }
-  }, [])
-
-  const openSelected = useCallback((node: CanvasNode) => {
-    if (node.kind === 'unresolved') void createNote?.({ title: node.title, open: true })
-    else void openNote(node.id)
-    onClose()
-  }, [createNote, onClose, openNote])
-
-  const openNodeAt = useCallback((clientX: number, clientY: number) => {
-    const point = toWorld(clientX, clientY)
-    const node = nodeAt(point.x, point.y)
-    if (node) openSelected(node)
-  }, [nodeAt, openSelected, toWorld])
-
-  const zoomAt = useCallback((next: number, clientX: number, clientY: number) => {
-    const state = stateRef.current
-    const canvas = canvasRef.current
-    if (!canvas || next === state.scale) return
-    const rect = canvas.getBoundingClientRect()
-    const x = clientX - rect.left
-    const y = clientY - rect.top
-    state.offsetX = x - (x - state.offsetX) / state.scale * next
-    state.offsetY = y - (y - state.offsetY) / state.scale * next
-    state.scale = next
-    state.schedule?.()
-  }, [])
-
-  const zoomFromCenter = useCallback((next: number) => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    zoomAt(next, rect.left + rect.width / 2, rect.top + rect.height / 2)
-  }, [zoomAt])
-
-  const centerOn = useCallback((node: CanvasNode) => {
-    const state = stateRef.current
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    state.offsetX = rect.width / 2 - node.x * state.scale
-    state.offsetY = rect.height / 2 - node.y * state.scale
-    state.schedule?.()
-  }, [])
-
-  const releasePointer = useCallback((id: number) => {
-    const state = stateRef.current
-    state.pointers.delete(id)
-    state.dragging = null
-    state.pinch = null
-    state.schedule?.()
-  }, [])
-
+  const searchHits = useMemo(
+    () => (data && query ? graphSearchHits(data.nodes, query) : null),
+    [data, query],
+  )
+  const legend = useMemo(
+    () => (data ? colorLegends(data.nodes, prefs.groupBy, prefs.colorGroups, GRAPH_LEGEND_MAX) : []),
+    [data, prefs.groupBy, prefs.colorGroups],
+  )
+  const counts = useMemo(() => graphCounts(data), [data])
   const selected = data?.nodes.find((node) => node.id === selectedId) ?? null
-  const counts = useMemo(() => {
-    const unresolved = data?.nodes.filter((node) => node.kind === 'unresolved').length ?? 0
-    return { notes: (data?.nodes.length ?? 0) - unresolved, links: data?.edges.length ?? 0, unresolved }
-  }, [data])
-  const matchedIds = useMemo(() => {
-    const needle = query.toLowerCase()
-    if (!needle || !data) return null
-    const hits = data.nodes.filter((node) => node.title.toLowerCase().includes(needle)).map((node) => node.id)
-    return hits.length ? new Set(hits) : null
-  }, [query, data])
-  matchedRef.current = matchedIds
-  const legend = useMemo(() => {
-    if (!data || prefs.groupBy === 'none') return []
-    const seen = new Map<string, string>()
-    for (const node of data.nodes) {
-      const name = prefs.groupBy === 'folder' ? node.folderName ?? '' : node.tags[0]?.name ?? ''
-      if (!name || seen.has(name)) continue
-      const color = nodeColor(node, prefs.groupBy, FALLBACK_PALETTE.node)
-      seen.set(name, color)
-    }
-    return [...seen.entries()].slice(0, 8).map(([name, color]) => ({ name, color }))
-  }, [data, prefs.groupBy])
-  const menuItems = useMemo<MenuItem[]>(() => context ? [
-    { id: 'open', label: context.node.kind === 'unresolved' ? t('graph.create_note') : t('graph.open_note'), icon: <FolderOpen size={14}/>, onSelect: () => openSelected(context.node) },
-    { id: 'right', label: t('graph.open_to_right'), icon: <PanelRightClose size={14}/>, disabled: context.node.kind === 'unresolved', onSelect: () => { void openNote(context.node.id, { pane: 'secondary' }) } },
-    { id: 'backlinks', label: t('graph.show_backlinks'), icon: <ArrowRight size={14}/>, disabled: context.node.kind === 'unresolved', separatorBefore: true, onSelect: () => {
-      showBacklinks()
-      void openNote(context.node.id)
-      onClose()
-    } },
-    { id: 'pin', label: context.node.pinned ? t('graph.unpin') : t('graph.pin'), icon: <CircleDot size={14}/>, onSelect: () => {
-      context.node.pinned = !context.node.pinned
-      stateRef.current.schedule?.()
-    } },
-    { id: 'local', label: t('graph.make_local_center'), icon: <CircleDot size={14}/>, disabled: context.node.kind === 'unresolved', onSelect: () => {
-      void openNote(context.node.id)
-      setPrefs((value) => ({ ...value, mode: 'local' }))
-    } },
-  ] : [], [context, onClose, openNote, openSelected, showBacklinks])
 
-  const changePref = <K extends keyof GraphPreferences>(key: K, value: GraphPreferences[K]) => {
+  const changePref = useCallback(<K extends keyof GraphPreferences>(key: K, value: GraphPreferences[K]) => {
     setPrefs((current) => ({ ...current, [key]: value }))
-  }
+  }, [])
+
+  const togglePin = useCallback((id: string) => {
+    setPrefs((current) => ({ ...current, pinnedNodeIds: toggleListItem(current.pinnedNodeIds, id) }))
+  }, [])
+
+  const toggleExclude = useCallback((id: string) => {
+    setPrefs((current) => ({ ...current, excludedNoteIds: toggleListItem(current.excludedNoteIds, id) }))
+  }, [])
+
+  const clearFilters = useCallback(() => {
+    setSearch('')
+    setQuery('')
+    changePref('folderId', '')
+    changePref('tags', [])
+    changePref('excludedNoteIds', [])
+    changePref('includeOrphans', DEFAULT_PREFERENCES.includeOrphans)
+  }, [changePref])
+
+  const legendActive = useCallback((item: ColorLegendItem) => {
+    if (item.kind === 'folder') return folderFilter === item.value
+    if (item.kind === 'tag') return tagFilter.includes(item.value)
+    return false
+  }, [folderFilter, tagFilter])
+
+  const onLegendSelect = useCallback((item: ColorLegendItem) => {
+    if (item.kind === 'folder') changePref('folderId', folderFilter === item.value ? '' : item.value)
+    else if (item.kind === 'tag') changePref('tags', toggleListItem(tagFilter, item.value))
+  }, [changePref, folderFilter, tagFilter])
+
+  const exportActions = useGraphExport(stateRef, prefs, readPalette)
+
+  useEffect(() => {
+    if (!hover || hover.kind !== 'note') {
+      setPreviewExcerpt(null)
+      return
+    }
+    const noteId = hover.id
+    const timer = window.setTimeout(() => {
+      const cached = useNotes.getState().notes[noteId]
+      if (cached) {
+        setPreviewExcerpt(cached.excerpt || null)
+        return
+      }
+      api.notes.get(noteId).then((note) => {
+        setPreviewExcerpt(useNotes.getState().notes[noteId] ? note.excerpt || deriveExcerpt(note.content) : deriveExcerpt(note.content))
+      }).catch(() => { setPreviewExcerpt(null) })
+    }, GRAPH_PREVIEW_SHOW_MS)
+    return () => window.clearTimeout(timer)
+  }, [hover])
+
+  const preview: GraphPreviewCard | null = hover && hoverAnchor && hover.kind !== 'unresolved'
+    ? { node: hover, x: hoverAnchor.x, y: hoverAnchor.y, excerpt: previewExcerpt }
+    : null
+
+  const openNoteFromGraph = useCallback((id: string) => {
+    void openNote(id)
+    onClose()
+  }, [onClose, openNote])
+
+  const createNoteFromGraph = useCallback((title: string) => {
+    void createNote?.({ title, open: true })
+    onClose()
+  }, [createNote, onClose])
+
+  const openNode = useCallback((node: CanvasNode) => {
+    if (node.kind === 'unresolved') createNoteFromGraph(node.title)
+    else openNoteFromGraph(node.id)
+  }, [createNoteFromGraph, openNoteFromGraph])
+
+  const menuItems = useMemo<MenuItem[]>(() => {
+    if (!context) return []
+    const node = context.node
+    const isNote = node.kind === 'note'
+    const items: MenuItem[] = [
+      {
+        id: 'open',
+        label: isNote ? t('graph.open_note') : t('graph.create_note'),
+        icon: <FolderOpen size={14}/>,
+        onSelect: () => openNode(node),
+      },
+    ]
+    if (isNote) {
+      items.push({
+        id: 'right',
+        label: t('graph.open_to_right'),
+        icon: <PanelRightClose size={14}/>,
+        onSelect: () => { void openNote(node.id, { pane: 'secondary' }) },
+      })
+      items.push({
+        id: 'backlinks',
+        label: t('graph.show_backlinks'),
+        icon: <ArrowRight size={14}/>,
+        separatorBefore: true,
+        onSelect: () => {
+          showBacklinks()
+          void openNote(node.id)
+          onClose()
+        },
+      })
+    }
+    for (const tag of node.tags.slice(0, 3)) {
+      items.push({
+        id: `tag:${tag.name}`,
+        label: t('graph.filter_by_tag', { value: tag.name }),
+        icon: <Filter size={14}/>,
+        separatorBefore: !isNote,
+        onSelect: () => changePref('tags', toggleListItem(tagFilter, tag.name)),
+      })
+    }
+    items.push({
+      id: 'pin',
+      label: node.pinned ? t('graph.unpin') : t('graph.pin'),
+      icon: <CircleDot size={14}/>,
+      separatorBefore: true,
+      onSelect: () => togglePin(node.id),
+    })
+    if (isNote) {
+      items.push({
+        id: 'local',
+        label: t('graph.make_local_center'),
+        icon: <CircleDot size={14}/>,
+        onSelect: () => {
+          void openNote(node.id)
+          changePref('mode', 'local')
+        },
+      })
+      items.push({
+        id: 'exclude',
+        label: t('graph.exclude_note'),
+        icon: <X size={14}/>,
+        tone: 'danger',
+        onSelect: () => toggleExclude(node.id),
+      })
+    }
+    return items
+  }, [changePref, context, onClose, openNote, showBacklinks, tagFilter, toggleExclude, togglePin])
+
+  const toggleFullscreen = useCallback(() => {
+    const panel = panelRef.current
+    if (!panel) return
+    if (document.fullscreenElement) { void document.exitFullscreen?.() ; return }
+    void panel.requestFullscreen?.().catch(() => { setIsFullscreen(false) })
+  }, [])
+
+  const hasGraph = Boolean(data?.nodes.length)
+  const announcement = query
+    ? (searchHits ? t('graph.matching_notes', { count: searchHits.size }) : t('graph.no_matching_notes'))
+    : undefined
+  const firstHit = searchHits ? data?.nodes.find((node) => searchHits.has(node.id))?.id ?? null : null
 
   return createPortal(<div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     className="app-viewport-fixed fixed z-[230] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none md:py-0">
@@ -835,6 +344,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           {counts.unresolved
             ? t('graph.stats_with_unresolved', { notes: counts.notes, links: counts.links, unresolved: counts.unresolved })
             : t('graph.stats', { notes: counts.notes, links: counts.links })}
+          {counts.tags > 0 && ` · ${t('graph.stats_tags', { count: counts.tags })}`}
         </span>}
       </div>
       <Segmented
@@ -850,8 +360,9 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       {filtersActive && <div role="group" aria-label={t('graph.filters')} className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto">
         {query && <FilterChip label={`${t('graph.search_notes')} ${query}`} onClear={() => setSearch('')}/>}
         {folderFilter && <FilterChip label={`${t('graph.folder')} ${folders.find((folder) => folder.id === folderFilter)?.name ?? ''}`} onClear={() => changePref('folderId', '')}/>}
-        {tagFilter && <FilterChip label={`${t('graph.tag')} ${tagFilter}`} onClear={() => changePref('tag', '')}/>}
+        {tagFilter.map((name) => <FilterChip key={name} label={`${t('graph.tag')} ${name}`} onClear={() => changePref('tags', tagFilter.filter((item) => item !== name))}/>)}
         {!prefs.includeOrphans && <FilterChip label={t('graph.show_orphans')} onClear={() => changePref('includeOrphans', true)}/>}
+        {prefs.excludedNoteIds.length > 0 && <FilterChip label={t('graph.excluded_notes', { value: prefs.excludedNoteIds.length })} onClear={() => changePref('excludedNoteIds', [])}/>}
       </div>}
       <label className="flex h-8 min-w-[150px] flex-1 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2.5 md:max-w-[320px]">
         <Search size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
@@ -860,14 +371,27 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--text-tertiary)]"/>
         {search && <button type="button" aria-label={t('common.clear')} onClick={() => setSearch('')}><X size={12}/></button>}
       </label>
+      {query && <div className="flex shrink-0 items-center gap-1">
+        <span role="status" data-graph-search-status="" className="whitespace-nowrap text-[11.5px] text-[var(--text-tertiary)]">
+          {announcement}
+        </span>
+        {firstHit && <Tooltip label={t('graph.jump_to_first_match')}>
+          <IconButton label={t('graph.jump_to_first_match')} size="sm" onClick={() => controlsRef.current?.selectNode(firstHit)}>
+            <CornerDownRight size={13}/>
+          </IconButton>
+        </Tooltip>}
+      </div>}
       <div className="ml-auto flex items-center gap-1">
-        <Tooltip label={t('common.zoom_out')}><IconButton label={t('common.zoom_out')} size="sm" disabled={!data?.nodes.length} onClick={() => {
-          zoomFromCenter(Math.max(0.2, stateRef.current.scale - 0.2))
-        }}><Minus size={14}/></IconButton></Tooltip>
-        <Tooltip label={t('graph.fit')}><IconButton label={t('graph.fit')} size="sm" disabled={!data?.nodes.length} onClick={fitGraph}><Maximize2 size={13}/></IconButton></Tooltip>
-        <Tooltip label={t('common.zoom_in')}><IconButton label={t('common.zoom_in')} size="sm" disabled={!data?.nodes.length} onClick={() => {
-          zoomFromCenter(Math.min(4, stateRef.current.scale + 0.2))
-        }}><Plus size={14}/></IconButton></Tooltip>
+        <Tooltip label={t('common.zoom_out')}><IconButton label={t('common.zoom_out')} size="sm" disabled={!hasGraph} onClick={() => controlsRef.current?.zoomOut()}><Minus size={14}/></IconButton></Tooltip>
+        <Tooltip label={t('graph.fit')}><IconButton label={t('graph.fit')} size="sm" disabled={!hasGraph} onClick={() => controlsRef.current?.fit()}><Maximize2 size={13}/></IconButton></Tooltip>
+        <Tooltip label={t('common.zoom_in')}><IconButton label={t('common.zoom_in')} size="sm" disabled={!hasGraph} onClick={() => controlsRef.current?.zoomIn()}><Plus size={14}/></IconButton></Tooltip>
+        <Tooltip label={t('graph.export_png')}><IconButton label={t('graph.export_png')} size="sm" disabled={!hasGraph || exportActions.isExporting} onClick={exportActions.exportPng}><ImageDown size={14}/></IconButton></Tooltip>
+        <Tooltip label={t('graph.export_svg')}><IconButton label={t('graph.export_svg')} size="sm" disabled={!hasGraph || exportActions.isExporting} onClick={exportActions.exportSvg}><Download size={14}/></IconButton></Tooltip>
+        {typeof document !== 'undefined' && 'fullscreenElement' in document && <Tooltip label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')}>
+          <IconButton label={isFullscreen ? t('graph.exit_fullscreen') : t('graph.fullscreen')} size="sm" active={isFullscreen} onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize2 size={13}/> : <Maximize2 size={13}/>}
+          </IconButton>
+        </Tooltip>}
         <Tooltip label={t('graph.settings')}><IconButton label={t('graph.settings')} size="sm" active={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Settings2 size={14}/></IconButton></Tooltip>
         <Tooltip label={t('common.close')} combo="escape" side="left"><IconButton label={t('common.close')} size="sm" onClick={onClose} className="ml-1"><X size={16}/></IconButton></Tooltip>
       </div>
@@ -889,173 +413,57 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             action={<Button size="sm" variant="secondary" onClick={clearFilters}>{t('graph.clear_filters')}</Button>}/>
           : <Empty art="notes" title={t('graph.nothing_to_graph_yet')} description={t('graph.connect_notes_with_wiki_links_and_their_graph_will_appear_here')}/>)
         : <>
-          <canvas ref={canvasRef} tabIndex={0} role="application" aria-label={t('graph.graph_canvas_accessible')}
-            className="size-full touch-none cursor-grab outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] active:cursor-grabbing"
-            onPointerDown={(event) => {
-              if (event.button !== 0) return
-              lastPointerEventAtRef.current = performance.now()
-              event.currentTarget.setPointerCapture(event.pointerId)
-              const state = stateRef.current
-              state.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-              if (state.pointers.size === 1) beginDrag(event.clientX, event.clientY, event.button)
-              else if (state.pointers.size === 2) {
-                const [a, b] = [...state.pointers.values()]
-                state.dragging = null
-                state.pinch = { distance: Math.hypot(b!.x - a!.x, b!.y - a!.y), scale: state.scale, centerX: (a!.x + b!.x) / 2, centerY: (a!.y + b!.y) / 2 }
-              }
+          <GraphCanvas
+            data={data}
+            prefs={prefs}
+            activeNoteId={activeNoteId}
+            searchHits={searchHits}
+            pinnedIds={prefs.pinnedNodeIds}
+            callbacks={{
+              onOpenNote: openNoteFromGraph,
+              onCreateNote: createNoteFromGraph,
+              onPinChange: togglePin,
             }}
-            onPointerMove={(event) => {
-              lastPointerEventAtRef.current = performance.now()
-              const state = stateRef.current
-              if (state.pointers.has(event.pointerId)) state.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-              if (state.pointers.size >= 2 && state.pinch) {
-                const [a, b] = [...state.pointers.values()]
-                const distance = Math.hypot(b!.x - a!.x, b!.y - a!.y)
-                const next = Math.min(4, Math.max(0.2, state.pinch.scale * distance / Math.max(1, state.pinch.distance)))
-                zoomAt(next, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2); return
-              }
-              moveDrag(event.clientX, event.clientY)
+            controlsRef={controlsRef}
+            stateRef={stateRef}
+            onHoverChange={(node, x, y) => {
+              setHover(node)
+              setHoverAnchor(node && x !== undefined && y !== undefined ? { x, y } : null)
             }}
-            onPointerUp={(event) => {
-              lastPointerEventAtRef.current = performance.now()
-              if (event.button !== 0) return
-              const state = stateRef.current
-              const wasPinching = state.pointers.size >= 2
-              state.pointers.delete(event.pointerId)
-              if (state.pointers.size < 2) state.pinch = null
-              if (wasPinching) {
-                state.dragging = null
-                const remaining = [...state.pointers.values()][0]
-                if (remaining) beginDrag(remaining.x, remaining.y, 0)
-              } else {
-                endDrag(event.clientX, event.clientY)
-              }
-            }}
-            onPointerCancel={(event) => releasePointer(event.pointerId)}
-            onLostPointerCapture={(event) => releasePointer(event.pointerId)}
-            onDoubleClick={(event) => openNodeAt(event.clientX, event.clientY)}
-            onMouseDown={(event) => { if (performance.now() - lastPointerEventAtRef.current > 80) beginDrag(event.clientX, event.clientY, event.button) }}
-            onMouseMove={(event) => { if (performance.now() - lastPointerEventAtRef.current > 80) moveDrag(event.clientX, event.clientY) }}
-            onMouseUp={(event) => { if (performance.now() - lastPointerEventAtRef.current > 80) endDrag(event.clientX, event.clientY) }}
-            onMouseLeave={() => {
-              const state = stateRef.current; state.dragging = null
-              hoverRef.current = null; setHover(null); state.schedule?.()
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              const point = toWorld(event.clientX, event.clientY)
-              const node = nodeAt(point.x, point.y)
-              if (node) { setSelectedId(node.id); setContext({ x: event.clientX, y: event.clientY, node }) }
-            }}
-            onWheel={(event) => {
-              const state = stateRef.current
-              const next = graphScaleAfterWheel(state.scale, event.deltaY)
-              if (next === state.scale) return
-              event.preventDefault()
-              zoomAt(next, event.clientX, event.clientY)
-            }}
-            onKeyDown={(event) => {
-              const state = stateRef.current
-              if (event.key === '+' || event.key === '=') zoomFromCenter(Math.min(4, state.scale + 0.2))
-              else if (event.key === '-') zoomFromCenter(Math.max(0.2, state.scale - 0.2))
-              else if (event.key === 'Home') fitGraph()
-              else if (event.key === 'Enter' && selectedIdRef.current) {
-                const node = state.nodes.find((item) => item.id === selectedIdRef.current)
-                if (node) openSelected(node)
-              }
-              else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
-                const node = state.nodes.find((item) => item.id === selectedIdRef.current)
-                if (node) {
-                  const rect = event.currentTarget.getBoundingClientRect()
-                  setContext({
-                    x: rect.left + state.offsetX + node.x * state.scale,
-                    y: rect.top + state.offsetY + node.y * state.scale,
-                    node,
-                  })
-                }
-              }
-              else if (event.key.startsWith('Arrow')) {
-                const current = state.nodes.find((item) => item.id === selectedIdRef.current) ?? state.nodes[0]
-                const next = current ? pickDirectional(state.nodes, current, event.key) : null
-                if (next) { setSelectedId(next.id); centerOn(next) }
-              } else return
-              event.preventDefault(); state.schedule?.()
-            }}/>
-          {data.meta.truncated && <div role="status" className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-1 text-[11px] text-[var(--text-secondary)] shadow-sm">
-            {t('graph.showing_limit', { shown: data.nodes.length, total: data.meta.totalNodes })}
-          </div>}
-          {(hover || selected) && <div className="pointer-events-none absolute bottom-4 left-1/2 max-w-[80vw] -translate-x-1/2 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3.5 py-1.5 text-[12px] shadow-[var(--shadow-pop)]">
-            <span className="max-w-[50vw] truncate">{(hover ?? selected)!.title || t('common.untitled_note')}</span>
-            <span className="ml-2 text-[var(--text-tertiary)]">{t('graph.direction_counts', { incoming: (hover ?? selected)!.inDegree, outgoing: (hover ?? selected)!.outDegree })}</span>
-          </div>}
-          <div className="pointer-events-none absolute top-3 left-4 hidden text-[11px] text-[var(--text-tertiary)] md:block">{t('graph.interaction_hint')}</div>
-          {(legend.length > 0 || counts.unresolved > 0) && <div role="list" aria-label={t('graph.legend')}
-            className="pointer-events-none absolute top-3 right-4 max-w-[42%] rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)] shadow-[var(--shadow-pop)]">
-            {legend.map((item) => <div key={item.name} role="listitem" className="flex min-w-0 items-center gap-1.5 py-0.5">
-              <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ background: item.color }}/>
-              <span className="min-w-0 truncate">{item.name}</span>
-            </div>)}
-            {counts.unresolved > 0 && <div role="listitem" className="flex min-w-0 items-center gap-1.5 py-0.5">
-              <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full border-[1.5px] border-[var(--graph-node)]"/>
-              <span className="min-w-0 truncate">{t('graph.unresolved_legend')}</span>
-            </div>}
-          </div>}
+            onSelectChange={setSelectedId}
+            onContextNode={(node, x, y) => setContext({ x, y, node })}
+            onPaintError={setPaintError}
+          />
+          <GraphOverlays
+            data={data}
+            hover={hover}
+            selected={selected}
+            hint={t('graph.interaction_hint')}
+            hintBrief={t('graph.interaction_hint_brief')}
+            legend={legend}
+            legendActive={legendActive}
+            onLegendSelect={onLegendSelect}
+            onOpenNote={openNoteFromGraph}
+            onFocusNode={(id) => controlsRef.current?.selectNode(id)}
+            preview={preview}
+            announcement={announcement}
+          />
+          {paintError && <GraphPaintError error={paintError} onRetry={() => {
+            setPaintError(null)
+            stateRef.current.schedule?.()
+          }}/>}
         </>}
       </main>
 
-      <Drawer open={settingsOpen} onClose={() => setSettingsOpen(false)} title={t('graph.settings')} width={300} zIndex={235}>
-        <div className="p-4">
-        <GraphSection icon={<Filter size={13}/>} title={t('graph.filters')}>
-          <GraphRow label={t('graph.folder')}>
-            <Select aria-label={t('graph.folder')} className="max-w-[160px]" value={folderFilter}
-              onChange={(event) => changePref('folderId', event.target.value)}>
-              <option value="">{t('graph.all_folders')}</option>
-              {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-            </Select>
-          </GraphRow>
-          <GraphRow label={t('graph.tag')}>
-            <Select aria-label={t('graph.tag')} className="max-w-[160px]" value={tagFilter}
-              onChange={(event) => changePref('tag', event.target.value)}>
-              <option value="">{t('graph.all_tags')}</option>
-              {tags.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-            </Select>
-          </GraphRow>
-          <GraphRow label={t('graph.show_orphans')}>
-            <Switch label={t('graph.show_orphans')} checked={prefs.includeOrphans} onChange={(value) => changePref('includeOrphans', value)}/>
-          </GraphRow>
-          <GraphRow label={t('graph.show_unresolved')}>
-            <Switch label={t('graph.show_unresolved')} checked={prefs.includeUnresolved} onChange={(value) => changePref('includeUnresolved', value)}/>
-          </GraphRow>
-          {prefs.mode === 'local' && <GraphRow label={t('graph.depth')}>
-            <Segmented size="sm" label={t('graph.depth')} value={String(prefs.depth)}
-              onChange={(value) => changePref('depth', Number(value))}
-              options={[{ value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }]}/>
-          </GraphRow>}
-        </GraphSection>
-        <GraphSection icon={<Network size={13}/>} title={t('graph.appearance')}>
-          <GraphRow label={t('graph.group_by')}>
-            <Select aria-label={t('graph.group_by')} className="max-w-[160px]" value={prefs.groupBy}
-              onChange={(event) => changePref('groupBy', event.target.value as GroupBy)}>
-              <option value="none">{t('graph.group_none')}</option>
-              <option value="folder">{t('graph.folder')}</option>
-              <option value="tag">{t('graph.tag')}</option>
-            </Select>
-          </GraphRow>
-          <GraphRow label={t('graph.show_arrows')}>
-            <Switch label={t('graph.show_arrows')} checked={prefs.arrows} onChange={(value) => changePref('arrows', value)}/>
-          </GraphRow>
-          <GraphRow label={t('graph.show_labels')}>
-            <Switch label={t('graph.show_labels')} checked={prefs.labels} onChange={(value) => changePref('labels', value)}/>
-          </GraphRow>
-        </GraphSection>
-        <GraphSection icon={<ArrowRight size={13}/>} title={t('graph.forces')}>
-          <Slider label={t('graph.repulsion')} min={300} max={1800} step={50} value={prefs.repulsion} onChange={(value) => changePref('repulsion', value)}/>
-          <Slider label={t('graph.link_distance')} min={40} max={150} step={5} value={prefs.linkDistance} onChange={(value) => changePref('linkDistance', value)}/>
-          <Slider label={t('graph.node_size')} min={0.7} max={1.8} step={0.1} value={prefs.nodeScale} onChange={(value) => changePref('nodeScale', value)}/>
-          <button type="button" onClick={() => setPrefs((current) => ({ ...DEFAULT_PREFERENCES, mode: current.mode }))} className="mt-1 flex h-8 w-full items-center justify-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><ArrowDownToLine size={13}/>{t('graph.restore_defaults')}</button>
-        </GraphSection>
-        </div>
-      </Drawer>
+      <GraphSettingsPanel
+        prefs={prefs}
+        onPref={changePref}
+        folders={folders}
+        tags={tags}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onRestoreDefaults={() => setPrefs((current) => ({ ...DEFAULT_PREFERENCES, mode: current.mode }))}
+      />
     </div>
     <Menu anchor={context ?? { x: 0, y: 0 }} open={Boolean(context)} onClose={() => setContext(null)} items={menuItems} label={t('graph.node_actions')}/>
   </div>, document.body)
@@ -1068,13 +476,4 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }) 
   </button>
 }
 
-function GraphRow({ label, children }: { label: string; children: ReactNode }) {
-  return <div className="flex items-center justify-between gap-3 text-[12px] text-[var(--text-secondary)]"><span className="min-w-0 truncate">{label}</span><span className="flex min-w-0 shrink-0 items-center">{children}</span></div>
-}
-
-function GraphSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
-  return <section className="mb-5"><h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--text-tertiary)]">{icon}{title}</h4><div className="space-y-2.5">{children}</div></section>
-}
-
-
-
+export type { GraphPreferences }

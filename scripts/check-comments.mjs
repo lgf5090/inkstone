@@ -67,10 +67,7 @@ const allowed = new Map([
     "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
     "/** React synthesises onMouseEnter from native mouseover, so a raw mouseenter never reaches it. */",
   ]],
-  ["src/client/features/graph/GraphPanel.tsx", [
-    "// Private browsing or a locked-down browser can reject local preferences.",
-    "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
-    "// Draw-only toggles just need one repaint.",
+  ["src/client/features/graph/graph-panel/scene.ts", [
     "// Squared compare instead of Math.hypot: pointermove fires up to 240 times a second and",
     "// hypot does overflow scaling work this path never needs.",
   ]],
@@ -303,6 +300,12 @@ const allowed = new Map([
   ]],
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",
+    "/** `tag` nodes are synthesized from note tags, `unresolved` from links to missing notes. */",
+    "/** Tags to filter by. Overrides `tag`; sent comma-separated. */",
+    "/** How multiple tags combine: `any` (default) for union, `all` for intersection. */",
+    "/** Draw each tag as its own node, linking the notes that carry it. Sent as `1`. */",
+    "/** Notes the reader took out of the graph. Sent comma-separated, like `tags`. */",
+    "/** Which side of a link a local graph walks. Only meaningful with `mode: 'local'`. */",
   ]],
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
