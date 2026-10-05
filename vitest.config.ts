@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       '@': resolve('./src/client'),
       '@shared': resolve('./src/shared'),
+      'cloudflare:workers': resolve('./tests/doubles/cloudflare-workers.ts'),
     },
   },
   test: {
@@ -19,6 +20,11 @@ export default defineConfig({
           environment: 'jsdom',
           include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
           exclude: ['src/worker/lib/request.test.ts', 'src/client/demo/backend.test.ts', 'src/worker/lib/obsidian-import.test.ts', 'tests/backup-retention.test.ts'],
+          server: {
+            deps: {
+              inline: ['@cloudflare/workers-oauth-provider'],
+            },
+          },
         },
       },
       {

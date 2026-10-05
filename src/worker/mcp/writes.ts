@@ -3,6 +3,7 @@ import { countText, deriveExcerpt, deriveTitle } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
 import type { Note } from '@shared/types'
 import { NOTE_COLUMNS_FULL, toNote, type NoteRow } from '../db/rows'
+import { assertNoteQuota } from '../db/quota'
 import { FTS_NOTE_MATCH_SQL } from '../db/fts'
 import { buildNoteDerivedStatements, LINK_TARGET_SUBQUERY } from '../db/writes'
 import type { Env } from '../env'
@@ -60,6 +61,7 @@ export async function createMcpNote(
         .bind(id)
         .first<{ user_id: string }>()
       if (collision) throw ApiError.conflict('This note id is already in use')
+      await assertNoteQuota(context.env.DB, context.userId)
 
       const insert = context.env.DB.prepare(
         `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,

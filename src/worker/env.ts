@@ -23,6 +23,10 @@ export interface Env {
 
   PUBLIC_URL?: string
 
+  SETUP_TOKEN?: string
+
+  DO_AUTH_KEY?: string
+
   /** Workers AI binding for semantic search; optional so AI search degrades gracefully. */
   AI?: {
     run: <T = unknown>(model: string, inputs: unknown) => Promise<T>

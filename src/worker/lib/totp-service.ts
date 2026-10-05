@@ -458,8 +458,6 @@ export async function completeTotpLogin(input: {
   const now = input.now ?? Date.now()
   if (!isOpaqueToken(input.challengeToken)) throw challengeExpired()
   const challengeHash = await hashOpaqueToken(input.challengeToken)
-  const workKey = `totp-login-work:${challengeHash}`
-  await consumeWorkBudget(input.env.DB, workKey)
   const row = await input.env.DB.prepare(
     `SELECT ch.user_id, ch.expires_at,
             c.secret_ciphertext, c.recovery_generation, c.last_used_step
@@ -472,6 +470,8 @@ export async function completeTotpLogin(input: {
       .bind(challengeHash).run()
     throw challengeExpired()
   }
+  const workKey = `totp-login-work:${challengeHash}`
+  await consumeWorkBudget(input.env.DB, workKey)
 
   const throttle = factorThrottle(row.user_id, challengeHash)
   await assertFactorUnlocked(input.env.DB, throttle)

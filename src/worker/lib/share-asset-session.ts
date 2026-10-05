@@ -45,11 +45,6 @@ export async function verifyShareAssetSession(
   return row?.present === 1
 }
 
-export async function revokeShareAssetSessions(db: D1Database, slug: string): Promise<void> {
-  if (!isValidSlug(slug)) return
-  await db.prepare(`DELETE FROM share_asset_sessions WHERE slug = ?1`).bind(slug).run()
-}
-
 export function shareAssetCookieName(slug: string): string {
   return `inkstone_share_${slug}`
 }

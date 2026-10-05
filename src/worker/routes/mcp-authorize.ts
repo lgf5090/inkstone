@@ -125,6 +125,17 @@ async function parseAuthorization(
   if (!oauth) return new Response('OAuth is unavailable', { status: 503 })
   try {
     const parsed = await oauth.parseAuthRequest(request)
+    if (!parsed.codeChallenge) {
+      return Response.redirect(
+        oauthErrorRedirect(
+          parsed,
+          'invalid_request',
+          'PKCE is required: missing code_challenge',
+          authorizationIssuer(request, parsed),
+        ),
+        302,
+      )
+    }
     const unsupported = parsed.scope.filter(
       (scope) => scope !== 'offline_access' && !(MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
     )
@@ -204,6 +215,12 @@ function consentPage(input: {
             <span class="badge">OAuth</span>
           </div>
           <p>${copy.signedInAs}<strong class="account">${escapeHtml(input.userName)}</strong>${copy.accountOnly}</p>
+          ${(() => {
+    const source = cimdClientSource(input.request.clientId)
+    return source
+      ? `<p class="client-source">${escapeHtml(copy.clientSource(source))}</p>`
+      : ''
+  })()}
         </div>
       </section>
       <form method="post" action="${escapeHtml(input.action)}">
@@ -216,7 +233,7 @@ function consentPage(input: {
               <input class="switch" type="checkbox" checked disabled aria-label="${copy.readRequiredAria}">
             </label>
             <input type="hidden" name="scope" value="${MCP_SCOPES.read}">
-            ${wantsWrite ? permission(MCP_SCOPES.write, copy.writeTitle, copy.writeDetail, true) : ''}
+            ${wantsWrite ? permission(MCP_SCOPES.write, copy.writeTitle, copy.writeDetail, false) : ''}
             ${wantsTrash ? permission(MCP_SCOPES.trash, copy.trashTitle, copy.trashDetail, false) : ''}
           </div>
         </section>
@@ -250,7 +267,7 @@ function loginPage(clientName: string, locale: AppLocale, currentUrl: string): s
           <p>${copy.passwordOnly}</p>
         </div>
       </section>
-      <form id="login" class="login-form">
+      <form id="login" class="login-form" data-sign-in-failed="${escapeHtml(copy.signInFailed)}">
         <section class="form-section" aria-labelledby="account-title">
           <h2 id="account-title">${copy.inkstoneAccount}</h2>
           <label class="field"><span>${copy.username}</span><input name="username" autocomplete="username" maxlength="32" required autofocus></label>
@@ -261,27 +278,7 @@ function loginPage(clientName: string, locale: AppLocale, currentUrl: string): s
       </form>
       <p class="foot">${copy.needAccount}</p>
     </div>
-    <script>
-      document.getElementById('login').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const form = new FormData(event.currentTarget);
-        const button = event.currentTarget.querySelector('button');
-        const error = document.getElementById('error');
-        button.disabled = true; error.textContent = '';
-        try {
-          const response = await fetch('/api/auth/login', {
-            method: 'POST', credentials: 'same-origin',
-            headers: {'Content-Type':'application/json','X-Inkstone-Client':'1'},
-            body: JSON.stringify({username: form.get('username'), password: form.get('password')})
-          });
-          if (!response.ok) {
-            const body = await response.json().catch(() => null);
-            throw new Error(body?.error?.message || ${JSON.stringify(copy.signInFailed)});
-          }
-          location.reload();
-        } catch (reason) { error.textContent = reason.message || ${JSON.stringify(copy.signInFailed)}; button.disabled = false; }
-      });
-    </script>`, locale, currentUrl)
+    <script src="/authorize-login.js"></script>`, locale, currentUrl)
 }
 
 function errorPage(message: string, locale: AppLocale, currentUrl: string): string {
@@ -307,6 +304,7 @@ function authorizationCopy(locale: AppLocale) {
       accessTitle: (clientName: string) => `${clientName} 请求访问`,
       signedInAs: '已登录为 ',
       accountOnly: '。仅可访问此账户的笔记。',
+      clientSource: (host: string) => `未注册外部客户端，来源地址 ${host}，请核对后再授权。`,
       permissions: '权限',
       readTitle: '读取与搜索笔记',
       readDetail: '必需。连接的 AI 客户端只会收到工具选中的笔记内容。',
@@ -344,6 +342,7 @@ function authorizationCopy(locale: AppLocale) {
     accessTitle: (clientName: string) => `${clientName} wants access`,
     signedInAs: 'Signed in as ',
     accountOnly: '. Only this account’s notes are available.',
+    clientSource: (host: string) => `Unregistered external client from ${host} — verify the address before allowing access.`,
     permissions: 'Permissions',
     readTitle: 'Read and search notes',
     readDetail: 'Required. Selected note text is returned to the connected AI client.',
@@ -436,6 +435,15 @@ function html(c: Context<AppBindings>, body: string, status: 200 | 400 | 401 | 4
 function assertSameOrigin(request: Request): void {
   const origin = request.headers.get('Origin')
   if (origin && origin !== new URL(request.url).origin) throw ApiError.forbidden('Invalid form origin')
+}
+
+function cimdClientSource(clientId: string): string {
+  try {
+    const url = new URL(clientId)
+    return url.protocol === 'https:' && url.host ? url.host : ''
+  } catch {
+    return ''
+  }
 }
 
 function randomToken(): string {

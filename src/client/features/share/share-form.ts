@@ -13,9 +13,9 @@ export function needsNewSharePasscode(
 ): boolean {
   if (!enabled) return false
   if (!alreadyProtected && passcode.length === 0) return true
-  // A new or replaced passcode must be at least 4 characters (the server
+  // A new or replaced passcode must be at least 8 characters (the server
   // enforces the same minimum); short codes are trivially brute-forced.
-  return passcode.length > 0 && passcode.length < 4
+  return passcode.length > 0 && passcode.length < 8
 }
 
-export const SHARE_PASSCODE_MIN_LENGTH = 4
+export const SHARE_PASSCODE_MIN_LENGTH = 8

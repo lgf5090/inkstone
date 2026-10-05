@@ -119,6 +119,10 @@ function hasRawPathTraversal(value: string): boolean {
   return hasTraversalSegment(value.slice(pathStart, pathEnd))
 }
 
+// Hostname screening cannot see through attacker-controlled DNS answers
+// that resolve to private addresses; the deployment's
+// global_fetch_strictly_public compatibility flag remains the hard outer
+// guard and must stay enabled in every wrangler config.
 function isUnsafeHostname(rawHostname: string): boolean {
   const hostname = rawHostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
   if (!hostname || !hostname.includes('.')) {

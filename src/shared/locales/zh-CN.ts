@@ -933,7 +933,7 @@ export const ZH_CN_MESSAGES = {
     "share.incorrect_passcode": "口令不正确",
     "share.in_trash": "在回收站",
     "share.enter_a_passcode": "请先输入访问口令",
-    "share.passcode_too_short": "访问口令至少需要 4 个字符",
+    "share.passcode_too_short": "访问口令至少需要 8 个字符",
     "share.keep_current_expiration": "保持当前",
     "share.leave_blank_to_keep_the_current_passcode": "留空表示保持原来的口令不变",
     "share.link_revoked": "链接已撤销",

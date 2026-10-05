@@ -11,7 +11,7 @@ const allowed = new Map([
     "// Private browsing or a locked-down browser can reject local preferences.",
   ]],
   ["src/client/features/share/share-form.ts", [
-    "// A new or replaced passcode must be at least 4 characters (the server",
+    "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
   ]],
   ["src/client/lib/i18n.ts", [
@@ -46,6 +46,12 @@ const allowed = new Map([
   ]],
   ["src/worker/backup/snapshot.ts", [
     "/** Produces restorable JSON, readable Markdown, and attachment files for every backup target. */",
+  ]],
+  ["src/worker/backup/validation.ts", [
+    "// Hostname screening cannot see through attacker-controlled DNS answers",
+    "// that resolve to private addresses; the deployment's",
+    "// global_fetch_strictly_public compatibility flag remains the hard outer",
+    "// guard and must stay enabled in every wrangler config.",
   ]],
   ["src/worker/db/schema.ts", [
     "/** Defines the idempotent final D1 schema initialized by every Worker isolate. */",
@@ -117,9 +123,10 @@ const allowed = new Map([
     "// Account-wide cap so a distributed botnet cannot retry one account",
     "// from many IPs forever; cleared on every successful sign-in, so a",
     "// normal user only ever notices it after 30 failed attempts per hour.",
-    "// A successful sign-in proves this identity and IP are legitimate:",
-    "// clear every throttling key (identity, IP, and account level) so a",
-    "// shared IP / NAT is never locked out by a full window of attempts.",
+    "// A successful sign-in proves this identity is legitimate: clear only the",
+    "// identity-scoped throttling keys, never the shared per-IP buckets, or an",
+    "// attacker with any low-value account could reset the per-IP failure",
+    "// ceiling between bursts of password guessing.",
   ]],
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",

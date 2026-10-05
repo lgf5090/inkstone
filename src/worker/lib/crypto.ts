@@ -76,7 +76,10 @@ async function vaultRequest(env: Env, path: '/encrypt' | '/decrypt', body: unkno
     const id = env.CREDENTIAL_VAULT.idFromName(VAULT_NAME)
     return await env.CREDENTIAL_VAULT.get(id).fetch(`${VAULT_ORIGIN}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(env.DO_AUTH_KEY ? { 'X-Inkstone-Internal': env.DO_AUTH_KEY } : {}),
+      },
       body: JSON.stringify(body),
     })
   } catch (error) {

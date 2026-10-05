@@ -1,4 +1,5 @@
-import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from '../lib/encoding'
+import { fromBase64Url, fromUtf8, timingSafeEqual, toBase64Url, utf8 } from '../lib/encoding'
+import type { Env } from '../env'
 
 
 const MASTER_KEY_NAME = 'backup-master-key-v1'
@@ -16,9 +17,13 @@ type CredentialRecord = Record<string, string>
 export class CredentialVault implements DurableObject {
   private masterKeyPromise: Promise<CryptoKey> | null = null
 
-  constructor(private readonly state: DurableObjectState) {}
+  constructor(private readonly state: DurableObjectState, private readonly env?: Env) {}
 
   async fetch(request: Request): Promise<Response> {
+    const internalKey = this.env?.DO_AUTH_KEY
+    if (internalKey && !timingSafeEqual(request.headers.get('X-Inkstone-Internal') ?? '', internalKey)) {
+      return jsonError(401, 'unauthorized')
+    }
     if (request.method !== 'POST') return jsonError(404, 'not_found')
 
     const body = await readBody(request)

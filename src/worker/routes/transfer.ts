@@ -33,6 +33,7 @@ import {
   runBatched,
 } from '../db/writes'
 import { noteIndexQueueStatement } from '../mcp/ai-search'
+import { assertNoteQuota } from '../db/quota'
 import {
   assertBundleCanBeRestored,
   buildJsonExport,
@@ -1529,6 +1530,7 @@ async function insertNote(
   ctx: ImportContext,
 ): Promise<string> {
   assertContentSize(input.content)
+  await assertNoteQuota(c.env.DB, userId)
 
   let id = input.id ?? newId()
   const now = Date.now()

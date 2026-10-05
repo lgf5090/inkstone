@@ -1,10 +1,16 @@
 import type { RealtimeMessage } from '@shared/types'
+import { timingSafeEqual } from '../lib/encoding'
+import type { Env } from '../env'
 
 
 export class SyncHub implements DurableObject {
-  constructor(private readonly state: DurableObjectState) {}
+  constructor(private readonly state: DurableObjectState, private readonly env?: Env) {}
 
   async fetch(request: Request): Promise<Response> {
+    const internalKey = this.env?.DO_AUTH_KEY
+    if (internalKey && !timingSafeEqual(request.headers.get('X-Inkstone-Internal') ?? '', internalKey)) {
+      return new Response('Unauthorized', { status: 401 })
+    }
     const url = new URL(request.url)
 
     if (url.pathname === '/notify') {
@@ -86,13 +92,17 @@ export async function notifySyncHub(
   userId: string,
   cursor: number,
   origin: string | null,
+  authKey?: string,
 ): Promise<void> {
   if (!namespace) return
   try {
     const stub = namespace.get(namespace.idFromName(userId))
     await stub.fetch('https://sync-hub.internal/notify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authKey ? { 'X-Inkstone-Internal': authKey } : {}),
+      },
       body: JSON.stringify({ cursor, origin }),
     })
   } catch (err) {

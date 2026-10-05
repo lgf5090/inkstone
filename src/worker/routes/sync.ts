@@ -186,9 +186,12 @@ syncRoutes.get('/ws', requireAuth, async (c) => {
 
   const userId = c.get('userId')
   const stub = c.env.SYNC_HUB.get(c.env.SYNC_HUB.idFromName(userId))
+  const hubHeaders = new Headers(c.req.raw.headers)
+  if (c.env.DO_AUTH_KEY) hubHeaders.set('X-Inkstone-Internal', c.env.DO_AUTH_KEY)
+  else hubHeaders.delete('X-Inkstone-Internal')
   return stub.fetch(
     new Request('https://sync-hub.internal/connect', {
-      headers: c.req.raw.headers,
+      headers: hubHeaders,
     }),
   )
 })

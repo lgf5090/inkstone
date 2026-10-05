@@ -1,4 +1,4 @@
-import { SESSION_TTL_MS } from '@shared/constants'
+import { SESSION_ABSOLUTE_MAX_MS, SESSION_TTL_MS } from '@shared/constants'
 import { utf8 } from './encoding'
 
 
@@ -32,8 +32,8 @@ export async function createSession(db: D1Database, userId: string): Promise<str
 
 export async function renewSession(db: D1Database, sessionId: string): Promise<void> {
   await db
-    .prepare(`UPDATE sessions SET expires_at = ?1 WHERE id = ?2`)
-    .bind(Date.now() + SESSION_TTL_MS, sessionId)
+    .prepare(`UPDATE sessions SET expires_at = MIN(?1, created_at + ?2) WHERE id = ?3`)
+    .bind(Date.now() + SESSION_TTL_MS, SESSION_ABSOLUTE_MAX_MS, sessionId)
     .run()
 }
 
