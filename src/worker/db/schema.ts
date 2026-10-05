@@ -623,6 +623,17 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_attachments_user_size ON attachments(user_id, size)`,
     ],
   },
+  {
+    // EXPLAIN on a 594-link replica: /api/graph's edge fetch moves from
+    // "USING INDEX idx_links_user_target (user_id=?)" — a scan of every link the
+    // user owns — to "(user_id=? AND source_note_id=?)". The two OR-shaped
+    // predicates (includeOrphans, local BFS) keep their old plans: one index
+    // cannot serve an OR across two columns.
+    version: 24,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_links_user_source ON links(user_id, source_note_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -724,6 +735,7 @@ const REQUIRED_INDEXES = [
   'idx_links_target',
   'idx_links_target_note',
   'idx_links_user_target',
+  'idx_links_user_source',
   'idx_versions_note',
   'idx_versions_user',
   'idx_attachments_user',

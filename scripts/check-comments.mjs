@@ -371,6 +371,11 @@ const allowed = new Map([
     "// compound index SQLite sorts every visible row (up to notesMaxPerUser) per page.",
     "// EXPLAIN on a 5k-row replica: created/title orderings report",
     "// \"USE TEMP B-TREE FOR ORDER BY\" until these exist.",
+    "// EXPLAIN on a 594-link replica: /api/graph's edge fetch moves from",
+    "// \"USING INDEX idx_links_user_target (user_id=?)\" — a scan of every link the",
+    "// user owns — to \"(user_id=? AND source_note_id=?)\". The two OR-shaped",
+    "// predicates (includeOrphans, local BFS) keep their old plans: one index",
+    "// cannot serve an OR across two columns.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
