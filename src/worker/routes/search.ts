@@ -4,7 +4,7 @@ import { segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { drainFtsQueue, hasPendingFtsWork, rebuildFtsIndex } from '../db/fts'
+import { drainFtsQueue, rebuildFtsIndex } from '../db/fts'
 import { NOTE_COLUMNS, toNoteSummary, type NoteRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -125,19 +125,38 @@ export async function searchUserNotes(
   const query = parseQuery(truncateText(raw.trim(), 512))
   if (!raw.trim()) return { results: [], mode: ftsEnabled ? 'fts' : 'like', query }
 
-  let useFts = ftsEnabled
-  if (useFts) {
+  if (ftsEnabled && query.terms.length && !query.trash) {
     try {
       if (drain) await drainFtsQueue(db, userId, 50, true)
-      useFts = !(await hasPendingFtsWork(db, userId))
-    } catch {
-      useFts = false
-    }
-  }
-
-  if (useFts && query.terms.length && !query.trash) {
-    try {
-      return { results: await ftsSearch(db, userId, query, limit), mode: 'fts', query }
+      const ftsHits = await ftsSearch(db, userId, query, limit)
+      const pendingRows = await db
+        .prepare(`SELECT DISTINCT note_id FROM fts_index_queue WHERE user_id = ?1 LIMIT 20`)
+        .bind(userId)
+        .all<{ note_id: string }>()
+      const pendingNoteIds = pendingRows.results.map((r) => r.note_id).filter(Boolean)
+      if (!pendingNoteIds.length) {
+        return { results: ftsHits, mode: 'fts', query }
+      }
+      const pendingHits = await likeSearch(db, userId, query, limit, pendingNoteIds)
+      const seen = new Set<string>()
+      const merged: SearchHit[] = []
+      for (const hit of pendingHits) {
+        seen.add(hit.note.id)
+        merged.push(hit)
+      }
+      for (const hit of ftsHits) {
+        if (!seen.has(hit.note.id)) {
+          seen.add(hit.note.id)
+          merged.push(hit)
+        }
+      }
+      merged.sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.note.updatedAt - a.note.updatedAt ||
+          a.note.id.localeCompare(b.note.id),
+      )
+      return { results: merged.slice(0, limit), mode: 'fts', query }
     } catch (error) {
       console.warn(
         '[inkstone] FTS query failed; falling back to LIKE:',
@@ -242,11 +261,20 @@ async function likeSearch(
   userId: string,
   q: ParsedQuery,
   limit: number,
+  noteIds?: string[],
 ): Promise<SearchHit[]> {
+  if (noteIds && !noteIds.length) return []
   const binds: unknown[] = [userId]
   const termBindIndexes: number[] = []
   let where = 'n.user_id = ?1'
   where += q.trash ? ' AND n.deleted_at IS NOT NULL' : ' AND n.deleted_at IS NULL'
+  if (noteIds && noteIds.length) {
+    const placeholders = noteIds.map((id) => {
+      binds.push(id)
+      return `?${binds.length}`
+    }).join(', ')
+    where += ` AND n.id IN (${placeholders})`
+  }
 
   for (const term of q.terms) {
     binds.push(`%${escapeLike(term)}%`)
