@@ -601,6 +601,7 @@ export type ApiErrorCode =
   | 'wrong_password'
   | 'too_many_attempts'
   | 'registration_closed'
+  | 'setup_token_required'
   | 'server_misconfigured'
   | 'two_factor_already_enabled'
   | 'two_factor_challenge_expired'

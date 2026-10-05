@@ -1,7 +1,9 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeAll, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { createApp } from '../src/worker/app'
 import { hashToken } from '../src/worker/lib/session-store'
+import { makeD1 } from './doubles/d1-sqlite'
 import type { Env } from '../src/worker/env'
 
 const sessionToken = 'a'.repeat(64)
@@ -12,47 +14,10 @@ const authorizeUrl = 'http://localhost/authorize'
 let sqlite: DatabaseSync
 let env: Env
 
-function makeDb(sqlite: DatabaseSync): D1Database {
-  return {
-    prepare(sql: string) {
-      let values: unknown[] = []
-      const args = () => /\?\d+/.test(sql)
-        ? [Object.fromEntries(values.map((value, index) => [String(index + 1), value]))]
-        : values
-      const exec = <T>(method: 'get' | 'all' | 'run'): T => {
-        const statement = sqlite.prepare(sql)
-        return statement[method](...(args() as never[])) as T
-      }
-      const prepared = {
-        bind(...bound: unknown[]) { values = bound; return prepared },
-        async first() { return exec<object | null>('get') ?? null },
-        async all() {
-          try {
-            return { results: exec<object[]>('all') }
-          } catch {
-            exec('run')
-            return { results: [] }
-          }
-        },
-        async raw() { return exec<object[]>('all') },
-        async run() {
-          return { meta: { changes: Number(exec<{ changes: number | bigint }>('run').changes) } }
-        },
-      }
-      return prepared
-    },
-    async batch(statements: { all(): Promise<{ results: object[] }> }[]) {
-      const results = []
-      for (const statement of statements) results.push(await statement.all())
-      return results
-    },
-  } as unknown as D1Database
-}
-
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
   env = {
-    DB: makeDb(sqlite),
+    DB: makeD1(sqlite),
     ASSETS: { fetch: async () => new Response('ok') },
     OAUTH_PROVIDER: {
       parseAuthRequest: async () => ({
@@ -119,4 +84,35 @@ it('keeps the trash scope unchecked as well', async () => {
   const body = await (await fetchAuthorize(true)).text()
   const trashInput = body.match(/<input[^>]*name="scope"[^>]*value="notes:trash"[^>]*>/)
   expect(trashInput?.[0] ?? '').not.toContain('checked')
+})
+
+it('serves a CSP without script-src unsafe-inline', async () => {
+  const response = await createApp().fetch(new Request('http://localhost/robots.txt'), env)
+  const csp = response.headers.get('Content-Security-Policy') ?? ''
+  const scriptSrc = /script-src([^;]*)/.exec(csp)?.[1] ?? ''
+  expect(scriptSrc).not.toContain("'unsafe-inline'")
+  expect(scriptSrc).toContain("'self'")
+})
+
+it('ships the index boot as an external script instead of inline', () => {
+  const html = readFileSync('index.html', 'utf8')
+  expect(html).not.toMatch(/<script(?![^>]*\bsrc=)/)
+  expect(html).toContain('src="/boot.js"')
+})
+
+it('ships external boot scripts for the SPA and authorize pages', () => {
+  expect(readFileSync('public/boot.js', 'utf8')).toContain('inkstone.ui')
+  expect(readFileSync('public/authorize-login.js', 'utf8')).toContain('getElementById')
+})
+
+it('serves the authorize login page with an external script only', async () => {
+  const body = await (await fetchAuthorize(false)).text()
+  expect(body).not.toMatch(/<script(?![^>]*\bsrc=)/)
+  expect(body).toContain('src="/authorize-login.js"')
+})
+
+it('discloses an unregistered CIMD client source on the consent page', async () => {
+  const body = await (await fetchAuthorize(true)).text()
+  expect(body).toContain('class="client-source"')
+  expect(body).toContain('evil.example')
 })

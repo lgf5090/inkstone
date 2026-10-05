@@ -35,7 +35,7 @@ export function createApp() {
     c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
     c.header(
       'Content-Security-Policy',
-        "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+        "default-src 'self'; base-uri 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
         `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; ` +
         "manifest-src 'self'; media-src 'self' blob:; form-action 'self'; frame-src 'none'; " +
         "frame-ancestors 'none'; object-src 'none'",

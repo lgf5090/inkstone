@@ -27,6 +27,54 @@ export const shareRoutes = new Hono<AppBindings>()
 
 export const sharePageRoutes = new Hono<AppBindings>()
 
+const VIEW_WINDOW_MS = 60_000
+const VIEW_LIMIT = 60
+
+export interface ShareViewWindow {
+  count: number
+  windowStart: number
+}
+
+export function shareVerifyThrottleTargets(slug: string, ip: string): {
+  lockTargets: string[]
+  workTargets: { key: string; maxAttempts: number; windowMs: number; lockMs?: number }[]
+} {
+  return {
+    lockTargets: [`share:${slug}:ip:${ip}`],
+    workTargets: [
+      { key: `share-work:${slug}:ip:${ip}`, maxAttempts: 8, windowMs: 10 * 60 * 1000 },
+      { key: `share-work:${slug}`, maxAttempts: 60, windowMs: 10 * 60 * 1000, lockMs: 60_000 },
+    ],
+  }
+}
+
+export function shouldPersistShareView(
+  state: ShareViewWindow,
+  now: number,
+): { state: ShareViewWindow; persist: boolean } {
+  if (now - state.windowStart >= VIEW_WINDOW_MS) {
+    return { state: { count: 1, windowStart: now }, persist: true }
+  }
+  if (state.count >= VIEW_LIMIT) return { state, persist: false }
+  return { state: { count: state.count + 1, windowStart: state.windowStart }, persist: true }
+}
+
+const shareViewWindows = new Map<string, ShareViewWindow>()
+
+function noteShareView(slug: string, ip: string, now: number): boolean {
+  if (shareViewWindows.size > 1_000) {
+    for (const [key, value] of shareViewWindows) {
+      if (now - value.windowStart >= VIEW_WINDOW_MS) shareViewWindows.delete(key)
+    }
+  }
+  const hit = shouldPersistShareView(
+    shareViewWindows.get(`${slug}:${ip}`) ?? { count: 0, windowStart: 0 },
+    now,
+  )
+  shareViewWindows.set(`${slug}:${ip}`, hit.state)
+  return hit.persist
+}
+
 interface ShareRow {
   slug: string
   note_id: string
@@ -176,25 +224,10 @@ shareRoutes.post('/:slug', async (c) => {
     if (!password) {
       return c.json({ error: { code: 'password_required', message: 'An access password is required' } }, 401)
     }
-    const throttleKeys = [
-      `share:${slug}:ip:${requestClientIp(c)}`,
-      { key: `share-slug:${slug}`, freeFails: 40 },
-    ]
-    const workKeys = [
-      {
-        key: `share-work:${slug}:ip:${requestClientIp(c)}`,
-        maxAttempts: 8,
-        windowMs: 10 * 60 * 1000,
-      },
-      {
-        key: `share-work-slug:${slug}`,
-        maxAttempts: 60,
-        windowMs: 10 * 60 * 1000,
-      },
-    ]
+    const targets = shareVerifyThrottleTargets(slug, requestClientIp(c))
     try {
-      await consumeAttemptBudget(c.env.DB, workKeys)
-      await assertNotLocked(c.env.DB, throttleKeys)
+      await consumeAttemptBudget(c.env.DB, targets.workTargets)
+      await assertNotLocked(c.env.DB, targets.lockTargets)
     } catch (err) {
       if (err instanceof ThrottleError) {
         throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {
@@ -204,12 +237,12 @@ shareRoutes.post('/:slug', async (c) => {
       throw err
     }
     if (!(await verifyPassword(password, share.password_hash))) {
-      await recordLoginFailure(c.env.DB, throttleKeys)
+      await recordLoginFailure(c.env.DB, targets.lockTargets)
       return c.json({ error: { code: 'password_invalid', message: "Incorrect passcode" } }, 401)
     }
     await clearLoginFailures(c.env.DB, [
-      ...throttleKeys,
-      ...workKeys.map((target) => target.key),
+      ...targets.lockTargets,
+      ...targets.workTargets.map((target) => target.key),
     ])
   }
 
@@ -229,9 +262,11 @@ shareRoutes.post('/:slug', async (c) => {
     }>()
   if (!note) throw ApiError.notFound('The note has been deleted')
 
-  c.executionCtx?.waitUntil(
-    c.env.DB.prepare(`UPDATE shares SET views = views + 1 WHERE slug = ?1`).bind(slug).run().catch(() => {}),
-  )
+  if (noteShareView(slug, requestClientIp(c), Date.now())) {
+    c.executionCtx?.waitUntil(
+      c.env.DB.prepare(`UPDATE shares SET views = views + 1 WHERE slug = ?1`).bind(slug).run().catch(() => {}),
+    )
+  }
 
   if (share.password_hash) {
     const expiresAt = Math.min(

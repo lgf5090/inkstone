@@ -123,9 +123,10 @@ const allowed = new Map([
     "// Account-wide cap so a distributed botnet cannot retry one account",
     "// from many IPs forever; cleared on every successful sign-in, so a",
     "// normal user only ever notices it after 30 failed attempts per hour.",
-    "// A successful sign-in proves this identity and IP are legitimate:",
-    "// clear every throttling key (identity, IP, and account level) so a",
-    "// shared IP / NAT is never locked out by a full window of attempts.",
+    "// A successful sign-in proves this identity is legitimate: clear only the",
+    "// identity-scoped throttling keys, never the shared per-IP buckets, or an",
+    "// attacker with any low-value account could reset the per-IP failure",
+    "// ceiling between bursts of password guessing.",
   ]],
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",

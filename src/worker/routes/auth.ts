@@ -15,6 +15,7 @@ import {
 } from '../avatars/storage'
 import { seedWorkspace } from '../db/seed'
 import { ApiError } from '../lib/errors'
+import { timingSafeEqual } from '../lib/encoding'
 import { newId } from '../lib/id'
 import { getAllowRegistration } from '../lib/instance-settings'
 import { buildSiteInfo, loadUser, publicUser, sessionInfo } from '../lib/session-info'
@@ -75,6 +76,15 @@ export function loginWorkTargets(username: string, ip: string) {
   ]
 }
 
+export function loginSuccessClearTargets(username: string, ip: string): string[] {
+  const identity = throttleIdentity(username)
+  return [
+    `login:${ip}:${identity}`,
+    `login-account:${identity}`,
+    `login-work:${ip}:${identity}`,
+  ]
+}
+
 function throttleIdentity(username: string): string {
   return USERNAME_PATTERN.test(username) ? username : '_invalid'
 }
@@ -122,9 +132,15 @@ async function gate(env: Env): Promise<RegistrationDecision> {
   })
 }
 
+async function setupTokenRequired(env: Env): Promise<boolean> {
+  if (!env.SETUP_TOKEN) return false
+  const countRow = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{ n: number }>()
+  return !countRow
+}
+
 
 authRoutes.post('/register', async (c) => {
-  const body = await readJson<{ username?: string; password?: string; locale?: string }>(c, 4096)
+  const body = await readJson<{ username?: string; password?: string; locale?: string; setupToken?: string }>(c, 4096)
   const locale = normalizeLocale(body.locale ?? c.req.header('Accept-Language'))
   const rawUsername = typeof body.username === 'string' ? body.username.slice(0, 128) : ''
   const username = normalizeUsername(rawUsername)
@@ -136,6 +152,13 @@ authRoutes.post('/register', async (c) => {
 
   if (!(await gate(c.env)).ok) {
     throw new ApiError(403, 'registration_closed', 'Registration is closed on this instance')
+  }
+
+  if (await setupTokenRequired(c.env)) {
+    const provided = typeof body.setupToken === 'string' ? body.setupToken : ''
+    if (!provided || !timingSafeEqual(provided, c.env.SETUP_TOKEN as string)) {
+      throw new ApiError(403, 'setup_token_required', 'A valid setup token is required to create the first account')
+    }
   }
 
   await enforceAttemptBudget(c.env.DB, [
@@ -223,13 +246,11 @@ authRoutes.post('/login', async (c) => {
     throw new ApiError(401, 'invalid_credentials', "Incorrect username or password")
   }
 
-  // A successful sign-in proves this identity and IP are legitimate:
-  // clear every throttling key (identity, IP, and account level) so a
-  // shared IP / NAT is never locked out by a full window of attempts.
-  await clearLoginFailures(db, [
-    ...throttleTargets.map((target) => target.key),
-    ...workTargets.map((target) => target.key),
-  ])
+  // A successful sign-in proves this identity is legitimate: clear only the
+  // identity-scoped throttling keys, never the shared per-IP buckets, or an
+  // attacker with any low-value account could reset the per-IP failure
+  // ceiling between bursts of password guessing.
+  await clearLoginFailures(db, loginSuccessClearTargets(username, requestClientIp(c)))
 
   if (await hasEnabledTotp(db, row.id)) {
     return c.json(await createTotpLoginChallenge(db, row.id, row.password_hash))
