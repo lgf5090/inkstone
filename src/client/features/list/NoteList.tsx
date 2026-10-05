@@ -33,8 +33,8 @@ const EMPTY_HIGHLIGHT: [
     number,
     number
 ][] = [];
-const INITIAL_RENDERED_NOTES = 180;
-const RENDERED_NOTES_STEP = 240;
+const VIRTUAL_WINDOW_SIZE = 80;
+const VIRTUAL_OVERSCAN = 15;
 export function NoteList() {
     const locale = useLocale();
     const breakpoint = useBreakpoint();
@@ -65,8 +65,7 @@ export function NoteList() {
     const [sortMenuOpen, setSortMenuOpen] = useState(false);
     const sortButtonRef = useRef<HTMLButtonElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
-    const loadMoreRef = useRef<HTMLDivElement>(null);
-    const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_NOTES);
+    const [startIndex, setStartIndex] = useState(0);
     const now = useNow();
     const tagColors = useMemo(() => new Map((tags ?? []).map((item) => [item.name, item.color])), [tags]);
 
@@ -116,45 +115,46 @@ export function NoteList() {
     const filteredPositions = useMemo(() => new Map(filteredIds.map((id, index) => [id, index + 1])), [filteredIds]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
-    const rendered = useMemo(() => filtered.slice(0, renderLimit), [filtered, renderLimit]);
+    const itemHeight = density === 'compact' ? 42 : 72;
+    const isVirtual = filtered.length > VIRTUAL_WINDOW_SIZE;
+    const safeStartIndex = isVirtual ? Math.max(0, Math.min(startIndex, filtered.length - VIRTUAL_WINDOW_SIZE)) : 0;
+    const endIndex = isVirtual ? Math.min(filtered.length, safeStartIndex + VIRTUAL_WINDOW_SIZE) : filtered.length;
+    const topSpacerHeight = safeStartIndex * itemHeight;
+    const bottomSpacerHeight = Math.max(0, (filtered.length - endIndex) * itemHeight);
+    const rendered = useMemo(() => isVirtual ? filtered.slice(safeStartIndex, endIndex) : filtered, [filtered, isVirtual, safeStartIndex, endIndex]);
     const renderedIds = useMemo(() => new Set(rendered.map((item) => item.note.id)), [rendered]);
-    const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', now), [rendered, sort, view, locale, now]);
+    const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', now, filtered.some((i) => i.note.isPinned)), [rendered, sort, view, locale, now, filtered]);
     useEffect(() => {
-        setRenderLimit(INITIAL_RENDERED_NOTES);
+        setStartIndex(0);
         listRef.current?.scrollTo?.({ top: 0 });
     }, [view, folderId, tag, deferredFilter, sort, order, density]);
     useEffect(() => {
         if (!activeNoteId)
             return;
         const activeIndex = filteredIds.indexOf(activeNoteId);
-        if (activeIndex < 0 || activeIndex < renderLimit)
+        if (activeIndex < 0)
             return;
-        setRenderLimit(Math.min(filtered.length, Math.ceil((activeIndex + 1) / RENDERED_NOTES_STEP) * RENDERED_NOTES_STEP));
-    }, [activeNoteId, filteredIds, filtered.length, renderLimit]);
-    useEffect(() => {
-        const root = listRef.current;
-        const target = loadMoreRef.current;
-        if (!root || !target || renderLimit >= filtered.length)
-            return;
-        if (typeof IntersectionObserver === 'undefined') {
-            setRenderLimit(filtered.length);
-            return;
+        if (isVirtual && (activeIndex < safeStartIndex || activeIndex >= endIndex)) {
+            const targetStart = Math.max(0, activeIndex - Math.floor(VIRTUAL_WINDOW_SIZE / 2));
+            setStartIndex(targetStart);
+            listRef.current?.scrollTo?.({ top: activeIndex * itemHeight });
         }
-        const observer = new IntersectionObserver((entries) => {
-            if (!entries.some((entry) => entry.isIntersecting))
-                return;
-            setRenderLimit((current) => Math.min(filtered.length, current + RENDERED_NOTES_STEP));
-        }, { root, rootMargin: '600px 0px' });
-        observer.observe(target);
-        return () => observer.disconnect();
-    }, [filtered.length, renderLimit]);
+    }, [activeNoteId, filteredIds, isVirtual, safeStartIndex, endIndex, itemHeight]);
+    const onListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        if (filtered.length <= VIRTUAL_WINDOW_SIZE)
+            return;
+        const top = event.currentTarget.scrollTop;
+        const approxIndex = Math.floor(top / itemHeight);
+        const targetStart = Math.max(0, approxIndex - VIRTUAL_OVERSCAN);
+        setStartIndex((prev) => (Math.abs(prev - targetStart) >= 5 ? targetStart : prev));
+    }, [filtered.length, itemHeight]);
     useEffect(() => {
         if (!activeNoteId)
             return;
         listRef.current
             ?.querySelector<HTMLElement>(`[data-note-id="${activeNoteId}"]`)
             ?.scrollIntoView({ block: 'nearest' });
-    }, [activeNoteId, renderLimit, view, folderId, tag]);
+    }, [activeNoteId, safeStartIndex, endIndex, view, folderId, tag]);
     const onKeyDown = (event: React.KeyboardEvent) => {
         if (event.target !== event.currentTarget || event.nativeEvent.isComposing)
             return;
@@ -306,7 +306,8 @@ export function NoteList() {
         {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
       </header>
 
-      <div key={`${view}:${folderId ?? ''}:${tag ?? ''}`} ref={listRef} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
+      <div key={`${view}:${folderId ?? ''}:${tag ?? ''}`} ref={listRef} onScroll={onListScroll} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
+        {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
         {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
               {group.label && (<div className="px-2 pt-3 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                   {group.label}
@@ -315,7 +316,7 @@ export function NoteList() {
                 {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} tagColors={tagColors} position={filteredPositions.get(note.id) ?? 1} total={filtered.length} onRangeSelect={selectRange}/>))}
               </div>
             </div>)))}
-        {renderLimit < filtered.length && <div ref={loadMoreRef} aria-hidden="true" className="h-px"/>}
+        {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />}
       </div>
 
       <BulkBar />
@@ -701,7 +702,7 @@ function groupNotes(items: {
         number,
         number
     ][];
-}[], sort: SortKey, isTrash: boolean, now: number): Group[] {
+}[], sort: SortKey, isTrash: boolean, now: number, hasPinnedInFullList?: boolean): Group[] {
     const pinned = isTrash ? [] : items.filter((i) => i.note.isPinned);
     const rest = isTrash ? items : items.filter((i) => !i.note.isPinned);
     const groups: Group[] = [];
@@ -726,7 +727,8 @@ function groupNotes(items: {
         }
     }
     else if (rest.length) {
-        groups.push({ key: 'rest', label: pinned.length ? t("notes.other") : null, items: rest });
+        const hasPinned = hasPinnedInFullList ?? Boolean(pinned.length);
+        groups.push({ key: 'rest', label: hasPinned ? t("notes.other") : null, items: rest });
     }
     return groups.filter((g) => g.items.length);
 }
