@@ -134,6 +134,10 @@ const allowed = new Map([
     "// The instr() predicate discards rows that cannot contain an attachment URL",
     "// so full bodies only cross the wire for rows the regex will actually parse.",
   ]],
+  ["src/worker/backup/archive.ts", [
+    "// The restore limits are the real ceiling: a ZIP that can never be imported back is",
+    "// not a backup, and building it would buffer hundreds of MB in this isolate.",
+  ]],
   ["src/worker/backup/scheduler.ts", [
     "/** Accounts only enter the trim loop once they are this far past the retention target. */",
     "// One aggregate pass finds the accounts that actually over-retained; previously every",

@@ -1,5 +1,9 @@
 import { makeZip, predictLength } from 'client-zip'
-import type { BackupFile, Snapshot } from './snapshot'
+import {
+  assertArchiveSizesCanBeRestored,
+  type BackupFile,
+  type Snapshot,
+} from './snapshot'
 
 export interface BackupArchive {
   filename: string
@@ -18,6 +22,9 @@ export function backupArchivePath(snapshot: Pick<Snapshot, 'stamp'>): string {
 
 export function createBackupArchive(snapshot: Snapshot): BackupArchive {
   const files = snapshotFiles(snapshot)
+  // The restore limits are the real ceiling: a ZIP that can never be imported back is
+  // not a backup, and building it would buffer hundreds of MB in this isolate.
+  assertArchiveSizesCanBeRestored(files.map((file) => ({ path: file.path, byteLength: file.byteLength })))
   const byteLength = predictLength(metadataFromFiles(files, snapshot.createdAt))
   const byteLengthNumber = Number(byteLength)
   if (!Number.isSafeInteger(byteLengthNumber) || byteLengthNumber < 0) {
