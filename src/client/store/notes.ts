@@ -120,7 +120,16 @@ function withContentsEntry(contents: Record<string, string>, id: string, text: s
     const keys = Object.keys(next);
     if (keys.length <= CONTENTS_CACHE_MAX) return next;
     const activeId = useUi.getState().activeNoteId;
-    const protectedIds = new Set<string>([id, ...(activeId ? [activeId] : [])]);
+    const ui = useUi.getState();
+    // Both split panes are on screen, and dirty notes hold unsent bodies: evicting any of
+    // them leaves that pane stuck on its loading skeleton.
+    const protectedIds = new Set<string>([
+        id,
+        ...(activeId ? [activeId] : []),
+        ...(ui.workspacePrimaryNoteId ? [ui.workspacePrimaryNoteId] : []),
+        ...(ui.workspaceSecondaryNoteId ? [ui.workspaceSecondaryNoteId] : []),
+        ...dirty.keys(),
+    ]);
     for (const noteId of pendingNoteMutations.keys()) protectedIds.add(noteId);
     for (const key of keys) {
         if (Object.keys(next).length <= CONTENTS_CACHE_MAX) break;
@@ -394,19 +403,21 @@ export const useNotes = create<NotesState>((set, get) => ({
                 folderStateGeneration++;
             if (tags !== state.tags)
                 tagStateGeneration++;
-            localDb.scheduleShellSave({
-                notes: Object.values(notes),
+            localDb.scheduleShellSave(() => ({
+                notes,
                 folders,
                 tags,
                 cursor: payload.cursor,
-            });
+            }));
             return { notes, folders, tags, cursor: payload.cursor };
         });
         reconcileFolderUi(get().folders);
+        const stale: Array<{ id: string; rev: number }> = [];
         for (const remote of payload.notes) {
             if (hasOwnContent(get().contents, remote.id) && !dirty.has(remote.id))
-                revalidateNote(remote.id, remote.rev, set, get);
+                stale.push({ id: remote.id, rev: remote.rev });
         }
+        void queueRevalidations(stale, set, get);
         const candidates = payload.full ? [...previousNoteIds, ...deletionIds] : deletionIds;
         for (const id of new Set(candidates)) {
             if (get().notes[id])
@@ -1937,11 +1948,37 @@ function requestNote(id: string): Promise<Note> {
     noteRequests.set(id, request);
     return request;
 }
-function revalidateNote(id: string, rev: number, set: SetNotesState, get: () => NotesState): void {
-    if (dirty.has(id) || validatedRevisions.get(id) === rev)
+/**
+ * A sync page can carry 500 notes whose cached bodies we hold, and each revalidation is a
+ * whole-note GET plus a full-content IndexedDB write; unbounded fan-out froze the tab.
+ */
+const REVALIDATE_CONCURRENCY = 4;
+let revalidateQueue: Array<{ id: string; rev: number }> = [];
+let revalidateRunning = false;
+
+async function queueRevalidations(items: Array<{ id: string; rev: number }>, set: SetNotesState, get: () => NotesState): Promise<void> {
+    if (!items.length)
         return;
+    revalidateQueue.push(...items);
+    if (revalidateRunning)
+        return;
+    revalidateRunning = true;
+    try {
+        while (revalidateQueue.length) {
+            const batch = revalidateQueue.splice(0, REVALIDATE_CONCURRENCY);
+            await Promise.all(batch.map((item) => revalidateNote(item.id, item.rev, set, get)));
+        }
+    }
+    finally {
+        revalidateRunning = false;
+    }
+}
+
+function revalidateNote(id: string, rev: number, set: SetNotesState, get: () => NotesState): Promise<void> {
+    if (dirty.has(id) || validatedRevisions.get(id) === rev)
+        return Promise.resolve();
     validatedRevisions.set(id, rev);
-    void requestNote(id)
+    return requestNote(id)
         .then((note) => {
         validatedRevisions.set(id, note.rev);
         adoptNote(note, set, get);
@@ -1981,12 +2018,14 @@ function noteSummaryEqual(a: NoteSummary, b: NoteSummary): boolean {
         a.tags.every((tag, index) => tag === b.tags[index]));
 }
 function scheduleShellSave(get: () => NotesState): void {
-    const state = get();
-    localDb.scheduleShellSave({
-        notes: Object.values(state.notes),
-        folders: state.folders,
-        tags: state.tags,
-        cursor: state.cursor,
+    localDb.scheduleShellSave(() => {
+        const state = get();
+        return {
+            notes: state.notes,
+            folders: state.folders,
+            tags: state.tags,
+            cursor: state.cursor,
+        };
     });
 }
 function deletionCursorFrom(err: ApiError): number | null {

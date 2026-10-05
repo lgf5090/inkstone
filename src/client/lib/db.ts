@@ -31,9 +31,18 @@ interface ShellData {
   cursor: number
 }
 
+/** The store slices a shell snapshot is built from; identities decide whether to re-write. */
+interface ShellSources {
+  notes: Record<string, NoteSummary>
+  folders: Folder[]
+  tags: Tag[]
+  cursor: number
+}
+
 let shellSaveTimer = 0
-let pendingShell: ShellData | null = null
+let pendingShell: (() => ShellSources) | null = null
 let pendingShellUserId: string | null = null
+let lastSavedShell: ShellSources | null = null
 let activeUserId: string | null = null
 const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
 let forceUserNamespaces = false
@@ -222,16 +231,33 @@ export const localDb = {
     }
   },
 
-  scheduleShellSave(data: ShellData) {
-    pendingShell = data
+  /**
+   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per
+   * change used to cost ~1.9 ms even though the debounced write happens once.
+   */
+  scheduleShellSave(sources: () => ShellSources) {
+    pendingShell = sources
     pendingShellUserId = activeUserId
     window.clearTimeout(shellSaveTimer)
     shellSaveTimer = window.setTimeout(() => {
-      const snapshot = pendingShell
+      const build = pendingShell
       const userId = pendingShellUserId
       pendingShell = null
       pendingShellUserId = null
-      if (snapshot) void localDb.saveShell(snapshot, userId)
+      if (!build || !userId) return
+      const current = build()
+      if (lastSavedShell
+        && lastSavedShell.notes === current.notes
+        && lastSavedShell.folders === current.folders
+        && lastSavedShell.tags === current.tags
+        && lastSavedShell.cursor === current.cursor) return
+      lastSavedShell = current
+      void localDb.saveShell({
+        notes: Object.values(current.notes),
+        folders: current.folders,
+        tags: current.tags,
+        cursor: current.cursor,
+      }, userId)
     }, 1200)
   },
 
@@ -428,6 +454,7 @@ async function clearLocalData(): Promise<void> {
   shellSaveTimer = 0
   pendingShell = null
   pendingShellUserId = null
+  lastSavedShell = null
   await clearStore(store)
 }
 

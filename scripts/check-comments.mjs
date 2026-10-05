@@ -31,11 +31,16 @@ const allowed = new Map([
     "/** Decorations change presentation only; all editing, undo, search and saving use Markdown. */",
     "// Keep typing synchronous and cheap. Reparse after a short idle window; never",
     "// display stale HTML for a block whose source was touched in the meantime.",
+    "/**\n * Reparsing the whole document costs tens to hundreds of ms on big notes, so the idle\n * window widens with the document instead of reparsing on every keystroke pause.\n */",
+    "/** Text.toString() rebuilds the whole document, so reuse it while the doc is unchanged. */",
   ]],
   ["src/client/features/graph/GraphPanel.tsx", [
     "// Private browsing or a locked-down browser can reject local preferences.",
     "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
     "// Draw-only toggles just need one repaint.",
+  ]],
+  ["src/client/features/list/NoteList.tsx", [
+    "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
   ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
@@ -43,6 +48,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/shell/AppShell.tsx", [
     "// Keep settings prewarming out of the boot + first-sync window.",
+  ]],
+  ["src/client/features/sidebar/ExplorerNote.tsx", [
+    "// Every explorer row subscribes to several store slices; without memoising the row, a note",
+    "// change re-renders every visible row in the explorer.",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -54,6 +63,10 @@ const allowed = new Map([
   ]],
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
+  ]],
+  ["src/client/lib/db.ts", [
+    "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
+    "/**\n   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per\n   * change used to cost ~1.9 ms even though the debounced write happens once.\n   */",
   ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
@@ -75,6 +88,9 @@ const allowed = new Map([
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
     "// Keep the current document for fast reads; only slow reads need a loading page.",
     "// Loaded content keeps its revision until the full note arrives.",
+    "// Both split panes are on screen, and dirty notes hold unsent bodies: evicting any of",
+    "// them leaves that pane stuck on its loading skeleton.",
+    "/**\n * A sync page can carry 500 notes whose cached bodies we hold, and each revalidation is a\n * whole-note GET plus a full-content IndexedDB write; unbounded fan-out froze the tab.\n */",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",
