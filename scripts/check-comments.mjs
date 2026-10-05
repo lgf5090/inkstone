@@ -168,6 +168,8 @@ const allowed = new Map([
     "// `::::` set ends that inner block instead of truncating its parent.",
     "// A recognised directive opens a container; an unknown `::: name` still has to hold its",
     "// own closer, or a directive the renderer does not know would steal its parent's close.",
+    "// An empty target would render a box that resolves to nothing and shows nothing, so the",
+    "// author's text stays visible instead.",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
@@ -331,6 +333,7 @@ const allowed = new Map([
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
     "/** Fan-out above this size is deferred to the background rewrite queue. */",
+    "/**\n * Recompute the display-only columns from the note bodies, one keyset page per call.\n * `rev` and `content_hash` are matched in the guard but left alone: a rebuild is not an\n * edit, and bumping them would make every client re-download notes nobody changed.\n */",
   ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",

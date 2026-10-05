@@ -268,7 +268,9 @@ md.inline.ruler.before('image', 'note_embed', (state, silent) => {
     if (!state.src.startsWith('![[', state.pos))
         return false;
     const match = EMBED_RE.exec(state.src.slice(state.pos));
-    if (!match)
+    // An empty target would render a box that resolves to nothing and shows nothing, so the
+    // author's text stays visible instead.
+    if (!match || !match[1]!.trim())
         return false;
     if (!silent) {
         const token = state.push('note_embed', 'div', 0);
@@ -282,7 +284,7 @@ md.inline.ruler.before('link', 'wikilink', (state, silent) => {
     if (!state.src.startsWith('[[', state.pos))
         return false;
     const match = WIKI_RE.exec(state.src.slice(state.pos));
-    if (!match)
+    if (!match || !match[1]!.trim())
         return false;
     if (!silent) {
         const token = state.push('wikilink', 'a', 0);

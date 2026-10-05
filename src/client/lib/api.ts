@@ -343,6 +343,12 @@ export const api = {
     remove: (id: string) => request<Note>(`/api/notes/${id}`, { method: 'DELETE' }),
     restore: (id: string) => request<Note>(`/api/notes/${id}/restore`, { method: 'POST' }),
     purge: (id: string) => request<{ ok: true; cursor: number }>(`/api/notes/${id}/purge`, { method: 'DELETE' }),
+    rebuildDerived: (cursor: string | null) =>
+      request<{ ok: true; updated: number; nextCursor: string | null }>('/api/notes/rebuild-derived', {
+        method: 'POST',
+        body: { cursor },
+        timeoutMs: 30_000,
+      }),
     duplicate: (id: string, body: { id?: string } = {}) =>
       request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST', body }),
     emptyTrash: () => request<{ purged: number }>('/api/notes/trash/empty', { method: 'POST' }),

@@ -164,6 +164,12 @@ describe('colon container syntax tolerance', () => {
         expect(host.children).toHaveLength(1)
     })
 
+    it('keeps an empty embed or link visible instead of rendering nothing', () => {
+        expect(html('![[ ]]')).toContain('![[ ]]')
+        expect(html('[[ ]]')).toContain('[[ ]]')
+        expect(html('![[note]]')).toContain('data-embed-target')
+    })
+
     it('leaves an unknown colon directive alone', () => {
         expect(html('::: note T\nbody\n:::')).toContain('::: note T')
     })
