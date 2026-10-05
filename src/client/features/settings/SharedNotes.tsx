@@ -106,7 +106,7 @@ export function SharedNotes() {
   return <section>
     <div className="mb-2 flex items-center justify-between gap-2">
       <div>
-        <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('share.shared_notes')}</h3>
+        <h3 data-setting-title={t('share.shared_notes')} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('share.shared_notes')}</h3>
         <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">{t('share.shared_notes_description')}</p>
       </div>
       <Button size="sm" variant="ghost" icon={<RefreshCw size={13}/>} loading={refreshing} onClick={() => void load(true)} aria-label={t('share.refresh_list')} title={t('share.refresh_list')} />

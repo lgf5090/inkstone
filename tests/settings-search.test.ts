@@ -4,7 +4,7 @@ import ts from 'typescript'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
-import { getLocale, initI18n, t } from '../src/client/lib/i18n'
+import { getLocale, initI18n, setLocaleAsync, t } from '../src/client/lib/i18n'
 import { SETTINGS_SEARCH_INDEX, countBySection, searchSettings } from '../src/client/features/settings/settingsSearch'
 
 const featureRoot = resolve('src/client/features/settings')
@@ -20,9 +20,10 @@ function messageKeyOf(node: ts.Node | undefined): string | null {
   return null
 }
 
-function scanSources(): { rendered: Set<string>, translated: Set<string> } {
+function scanSources(): { rendered: Set<string>, translated: Set<string>, anchored: Set<string> } {
   const rendered = new Set<string>()
   const translated = new Set<string>()
+  const anchored = new Set<string>()
   for (const file of readdirSync(featureRoot).filter((name) => name.endsWith('.tsx'))) {
     const path = join(featureRoot, file)
     const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -39,18 +40,31 @@ function scanSources(): { rendered: Set<string>, translated: Set<string> } {
         for (const property of opening.attributes.properties) {
           if (!ts.isJsxAttribute(property) || property.name.getText(source) !== 'title')
             continue
-          const initializer = property.initializer
-          const expression = initializer && ts.isJsxExpression(initializer) ? initializer.expression : initializer
-          const key = messageKeyOf(expression)
+          const key = messageKeyOf(jsxExpression(property.initializer))
           if (key)
             rendered.add(key)
+        }
+      }
+      if (opening) {
+        for (const property of opening.attributes.properties) {
+          if (!ts.isJsxAttribute(property) || property.name.getText(source) !== 'data-setting-title')
+            continue
+          const key = messageKeyOf(jsxExpression(property.initializer))
+          if (key)
+            anchored.add(key)
         }
       }
       ts.forEachChild(node, visit)
     }
     visit(source)
   }
-  return { rendered, translated }
+  return { rendered, translated, anchored }
+}
+
+function jsxExpression(initializer: ts.JsxAttribute['initializer']): ts.Node | undefined {
+  if (!initializer)
+    return undefined
+  return ts.isJsxExpression(initializer) ? initializer.expression : initializer
 }
 
 const scanned = scanSources()
@@ -76,15 +90,35 @@ describe('settings search index', () => {
   })
 
   it('reaches every indexed setting through its own label', () => {
-    for (const entry of SETTINGS_SEARCH_INDEX) {
-      const label = t(entry.titleKey)
-      const found = searchSettings(label).some((hit) => hit.entry === entry)
-      expect(found, `${label} (${entry.titleKey}) is not reachable`).toBe(true)
-    }
+    const unreachable = SETTINGS_SEARCH_INDEX
+      .filter((entry) => !searchSettings(t(entry.titleKey)).some((hit) => hit.entry === entry))
+      .map((entry) => entry.titleKey)
+    expect(unreachable).toEqual([])
+  })
+
+  it('gives every indexed setting an element the jump can land on', () => {
+    const anchorless = SETTINGS_SEARCH_INDEX
+      .filter((entry) => !scanned.rendered.has(entry.titleKey) && !scanned.anchored.has(entry.titleKey))
+      .map((entry) => entry.titleKey)
+    expect(anchorless).toEqual([])
   })
 })
 
 describe('settings search matching', () => {
+  it('rebuilds its index when the language is switched', async () => {
+    const previous = getLocale()
+    const next = previous === 'en-US' ? 'zh-CN' : 'en-US'
+    try {
+      await setLocaleAsync(next, false)
+      const hit = searchSettings(t('settings.theme')).find((item) => item.entry.titleKey === 'settings.theme')
+      const expected = (next === 'zh-CN' ? ZH_CN_MESSAGES : EN_US_MESSAGES)['settings.theme']
+      expect(hit?.title).toBe(expected)
+    }
+    finally {
+      await setLocaleAsync(previous, false)
+    }
+  })
+
   it('returns nothing for a blank query', () => {
     expect(searchSettings('')).toEqual([])
     expect(searchSettings('   ')).toEqual([])

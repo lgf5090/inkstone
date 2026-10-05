@@ -22,7 +22,7 @@ export function AccountSettings() {
       <ProfileSection />
 
       <section>
-        <h3 className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+        <h3 data-setting-title={t("settings.sign_in_security")} className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
           {t("settings.sign_in_security")}
         </h3>
         <div className="space-y-2">
@@ -90,7 +90,7 @@ function ProfileSection() {
 
   return (
     <section>
-      <h3 className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+      <h3 data-setting-title={t('settings.personal_profile')} className="mb-2 px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
         {t('settings.personal_profile')}
       </h3>
       <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]">
@@ -198,6 +198,7 @@ function LogoutButton() {
       size="sm"
       variant="ghost"
       icon={<LogOut size={13} />}
+      data-setting-title={t("common.exit")}
       loading={busy}
       onClick={() => void run()}
     >

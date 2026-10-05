@@ -121,14 +121,14 @@ export function BackupSettings() {
             </div>
             <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{t("settings.each_backup_goes_independently_to_every_enabled_target_it_includes_notes")}</p>
           </div>
-          <Button size="sm" variant="primary" icon={running ? undefined : <Zap size={13}/>} loading={running} disabled={!enabled} onClick={() => void runBackup()}>{t("settings.back_up_now")}</Button>
+          <Button data-setting-title={t("settings.back_up_now")} size="sm" variant="primary" icon={running ? undefined : <Zap size={13}/>} loading={running} disabled={!enabled} onClick={() => void runBackup()}>{t("settings.back_up_now")}</Button>
         </div>
       </section>
 
       { }
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.backup_target")}</h3>
+          <h3 data-setting-title={t("settings.backup_target")} className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.backup_target")}</h3>
           <Button size="sm" variant="secondary" icon={<Plus size={13}/>} onClick={() => setEditing('new')}>{t("settings.add_target")}</Button>
         </div>
 
@@ -164,7 +164,7 @@ export function BackupSettings() {
 
       { }
       <section>
-        <h3 className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.latest_backups")}</h3>
+        <h3 data-setting-title={t("settings.latest_backups")} className="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.latest_backups")}</h3>
         {runs.length === 0 ? (<p className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-4 text-center text-[12px] text-[var(--text-quaternary)]">{t("settings.no_backup_record_yet")}</p>) : (<ul className="space-y-1">
             {runs.slice(0, 12).map((run) => (<RunRow key={run.id} run={run}/>))}
           </ul>)}

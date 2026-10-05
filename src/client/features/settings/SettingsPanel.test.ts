@@ -1,7 +1,9 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initI18n, t } from '../../lib/i18n'
+import { getLocale, initI18n, setLocaleAsync, t } from '../../lib/i18n'
+import { EN_US_MESSAGES } from '@shared/locales/en-US'
+import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
 import { SettingsPanel } from './SettingsPanel'
 import { settingsLoaders } from './sections'
 
@@ -180,6 +182,40 @@ describe('settings search', () => {
     await act(() => searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
     expect(searchInput().value).toBe('')
     expect(document.querySelector('[data-settings-target]')?.getAttribute('data-setting-title')).toBe(t('settings.theme'))
+  })
+
+  it('marks the section instead of spinning when the exact row is not rendered', async () => {
+    await act(() => root.render(createElement(SettingsPanel, { onClose: vi.fn() })))
+    const dialog = document.querySelector('[role="dialog"]')!
+    await typeQuery(t('settings.polling_interval'))
+    await act(() => (dialog.querySelector<HTMLButtonElement>('[data-settings-hit]')!).click())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    })
+    const page = dialog.querySelector('[data-settings-page="sync"]')!
+    expect(page.getAttribute('data-settings-target')).toBe('section')
+    expect(page.querySelector('[data-settings-target="row"]')).toBeNull()
+  })
+
+  it('recomputes the result list when the language changes while searching', async () => {
+    const original = getLocale()
+    await act(() => root.render(createElement(SettingsPanel, { onClose: vi.fn() })))
+    const dialog = document.querySelector('[role="dialog"]')!
+    await typeQuery(t('settings.theme'))
+    const first = () => dialog.querySelector('[data-settings-hit]')!.textContent!
+    expect(first()).toContain((original === 'zh-CN' ? ZH_CN_MESSAGES : EN_US_MESSAGES)['settings.theme'])
+    const next = original === 'en-US' ? 'zh-CN' : 'en-US'
+    try {
+      await act(async () => {
+        await setLocaleAsync(next, false)
+      })
+      expect(first()).toContain((next === 'zh-CN' ? ZH_CN_MESSAGES : EN_US_MESSAGES)['settings.theme'])
+    }
+    finally {
+      await act(async () => {
+        await setLocaleAsync(original, false)
+      })
+    }
   })
 
   it('clears the query on escape before it closes the panel', async () => {

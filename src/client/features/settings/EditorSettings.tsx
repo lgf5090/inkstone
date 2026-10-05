@@ -32,7 +32,7 @@ export function EditorSettings() {
       </section>
 
       <section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.writing_mode")}</h3>
+        <h3 data-setting-title={t("settings.writing_mode")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.writing_mode")}</h3>
 
         <SettingRow title={t("settings.typewriter_mode")} description={t("settings.keep_the_cursor_line_centered_on_screen")}>
           <Switch checked={editor.typewriter} onChange={(typewriter) => void update({ editor: { typewriter } })} label={t("settings.typewriter_mode")}/>

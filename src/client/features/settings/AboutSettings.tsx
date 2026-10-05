@@ -61,7 +61,7 @@ export function AboutSettings() {
               <UserRound size={11}/>@{user?.username}
             </div>
           </div>
-          <Button size="sm" variant="ghost" icon={<LogOut size={13}/>} loading={loggingOut} disabled={loggingOut} onClick={() => void exit()}>{t("common.exit")}</Button>
+          <Button data-setting-title={t("common.exit")} size="sm" variant="ghost" icon={<LogOut size={13}/>} loading={loggingOut} disabled={loggingOut} onClick={() => void exit()}>{t("common.exit")}</Button>
         </div>
         {user && (<p className="mt-2 px-1 text-[11.5px] text-[var(--text-quaternary)]">{t("settings.joined")}{fullTime(user.createdAt)}
           </p>)}
@@ -84,7 +84,7 @@ export function AboutSettings() {
       </section>
 
       {user?.role === 'owner' && (<section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.deployment_updates")}</h3>
+        <h3 data-setting-title={t("settings.deployment_updates")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.deployment_updates")}</h3>
         <SettingRow title={t("settings.current_version")}>
           <Badge>{updateInfo?.currentVersion ?? site?.version ?? '—'}</Badge>
         </SettingRow>
@@ -110,7 +110,7 @@ export function AboutSettings() {
       </section>)}
 
       {(installAvailable || installed || offlineStatus !== 'idle') && (<section>
-        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("pwa.app_installation")}</h3>
+        <h3 data-setting-title={t("pwa.app_installation")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("pwa.app_installation")}</h3>
         {(installAvailable || installed) && (<SettingRow title={t("pwa.install_inkstone")} description={t("pwa.install_description")}>
             {installed
                 ? <Badge tone="success">{t("pwa.installed")}</Badge>
@@ -143,10 +143,11 @@ export function AboutSettings() {
           </span>
           <div>
             <div className="text-[13px] font-semibold">{t("common.product_name")}</div>
-            <div className="text-[11.5px] text-[var(--text-quaternary)]">{t("settings.version")} {site?.version ?? '—'}</div>
+            <div data-setting-title={t("settings.version")} className="text-[11.5px] text-[var(--text-quaternary)]">{t("settings.version")} {site?.version ?? '—'}</div>
           </div>
         </div>
         <a
+          data-setting-title={t("common.github")}
           href={GITHUB_REPOSITORY_URL}
           target="_blank"
           rel="noopener noreferrer"

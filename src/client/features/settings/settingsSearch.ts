@@ -1,5 +1,5 @@
 import { fuzzyMatch } from '../../lib/fuzzy'
-import { localizedTexts, t, type MessageKey } from '../../lib/i18n'
+import { getLocale, getLocaleResources, localizedTexts, t, type MessageKey } from '../../lib/i18n'
 import { SECTION_LABEL_KEYS, type SettingsSection } from './sections'
 
 export type SettingsSearchEntry = {
@@ -71,7 +71,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'account', titleKey: 'settings.sign_in_security', termKeys: ['settings.totp_enable', 'settings.totp_disable'] },
   { section: 'account', titleKey: 'settings.totp_title', termKeys: ['settings.totp_authenticator_code', 'settings.current_password'] },
   { section: 'account', titleKey: 'common.open_registration', termKeys: ['settings.registration_open', 'settings.registration_closed'] },
-  { section: 'account', titleKey: 'common.log_out' },
+  { section: 'account', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
 
   { section: 'data', titleKey: 'settings.overview', termKeys: ['settings.total_words', 'settings.version_history'] },
   { section: 'data', titleKey: 'attachments.manage', detailKey: 'attachments.manage_description' },
@@ -95,12 +95,25 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'about', titleKey: 'pwa.install_inkstone', detailKey: 'pwa.install_description', termKeys: ['pwa.install'] },
   { section: 'about', titleKey: 'pwa.complete_offline_access' },
   { section: 'about', titleKey: 'common.github', termKeys: ['settings.open_github_repository', 'settings.open_official_repository'] },
+  { section: 'about', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
 ]
 
 const MAX_HITS = 80
 const TIER_SECTION = 1
 const TIER_TERM = 2
 const TIER_TITLE = 3
+
+type PreparedEntry = {
+  entry: SettingsSearchEntry
+  title: string
+  detail: string
+  titles: string[]
+  extras: string[]
+  sectionText: string[]
+}
+
+let prepared: PreparedEntry[] | null = null
+let preparedKey = ''
 
 function lowerVariants(key: MessageKey): string[] {
   return localizedTexts(key).map((value) => value.toLowerCase())
@@ -114,22 +127,43 @@ function bestTier(term: string, titles: string[], extras: string[], sectionText:
   return sectionText.some((value) => value.includes(term)) ? TIER_SECTION : 0
 }
 
+function prepareIndex(): PreparedEntry[] {
+  const key = `${getLocale()}:${getLocaleResources()}`
+  if (prepared && preparedKey === key)
+    return prepared
+  preparedKey = key
+  const sectionTexts = new Map<SettingsSection, string[]>()
+  prepared = SETTINGS_SEARCH_INDEX.map((entry) => {
+    let sectionText = sectionTexts.get(entry.section)
+    if (!sectionText) {
+      sectionText = lowerVariants(SECTION_LABEL_KEYS[entry.section])
+      sectionTexts.set(entry.section, sectionText)
+    }
+    return {
+      entry,
+      title: t(entry.titleKey),
+      detail: entry.detailKey ? t(entry.detailKey) : '',
+      titles: lowerVariants(entry.titleKey),
+      extras: [
+        ...(entry.detailKey ? lowerVariants(entry.detailKey) : []),
+        ...(entry.termKeys ?? []).flatMap(lowerVariants),
+      ],
+      sectionText,
+    }
+  })
+  return prepared
+}
+
 export function searchSettings(query: string): SettingsSearchHit[] {
   const terms = query.trim().toLowerCase().replace(/\s+/g, ' ').split(' ').filter(Boolean)
   if (!terms.length)
     return []
   const needle = terms.join(' ')
   const hits: SettingsSearchHit[] = []
-  for (const entry of SETTINGS_SEARCH_INDEX) {
-    const titles = lowerVariants(entry.titleKey)
-    const extras = [
-      ...(entry.detailKey ? lowerVariants(entry.detailKey) : []),
-      ...(entry.termKeys ?? []).flatMap(lowerVariants),
-    ]
-    const sectionText = lowerVariants(SECTION_LABEL_KEYS[entry.section])
+  for (const item of prepareIndex()) {
     let tier = TIER_TITLE + 1
     for (const term of terms) {
-      const found = bestTier(term, titles, extras, sectionText)
+      const found = bestTier(term, item.titles, item.extras, item.sectionText)
       if (!found) {
         tier = 0
         break
@@ -138,12 +172,11 @@ export function searchSettings(query: string): SettingsSearchHit[] {
     }
     if (!tier)
       continue
-    const title = t(entry.titleKey)
-    const match = fuzzyMatch(title, needle)
+    const match = fuzzyMatch(item.title, needle)
     hits.push({
-      entry,
-      title,
-      detail: entry.detailKey ? t(entry.detailKey) : '',
+      entry: item.entry,
+      title: item.title,
+      detail: item.detail,
       score: tier * 1000 + (match ? match.score : 0),
       ranges: match ? match.ranges : [],
     })

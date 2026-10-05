@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BrainCircuit, Cloud, Database, Info, Keyboard, Link2, Palette, RefreshCw, Search, Type, UserRound, X, } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
@@ -12,7 +12,7 @@ import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { AppearanceSettings } from './AppearanceSettings';
 import { useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
-import { useLocaleResources } from '../../lib/i18n';
+import { useLocale, useLocaleResources } from '../../lib/i18n';
 import { UI_STORAGE_KEY } from '../../lib/runtime';
 import { scheduleSettingsWarmup, settingsLoaders, warmSettingsSection, type SettingsSection } from './sections';
 import { countBySection, searchSettings, type SettingsSearchHit } from './settingsSearch';
@@ -70,9 +70,11 @@ export function SettingsPanel({ onClose }: {
         page: Section;
         title: string;
     } | null>(null);
-    useLocaleResources();
+    const locale = useLocale();
+    const resources = useLocaleResources();
+    const deferredQuery = useDeferredValue(query);
     const searching = query.trim().length > 0;
-    const hits = useMemo(() => searchSettings(query), [query]);
+    const hits = useMemo(() => searchSettings(deferredQuery), [deferredQuery, locale, resources]);
     const counts = useMemo(() => countBySection(hits), [hits]);
     const groups = useMemo(() => SECTIONS
       .map((item) => ({ item, rows: hits.filter((hit) => hit.entry.section === item.id) }))
@@ -113,6 +115,12 @@ export function SettingsPanel({ onClose }: {
             return;
         let timer = 0;
         let tries = 0;
+        const flash = (node: HTMLElement, kind: string, scroll: boolean) => {
+            if (scroll)
+                node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            node.dataset.settingsTarget = kind;
+            window.setTimeout(() => { delete node.dataset.settingsTarget; }, 1600);
+        };
         const attempt = () => {
             const page = panelRef.current?.querySelector<HTMLElement>(`[data-settings-page="${target.page}"]`);
             const row = page
@@ -120,14 +128,16 @@ export function SettingsPanel({ onClose }: {
                     .find((node) => node.dataset.settingTitle === target.title)
                 : null;
             if (row) {
-                row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                row.dataset.settingsTarget = '';
-                window.setTimeout(() => { delete row.dataset.settingsTarget; }, 1600);
+                flash(row, 'row', true);
                 setTarget(null);
                 return;
             }
             tries += 1;
-            if (tries > 40) {
+            const settled = page
+                && (page.querySelector('[data-setting-title]') || page.querySelector('[role="alert"]'));
+            if (settled || tries > 40) {
+                if (page)
+                    flash(page, 'section', false);
                 setTarget(null);
                 return;
             }
