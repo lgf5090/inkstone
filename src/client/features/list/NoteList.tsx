@@ -135,7 +135,6 @@ export function NoteList() {
         })];
     }, [notes, deferredFilter, searchList, remote, allNotes]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
-    const filteredPositions = useMemo(() => new Map(filteredIds.map((id, index) => [id, index + 1])), [filteredIds]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
     const itemHeight = density === 'compact' ? 42 : 72;
@@ -146,6 +145,11 @@ export function NoteList() {
     const bottomSpacerHeight = Math.max(0, (filtered.length - endIndex) * itemHeight);
     const rendered = useMemo(() => isVirtual ? filtered.slice(safeStartIndex, endIndex) : filtered, [filtered, isVirtual, safeStartIndex, endIndex]);
     const renderedIds = useMemo(() => new Set(rendered.map((item) => item.note.id)), [rendered]);
+    // Only rendered rows ask for their position, so the map covers the window instead of
+    // allocating one entry per note on every filter change.
+    const filteredPositions = useMemo(
+        () => new Map(rendered.map((item, index) => [item.note.id, safeStartIndex + index + 1])),
+        [rendered, safeStartIndex]);
     const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', nowMinute, filtered.some((i) => i.note.isPinned)), [rendered, sort, view, locale, nowMinute, filtered]);
     useEffect(() => {
         setStartIndex(0);

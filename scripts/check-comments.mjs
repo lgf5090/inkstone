@@ -43,6 +43,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/list/NoteList.tsx", [
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
+    "// Only rendered rows ask for their position, so the map covers the window instead of",
+    "// allocating one entry per note on every filter change.",
   ]],
   ["src/client/features/preview/Outline.tsx", [
     "// One pass per layout change instead of one querySelector + one layout read per",
@@ -120,6 +122,9 @@ const allowed = new Map([
     "// the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and",
     "// re-ran a full pull. One reclaim per minute still takes over after the leader closes.",
   ]],
+  ["src/client/store/notes.test.ts", [
+    "// One write for the 500 optimistic patches, one for the folder removal itself.",
+  ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
     "// Keep the current document for fast reads; only slow reads need a loading page.",
@@ -137,6 +142,9 @@ const allowed = new Map([
     "// doing it per item cost K reads and K clones of an array that itself grows with K.",
     "// Alt-Tab storms used to rewrite the whole shell + outbox on every focus change. The",
     "// debounced timer still covers the tab while it is open, and pagehide stays immediate.",
+    "/**\n * One Record copy and one shell save for a whole batch of optimistic patches. Deleting a\n * folder with 500 notes used to copy the full notes map once per note (3.0 ms each, so\n * 1.5–2.4 s of blocked main thread) before the request even started.\n */",
+    "// `folders` only takes part in the folder view; without this the whole list re-derives",
+    "// whenever a folder is renamed, reordered or created.",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",

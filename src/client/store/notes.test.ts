@@ -49,6 +49,28 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
+it('moves every note of a deleted folder in a single store write', async () => {
+  const many = Object.fromEntries(Array.from({ length: 500 }, (_, index) => {
+    const id = `bulk-${index}`
+    return [id, { ...note, id, title: id, folderId: 'folder-a' }]
+  }))
+  useNotes.setState({
+    notes: many,
+    folders: [{ id: 'folder-a', parentId: 'folder-b', name: 'A', icon: null, color: null,
+      position: 0, createdAt: 1, updatedAt: 1 } as any],
+  })
+  let notifications = 0
+  const unsubscribe = useNotes.subscribe(() => { notifications++ })
+  const written: Array<string> = []
+  mocks.patch.mockImplementation(async (id: string) => { written.push(id); return many[id] })
+  expect(useNotes.getState().deleteFolder('folder-a')).toBe(true)
+  unsubscribe()
+  // One write for the 500 optimistic patches, one for the folder removal itself.
+  expect(notifications).toBeLessThanOrEqual(2)
+  const after = useNotes.getState().notes
+  expect(Object.values(after).every((item) => item.folderId === 'folder-b')).toBe(true)
+})
+
 it('keeps the loaded content revision until remote content arrives', async () => {
   let resolve!: (value: Note) => void
   mocks.get.mockImplementation(() => new Promise<Note>((done) => { resolve = done }))
