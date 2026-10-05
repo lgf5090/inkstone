@@ -74,8 +74,10 @@ const allowed = new Map([
     "// A downloaded .html has no CSP around it and is often opened away from the instance,",
     "// so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.",
     "// The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),",
-    "// which needs scripts; an exported or printed document has none, so both have to be",
-    "// rendered here. `false` because the exported page is always the light scheme.",
+    "// which needs scripts; an exported or printed document has none, so all three have to",
+    "// be resolved here. Embeds go first because their expanded bodies carry their own",
+    "// placeholders, and they are filled by the same passes over the whole document.",
+    "// `false` because the exported page is always the light scheme.",
   ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
@@ -296,6 +298,8 @@ const allowed = new Map([
     "// Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so",
     "// pin the import itself: the bundled copy, inlined, is the only source allowed here.",
     "// the SVG keeps its own styles, which is all the printed page needs to paint it",
+    "// the embed pass has to run before the math pass, or the formula inside the expanded",
+    "// body stays blank (the section itself also stays in the document, as transclusion does)",
   ]],
   ["tests/fts-tenant-index.test.ts", [
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",

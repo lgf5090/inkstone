@@ -1,5 +1,6 @@
 import { renderMarkdown } from './markdown/renderer'
 import { renderMath, renderPendingMermaid } from './markdown/enhance'
+import { resolveNoteEmbeds } from './markdown/embeds'
 // Inlined so the print frame carries its own math styles: the frame inherits this
 // document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
 // refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.
@@ -34,12 +35,12 @@ export function exportNoteAsMarkdown(note: { title: string; content: string }): 
 }
 
 export async function exportNoteAsHtml(note: { title: string; content: string }, language: string): Promise<void> {
-  const { body, hasMath } = await prepareExportBody(note.content)
+  const { body, hasMath } = await prepareExportBody(note)
   downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language, hasMath ? CDN_MATH_STYLESHEET : ''), 'text/html;charset=utf-8')
 }
 
 export async function exportNoteAsPdf(note: { title: string; content: string }, language: string): Promise<void> {
-  const { body, hasMath } = await prepareExportBody(note.content)
+  const { body, hasMath } = await prepareExportBody(note)
   await printHtml(htmlDocument(note.title, body, language, hasMath ? INLINE_MATH_STYLESHEET : ''))
 }
 
@@ -81,13 +82,16 @@ async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
   })
 }
 
-async function prepareExportBody(source: string): Promise<{ body: string; hasMath: boolean }> {
-  const rendered = renderMarkdown(source)
+async function prepareExportBody(note: { title: string; content: string }): Promise<{ body: string; hasMath: boolean }> {
+  const rendered = renderMarkdown(note.content)
   const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
   await inlinePrivateImages(doc)
   // The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),
-  // which needs scripts; an exported or printed document has none, so both have to be
-  // rendered here. `false` because the exported page is always the light scheme.
+  // which needs scripts; an exported or printed document has none, so all three have to
+  // be resolved here. Embeds go first because their expanded bodies carry their own
+  // placeholders, and they are filled by the same passes over the whole document.
+  // `false` because the exported page is always the light scheme.
+  await resolveNoteEmbeds(doc.body, { currentContent: note.content, currentTitle: note.title })
   await renderMath(doc)
   await renderPendingMermaid(doc, false)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
@@ -175,6 +179,10 @@ details[open] summary { margin-bottom: 0.4em; }
 .callout-title { font-weight: 600; margin-bottom: 0.25em; }
 .callout-content > :first-child { margin-top: 0; }
 .callout-content > :last-child { margin-bottom: 0; }
+.note-embed { display: block; margin: 0.9em 0; overflow: hidden; border: 1px solid #e5e7eb; border-left: 3px solid #6b7280; border-radius: 8px; background: #f9fafb; }
+.note-embed-head { display: block; padding: 0.42em 0.75em; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-size: 0.86em; font-weight: 600; }
+.note-embed-body { display: block; padding: 0.7em 0.8em 0.05em; }
+.note-embed-body > :last-child { margin-bottom: 0.65em; }
 .footnote-ref { font-size: 0.8em; }
 .footnotes { font-size: 0.9em; color: #4b5563; border-top: 1px solid #e5e7eb; margin-top: 1.5em; padding-top: 0.75em; }
 kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; border-radius: 4px; padding: 0.08em 0.35em; font-family: ui-monospace, monospace; font-size: 0.85em; }

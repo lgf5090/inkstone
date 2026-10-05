@@ -159,3 +159,27 @@ it('draws the note’s diagram into the printed document instead of a spinner', 
   expect(html).not.toContain('aria-busy="true"')
   expect(html).not.toContain('mermaid-block loading')
 })
+
+const EMBED_BODY = [
+  '# Outer',
+  '',
+  'lead paragraph',
+  '',
+  '![[#Target Section]]',
+  '',
+  '## Target Section',
+  '',
+  'EMBEDDED-MARKER with math $a^2$',
+].join('\n')
+
+it('expands a transclusion into the printed document instead of a spinner', async () => {
+  const { html } = await capturePrint(EMBED_BODY)
+  expect(html).toContain('EMBEDDED-MARKER')
+  expect(html).toContain('note-embed ready')
+  expect(html).not.toContain('aria-busy="true"')
+  expect(html).not.toContain('note-embed loading')
+  // the embed pass has to run before the math pass, or the formula inside the expanded
+  // body stays blank (the section itself also stays in the document, as transclusion does)
+  const fromBody = html.slice(html.indexOf('note-embed-body'))
+  expect(fromBody.slice(0, fromBody.indexOf('</div>'))).toContain('class="katex"')
+})
