@@ -29,10 +29,36 @@ export function duplicateNoteTitle(
   return truncateText(base, Math.max(0, maxLength - normalizedSuffix.length)) + normalizedSuffix
 }
 
-const utf8Encoder = new TextEncoder()
-
+/**
+ * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and
+ * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's
+ * U+FFFD replacement.
+ */
 export function utf8ByteLength(value: string): number {
-  return utf8Encoder.encode(value).byteLength
+  let total = 0
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code < 0x80) {
+      total += 1
+    }
+    else if (code < 0x800) {
+      total += 2
+    }
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        total += 4
+        index++
+      }
+      else {
+        total += 3
+      }
+    }
+    else {
+      total += 3
+    }
+  }
+  return total
 }
 
 function clampIndex(value: number, length: number): number {

@@ -22,6 +22,10 @@ const allowed = new Map([
     "// Highlighting removed: no code languages are loaded.",
     "// Kept as empty array so the editor behaves as plain Markdown without syntax colors.",
   ]],
+  ["src/client/editor/commands.ts", [
+    "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
+    "// themselves fence markers.",
+  ]],
   ["src/client/editor/live-preview.ts", [
     "// Preserve the source line under the pointer, including rows inside tables/lists.",
     "/** Decorations change presentation only; all editing, undo, search and saving use Markdown. */",
@@ -58,6 +62,9 @@ const allowed = new Map([
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",
     "/** Parse once with the full document environment so reference links retain their targets. */",
+    "// A line with neither marker cannot change state, so rebuild-by-character is pure",
+    "// overhead. The inComment test must stay: inside an open %% block the loop below",
+    "// blanks the line instead of copying it.",
   ]],
   ["src/client/lib/sync.ts", [
     "/**\n   * Applies live setting changes (realtime toggle, poll interval) without\n   * tearing down the engine, its WebSocket, or its leadership claim.\n   */",
@@ -93,6 +100,12 @@ const allowed = new Map([
     "// so references inside them count even though stripCodeRegions discards",
     "// them as ordinary code regions.",
     "// A closing fence may only be followed by spaces or tabs.",
+    "/** Code point count without materialising `[...text]`, which costs one array slot per character. */",
+    "// The CJK ranges are all BMP, so scanning UTF-16 units matches the per-code-point test",
+    "// while surrogate pairs (which decode outside those ranges) stay uncounted either way.",
+  ]],
+  ["src/shared/text-utils.ts", [
+    "/**\n * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and\n * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's\n * U+FFFD replacement.\n */",
   ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
@@ -204,6 +217,10 @@ const allowed = new Map([
   ["src/worker/routes/mcp-settings.ts", [
     "// Kick off the first batch immediately; the rest is drained by the cron.",
   ]],
+  ["src/worker/routes/notes.ts", [
+    "// One lower() copy and one instr per row: SQLite does not share the repeated",
+    "// lower(n.content) subexpression across the three references below.",
+  ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",
     "// full snapshot page chain; keep serving snapshot pages regardless of",
@@ -220,6 +237,14 @@ const allowed = new Map([
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
     "// tenant phrase filter runs inside the inverted index, not as an UNINDEXED",
     "// post-scan.",
+  ]],
+  ["tests/markdown-text-hotpaths.test.ts", [
+    "// Reference implementations kept from before the fast paths landed: these lock P2-01 /",
+    "// P2-02 / P2-20 as behaviour-preserving. Code points are written numerically so ranges",
+    "// cannot drift, and range boundaries are sampled on purpose.",
+    "// CJK range boundaries: 2E80/9FFF and F900/FAFF are counted, neighbours are not.",
+    "// A multi-line comment body carries no marker on its own lines, so those lines must",
+    "// still be blanked by the inComment branch rather than passed through.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",
