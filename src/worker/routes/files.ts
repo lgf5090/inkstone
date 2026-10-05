@@ -223,7 +223,7 @@ filesRoutes.get('/:id', async (c) => {
 
   const etag = `"${row.sha256}"`
   const ifNoneMatch = c.req.header('if-none-match')
-  if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === row.sha256)) {
+  if (ifNoneMatch && matchesETag(ifNoneMatch, row.sha256)) {
     return new Response(null, {
       status: 304,
       headers: {
@@ -446,3 +446,11 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
   })
   return c.json({ removed, freedBytes, cleanupPending: cleanup.pending })
 })
+
+export function matchesETag(header: string, tag: string): boolean {
+  const cleanTarget = tag.replace(/^W\//i, '').replace(/^"|"$/g, '')
+  return header.split(',').some((item) => {
+    const trimmed = item.trim().replace(/^W\//i, '').replace(/^"|"$/g, '')
+    return trimmed === '*' || trimmed === cleanTarget
+  })
+}

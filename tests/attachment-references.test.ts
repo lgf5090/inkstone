@@ -2,6 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { collectAttachmentReferences } from '../src/worker/attachments/references'
+import { matchesETag } from '../src/worker/routes/files'
 
 const currentId = '00000000000000000000000001'
 const historicalId = '00000000000000000000000002'
@@ -52,4 +53,14 @@ it('finds historical references beyond the first page and filters candidate IDs'
   expect([...references.keys()]).toEqual([historicalId])
   sqlite.prepare('DELETE FROM note_versions WHERE user_id = ?').run('user')
   expect((await collectAttachmentReferences(db, 'user')).has(historicalId)).toBe(false)
+})
+
+it('matches etag across direct, weak, wildcard, and comma-delimited headers', () => {
+  const hash = 'a6b3f7'
+  expect(matchesETag('"a6b3f7"', hash)).toBe(true)
+  expect(matchesETag('a6b3f7', hash)).toBe(true)
+  expect(matchesETag('W/"a6b3f7"', hash)).toBe(true)
+  expect(matchesETag('*', hash)).toBe(true)
+  expect(matchesETag('"other", W/"a6b3f7"', hash)).toBe(true)
+  expect(matchesETag('"other", "different"', hash)).toBe(false)
 })
