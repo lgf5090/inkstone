@@ -5,7 +5,7 @@ import type { Env, Variables } from '../env'
 import { rowToUser, USER_COLUMNS } from '../middleware/auth'
 import { KEY_REGISTRATION_OPEN } from './instance-settings'
 
-export async function buildSiteInfo(env: Env): Promise<SiteInfo> {
+export async function buildSiteInfo(env: Env, detailed = true): Promise<SiteInfo> {
   const [initializedResult, registrationResult] = await env.DB.batch([
     env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`),
     env.DB.prepare(`SELECT value FROM app_meta WHERE key = ?1`).bind(KEY_REGISTRATION_OPEN),
@@ -16,11 +16,11 @@ export async function buildSiteInfo(env: Env): Promise<SiteInfo> {
     name: env.APP_NAME || 'Inkstone',
     initialized: (row?.n ?? 0) > 0,
     registrationOpen: registration?.value === '1',
-    r2Enabled: Boolean(env.FILES),
-    kvEnabled: Boolean(env.FILES_KV),
-    attachmentStorage: selectAttachmentStorage(env),
-    realtimeEnabled: Boolean(env.SYNC_HUB),
-    version: APP_VERSION,
+    r2Enabled: detailed ? Boolean(env.FILES) : false,
+    kvEnabled: detailed ? Boolean(env.FILES_KV) : false,
+    attachmentStorage: detailed ? selectAttachmentStorage(env) : null,
+    realtimeEnabled: detailed ? Boolean(env.SYNC_HUB) : false,
+    ...(detailed ? { version: APP_VERSION } : {}),
   }
 }
 

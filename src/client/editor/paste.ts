@@ -2,6 +2,7 @@ import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { truncateText } from '@shared/text-utils';
 import { t } from "../lib/i18n";
+import { randomLocalId } from '../lib/random-id';
 
 
 export interface PasteHandlers {
@@ -150,9 +151,7 @@ function safeHtmlComment(value: string): string {
     return truncateText(value.replace(/[\r\n<>]+/g, ' ').replace(/--+/g, '\u2014'), 240);
 }
 function uploadId(): string {
-    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return randomLocalId();
 }
 function looksLikeMarkdown(text: string | undefined): boolean {
     if (!text)

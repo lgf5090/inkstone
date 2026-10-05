@@ -1,3 +1,5 @@
+import { LIMITS } from '@shared/constants'
+
 export const KEEP_CURRENT_EXPIRY = 'current'
 
 export function expiresInForSelection(selection: string): number | null | undefined {
@@ -15,7 +17,7 @@ export function needsNewSharePasscode(
   if (!alreadyProtected && passcode.length === 0) return true
   // A new or replaced passcode must be at least 8 characters (the server
   // enforces the same minimum); short codes are trivially brute-forced.
-  return passcode.length > 0 && passcode.length < 8
+  return passcode.length > 0 && passcode.length < SHARE_PASSCODE_MIN_LENGTH
 }
 
-export const SHARE_PASSCODE_MIN_LENGTH = 8
+export const SHARE_PASSCODE_MIN_LENGTH = LIMITS.sharePasscodeMinLength

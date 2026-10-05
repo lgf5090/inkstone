@@ -56,10 +56,29 @@ Every new account automatically receives two standard starter notes, one in Chin
 2. Open [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create).
 3. Select **Continue with GitHub**, then choose your forked repository.
 4. For R2 mode, set the build command to `npm run build` and the deploy command to `npm run deploy`.
-   - To use KV mode, change the deploy command to `npm run deploy:kv`.
-5. After deployment completes, open the generated Workers URL.
+   - To use KV mode, change the build command to `npm run build:kv` and the deploy command to
+     `npm run deploy:kv`. KV mode deploys a separate Worker named `inkstone-kv`; if you switch
+     an existing deployment to it, re-attach your custom domain and routes to that Worker.
+5. Create the D1 database (and, for KV mode, the KV namespace) in your account and put their
+   ids in `[[d1_databases]] binding = "DB" ... database_id = "<id>"` and
+   `[[kv_namespaces]] ... id = "<id>"` in the matching tracked config — `wrangler.toml` for
+   R2 mode, `wrangler.kv.toml` for KV mode. The deployed config under `dist/` is rewritten on
+   every build, so the tracked file is the only place the ids survive. Check the result with
+   `npm run deploy:check` before deploying.
+6. Before you open the generated Workers URL, decide who may claim the instance. A fresh
+   deployment has no accounts, so the first registration becomes the owner. On any URL that is
+   reachable from the internet — including the free `*.workers.dev` address you get until you
+   attach a domain — set the bootstrap secret first:
 
-Existing databases are upgraded automatically through versioned, idempotent migrations. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
+   ```bash
+   npx wrangler secret put SETUP_TOKEN   # at least 16 characters
+   npx wrangler secret put DO_AUTH_KEY   # optional: guards the two Durable Objects
+   ```
+
+   Then register, and the console asks for the setup token. See `SECURITY.md` for the rest of
+   the deployment notes, and keep a backup before updating any self-hosted instance.
+
+Existing databases are upgraded automatically on startup with idempotent schema changes. Keep a current backup before updating any self-hosted deployment. When a newer stable Inkstone release is available, the owner receives a focused reminder without interrupting regular members.
 
 ## Exports and backups
 

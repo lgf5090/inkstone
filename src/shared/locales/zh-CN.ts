@@ -90,6 +90,7 @@ export const ZH_CN_MESSAGES = {
     "auth.authenticator_code": "验证器验证码",
     "auth.back_to_password": "返回密码登录",
     "auth.enter_a_username_and_password": "请输入用户名和密码",
+    "auth.setup_token": "初始化令牌",
     "auth.enter_authenticator_code": "请输入验证器应用中的 6 位验证码",
     "auth.enter_recovery_code": "请输入一枚恢复码",
     "auth.live_split_view_markdown_preview_realtime_multi_device_sync_multiple_web": "Markdown 分屏实时预览 · 多端实时同步 · 多路 WebDAV / S3 备份",

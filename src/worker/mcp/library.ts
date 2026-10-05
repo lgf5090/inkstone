@@ -1,6 +1,7 @@
 import { LIMITS } from '@shared/constants'
 import { parseFrontMatter } from '@shared/markdown-utils'
-import { organizerColorOrNull } from '@shared/organizer-colors'
+import { sharePasscodeProblem } from '@shared/share-passcode'
+import { normalizeOrganizerIcon, organizerColorOrNull } from '@shared/organizer-colors'
 import type { BackupRun } from '@shared/types'
 import { stringify as stringifyYaml } from 'yaml'
 import { readAttachmentObject, readAttachmentObjectRange } from '../attachments/backend'
@@ -8,6 +9,7 @@ import { drainAttachmentCleanup } from '../attachments/cleanup'
 import { attachmentCleanupTarget, attachmentObjectKey, type AttachmentObjectStorage } from '../attachments/keys'
 import { persistAttachmentWithinQuota } from '../attachments/storage'
 import { runBackup } from '../backup/engine'
+import { assertOrganizerQuota } from '../db/quota'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { fromBase64, sha256Hex, toBase64 } from '../lib/encoding'
@@ -252,6 +254,7 @@ export async function createMcpFolder(
     execute: async () => {
       const name = normalizeFolderName(input.name)
       await validateFolderParent(context.env.DB, context.userId, input.parentId ?? null)
+      await assertOrganizerQuota(context.env.DB, context.userId, 'folder')
       const collision = await context.env.DB.prepare(`SELECT 1 FROM folders WHERE id = ?1`)
         .bind(id).first()
       if (collision) throw ApiError.conflict('This folder id is already in use')
@@ -265,7 +268,15 @@ export async function createMcpFolder(
               WHERE id = ?3 AND user_id = ?2 AND deleted_at IS NULL))
             AND NOT EXISTS (SELECT 1 FROM folders
               WHERE user_id = ?2 AND parent_id IS ?3 AND lower(name) = lower(?4) AND deleted_at IS NULL)`,
-      ).bind(id, context.userId, input.parentId ?? null, name, input.icon ?? null, input.color ?? null, now).run()
+      ).bind(
+        id,
+        context.userId,
+        input.parentId ?? null,
+        name,
+        normalizeOrganizerIcon(input.icon),
+        organizerColorOrNull(input.color),
+        now,
+      ).run()
       if (!inserted.meta.changes) throw ApiError.conflict('A sibling folder already uses this name')
       await recordChange(context, 'folder', id, 'upsert', now)
       return (await loadFolderOrNull(context.env.DB, context.userId, id))!
@@ -295,6 +306,7 @@ export async function createMcpTag(
     },
     execute: async () => {
       const name = normalizeTagName(input.name)
+      await assertOrganizerQuota(context.env.DB, context.userId, 'tag')
       const now = Date.now()
       const inserted = await context.env.DB.prepare(
         `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)
@@ -491,8 +503,8 @@ export async function updateMcpFolder(
       ).bind(
         parentId,
         name,
-        input.icon === undefined ? current.icon : input.icon,
-        input.color === undefined ? current.color : input.color,
+        input.icon === undefined ? current.icon : normalizeOrganizerIcon(input.icon),
+        input.color === undefined ? current.color : organizerColorOrNull(input.color),
         now,
         input.folderId,
         context.userId,
@@ -1036,12 +1048,8 @@ export async function createMcpShare(
   },
 ) {
   await requireOwnedNote(context.env.DB, context.userId, input.noteId)
-  if (typeof input.password === 'string' && input.password.length > LIMITS.passwordMaxLength) {
-    throw ApiError.badRequest(`The access password must not exceed ${LIMITS.passwordMaxLength} characters`)
-  }
-  if (typeof input.password === 'string' && input.password.length > 0 && input.password.length < 4) {
-    throw ApiError.badRequest('The access password must be at least 4 characters')
-  }
+  const passcodeProblem = sharePasscodeProblem(input.password)
+  if (passcodeProblem) throw ApiError.badRequest(passcodeProblem)
   return runIdempotent({
     db: context.env.DB,
     userId: context.userId,

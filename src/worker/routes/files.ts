@@ -40,6 +40,14 @@ interface AttachmentRow {
   created_at: number
 }
 
+// Anonymous share reads get a tighter work budget than the delete/backup paths:
+// an unfinished scan here only withholds one asset, which is the safe direction.
+const SHARE_ASSET_SCAN_LIMITS = { maxDepth: 2, maxChars: 200_000 }
+
+function readShareAttachmentIds(content: string): string[] {
+  return extractAttachmentIds(content, SHARE_ASSET_SCAN_LIMITS)
+}
+
 const ATTACHMENT_LIST_PAGE_SIZE = 500
 const ATTACHMENT_SCAN_PAGE_SIZE = 100
 
@@ -209,7 +217,7 @@ filesRoutes.get('/:id', async (c) => {
       .first<{ slug: string; password_hash: string | null; content: string }>()
     allowed = Boolean(
       share &&
-        (share.content.includes(row.id) && extractAttachmentIds(share.content).includes(row.id)) &&
+        (share.content.includes(row.id) && readShareAttachmentIds(share.content).includes(row.id)) &&
         (!share.password_hash ||
           (await verifyShareAssetSession(
             c.env.DB,

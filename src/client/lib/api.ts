@@ -38,13 +38,11 @@ import type {
   UserSettings,
 } from '@shared/types'
 import { publishBroadcast } from './db'
+import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
 
 
-export const CLIENT_ID =
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
+export const CLIENT_ID = randomLocalId()
 
 export class ApiError extends Error {
   constructor(
@@ -270,10 +268,10 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
   auth: {
-    register: (username: string, password: string, locale: AppLocale = getLocale()) =>
+    register: (username: string, password: string, locale: AppLocale = getLocale(), setupToken?: string) =>
       request<SessionInfo>('/api/auth/register', {
         method: 'POST',
-        body: { username, password, locale },
+        body: setupToken ? { username, password, locale, setupToken } : { username, password, locale },
       }),
     login: (username: string, password: string) =>
       request<PasswordLoginResult>('/api/auth/login', { method: 'POST', body: { username, password } }),

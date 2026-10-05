@@ -32,19 +32,39 @@ Inkstone is self-hosted software, not a hosted service. Deployment owners are re
 - **`SETUP_TOKEN` (optional secret).** When set, the very first registration on
   an empty instance must supply it (`wrangler secret put SETUP_TOKEN`), which
   closes the window where any visitor could claim ownership between deploy and
-  first sign-up.
+  first sign-up. It must be at least 16 characters; a shorter value makes
+  registration fail rather than fall back to the claim-anyone path. Every
+  registration attempt, including the ones this check stops, spends the per-IP
+  registration budget, and a wrong token costs the same password-hashing work as
+  a wrong password. The sign-in page shows a setup-token field once the server
+  asks for one.
 - **`DO_AUTH_KEY` (optional secret).** When set, every request from the Worker
   to the `SyncHub` and `CredentialVault` Durable Objects carries a matching
   `X-Inkstone-Internal` header and the objects reject anything else. This is
-  defense-in-depth around the vault's decrypt capability.
+  defense-in-depth around the vault's decrypt capability. A blank value is
+  reported as a misconfiguration (HTTP 500) instead of quietly leaving the
+  guard off.
 - **Sessions.** A session lives 90 days with sliding renewal, hard-capped at 180
-  days from creation. Changing the password or TOTP state revokes other
-  sessions. Plain-HTTP deployments receive non-`Secure` cookies by design
+  days from creation. Changing the password or the TOTP state revokes other
+  sessions *and* every MCP API key and OAuth grant on the account, so rotating
+  your credentials cannot leave a static key behind. An account that never turned
+  on the write or trash preference mints read-only keys. Plain-HTTP deployments receive non-`Secure` cookies by design
   (self-hosted LAN trade-off); prefer HTTPS.
-- **Share links.** New or changed passcodes require at least 8 characters.
+- **Share links.** New or changed passcodes require at least 8 characters, whether
+  they come from the console or from the `create_note_share` MCP tool.
   Passcode brute-forcing is throttled per client IP (escalating lock) plus a
-  per-slug global work budget whose lock is capped at 60 seconds so a third
-  party cannot lock out legitimate readers for long.
+  per-slug global work budget whose lock is capped at 60 seconds: an IP that is
+  already locked is refused before it can spend the shared budget, and a lock that
+  has been served clears that counter, so sustained probing cannot keep a slug
+  locked indefinitely.
+- **Pinned rendering chain.** `dompurify`, `mermaid`, `katex`, `markdown-it` and `prismjs`
+  are held to exact versions, and every `resolved` entry in `package-lock.json` points at
+  `registry.npmjs.org` with an integrity hash. `tests/platform-contract.test.ts` fails if
+  either stops being true, so replacing the sanitiser cannot happen silently through a
+  floating range.
+- **Deployment shapes.** R2 mode deploys `inkstone`; KV mode deploys a separate
+  `inkstone-kv` Worker, because deploying the KV config over an R2 Worker replaces
+  its bindings. Neither shape serves version preview URLs.
 - **MCP / OAuth.** `/authorize` requires PKCE (`S256`). The consent page
   shows the `client_id` host for unregistered Client ID Metadata Document
   clients and leaves the write scope unchecked by default. Grant and token
@@ -52,8 +72,10 @@ Inkstone is self-hosted software, not a hosted service. Deployment owners are re
 - **API keys.** Static MCP API keys never expire; revoke them manually from
   settings. Only their SHA-256 hash is stored.
 - **Remote images in Markdown.** Rendered notes and shared pages may load
-  externally hosted images, revealing visitor IP/user-agent to the image host
-  (the app already sends `Referrer-Policy: no-referrer` on rendered images).
+  externally hosted images, revealing visitor IP/user-agent to the image host.
+  The response header is `Referrer-Policy: strict-origin-when-cross-origin`; the
+  protection for rendered images is the `referrerpolicy="no-referrer"` attribute
+  the client puts on every `<img>` it emits.
   Remove or proxy such embeds if your audience must stay anonymous to third
   parties.
 - **Client IP for throttling.** Rate limits trust `CF-Connecting-IP`, which the
@@ -61,4 +83,7 @@ Inkstone is self-hosted software, not a hosted service. Deployment owners are re
   proxy all users collapse into one bucket; deploy on Cloudflare or accept
   shared-bucket throttling.
 - **CSP.** `script-src 'self'` (no inline scripts) and `form-action 'self'`.
-  If you add inline scripts to `index.html`, you must update the policy.
+  If you add inline scripts to `index.html`, you must update the policy. The only
+  exception is a development build (`npm run dev`), which adds `'unsafe-inline'` to
+  `script-src` for the HTML document so Vite's React refresh bootstrap can run; the
+  flag folds to `false` in every deployed bundle, and API responses stay strict.

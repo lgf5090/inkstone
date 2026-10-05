@@ -4,6 +4,7 @@ import { createMcpHandler } from 'agents/mcp/server'
 import { createApp } from '../app'
 import { initializeDatabase } from '../db/schema'
 import type { Env } from '../env'
+import { requestClientIp } from '../lib/request'
 import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
 import { verifyMcpApiKey } from './api-keys'
 import { createInkstoneMcpServer, type McpAuthProps } from './server'
@@ -134,7 +135,7 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
       if (!await isMcpEnabledOnce(env.DB)) {
         return { code: 'access_denied', description: 'MCP is disabled', status: 403 }
       }
-      const ip = request.headers.get('CF-Connecting-IP')?.slice(0, 80) || 'unknown'
+      const ip = requestClientIp(request)
       try {
         await consumeAttemptBudget(env.DB, [{
           key: `mcp-dcr:${ip}`,
@@ -170,10 +171,12 @@ function configuredOrigin(value?: string): string | null {
   try {
     const url = new URL(value)
     if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+      console.warn(`[inkstone] PUBLIC_URL must be https, got ${value}`)
       return null
     }
     return url.origin
   } catch {
+    console.warn(`[inkstone] PUBLIC_URL is not an absolute URL: ${value}`)
     return null
   }
 }

@@ -245,6 +245,7 @@ export async function restoreMcpNote(
       const row = await loadNoteRow(context.env.DB, context.userId, input.noteId)
       await assertExpectedRevision(context, row, input.expectedRev)
       if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
+      await assertNoteQuota(context.env.DB, context.userId)
       const now = Math.max(Date.now(), row.updated_at + 1)
       const nextRev = row.rev + 1
       const update = context.env.DB.prepare(

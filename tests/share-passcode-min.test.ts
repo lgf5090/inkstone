@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { sharePasscodeProblem } from '../src/worker/routes/share'
+import { sharePasscodeProblem } from '../src/shared/share-passcode'
 
 it('accepts an empty passcode (share without password)', () => {
   expect(sharePasscodeProblem(undefined)).toBeNull()

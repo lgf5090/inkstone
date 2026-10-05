@@ -4,6 +4,7 @@ import { countText, deriveExcerpt, replaceTagInContent } from '@shared/markdown-
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
+import { assertOrganizerQuota } from '../db/quota'
 import { toTag, tagSelectQuery, type TagRow } from '../db/rows'
 import { buildNoteDerivedStatements, INLINE_REWRITE_LIMIT, rewriteQueueStatement } from '../db/writes'
 import { sha256Hex } from '../lib/encoding'
@@ -58,6 +59,7 @@ tagsRoutes.post('/', async (c) => {
   ).bind(userId, name).first<{ id: string }>()
   if (duplicate) throw ApiError.conflict('A tag with this name already exists')
 
+  await assertOrganizerQuota(c.env.DB, userId, 'tag')
   const now = Date.now()
   const insert = c.env.DB.prepare(
     `INSERT INTO tags (id, user_id, name, color, is_manual, created_at)

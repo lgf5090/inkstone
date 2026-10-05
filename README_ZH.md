@@ -57,10 +57,25 @@ Inkstone 是运行在 Cloudflare Workers 上的浏览器笔记本。笔记始终
 2. 进入 [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create)
 3. 选择 Continue with GitHub 并选择你的仓库
 4. 使用 R2 时，构建命令填 `npm run build`，部署命令填 `npm run deploy`
-   - 如果你打算用 KV 模式，把部署命令改成 `npm run deploy:kv`
-5. 等部署完成后，打开生成的 Workers 域名
+   - 如果你打算用 KV 模式，构建命令改成 `npm run build:kv`，部署命令改成 `npm run deploy:kv`。
+     KV 模式会部署成另一个 Worker（`inkstone-kv`）；若你把已有部署切过去，需要把自定义域名
+     和路由重新挂到这个 Worker 上
+5. 先在你的账号里创建 D1 数据库（KV 模式还要创建 KV 命名空间），把它们的 id 填进对应的、纳入版本管理的
+   配置：R2 模式改 `wrangler.toml` 里的 `[[d1_databases]] … database_id = "<id>"`，KV 模式改
+   `wrangler.kv.toml` 里的 `[[kv_namespaces]] … id = "<id>"`。`dist/` 下的部署配置每次构建都会重写，
+   只有纳入版本管理的文件能保住这些 id。部署前先用 `npm run deploy:check` 检查一遍。
+6. 打开生成的 Workers 域名之前，先决定谁能认领这个实例：全新部署没有任何账号，第一个完成注册的
+   人就是站长。只要 URL 能被公网访问（包括你挂域名之前拿到的 `*.workers.dev` 地址），就先把初始化
+   密钥设上：
 
-现有数据库会通过带版本号、可重复安全执行的迁移自动升级。自托管实例更新前仍建议保留一份最新备份；发现新的稳定版本时，只有站长会收到专门的更新提醒，不会打扰普通成员。
+   ```bash
+   npx wrangler secret put SETUP_TOKEN   # 至少 16 个字符
+   npx wrangler secret put DO_AUTH_KEY   # 可选：给两个 Durable Object 加内部鉴权
+   ```
+
+   之后再注册，登录页会要求填写初始化令牌。其余部署注意事项见 `SECURITY.md`；更新自托管实例前请先备份。
+
+现有数据库会在每次启动时以幂等方式补上新增的表与索引。自托管实例更新前仍建议保留一份最新备份；发现新的稳定版本时，只有站长会收到专门的更新提醒，不会打扰普通成员。
 
 ## 导出与备份
 

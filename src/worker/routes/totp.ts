@@ -13,6 +13,7 @@ import {
   regenerateRecoveryCodes,
   startTotpSetup,
 } from '../lib/totp-service'
+import { revokeLongLivedCredentials } from '../mcp/credentials'
 import { requireAuth, writeSessionCookie } from '../middleware/auth'
 
 export const totpRoutes = new Hono<AppBindings>()
@@ -53,13 +54,15 @@ totpRoutes.post('/setup', requireAuth, async (c) => {
 
 totpRoutes.post('/setup/confirm', requireAuth, async (c) => {
   const body = await readJson<{ setupToken?: unknown; code?: unknown }>(c, 4096)
-  return c.json(await confirmTotpSetup({
+  const confirmed = await confirmTotpSetup({
     env: c.env,
     userId: c.get('userId'),
     sessionId: c.get('sessionId'),
     setupToken: body.setupToken,
     code: body.code,
-  }))
+  })
+  await revokeLongLivedCredentials(c.env.DB, c.env.OAUTH_PROVIDER, c.get('userId'))
+  return c.json(confirmed)
 })
 
 totpRoutes.delete('/setup', requireAuth, async (c) => {
@@ -92,5 +95,6 @@ totpRoutes.delete('/', requireAuth, async (c) => {
     sessionId: c.get('sessionId'),
     code: body.code,
   })
+  await revokeLongLivedCredentials(c.env.DB, c.env.OAUTH_PROVIDER, c.get('userId'))
   return c.json({ ok: true as const })
 })

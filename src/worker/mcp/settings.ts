@@ -107,7 +107,7 @@ export function grantedMcpScopes(
 
 function defaultMcpPreferences(): McpPreferences {
   return {
-    writeEnabled: true,
+    writeEnabled: false,
     trashEnabled: false,
     updatedAt: 0,
   }

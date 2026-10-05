@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { PURIFY_CONFIG } from './renderer';
 import { decodeDataValue } from './data-attr';
 import { t } from "../i18n";
 import { highlightWithPrism } from './prism';
@@ -186,7 +187,7 @@ async function getKatex(): Promise<KatexLike | null> {
         return null;
     }
 }
-async function renderMath(root: HTMLElement): Promise<void> {
+export async function renderMath(root: HTMLElement | Document): Promise<void> {
     const pending = [...root.querySelectorAll<HTMLElement>('[data-math]')]
         .filter((node) => !node.dataset.rendered)
         .map((node) => {
@@ -328,7 +329,7 @@ export interface MermaidRenderHooks<T = unknown> {
     beforeUpdate?: () => T;
     afterUpdate?: (snapshot: T) => void;
 }
-export async function renderPendingMermaid<T = unknown>(root: HTMLElement, dark: boolean, hooks: MermaidRenderHooks<T> = {}): Promise<void> {
+export async function renderPendingMermaid<T = unknown>(root: HTMLElement | Document, dark: boolean, hooks: MermaidRenderHooks<T> = {}): Promise<void> {
     const isCurrent = () => hooks.isCurrent?.() !== false;
     const pending = [...root.querySelectorAll<HTMLElement>('[data-mermaid]')]
         .filter((node) => node.dataset.rendered !== currentSignature(node, dark))
@@ -363,9 +364,15 @@ export async function renderPendingMermaid<T = unknown>(root: HTMLElement, dark:
         }
     }
 }
+// Layered on the shared config so its forbidden tag and attribute lists keep applying.
+// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,
+// and DOMPurify sanitises the declarations themselves.
 const MERMAID_SVG_PURIFY_CONFIG = {
-    ADD_TAGS: ['foreignObject', 'use'],
+    ...PURIFY_CONFIG,
+    ADD_TAGS: [...PURIFY_CONFIG.ADD_TAGS, 'foreignObject', 'use'],
     HTML_INTEGRATION_POINTS: { foreignobject: true },
+    FORBID_TAGS: PURIFY_CONFIG.FORBID_TAGS.filter((tag) => tag !== 'style'),
+    FORBID_ATTR: PURIFY_CONFIG.FORBID_ATTR.filter((attr) => attr !== 'style'),
 };
 function queueMermaidRender(key: string, source: string, dark: boolean, isCurrent: () => boolean): Promise<string> {
     const task = mermaidRenderQueue.then(async () => {

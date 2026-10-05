@@ -446,17 +446,69 @@ const ATTACHMENT_REFERENCE_RE =
   /(?:^|[\s(<"'=])(?:https?:\/\/[^/\s<>"']+)?\/api\/files\/([0-9a-hjkmnp-tv-z]{26})(?=$|[\s>)\]"'?#])/g
 
 
-export function extractAttachmentIds(content: string): string[] {
-  const body = splitFrontMatter(content).body
+export interface AttachmentScanLimits {
+  maxDepth?: number
+  maxChars?: number
+}
+
+export interface AttachmentScan {
+  ids: string[]
+  truncated: boolean
+}
+
+// Each nesting level re-scans its own subtree, so uncapped md-example nesting makes
+// the work quadratic in depth: one note can cost seconds of CPU per read, per save
+// and per backup. Callers that only gate a read pass tighter limits than the ones
+// whose counts decide deletion or backup completeness.
+const ATTACHMENT_SCAN_MAX_DEPTH = 8
+const ATTACHMENT_SCAN_MAX_CHARS = 12_000_000
+
+export function scanAttachmentReferences(
+  content: string,
+  limits: AttachmentScanLimits = {},
+): AttachmentScan {
+  const maxDepth = limits.maxDepth ?? ATTACHMENT_SCAN_MAX_DEPTH
+  const maxChars = limits.maxChars ?? ATTACHMENT_SCAN_MAX_CHARS
   const ids = new Set<string>()
-  for (const match of stripCodeRegions(body).matchAll(ATTACHMENT_REFERENCE_RE)) ids.add(match[1]!)
+  let frontier: string[] = [content]
+  let scanned = 0
+  let truncated = false
   // md-example fences are rendered as live markdown by the client renderer,
   // so references inside them count even though stripCodeRegions discards
   // them as ordinary code regions.
-  for (const inner of markdownExampleBodies(body)) {
-    for (const id of extractAttachmentIds(inner)) ids.add(id)
+  for (let depth = 0; frontier.length > 0 && !truncated; depth++) {
+    if (depth >= maxDepth) {
+      truncated = true
+      break
+    }
+    const next: string[] = []
+    for (const entry of frontier) {
+      const body = splitFrontMatter(entry).body
+      for (const match of stripCodeRegions(body).matchAll(ATTACHMENT_REFERENCE_RE)) ids.add(match[1]!)
+      scanned += body.length
+      if (scanned > maxChars) {
+        truncated = true
+        break
+      }
+      next.push(...markdownExampleBodies(body))
+    }
+    frontier = next
   }
-  return [...ids]
+  if (truncated) {
+    // A partial result would under-report references, and both attachment pruning and
+    // backups delete or omit files on the strength of those counts. One flat pass over
+    // the body is linear and over-counts code samples instead of missing a reference.
+    const flat = new Set<string>()
+    for (const match of splitFrontMatter(content).body.matchAll(ATTACHMENT_REFERENCE_RE)) {
+      flat.add(match[1]!)
+    }
+    return { ids: [...flat], truncated: true }
+  }
+  return { ids: [...ids], truncated: false }
+}
+
+export function extractAttachmentIds(content: string, limits?: AttachmentScanLimits): string[] {
+  return scanAttachmentReferences(content, limits).ids
 }
 
 function markdownExampleBodies(text: string): string[] {
@@ -664,10 +716,34 @@ export function deriveExcerpt(content: string, max = 220): string {
   return truncateText(text, max).replace(/\s+\S*$/, '') + '…'
 }
 
+// Same result as the /( ! )\[([^\]]*)\]\([^)]*\)/g pass, as one left-to-right scan:
+// the regex backtracks across the rest of the text for every '[' whose '(' is never
+// closed, which costs seconds on a note near the content size limit.
+function stripLinkTargets(text: string, requireBang: boolean): string {
+  let out = ''
+  let copied = 0
+  let at = 0
+  while (at < text.length) {
+    const open = requireBang ? text.indexOf('![', at) : text.indexOf('[', at)
+    if (open < 0) break
+    const labelStart = open + (requireBang ? 2 : 1)
+    const close = text.indexOf(']', labelStart)
+    if (close < 0) break
+    if (text[close + 1] !== '(') {
+      at = open + 1
+      continue
+    }
+    const urlEnd = text.indexOf(')', close + 2)
+    if (urlEnd < 0) break
+    out += text.slice(copied, open) + text.slice(labelStart, close)
+    copied = urlEnd + 1
+    at = copied
+  }
+  return out + text.slice(copied)
+}
+
 function inlinePlain(line: string): string {
-  return line
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  return stripLinkTargets(stripLinkTargets(line, true), false)
     .replace(/\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => b || a)
     .replace(/(\*\*|__)(.*?)\1/g, '$2')
     .replace(/(\*|_)(.*?)\1/g, '$2')
@@ -690,8 +766,7 @@ export function toPlainText(md: string): string {
   t = t.replace(/^[ \t]*\|.*\|[ \t]*$/gm, (row) =>
     /^[ \t]*\|[\s:|-]+\|[ \t]*$/.test(row) ? '' : row.replace(/\|/g, ' '),
   )
-  t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-  t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  t = stripLinkTargets(stripLinkTargets(t, true), false)
   t = t.replace(/\[\[([^[\]|]+)(?:\|([^[\]]+))?\]\]/g, (_s, a: string, b?: string) => b || a)
   t = t.replace(/\$\$([\s\S]*?)\$\$/g, ' $1 ')
   t = t.replace(/\$([^$\n]+)\$/g, ' $1 ')

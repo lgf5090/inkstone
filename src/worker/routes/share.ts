@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { setCookie } from 'hono/cookie'
 import { LIMITS } from '@shared/constants'
+import { sharePasscodeProblem } from '@shared/share-passcode'
 import type { PublicNote, ShareInfo, ShareListItem } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -63,12 +64,6 @@ const shareViewWindows = new Map<string, ShareViewWindow>()
 /** Sweep at most once per window, and never let the map grow without a hard ceiling. */
 const SHARE_VIEW_WINDOWS_MAX = 10_000
 let shareViewSweepAt = 0
-
-export function sharePasscodeProblem(password: unknown): string | null {
-  if (typeof password !== 'string' || password.length === 0) return null
-  if (password.length < 8) return 'The access password must be at least 8 characters'
-  return null
-}
 
 function noteShareView(slug: string, ip: string, now: number): boolean {
   if (now >= shareViewSweepAt) {
@@ -156,9 +151,6 @@ shareManageRoutes.post('/:noteId', async (c) => {
   if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
     throw ApiError.badRequest('password must be a string or null')
   }
-  if (typeof body.password === 'string' && body.password.length > LIMITS.passwordMaxLength) {
-    throw ApiError.badRequest(`The access password must not exceed ${LIMITS.passwordMaxLength} characters`)
-  }
   const passcodeProblem = sharePasscodeProblem(body.password)
   if (passcodeProblem) throw ApiError.badRequest(passcodeProblem)
   if (
@@ -238,8 +230,8 @@ shareRoutes.post('/:slug', async (c) => {
     }
     const targets = shareVerifyThrottleTargets(slug, requestClientIp(c))
     try {
-      await consumeAttemptBudget(c.env.DB, targets.workTargets)
       await assertNotLocked(c.env.DB, targets.lockTargets)
+      await consumeAttemptBudget(c.env.DB, targets.workTargets)
     } catch (err) {
       if (err instanceof ThrottleError) {
         throw new ApiError(429, 'too_many_attempts', `Too many attempts. Try again in ${err.retryAfterSec} seconds`, {

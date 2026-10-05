@@ -363,12 +363,6 @@ export async function buildJsonExport(env: Env, userId: string): Promise<Uint8Ar
   return bytes
 }
 
-export function assertArchiveCanBeRestored(files: readonly MaterializedBackupFile[]): void {
-  assertArchiveSizesCanBeRestored(
-    files.map((file) => ({ path: file.path, byteLength: file.body.byteLength })),
-  )
-}
-
 export function assertArchiveSizesCanBeRestored(
   files: readonly { path: string; byteLength: number }[],
 ): void {

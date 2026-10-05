@@ -243,6 +243,10 @@ export function trashPurgeStatements(
 ): D1PreparedStatement[] {
   const inTrash = `IN (SELECT value FROM json_each(?2))`
   const statements = [
+    db.prepare(
+      `DELETE FROM mcp_operations WHERE user_id = ?1 AND EXISTS (
+         SELECT 1 FROM json_each(?2) e WHERE instr(mcp_operations.response_json, e.value) > 0)`,
+    ).bind(userId, idsJson),
     db.prepare(`DELETE FROM note_tags WHERE note_id IN (SELECT value FROM json_each(?1))`).bind(idsJson),
     db.prepare(`DELETE FROM links WHERE user_id = ?1 AND source_note_id ${inTrash}`).bind(userId, idsJson),
     db.prepare(
@@ -696,6 +700,7 @@ notesRoutes.post('/:id/restore', async (c) => {
   const { ftsEnabled } = c.get('database')
   const row = await loadNoteRow(c.env.DB, userId, id)
   if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
+  await assertNoteQuota(c.env.DB, userId)
 
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1
@@ -763,6 +768,11 @@ notesRoutes.delete('/:id/purge', async (c) => {
         WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
     ).bind(id, userId, id, userId, row.rev),
     guarded(`DELETE FROM note_versions WHERE note_id = ?1`),
+    c.env.DB.prepare(
+      `DELETE FROM mcp_operations
+        WHERE user_id = ?1 AND instr(response_json, ?2) > 0
+          AND ${shiftSqlPlaceholders(guard, 2)}`,
+    ).bind(userId, id, id, userId, row.rev),
     c.env.DB.prepare(
       `DELETE FROM share_asset_sessions
         WHERE slug IN (SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2)

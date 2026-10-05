@@ -10,6 +10,7 @@ import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
 import { ApiError } from './lib/errors'
+import { withSecurityHeaders } from './lib/security-headers'
 import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
 
 export { SyncHub } from './realtime/sync-hub'
@@ -30,16 +31,19 @@ export default {
       oauthRequest = await normalizeRepeatedOAuthResource(request)
     } catch (error) {
       if (!(error instanceof ApiError)) throw error
-      return Response.json(
-        { error: 'invalid_request', error_description: error.message },
-        { status: error.status },
+      return withSecurityHeaders(
+        Response.json(
+          { error: 'invalid_request', error_description: 'The authorization request could not be completed' },
+          { status: error.status },
+        ),
+        request.url,
       )
     }
     const provider = createOAuthProvider(oauthRequest, env)
-    if (new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA) {
-      return oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
-    }
-    return provider.fetch(oauthRequest, env, ctx)
+    const response = new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA
+      ? await oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
+      : await provider.fetch(oauthRequest, env, ctx)
+    return withSecurityHeaders(response, oauthRequest.url)
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

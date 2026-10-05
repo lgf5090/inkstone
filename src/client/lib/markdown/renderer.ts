@@ -565,7 +565,7 @@ md.core.ruler.push('collect_headings', (state) => {
     }
     return true;
 });
-const PURIFY_CONFIG = {
+export const PURIFY_CONFIG = {
     ADD_ATTR: [
         'data-line',
         'data-math',

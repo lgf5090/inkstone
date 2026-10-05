@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { organizerColorOrNull } from '@shared/organizer-colors'
-import { truncateText } from '@shared/text-utils'
+import { normalizeOrganizerIcon, organizerColorOrNull } from '@shared/organizer-colors'
 import type { Folder } from '@shared/types'
 import type { AppBindings } from '../env'
 import { toFolder, type FolderRow } from '../db/rows'
+import { assertOrganizerQuota } from '../db/quota'
 import { FTS_QUEUE_CONFLICT_SQL } from '../db/writes'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -75,6 +75,7 @@ foldersRoutes.post('/', async (c) => {
     throw ApiError.badRequest(`Folder depth cannot exceed ${LIMITS.folderDepthMax} levels`)
   }
 
+  await assertOrganizerQuota(c.env.DB, userId, 'folder')
   const now = Date.now()
   const insert = c.env.DB.prepare(
     `WITH RECURSIVE ancestors(id, parent_id, depth) AS (
@@ -99,7 +100,7 @@ foldersRoutes.post('/', async (c) => {
     userId,
     parentId,
     name,
-    body.icon ? truncateText(body.icon, 8) || null : null,
+    normalizeOrganizerIcon(body.icon),
     organizerColorOrNull(body.color),
     now,
     LIMITS.folderDepthMax,
@@ -165,7 +166,7 @@ foldersRoutes.patch('/:id', async (c) => {
     sets.push(`name = ?${binds.length}`)
   }
   if (body.icon !== undefined) {
-    binds.push(body.icon ? truncateText(body.icon, 8) : null)
+    binds.push(normalizeOrganizerIcon(body.icon))
     sets.push(`icon = ?${binds.length}`)
   }
   if (body.color !== undefined) {

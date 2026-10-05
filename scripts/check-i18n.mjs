@@ -14,6 +14,7 @@ const allowedHanFragments = new Map([
     [path.resolve('src/worker/routes/mcp-authorize.ts'), [
         'AI \u4e0e MCP',
         '\u6388\u6743',
+        '\u9700\u8981\u4e24\u6b65\u9a8c\u8bc1\uff1a\u8bf7\u5728 Inkstone \u767b\u5f55\u9875\u5b8c\u6210\u9a8c\u8bc1\u540e\u518d\u56de\u5230\u6b64\u5904',
         '\u5207\u6362\u4e3a\u82f1\u6587',
         'MCP \u5ba2\u6237\u7aef',
         '\u8bf7\u6c42\u8bbf\u95ee',

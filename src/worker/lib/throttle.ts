@@ -62,6 +62,8 @@ export async function consumeAttemptBudget(
       fails = CASE
         WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.locked_until > ?2
           THEN login_attempts.fails
+        WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.fails > ?4
+          THEN 1
         WHEN ?2 - login_attempts.last_fail_at >= ?3 THEN 1
         ELSE login_attempts.fails + 1
       END,
@@ -73,6 +75,8 @@ export async function consumeAttemptBudget(
       locked_until = CASE
         WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.locked_until > ?2
           THEN login_attempts.locked_until
+        WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.fails > ?4
+          THEN NULL
         WHEN ?2 - login_attempts.last_fail_at >= ?3 THEN NULL
         WHEN login_attempts.fails + 1 > ?4 THEN ?2 + ?5
         ELSE NULL

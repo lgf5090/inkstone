@@ -97,7 +97,7 @@ mcpAuthorizeRoutes.post('/authorize', async (c) => {
     (MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
   )
   const preferences = await getMcpPreferences(c.env.DB, user.id)
-  const scopes = grantedMcpScopes(selected.length ? selected : parsed.scope, preferences)
+  const scopes = grantedMcpScopes(selected.length ? selected : [MCP_SCOPES.read], preferences)
   const { redirectTo } = await c.env.OAUTH_PROVIDER!.completeAuthorization({
     request: parsed,
     userId: user.id,
@@ -267,7 +267,8 @@ function loginPage(clientName: string, locale: AppLocale, currentUrl: string): s
           <p>${copy.passwordOnly}</p>
         </div>
       </section>
-      <form id="login" class="login-form" data-sign-in-failed="${escapeHtml(copy.signInFailed)}">
+      <form id="login" class="login-form" data-sign-in-failed="${escapeHtml(copy.signInFailed)}"
+        data-two-factor-required="${escapeHtml(copy.twoFactorRequired)}">
         <section class="form-section" aria-labelledby="account-title">
           <h2 id="account-title">${copy.inkstoneAccount}</h2>
           <label class="field"><span>${copy.username}</span><input name="username" autocomplete="username" maxlength="32" required autofocus></label>
@@ -326,6 +327,7 @@ function authorizationCopy(locale: AppLocale) {
       signInContinue: '登录并继续',
       needAccount: '还没有账户？请先在另一个标签页打开 Inkstone。',
       signInFailed: '登录失败',
+      twoFactorRequired: '需要两步验证：请在 Inkstone 登录页完成验证后再回到此处',
       authorizationFailed: '授权失败',
       openInkstone: '打开 Inkstone',
       mcpDisabled: 'MCP 已在 Inkstone 设置中停用。',
@@ -364,6 +366,7 @@ function authorizationCopy(locale: AppLocale) {
     signInContinue: 'Sign in and continue',
     needAccount: 'Need an account? Open Inkstone in another tab first.',
     signInFailed: 'Sign-in failed',
+    twoFactorRequired: 'Two-factor verification required: finish signing in on the Inkstone sign-in page, then return here',
     authorizationFailed: 'Authorization failed',
     openInkstone: 'Open Inkstone',
     mcpDisabled: 'MCP is disabled in Inkstone settings.',

@@ -1,6 +1,20 @@
 import { renderMarkdown } from './markdown/renderer'
+import { renderMath, renderPendingMermaid } from './markdown/enhance'
+import { resolveNoteEmbeds } from './markdown/embeds'
+// Inlined so the print frame carries its own math styles: the frame inherits this
+// document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
+// refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.
+import katexPrintCss from 'katex/dist/katex.min.css?inline'
 
+// Pinned so an exported document cannot silently load a different stylesheet: the hash
+// is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.
 const KATEX_CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.css'
+const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5Tu2PRVfQ/7KLZC+Pi1p1'
+
+// A downloaded .html has no CSP around it and is often opened away from the instance,
+// so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.
+const CDN_MATH_STYLESHEET = `<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">`
+const INLINE_MATH_STYLESHEET = `<style>${katexPrintCss}</style>`
 
 export function downloadTextFile(filename: string, text: string, mime: string): void {
   const blob = new Blob([text], { type: mime })
@@ -21,21 +35,21 @@ export function exportNoteAsMarkdown(note: { title: string; content: string }): 
 }
 
 export async function exportNoteAsHtml(note: { title: string; content: string }, language: string): Promise<void> {
-  const rendered = renderMarkdown(note.content)
-  const body = await inlinePrivateImages(rendered.html)
-  downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language), 'text/html;charset=utf-8')
+  const { body, hasMath } = await prepareExportBody(note)
+  downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language, hasMath ? CDN_MATH_STYLESHEET : ''), 'text/html;charset=utf-8')
 }
 
 export async function exportNoteAsPdf(note: { title: string; content: string }, language: string): Promise<void> {
-  const rendered = renderMarkdown(note.content)
-  const body = await inlinePrivateImages(rendered.html)
-  const html = htmlDocument(note.title, body, language)
-  await printHtml(html)
+  const { body, hasMath } = await prepareExportBody(note)
+  await printHtml(htmlDocument(note.title, body, language, hasMath ? INLINE_MATH_STYLESHEET : ''))
 }
 
 async function printHtml(html: string): Promise<void> {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
+  // Same origin is what lets this code reach focus()/print(); without allow-scripts
+  // nothing inside the exported document can execute as this origin.
+  iframe.setAttribute('sandbox', 'allow-same-origin allow-modals allow-popups')
   iframe.style.position = 'fixed'
   iframe.style.right = '0'
   iframe.style.bottom = '0'
@@ -71,8 +85,22 @@ async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
 const IMAGE_FETCH_CONCURRENCY = 6
 const IMAGE_FETCH_TIMEOUT_MS = 30_000
 
-async function inlinePrivateImages(html: string): Promise<string> {
-  const doc = new DOMParser().parseFromString(html, 'text/html')
+async function prepareExportBody(note: { title: string; content: string }): Promise<{ body: string; hasMath: boolean }> {
+  const rendered = renderMarkdown(note.content)
+  const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
+  await inlinePrivateImages(doc)
+  // The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),
+  // which needs scripts; an exported or printed document has none, so all three have to
+  // be resolved here. Embeds go first because their expanded bodies carry their own
+  // placeholders, and they are filled by the same passes over the whole document.
+  // `false` because the exported page is always the light scheme.
+  await resolveNoteEmbeds(doc.body, { currentContent: note.content, currentTitle: note.title })
+  await renderMath(doc)
+  await renderPendingMermaid(doc, false)
+  return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
+}
+
+async function inlinePrivateImages(doc: Document): Promise<void> {
   const images = [...doc.querySelectorAll<HTMLImageElement>('img[src^="/api/files/"]')]
   // Attachments reach 25 MB each, so the fetches are capped in flight and always time out
   // rather than hanging an export on a stalled object.
@@ -97,7 +125,6 @@ async function inlinePrivateImages(html: string): Promise<string> {
     }
   }
   await Promise.all(Array.from({ length: Math.min(IMAGE_FETCH_CONCURRENCY, images.length) }, worker))
-  return doc.body.innerHTML
 }
 
 function blobToDataUrl(blob: Blob): Promise<string | null> {
@@ -117,7 +144,7 @@ function safeFileName(title: string): string {
     .slice(0, 80)
 }
 
-function htmlDocument(title: string, bodyHtml: string, language: string): string {
+function htmlDocument(title: string, bodyHtml: string, language: string, mathStylesheet: string): string {
   const safeTitle = escapeHtml(title)
   return `<!DOCTYPE html>
 <html lang="${escapeAttr(language)}">
@@ -125,7 +152,7 @@ function htmlDocument(title: string, bodyHtml: string, language: string): string
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${safeTitle}</title>
-<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous">
+${mathStylesheet}
 <style>
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
@@ -166,6 +193,10 @@ details[open] summary { margin-bottom: 0.4em; }
 .callout-title { font-weight: 600; margin-bottom: 0.25em; }
 .callout-content > :first-child { margin-top: 0; }
 .callout-content > :last-child { margin-bottom: 0; }
+.note-embed { display: block; margin: 0.9em 0; overflow: hidden; border: 1px solid #e5e7eb; border-left: 3px solid #6b7280; border-radius: 8px; background: #f9fafb; }
+.note-embed-head { display: block; padding: 0.42em 0.75em; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-size: 0.86em; font-weight: 600; }
+.note-embed-body { display: block; padding: 0.7em 0.8em 0.05em; }
+.note-embed-body > :last-child { margin-bottom: 0.65em; }
 .footnote-ref { font-size: 0.8em; }
 .footnotes { font-size: 0.9em; color: #4b5563; border-top: 1px solid #e5e7eb; margin-top: 1.5em; padding-top: 0.75em; }
 kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; border-radius: 4px; padding: 0.08em 0.35em; font-family: ui-monospace, monospace; font-size: 0.85em; }

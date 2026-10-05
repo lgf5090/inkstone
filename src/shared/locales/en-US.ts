@@ -89,6 +89,7 @@ export const EN_US_MESSAGES = {
     "auth.authenticator_code": "Authenticator code",
     "auth.back_to_password": "Back to password",
     "auth.enter_a_username_and_password": "Enter a username and password",
+    "auth.setup_token": "Setup token",
     "auth.enter_authenticator_code": "Enter the 6-digit code from your authenticator app",
     "auth.enter_recovery_code": "Enter one of your recovery codes",
     "auth.live_split_view_markdown_preview_realtime_multi_device_sync_multiple_web": "Live split-view Markdown preview · Realtime multi-device sync · Multiple WebDAV / S3 backups",

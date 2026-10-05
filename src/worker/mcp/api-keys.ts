@@ -114,6 +114,12 @@ export async function revokeMcpApiKey(
   return (result.meta.changes ?? 0) > 0
 }
 
+export async function revokeAllMcpApiKeys(db: D1Database, userId: string): Promise<void> {
+  await db.prepare(
+    `UPDATE mcp_api_keys SET revoked_at = ?1 WHERE user_id = ?2 AND revoked_at IS NULL`,
+  ).bind(Date.now(), userId).run()
+}
+
 export async function purgeRevokedMcpApiKeys(
   db: D1Database,
   maxAgeMs = REVOKED_KEY_RETENTION_MS,

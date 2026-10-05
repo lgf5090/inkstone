@@ -35,12 +35,16 @@ beforeEach(async () => {
     CREATE TABLE totp_login_challenges (
       id TEXT PRIMARY KEY, user_id TEXT, expires_at INTEGER, created_at INTEGER, claimed_by TEXT
     );
+    CREATE TABLE mcp_api_keys (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT, key_hash TEXT, scopes TEXT, created_at INTEGER, last_used_at INTEGER, revoked_at INTEGER);
     CREATE TABLE totp_credentials (
       user_id TEXT PRIMARY KEY, enabled_at INTEGER, secret_ciphertext TEXT,
       recovery_generation TEXT, last_used_step INTEGER
     );
     INSERT INTO users VALUES ('user', 'old-hash');
     INSERT INTO totp_credentials VALUES ('user', 1, 'encrypted', 'generation', NULL);
+    INSERT INTO mcp_api_keys (id, user_id, name, key_hash, scopes, created_at, revoked_at)
+      VALUES ('key', 'user', 'laptop', 'hash', 'notes:read', 1, NULL),
+             ('other-key', 'other-user', 'bot', 'hash2', 'notes:read', 1, NULL);
   `)
   sqlite.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?)')
     .run(await hashToken(sessionToken), 'user', Date.now() + 60_000, Date.now())
@@ -100,6 +104,8 @@ it('revokes outstanding two-factor login challenges when the password changes', 
   const challenge = await createTotpLoginChallenge(db, 'user', 'old-hash')
   expect((await changePassword()).status).toBe(200)
   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM totp_login_challenges').get()?.n).toBe(0)
+  expect(sqlite.prepare('SELECT revoked_at IS NOT NULL AS revoked FROM mcp_api_keys WHERE id = ?1').get('key')?.revoked).toBe(1)
+  expect(sqlite.prepare('SELECT revoked_at AS revoked FROM mcp_api_keys WHERE id = ?1').get('other-key')?.revoked).toBeNull()
   await expect(completeTotpLogin({
     env: { DB: db } as Env,
     challengeToken: challenge.challengeToken,
