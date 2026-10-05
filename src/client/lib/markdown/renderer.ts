@@ -641,17 +641,24 @@ export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[];
     const env = emptyEnvironment();
     const tokens = md.parse(stripObsidianComments(source), env);
     const groups: Array<{ startLine: number; endLine: number; raw: string }> = [];
+    let tail = '';
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i]!;
-        if (!token.map || token.level !== 0 || token.nesting === -1) continue;
+        if (token.level !== 0 || token.nesting === -1) continue;
         let end = i + 1;
         if (token.nesting === 1) {
             let depth = 1;
             while (end < tokens.length && depth > 0) depth += tokens[end++]!.nesting;
         }
-        groups.push({ startLine: token.map[0], endLine: token.map[1], raw: md.renderer.render(tokens.slice(i, end), md.options, env) });
+        const raw = md.renderer.render(tokens.slice(i, end), md.options, env);
+        if (token.map)
+            groups.push({ startLine: token.map[0], endLine: token.map[1], raw });
+        else
+            tail += raw;
         i = end - 1;
     }
+    if (tail && groups.length)
+        groups[groups.length - 1]!.raw += tail;
     const blocks: MarkdownBlock[] = [];
     if (!groups.length)
         return { blocks, headings: env.headings };

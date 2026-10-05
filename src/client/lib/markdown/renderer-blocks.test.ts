@@ -39,7 +39,7 @@ function signature(html: string): string {
   const walk = (node: Element): void => {
     const attrs = [...node.attributes]
       .filter((a) => a.name === 'data-line' || a.name === 'data-task-line' || a.name === 'data-lang' || a.name === 'href' || a.name === 'class' || a.name === 'data-math' || a.name === 'data-mermaid')
-      .map((a) => `${a.name}=${a.value.replace(/\s+/g, ' ').trim()}`)
+      .map((a) => `${a.name}=${a.value.replace(/\s+/g, ' ').replace(/ink-[0-9a-f-]{8,}/g, 'ink-N').trim()}`)
       .sort()
       .join(',')
     parts.push(`<${node.tagName.toLowerCase()}${attrs ? ` ${attrs}` : ''}>`)
@@ -66,7 +66,6 @@ function signature(html: string): string {
 
 describe('renderMarkdownBlocks matches the whole-document preview', () => {
   for (const [name, source] of CORPUS) {
-    if (name === 'footnote') continue
     it(`keeps identical rendered DOM for ${name}`, () => {
       const blocks = renderMarkdownBlocks(source).blocks
       const joined = blocks.map((block) => block.html).join('\n')
@@ -74,12 +73,21 @@ describe('renderMarkdownBlocks matches the whole-document preview', () => {
     })
   }
 
-  it('documents that the footnote tail is not a block (pre-existing, unchanged by batching)', () => {
+  it('renders the footnote tail that the token stream synthesises without a map', () => {
     const source = 'Statement[^1]\n\n[^1]: the note\n'
     const blocks = renderMarkdownBlocks(source).blocks
     expect(blocks).toHaveLength(1)
     expect(blocks[0]!.html).toContain('footnote-ref')
-    expect(renderMarkdown(source).html).toContain('footnotes-list')
+    expect(blocks[0]!.html).toContain('footnotes-list')
+    expect(blocks[0]!.html).toContain('the note')
+    expect(blocks[0]!.html).toContain('footnote-backref')
+  })
+
+  it('appends the synthesised tail to the last block rather than inventing a line range', () => {
+    const blocks = renderMarkdownBlocks('One\n\nTwo[^a]\n\n[^a]: tail\n').blocks
+    expect(blocks.map((b) => [b.startLine, b.endLine])).toEqual([[0, 1], [2, 3]])
+    expect(blocks[1]!.html).toContain('tail')
+    expect(blocks[0]!.html).not.toContain('footnotes-list')
   })
 
   it('never leaks the internal group wrapper into a block', () => {
