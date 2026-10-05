@@ -18,6 +18,7 @@ import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
 import { runIdempotent } from './operations'
 import { folderPromotionOrder } from '../routes/folders'
 import { rewriteTagInNotes } from '../routes/tags'
+import { forEachConcurrent } from '../backup/concurrency'
 import { createMcpNote, editMcpNote, organizeMcpNote, type McpWriteContext } from './writes'
 
 interface LibraryContext extends McpWriteContext {
@@ -638,6 +639,8 @@ export async function previewMcpFolderRemoval(
   }
 }
 
+const BULK_ORGANIZE_CONCURRENCY = 4
+
 export async function bulkOrganizeMcpNotes(
   context: LibraryContext,
   operationId: string,
@@ -650,23 +653,25 @@ export async function bulkOrganizeMcpNotes(
     pinned?: boolean
   }>,
 ) {
-  const results = []
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index]!
+  // Results stay in request order, but the items are no longer strictly serial: each one is
+  // an idempotent, revision-guarded write, so a 20-item call used to pay 120–140 sequential
+  // D1 round trips (≈1.2–3.5 s) to flip twenty flags.
+  const results: Array<Record<string, unknown>> = new Array(items.length)
+  await forEachConcurrent(items, BULK_ORGANIZE_CONCURRENCY, async (item, index) => {
     try {
       const note = await organizeMcpNote(context, {
         operationId: `${operationId.slice(0, 88)}:${String(index).padStart(2, '0')}`,
         ...item,
       })
-      results.push({ note_id: item.noteId, ok: true, rev: note.rev })
+      results[index] = { note_id: item.noteId, ok: true, rev: note.rev }
     } catch (error) {
-      results.push({
+      results[index] = {
         note_id: item.noteId,
         ok: false,
         error: error instanceof Error ? error.message : String(error),
-      })
+      }
     }
-  }
+  })
   return { results }
 }
 

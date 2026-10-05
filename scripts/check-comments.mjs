@@ -321,6 +321,9 @@ const allowed = new Map([
     "// so every other body can be skipped storage-side instead of shipping 500 full texts.",
     "/** Chunk bounds for read_attachment, kept pure so the arithmetic is testable. */",
     "/** KV has no ranged get, so only that backend still pays for a full object read. */",
+    "// Results stay in request order, but the items are no longer strictly serial: each one is",
+    "// an idempotent, revision-guarded write, so a 20-item call used to pay 120–140 sequential",
+    "// D1 round trips (≈1.2–3.5 s) to flip twenty flags.",
   ]],
   ["src/worker/mcp/oauth.ts", [
     "// Static API keys let small or generic MCP clients authenticate with a",
@@ -341,6 +344,13 @@ const allowed = new Map([
   ]],
   ["src/worker/mcp/writes.ts", [
     "// The quota read rides along with hashing instead of adding a serial round trip.",
+    "// Organizing never reads the body, so the pre-read is metadata only; the response body",
+    "// comes from the single read-back inside patchNote's batch.",
+    "// The read-back rides in the same batch: the old shape paid a second full-note round trip",
+    "// after every write, and its conflict branch paid a third.",
+    "/** Appended to a write batch so the response body costs no extra round trip. */",
+    "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
+    "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -428,6 +438,9 @@ const allowed = new Map([
     "// CJK range boundaries: 2E80/9FFF and F900/FAFF are counted, neighbours are not.",
     "// A multi-line comment body carries no marker on its own lines, so those lines must",
     "// still be blanked by the inComment branch rather than passed through.",
+  ]],
+  ["tests/mcp-write-readback.test.ts", [
+    "// Counts the statements that pull the note body: the whole point of the read-back merge.",
   ]],
   ["tests/note-list-tags.test.ts", [
     "// Corrupt row on purpose: tags owned by another account must never surface on this page.",
