@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { decodeDataValue } from './data-attr';
 import { t } from "../i18n";
 import { highlightWithPrism } from './prism';
@@ -212,13 +213,14 @@ async function renderMath(root: HTMLElement): Promise<void> {
     }
     for (const { node, source, display, key } of pending) {
         try {
-            const html = katex.renderToString(source, {
+            const html = DOMPurify.sanitize(katex.renderToString(source, {
                 displayMode: display,
                 throwOnError: false,
                 errorColor: 'var(--danger)',
                 strict: false,
+                trust: false,
                 output: 'html',
-            });
+            }));
             remember(mathCache, key, html, 160);
             node.innerHTML = html;
             node.classList.remove('math-source');
@@ -361,6 +363,10 @@ export async function renderPendingMermaid<T = unknown>(root: HTMLElement, dark:
         }
     }
 }
+const MERMAID_SVG_PURIFY_CONFIG = {
+    ADD_TAGS: ['foreignObject', 'use'],
+    HTML_INTEGRATION_POINTS: { foreignobject: true },
+};
 function queueMermaidRender(key: string, source: string, dark: boolean, isCurrent: () => boolean): Promise<string> {
     const task = mermaidRenderQueue.then(async () => {
         const cached = mermaidCache.get(key);
@@ -375,8 +381,9 @@ function queueMermaidRender(key: string, source: string, dark: boolean, isCurren
         const renderHost = createMermaidRenderHost();
         try {
             const { svg } = await withTimeout(mermaid.render(`ink-mermaid-${++mermaidSeq}`, source, renderHost), MERMAID_RENDER_TIMEOUT_MS, t("markdown.diagram_rendering_timed_out_check_the_diagram_or_try_again_later"));
-            remember(mermaidCache, key, svg, 60);
-            return svg;
+            const sanitized = DOMPurify.sanitize(svg, MERMAID_SVG_PURIFY_CONFIG);
+            remember(mermaidCache, key, sanitized, 60);
+            return sanitized;
         }
         finally {
             renderHost.remove();

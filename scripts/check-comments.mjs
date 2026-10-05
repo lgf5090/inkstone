@@ -47,6 +47,12 @@ const allowed = new Map([
   ["src/worker/backup/snapshot.ts", [
     "/** Produces restorable JSON, readable Markdown, and attachment files for every backup target. */",
   ]],
+  ["src/worker/backup/validation.ts", [
+    "// Hostname screening cannot see through attacker-controlled DNS answers",
+    "// that resolve to private addresses; the deployment's",
+    "// global_fetch_strictly_public compatibility flag remains the hard outer",
+    "// guard and must stay enabled in every wrangler config.",
+  ]],
   ["src/worker/db/schema.ts", [
     "/** Defines the idempotent final D1 schema initialized by every Worker isolate. */",
     "// Explicit whitelist (not a regex over SCHEMA_STATEMENTS) so later",

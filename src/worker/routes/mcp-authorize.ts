@@ -216,7 +216,7 @@ function consentPage(input: {
               <input class="switch" type="checkbox" checked disabled aria-label="${copy.readRequiredAria}">
             </label>
             <input type="hidden" name="scope" value="${MCP_SCOPES.read}">
-            ${wantsWrite ? permission(MCP_SCOPES.write, copy.writeTitle, copy.writeDetail, true) : ''}
+            ${wantsWrite ? permission(MCP_SCOPES.write, copy.writeTitle, copy.writeDetail, false) : ''}
             ${wantsTrash ? permission(MCP_SCOPES.trash, copy.trashTitle, copy.trashDetail, false) : ''}
           </div>
         </section>
