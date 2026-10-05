@@ -419,6 +419,25 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     throw new ApiError(400, 'bad_request', 'A center note is required for the local graph')
   }
 
+  try {
+    await consumeAttemptBudget(c.env.DB, [{
+      key: `graph:${userId}`,
+      maxAttempts: 1200,
+      windowMs: 10 * 60 * 1000,
+      lockMs: 60 * 1000,
+    }])
+  } catch (error) {
+    if (error instanceof ThrottleError) {
+      throw new ApiError(
+        429,
+        'too_many_attempts',
+        `Too many graph requests. Try again in ${error.retryAfterSec} seconds`,
+        { retryAfter: error.retryAfterSec },
+      )
+    }
+    throw error
+  }
+
   const filters: string[] = ['n.user_id = ?', 'n.deleted_at IS NULL', 'n.is_archived = 0']
   const filterBinds: unknown[] = [userId]
   if (query) {
@@ -457,9 +476,13 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
   }
   const linkDegreeCte = `
     link_edges AS (
-      SELECT source_note_id, target_note_id
-        FROM links
-       WHERE user_id = ? AND target_note_id IS NOT NULL
+      SELECT l.source_note_id, l.target_note_id
+        FROM links l
+        JOIN notes src ON src.id = l.source_note_id AND src.user_id = l.user_id
+          AND src.deleted_at IS NULL AND src.is_archived = 0
+        JOIN notes dst ON dst.id = l.target_note_id AND dst.user_id = l.user_id
+          AND dst.deleted_at IS NULL AND dst.is_archived = 0
+       WHERE l.user_id = ? AND l.target_note_id IS NOT NULL
     ),
     link_counts AS (
       SELECT note_id,

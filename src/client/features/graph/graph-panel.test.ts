@@ -194,15 +194,16 @@ function setNativeValue(node: HTMLInputElement, value: string) {
 }
 
 async function setRange(labelKey: MessageKey, value: string) {
-  const field = [...document.querySelectorAll('label')]
-    .find((node) => node.textContent?.includes(t(labelKey)))
-  const input = field?.querySelector('input')
+  const label = t(labelKey)
+  const input = document.querySelector<HTMLInputElement>(`input[type="range"][aria-label="${label}"]`)
   if (!input) throw new Error(`range for ${labelKey} not found`)
   await act(async () => {
     setNativeValue(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  if (!field!.textContent?.includes(value)) throw new Error(`range ${labelKey} did not take value ${value}`)
+  if (!String(input.getAttribute('aria-valuetext')).startsWith(value)) {
+    throw new Error(`range ${labelKey} did not take value ${value} (aria-valuetext=${input.getAttribute('aria-valuetext')})`)
+  }
 }
 
 async function typeSearch(value: string) {
@@ -692,12 +693,14 @@ describe('graph pointer and keyboard interaction', () => {
     await mount()
     await takeRequest()
     await openSettings()
-    expect(document.querySelector('aside')).not.toBeNull()
+    expect(document.querySelector('aside[role="dialog"]')).not.toBeNull()
+    expect(buttonByLabel(t('graph.settings'))?.getAttribute('aria-pressed')).toBe('true')
+    expect(buttonByLabel(t('graph.settings'))?.className).toContain('accent-soft')
 
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
-    expect(document.querySelector('aside')).toBeNull()
+    expect(document.querySelector('aside[role="dialog"]')).toBeNull()
     expect(closeMock).not.toHaveBeenCalled()
 
     await act(async () => {

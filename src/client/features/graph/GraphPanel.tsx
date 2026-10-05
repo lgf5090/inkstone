@@ -20,7 +20,8 @@ import { organizerColorOrNull } from '@shared/organizer-colors'
 import { truncateText } from '@shared/text-utils'
 import { api } from '../../lib/api'
 import { Button, IconButton } from '../../components/primitives'
-import { Menu, Tooltip, useDialogFocus, useEscape, useLockScroll, type MenuItem } from '../../components/overlay'
+import { Select, Segmented, Slider, Switch } from '../../components/form'
+import { Drawer, Menu, Tooltip, useDialogFocus, useEscape, useLockScroll, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
@@ -793,16 +794,16 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             : t('graph.stats', { notes: counts.notes, links: counts.links })}
         </span>}
       </div>
-      <div className="flex h-8 items-center rounded-[var(--r-md)] bg-[var(--bg-inset)] p-0.5" role="group" aria-label={t('graph.scope')}>
-        <button type="button" aria-pressed={prefs.mode === 'global'} onClick={() => changePref('mode', 'global')}
-          className={`h-7 rounded-[var(--r-sm)] px-2.5 text-[11.5px] ${prefs.mode === 'global' ? 'bg-[var(--bg-overlay)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>
-          {t('graph.global')}
-        </button>
-        <button type="button" aria-pressed={prefs.mode === 'local'} disabled={!activeNoteId} onClick={() => changePref('mode', 'local')}
-          className={`h-7 rounded-[var(--r-sm)] px-2.5 text-[11.5px] disabled:opacity-40 ${prefs.mode === 'local' ? 'bg-[var(--bg-overlay)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>
-          {t('graph.local')}
-        </button>
-      </div>
+      <Segmented
+        size="sm"
+        label={t('graph.scope')}
+        value={prefs.mode}
+        onChange={(value) => changePref('mode', value)}
+        options={[
+          { value: 'global', label: t('graph.global') },
+          { value: 'local', label: t('graph.local') },
+        ]}
+      />
       <label className="flex h-8 min-w-[150px] flex-1 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2.5 md:max-w-[320px]">
         <Search size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
         <span className="sr-only">{t('graph.search_notes')}</span>
@@ -818,7 +819,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         <Tooltip label={t('common.zoom_in')}><IconButton label={t('common.zoom_in')} size="sm" disabled={!data?.nodes.length} onClick={() => {
           zoomFromCenter(Math.min(4, stateRef.current.scale + 0.2))
         }}><Plus size={14}/></IconButton></Tooltip>
-        <Tooltip label={t('graph.settings')}><IconButton label={t('graph.settings')} size="sm" aria-pressed={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Settings2 size={14}/></IconButton></Tooltip>
+        <Tooltip label={t('graph.settings')}><IconButton label={t('graph.settings')} size="sm" active={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Settings2 size={14}/></IconButton></Tooltip>
         <Tooltip label={t('common.close')} combo="escape" side="left"><IconButton label={t('common.close')} size="sm" onClick={onClose} className="ml-1"><X size={16}/></IconButton></Tooltip>
       </div>
     </header>
@@ -953,44 +954,71 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         </>}
       </main>
 
-      {settingsOpen && <aside aria-label={t('graph.settings')} className="absolute inset-y-0 right-0 z-10 w-[min(88vw,300px)] overflow-y-auto border-l border-[var(--border-subtle)] bg-[var(--bg-base)] p-4 shadow-[-8px_0_24px_rgba(0,0,0,.06)] md:static md:shadow-none">
-        <div className="mb-4 flex items-center justify-between"><h3 className="text-[13px] font-semibold">{t('graph.settings')}</h3><Tooltip label={t('common.close')}><IconButton size="sm" label={t('common.close')} onClick={() => setSettingsOpen(false)}><X size={14}/></IconButton></Tooltip></div>
+      <Drawer open={settingsOpen} onClose={() => setSettingsOpen(false)} title={t('graph.settings')} width={300} zIndex={235}>
+        <div className="p-4">
         <GraphSection icon={<Filter size={13}/>} title={t('graph.filters')}>
-          <GraphSelect label={t('graph.folder')} value={folderFilter} onChange={(value) => changePref('folderId', value)} options={[['', t('graph.all_folders')], ...folders.map((folder) => [folder.id, folder.name] as [string, string])]}/>
-          <GraphSelect label={t('graph.tag')} value={tagFilter} onChange={(value) => changePref('tag', value)} options={[['', t('graph.all_tags')], ...tags.map((item) => [item.name, item.name] as [string, string])]}/>
-          <GraphToggle label={t('graph.show_orphans')} checked={prefs.includeOrphans} onChange={(value) => changePref('includeOrphans', value)}/>
-          <GraphToggle label={t('graph.show_unresolved')} checked={prefs.includeUnresolved} onChange={(value) => changePref('includeUnresolved', value)}/>
-          {prefs.mode === 'local' && <GraphSelect label={t('graph.depth')} value={String(prefs.depth)} onChange={(value) => changePref('depth', Number(value))} options={[["1", '1'], ["2", '2'], ["3", '3']]}/>} 
+          <GraphRow label={t('graph.folder')}>
+            <Select aria-label={t('graph.folder')} className="max-w-[160px]" value={folderFilter}
+              onChange={(event) => changePref('folderId', event.target.value)}>
+              <option value="">{t('graph.all_folders')}</option>
+              {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+            </Select>
+          </GraphRow>
+          <GraphRow label={t('graph.tag')}>
+            <Select aria-label={t('graph.tag')} className="max-w-[160px]" value={tagFilter}
+              onChange={(event) => changePref('tag', event.target.value)}>
+              <option value="">{t('graph.all_tags')}</option>
+              {tags.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+            </Select>
+          </GraphRow>
+          <GraphRow label={t('graph.show_orphans')}>
+            <Switch label={t('graph.show_orphans')} checked={prefs.includeOrphans} onChange={(value) => changePref('includeOrphans', value)}/>
+          </GraphRow>
+          <GraphRow label={t('graph.show_unresolved')}>
+            <Switch label={t('graph.show_unresolved')} checked={prefs.includeUnresolved} onChange={(value) => changePref('includeUnresolved', value)}/>
+          </GraphRow>
+          {prefs.mode === 'local' && <GraphRow label={t('graph.depth')}>
+            <Segmented size="sm" label={t('graph.depth')} value={String(prefs.depth)}
+              onChange={(value) => changePref('depth', Number(value))}
+              options={[{ value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }]}/>
+          </GraphRow>}
         </GraphSection>
         <GraphSection icon={<Network size={13}/>} title={t('graph.appearance')}>
-          <GraphSelect label={t('graph.group_by')} value={prefs.groupBy} onChange={(value) => changePref('groupBy', value as GroupBy)} options={[["none", t('graph.group_none')], ["folder", t('graph.folder')], ["tag", t('graph.tag')]]}/>
-          <GraphToggle label={t('graph.show_arrows')} checked={prefs.arrows} onChange={(value) => changePref('arrows', value)}/>
-          <GraphToggle label={t('graph.show_labels')} checked={prefs.labels} onChange={(value) => changePref('labels', value)}/>
+          <GraphRow label={t('graph.group_by')}>
+            <Select aria-label={t('graph.group_by')} className="max-w-[160px]" value={prefs.groupBy}
+              onChange={(event) => changePref('groupBy', event.target.value as GroupBy)}>
+              <option value="none">{t('graph.group_none')}</option>
+              <option value="folder">{t('graph.folder')}</option>
+              <option value="tag">{t('graph.tag')}</option>
+            </Select>
+          </GraphRow>
+          <GraphRow label={t('graph.show_arrows')}>
+            <Switch label={t('graph.show_arrows')} checked={prefs.arrows} onChange={(value) => changePref('arrows', value)}/>
+          </GraphRow>
+          <GraphRow label={t('graph.show_labels')}>
+            <Switch label={t('graph.show_labels')} checked={prefs.labels} onChange={(value) => changePref('labels', value)}/>
+          </GraphRow>
         </GraphSection>
         <GraphSection icon={<ArrowRight size={13}/>} title={t('graph.forces')}>
-          <GraphRange label={t('graph.repulsion')} min={300} max={1800} step={50} value={prefs.repulsion} onChange={(value) => changePref('repulsion', value)}/>
-          <GraphRange label={t('graph.link_distance')} min={40} max={150} step={5} value={prefs.linkDistance} onChange={(value) => changePref('linkDistance', value)}/>
-          <GraphRange label={t('graph.node_size')} min={0.7} max={1.8} step={0.1} value={prefs.nodeScale} onChange={(value) => changePref('nodeScale', value)}/>
+          <Slider label={t('graph.repulsion')} min={300} max={1800} step={50} value={prefs.repulsion} onChange={(value) => changePref('repulsion', value)}/>
+          <Slider label={t('graph.link_distance')} min={40} max={150} step={5} value={prefs.linkDistance} onChange={(value) => changePref('linkDistance', value)}/>
+          <Slider label={t('graph.node_size')} min={0.7} max={1.8} step={0.1} value={prefs.nodeScale} onChange={(value) => changePref('nodeScale', value)}/>
           <button type="button" onClick={() => setPrefs((current) => ({ ...DEFAULT_PREFERENCES, mode: current.mode }))} className="mt-1 flex h-8 w-full items-center justify-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><ArrowDownToLine size={13}/>{t('graph.restore_defaults')}</button>
         </GraphSection>
-      </aside>}
+        </div>
+      </Drawer>
     </div>
     <Menu anchor={context ?? { x: 0, y: 0 }} open={Boolean(context)} onClose={() => setContext(null)} items={menuItems} label={t('graph.node_actions')}/>
   </div>, document.body)
+}
+
+function GraphRow({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="flex items-center justify-between gap-3 text-[12px] text-[var(--text-secondary)]"><span className="min-w-0 truncate">{label}</span><span className="flex min-w-0 shrink-0 items-center">{children}</span></div>
 }
 
 function GraphSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return <section className="mb-5"><h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--text-tertiary)]">{icon}{title}</h4><div className="space-y-2.5">{children}</div></section>
 }
 
-function GraphSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
-  return <label className="flex items-center justify-between gap-3 text-[12px] text-[var(--text-secondary)]"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className="h-8 max-w-[160px] rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[11.5px] outline-none focus:border-[var(--accent)]">{options.map(([optionValue, text]) => <option key={optionValue} value={optionValue}>{text}</option>)}</select></label>
-}
 
-function GraphToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex cursor-pointer items-center justify-between gap-3 text-[12px] text-[var(--text-secondary)]"><span>{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="size-4 accent-[var(--accent)]"/></label>
-}
 
-function GraphRange({ label, min, max, step, value, onChange }: { label: string; min: number; max: number; step: number; value: number; onChange: (value: number) => void }) {
-  return <label className="block text-[12px] text-[var(--text-secondary)]"><span className="mb-1 flex justify-between"><span>{label}</span><span className="tabular-nums text-[var(--text-tertiary)]">{value}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="w-full accent-[var(--accent)]"/></label>
-}
