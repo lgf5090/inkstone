@@ -9,7 +9,6 @@ const STORAGE_KEY = UI_STORAGE_KEY
 
 export type PanelName =
   | 'command'
-  | 'search'
   | 'settings'
   | 'shortcuts'
   | 'graph'

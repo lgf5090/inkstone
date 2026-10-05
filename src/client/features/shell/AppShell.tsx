@@ -211,7 +211,7 @@ function OverlayHost() {
     return (<>
       {panel === 'settings' && <SettingsPanel key={userId} onClose={closePanel}/>}
       <Suspense fallback={null}>
-        {(panel === 'command' || panel === 'search') && <CommandPalette key={panel} initialQuery={panel === 'command' ? '> ' : ''} onClose={closePanel}/>}
+        {panel === 'command' && <CommandPalette initialQuery="> " onClose={closePanel}/>}
         {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
         {panel === 'graph' && <GraphPanel onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}

@@ -71,6 +71,10 @@ const allowed = new Map([
     "// depend on it; reading it imperatively left freshly-opened notes unsearchable.",
     "// Crossing the tablet/desktop width is a layout change, not a new context: wiping the",
     "// query there loses a search the user is still typing.",
+    "// Browsing the search panel shows the same collection as the sidebar, but typing into it",
+    "// means \"find the note\", and the server layer already answers that including archived",
+    "// notes; scoping the local layer to the view made archived notes findable online and",
+    "// invisible offline.",
   ]],
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
@@ -520,6 +524,16 @@ const allowed = new Map([
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
   ]],
+  ["src/worker/routes/search.ts", [
+    "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
+    "// note is not live, so an in:trash query has nothing left in notes_fts to match against;",
+    "// it is served by likeSearch instead. Keeping trash indexed would trade a niche ranking",
+    "// improvement for an index lifecycle that has to survive restore and purge races.",
+    "// A term-less query (folder:/tag:/is: only) must not emit `ORDER BY 0`: SQLite reads a bare",
+    "// integer there as a result-column ordinal and rejects 0 outright.",
+    "// The folder view is recursive, so folder: has to walk the subtree too. UNION rather than",
+    "// UNION ALL keeps a parent_id cycle from looping forever.",
+  ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
     "// View counts are display-only; dropping them beats paying an O(n) sweep per request",
@@ -633,6 +647,11 @@ const allowed = new Map([
   ["tests/rewrite-drain.test.ts", [
     "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",
     "// emulates the claim TTL expiring between cron rounds.",
+  ]],
+  ["tests/search-folder-scope.test.ts", [
+    "// A parent_id cycle has to terminate rather than spin.",
+    "// Control for the folder tests below: this query never reaches the folder clause, so the",
+    "// same failure here means the defect is in the shared ORDER BY, not in folder scoping.",
   ]],
   ["tests/semantic-scan-window.test.ts", [
     "/** The query embedding the stub always returns; a match scores 1, everything else 0. */",

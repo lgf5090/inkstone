@@ -183,7 +183,7 @@ export function SharePage({ slug }: {
     };
     const stats = note ? countText(note.content) : null;
     return (<div className="h-full overflow-y-auto overscroll-contain bg-[var(--bg-base)]">
-      <header className="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/85 pt-[env(safe-area-inset-top)] backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-12 max-w-[860px] items-center gap-3 px-4 md:px-5">
           <span className="flex items-center gap-1.5 text-[var(--accent)]">
             <Logo size={15}/>
