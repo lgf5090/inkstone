@@ -106,26 +106,33 @@ md.renderer.rules.front_matter = (tokens, index) => {
         .join('');
     return `<details class="frontmatter-properties" data-line="0"><summary>${escapeHtml(t("markdown.properties"))}</summary><dl>${rows}</dl></details>`;
 };
+const COLON_CONTAINER_OPEN = /^(:{3,})[ \t]*(details|tabs)\b(?:[ \t]+(.*))?$/;
+const COLON_CONTAINER_BODY = /^[ \t]*(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item)\b)/;
+const TAB_ITEM_OPEN = /^(:{3,})(?:\{tab-item\}|[ \t]*tab-item)(?:[ \t]+(.*?))?[ \t]*$/;
+const INTERRUPTS_CONTAINER_CHAIN = { alt: ['paragraph', 'blockquote', 'list'] };
 md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, silent) => {
     const source = blockLine(state, startLine);
-    const legacyMatch = /^(:{3,})[ \t]+(details|tabs)\b(?:[ \t]+(.*))?$/.exec(source);
+    const legacyMatch = COLON_CONTAINER_OPEN.exec(source);
     const directiveMatch = /^(:{3,})\{(tab-set)\}[ \t]*(.*)$/.exec(source);
     if (!legacyMatch && !directiveMatch)
         return false;
     const markerLength = (legacyMatch?.[1] ?? directiveMatch![1]!).length;
-    const end = findContainerEnd(state, startLine, endLine, markerLength);
-    if (end < 0)
-        return false;
+    const fenceEnd = findColonFenceEnd(state, startLine + 1, endLine, markerLength);
+    // Like an unclosed ``` fence, an unclosed container claims the rest of its own context
+    // instead of throwing the author's text away.
+    const end = fenceEnd < 0 ? endLine : fenceEnd;
+    const nextLine = fenceEnd < 0 ? endLine : fenceEnd + 1;
     if (silent)
         return true;
     const kind = legacyMatch?.[2] ?? directiveMatch![2]!;
     if (kind === 'details') {
-        const rawInfo = (legacyMatch?.[3] ?? '').trim();
-        const open = /^(?:open|\+)\b/.test(rawInfo);
-        const title = stripBracketTitle(rawInfo.replace(/^(?:open|\+)\b[ \t]*/, '')) || t("markdown.details");
+        const rawInfo = (legacyMatch?.[3] ?? directiveMatch?.[3] ?? '').trim();
+        const fold = /^(open|[+-])(?:[ \t]|$)/.exec(rawInfo);
+        const open = fold?.[1] === 'open' || fold?.[1] === '+';
+        const title = stripBracketTitle(rawInfo.slice(fold ? fold[0].length : 0)) || t("markdown.details");
         const openToken = state.push('details_open', 'details', 1);
         openToken.block = true;
-        openToken.map = [startLine, end + 1];
+        openToken.map = [startLine, nextLine];
         openToken.meta = { open };
         const summary = state.push('details_summary', 'summary', 0);
         summary.content = title;
@@ -135,7 +142,10 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
     else {
         const tabs = findTabSegments(state, startLine + 1, end);
         if (!tabs.length) {
-            state.line = end + 1;
+            // A tab set without any tab-item still holds the author's content, so render
+            // the body as ordinary blocks instead of consuming it.
+            state.md.block.tokenize(state, startLine + 1, end);
+            state.line = nextLine;
             return true;
         }
         const env = renderEnv(state.env);
@@ -143,7 +153,7 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
         const selectedIndex = Math.max(0, tabs.findIndex((tab) => tab.selected));
         const openToken = state.push('tabs_open', 'div', 1);
         openToken.block = true;
-        openToken.map = [startLine, end + 1];
+        openToken.map = [startLine, nextLine];
         openToken.meta = { id, titles: tabs.map((tab) => tab.title), selectedIndex };
         tabs.forEach((tab, tabIndex) => {
             const panelOpen = state.push('tab_panel_open', 'section', 1);
@@ -156,9 +166,9 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
         });
         state.push('tabs_close', 'div', -1).block = true;
     }
-    state.line = end + 1;
+    state.line = nextLine;
     return true;
-});
+}, INTERRUPTS_CONTAINER_CHAIN);
 md.renderer.rules.details_open = (tokens, index) => {
     const sourceLine = tokens[index]!.map?.[0];
     const open = Boolean((tokens[index]!.meta as {
@@ -166,7 +176,7 @@ md.renderer.rules.details_open = (tokens, index) => {
     })?.open);
     return `<details class="markdown-details"${sourceLine === undefined ? '' : ` data-line="${sourceLine}"`}${open ? ' open' : ''}>`;
 };
-md.renderer.rules.details_summary = (tokens, index) => `<summary>${escapeHtml(tokens[index]!.content)}</summary>`;
+md.renderer.rules.details_summary = (tokens, index, _options, env) => `<summary>${md.renderInline(tokens[index]!.content, env)}</summary>`;
 md.renderer.rules.details_close = () => '</details>';
 md.renderer.rules.tabs_open = (tokens, index) => {
     const sourceLine = tokens[index]!.map?.[0];
@@ -243,7 +253,7 @@ md.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent)
     renderEnv(state.env).hasMath = true;
     state.line = next + 1;
     return true;
-});
+}, INTERRUPTS_CONTAINER_CHAIN);
 md.renderer.rules.math_inline = (tokens, index) => `<span class="math-inline" data-math="${escapeAttr(encodeDataValue(tokens[index]!.content))}"></span>`;
 md.renderer.rules.math_block = (tokens, index) => {
     const token = tokens[index]!;
@@ -392,7 +402,7 @@ md.core.ruler.after('github-task-lists', 'obsidian_callouts', (state) => {
     }
     return true;
 });
-md.renderer.rules.callout_open = (tokens, index) => {
+md.renderer.rules.callout_open = (tokens, index, _options, env) => {
     const sourceLine = tokens[index]!.map?.[0];
     const line = sourceLine === undefined ? '' : ` data-line="${sourceLine}"`;
     const { type, title, fold } = tokens[index]!.meta as {
@@ -400,10 +410,11 @@ md.renderer.rules.callout_open = (tokens, index) => {
         title: string;
         fold: string;
     };
+    const heading = md.renderInline(title, env);
     if (fold) {
-        return `<details class="callout callout-${escapeAttr(type)}" data-callout="${escapeAttr(type)}"${line}${fold === '+' ? ' open' : ''}><summary class="callout-title">${escapeHtml(title)}</summary><div class="callout-content">`;
+        return `<details class="callout callout-${escapeAttr(type)}" data-callout="${escapeAttr(type)}"${line}${fold === '+' ? ' open' : ''}><summary class="callout-title">${heading}</summary><div class="callout-content">`;
     }
-    return `<aside class="callout callout-${escapeAttr(type)}" data-callout="${escapeAttr(type)}"${line}><div class="callout-title">${escapeHtml(title)}</div><div class="callout-content">`;
+    return `<aside class="callout callout-${escapeAttr(type)}" data-callout="${escapeAttr(type)}"${line}><div class="callout-title">${heading}</div><div class="callout-content">`;
 };
 md.renderer.rules.callout_close = (tokens, index) => `</div>${(tokens[index]!.meta as {
     fold: string;
@@ -888,37 +899,6 @@ function blockLine(state: {
     const from = state.bMarks[line]! + state.tShift[line]!;
     return state.src.slice(from, state.eMarks[line]!);
 }
-function findContainerEnd(state: {
-    src: string;
-    bMarks: number[];
-    tShift: number[];
-    eMarks: number[];
-}, startLine: number, endLine: number, markerLength: number): number {
-    let depth = 1;
-    let fence: {
-        char: string;
-        length: number;
-    } | null = null;
-    for (let line = startLine + 1; line < endLine; line++) {
-        const text = blockLine(state, line);
-        const fenceMatch = /^(`{3,}|~{3,})/.exec(text);
-        if (fenceMatch) {
-            const marker = fenceMatch[1]!;
-            if (!fence)
-                fence = { char: marker[0]!, length: marker.length };
-            else if (marker[0] === fence.char && marker.length >= fence.length)
-                fence = null;
-            continue;
-        }
-        if (fence)
-            continue;
-        if (new RegExp(`^:{${markerLength},}(?:\\s+(?:details|tabs)\\b|\\{tab-set\\})`).test(text))
-            depth++;
-        else if (new RegExp(`^:{${markerLength},}\\s*$`).test(text) && --depth === 0)
-            return line;
-    }
-    return -1;
-}
 function findTabSegments(state: {
     src: string;
     bMarks: number[];
@@ -978,14 +958,15 @@ function findDirectiveTabSegments(state: {
 }> {
     const tabs: Array<{ title: string; start: number; end: number; selected: boolean }> = [];
     for (let line = start; line < end;) {
-        const match = /^(:{3,})(?:\{tab-item\}|[ \t]+tab-item)(?:[ \t]+(.*?))?[ \t]*$/.exec(blockLine(state, line));
+        const match = TAB_ITEM_OPEN.exec(blockLine(state, line));
         if (!match) {
             line++;
             continue;
         }
-        const close = findColonFenceEnd(state, line + 1, end, match[1]!.length);
-        if (close < 0)
-            return [];
+        const fenceEnd = findColonFenceEnd(state, line + 1, end, match[1]!.length);
+        // An item that never closes runs to the end of its own set, so the typed text stays
+        // readable instead of discarding the whole group.
+        const close = fenceEnd < 0 ? end : fenceEnd;
         let contentStart = line + 1;
         let selected = false;
         while (contentStart < close) {
@@ -1008,12 +989,22 @@ function findDirectiveTabSegments(state: {
     }
     return tabs;
 }
+function colonFenceMark(text: string): { length: number; opens: boolean } | null {
+    const run = /^:{3,}/.exec(text);
+    if (!run)
+        return null;
+    const rest = text.slice(run[0].length);
+    if (!rest.trim())
+        return { length: run[0]!.length, opens: false };
+    return COLON_CONTAINER_BODY.test(rest) ? { length: run[0]!.length, opens: true } : null;
+}
 function findColonFenceEnd(state: {
     src: string;
     bMarks: number[];
     tShift: number[];
     eMarks: number[];
 }, start: number, end: number, markerLength: number): number {
+    const open: number[] = [markerLength];
     let fence: { char: string; length: number } | null = null;
     for (let line = start; line < end; line++) {
         const text = blockLine(state, line);
@@ -1026,14 +1017,31 @@ function findColonFenceEnd(state: {
                 fence = null;
             continue;
         }
-        if (!fence && new RegExp(`^:{${markerLength},}\\s*$`).test(text))
-            return line;
+        if (fence)
+            continue;
+        const mark = colonFenceMark(text);
+        if (!mark)
+            continue;
+        if (mark.opens) {
+            open.push(mark.length);
+            continue;
+        }
+        // One closer line closes the innermost container it can serve, so a `:::` inside a
+        // `::::` set ends that inner block instead of truncating its parent.
+        for (let depth = open.length - 1; depth >= 0; depth--) {
+            if (open[depth]! > mark.length)
+                continue;
+            open.length = depth;
+            if (!open.length)
+                return line;
+            break;
+        }
     }
     return -1;
 }
 function stripBracketTitle(value: string): string {
     const trimmed = value.trim();
-    return /^\[[\s\S]*\]$/.test(trimmed) ? trimmed.slice(1, -1).trim() : trimmed;
+    return /^\[[^\][\n]*\]$/.test(trimmed) ? trimmed.slice(1, -1).trim() : trimmed;
 }
 function matchingClose(tokens: Token[], start: number, openType: string, closeType: string): number {
     let depth = 0;

@@ -682,10 +682,22 @@ export function replaceWikiLinkTarget(content: string, from: string, to: string)
   return lines.join('\n')
 }
 
+function stripContainerMarkers(text: string): string {
+  return text
+    .replace(/^[ \t]{0,3}:{3,}.*$/gm, (line) => {
+      const afterColons = line.replace(/^[ \t]{0,3}:{3,}[ \t]*/, '')
+      const keyword = /^(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item)(?![\w-]))[ \t]*/.exec(afterColons)
+      const label = keyword ? afterColons.slice(keyword[0].length) : afterColons
+      return /^\[[^\]\n]*\]$/.test(label.trim()) ? label.trim().slice(1, -1) : label
+    })
+    .replace(/^[ \t]*@tab[ \t]+/gm, '')
+    .replace(/^[ \t]*\[![A-Za-z][A-Za-z0-9_-]{0,31}\][+-]?[ \t]*/gm, '')
+}
+
 export function deriveTitle(content: string, fallback = "Untitled note"): string {
   const { body, meta } = splitFrontMatter(content)
   if (meta.title) return trimTitle(meta.title)
-  const safe = stripCodeRegions(body)
+  const safe = stripContainerMarkers(stripCodeRegions(body))
   const lines = safe.split('\n')
   for (const line of lines) {
     const h = /^[ \t]{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line)
@@ -760,6 +772,7 @@ export function toPlainText(md: string): string {
   t = t.replace(/^ {0,3}(?:[-*_][ \t]*){3,}$/gm, '')
   t = t.replace(/^[ \t]{0,3}#{1,6}\s+/gm, '')
   t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, '')
+  t = stripContainerMarkers(t)
   t = t.replace(/^[ \t]*[-*+][ \t]+\[[ xX]\][ \t]+/gm, '')
   t = t.replace(/^[ \t]*[-*+][ \t]+/gm, '')
   t = t.replace(/^[ \t]*\d+[.)][ \t]+/gm, '')

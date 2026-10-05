@@ -1,5 +1,47 @@
 import { describe, expect, it } from 'vitest'
-import { extractAttachmentIds, extractTags } from './markdown-utils'
+import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, toPlainText } from './markdown-utils'
+
+const TAB_NOTE = [
+  ':::: tabs',
+  '::: tab-item Writing',
+  'Body text here',
+  ':::',
+  '::::',
+].join('\n')
+
+describe('container markers in plain text', () => {
+  it('drops the colon fence lines but keeps each tab label', () => {
+    expect(toPlainText(TAB_NOTE).trim()).toBe('Writing\nBody text here')
+  })
+
+  it('keeps a bracketed details label without the brackets or markers', () => {
+    expect(toPlainText('::: details [Click to expand]\nhiding\n:::').trim()).toBe('Click to expand\nhiding')
+  })
+
+  it('drops a callout type marker but keeps its title', () => {
+    expect(toPlainText('> [!WARNING]- Careful\nmore').trim()).toBe('Careful\nmore')
+  })
+
+  it('titles a note that opens with a tab set after the first real label', () => {
+    expect(deriveTitle(`${TAB_NOTE}\n\n# Heading later`)).toBe('Heading later')
+    expect(deriveTitle('::: details [Click to expand]\nhiding\n:::')).toBe('Click to expand')
+    expect(deriveTitle(TAB_NOTE)).toBe('Writing')
+  })
+
+  it('keeps excerpt and word counts free of container syntax', () => {
+    expect(deriveExcerpt(TAB_NOTE)).toBe('Body text here')
+    expect(countText(TAB_NOTE).words).toBe(4)
+  })
+
+  it('leaves ordinary colons and lists untouched', () => {
+    expect(toPlainText('::: not a directive\n- a: b').trim()).toBe('not a directive\na: b')
+    expect(toPlainText('time:: 12:00')).toContain('time:: 12:00')
+  })
+
+  it('ignores container-looking lines inside code fences', () => {
+    expect(toPlainText('```\n:::: tabs\n```').trim()).toBe('')
+  })
+})
 
 describe('extractTags', () => {
   it('handles an unterminated inline-code marker with a mismatched trailing marker', () => {

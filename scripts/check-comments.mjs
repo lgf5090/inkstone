@@ -63,6 +63,10 @@ const allowed = new Map([
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
     "// Heads are in document order, so the active one is the last entry at or above top.",
   ]],
+  ["src/client/features/preview/markdown-tabs.ts", [
+    "// A nested group numbers its own panels from zero, so an outer click that reached inside",
+    "// would relabel the inner buttons and hide the panel the inner group has selected.",
+  ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
@@ -148,6 +152,14 @@ const allowed = new Map([
     "// A line with neither marker cannot change state, so rebuild-by-character is pure",
     "// overhead. The inComment test must stay: inside an open %% block the loop below",
     "// blanks the line instead of copying it.",
+    "// Like an unclosed ``` fence, an unclosed container claims the rest of its own context",
+    "// instead of throwing the author's text away.",
+    "// A tab set without any tab-item still holds the author's content, so render",
+    "// the body as ordinary blocks instead of consuming it.",
+    "// An item that never closes runs to the end of its own set, so the typed text stays",
+    "// readable instead of discarding the whole group.",
+    "// One closer line closes the innermost container it can serve, so a `:::` inside a",
+    "// `::::` set ends that inner block instead of truncating its parent.",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",

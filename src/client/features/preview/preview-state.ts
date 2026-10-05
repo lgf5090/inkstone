@@ -1,5 +1,5 @@
 import { toggleCodeBlockCollapse } from '../../lib/markdown/enhance'
-import { selectMarkdownTab } from './markdown-tabs'
+import { groupTabButtons, selectMarkdownTab } from './markdown-tabs'
 
 export interface PreviewInteractionState {
   codeBlocks: Map<string, boolean>
@@ -22,7 +22,7 @@ export function capturePreviewInteractionState(root: HTMLElement | null): Previe
     state.details.set(key, (element as HTMLDetailsElement).open)
   })
   keyedElements(root, '[data-tabs][data-line]').forEach(([key, element]) => {
-    const selected = element.querySelector<HTMLElement>('[data-tab-button][aria-selected="true"]')
+    const selected = groupTabButtons(element).find((button) => button.getAttribute('aria-selected') === 'true')
     if (selected?.dataset.tabButton !== undefined) state.tabs.set(key, selected.dataset.tabButton)
   })
   return state
@@ -44,7 +44,7 @@ export function restorePreviewInteractionState(
   keyedElements(root, '[data-tabs][data-line]').forEach(([key, element]) => {
     const selected = state.tabs.get(key)
     if (selected === undefined) return
-    const button = [...element.querySelectorAll<HTMLButtonElement>('[data-tab-button]')]
+    const button = groupTabButtons(element)
       .find((candidate) => candidate.dataset.tabButton === selected)
     if (button) selectMarkdownTab(button)
   })

@@ -1,13 +1,25 @@
+export function groupTabButtons(group: HTMLElement): HTMLButtonElement[] {
+  return [...group.querySelectorAll<HTMLButtonElement>('[data-tab-button]')]
+    .filter((button) => button.closest('[data-tabs]') === group)
+}
+
+export function groupTabPanels(group: HTMLElement): HTMLElement[] {
+  return [...group.querySelectorAll<HTMLElement>('[data-tab-panel]')]
+    .filter((panel) => panel.closest('[data-tabs]') === group)
+}
+
 export function selectMarkdownTab(button: HTMLButtonElement): void {
   const tabs = button.closest<HTMLElement>('[data-tabs]')
   if (!tabs) return
   const index = button.dataset.tabButton
-  tabs.querySelectorAll<HTMLButtonElement>('[data-tab-button]').forEach((candidate) => {
+  // A nested group numbers its own panels from zero, so an outer click that reached inside
+  // would relabel the inner buttons and hide the panel the inner group has selected.
+  groupTabButtons(tabs).forEach((candidate) => {
     const selected = candidate === button
     candidate.setAttribute('aria-selected', String(selected))
     candidate.tabIndex = selected ? 0 : -1
   })
-  tabs.querySelectorAll<HTMLElement>('[data-tab-panel]').forEach((panel) => {
+  groupTabPanels(tabs).forEach((panel) => {
     panel.hidden = panel.dataset.tabPanel !== index
   })
 }
