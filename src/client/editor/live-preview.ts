@@ -28,9 +28,14 @@ class RenderedBlock extends WidgetType {
         host.innerHTML = this.block.html;
         host.title = t('workspace.live_preview_hint');
         let alive = true;
-        const observer = new ResizeObserver(() => view.requestMeasure());
+        blockViews.set(host, view);
+        const observer = getSharedBlockResizeObserver();
         observer.observe(host);
-        cleanup.set(host, () => { alive = false; observer.disconnect(); });
+        cleanup.set(host, () => {
+            alive = false;
+            observer.unobserve(host);
+            blockViews.delete(host);
+        });
         const settings = useSession.getState().settings.preview;
         const dark = document.documentElement.dataset.theme === 'dark';
         const prepare = async () => {
@@ -101,6 +106,24 @@ class RenderedBlock extends WidgetType {
     ignoreEvent() { return true; }
 }
 const cleanup = new WeakMap<HTMLElement, () => void>();
+const blockViews = new WeakMap<Element, EditorView>();
+let sharedBlockResizeObserver: ResizeObserver | null = null;
+
+function getSharedBlockResizeObserver(): ResizeObserver {
+    if (!sharedBlockResizeObserver) {
+        sharedBlockResizeObserver = new ResizeObserver((entries) => {
+            const views = new Set<EditorView>();
+            for (const entry of entries) {
+                const view = blockViews.get(entry.target);
+                if (view) views.add(view);
+            }
+            for (const view of views) {
+                view.requestMeasure();
+            }
+        });
+    }
+    return sharedBlockResizeObserver;
+}
 
 interface LiveState {
     blocks: MarkdownBlock[];
@@ -112,7 +135,13 @@ interface LiveState {
 
 function decorate(state: EditorState, live: LiveState, title: string): DecorationSet {
     const ranges: Range<Decoration>[] = [];
-    const source = state.doc.toString();
+    const hasEmbeds = live.blocks.some((b) => b.html.includes('data-embed-target'));
+    let cachedSource: string | null = null;
+    const getSource = () => {
+        if (cachedSource === null) cachedSource = state.doc.toString();
+        return cachedSource;
+    };
+    const source = hasEmbeds ? getSource() : '';
     for (const block of live.blocks) {
         if (block.startLine >= state.doc.lines || block.endLine <= block.startLine) continue;
         const from = state.doc.line(block.startLine + 1).from;
