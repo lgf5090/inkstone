@@ -332,6 +332,7 @@ export async function searchSemanticNotes(
        FROM ai_note_embeddings e JOIN notes n
          ON n.id = e.note_id AND n.user_id = e.user_id
       WHERE ${where}
+      ORDER BY e.indexed_at DESC
       LIMIT ?${binds.length}`,
   ).bind(...binds).all<EmbeddingRow>()
   if (!results.length) return []
