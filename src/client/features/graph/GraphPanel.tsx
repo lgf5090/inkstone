@@ -26,7 +26,9 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 
-const PHYSICS_FRAME_LIMIT = 360
+const PHYSICS_FRAME_LIMIT = 180
+const SPATIAL_CELL_SIZE = 350
+const MAX_REPULSION_DIST_SQ = 120000
 const GRAPH_PREFS_KEY = 'inkstone.graph.preferences.v1'
 
 type GroupBy = 'none' | 'folder' | 'tag'
@@ -314,23 +316,56 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       const rect = canvas.getBoundingClientRect()
       if (state.frame < PHYSICS_FRAME_LIMIT) {
         state.frame++
+        const grid = new Map<string, typeof state.nodes[number][]>()
+        for (let i = 0; i < state.nodes.length; i++) {
+          const n = state.nodes[i]!
+          const key = `${Math.floor(n.x / SPATIAL_CELL_SIZE)}:${Math.floor(n.y / SPATIAL_CELL_SIZE)}`
+          let list = grid.get(key)
+          if (!list) { list = []; grid.set(key, list) }
+          list.push(n)
+        }
+        const applyRepulsion = (a: typeof state.nodes[number], b: typeof state.nodes[number]) => {
+          let dx = b.x - a.x, dy = b.y - a.y
+          let distanceSquared = dx * dx + dy * dy
+          if (distanceSquared < 0.01) {
+            dx = (Math.random() - 0.5) * 0.6
+            dy = (Math.random() - 0.5) * 0.6
+            distanceSquared = 0.36
+          }
+          if (distanceSquared > MAX_REPULSION_DIST_SQ) return
+          const distance = Math.sqrt(distanceSquared)
+          const force = prefs.repulsion / distanceSquared
+          const fx = dx / distance * force, fy = dy / distance * force
+          a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy
+        }
+        for (const [key, cell] of grid) {
+          const colon = key.indexOf(':')
+          const cx = Number(key.slice(0, colon))
+          const cy = Number(key.slice(colon + 1))
+          for (let i = 0; i < cell.length; i++) {
+            const a = cell[i]!
+            for (let j = i + 1; j < cell.length; j++) {
+              applyRepulsion(a, cell[j]!)
+            }
+          }
+          const neighbors = [
+            grid.get(`${cx + 1}:${cy}`),
+            grid.get(`${cx - 1}:${cy + 1}`),
+            grid.get(`${cx}:${cy + 1}`),
+            grid.get(`${cx + 1}:${cy + 1}`),
+          ]
+          for (const neighbor of neighbors) {
+            if (!neighbor) continue
+            for (let i = 0; i < cell.length; i++) {
+              const a = cell[i]!
+              for (let j = 0; j < neighbor.length; j++) {
+                applyRepulsion(a, neighbor[j]!)
+              }
+            }
+          }
+        }
         for (let i = 0; i < state.nodes.length; i++) {
           const a = state.nodes[i]!
-          for (let j = i + 1; j < state.nodes.length; j++) {
-            const b = state.nodes[j]!
-            let dx = b.x - a.x, dy = b.y - a.y
-            let distanceSquared = dx * dx + dy * dy
-            if (distanceSquared < 0.01) {
-              dx = (Math.random() - 0.5) * 0.6
-              dy = (Math.random() - 0.5) * 0.6
-              distanceSquared = 0.36
-            }
-            if (distanceSquared > 120000) continue
-            const distance = Math.sqrt(distanceSquared)
-            const force = prefs.repulsion / distanceSquared
-            const fx = dx / distance * force, fy = dy / distance * force
-            a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy
-          }
           a.vx -= a.x * 0.0022
           a.vy -= a.y * 0.0022
         }
@@ -350,7 +385,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           node.x += moveX; node.y += moveY
           movement += Math.abs(moveX) + Math.abs(moveY)
         }
-        if (state.frame > 90 && movement < state.nodes.length * 0.01) state.frame = PHYSICS_FRAME_LIMIT
+        if (state.frame > 30 && movement < state.nodes.length * 0.03) state.frame = PHYSICS_FRAME_LIMIT
       }
       ctx.clearRect(0, 0, rect.width, rect.height)
       ctx.save()
@@ -451,7 +486,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       if (state.dragging.node) {
         state.dragging.node.x = point.x; state.dragging.node.y = point.y
         state.dragging.node.vx = 0; state.dragging.node.vy = 0
-        state.frame = Math.min(state.frame, PHYSICS_FRAME_LIMIT - 100)
+        state.frame = Math.min(state.frame, PHYSICS_FRAME_LIMIT - 30)
       } else {
         state.offsetX = state.dragging.ox + clientX - state.dragging.startX
         state.offsetY = state.dragging.oy + clientY - state.dragging.startY
