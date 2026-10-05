@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Check, FolderClosed, Search } from 'lucide-react';
 import type { Folder } from '@shared/types';
-import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { Drawer } from '../../components/overlay';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
@@ -76,57 +75,5 @@ function FolderChoice({ label, icon, color, selected, onClick }: {
       </span>
       <span className="min-w-0 flex-1 break-words text-[13px]">{label}</span>
       {selected && <Check size={15} className="shrink-0 text-[var(--accent)]"/>}
-    </button>);
-}
-
-const FOLDER_ICONS = ['📁', '📚', '💼', '🧠', '💡', '🎯', '🗂️', '✨'] as const;
-
-export function FolderAppearance({
-    open,
-    folder,
-    onChange,
-    onClose,
-}: {
-    open: boolean;
-    folder: Folder | null;
-    onChange: (patch: { icon?: string | null; color?: string | null }) => void;
-    onClose: () => void;
-}) {
-    return (<Drawer open={open} onClose={onClose} title={t("folders.appearance")} width={380}>
-      {folder && <div className="space-y-7 p-4">
-        <section>
-          <h3 className="mb-3 text-[12px] font-semibold text-[var(--text-secondary)]">{t("folders.icon")}</h3>
-          <div className="grid grid-cols-5 gap-2">
-            <AppearanceChoice selected={!folder.icon} label={t("folders.no_icon")} onClick={() => onChange({ icon: null })}>
-              <FolderClosed size={17}/>
-            </AppearanceChoice>
-            {FOLDER_ICONS.map((icon) => (<AppearanceChoice key={icon} selected={folder.icon === icon} label={icon} onClick={() => onChange({ icon })}>
-              <span className="text-[17px]">{icon}</span>
-            </AppearanceChoice>))}
-          </div>
-        </section>
-        <section>
-          <h3 className="mb-3 text-[12px] font-semibold text-[var(--text-secondary)]">{t("folders.color")}</h3>
-          <div className="grid grid-cols-6 gap-3">
-            <button type="button" aria-label={t("folders.no_color")} aria-pressed={!folder.color} onClick={() => onChange({ color: null })} className={cn('flex size-10 items-center justify-center rounded-full border bg-[var(--bg-base)] text-[var(--text-quaternary)] transition-transform hover:scale-105', !folder.color ? 'border-[var(--accent)] ring-2 ring-[var(--accent-ring)]' : 'border-[var(--border-default)]')}>
-              <FolderClosed size={16}/>
-            </button>
-            {ORGANIZER_COLORS.map((color) => (<button key={color} type="button" aria-label={color} aria-pressed={folder.color === color} onClick={() => onChange({ color })} className={cn('flex size-10 items-center justify-center rounded-full transition-transform hover:scale-105', folder.color === color && 'ring-2 ring-[var(--accent-ring)] ring-offset-2 ring-offset-[var(--bg-surface)]')} style={{ backgroundColor: color }}>
-              {folder.color === color && <Check size={16} className="text-white"/>}
-            </button>))}
-          </div>
-        </section>
-      </div>}
-    </Drawer>);
-}
-
-function AppearanceChoice({ selected, label, onClick, children }: {
-    selected: boolean;
-    label: string;
-    onClick: () => void;
-    children: React.ReactNode;
-}) {
-    return (<button type="button" aria-label={label} aria-pressed={selected} onClick={onClick} className={cn('flex h-11 items-center justify-center rounded-[var(--r-md)] border bg-[var(--bg-base)] transition-colors hover:bg-[var(--bg-hover)]', selected ? 'border-[var(--accent)] ring-2 ring-[var(--accent-ring)]' : 'border-[var(--border-default)]')}>
-      {children}
     </button>);
 }

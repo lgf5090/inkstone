@@ -16,6 +16,7 @@ import { Empty, NoteListSkeleton } from '../../components/feedback';
 import { useUi } from '../../store/ui';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
 import { folderPathLabel } from '../../lib/folders';
+import { writeNoteDrag } from '../../lib/note-drag';
 import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
@@ -533,8 +534,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const titleParts = splitByRanges(note.title || t("common.untitled_note"), highlight);
     return (<>
       <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} aria-posinset={position} aria-setsize={total} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: density === 'compact' ? 'auto 42px' : 'auto 72px' }} onDragStart={(e) => {
-            e.dataTransfer.setData('application/x-inkstone-note', note.id);
-            e.dataTransfer.effectAllowed = 'move';
+            writeNoteDrag(e, selectedIds.length > 1 && selectedIds.includes(note.id) ? selectedIds : [note.id]);
         }} onClick={(event) => {
             if (event.altKey && breakpoint === 'desktop') {
                 event.preventDefault();

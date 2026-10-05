@@ -12,6 +12,7 @@ export type PanelName =
   | 'settings'
   | 'shortcuts'
   | 'graph'
+  | 'folders'
   | 'versions'
   | 'share'
   | 'info'

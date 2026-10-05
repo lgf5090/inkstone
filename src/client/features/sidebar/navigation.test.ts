@@ -2,11 +2,14 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, NoteSummary } from '@shared/types';
+import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { initI18n, t } from '../../lib/i18n';
 import { api } from '../../lib/api';
+import { getInboxFolderId, setInboxFolderId } from '../../lib/folder-prefs';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { Sidebar } from './Sidebar';
+import { FOLDER_ICON_CHOICES } from '../folders/FolderAppearanceMenus';
 import { groupExplorerNotes } from './ExplorerNote';
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { NoteList } from '../list/NoteList';
@@ -20,6 +23,7 @@ let container: HTMLDivElement;
 
 beforeEach(async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    Element.prototype.scrollIntoView = vi.fn();
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     await initI18n();
     useUi.setState({ ...originalUi, listCollapsed: true, view: 'all', folderId: null, activeNoteId: null, expandedFolders: [], mobilePane: 'list', searchList: false });
@@ -37,6 +41,7 @@ afterEach(async () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
 });
 
 const button = (scope: ParentNode, label: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.trim() === label || element.getAttribute('aria-label') === label)!;
@@ -292,5 +297,173 @@ describe('search list', () => {
             for (const handler of [...changeHandlers]) handler();
         });
         expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('Nested');
+    });
+});
+
+describe('folder row menu', () => {
+    const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
+    const allButtons = (scope: ParentNode) => [...scope.querySelectorAll<HTMLButtonElement>('button')];
+    const labels = (scope: ParentNode) => allButtons(scope).map((element) => element.textContent?.trim() ?? '');
+    const byLabel = (scope: ParentNode, label: string) => {
+        const found = allButtons(scope).find((element) => element.textContent?.trim() === label || element.getAttribute('aria-label') === label);
+        if (!found)
+            throw new Error(`missing control ${label}`);
+        return found;
+    };
+    const flyout = () => document.querySelector<HTMLElement>('[role="group"][aria-label]')!;
+
+    beforeEach(() => {
+        setInboxFolderId(null);
+    });
+
+    async function openFolderMenu() {
+        await act(() => root.render(createElement(Sidebar)));
+        await click(byLabel(container, t('common.more_actions')));
+        return menu();
+    }
+
+    it('lists every folder action in order', async () => {
+        const scope = await openFolderMenu();
+        expect(labels(scope)).toEqual([
+            t('sidebar.rename'),
+            t('sidebar.create_new_note_here'),
+            t('sidebar.new_subfolder'),
+            t('folders.color'),
+            t('folders.icon'),
+            t('folders.set_as_inbox'),
+            t('folders.move_to'),
+            t('sidebar.move_earlier'),
+            t('sidebar.move_later'),
+            t('sidebar.move_out_one_level'),
+            t('folders.sort_by_name'),
+            t('folders.export_zip'),
+            t('folders.manage_folders'),
+            t('sidebar.delete_folder'),
+        ]);
+    });
+
+    it('paints the folder from the colour flyout and closes the menu', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.color')));
+        const panel = flyout();
+        expect(byLabel(panel, t('folders.no_color')).getAttribute('aria-pressed')).toBe('true');
+        expect(allButtons(panel).filter((element) => element.getAttribute('aria-pressed') !== null)).toHaveLength(ORGANIZER_COLORS.length + 1);
+        await click(byLabel(panel, t('color.red')));
+        expect(patchFolder).toHaveBeenCalledExactlyOnceWith(folder.id, { color: ORGANIZER_COLORS[0] });
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+        expect(flyout()).toBeNull();
+    });
+
+    it('binds a custom emoji from the icon flyout', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.icon')));
+        const panel = flyout();
+        expect(allButtons(panel).filter((element) => element.getAttribute('aria-pressed') !== null)).toHaveLength(FOLDER_ICON_CHOICES.length + 1);
+        const field = panel.querySelector<HTMLInputElement>('input')!;
+        await act(() => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '🚀tail');
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        expect(patchFolder).toHaveBeenLastCalledWith(folder.id, { icon: '🚀' });
+    });
+
+    it('marks the inbox folder and flips the menu label', async () => {
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.set_as_inbox')));
+        expect(getInboxFolderId()).toBe(folder.id);
+        expect(useUi.getState().toasts.at(-1)?.title).toBe(t('folders.inbox_set_toast', { value0: folder.name }));
+        await act(() => root.render(createElement(Sidebar)));
+        expect(container.querySelector('[data-folder-drop-target] svg.lucide-inbox')).toBeTruthy();
+        await click(byLabel(container, t('common.more_actions')));
+        await click(byLabel(menu(), t('folders.unset_inbox')));
+        expect(getInboxFolderId()).toBeNull();
+        await act(() => root.render(createElement(Sidebar)));
+        expect(container.querySelector('[data-folder-drop-target] svg.lucide-inbox')).toBeNull();
+    });
+
+    it('moves every dropped note and restores them through the undo action', async () => {
+        const moved = { ...note, id: 'note-2', title: 'Second', folderId: null };
+        const patchNote = vi.fn(async () => {});
+        useNotes.setState({ notes: { [note.id]: note, [moved.id]: moved }, patchNote });
+        await act(() => root.render(createElement(Sidebar)));
+        const row = container.querySelector<HTMLElement>('[data-folder-drop-target]')!;
+        const event = new Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', {
+            value: {
+                types: ['application/x-inkstone-note', 'application/x-inkstone-notes'],
+                getData: (format: string) => format === 'application/x-inkstone-notes'
+                    ? JSON.stringify([note.id, moved.id])
+                    : note.id,
+            },
+        });
+        await act(() => row.dispatchEvent(event));
+        await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+        expect(patchNote).toHaveBeenCalledExactlyOnceWith(moved.id, { folderId: folder.id });
+        const toast = useUi.getState().toasts.at(-1)!;
+        expect(toast.title).toBe(t('folders.moved_value0_to_value1', { value0: 1, value1: folder.name }));
+        await act(() => toast.action!.run());
+        expect(patchNote).toHaveBeenLastCalledWith(moved.id, { folderId: null });
+    });
+
+    it('expands and collapses every branch from the section header', async () => {
+        const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
+        useNotes.setState({ folders: [folder, child], notes: {} });
+        await act(() => root.render(createElement(Sidebar)));
+        await click(byLabel(container, t('folders.expand_all')));
+        expect(useUi.getState().expandedFolders).toContain(folder.id);
+        await click(byLabel(container, t('folders.collapse_all')));
+        expect(useUi.getState().expandedFolders).not.toContain(folder.id);
+    });
+
+    it('sorts sibling folders by name from the row menu', async () => {
+        const beta: Folder = { ...folder, id: 'beta', name: 'Beta', position: 1 };
+        const alpha: Folder = { ...folder, id: 'alpha', name: 'Alpha', position: 2 };
+        const patchFolder = vi.fn((_id: string, _patch: { beforeId?: string | null }) => true);
+        useNotes.setState({ folders: [beta, alpha], notes: {}, patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.sort_by_name')));
+        expect(patchFolder.mock.calls.map(([id]) => id)).toEqual([alpha.id, beta.id]);
+        expect(patchFolder).toHaveBeenLastCalledWith(beta.id, { beforeId: null });
+    });
+});
+
+describe('folder tree keyboard', () => {
+    const press = async (element: HTMLElement, key: string) => {
+        await act(() => {
+            element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        });
+    };
+
+    it('moves focus between rows and starts renaming with F2', async () => {
+        const second: Folder = { ...folder, id: 'folder-2', name: 'Second', position: 1 };
+        useNotes.setState({ folders: [folder, second], notes: {} });
+        await act(() => root.render(createElement(Sidebar)));
+        const rows = () => [...container.querySelectorAll<HTMLElement>('[data-tree-row]')];
+        expect(rows().map((element) => element.textContent?.trim())).toEqual(['Project', 'Second']);
+        await act(() => rows()[0]!.focus());
+        await press(rows()[0]!, 'ArrowDown');
+        expect(document.activeElement).toBe(rows()[1]);
+        await press(rows()[1]!, 'F2');
+        expect(container.querySelector(`input[aria-label="${t('sidebar.rename')}"]`)).toBeTruthy();
+    });
+
+    it('expands a collapsed branch with ArrowRight and returns to the parent with ArrowLeft', async () => {
+        const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id, position: 1 };
+        useNotes.setState({ folders: [folder, child], notes: {} });
+        await act(() => root.render(createElement(Sidebar)));
+        const parentRow = container.querySelector<HTMLElement>('[data-tree-row]')!;
+        await act(() => parentRow.focus());
+        await press(parentRow, 'ArrowRight');
+        expect(useUi.getState().expandedFolders).toContain(folder.id);
+        await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+        await press(parentRow, 'ArrowRight');
+        const rows = [...container.querySelectorAll<HTMLElement>('[data-tree-row]')];
+        expect(document.activeElement).toBe(rows[1]);
+        await press(rows[1]!, 'ArrowLeft');
+        expect(document.activeElement).toBe(parentRow);
     });
 });

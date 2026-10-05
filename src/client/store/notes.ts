@@ -10,6 +10,7 @@ import { api, ApiError, CLIENT_ID } from '../lib/api';
 import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds } from '../lib/folders';
+import { clearInboxFolderIfDeleted, getInboxFolderId } from '../lib/folder-prefs';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -1115,6 +1116,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         const mutation = beginFolderMutation(id, true, (folders) => removeFolderAndPromoteChildren(folders, id), set, get);
         reconcileFolderUi(get().folders);
         void enqueueFolderWrite(id, () => api.folders.remove(id, 'move-up')).then(() => {
+            clearInboxFolderIfDeleted(id);
             finishFolderMutation(mutation);
             for (const [noteId, noteMutation] of noteMutations)
                 finishNoteMutation(noteId, noteMutation);
@@ -2718,13 +2720,21 @@ export function createContextualNote(input?: {
     open?: boolean;
 }): Promise<string | null> {
     const ui = useUi.getState();
+    const inboxFolderId = getInboxFolderId();
+    const inbox = inboxFolderId && (useNotes.getState().folders ?? []).some((folder) => folder.id === inboxFolderId)
+        ? inboxFolderId
+        : null;
+    const folderId = ui.view === 'folder' ? ui.folderId : inbox;
     if (ui.view === 'trash' || ui.view === 'archived') {
         ui.openView('all');
-        return useNotes.getState().createNote(input);
+        return useNotes.getState().createNote({
+            ...input,
+            ...(folderId ? { folderId } : {}),
+        });
     }
     return useNotes.getState().createNote({
         ...input,
-        ...(ui.view === 'folder' ? { folderId: ui.folderId } : {}),
+        ...(folderId ? { folderId } : {}),
         ...(ui.view === 'tag' && ui.tag && input?.content === undefined ? { content: `#${ui.tag}\n\n` } : {}),
         ...(ui.view === 'starred' ? { isStarred: true } : {}),
     });
