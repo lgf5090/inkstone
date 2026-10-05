@@ -80,6 +80,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'data', titleKey: 'settings.restore_backup_folder', detailKey: 'settings.restore_backup_folder_description' },
   { section: 'data', titleKey: 'settings.import_file', detailKey: 'settings.supports_md_txt_zip_and_inkstone_json_exports_for_matching_ids_the_newer' },
   { section: 'data', titleKey: 'settings.rebuild_search_index', detailKey: 'settings.try_this_when_your_search_results_don_t_look_right' },
+  { section: 'data', titleKey: 'settings.rebuild_summaries', detailKey: 'settings.rebuild_summaries_desc' },
   { section: 'data', titleKey: 'settings.clean_unreferenced_attachments', detailKey: 'settings.delete_pictures_and_files_that_no_longer_appear_in_any_notes' },
   { section: 'data', titleKey: 'settings.empty_trash', detailKey: 'settings.permanently_delete_every_note_in_trash' },
   { section: 'data', titleKey: 'settings.maintenance', termKeys: ['settings.attachment_storage', 'settings.clean_up'] },
