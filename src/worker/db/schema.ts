@@ -712,12 +712,10 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     )
     state = { ftsEnabled: false }
   }
-  if (state.ftsEnabled) {
-    await setMeta(db, DATABASE_STATE_KEY, JSON.stringify({
-      schema: schemaFingerprint(),
-      ftsEnabled: true,
-    }))
-  }
+  await setMeta(db, DATABASE_STATE_KEY, JSON.stringify({
+    schema: schemaFingerprint(),
+    ftsEnabled: state.ftsEnabled,
+  }))
   return state
 }
 
@@ -769,8 +767,8 @@ async function readStoredDatabaseState(db: D1Database): Promise<DatabaseState | 
     const raw = await getMeta(db, DATABASE_STATE_KEY)
     if (!raw) return null
     const value = JSON.parse(raw) as { schema?: unknown; ftsEnabled?: unknown }
-    if (value.schema !== schemaFingerprint() || value.ftsEnabled !== true) return null
-    return { ftsEnabled: true }
+    if (value.schema !== schemaFingerprint() || typeof value.ftsEnabled !== 'boolean') return null
+    return { ftsEnabled: value.ftsEnabled }
   } catch {
     return null
   }
@@ -813,8 +811,12 @@ async function assertFinalSchema(db: D1Database): Promise<void> {
     )
   }
 
-  for (const [table, required] of Object.entries(REQUIRED_COLUMNS)) {
-    const { results } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
+  const tableEntries = Object.entries(REQUIRED_COLUMNS)
+  const pragmaStatements = tableEntries.map(([table]) => db.prepare(`PRAGMA table_info(${table})`))
+  const batchResults = await db.batch<{ name: string }>(pragmaStatements)
+  for (let index = 0; index < tableEntries.length; index++) {
+    const [table, required] = tableEntries[index]!
+    const results = batchResults[index]!.results
     const columns = new Set(results.map((row) => row.name))
     const missing = required.filter((column) => !columns.has(column))
     if (missing.length) {
