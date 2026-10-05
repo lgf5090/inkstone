@@ -205,10 +205,17 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
                 </span>
               </div>
               {colorPickerId === folder.id && (<div className="pt-2">
-                <FolderColorMenu color={folder.color} onSelectColor={(color) => patchFolder(folder.id, { color })}/>
+                <FolderColorMenu color={folder.color} onSelectColor={(color) => {
+                patchFolder(folder.id, { color });
+                setColorPickerId(null);
+            }}/>
               </div>)}
               {iconPickerId === folder.id && (<div className="pt-2">
-                <FolderIconMenu icon={folder.icon} onSelectIcon={(icon) => patchFolder(folder.id, { icon })}/>
+                <FolderIconMenu icon={folder.icon} onSelectIcon={(icon, source) => {
+                patchFolder(folder.id, { icon });
+                if (source === 'grid')
+                    setIconPickerId(null);
+            }}/>
               </div>)}
             </li>))}
           </ul>)}

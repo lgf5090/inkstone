@@ -129,6 +129,21 @@ describe('manage folders panel', () => {
         await click(byLabel(row(scope, 'Alpha'), t('folders.color')));
         await click(byLabel(row(dialog(), 'Alpha'), t('color.emerald')));
         expect(patchFolder).toHaveBeenCalledWith('p', { color: ORGANIZER_COLORS[4] });
+        expect(row(dialog(), 'Alpha').querySelector(`button[aria-label="${t('folders.no_color')}"]`)).toBeNull();
+    });
+
+    it('keeps the icon picker open while typing a custom emoji and closes on a grid pick', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openPanel();
+        await click(byLabel(row(scope, 'Alpha'), t('folders.icon')));
+        const field = row(dialog(), 'Alpha').querySelector<HTMLInputElement>('input')!;
+        await type(field, '🚀');
+        expect(patchFolder).toHaveBeenCalledWith('p', { icon: '🚀' });
+        expect(row(dialog(), 'Alpha').querySelector('input')).toBeTruthy();
+        await click(byLabel(row(dialog(), 'Alpha'), '⭐'));
+        expect(patchFolder).toHaveBeenLastCalledWith('p', { icon: '⭐' });
+        expect(row(dialog(), 'Alpha').querySelector('input')).toBeNull();
     });
 
     it('toggles the inbox folder and reports it', async () => {

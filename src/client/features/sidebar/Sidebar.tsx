@@ -656,7 +656,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             onStartRename(node.id);
             return;
         }
-        if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (event.key === 'Delete') {
             event.preventDefault();
             void remove();
         }

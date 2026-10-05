@@ -75,7 +75,7 @@ function firstGrapheme(value: string): string | null {
 
 export function FolderIconMenu({ icon, onSelectIcon }: {
     icon?: string | null;
-    onSelectIcon: (icon: string | null) => void;
+    onSelectIcon: (icon: string | null, source: 'grid' | 'custom') => void;
 }) {
     const label = t("folders.icon");
     const [custom, setCustom] = useState('');
@@ -83,16 +83,16 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
         const grapheme = firstGrapheme(value);
         setCustom('');
         if (grapheme)
-            onSelectIcon(grapheme);
+            onSelectIcon(grapheme, 'custom');
     };
     return (<MenuPanel label={label}>
       <div className="grid grid-cols-6 gap-1.5 px-0.5">
-        <button type="button" aria-label={t("folders.no_icon")} title={t("folders.no_icon")} aria-pressed={!icon} onClick={() => onSelectIcon(null)} className={cn('flex', SWATCH_SIZE, 'items-center justify-center rounded-[var(--r-sm)] border bg-[var(--bg-base)] transition-transform hover:scale-110', !icon
+        <button type="button" aria-label={t("folders.no_icon")} title={t("folders.no_icon")} aria-pressed={!icon} onClick={() => onSelectIcon(null, 'grid')} className={cn('flex', SWATCH_SIZE, 'items-center justify-center rounded-[var(--r-sm)] border bg-[var(--bg-base)] transition-transform hover:scale-110', !icon
             ? 'border-[var(--accent)] text-[var(--accent)] ring-2 ring-[var(--accent-ring)]'
             : 'border-[var(--border-default)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]')}>
           <FolderClosed size={13}/>
         </button>
-        {FOLDER_ICON_CHOICES.map((choice) => (<button key={choice} type="button" aria-label={choice} title={choice} aria-pressed={icon === choice} onClick={() => onSelectIcon(choice)} className={cn('flex', SWATCH_SIZE, 'items-center justify-center rounded-[var(--r-sm)] border text-[14px] leading-none transition-transform hover:scale-110', icon === choice
+        {FOLDER_ICON_CHOICES.map((choice) => (<button key={choice} type="button" aria-label={choice} title={choice} aria-pressed={icon === choice} onClick={() => onSelectIcon(choice, 'grid')} className={cn('flex', SWATCH_SIZE, 'items-center justify-center rounded-[var(--r-sm)] border text-[14px] leading-none transition-transform hover:scale-110', icon === choice
             ? 'border-[var(--accent)] bg-[var(--accent-soft)] ring-2 ring-[var(--accent-ring)]'
             : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:border-[var(--border-default)]')}>
             {choice}
