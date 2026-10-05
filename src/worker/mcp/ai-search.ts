@@ -119,16 +119,6 @@ function aiSearchPrefKey(userId: string): string {
  * vice versa. Queuing is skipped entirely while the account has AI search
  * disabled, except deletions which always clean up stale vectors.
  */
-export async function enqueueNoteIndex(
-  db: D1Database,
-  userId: string,
-  noteId: string,
-  kind: AiIndexKind,
-  now = Date.now(),
-): Promise<void> {
-  await noteIndexQueueStatement(db, userId, noteId, kind, now).run()
-}
-
 export function noteIndexQueueStatement(
   db: D1Database,
   userId: string,
