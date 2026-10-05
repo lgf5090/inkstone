@@ -18,7 +18,10 @@ import type { Env } from '../env'
 export const AI_EMBEDDING_MODEL = '@cf/baai/bge-m3'
 const AI_EMBEDDING_DIMS = 1024
 const EMBED_TEXT_MAX_CHARS = 4_000
-const MAX_SEMANTIC_VECTORS = 200
+// 2 pages of 500 vectors keep one response under D1's result cap (≈4.1 MB of BLOB) while
+// lifting the recall window from a fixed 200 notes to 1000.
+const SEMANTIC_SCAN_PAGE = 500
+const SEMANTIC_SCAN_PAGES = 2
 const SEMANTIC_TOP_K = 40
 const DRAIN_USERS_PER_RUN = 10
 const DRAIN_PER_USER = 25
@@ -482,28 +485,50 @@ export async function searchSemanticNotes(
 ): Promise<SemanticSearchHit[] | null> {
   if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
   const queryVector = await embedQueryText(env.AI, query)
-  const { binds, where } = semanticWhere(userId, filters)
-  binds.push(MAX_SEMANTIC_VECTORS)
-  const { results } = await db.prepare(
-    `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector, e.norm
-       FROM ai_note_embeddings e JOIN notes n
-         ON n.id = e.note_id AND n.user_id = e.user_id
-      WHERE ${where}
-      ORDER BY e.indexed_at DESC
-      LIMIT ?${binds.length}`,
-  ).bind(...binds).all<EmbeddingRow>()
-  if (!results.length) return []
   const queryNorm = vectorNorm(queryVector)
-  const scored = results.map((row) => ({
-    row,
-    score: cosineSimilarityPrecomputed(queryVector, queryNorm, decodeVector(row.vector), row.norm ?? undefined),
-  }))
-  scored.sort((a, b) =>
+  const { binds, where } = semanticWhere(userId, filters)
+  const best: ScoredEmbeddingRow[] = []
+  let afterIndexedAt = Number.POSITIVE_INFINITY
+  let afterNoteId = ''
+  for (let page = 0; page < SEMANTIC_SCAN_PAGES; page++) {
+    // Keyset on (indexed_at, note_id): the window used to be a fixed 200-row freshness cut,
+    // which for a 5000-note account meant 4% of the index could ever be recalled at all.
+    const cursorBinds = page === 0 ? [] : [afterIndexedAt, afterNoteId]
+    const cursorClause = page === 0
+      ? ''
+      : ` AND (e.indexed_at < ?${binds.length + 1}
+        OR (e.indexed_at = ?${binds.length + 1} AND e.note_id > ?${binds.length + 2}))`
+    const pageBinds = [...binds, ...cursorBinds, SEMANTIC_SCAN_PAGE]
+    const { results } = await db.prepare(
+      `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector, e.norm,
+              e.indexed_at, e.note_id
+         FROM ai_note_embeddings e JOIN notes n
+           ON n.id = e.note_id AND n.user_id = e.user_id
+        WHERE ${where}${cursorClause}
+        ORDER BY e.indexed_at DESC, e.note_id ASC
+        LIMIT ?${pageBinds.length}`,
+    ).bind(...pageBinds).all<ScannedVectorRow>()
+    if (!results.length) break
+    for (const row of results) {
+      keepBestRows(best, row, cosineSimilarityPrecomputed(
+        queryVector,
+        queryNorm,
+        decodeVector(row.vector),
+        row.norm ?? undefined,
+      ))
+    }
+    const last = results[results.length - 1]!
+    afterIndexedAt = last.indexed_at
+    afterNoteId = last.note_id
+    if (results.length < SEMANTIC_SCAN_PAGE) break
+  }
+  if (!best.length) return []
+  best.sort((a, b) =>
     b.score - a.score ||
     b.row.updated_at - a.row.updated_at ||
     a.row.id.localeCompare(b.row.id),
   )
-  return scored.slice(0, SEMANTIC_TOP_K).map(({ row, score }) => ({
+  return best.slice(0, SEMANTIC_TOP_K).map(({ row, score }) => ({
     id: row.id,
     title: row.title,
     excerpt: row.excerpt,
@@ -511,6 +536,36 @@ export async function searchSemanticNotes(
     updatedAt: row.updated_at,
     score,
   }))
+}
+
+type ScannedVectorRow = EmbeddingRow & { indexed_at: number; note_id: string }
+
+interface ScoredEmbeddingRow {
+  row: ScannedVectorRow
+  score: number
+}
+
+/** Keeps the SEMANTIC_TOP_K strongest rows seen so far while scanning pages of vectors. */
+function keepBestRows(
+  kept: ScoredEmbeddingRow[],
+  row: ScannedVectorRow,
+  score: number,
+): void {
+  if (kept.length < SEMANTIC_TOP_K) {
+    kept.push({ row, score })
+    return
+  }
+  let weakestIndex = 0
+  let weakestScore = kept[0]!.score
+  for (let index = 1; index < kept.length; index++) {
+    const candidate = kept[index]!.score
+    if (candidate < weakestScore) {
+      weakestIndex = index
+      weakestScore = candidate
+    }
+  }
+  if (score <= weakestScore) return
+  kept[weakestIndex] = { row, score }
 }
 
 /**

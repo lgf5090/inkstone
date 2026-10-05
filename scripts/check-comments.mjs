@@ -299,6 +299,11 @@ const allowed = new Map([
     "// re-reading it in this run would only repeat the same failure.",
     "/**\n * Keeps one failing note from freezing the account's queue: the row is re-armed with a\n * retry delay, and dropped after EMBED_MAX_ATTEMPTS so the head always advances. The\n * note keeps `created_at` as its identity guard so a newer edit is never penalised.\n */",
     "/**\n * Drain-only view of the preference. `noteIndexQueueStatement` keeps the authoritative\n * guard in SQL, so a stale entry can only skip or start an empty background drain; it\n * never queues work the account is not allowed to have.\n */",
+    "// 2 pages of 500 vectors keep one response under D1's result cap (≈4.1 MB of BLOB) while",
+    "// lifting the recall window from a fixed 200 notes to 1000.",
+    "// Keyset on (indexed_at, note_id): the window used to be a fixed 200-row freshness cut,",
+    "// which for a 5000-note account meant 4% of the index could ever be recalled at all.",
+    "/** Keeps the SEMANTIC_TOP_K strongest rows seen so far while scanning pages of vectors. */",
   ]],
   ["src/worker/mcp/api-keys.ts", [
     "/**\n * Static API keys for MCP access.\n *\n * Small or generic MCP clients (scripts, SDKs, unnamed agents) cannot run the\n * OAuth 2.1 dance, so they authenticate with a plain `Authorization: Bearer\n * <key>` header — the universal HTTP standard. The OAuth provider resolves\n * these tokens through its official `resolveExternalToken` hook; the key is\n * never stored or returned again, only its SHA-256 hash.\n */",
@@ -393,6 +398,9 @@ const allowed = new Map([
     "// decided from the SQL text the way D1 does: reads return rows, writes return meta.",
     "// D1 runs a batch in one transaction: a later failing statement must not leave the",
     "// earlier writes applied.",
+    "// D1 hands BLOB columns back as ArrayBuffer while node:sqlite returns a Uint8Array view;",
+    "// decoding a typed array element-wise instead of reinterpreting its bytes changes results.",
+    "// The realm check is by name: under jsdom `instanceof Uint8Array` can miss node's intrinsics.",
   ]],
   ["tests/fts-tenant-index.test.ts", [
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
@@ -415,6 +423,13 @@ const allowed = new Map([
   ["tests/rewrite-drain.test.ts", [
     "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",
     "// emulates the claim TTL expiring between cron rounds.",
+  ]],
+  ["tests/semantic-scan-window.test.ts", [
+    "/** The query embedding the stub always returns; a match scores 1, everything else 0. */",
+    "// The scan is newest-first, so index 500 of 1200 sits at row 700 of the window: reachable",
+    "// now, invisible while the window was a fixed 200 rows.",
+    "// A chunk of notes indexed inside the same millisecond shares indexed_at, so the page",
+    "// boundary has to be resolved by note_id alone: no row may repeat, none may be skipped.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",
