@@ -648,6 +648,7 @@ notesRoutes.post('/:id/restore', async (c) => {
   const { ftsEnabled } = c.get('database')
   const row = await loadNoteRow(c.env.DB, userId, id)
   if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
+  await assertNoteQuota(c.env.DB, userId)
 
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1

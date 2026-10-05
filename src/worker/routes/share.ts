@@ -60,12 +60,7 @@ export function shouldPersistShareView(
 }
 
 const shareViewWindows = new Map<string, ShareViewWindow>()
-
-export function sharePasscodeProblem(password: unknown): string | null {
-  if (typeof password !== 'string' || password.length === 0) return null
-  if (password.length < 8) return 'The access password must be at least 8 characters'
-  return null
-}
+import { sharePasscodeProblem } from '@shared/share-passcode'
 
 function noteShareView(slug: string, ip: string, now: number): boolean {
   if (shareViewWindows.size > 1_000) {
@@ -148,9 +143,6 @@ shareManageRoutes.post('/:noteId', async (c) => {
   const slug = newSlug()
   if (body.password !== undefined && body.password !== null && typeof body.password !== 'string') {
     throw ApiError.badRequest('password must be a string or null')
-  }
-  if (typeof body.password === 'string' && body.password.length > LIMITS.passwordMaxLength) {
-    throw ApiError.badRequest(`The access password must not exceed ${LIMITS.passwordMaxLength} characters`)
   }
   const passcodeProblem = sharePasscodeProblem(body.password)
   if (passcodeProblem) throw ApiError.badRequest(passcodeProblem)

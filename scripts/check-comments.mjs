@@ -104,6 +104,10 @@ const allowed = new Map([
     "// the regex backtracks across the rest of the text for every '[' whose '(' is never",
     "// closed, which costs seconds on a note near the content size limit.",
   ]],
+  ["src/shared/organizer-colors.ts", [
+    "// Both the console and the MCP tools store icons truncated, so the limit lives",
+    "// next to the colour list rather than at each call site.",
+  ]],
   ["src/worker/attachments/references.ts", [
     "// Retained versions must remain restorable after unused attachments are pruned.",
     "// The instr() predicate discards rows that cannot contain an attachment URL",
@@ -242,6 +246,9 @@ const allowed = new Map([
     "// Expected values captured from the pre-rewrite implementation at fc61e80.",
     "// 160 KB cost the regex version ~8.7 s and the blowup scales with the square of",
     "// the length, so the 1.9 MB content cap extrapolates to ~20 min per call.",
+  ]],
+  ["tests/policy-single-source.test.ts", [
+    "// A re-forked floor would reintroduce a hard-coded length comparison.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",

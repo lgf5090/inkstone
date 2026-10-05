@@ -16,11 +16,15 @@ export const SESSION_ABSOLUTE_MAX_MS = 180 * 24 * 60 * 60 * 1000
 
 export const LIMITS = {
   passwordMaxLength: 128,
+  sharePasscodeMinLength: 8,
   titleMaxLength: 512,
   // D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.
   contentMaxBytes: 1_900_000,
   folderNameMaxLength: 120,
   tagNameMaxLength: 60,
+  organizerIconMaxLength: 8,
+  tagsMaxPerUser: 5_000,
+  foldersMaxPerUser: 2_000,
   folderDepthMax: 12,
   attachmentMaxBytes: 25 * 1024 * 1024,
   attachmentQuotaBytes: 1024 * 1024 * 1024,
