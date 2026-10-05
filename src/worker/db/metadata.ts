@@ -19,7 +19,7 @@ export async function getMeta(db: D1Database, key: string): Promise<string | nul
 
 export async function selectQueueUsersRoundRobin(
   db: D1Database,
-  table: 'ai_index_queue' | 'fts_index_queue',
+  table: 'ai_index_queue' | 'fts_index_queue' | 'rewrite_queue',
   cursorKey: string,
   limit: number,
 ): Promise<string[]> {

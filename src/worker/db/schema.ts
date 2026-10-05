@@ -367,8 +367,14 @@ const REWRITE_QUEUE_TABLE = `CREATE TABLE IF NOT EXISTS rewrite_queue (
   old_value TEXT NOT NULL,
   new_value TEXT NOT NULL,
   created_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  claimed_at INTEGER,
   PRIMARY KEY (user_id, kind, source_id)
 )`
+
+/** Cron claims one account's oldest due row, so the queue is indexed per account. */
+const REWRITE_QUEUE_INDEX = `CREATE INDEX IF NOT EXISTS idx_rewrite_queue_due
+  ON rewrite_queue(user_id, created_at)`
 
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
@@ -589,6 +595,20 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
     skipIfColumnExists: { table: 'ai_index_queue', column: 'next_retry_at' },
   },
+  {
+    version: 20,
+    statements: [REWRITE_QUEUE_INDEX],
+  },
+  {
+    version: 21,
+    statements: [`ALTER TABLE rewrite_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`],
+    skipIfColumnExists: { table: 'rewrite_queue', column: 'attempts' },
+  },
+  {
+    version: 22,
+    statements: [`ALTER TABLE rewrite_queue ADD COLUMN claimed_at INTEGER`],
+    skipIfColumnExists: { table: 'rewrite_queue', column: 'claimed_at' },
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -638,7 +658,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at', 'attempts', 'next_retry_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
-  rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at'],
+  rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -718,6 +738,7 @@ const REQUIRED_INDEXES = [
   'idx_ai_embeddings_indexed',
   'idx_ai_index_queue_due',
   'idx_fts_index_queue_due',
+  'idx_rewrite_queue_due',
 ] as const
 
 

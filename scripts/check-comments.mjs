@@ -137,6 +137,7 @@ const allowed = new Map([
     "// lets a partially initialized database recover missing feature tables.",
     "// Keep the existing indexed text and rowids. The batch either replaces the",
     "// complete index or rolls back, including when an old installation retries.",
+    "/** Cron claims one account's oldest due row, so the queue is indexed per account. */",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -165,7 +166,12 @@ const allowed = new Map([
     "// so ignore it rather than trusting it for throttling.",
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
-    "/**\n * Drains fan-out rewrites (note renames, tag renames/deletions) that were\n * deferred because they touched more notes than the inline budget allows.\n * Rows are claimed with a guarded DELETE ... RETURNING so overlapping cron\n * runs cannot double-process them.\n */",
+    "/** Notes a single queue row may rewrite per round; the tail is re-queued for the next one. */",
+    "/**\n * Drains fan-out rewrites (note renames, tag renames/deletions) that were deferred\n * because they touched more notes than the inline budget allows. Rows are marked with\n * `claimed_at` rather than deleted up front, so an invocation killed mid-work leaves the\n * row recoverable; failures re-arm the row with a retry counter and are dropped after\n * REWRITE_MAX_ATTEMPTS instead of freezing the queue forever.\n */",
+    "// Real progress: re-arm the row at attempt 0 so the next round continues.",
+    "// Guarded UPDATE ... RETURNING is the claim: a concurrent drain either sees the newer",
+    "// claimed_at and gets no row, or proceeds on a different account.",
+    "/**\n * Pushes a row to the tail for a later round while keeping its claim marker, so this run\n * cannot re-pick it. The row becomes claimable again once REWRITE_CLAIM_TTL_MS has\n * passed, which must stay shorter than the cron interval.\n */",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -229,6 +235,8 @@ const allowed = new Map([
   ["src/worker/routes/notes.ts", [
     "// One lower() copy and one instr per row: SQLite does not share the repeated",
     "// lower(n.content) subexpression across the three references below.",
+    "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
+    "// not hold every candidate body in the isolate at once.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",
@@ -238,6 +246,10 @@ const allowed = new Map([
     "// Never move the client's cursor backwards, even if it reported a",
     "// seq ahead of the server (e.g. data was trimmed).",
   ]],
+  ["src/worker/routes/tags.ts", [
+    "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
+    "// the isolate before the first write happens.",
+  ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
     "// object to re-hash it doubles import transfer for no extra assurance.",
@@ -246,6 +258,12 @@ const allowed = new Map([
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
+  ]],
+  ["tests/doubles/d1-sqlite.ts", [
+    "// node:sqlite happily runs a write through .all(), so the statement kind has to be",
+    "// decided from the SQL text the way D1 does: reads return rows, writes return meta.",
+    "// D1 runs a batch in one transaction: a later failing statement must not leave the",
+    "// earlier writes applied.",
   ]],
   ["tests/fts-tenant-index.test.ts", [
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",
@@ -259,6 +277,10 @@ const allowed = new Map([
     "// CJK range boundaries: 2E80/9FFF and F900/FAFF are counted, neighbours are not.",
     "// A multi-line comment body carries no marker on its own lines, so those lines must",
     "// still be blanked by the inComment branch rather than passed through.",
+  ]],
+  ["tests/rewrite-drain.test.ts", [
+    "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",
+    "// emulates the claim TTL expiring between cron rounds.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",
