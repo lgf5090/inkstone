@@ -58,6 +58,14 @@ describe('graph storage and route hardening', () => {
     expect(handler).toContain('too_many_attempts')
   })
 
+  it('the orphan filter splits its OR so each side can use its own index', () => {
+    const route = read('../src/worker/routes/search.ts')
+    const orphans = /if \(!includeOrphans\) \{\s*filters\.push\(`([\s\S]*?)`\)/.exec(route)?.[1] ?? ''
+    expect(orphans).toContain('outgoing.source_note_id = n.id')
+    expect(orphans).toContain('incoming.target_note_id = n.id')
+    expect(orphans).not.toMatch(/source_note_id = n\.id\s+OR\s+\w+\.target_note_id = n\.id/)
+  })
+
   it('graph controls come from the shared form primitives', () => {
     const panel = read('../src/client/features/graph/GraphPanel.tsx')
     expect(panel).toContain("from '../../components/form'")

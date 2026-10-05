@@ -457,11 +457,13 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     filterBinds.push(tag)
   }
   if (!includeOrphans) {
-    filters.push(`EXISTS (
-      SELECT 1 FROM links connected
-      WHERE connected.user_id = n.user_id AND connected.target_note_id IS NOT NULL
-        AND (connected.source_note_id = n.id OR connected.target_note_id = n.id)
-    )`)
+    filters.push(`(EXISTS (
+      SELECT 1 FROM links outgoing
+      WHERE outgoing.user_id = n.user_id AND outgoing.source_note_id = n.id AND outgoing.target_note_id IS NOT NULL
+    ) OR EXISTS (
+      SELECT 1 FROM links incoming
+      WHERE incoming.user_id = n.user_id AND incoming.target_note_id = n.id
+    ))`)
   }
 
   type GraphRow = {
@@ -510,8 +512,7 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
         neighborhood.depth + 1
       FROM neighborhood
       JOIN links l ON l.user_id = ? AND l.target_note_id IS NOT NULL
-        AND (l.source_note_id = neighborhood.id OR l.target_note_id = neighborhood.id)
-      JOIN notes adjacent ON adjacent.id = CASE
+        AND (l.source_note_id = neighborhood.id OR l.target_note_id = neighborhood.id)      JOIN notes adjacent ON adjacent.id = CASE
         WHEN l.source_note_id = neighborhood.id THEN l.target_note_id ELSE l.source_note_id END
         AND adjacent.user_id = l.user_id AND adjacent.deleted_at IS NULL AND adjacent.is_archived = 0
       WHERE neighborhood.depth < ?

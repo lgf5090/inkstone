@@ -315,7 +315,8 @@ beforeEach(async () => {
   openNoteMock = vi.fn()
   createNoteMock = vi.fn()
   useNotes.setState({
-    folders, tags: [], hydrated: true, loading: false,
+    folders, tags: [{ id: 'tag-1', name: 'alpha', color: null, count: 2, createdAt: 1 }],
+    hydrated: true, loading: false,
     openNote: openNoteMock, createNote: createNoteMock,
   })
   useUi.setState({ activeNoteId: null })
@@ -364,13 +365,13 @@ describe('graph scene lifecycle', () => {
     await mount()
     await takeRequest()
     await pumpUntilIdle()
-    const settled = arcPositions()
+    const settled = nodeArcs()
     expect(settled.length).toBe(TITLES.length)
 
     await typeSearch('note')
     await takeRequest()
     await pump(1)
-    expect(maxDeviation(arcPositions(), settled)).toBeLessThan(6)
+    expect(maxDeviation(nodeArcs(), settled)).toBeLessThan(6)
   })
 
   it('does not rebuild the scene when only the node size changes', async () => {
@@ -687,6 +688,20 @@ describe('graph pointer and keyboard interaction', () => {
     const after = translateOps()
     expect(Math.abs(after[0] + 20)).toBeLessThan(1)
     expect(Math.abs(after[1] + 36)).toBeLessThan(1)
+  })
+
+  it('surfaces active filters as chips in the header', async () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: 'global', tag: 'alpha' }))
+    await mount()
+    await takeRequest()
+    expect(document.body.textContent).toContain(t('graph.tag'))
+    const chip = buttonByText(`${t('graph.tag')} alpha`)
+    expect(chip).toBeDefined()
+
+    await click(chip!)
+    const calls = graphCalls.length
+    await takeRequest()
+    expect(graphCalls[calls]?.tag).toBeUndefined()
   })
 
   it('closes the settings drawer before the panel on Escape', async () => {

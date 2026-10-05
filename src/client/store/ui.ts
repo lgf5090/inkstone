@@ -99,6 +99,7 @@ interface UiState {
   togglePanel: (panel: PanelName) => void
   toggleOutline: () => void
   toggleBacklinks: () => void
+  showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
   toast: (input: Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }) => string
   dismissToast: (id: string) => void
@@ -475,6 +476,7 @@ export const useUi = create<UiState>((set, get) => ({
   togglePanel: (panel) => set((s) => ({ panel: s.panel === panel ? null : panel })),
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
   toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
+  showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
 
   toast: (input) => {

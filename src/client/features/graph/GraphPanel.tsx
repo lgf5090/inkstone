@@ -72,9 +72,11 @@ export interface CanvasNode extends GraphNode {
   pinned?: boolean
 }
 
+type Edge = { a: CanvasNode; b: CanvasNode }
+
 interface CanvasState {
   nodes: CanvasNode[]
-  edges: Array<{ a: CanvasNode; b: CanvasNode }>
+  edges: Edge[]
   scale: number
   offsetX: number
   offsetY: number
@@ -84,6 +86,7 @@ interface CanvasState {
   frame: number
   raf: number
   needsFit: boolean
+  initialized: boolean
   palette: Palette
   emphasis: { id: string | null; neighbours: Set<string> }
   schedule: (() => void) | null
@@ -321,7 +324,7 @@ function normalizedResponse(response: GraphResponse): GraphResponse {
     meta: response.meta ?? {
       mode: 'global', centerId: null, depth: 1,
       totalNodes: nodes.length, totalEdges: response.edges.length,
-      truncated: false, limit: nodes.length,
+      truncated: nodes.length >= 350, limit: 350,
     },
   }
 }
@@ -347,16 +350,18 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const tags = useNotes((state) => state.tags ?? [])
   const hydrated = useNotes((state) => state.hydrated)
   const activeNoteId = useUi((state) => state.activeNoteId)
+  const showBacklinks = useUi((state) => state.showBacklinks)
   const hoverRef = useRef<CanvasNode | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const activeNoteIdRef = useRef(activeNoteId)
   const lastPointerEventAtRef = useRef(Number.NEGATIVE_INFINITY)
+  const matchedRef = useRef<Set<string> | null>(null)
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
   const stateRef = useRef<CanvasState>({
     nodes: [], edges: [], scale: 1, offsetX: 0, offsetY: 0,
     dragging: null, pointers: new Map(), pinch: null,
-    frame: 0, raf: 0, needsFit: false, palette: FALLBACK_PALETTE,
+    frame: 0, raf: 0, needsFit: false, initialized: false, palette: FALLBACK_PALETTE,
     emphasis: { id: null, neighbours: new Set<string>() }, schedule: null,
   })
 
@@ -450,8 +455,11 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     const state = stateRef.current
     if (!canvas || !state.nodes.length) return
     const rect = canvas.getBoundingClientRect()
-    const xs = state.nodes.map((node) => node.x)
-    const ys = state.nodes.map((node) => node.y)
+    const hits = matchedRef.current
+    const focused = hits ? state.nodes.filter((node) => hits.has(node.id)) : []
+    const scope = focused.length ? focused : state.nodes
+    const xs = scope.map((node) => node.x)
+    const ys = scope.map((node) => node.y)
     const minX = Math.min(...xs), maxX = Math.max(...xs)
     const minY = Math.min(...ys), maxY = Math.max(...ys)
     const width = Math.max(80, maxX - minX + 80)
@@ -497,7 +505,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       canvas.width = Math.max(1, Math.round(rect.width * dpr))
       canvas.height = Math.max(1, Math.round(rect.height * dpr))
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (!state.offsetX && !state.offsetY) {
+      if (!state.initialized) {
+        state.initialized = true
         state.offsetX = rect.width / 2
         state.offsetY = rect.height / 2
       }
@@ -543,24 +552,42 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         state.emphasis = { id: emphasizedId ?? null, neighbours }
       }
       ctx.lineWidth = 1 / state.scale
+      const related: Edge[] = []
+      const dimmed: Edge[] = []
+      const plain: Edge[] = []
       for (const edge of state.edges) {
-        const related = emphasizedId === edge.a.id || emphasizedId === edge.b.id
-        const edgeColor = related ? palette.accent : emphasizedId ? palette.edgeDim : palette.edge
-        ctx.strokeStyle = edgeColor
-        ctx.globalAlpha = related ? 0.95 : 1
-        ctx.beginPath(); ctx.moveTo(edge.a.x, edge.a.y); ctx.lineTo(edge.b.x, edge.b.y); ctx.stroke()
-        if (prefsRef.current.arrows) {
+        if (emphasizedId && (edge.a.id === emphasizedId || edge.b.id === emphasizedId)) related.push(edge)
+        else if (emphasizedId) dimmed.push(edge)
+        else plain.push(edge)
+      }
+      const drawEdges = (list: Edge[], color: string, alpha: number) => {
+        if (!list.length) return
+        ctx.globalAlpha = alpha
+        ctx.strokeStyle = color
+        ctx.beginPath()
+        for (const edge of list) {
+          ctx.moveTo(edge.a.x, edge.a.y)
+          ctx.lineTo(edge.b.x, edge.b.y)
+        }
+        ctx.stroke()
+        if (!prefsRef.current.arrows) return
+        const size = Math.max(4, 5 / Math.sqrt(state.scale))
+        ctx.fillStyle = color
+        ctx.beginPath()
+        for (const edge of list) {
           const angle = Math.atan2(edge.b.y - edge.a.y, edge.b.x - edge.a.x)
           const x = edge.b.x - Math.cos(angle) * (edge.b.r + 2)
           const y = edge.b.y - Math.sin(angle) * (edge.b.r + 2)
-          const size = 5 / Math.sqrt(state.scale)
-          ctx.beginPath()
           ctx.moveTo(x, y)
           ctx.lineTo(x - Math.cos(angle - Math.PI / 6) * size, y - Math.sin(angle - Math.PI / 6) * size)
           ctx.lineTo(x - Math.cos(angle + Math.PI / 6) * size, y - Math.sin(angle + Math.PI / 6) * size)
-          ctx.closePath(); ctx.fillStyle = edgeColor; ctx.fill()
+          ctx.closePath()
         }
+        ctx.fill()
       }
+      drawEdges(related, palette.accent, 0.95)
+      drawEdges(dimmed, palette.edgeDim, 1)
+      drawEdges(plain, palette.edge, 1)
       ctx.globalAlpha = 1
       for (const node of state.nodes) {
         const active = node.id === activeNoteIdRef.current
@@ -579,6 +606,10 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         if (node.pinned) {
           ctx.globalAlpha = 1; ctx.strokeStyle = palette.label; ctx.lineWidth = 1 / state.scale
           ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 2.5, 0, Math.PI * 2); ctx.stroke()
+        }
+        if (matchedRef.current?.has(node.id)) {
+          ctx.globalAlpha = 1; ctx.strokeStyle = palette.accent; ctx.lineWidth = 2 / state.scale
+          ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 6.5, 0, Math.PI * 2); ctx.stroke()
         }
         if (active || selectedIdRef.current === node.id) {
           ctx.strokeStyle = palette.accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 3 / state.scale
@@ -755,6 +786,13 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     const unresolved = data?.nodes.filter((node) => node.kind === 'unresolved').length ?? 0
     return { notes: (data?.nodes.length ?? 0) - unresolved, links: data?.edges.length ?? 0, unresolved }
   }, [data])
+  const matchedIds = useMemo(() => {
+    const needle = query.toLowerCase()
+    if (!needle || !data) return null
+    const hits = data.nodes.filter((node) => node.title.toLowerCase().includes(needle)).map((node) => node.id)
+    return hits.length ? new Set(hits) : null
+  }, [query, data])
+  matchedRef.current = matchedIds
   const legend = useMemo(() => {
     if (!data || prefs.groupBy === 'none') return []
     const seen = new Map<string, string>()
@@ -766,10 +804,15 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     }
     return [...seen.entries()].slice(0, 8).map(([name, color]) => ({ name, color }))
   }, [data, prefs.groupBy])
-  const menuItems: MenuItem[] = context ? [
+  const menuItems = useMemo<MenuItem[]>(() => context ? [
     { id: 'open', label: context.node.kind === 'unresolved' ? t('graph.create_note') : t('graph.open_note'), icon: <FolderOpen size={14}/>, onSelect: () => openSelected(context.node) },
     { id: 'right', label: t('graph.open_to_right'), icon: <PanelRightClose size={14}/>, disabled: context.node.kind === 'unresolved', onSelect: () => { void openNote(context.node.id, { pane: 'secondary' }) } },
-    { id: 'pin', label: context.node.pinned ? t('graph.unpin') : t('graph.pin'), icon: <CircleDot size={14}/>, separatorBefore: true, onSelect: () => {
+    { id: 'backlinks', label: t('graph.show_backlinks'), icon: <ArrowRight size={14}/>, disabled: context.node.kind === 'unresolved', separatorBefore: true, onSelect: () => {
+      showBacklinks()
+      void openNote(context.node.id)
+      onClose()
+    } },
+    { id: 'pin', label: context.node.pinned ? t('graph.unpin') : t('graph.pin'), icon: <CircleDot size={14}/>, onSelect: () => {
       context.node.pinned = !context.node.pinned
       stateRef.current.schedule?.()
     } },
@@ -777,7 +820,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       void openNote(context.node.id)
       setPrefs((value) => ({ ...value, mode: 'local' }))
     } },
-  ] : []
+  ] : [], [context, onClose, openNote, openSelected, showBacklinks])
 
   const changePref = <K extends keyof GraphPreferences>(key: K, value: GraphPreferences[K]) => {
     setPrefs((current) => ({ ...current, [key]: value }))
@@ -804,6 +847,12 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
           { value: 'local', label: t('graph.local') },
         ]}
       />
+      {filtersActive && <div role="group" aria-label={t('graph.filters')} className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto">
+        {query && <FilterChip label={`${t('graph.search_notes')} ${query}`} onClear={() => setSearch('')}/>}
+        {folderFilter && <FilterChip label={`${t('graph.folder')} ${folders.find((folder) => folder.id === folderFilter)?.name ?? ''}`} onClear={() => changePref('folderId', '')}/>}
+        {tagFilter && <FilterChip label={`${t('graph.tag')} ${tagFilter}`} onClear={() => changePref('tag', '')}/>}
+        {!prefs.includeOrphans && <FilterChip label={t('graph.show_orphans')} onClear={() => changePref('includeOrphans', true)}/>}
+      </div>}
       <label className="flex h-8 min-w-[150px] flex-1 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2.5 md:max-w-[320px]">
         <Search size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
         <span className="sr-only">{t('graph.search_notes')}</span>
@@ -1010,6 +1059,13 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     </div>
     <Menu anchor={context ?? { x: 0, y: 0 }} open={Boolean(context)} onClose={() => setContext(null)} items={menuItems} label={t('graph.node_actions')}/>
   </div>, document.body)
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return <button type="button" onClick={onClear} className="flex h-6 max-w-[42vw] shrink-0 items-center gap-1 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+    <span className="min-w-0 truncate">{label}</span>
+    <X size={10} className="shrink-0"/>
+  </button>
 }
 
 function GraphRow({ label, children }: { label: string; children: ReactNode }) {
