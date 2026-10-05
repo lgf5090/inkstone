@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { expect, it } from 'vitest'
+import { afterEach, expect, it } from 'vitest'
+import { exportNoteAsHtml, exportNoteAsPdf } from '../src/client/lib/export-note'
 
 const exportSource = readFileSync('src/client/lib/export-note.ts', 'utf8')
 
@@ -24,4 +25,111 @@ it('names the visitor nothing on that stylesheet', () => {
 it('keeps the print frame same-origin but scriptless', () => {
   expect(exportSource).toContain("setAttribute('sandbox', 'allow-same-origin allow-modals allow-popups')")
   expect(exportSource).not.toMatch(/sandbox[^\n]*allow-scripts/)
+})
+
+const MATH_BODY = 'inline $a^2+b^2$ done\n\n$$x^2 + y^2 = z^2$$\n'
+const originalCreateElement = document.createElement.bind(document)
+
+function restoreCreateElement() {
+  Object.defineProperty(document, 'createElement', {
+    value: originalCreateElement,
+    configurable: true,
+    writable: true,
+  })
+}
+
+afterEach(restoreCreateElement)
+
+async function capturePrint(content: string): Promise<{ html: string; printed: number }> {
+  let html = ''
+  let printed = 0
+  Object.defineProperty(document, 'createElement', {
+    value: (tag: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement(tag, options)
+      if (tag.toLowerCase() === 'iframe') {
+        Object.defineProperty(element, 'srcdoc', {
+          configurable: true,
+          get: () => html,
+          set: (value: string) => {
+            html = value
+            const frameWindow = (element as HTMLIFrameElement).contentWindow
+            if (frameWindow) {
+              frameWindow.print = () => {
+                printed++
+              }
+            }
+            setTimeout(() => element.dispatchEvent(new Event('load')), 0)
+          },
+        })
+      }
+      return element
+    },
+    configurable: true,
+    writable: true,
+  })
+  await exportNoteAsPdf({ title: 'SEC46', content }, 'en-US')
+  restoreCreateElement()
+  return { html, printed }
+}
+
+async function captureDownload(content: string): Promise<string> {
+  const blobs: Blob[] = []
+  const objectUrl = URL.createObjectURL
+  const revokeUrl = URL.revokeObjectURL
+  Object.defineProperty(URL, 'createObjectURL', {
+    value: (blob: Blob) => {
+      blobs.push(blob)
+      return 'blob:captured'
+    },
+    configurable: true,
+  })
+  Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true })
+  Object.defineProperty(document, 'createElement', {
+    value: (tag: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement(tag, options)
+      if (tag.toLowerCase() === 'a') element.click = () => {}
+      return element
+    },
+    configurable: true,
+    writable: true,
+  })
+  try {
+    await exportNoteAsHtml({ title: 'SEC46', content }, 'en-US')
+    return await blobs[0]!.text()
+  }
+  finally {
+    restoreCreateElement()
+    Object.defineProperty(URL, 'createObjectURL', { value: objectUrl, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeUrl, configurable: true })
+  }
+}
+
+it('renders the note’s math into the printed document instead of leaving it blank', async () => {
+  const { html, printed } = await capturePrint(MATH_BODY)
+  expect(printed).toBe(1)
+  expect(html).toContain('class="katex"')
+  expect((html.match(/class="katex"/g) ?? []).length).toBe(2)
+})
+
+it('carries no third-party stylesheet into the print frame the CSP would refuse', async () => {
+  const { html } = await capturePrint(MATH_BODY)
+  expect(html).not.toContain('cdn.jsdelivr.net')
+  expect(html).not.toMatch(/<link[^>]+rel="stylesheet"/)
+  // Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so
+  // pin the import itself: the bundled copy, inlined, is the only source allowed here.
+  expect(exportSource).toContain("import katexPrintCss from 'katex/dist/katex.min.css?inline'")
+  expect(exportSource).toContain('<style>${katexPrintCss}</style>')
+})
+
+it('leaves a math-free note with no math stylesheet at all', async () => {
+  const html = await captureDownload('# plain\n\nno formulas here\n')
+  expect(html).not.toContain('cdn.jsdelivr.net')
+  expect(html).not.toContain('katex')
+})
+
+it('keeps the downloadable .html on the pinned copy, since no CSP governs it', async () => {
+  const html = await captureDownload(MATH_BODY)
+  expect(html).toContain('class="katex"')
+  expect(html).toContain('https://cdn.jsdelivr.net/npm/katex@')
+  expect(html).toContain('integrity="sha384-')
 })

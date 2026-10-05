@@ -68,6 +68,13 @@ const allowed = new Map([
     "// is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.",
     "// Same origin is what lets this code reach focus()/print(); without allow-scripts",
     "// nothing inside the exported document can execute as this origin.",
+    "// Inlined so the print frame carries its own math styles: the frame inherits this",
+    "// document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which",
+    "// refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.",
+    "// A downloaded .html has no CSP around it and is often opened away from the instance,",
+    "// so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.",
+    "// The preview fills `[data-math]` placeholders from enhance(), which needs scripts;",
+    "// an exported or printed document has none, so the markup has to be rendered here.",
   ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
@@ -275,6 +282,10 @@ const allowed = new Map([
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
     "// object to re-hash it doubles import transfer for no extra assurance.",
+  ]],
+  ["tests/export-hardening.test.ts", [
+    "// Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so",
+    "// pin the import itself: the bundled copy, inlined, is the only source allowed here.",
   ]],
   ["tests/fts-tenant-index.test.ts", [
     "// Mirrors the shipped schema: user_id must be an indexed FTS5 column so the",

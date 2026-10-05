@@ -187,7 +187,7 @@ async function getKatex(): Promise<KatexLike | null> {
         return null;
     }
 }
-async function renderMath(root: HTMLElement): Promise<void> {
+export async function renderMath(root: HTMLElement | Document): Promise<void> {
     const pending = [...root.querySelectorAll<HTMLElement>('[data-math]')]
         .filter((node) => !node.dataset.rendered)
         .map((node) => {

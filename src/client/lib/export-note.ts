@@ -1,9 +1,19 @@
 import { renderMarkdown } from './markdown/renderer'
+import { renderMath } from './markdown/enhance'
+// Inlined so the print frame carries its own math styles: the frame inherits this
+// document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
+// refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.
+import katexPrintCss from 'katex/dist/katex.min.css?inline'
 
 // Pinned so an exported document cannot silently load a different stylesheet: the hash
 // is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.
 const KATEX_CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.18.1/dist/katex.min.css'
 const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5Tu2PRVfQ/7KLZC+Pi1p1'
+
+// A downloaded .html has no CSP around it and is often opened away from the instance,
+// so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.
+const CDN_MATH_STYLESHEET = `<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">`
+const INLINE_MATH_STYLESHEET = `<style>${katexPrintCss}</style>`
 
 export function downloadTextFile(filename: string, text: string, mime: string): void {
   const blob = new Blob([text], { type: mime })
@@ -24,16 +34,13 @@ export function exportNoteAsMarkdown(note: { title: string; content: string }): 
 }
 
 export async function exportNoteAsHtml(note: { title: string; content: string }, language: string): Promise<void> {
-  const rendered = renderMarkdown(note.content)
-  const body = await inlinePrivateImages(rendered.html)
-  downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language), 'text/html;charset=utf-8')
+  const { body, hasMath } = await prepareExportBody(note.content)
+  downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language, hasMath ? CDN_MATH_STYLESHEET : ''), 'text/html;charset=utf-8')
 }
 
 export async function exportNoteAsPdf(note: { title: string; content: string }, language: string): Promise<void> {
-  const rendered = renderMarkdown(note.content)
-  const body = await inlinePrivateImages(rendered.html)
-  const html = htmlDocument(note.title, body, language)
-  await printHtml(html)
+  const { body, hasMath } = await prepareExportBody(note.content)
+  await printHtml(htmlDocument(note.title, body, language, hasMath ? INLINE_MATH_STYLESHEET : ''))
 }
 
 async function printHtml(html: string): Promise<void> {
@@ -74,8 +81,17 @@ async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
   })
 }
 
-async function inlinePrivateImages(html: string): Promise<string> {
-  const doc = new DOMParser().parseFromString(html, 'text/html')
+async function prepareExportBody(source: string): Promise<{ body: string; hasMath: boolean }> {
+  const rendered = renderMarkdown(source)
+  const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
+  await inlinePrivateImages(doc)
+  // The preview fills `[data-math]` placeholders from enhance(), which needs scripts;
+  // an exported or printed document has none, so the markup has to be rendered here.
+  await renderMath(doc)
+  return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
+}
+
+async function inlinePrivateImages(doc: Document): Promise<void> {
   const images = [...doc.querySelectorAll<HTMLImageElement>('img[src^="/api/files/"]')]
   await Promise.all(images.map(async (image) => {
     try {
@@ -89,7 +105,6 @@ async function inlinePrivateImages(html: string): Promise<string> {
     catch {
     }
   }))
-  return doc.body.innerHTML
 }
 
 function blobToDataUrl(blob: Blob): Promise<string | null> {
@@ -109,7 +124,7 @@ function safeFileName(title: string): string {
     .slice(0, 80)
 }
 
-function htmlDocument(title: string, bodyHtml: string, language: string): string {
+function htmlDocument(title: string, bodyHtml: string, language: string, mathStylesheet: string): string {
   const safeTitle = escapeHtml(title)
   return `<!DOCTYPE html>
 <html lang="${escapeAttr(language)}">
@@ -117,7 +132,7 @@ function htmlDocument(title: string, bodyHtml: string, language: string): string
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${safeTitle}</title>
-<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">
+${mathStylesheet}
 <style>
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
