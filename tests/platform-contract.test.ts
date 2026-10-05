@@ -36,7 +36,9 @@ it('keeps lockfile sources on the pinned registries with content hashes', () => 
   const lock = JSON.parse(read('../package-lock.json')) as {
     packages: Record<string, { resolved?: string; integrity?: string; hasInstallScript?: boolean }>
   }
-  const allowedHosts = new Set(['registry.npmjs.org', 'registry.npmmirror.com'])
+  // Mirror-sourced `resolved` entries were normalised to the official registry once the
+  // recorded hashes were confirmed identical there; new drift must be deliberate.
+  const allowedHosts = new Set(['registry.npmjs.org'])
   // Postinstall code runs before any Worker policy applies, so the set is allow-listed.
   const allowedInstallScripts = new Set([
     'node_modules/core-js-pure',
@@ -53,6 +55,21 @@ it('keeps lockfile sources on the pinned registries with content hashes', () => 
     if (entry.hasInstallScript) {
       expect(allowedInstallScripts.has(name), `${name} added an install script`).toBe(true)
     }
+  }
+})
+
+// The sanitising chain decides what the browser is allowed to execute, so a floating range
+// means one `npm install` can swap the implementation with no gate going red.
+it('pins the sanitising and rendering chain to exact versions', () => {
+  const pkg = JSON.parse(read('../package.json')) as { dependencies: Record<string, string> }
+  const pinned = [
+    'dompurify', 'mermaid', 'katex', 'markdown-it', 'markdown-it-anchor',
+    'markdown-it-footnote', 'markdown-it-mark', 'markdown-it-task-lists', 'prismjs',
+  ]
+  for (const name of pinned) {
+    const range = pkg.dependencies[name]
+    expect(range, `${name} is missing`).toBeTruthy()
+    expect(range, `${name} floats at ${range}`).toMatch(/^\d+\.\d+\.\d+$/)
   }
 })
 

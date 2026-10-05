@@ -303,6 +303,10 @@ const allowed = new Map([
     "// claims in SECURITY.md had no mechanical check at all. These assertions are that check.",
     "// The demo form is static assets only, so it must not grow a Worker entry point.",
     "// Postinstall code runs before any Worker policy applies, so the set is allow-listed.",
+    "// Mirror-sourced `resolved` entries were normalised to the official registry once the",
+    "// recorded hashes were confirmed identical there; new drift must be deliberate.",
+    "// The sanitising chain decides what the browser is allowed to execute, so a floating range",
+    "// means one `npm install` can swap the implementation with no gate going red.",
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
