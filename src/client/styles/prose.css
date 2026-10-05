@@ -1014,3 +1014,19 @@
     break-inside: avoid;
   }
 }
+
+.ink-prose .note-embed.attachment .note-embed-body {
+  padding: 0;
+}
+.ink-prose .note-embed img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.ink-prose .attachment-open {
+  display: block;
+  padding: 0.5em 0.7em;
+  overflow-wrap: anywhere;
+  color: var(--accent);
+  font-size: 0.88em;
+}

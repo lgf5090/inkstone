@@ -8,6 +8,7 @@ import mark from 'markdown-it-mark';
 import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
 import { getLocale, t } from '../i18n';
+import { splitAltSize } from './attachments';
 import { encodeDataValue } from './data-attr';
 export interface Heading {
     level: number;
@@ -323,9 +324,12 @@ md.inline.ruler.before('text', 'inline_tag', (state, silent) => {
     return true;
 });
 md.renderer.rules.note_embed = (tokens, index) => {
-    const parsed = parseWikiTarget(tokens[index]!.content);
-    const label = parsed.alias || parsed.raw;
-    return `<div class="note-embed loading" data-embed-target="${escapeAttr(encodeDataValue(parsed.raw))}"><span class="note-embed-head">${escapeHtml(label)}</span><div class="note-embed-body" aria-busy="true">${escapeHtml(t("common.loading"))}</div></div>`;
+    const source = tokens[index]!.content.trim();
+    // The whole target goes into the attribute, alias included: an attachment embed reads its
+    // `|600x400` size back out of it, and stripping it here would lose the size and turn the
+    // label into a bare number.
+    const parsed = parseWikiTarget(source);
+    return `<div class="note-embed loading" data-embed-target="${escapeAttr(encodeDataValue(source))}"><span class="note-embed-head">${escapeHtml(parsed.alias || parsed.raw)}</span><div class="note-embed-body" aria-busy="true">${escapeHtml(t("common.loading"))}</div></div>`;
 };
 md.renderer.rules.wikilink = (tokens, index) => {
     const parsed = parseWikiTarget(tokens[index]!.content);
@@ -535,6 +539,14 @@ md.renderer.rules.image = (tokens, index, options, env, self) => {
     token.attrSet('loading', 'lazy');
     token.attrSet('decoding', 'async');
     token.attrSet('referrerpolicy', 'no-referrer');
+    const sized = splitAltSize(token.attrGet('alt') ?? '');
+    if (sized.size) {
+        token.attrSet('alt', sized.alt);
+        if (sized.size.width)
+            token.attrSet('width', String(sized.size.width));
+        if (sized.size.height)
+            token.attrSet('height', String(sized.size.height));
+    }
     const title = token.attrGet('title');
     const rendered = defaultImage
         ? defaultImage(tokens, index, options, env, self)

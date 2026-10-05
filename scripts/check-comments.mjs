@@ -170,6 +170,9 @@ const allowed = new Map([
     "// own closer, or a directive the renderer does not know would steal its parent's close.",
     "// An empty target would render a box that resolves to nothing and shows nothing, so the",
     "// author's text stays visible instead.",
+    "// The whole target goes into the attribute, alias included: an attachment embed reads its",
+    "// `|600x400` size back out of it, and stripping it here would lose the size and turn the",
+    "// label into a bare number.",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",

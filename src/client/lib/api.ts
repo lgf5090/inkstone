@@ -415,6 +415,8 @@ export const api = {
       `/api/files${toQuery({ cursor })}`,
       { signal },
     ),
+    byName: (name: string, signal?: AbortSignal) =>
+      request<{ files: Attachment[] }>(`/api/files${toQuery({ name })}`, { signal }),
     upload: (file: File, noteId?: string) => {
       const form = new FormData()
       form.append('file', file)
