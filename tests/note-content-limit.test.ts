@@ -11,7 +11,7 @@ it('accepts the content boundary with room for metadata below the D1 row limit',
 })
 
 it('rejects content by UTF-8 byte size rather than character count', () => {
-  const content = '中'.repeat(Math.floor(LIMITS.contentMaxBytes / 3) + 1)
+  const content = '\u4e2d'.repeat(Math.floor(LIMITS.contentMaxBytes / 3) + 1)
   expect(content.length).toBeLessThan(LIMITS.contentMaxBytes)
   expect(() => assertContentSize(content)).toThrow()
 })
