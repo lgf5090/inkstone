@@ -1,7 +1,21 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { exportNoteAsHtml, exportNoteAsPdf } from '../src/client/lib/export-note'
+
+const MERMAID_SVG = [
+  '<svg xmlns="http://www.w3.org/2000/svg" class="mermaid" viewBox="0 0 120 40">',
+  '<style>.node{fill:red}</style>',
+  '<g class="root"><text x="4" y="20">DIAGRAM-OK</text></g>',
+  '</svg>',
+].join('')
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({ svg: MERMAID_SVG })),
+  },
+}))
 
 const exportSource = readFileSync('src/client/lib/export-note.ts', 'utf8')
 
@@ -132,4 +146,16 @@ it('keeps the downloadable .html on the pinned copy, since no CSP governs it', a
   expect(html).toContain('class="katex"')
   expect(html).toContain('https://cdn.jsdelivr.net/npm/katex@')
   expect(html).toContain('integrity="sha384-')
+})
+
+const DIAGRAM_BODY = '```mermaid\nflowchart TD\n  A[start] --> B[end]\n```\n'
+
+it('draws the note’s diagram into the printed document instead of a spinner', async () => {
+  const { html } = await capturePrint(DIAGRAM_BODY)
+  expect(html).toContain('DIAGRAM-OK')
+  expect(html).toContain('<svg')
+  // the SVG keeps its own styles, which is all the printed page needs to paint it
+  expect(html).toContain('.node{fill:red}')
+  expect(html).not.toContain('aria-busy="true"')
+  expect(html).not.toContain('mermaid-block loading')
 })

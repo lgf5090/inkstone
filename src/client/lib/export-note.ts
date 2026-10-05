@@ -1,5 +1,5 @@
 import { renderMarkdown } from './markdown/renderer'
-import { renderMath } from './markdown/enhance'
+import { renderMath, renderPendingMermaid } from './markdown/enhance'
 // Inlined so the print frame carries its own math styles: the frame inherits this
 // document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
 // refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.
@@ -85,9 +85,11 @@ async function prepareExportBody(source: string): Promise<{ body: string; hasMat
   const rendered = renderMarkdown(source)
   const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
   await inlinePrivateImages(doc)
-  // The preview fills `[data-math]` placeholders from enhance(), which needs scripts;
-  // an exported or printed document has none, so the markup has to be rendered here.
+  // The preview fills `[data-math]` and `[data-mermaid]` placeholders from enhance(),
+  // which needs scripts; an exported or printed document has none, so both have to be
+  // rendered here. `false` because the exported page is always the light scheme.
   await renderMath(doc)
+  await renderPendingMermaid(doc, false)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
 }
 

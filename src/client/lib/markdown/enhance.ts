@@ -329,7 +329,7 @@ export interface MermaidRenderHooks<T = unknown> {
     beforeUpdate?: () => T;
     afterUpdate?: (snapshot: T) => void;
 }
-export async function renderPendingMermaid<T = unknown>(root: HTMLElement, dark: boolean, hooks: MermaidRenderHooks<T> = {}): Promise<void> {
+export async function renderPendingMermaid<T = unknown>(root: HTMLElement | Document, dark: boolean, hooks: MermaidRenderHooks<T> = {}): Promise<void> {
     const isCurrent = () => hooks.isCurrent?.() !== false;
     const pending = [...root.querySelectorAll<HTMLElement>('[data-mermaid]')]
         .filter((node) => node.dataset.rendered !== currentSignature(node, dark))
