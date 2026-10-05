@@ -1015,85 +1015,114 @@ async function rewriteInboundWikiLinks(
      WHERE l.user_id = ?1 AND l.target_note_id = ?2 AND l.target_key = ?3
        AND n.id <> ?2 AND n.deleted_at IS NULL`,
   ).bind(userId, targetNoteId, previousKey).all<{ id: string }>()
+  if (!candidates.length) return { rewritten: 0, skipped: 0 }
   let rewritten = 0
   let skipped = 0
-  for (const candidate of candidates) {
-    let complete = false
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const note = await db.prepare(
-        `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
-           FROM notes WHERE id = ?1 AND user_id = ?2`,
-      ).bind(candidate.id, userId).first<{
-        id: string
-        title: string
-        content: string
-        content_hash: string
-        rev: number
-        updated_at: number
-        deleted_at: number | null
-      }>()
-      if (!note || note.deleted_at !== null) {
-        complete = true
-        break
-      }
-      const content = replaceWikiLinkTarget(note.content, fromTitle, toTitle)
-      if (content === note.content) {
-        complete = true
-        break
-      }
-      const hash = await sha256Hex(content)
-      const { words, chars } = countText(content)
-      const now = Math.max(Date.now(), note.updated_at + 1)
-      const nextRev = note.rev + 1
-      const guard = `EXISTS (SELECT 1 FROM notes
-        WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-          AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-      const guardValues = [note.id, userId, nextRev, hash, note.title, now] as const
-      const statements: D1PreparedStatement[] = [
-        db.prepare(
-          `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
-             content_hash = ?5, rev = ?6, updated_at = ?7
-            WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
-        ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
-          note.id, userId, note.rev, note.content_hash),
-        db.prepare(
-          `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
-        ).bind(newId(), note.id, userId, note.title, note.content,
-          utf8ByteLength(note.content), now, ...guardValues),
-        db.prepare(
-          `DELETE FROM note_versions WHERE note_id = ?1
-             AND ${shiftSqlPlaceholders(guard, 1)}
-             AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-        ).bind(note.id, ...guardValues, LIMITS.versionsPerNote),
-      ]
-      statements.push(...buildNoteDerivedStatements({
-        db,
-        userId,
-        noteId: note.id,
-        title: note.title,
-        content,
-        ftsEnabled,
-        expectedRev: nextRev,
-        expectedContentHash: hash,
-        expectedTitle: note.title,
-        expectedUpdatedAt: now,
-      }).statements)
-      statements.push(noteIndexQueueStatement(db, userId, note.id, 'embed', now))
-      statements.push(
-        db.prepare(
-          `INSERT INTO changes (user_id, entity, entity_id, op, at)
-           SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
-        ).bind(userId, note.id, now, ...guardValues),
-      )
-      const [updated] = await db.batch(statements)
-      if (updated?.meta.changes) {
-        rewritten++
-        complete = true
-        break
-      }
+
+  const candidateIds = candidates.map((c) => c.id)
+  const FETCH_CHUNK = 50
+  type CandidateNoteRecord = {
+    id: string
+    title: string
+    content: string
+    content_hash: string
+    rev: number
+    updated_at: number
+    deleted_at: number | null
+  }
+  const loadedNotes: CandidateNoteRecord[] = []
+  for (let i = 0; i < candidateIds.length; i += FETCH_CHUNK) {
+    const chunk = candidateIds.slice(i, i + FETCH_CHUNK)
+    const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(', ')
+    const rows = await db.prepare(
+      `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
+         FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
+    ).bind(userId, ...chunk).all<CandidateNoteRecord>()
+    loadedNotes.push(...rows.results)
+  }
+
+  const notesToRewrite: CandidateNoteRecord[] = []
+  for (const note of loadedNotes) {
+    if (note.deleted_at !== null) continue
+    const content = replaceWikiLinkTarget(note.content, fromTitle, toTitle)
+    if (content === note.content) {
+      skipped++
+      continue
     }
-    if (!complete) skipped++
+    notesToRewrite.push(note)
+  }
+
+  const CONCURRENCY_LIMIT = 5
+  for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
+    const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
+    const outcomes = await Promise.all(
+      batch.map(async (initialNote) => {
+        let currentNote: CandidateNoteRecord | null = initialNote
+        for (let attempt = 0; attempt < 5; attempt++) {
+          if (!currentNote || currentNote.deleted_at !== null) return false
+          const content = replaceWikiLinkTarget(currentNote.content, fromTitle, toTitle)
+          if (content === currentNote.content) return true
+          const hash = await sha256Hex(content)
+          const { words, chars } = countText(content)
+          const now = Math.max(Date.now(), currentNote.updated_at + 1)
+          const nextRev = currentNote.rev + 1
+          const guard = `EXISTS (SELECT 1 FROM notes
+            WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+              AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+          const guardValues = [currentNote.id, userId, nextRev, hash, currentNote.title, now] as const
+          const statements: D1PreparedStatement[] = [
+            db.prepare(
+              `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
+                 content_hash = ?5, rev = ?6, updated_at = ?7
+                WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
+            ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
+              currentNote.id, userId, currentNote.rev, currentNote.content_hash),
+            db.prepare(
+              `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+               SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
+            ).bind(newId(), currentNote.id, userId, currentNote.title, currentNote.content,
+              utf8ByteLength(currentNote.content), now, ...guardValues),
+            db.prepare(
+              `DELETE FROM note_versions WHERE note_id = ?1
+                 AND ${shiftSqlPlaceholders(guard, 1)}
+                 AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+            ).bind(currentNote.id, ...guardValues, LIMITS.versionsPerNote),
+          ]
+          statements.push(...buildNoteDerivedStatements({
+            db,
+            userId,
+            noteId: currentNote.id,
+            title: currentNote.title,
+            content,
+            ftsEnabled,
+            expectedRev: nextRev,
+            expectedContentHash: hash,
+            expectedTitle: currentNote.title,
+            expectedUpdatedAt: now,
+          }).statements)
+          statements.push(noteIndexQueueStatement(db, userId, currentNote.id, 'embed', now))
+          statements.push(
+            db.prepare(
+              `INSERT INTO changes (user_id, entity, entity_id, op, at)
+               SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+            ).bind(userId, currentNote.id, now, ...guardValues),
+          )
+          const [updated] = await db.batch(statements)
+          if (updated?.meta.changes) {
+            return true
+          }
+          currentNote = await db.prepare(
+            `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
+               FROM notes WHERE id = ?1 AND user_id = ?2`,
+          ).bind(currentNote.id, userId).first<CandidateNoteRecord>()
+        }
+        return false
+      }),
+    )
+    for (const success of outcomes) {
+      if (success) rewritten++
+      else skipped++
+    }
   }
   return { rewritten, skipped }
 }
