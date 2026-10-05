@@ -365,6 +365,11 @@ const allowed = new Map([
     "// visible row (up to LIMITS.notesMaxPerUser) again on each page turn.",
     "// Whether another note already answers to either title decides the wiki-link rewrite, so",
     "// it rides along with the mutation instead of costing the rename path its own round trip.",
+    "/** Ids per dependent-table delete when emptying the trash. */",
+    "// One statement per dependent table, over 500 ids at a time. The old shape inlined the same",
+    "// unbounded `SELECT id FROM notes WHERE deleted_at IS NOT NULL` into 8 statements, so a 20k",
+    "// note trash walked 8×20k rows inside a single D1 request and hit its CPU ceiling.",
+    "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account\n * column to filter, so it takes the id page as `?1`), `?3` = timestamp.\n */",
   ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
@@ -430,6 +435,9 @@ const allowed = new Map([
     "// now, invisible while the window was a fixed 200 rows.",
     "// A chunk of notes indexed inside the same millisecond shares indexed_at, so the page",
     "// boundary has to be resolved by note_id alone: no row may repeat, none may be skipped.",
+  ]],
+  ["tests/trash-purge-batch.test.ts", [
+    "// Two notes share a title so the link can be retargeted before the trashed one disappears.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",

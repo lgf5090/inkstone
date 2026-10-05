@@ -55,6 +55,8 @@ type ParsedNotesListCursor =
 
 const NOTE_VIEWS = new Set<ViewKind>(['all', 'recent', 'starred', 'unfiled', 'archived', 'trash', 'folder', 'tag'])
 const NOTE_SORTS = new Set<SortKey>(['updated', 'created', 'title'])
+/** Ids per dependent-table delete when emptying the trash. */
+const TRASH_EMPTY_BATCH = 500
 
 
 notesRoutes.get('/', async (c) => {
@@ -192,77 +194,101 @@ notesRoutes.get('/', async (c) => {
 notesRoutes.post('/trash/empty', async (c) => {
   const userId = c.get('userId')
   const { ftsEnabled } = c.get('database')
-  const row = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS count FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
-  )
-    .bind(userId)
-    .first<{ count: number }>()
   let purged = 0
   let deletionCursor: number | undefined
 
-  if ((row?.count ?? 0) > 0) {
-    const trashed = `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`
-    const statements = [
-      c.env.DB.prepare(`DELETE FROM note_tags WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(`DELETE FROM links WHERE source_note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(
-        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-          WHERE user_id = ?1 AND target_note_id IN (${trashed})`,
-      ).bind(userId),
-      c.env.DB.prepare(`DELETE FROM note_versions WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(
-        `DELETE FROM share_asset_sessions WHERE slug IN (
-           SELECT slug FROM shares WHERE user_id = ?1 AND note_id IN (${trashed})
-         )`,
-      ).bind(userId),
-      c.env.DB.prepare(`DELETE FROM shares WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(`UPDATE attachments SET note_id = NULL WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(
-        `DELETE FROM import_mappings
-          WHERE user_id = ?1 AND entity = 'note' AND target_id IN (${trashed})`,
-      ).bind(userId),
-    ]
-    if (ftsEnabled) {
-      statements.push(
-        c.env.DB.prepare(
-          `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-           SELECT ?1, id, 'delete', ?2
-             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL
-           ${FTS_QUEUE_CONFLICT_SQL}`,
-        ).bind(userId, Date.now()),
-      )
-    }
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-         SELECT ?1, id, 'delete', ?2
-           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL
-             AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
-      ).bind(userId, Date.now()),
-      c.env.DB
-        .prepare(
-          `INSERT INTO changes (user_id, entity, entity_id, op, at)
-           SELECT ?1, 'note', id, 'delete', ?2
-             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
-        )
-        .bind(userId, Date.now()),
-      c.env.DB
-        .prepare(`SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`)
-        .bind(userId),
-      c.env.DB
-        .prepare(`DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`)
-        .bind(userId),
-    )
-    const results = await c.env.DB.batch(statements)
-    const changeResult = results.at(-2) as D1Result<{ seq: number }> | undefined
-    purged = results.at(-1)?.meta.changes ?? 0
-    deletionCursor = changeResult?.results?.at(-1)?.seq
-    if (purged) scheduleFtsDrain(c)
+  // One statement per dependent table, over 500 ids at a time. The old shape inlined the same
+  // unbounded `SELECT id FROM notes WHERE deleted_at IS NOT NULL` into 8 statements, so a 20k
+  // note trash walked 8×20k rows inside a single D1 request and hit its CPU ceiling.
+  const trashedIds = c.env.DB.prepare(
+    `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id > ?2
+      ORDER BY id ASC LIMIT ?3`,
+  )
+  let cursor = ''
+  for (;;) {
+    const { results } = await trashedIds.bind(userId, cursor, TRASH_EMPTY_BATCH).all<{ id: string }>()
+    if (!results.length) break
+    const ids = results.map((row) => row.id)
+    cursor = ids[ids.length - 1]!
+    const idsJson = JSON.stringify(ids)
+    const statements = trashPurgeStatements(c.env.DB, userId, idsJson, Date.now(), ftsEnabled)
+    const batchResults = await c.env.DB.batch(statements)
+    purged += batchResults.at(-1)?.meta.changes ?? 0
+    if (results.length < TRASH_EMPTY_BATCH) break
+  }
+  if (purged) {
+    const latest = await c.env.DB.prepare(
+      `SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`,
+    ).bind(userId).first<{ seq: number }>()
+    deletionCursor = latest?.seq
+    scheduleFtsDrain(c)
   }
   await pruneOrphanTags(c.env.DB, userId)
   await broadcastCursor(c, deletionCursor)
   return c.json({ purged })
 })
+
+/**
+ * The dependent-table cleanup for one page of trashed note ids, in the order the cascade
+ * needs: link retargeting before the notes go, share sessions before their shares.
+ * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account
+ * column to filter, so it takes the id page as `?1`), `?3` = timestamp.
+ */
+export function trashPurgeStatements(
+  db: D1Database,
+  userId: string,
+  idsJson: string,
+  now: number,
+  ftsEnabled: boolean,
+): D1PreparedStatement[] {
+  const inTrash = `IN (SELECT value FROM json_each(?2))`
+  const statements = [
+    db.prepare(`DELETE FROM note_tags WHERE note_id IN (SELECT value FROM json_each(?1))`).bind(idsJson),
+    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND source_note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+        WHERE user_id = ?1 AND target_note_id ${inTrash}`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM note_versions WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `DELETE FROM share_asset_sessions WHERE slug IN (
+         SELECT slug FROM shares WHERE user_id = ?1 AND note_id ${inTrash}
+       )`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM shares WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`UPDATE attachments SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
+    ).bind(userId, idsJson),
+  ]
+  if (ftsEnabled) {
+    statements.push(
+      db.prepare(
+        `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, id, 'delete', ?3
+           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
+         ${FTS_QUEUE_CONFLICT_SQL}`,
+      ).bind(userId, idsJson, now),
+    )
+  }
+  statements.push(
+    db.prepare(
+      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, id, 'delete', ?3
+         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
+           AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
+    ).bind(userId, idsJson, now),
+    db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', id, 'delete', ?3
+         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
+    ).bind(userId, idsJson, now),
+    db.prepare(
+      `DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
+    ).bind(userId, idsJson),
+  )
+  return statements
+}
 
 
 notesRoutes.get('/:id', async (c) => {
