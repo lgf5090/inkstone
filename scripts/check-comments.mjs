@@ -11,7 +11,7 @@ const allowed = new Map([
     "// Private browsing or a locked-down browser can reject local preferences.",
   ]],
   ["src/client/features/share/share-form.ts", [
-    "// A new or replaced passcode must be at least 4 characters (the server",
+    "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
   ]],
   ["src/client/lib/i18n.ts", [
