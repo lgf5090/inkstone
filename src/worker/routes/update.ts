@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { checkRepositoryVersion } from '../lib/update-check'
+import { checkRepositoryVersionCached } from '../lib/update-check'
 import { requireAuth } from '../middleware/auth'
 
 export const updateRoutes = new Hono<AppBindings>()
@@ -13,5 +13,5 @@ updateRoutes.get('/', async (c) => {
     throw ApiError.forbidden('Only the owner can check deployment updates')
   }
   c.header('Cache-Control', 'no-store')
-  return c.json(await checkRepositoryVersion())
+  return c.json(await checkRepositoryVersionCached())
 })

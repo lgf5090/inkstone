@@ -188,7 +188,7 @@ export async function queryMcpNoteProperties(
   },
 ) {
   const { results } = await db.prepare(
-    `SELECT id, title, content, rev, updated_at FROM notes
+    `SELECT id, title, substr(content, 1, 65536) AS content, rev, updated_at FROM notes
       WHERE user_id = ?1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 500`,
   ).bind(userId).all<{ id: string; title: string; content: string; rev: number; updated_at: number }>()
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))

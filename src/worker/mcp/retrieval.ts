@@ -183,7 +183,13 @@ export async function fetchMcpNote(
   url: string
   metadata: Record<string, unknown>
 }> {
-  const note = await loadMcpNote(db, userId, id)
+  const noteId = normalizeNoteId(id)
+  const row = await db.prepare(
+    `SELECT ${NOTE_COLUMNS}, substr(n.content, 1, ?3) AS content FROM notes n
+      WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL`,
+  ).bind(noteId, userId, FETCH_MAX_CHARS + 1).first<NoteRow>()
+  if (!row) throw ApiError.notFound('Note not found')
+  const note = toNote(row)
   const truncated = note.content.length > FETCH_MAX_CHARS
   const text = truncated
     ? `${sliceText(note.content, 0, FETCH_MAX_CHARS)}\n\n[Content truncated. Call read_note with note_id and cursor "${FETCH_MAX_CHARS}" to continue.]`

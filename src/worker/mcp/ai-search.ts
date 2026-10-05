@@ -269,9 +269,9 @@ async function processQueueItem(env: Env, userId: string, item: QueueRow): Promi
     return
   }
   const note = await db.prepare(
-    `SELECT title, content FROM notes
+    `SELECT title, substr(content, 1, ?3) AS content FROM notes
       WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(item.note_id, userId).first<{ title: string; content: string }>()
+  ).bind(item.note_id, userId, EMBED_TEXT_MAX_CHARS).first<{ title: string; content: string }>()
   if (!note) {
     await db.batch([
       db.prepare(

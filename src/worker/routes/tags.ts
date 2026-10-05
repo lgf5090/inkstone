@@ -4,7 +4,7 @@ import { countText, deriveExcerpt, replaceTagInContent } from '@shared/markdown-
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
-import { toTag, type TagRow } from '../db/rows'
+import { toTag, tagSelectQuery, type TagRow } from '../db/rows'
 import { buildNoteDerivedStatements } from '../db/writes'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -17,15 +17,9 @@ export const tagsRoutes = new Hono<AppBindings>()
 
 tagsRoutes.use('*', requireAuth)
 
-const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
-  (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id
-    WHERE nt.tag_id = t.id AND n.user_id = t.user_id
-      AND n.deleted_at IS NULL AND n.is_archived = 0) AS note_count`
-
 tagsRoutes.get('/', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT ${TAG_SELECT} FROM tags t
-     WHERE t.user_id = ?1 ORDER BY t.name COLLATE NOCASE ASC`,
+    `${tagSelectQuery('t.user_id = ?1')} ORDER BY t.name COLLATE NOCASE`,
   )
     .bind(c.get('userId'))
     .all<TagRow>()
@@ -72,12 +66,16 @@ tagsRoutes.post('/', async (c) => {
   const change = c.env.DB.prepare(
     `INSERT INTO changes (user_id, entity, entity_id, op, at)
      SELECT ?1, 'tag', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1)`,
+      WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1)
+     RETURNING seq`,
   ).bind(userId, id, now)
-  const [created] = await c.env.DB.batch([insert, change])
-  if (!created?.meta.changes) throw ApiError.conflict('A tag with this name already exists')
-  await broadcastCursor(c)
-  return c.json((await loadTag(c.env.DB, userId, id))!, 201)
+  const tagReadback = c.env.DB.prepare(
+    tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
+  ).bind(userId, id)
+  const createBatch = await c.env.DB.batch([insert, change, tagReadback])
+  if (!createBatch[0]?.meta.changes) throw ApiError.conflict('A tag with this name already exists')
+  await broadcastCursor(c, (createBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq)
+  return c.json(toTag((createBatch.at(-1) as D1Result<TagRow>).results[0]!), 201)
 })
 
 tagsRoutes.patch('/:id', async (c) => {
@@ -218,15 +216,15 @@ tagsRoutes.patch('/:id', async (c) => {
     const change = c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
        SELECT ?1, 'tag', ?2, 'upsert', ?3
-        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND color IS ?4)`,
+        WHERE EXISTS (SELECT 1 FROM tags WHERE id = ?2 AND user_id = ?1 AND color IS ?4)
+       RETURNING seq`,
     ).bind(userId, id, now, color)
     const [updated] = await c.env.DB.batch([update, change])
     if (!updated?.meta.changes) throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
-    await broadcastCursor(c)
+    await broadcastCursor(c, (updated as D1Result<{ seq: number }>).results?.[0]?.seq)
   }
   const row = await c.env.DB.prepare(
-    `SELECT ${TAG_SELECT} FROM tags t
-     WHERE t.id = ?2 AND t.user_id = ?1`,
+    tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
   )
     .bind(userId, id)
     .first<TagRow>()
@@ -280,8 +278,7 @@ async function loadTag(
   id: string,
 ): Promise<ReturnType<typeof toTag> | null> {
   const row = await db.prepare(
-    `SELECT ${TAG_SELECT} FROM tags t
-     WHERE t.id = ?2 AND t.user_id = ?1`,
+    tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
   ).bind(userId, id).first<TagRow>()
   return row ? toTag(row) : null
 }

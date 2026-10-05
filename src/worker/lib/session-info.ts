@@ -3,14 +3,19 @@ import type { PublicUser, SessionInfo, SiteInfo } from '@shared/types'
 import { selectAttachmentStorage } from '../attachments/backend'
 import type { Env, Variables } from '../env'
 import { rowToUser, USER_COLUMNS } from '../middleware/auth'
-import { getAllowRegistration } from './instance-settings'
+import { KEY_REGISTRATION_OPEN } from './instance-settings'
 
 export async function buildSiteInfo(env: Env): Promise<SiteInfo> {
-  const row = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{ n: number }>()
+  const [initializedResult, registrationResult] = await env.DB.batch([
+    env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`),
+    env.DB.prepare(`SELECT value FROM app_meta WHERE key = ?1`).bind(KEY_REGISTRATION_OPEN),
+  ])
+  const row = (initializedResult as D1Result<{ n: number }>).results[0]
+  const registration = (registrationResult as D1Result<{ value: string }>).results[0]
   return {
     name: env.APP_NAME || 'Inkstone',
     initialized: (row?.n ?? 0) > 0,
-    registrationOpen: await getAllowRegistration(env.DB),
+    registrationOpen: registration?.value === '1',
     r2Enabled: Boolean(env.FILES),
     kvEnabled: Boolean(env.FILES_KV),
     attachmentStorage: selectAttachmentStorage(env),

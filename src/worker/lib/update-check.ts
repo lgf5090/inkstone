@@ -8,6 +8,23 @@ import { isValidVersion } from '@shared/version'
 
 const UPDATE_FETCH_TIMEOUT_MS = 5_000
 const MAX_PACKAGE_RESPONSE_BYTES = 64 * 1024
+const UPDATE_CACHE_OK_MS = 60 * 60 * 1000
+const UPDATE_CACHE_FAILURE_MS = 5 * 60 * 1000
+
+let cachedUpdate: { value: UpdateCheckResponse; expiresAt: number } | null = null
+
+/** Isolate-level TTL cache: the published version changes daily at most. */
+export async function checkRepositoryVersionCached(
+  now = Date.now(),
+): Promise<UpdateCheckResponse> {
+  if (cachedUpdate && cachedUpdate.expiresAt > now) return cachedUpdate.value
+  const value = await checkRepositoryVersion({ now })
+  cachedUpdate = {
+    value,
+    expiresAt: now + (value.status === 'ok' ? UPDATE_CACHE_OK_MS : UPDATE_CACHE_FAILURE_MS),
+  }
+  return value
+}
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 type FetchResult =

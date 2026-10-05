@@ -16,6 +16,8 @@ const FTS_DRAIN_CURSOR_META_KEY = 'fts-index-drain-user-v1'
 
 export const FTS_NOTE_MATCH_SQL = `notes_fts MATCH ('note_id : "' || replace(?1, '"', '""') || '"')`
 
+export const FTS_USER_MATCH_SQL = `notes_fts MATCH ('user_id : "' || replace(?1, '"', '""') || '"')`
+
 
 export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<number> {
   const boundary = await db
@@ -24,7 +26,7 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
     .first<{ id: string | null }>()
   const lastId = boundary?.id
   if (!lastId) {
-    await db.prepare(`DELETE FROM notes_fts WHERE user_id = ?1`).bind(userId).run()
+    await db.prepare(`DELETE FROM notes_fts WHERE ${FTS_USER_MATCH_SQL} AND user_id = ?1`).bind(userId).run()
     return 0
   }
 
@@ -33,11 +35,11 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
   while (cursor < lastId) {
     const { results } = await db
       .prepare(
-        `SELECT id, title, content, rev, content_hash, updated_at FROM notes
+        `SELECT id, title, substr(content, 1, ?4) AS content, rev, content_hash, updated_at FROM notes
           WHERE user_id = ?1 AND deleted_at IS NULL AND id > ?2 AND id <= ?3
           ORDER BY id ASC LIMIT 25`,
       )
-      .bind(userId, cursor, lastId)
+      .bind(userId, cursor, lastId, LIMITS.ftsContentChars)
       .all<IndexableNote>()
     if (!results.length) break
 
@@ -81,7 +83,7 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
 
   await db
     .prepare(
-      `DELETE FROM notes_fts WHERE user_id = ?1 AND NOT EXISTS (
+      `DELETE FROM notes_fts WHERE ${FTS_USER_MATCH_SQL} AND notes_fts.user_id = ?1 AND NOT EXISTS (
          SELECT 1 FROM notes n WHERE n.id = notes_fts.note_id
            AND n.user_id = ?1 AND n.deleted_at IS NULL
        )`,
@@ -180,11 +182,11 @@ export async function drainFtsQueue(
   if (upsertIds.length) {
     const { results: noteRows } = await db
       .prepare(
-        `SELECT id, title, content, rev, content_hash, updated_at FROM notes
+        `SELECT id, title, substr(content, 1, ?3) AS content, rev, content_hash, updated_at FROM notes
           WHERE user_id = ?1 AND deleted_at IS NULL
             AND id IN (SELECT value FROM json_each(?2))`,
       )
-      .bind(userId, JSON.stringify(upsertIds))
+      .bind(userId, JSON.stringify(upsertIds), LIMITS.ftsContentChars)
       .all<IndexableNote>()
     for (const note of noteRows) notes.set(note.id, note)
   }

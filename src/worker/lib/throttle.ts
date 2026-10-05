@@ -55,7 +55,6 @@ export async function consumeAttemptBudget(
   const targets = normalizeAttemptBudgets(inputs)
   if (!targets.length) return
   const now = Date.now()
-  await assertNotLocked(db, targets.map((target) => target.key))
   const sql = `
     INSERT INTO login_attempts (key, fails, last_fail_at, locked_until)
     VALUES (?1, 1, ?2, NULL)
@@ -77,7 +76,8 @@ export async function consumeAttemptBudget(
         WHEN ?2 - login_attempts.last_fail_at >= ?3 THEN NULL
         WHEN login_attempts.fails + 1 > ?4 THEN ?2 + ?5
         ELSE NULL
-      END`
+      END
+    RETURNING locked_until`
   const statements = targets.map((target) =>
     db.prepare(sql).bind(
       target.key,
@@ -87,8 +87,15 @@ export async function consumeAttemptBudget(
       target.lockMs,
     ),
   )
-  await db.batch(statements)
-  await assertNotLocked(db, targets.map((target) => target.key))
+  const results = await db.batch<{ locked_until: number | null }>(statements)
+  let retryAfterMs = 0
+  for (const result of results) {
+    const lockedUntil = result.results?.[0]?.locked_until
+    if (lockedUntil && lockedUntil > now) {
+      retryAfterMs = Math.max(retryAfterMs, lockedUntil - now)
+    }
+  }
+  if (retryAfterMs) throw new ThrottleError(retryAfterMs)
 }
 
 export async function recordLoginFailure(

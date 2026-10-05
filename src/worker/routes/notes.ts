@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt, extractTags, normalizeLinkKey, replaceWikiLinkTarget } from '@shared/markdown-utils'
-import { duplicateNoteTitle, sliceText, truncateText, utf8ByteLength } from '@shared/text-utils'
+import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
   ListNotesResponse,
@@ -15,7 +15,6 @@ import type { AppBindings } from '../env'
 import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, splitTags, toNote, toNoteSummary, type NoteRow } from '../db/rows'
 import {
   buildNoteDerivedStatements,
-  changeStatement,
   FTS_QUEUE_CONFLICT_SQL,
   LINK_TARGET_SUBQUERY,
   pruneOrphanTags,
@@ -26,7 +25,7 @@ import { isValidId, newId } from '../lib/id'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { aiDeleteNeededSql, enqueueNoteIndex, noteIndexQueueStatement } from '../mcp/ai-search'
+import { aiDeleteNeededSql, noteIndexQueueStatement } from '../mcp/ai-search'
 
 export const notesRoutes = new Hono<AppBindings>()
 
@@ -322,20 +321,25 @@ notesRoutes.post('/', async (c) => {
         SELECT 1 FROM notes
          WHERE id = ?2 AND user_id = ?1 AND rev = 1
            AND content_hash = ?4 AND title = ?5 AND created_at = ?3 AND updated_at = ?3
-      )`,
+      )
+     RETURNING seq`,
   ).bind(userId, id, now, hash, title)
-  const [insertResult] = await c.env.DB.batch([insert, ...derived, createChange])
-  const created = await c.env.DB.prepare(
+  const readback = c.env.DB.prepare(
     `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  )
-    .bind(id, userId)
-    .first<NoteRow>()
+  ).bind(id, userId)
+  const batchResults = await c.env.DB.batch([
+    insert,
+    ...derived,
+    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
+    createChange,
+    readback,
+  ])
+  const insertResult = batchResults[0]
+  const created = (batchResults.at(-1) as D1Result<NoteRow>).results?.[0]
   if (!created) throw ApiError.conflict('This note id is already in use')
-  await broadcastCursor(c)
-  if (insertResult?.meta.changes) {
-    await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
-    scheduleFtsDrain(c)
-  }
+  const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
+  await broadcastCursor(c, changeSeq)
+  if (insertResult?.meta.changes) scheduleFtsDrain(c)
   const note = toNote(created)
   return c.json(note, insertResult?.meta.changes ? 201 : 200)
 })
@@ -499,6 +503,10 @@ notesRoutes.patch('/:id', async (c) => {
     }
   }
 
+  if (contentChanged || newTitle !== row.title) {
+    statements.push(noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now))
+  }
+
   statements.push(
     c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
@@ -558,10 +566,7 @@ notesRoutes.patch('/:id', async (c) => {
     }
   }
   await broadcastCursor(c, rewroteInbound ? undefined : changeResult?.results?.[0]?.seq)
-  if (contentChanged || newTitle !== row.title) {
-    await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
-    scheduleFtsDrain(c)
-  }
+  if (contentChanged || newTitle !== row.title) scheduleFtsDrain(c)
   const nextTags = contentChanged ? (derivedTags ?? extractTags(newContent)) : null
   return c.json(toNote(applyPatchRow(row, sets, binds, nextTags)))
 })
@@ -653,16 +658,27 @@ notesRoutes.post('/:id/restore', async (c) => {
   const change = c.env.DB.prepare(
     `INSERT INTO changes (user_id, entity, entity_id, op, at)
      SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)`,
+      WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)
+     RETURNING seq`,
   ).bind(userId, id, now, nextRev)
-  const [updated] = await c.env.DB.batch([update, ...derived, change])
+  const readback = c.env.DB.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  ).bind(id, userId)
+  const batchResults = await c.env.DB.batch([
+    update,
+    ...derived,
+    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
+    change,
+    readback,
+  ])
+  const updated = batchResults[0]
   if (!updated?.meta.changes) {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
-  await broadcastCursor(c)
-  await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
+  const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
+  await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
-  const note = await loadNote(c.env.DB, userId, id)
+  const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
   return c.json(note)
 })
 
@@ -800,8 +816,21 @@ notesRoutes.post('/:id/duplicate', async (c) => {
     expectedTitle: title,
     expectedUpdatedAt: now,
   }).statements
+  const duplicateChange = c.env.DB.prepare(
+    `INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, 'note', ?2, 'upsert', ?3) RETURNING seq`,
+  ).bind(userId, id, now)
+  const duplicateReadback = c.env.DB.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  ).bind(id, userId)
+  let batchResults: D1Result[]
   try {
-    await c.env.DB.batch([insert, ...derived, changeStatement(c.env.DB, userId, 'note', id, 'upsert')])
+    batchResults = await c.env.DB.batch([
+      insert,
+      ...derived,
+      noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
+      duplicateChange,
+      duplicateReadback,
+    ])
   } catch (error) {
     if (body.id) {
       const existing = await c.env.DB.prepare(
@@ -815,10 +844,10 @@ notesRoutes.post('/:id/duplicate', async (c) => {
     }
     throw error
   }
-  await broadcastCursor(c)
-  await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
+  const duplicateSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
+  await broadcastCursor(c, duplicateSeq)
   scheduleFtsDrain(c)
-  const note = await loadNote(c.env.DB, userId, id)
+  const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
   return c.json(note, 201)
 })
 
@@ -935,16 +964,29 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   const change = c.env.DB.prepare(
     `INSERT INTO changes (user_id, entity, entity_id, op, at)
      SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
+      WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}
+     RETURNING seq`,
   ).bind(userId, id, now, ...mutationValues)
-  const [updated] = await c.env.DB.batch([update, snapshot, trimVersions, ...derived, change])
+  const versionReadback = c.env.DB.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  ).bind(id, userId)
+  const restoreBatch = await c.env.DB.batch([
+    update,
+    snapshot,
+    trimVersions,
+    ...derived,
+    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
+    change,
+    versionReadback,
+  ])
+  const updated = restoreBatch[0]
   if (!updated?.meta.changes) {
     throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(c.env.DB, userId, id) })
   }
-  await broadcastCursor(c)
-  await enqueueNoteIndex(c.env.DB, userId, id, 'embed')
+  const restoreSeq = (restoreBatch.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
+  await broadcastCursor(c, restoreSeq)
   scheduleFtsDrain(c)
-  const note = await loadNote(c.env.DB, userId, id)
+  const note = toNote((restoreBatch.at(-1) as D1Result<NoteRow>).results[0]!)
   return c.json(note)
 })
 
@@ -952,23 +994,34 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
 notesRoutes.get('/:id/backlinks', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const note = await loadNoteRow(c.env.DB, userId, id)
+  const target = await c.env.DB.prepare(
+    `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2`,
+  ).bind(id, userId).first<{ title: string }>()
+  if (!target) throw ApiError.notFound('Note not found')
+  const needle = `[[${target.title}`
 
   const { results } = await c.env.DB.prepare(
-    `SELECT n.id, n.title, n.content FROM links l
+    `SELECT n.id, n.title,
+       instr(lower(n.content), lower(?3)) AS hit,
+       length(n.content) AS len,
+       substr(n.content,
+         CASE WHEN instr(lower(n.content), lower(?3)) > 61
+              THEN instr(lower(n.content), lower(?3)) - 60 ELSE 1 END,
+         ?4) AS window
+     FROM links l
        JOIN notes n ON n.id = l.source_note_id
       WHERE l.user_id = ?1 AND l.target_note_id = ?2
         AND n.deleted_at IS NULL AND n.id != ?2
        ORDER BY n.updated_at DESC LIMIT 50`,
   )
-    .bind(userId, id)
-    .all<{ id: string; title: string; content: string }>()
+    .bind(userId, id, needle, needle.length + 150)
+    .all<{ id: string; title: string; hit: number; len: number; window: string }>()
 
   return c.json({
     backlinks: results.map((r) => ({
       id: r.id,
       title: r.title,
-      context: linkContext(r.content, note.title),
+      context: backlinkContext(r.window, r.hit, r.len, needle.length),
     })),
   })
 })
@@ -987,16 +1040,14 @@ async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<
   return row
 }
 
-function linkContext(content: string, title: string): string {
-  const needle = `[[${title}`
-  const idx = content.toLowerCase().indexOf(needle.toLowerCase())
-  if (idx < 0) return truncateText(content, 120).replace(/\s+/g, ' ').trim()
-  const start = Math.max(0, idx - 60)
-  const end = Math.min(content.length, idx + needle.length + 90)
+function backlinkContext(window: string, hit: number, len: number, needleLen: number): string {
+  if (hit <= 0) return truncateText(window, 120).replace(/\s+/g, ' ').trim()
+  const start = hit > 61 ? hit - 61 : 0
+  const end = Math.min(len, (hit - 1) + needleLen + 90)
   return (
     (start > 0 ? '…' : '') +
-    sliceText(content, start, end).replace(/\s+/g, ' ').trim() +
-    (end < content.length ? '…' : '')
+    window.slice(0, end - start).replace(/\s+/g, ' ').trim() +
+    (end < len ? '…' : '')
   )
 }
 

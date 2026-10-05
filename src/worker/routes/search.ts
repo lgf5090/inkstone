@@ -220,7 +220,7 @@ async function ftsSearch(
   const match = buildFtsQuery(q.terms)
   if (!match) return []
 
-  const binds: unknown[] = [`{title body} : (${match})`, userId]
+  const binds: unknown[] = [`user_id : "${userId.replace(/"/g, '""')}" AND {title body} : (${match})`, userId]
   let where = `notes_fts MATCH ?1 AND notes_fts.user_id = ?2
     AND n.user_id = ?2 AND n.deleted_at IS NULL`
   applyFilters(q, binds, (clause) => (where += clause))
