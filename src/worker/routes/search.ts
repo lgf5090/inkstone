@@ -138,15 +138,10 @@ export async function searchUserNotes(
         return { results: ftsHits, mode: 'fts', query }
       }
       const pendingHits = await likeSearch(db, userId, query, limit, pendingNoteIds)
-      const seen = new Set<string>()
-      const merged: SearchHit[] = []
-      for (const hit of pendingHits) {
-        seen.add(hit.note.id)
-        merged.push(hit)
-      }
+      const pendingSet = new Set(pendingNoteIds)
+      const merged: SearchHit[] = [...pendingHits]
       for (const hit of ftsHits) {
-        if (!seen.has(hit.note.id)) {
-          seen.add(hit.note.id)
+        if (!pendingSet.has(hit.note.id)) {
           merged.push(hit)
         }
       }
