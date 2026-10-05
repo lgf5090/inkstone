@@ -42,23 +42,35 @@ export default {
     return provider.fetch(oauthRequest, env, ctx)
   },
 
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const { ftsEnabled } = await initializeDatabase(env)
-      await Promise.all([
-        runScheduledBackups(env),
-        runAttachmentCleanup(env),
-        purgeExpiredMcpOperations(env.DB),
-        purgeExpiredOperationalData(env.DB),
-        purgeRevokedMcpApiKeys(env.DB),
-        providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
+      // Index drains run on every cron fire; whole-library work (backups, attachment
+      // cleanup, expired-record purges) only on the top of the hour, so a long backup
+      // cannot take the embedding drains down with it.
+      const drains: Promise<unknown>[] = [
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),
         drainRewriteQueues(env, ftsEnabled, 5),
-      ])
+      ]
+      const heavy: Promise<unknown>[] = isHourStart(event.scheduledTime)
+        ? [
+            runScheduledBackups(env),
+            runAttachmentCleanup(env),
+            purgeExpiredMcpOperations(env.DB),
+            purgeExpiredOperationalData(env.DB),
+            purgeRevokedMcpApiKeys(env.DB),
+            providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
+          ]
+        : []
+      await Promise.all([...drains, ...heavy])
     })())
   },
 } satisfies ExportedHandler<Env>
+
+export function isHourStart(scheduledTime: number): boolean {
+  return new Date(scheduledTime).getUTCMinutes() === 0
+}
 
 async function oauthMetadataWithoutIssParameter(
   provider: ReturnType<typeof createOAuthProvider>,

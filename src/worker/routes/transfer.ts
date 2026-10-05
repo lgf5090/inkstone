@@ -32,7 +32,7 @@ import {
   pruneOrphanTags,
   runBatched,
 } from '../db/writes'
-import { noteIndexQueueStatement } from '../mcp/ai-search'
+import { noteIndexQueueStatement, scheduleAiDrain } from '../mcp/ai-search'
 import { assertNoteQuota } from '../db/quota'
 import {
   assertBundleCanBeRestored,
@@ -67,6 +67,8 @@ const IMPORT_CONFLICTS = new Set<ImportConflict>(['skip', 'newer', 'duplicate'])
 const MAX_IMPORT_WARNINGS = 100
 const EXPORT_LEASE_TTL_MS = 15 * 60_000
 const EXPORT_LEASE_RENEW_MS = 5 * 60_000
+/** Imports queue thousands of embeddings at once; a cron-only drain would take days. */
+const IMPORT_EMBEDDING_DRAIN_ITEMS = 60
 
 transferRoutes.use('/export', requireAuth)
 transferRoutes.use('/import', requireAuth)
@@ -205,6 +207,7 @@ transferRoutes.post('/import', async (c) => {
       await pruneOrphanTags(c.env.DB, userId)
       await broadcastCursor(c)
       scheduleFtsDrain(c, 20)
+      scheduleAiDrain(c, userId, IMPORT_EMBEDDING_DRAIN_ITEMS)
     }
     return c.json(result)
   }
@@ -339,6 +342,7 @@ transferRoutes.post('/import', async (c) => {
   await pruneOrphanTags(c.env.DB, userId)
   await broadcastCursor(c)
   scheduleFtsDrain(c, 20)
+  scheduleAiDrain(c, userId, IMPORT_EMBEDDING_DRAIN_ITEMS)
   return c.json(result)
 })
 

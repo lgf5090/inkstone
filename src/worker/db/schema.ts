@@ -336,6 +336,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     note_id TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('embed', 'delete')),
     created_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at INTEGER,
     PRIMARY KEY (user_id, note_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_index_queue_due
@@ -573,6 +575,20 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 17,
     statements: [REWRITE_QUEUE_TABLE],
   },
+  {
+    version: 18,
+    statements: [
+      `ALTER TABLE ai_index_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`,
+    ],
+    skipIfColumnExists: { table: 'ai_index_queue', column: 'attempts' },
+  },
+  {
+    version: 19,
+    statements: [
+      `ALTER TABLE ai_index_queue ADD COLUMN next_retry_at INTEGER`,
+    ],
+    skipIfColumnExists: { table: 'ai_index_queue', column: 'next_retry_at' },
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -620,8 +636,9 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   mcp_operations: ['user_id', 'operation_id', 'tool', 'request_hash', 'response_json', 'created_at'],
   mcp_api_keys: ['id', 'user_id', 'name', 'key_hash', 'scopes', 'created_at', 'last_used_at', 'revoked_at'],
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at', 'norm'],
-  ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
+  ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at', 'attempts', 'next_retry_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
+  rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at'],
 } as const
 
 const REQUIRED_TABLES = [
