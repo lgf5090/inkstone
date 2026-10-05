@@ -111,7 +111,7 @@ syncRoutes.get('/', requireAuth, async (c) => {
     else if (item.entity === 'folder') folderIds.push(item.id)
     else if (item.entity === 'tag') tagIds.push(item.id)
   }
-  const facetsFull = [...latest.values()].some((item) => item.entity === 'note')
+  const facetsFull = false
   const settingsChanged = [...latest.values()].some((item) => item.entity === 'settings')
   const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
