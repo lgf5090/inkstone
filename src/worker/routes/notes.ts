@@ -12,7 +12,7 @@ import type {
   ViewKind,
 } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, splitTags, toNote, toNoteSummary, type NoteRow } from '../db/rows'
+import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
 import {
   buildNoteDerivedStatements,
@@ -55,6 +55,8 @@ type ParsedNotesListCursor =
 
 const NOTE_VIEWS = new Set<ViewKind>(['all', 'recent', 'starred', 'unfiled', 'archived', 'trash', 'folder', 'tag'])
 const NOTE_SORTS = new Set<SortKey>(['updated', 'created', 'title'])
+/** Ids per dependent-table delete when emptying the trash. */
+const TRASH_EMPTY_BATCH = 500
 
 
 notesRoutes.get('/', async (c) => {
@@ -147,21 +149,35 @@ notesRoutes.get('/', async (c) => {
     }
   }
 
-  const listSql = cursor.kind === 'legacy'
-    ? `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where} ORDER BY ${orderBy}
+  const pageFrom = cursor.kind === 'legacy'
+    ? `FROM notes n WHERE ${where} ORDER BY ${orderBy}
        LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`
-    : `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where} ORDER BY ${orderBy}
+    : `FROM notes n WHERE ${where} ORDER BY ${orderBy}
        LIMIT ?${binds.length + 1}`
-  const listStatement = cursor.kind === 'legacy'
-    ? c.env.DB.prepare(listSql).bind(...binds, limit + 1, cursor.offset)
-    : c.env.DB.prepare(listSql).bind(...binds, limit + 1)
-  const [countResult, listResult] = await c.env.DB.batch([
-    c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
-    listStatement,
-  ])
+  const pageBinds = cursor.kind === 'legacy'
+    ? [...binds, limit + 1, cursor.offset]
+    : [...binds, limit + 1]
+  const listStatement = c.env.DB.prepare(`SELECT ${NOTE_COLUMNS_NOTAGS} ${pageFrom}`).bind(...pageBinds)
+  const tagStatement = c.env.DB.prepare(noteTagsQueryForPage(pageFrom)).bind(...pageBinds)
+  // A keyset page continues a listing the client already counted; re-counting scans every
+  // visible row (up to LIMITS.notesMaxPerUser) again on each page turn.
+  const countTotal = cursor.kind !== 'keyset'
+  const results = await c.env.DB.batch(countTotal
+    ? [
+        c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
+        listStatement,
+        tagStatement,
+      ]
+    : [listStatement, tagStatement])
+  const [countResult, listResult, tagResult] = countTotal
+    ? results
+    : [undefined, results[0], results[1]]
 
-  const total = Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
+  const total = countTotal
+    ? Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
+    : null
   const rows = listResult?.results as NoteRow[] | undefined ?? []
+  attachNoteTags(rows, (tagResult?.results as NoteTagRow[] | undefined) ?? [])
   const pageRows = rows.slice(0, limit)
   const notes = pageRows.map(toNoteSummary)
   const body: ListNotesResponse = {
@@ -178,77 +194,101 @@ notesRoutes.get('/', async (c) => {
 notesRoutes.post('/trash/empty', async (c) => {
   const userId = c.get('userId')
   const { ftsEnabled } = c.get('database')
-  const row = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS count FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
-  )
-    .bind(userId)
-    .first<{ count: number }>()
   let purged = 0
   let deletionCursor: number | undefined
 
-  if ((row?.count ?? 0) > 0) {
-    const trashed = `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`
-    const statements = [
-      c.env.DB.prepare(`DELETE FROM note_tags WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(`DELETE FROM links WHERE source_note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(
-        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-          WHERE user_id = ?1 AND target_note_id IN (${trashed})`,
-      ).bind(userId),
-      c.env.DB.prepare(`DELETE FROM note_versions WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(
-        `DELETE FROM share_asset_sessions WHERE slug IN (
-           SELECT slug FROM shares WHERE user_id = ?1 AND note_id IN (${trashed})
-         )`,
-      ).bind(userId),
-      c.env.DB.prepare(`DELETE FROM shares WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(`UPDATE attachments SET note_id = NULL WHERE note_id IN (${trashed})`).bind(userId),
-      c.env.DB.prepare(
-        `DELETE FROM import_mappings
-          WHERE user_id = ?1 AND entity = 'note' AND target_id IN (${trashed})`,
-      ).bind(userId),
-    ]
-    if (ftsEnabled) {
-      statements.push(
-        c.env.DB.prepare(
-          `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-           SELECT ?1, id, 'delete', ?2
-             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL
-           ${FTS_QUEUE_CONFLICT_SQL}`,
-        ).bind(userId, Date.now()),
-      )
-    }
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-         SELECT ?1, id, 'delete', ?2
-           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL
-             AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
-      ).bind(userId, Date.now()),
-      c.env.DB
-        .prepare(
-          `INSERT INTO changes (user_id, entity, entity_id, op, at)
-           SELECT ?1, 'note', id, 'delete', ?2
-             FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`,
-        )
-        .bind(userId, Date.now()),
-      c.env.DB
-        .prepare(`SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`)
-        .bind(userId),
-      c.env.DB
-        .prepare(`DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`)
-        .bind(userId),
-    )
-    const results = await c.env.DB.batch(statements)
-    const changeResult = results.at(-2) as D1Result<{ seq: number }> | undefined
-    purged = results.at(-1)?.meta.changes ?? 0
-    deletionCursor = changeResult?.results?.at(-1)?.seq
-    if (purged) scheduleFtsDrain(c)
+  // One statement per dependent table, over 500 ids at a time. The old shape inlined the same
+  // unbounded `SELECT id FROM notes WHERE deleted_at IS NOT NULL` into 8 statements, so a 20k
+  // note trash walked 8×20k rows inside a single D1 request and hit its CPU ceiling.
+  const trashedIds = c.env.DB.prepare(
+    `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id > ?2
+      ORDER BY id ASC LIMIT ?3`,
+  )
+  let cursor = ''
+  for (;;) {
+    const { results } = await trashedIds.bind(userId, cursor, TRASH_EMPTY_BATCH).all<{ id: string }>()
+    if (!results.length) break
+    const ids = results.map((row) => row.id)
+    cursor = ids[ids.length - 1]!
+    const idsJson = JSON.stringify(ids)
+    const statements = trashPurgeStatements(c.env.DB, userId, idsJson, Date.now(), ftsEnabled)
+    const batchResults = await c.env.DB.batch(statements)
+    purged += batchResults.at(-1)?.meta.changes ?? 0
+    if (results.length < TRASH_EMPTY_BATCH) break
+  }
+  if (purged) {
+    const latest = await c.env.DB.prepare(
+      `SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`,
+    ).bind(userId).first<{ seq: number }>()
+    deletionCursor = latest?.seq
+    scheduleFtsDrain(c)
   }
   await pruneOrphanTags(c.env.DB, userId)
   await broadcastCursor(c, deletionCursor)
   return c.json({ purged })
 })
+
+/**
+ * The dependent-table cleanup for one page of trashed note ids, in the order the cascade
+ * needs: link retargeting before the notes go, share sessions before their shares.
+ * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account
+ * column to filter, so it takes the id page as `?1`), `?3` = timestamp.
+ */
+export function trashPurgeStatements(
+  db: D1Database,
+  userId: string,
+  idsJson: string,
+  now: number,
+  ftsEnabled: boolean,
+): D1PreparedStatement[] {
+  const inTrash = `IN (SELECT value FROM json_each(?2))`
+  const statements = [
+    db.prepare(`DELETE FROM note_tags WHERE note_id IN (SELECT value FROM json_each(?1))`).bind(idsJson),
+    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND source_note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+        WHERE user_id = ?1 AND target_note_id ${inTrash}`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM note_versions WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `DELETE FROM share_asset_sessions WHERE slug IN (
+         SELECT slug FROM shares WHERE user_id = ?1 AND note_id ${inTrash}
+       )`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM shares WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`UPDATE attachments SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
+    ).bind(userId, idsJson),
+  ]
+  if (ftsEnabled) {
+    statements.push(
+      db.prepare(
+        `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, id, 'delete', ?3
+           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
+         ${FTS_QUEUE_CONFLICT_SQL}`,
+      ).bind(userId, idsJson, now),
+    )
+  }
+  statements.push(
+    db.prepare(
+      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, id, 'delete', ?3
+         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
+           AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
+    ).bind(userId, idsJson, now),
+    db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', id, 'delete', ?3
+         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
+    ).bind(userId, idsJson, now),
+    db.prepare(
+      `DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
+    ).bind(userId, idsJson),
+  )
+  return statements
+}
 
 
 notesRoutes.get('/:id', async (c) => {
@@ -292,12 +332,12 @@ notesRoutes.post('/', async (c) => {
       .first<{ user_id: string }>()
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
-  await assertNoteQuota(c.env.DB, userId)
   const now = Date.now()
   const title = resolveNoteTitle(body.title)
   const excerpt = deriveExcerpt(content)
   const { words, chars } = countText(content)
-  const hash = await sha256Hex(content)
+  // The quota read rides along with hashing instead of adding a serial round trip.
+  const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
   const folderId = await resolveFolderId(c.env.DB, userId, body.folderId ?? null)
 
   const insert = c.env.DB.prepare(
@@ -514,6 +554,23 @@ notesRoutes.patch('/:id', async (c) => {
     statements.push(noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now))
   }
 
+  // Whether another note already answers to either title decides the wiki-link rewrite, so
+  // it rides along with the mutation instead of costing the rename path its own round trip.
+  let ambiguityIndex = -1
+  if (newTitle !== row.title) {
+    ambiguityIndex = statements.length
+    statements.push(c.env.DB.prepare(
+      `SELECT 1 AS found FROM notes
+        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
+        LIMIT 1`,
+    ).bind(
+      userId,
+      id,
+      normalizeLinkKey(row.title),
+      normalizeLinkKey(newTitle),
+    ))
+  }
+
   statements.push(
     c.env.DB.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
@@ -532,16 +589,7 @@ notesRoutes.patch('/:id', async (c) => {
   const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
   let rewroteInbound = false
   if (newTitle !== row.title) {
-    const ambiguous = await c.env.DB.prepare(
-      `SELECT 1 AS found FROM notes
-        WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
-        LIMIT 1`,
-    ).bind(
-      userId,
-      id,
-      normalizeLinkKey(row.title),
-      normalizeLinkKey(newTitle),
-    ).first<{ found: number }>()
+    const ambiguous = (results[ambiguityIndex]?.results?.length ?? 0) > 0
     if (!ambiguous) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,
@@ -794,11 +842,11 @@ notesRoutes.post('/:id/duplicate', async (c) => {
       .first<{ user_id: string }>()
     if (collision) throw ApiError.conflict('This note id is already in use')
   }
-  await assertNoteQuota(c.env.DB, userId)
   const now = Date.now()
   const title = duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
   const content = source.content
-  const hash = await sha256Hex(content)
+  // The quota read rides along with hashing instead of adding a serial round trip.
+  const [hash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
 
   const insert = c.env.DB.prepare(
     `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
@@ -1016,22 +1064,22 @@ notesRoutes.get('/:id/backlinks', async (c) => {
   ).bind(id, userId).first<{ title: string }>()
   if (!target) throw ApiError.notFound('Note not found')
   const needle = `[[${target.title}`
-
+  // One lower() copy and one instr per row: SQLite does not share the repeated
+  // lower(n.content) subexpression across the three references below.
   const { results } = await c.env.DB.prepare(
-    `SELECT n.id, n.title,
-       instr(lower(n.content), lower(?3)) AS hit,
-       length(n.content) AS len,
-       substr(n.content,
-         CASE WHEN instr(lower(n.content), lower(?3)) > 61
-              THEN instr(lower(n.content), lower(?3)) - 60 ELSE 1 END,
-         ?4) AS window
-     FROM links l
-       JOIN notes n ON n.id = l.source_note_id
-      WHERE l.user_id = ?1 AND l.target_note_id = ?2
-        AND n.deleted_at IS NULL AND n.id != ?2
-       ORDER BY n.updated_at DESC LIMIT 50`,
+    `SELECT id, title, len,
+       substr(content, MAX(hit - 60, 1), ?4) AS window
+     FROM (
+       SELECT n.id AS id, n.title AS title, n.content AS content,
+              instr(lower(n.content), ?3) AS hit, length(n.content) AS len
+         FROM links l
+           JOIN notes n ON n.id = l.source_note_id
+        WHERE l.user_id = ?1 AND l.target_note_id = ?2
+          AND n.deleted_at IS NULL AND n.id != ?2
+        ORDER BY n.updated_at DESC LIMIT 50
+     )`,
   )
-    .bind(userId, id, needle, needle.length + 150)
+    .bind(userId, id, needle.toLowerCase(), needle.length + 150)
     .all<{ id: string; title: string; hit: number; len: number; window: string }>()
 
   return c.json({
@@ -1076,7 +1124,8 @@ export async function rewriteInboundWikiLinks(
   toTitle: string,
   ftsEnabled: boolean,
   forceInline = false,
-): Promise<{ rewritten: number; skipped: number; deferred: number }> {
+  budgetNotes = Number.POSITIVE_INFINITY,
+): Promise<{ rewritten: number; skipped: number; deferred: number; remaining: number }> {
   const previousKey = normalizeLinkKey(fromTitle)
   const { results: candidates } = await db.prepare(
     `SELECT DISTINCT n.id FROM links l
@@ -1084,18 +1133,21 @@ export async function rewriteInboundWikiLinks(
      WHERE l.user_id = ?1 AND l.target_note_id = ?2 AND l.target_key = ?3
        AND n.id <> ?2 AND n.deleted_at IS NULL`,
   ).bind(userId, targetNoteId, previousKey).all<{ id: string }>()
-  if (!candidates.length) return { rewritten: 0, skipped: 0, deferred: 0 }
+  if (!candidates.length) return { rewritten: 0, skipped: 0, deferred: 0, remaining: 0 }
   if (!forceInline && candidates.length > INLINE_REWRITE_LIMIT) {
     await db.batch([
       rewriteQueueStatement(db, userId, 'note-title', targetNoteId, fromTitle, toTitle),
     ])
-    return { rewritten: 0, skipped: 0, deferred: candidates.length }
+    return { rewritten: 0, skipped: 0, deferred: candidates.length, remaining: 0 }
   }
   let rewritten = 0
   let skipped = 0
 
   const candidateIds = candidates.map((c) => c.id)
-  const FETCH_CHUNK = 50
+  const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds
+  const remaining = candidateIds.length - plan.length
+  const LOAD_CHUNK = 10
+  const CONCURRENCY_LIMIT = 5
   type CandidateNoteRecord = {
     id: string
     title: string
@@ -1105,101 +1157,91 @@ export async function rewriteInboundWikiLinks(
     updated_at: number
     deleted_at: number | null
   }
-  const loadedNotes: CandidateNoteRecord[] = []
-  for (let i = 0; i < candidateIds.length; i += FETCH_CHUNK) {
-    const chunk = candidateIds.slice(i, i + FETCH_CHUNK)
-    const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(', ')
-    const rows = await db.prepare(
+  // Load and rewrite in small windows: a hub note referenced by thousands of others must
+  // not hold every candidate body in the isolate at once.
+  for (let start = 0; start < plan.length; start += LOAD_CHUNK) {
+    const windowIds = plan.slice(start, start + LOAD_CHUNK)
+    const placeholders = windowIds.map((_, idx) => `?${idx + 2}`).join(', ')
+    const { results: loaded } = await db.prepare(
       `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
          FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
-    ).bind(userId, ...chunk).all<CandidateNoteRecord>()
-    loadedNotes.push(...rows.results)
-  }
-
-  const notesToRewrite: CandidateNoteRecord[] = []
-  for (const note of loadedNotes) {
-    if (note.deleted_at !== null) continue
-    const content = replaceWikiLinkTarget(note.content, fromTitle, toTitle)
-    if (content === note.content) {
-      skipped++
-      continue
-    }
-    notesToRewrite.push(note)
-  }
-
-  const CONCURRENCY_LIMIT = 5
-  for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
-    const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
-    const outcomes = await Promise.all(
-      batch.map(async (initialNote) => {
-        let currentNote: CandidateNoteRecord | null = initialNote
-        for (let attempt = 0; attempt < 5; attempt++) {
-          if (!currentNote || currentNote.deleted_at !== null) return false
-          const content = replaceWikiLinkTarget(currentNote.content, fromTitle, toTitle)
-          if (content === currentNote.content) return true
-          const hash = await sha256Hex(content)
-          const { words, chars } = countText(content)
-          const now = Math.max(Date.now(), currentNote.updated_at + 1)
-          const nextRev = currentNote.rev + 1
-          const guard = `EXISTS (SELECT 1 FROM notes
-            WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-              AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-          const guardValues = [currentNote.id, userId, nextRev, hash, currentNote.title, now] as const
-          const statements: D1PreparedStatement[] = [
-            db.prepare(
-              `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
-                 content_hash = ?5, rev = ?6, updated_at = ?7
-                WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
-            ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
-              currentNote.id, userId, currentNote.rev, currentNote.content_hash),
-            db.prepare(
-              `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-               SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
-            ).bind(newId(), currentNote.id, userId, currentNote.title, currentNote.content,
-              utf8ByteLength(currentNote.content), now, ...guardValues),
-            db.prepare(
-              `DELETE FROM note_versions WHERE note_id = ?1
-                 AND ${shiftSqlPlaceholders(guard, 1)}
-                 AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-            ).bind(currentNote.id, ...guardValues, LIMITS.versionsPerNote),
-          ]
-          statements.push(...buildNoteDerivedStatements({
-            db,
-            userId,
-            noteId: currentNote.id,
-            title: currentNote.title,
-            content,
-            ftsEnabled,
-            expectedRev: nextRev,
-            expectedContentHash: hash,
-            expectedTitle: currentNote.title,
-            expectedUpdatedAt: now,
-          }).statements)
-          statements.push(noteIndexQueueStatement(db, userId, currentNote.id, 'embed', now))
-          statements.push(
-            db.prepare(
-              `INSERT INTO changes (user_id, entity, entity_id, op, at)
-               SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
-            ).bind(userId, currentNote.id, now, ...guardValues),
-          )
-          const [updated] = await db.batch(statements)
-          if (updated?.meta.changes) {
-            return true
+    ).bind(userId, ...windowIds).all<CandidateNoteRecord>()
+    const notesToRewrite = loaded.filter((note) => note.deleted_at === null
+      && replaceWikiLinkTarget(note.content, fromTitle, toTitle) !== note.content)
+    skipped += loaded.length - notesToRewrite.length
+    for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
+      const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
+      const outcomes = await Promise.all(
+        batch.map(async (initialNote) => {
+          let currentNote: CandidateNoteRecord | null = initialNote
+          for (let attempt = 0; attempt < 5; attempt++) {
+            if (!currentNote || currentNote.deleted_at !== null) return false
+            const content = replaceWikiLinkTarget(currentNote.content, fromTitle, toTitle)
+            if (content === currentNote.content) return true
+            const hash = await sha256Hex(content)
+            const { words, chars } = countText(content)
+            const now = Math.max(Date.now(), currentNote.updated_at + 1)
+            const nextRev = currentNote.rev + 1
+            const guard = `EXISTS (SELECT 1 FROM notes
+              WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+                AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+            const guardValues = [currentNote.id, userId, nextRev, hash, currentNote.title, now] as const
+            const statements: D1PreparedStatement[] = [
+              db.prepare(
+                `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
+                   content_hash = ?5, rev = ?6, updated_at = ?7
+                  WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
+              ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
+                currentNote.id, userId, currentNote.rev, currentNote.content_hash),
+              db.prepare(
+                `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
+              ).bind(newId(), currentNote.id, userId, currentNote.title, currentNote.content,
+                utf8ByteLength(currentNote.content), now, ...guardValues),
+              db.prepare(
+                `DELETE FROM note_versions WHERE note_id = ?1
+                   AND ${shiftSqlPlaceholders(guard, 1)}
+                   AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+              ).bind(currentNote.id, ...guardValues, LIMITS.versionsPerNote),
+            ]
+            statements.push(...buildNoteDerivedStatements({
+              db,
+              userId,
+              noteId: currentNote.id,
+              title: currentNote.title,
+              content,
+              ftsEnabled,
+              expectedRev: nextRev,
+              expectedContentHash: hash,
+              expectedTitle: currentNote.title,
+              expectedUpdatedAt: now,
+            }).statements)
+            statements.push(noteIndexQueueStatement(db, userId, currentNote.id, 'embed', now))
+            statements.push(
+              db.prepare(
+                `INSERT INTO changes (user_id, entity, entity_id, op, at)
+                 SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
+              ).bind(userId, currentNote.id, now, ...guardValues),
+            )
+            const [updated] = await db.batch(statements)
+            if (updated?.meta.changes) {
+              return true
+            }
+            currentNote = await db.prepare(
+              `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
+                 FROM notes WHERE id = ?1 AND user_id = ?2`,
+            ).bind(currentNote.id, userId).first<CandidateNoteRecord>()
           }
-          currentNote = await db.prepare(
-            `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
-               FROM notes WHERE id = ?1 AND user_id = ?2`,
-          ).bind(currentNote.id, userId).first<CandidateNoteRecord>()
-        }
-        return false
-      }),
-    )
+          return false
+        }),
+      )
     for (const success of outcomes) {
       if (success) rewritten++
       else skipped++
     }
+    }
   }
-  return { rewritten, skipped, deferred: 0 }
+  return { rewritten, skipped, deferred: 0, remaining }
 }
 
 function sameTagSet(left: string[], right: string[]): boolean {

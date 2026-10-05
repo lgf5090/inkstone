@@ -7,6 +7,7 @@ const rootFile = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
 const CORE_PUBLIC_ASSETS = [
   'apple-touch-icon.png',
+  'boot.js',
   'inkstone-logo.svg',
   'manifest.webmanifest',
   'pwa-192x192.png',

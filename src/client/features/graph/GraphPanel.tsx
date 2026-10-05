@@ -481,9 +481,14 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   }, [])
   const nodeAt = useCallback((x: number, y: number): CanvasNode | null => {
     const nodes = stateRef.current.nodes
+    // Squared compare instead of Math.hypot: pointermove fires up to 240 times a second and
+    // hypot does overflow scaling work this path never needs.
     for (let index = nodes.length - 1; index >= 0; index--) {
       const node = nodes[index]!
-      if (Math.hypot(node.x - x, node.y - y) <= node.r + 7) return node
+      const dx = node.x - x
+      const dy = node.y - y
+      const reach = node.r + 7
+      if (dx * dx + dy * dy <= reach * reach) return node
     }
     return null
   }, [])

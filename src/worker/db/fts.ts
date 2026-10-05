@@ -19,73 +19,25 @@ export const FTS_NOTE_MATCH_SQL = `notes_fts MATCH ('note_id : "' || replace(?1,
 export const FTS_USER_MATCH_SQL = `notes_fts MATCH ('user_id : "' || replace(?1, '"', '""') || '"')`
 
 
-export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<number> {
-  const boundary = await db
-    .prepare(`SELECT MAX(id) AS id FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`)
-    .bind(userId)
-    .first<{ id: string | null }>()
-  const lastId = boundary?.id
-  if (!lastId) {
-    await db.prepare(`DELETE FROM notes_fts WHERE ${FTS_USER_MATCH_SQL} AND user_id = ?1`).bind(userId).run()
-    return 0
-  }
+/**
+ * Queues every live note for re-indexing in one statement. Rebuilding in the request path
+ * costs ~3 round trips per 50 notes (600 trips for 10k notes) plus a full-text tokenize
+ * pass, which cannot finish inside one invocation; the queue drains in the background.
+ */
+export async function queueAllNotesForFtsIndex(db: D1Database, userId: string): Promise<number> {
+  const results = await db.batch([
+    db.prepare(
+      `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, id, 'upsert', ?2 FROM notes WHERE user_id = ?1 AND deleted_at IS NULL
+       ON CONFLICT(user_id, note_id) DO UPDATE SET kind = 'upsert', created_at = excluded.created_at`,
+    ).bind(userId, Date.now()),
+    db.prepare(`SELECT COUNT(*) AS n FROM fts_index_queue WHERE user_id = ?1`).bind(userId),
+  ])
+  return Number((results[1]?.results?.[0] as { n?: number } | undefined)?.n ?? 0)
+}
 
-  let cursor = ''
-  let indexed = 0
-  while (cursor < lastId) {
-    const { results } = await db
-      .prepare(
-        `SELECT id, title, substr(content, 1, ?4) AS content, rev, content_hash, updated_at FROM notes
-          WHERE user_id = ?1 AND deleted_at IS NULL AND id > ?2 AND id <= ?3
-          ORDER BY id ASC LIMIT 50`,
-      )
-      .bind(userId, cursor, lastId, LIMITS.ftsContentChars)
-      .all<IndexableNote>()
-    if (!results.length) break
-
-    const statements: D1PreparedStatement[] = []
-    const flush = async () => {
-      if (!statements.length) return
-      const batch = await db.batch(statements.splice(0))
-      for (let index = 1; index < batch.length; index += 2) {
-        indexed += batch[index]?.meta.changes ?? 0
-      }
-    }
-    for (const row of results) {
-      if (statements.length + 2 > FTS_STATEMENT_BATCH) await flush()
-      const guard = `EXISTS (SELECT 1 FROM notes WHERE id = ?1 AND user_id = ?2
-        AND deleted_at IS NULL AND rev = ?3 AND content_hash = ?4
-        AND title = ?5 AND updated_at = ?6)`
-      statements.push(
-        db
-          .prepare(
-            `DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} AND note_id = ?1 AND user_id = ?2
-              AND ${shiftPlaceholders(guard, 2)}`,
-          )
-          .bind(row.id, userId, row.id, userId, row.rev, row.content_hash, row.title, row.updated_at),
-        db
-          .prepare(
-            `INSERT INTO notes_fts (note_id, user_id, title, body)
-             SELECT ?1, ?2, ?3, ?4 WHERE ${shiftPlaceholders(guard, 4)}`,
-          )
-          .bind(
-            row.id,
-            userId,
-            segmentCJK(row.title),
-            segmentCJK(truncateText(row.content, LIMITS.ftsContentChars)),
-            row.id,
-            userId,
-            row.rev,
-            row.content_hash,
-            row.title,
-            row.updated_at,
-          ),
-      )
-    }
-    await flush()
-    cursor = results[results.length - 1]!.id
-  }
-
+/** Removes search rows whose note no longer exists or was deleted. */
+export async function purgeStaleFtsRows(db: D1Database, userId: string): Promise<void> {
   await db
     .prepare(
       `DELETE FROM notes_fts WHERE ${FTS_USER_MATCH_SQL} AND notes_fts.user_id = ?1 AND NOT EXISTS (
@@ -95,13 +47,12 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
     )
     .bind(userId)
     .run()
-  return indexed
 }
 
 
 export const FTS_DRAIN_DELAY_MS = 10_000
 const FTS_DRAIN_BATCH = 5
-const FTS_DRAIN_ALL_BATCH = 250
+export const FTS_DRAIN_ALL_BATCH = 250
 const FTS_STATEMENT_BATCH = 75
 
 interface FtsQueueRow {

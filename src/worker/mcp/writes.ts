@@ -2,7 +2,7 @@ import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt, deriveTitle } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
 import type { Note } from '@shared/types'
-import { NOTE_COLUMNS_FULL, toNote, type NoteRow } from '../db/rows'
+import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, type NoteRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
 import { FTS_NOTE_MATCH_SQL } from '../db/fts'
 import { buildNoteDerivedStatements, LINK_TARGET_SUBQUERY } from '../db/writes'
@@ -44,6 +44,7 @@ export async function createMcpNote(
     tool: 'create_note',
     request: input,
     recovery: { noteId: id },
+    project: withoutBody,
     recover: async (recovery) => {
       const noteId = typeof recovery?.noteId === 'string' ? recovery.noteId : ''
       return noteId ? loadNoteOrNull(context.env.DB, context.userId, noteId) : null
@@ -56,12 +57,15 @@ export async function createMcpNote(
       const now = Date.now()
       const excerpt = deriveExcerpt(content)
       const { words, chars } = countText(content)
-      const hash = await sha256Hex(content)
       const collision = await context.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
         .bind(id)
         .first<{ user_id: string }>()
       if (collision) throw ApiError.conflict('This note id is already in use')
-      await assertNoteQuota(context.env.DB, context.userId)
+      // The quota read rides along with hashing instead of adding a serial round trip.
+      const [hash] = await Promise.all([
+        sha256Hex(content),
+        assertNoteQuota(context.env.DB, context.userId),
+      ])
 
       const insert = context.env.DB.prepare(
         `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
@@ -115,9 +119,10 @@ export async function editMcpNote(
     tool: 'edit_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
       const current = await loadNoteRow(context.env.DB, context.userId, input.noteId)
-      assertExpectedRevision(current, input.expectedRev)
+      await assertExpectedRevision(context, current, input.expectedRev)
       if (current.deleted_at !== null) throw ApiError.notFound('The note is in the trash')
       const content = applyEdit(current.content, input)
       return patchNote(context, current, {
@@ -147,9 +152,12 @@ export async function organizeMcpNote(
     tool: 'organize_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
-      const current = await loadNoteRow(context.env.DB, context.userId, input.noteId)
-      assertExpectedRevision(current, input.expectedRev)
+      // Organizing never reads the body, so the pre-read is metadata only; the response body
+      // comes from the single read-back inside patchNote's batch.
+      const current = await loadNoteMetaRow(context.env.DB, context.userId, input.noteId)
+      await assertExpectedRevision(context, current, input.expectedRev)
       if (current.deleted_at !== null) throw ApiError.notFound('The note is in the trash')
       return patchNote(context, current, {
         ...(Object.prototype.hasOwnProperty.call(input, 'folderId') ? { folderId: input.folderId } : {}),
@@ -172,9 +180,10 @@ export async function trashMcpNote(
     tool: 'trash_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
-      const row = await loadNoteRow(context.env.DB, context.userId, input.noteId)
-      assertExpectedRevision(row, input.expectedRev)
+      const row = await loadNoteMetaRow(context.env.DB, context.userId, input.noteId)
+      await assertExpectedRevision(context, row, input.expectedRev)
       if (row.deleted_at !== null) throw ApiError.notFound('The note is already in the trash')
       const now = Math.max(Date.now(), row.updated_at + 1)
       const nextRev = row.rev + 1
@@ -206,15 +215,16 @@ export async function trashMcpNote(
            SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}`,
         ).bind(context.userId, row.id, now, row.id, context.userId, nextRev),
       )
-      const [updated] = await context.env.DB.batch(statements)
+      statements.push(readBackNoteStatement(context.env.DB, context.userId, row.id))
+      const results = await context.env.DB.batch(statements)
+      const [updated] = results
+      const readBack = results.at(-1)?.results?.[0] as NoteRow | undefined
+      if (!readBack) throw ApiError.notFound('The note does not exist')
       if (!updated?.meta.changes) {
-        throw ApiError.conflict('This note was modified elsewhere', {
-          server: await loadNote(context.env.DB, context.userId, row.id),
-        })
+        throw ApiError.conflict('This note was modified elsewhere', { server: toNote(readBack) })
       }
-      const note = await loadNote(context.env.DB, context.userId, row.id)
       await afterMutation(context)
-      return note
+      return toNote(readBack)
     },
   })
 }
@@ -230,9 +240,10 @@ export async function restoreMcpNote(
     tool: 'restore_note',
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
+    project: withoutBody,
     execute: async () => {
       const row = await loadNoteRow(context.env.DB, context.userId, input.noteId)
-      assertExpectedRevision(row, input.expectedRev)
+      await assertExpectedRevision(context, row, input.expectedRev)
       if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
       const now = Math.max(Date.now(), row.updated_at + 1)
       const nextRev = row.rev + 1
@@ -258,13 +269,19 @@ export async function restoreMcpNote(
           WHERE EXISTS (SELECT 1 FROM notes
             WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)`,
       ).bind(context.userId, row.id, now, nextRev)
-      const [updated] = await context.env.DB.batch([update, ...derived, noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now), change])
+      const results = await context.env.DB.batch([
+        update, ...derived,
+        noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now),
+        change,
+        readBackNoteStatement(context.env.DB, context.userId, row.id),
+      ])
+      const [updated] = results
+      const readBack = results.at(-1)?.results?.[0] as NoteRow | undefined
+      if (!readBack) throw ApiError.notFound('The note does not exist')
       if (!updated?.meta.changes) {
-        throw ApiError.conflict('This note was modified elsewhere', {
-          server: await loadNote(context.env.DB, context.userId, row.id),
-        })
+        throw ApiError.conflict('This note was modified elsewhere', { server: toNote(readBack) })
       }
-      const note = await loadNote(context.env.DB, context.userId, row.id)
+      const note = toNote(readBack)
       scheduleAiDrainForNote({ env: context.env, executionCtx: context.executionCtx }, context.userId)
       await afterMutation(context)
       return note
@@ -388,13 +405,17 @@ async function patchNote(
   if (contentChanged || newTitle !== row.title) {
     statements.push(noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now))
   }
-  const [updated] = await context.env.DB.batch(statements)
+  // The read-back rides in the same batch: the old shape paid a second full-note round trip
+  // after every write, and its conflict branch paid a third.
+  statements.push(readBackNoteStatement(context.env.DB, context.userId, row.id))
+  const results = await context.env.DB.batch(statements)
+  const [updated] = results
+  const readBack = results.at(-1)?.results?.[0] as NoteRow | undefined
+  if (!readBack) throw ApiError.notFound('The note does not exist')
   if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', {
-      server: await loadNote(context.env.DB, context.userId, row.id),
-    })
+    throw ApiError.conflict('This note was modified elsewhere', { server: toNote(readBack) })
   }
-  const note = await loadNote(context.env.DB, context.userId, row.id)
+  const note = toNote(readBack)
   if (contentChanged || newTitle !== row.title) {
     scheduleAiDrainForNote({ env: context.env, executionCtx: context.executionCtx }, context.userId)
   }
@@ -462,6 +483,22 @@ async function loadNoteOrNull(db: D1Database, userId: string, id: string): Promi
   return row ? toNote(row) : null
 }
 
+/**
+ * What mcp_operations persists: the write tools' responses never expose the body (see
+ * noteResult in server.ts), so caching it would store a second copy of every edited note and
+ * push a 1.9 MB note past D1's row limit.
+ */
+function withoutBody(note: Note): Note {
+  return { ...note, content: '' }
+}
+
+/** Appended to a write batch so the response body costs no extra round trip. */
+function readBackNoteStatement(db: D1Database, userId: string, id: string): D1PreparedStatement {
+  return db.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  ).bind(id, userId)
+}
+
 async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<NoteRow> {
   const row = await db.prepare(
     `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
@@ -470,13 +507,28 @@ async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<
   return row
 }
 
-function assertExpectedRevision(row: NoteRow, expectedRev: number): void {
+/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */
+async function loadNoteMetaRow(db: D1Database, userId: string, id: string): Promise<NoteRow> {
+  const row = await db.prepare(
+    `SELECT ${NOTE_COLUMNS} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  ).bind(id, userId).first<NoteRow>()
+  if (!row) throw ApiError.notFound('Note not found')
+  return row
+}
+
+async function assertExpectedRevision(
+  context: McpWriteContext,
+  row: NoteRow,
+  expectedRev: number,
+): Promise<void> {
   if (!Number.isInteger(expectedRev) || expectedRev < 1) {
     throw ApiError.badRequest('expected_rev must be a positive integer')
   }
-  if (row.rev !== expectedRev) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: toNote(row) })
-  }
+  if (row.rev === expectedRev) return
+  // The conflict payload keeps carrying the body even when the pre-read was metadata only.
+  throw ApiError.conflict('This note was modified elsewhere', {
+    server: await loadNote(context.env.DB, context.userId, row.id),
+  })
 }
 
 async function resolveFolderId(

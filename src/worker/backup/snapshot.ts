@@ -369,7 +369,7 @@ export function assertArchiveCanBeRestored(files: readonly MaterializedBackupFil
   )
 }
 
-function assertArchiveSizesCanBeRestored(
+export function assertArchiveSizesCanBeRestored(
   files: readonly { path: string; byteLength: number }[],
 ): void {
   if (files.length > LIMITS.importArchiveEntriesMax) {

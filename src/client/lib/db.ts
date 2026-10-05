@@ -31,9 +31,18 @@ interface ShellData {
   cursor: number
 }
 
+/** The store slices a shell snapshot is built from; identities decide whether to re-write. */
+interface ShellSources {
+  notes: Record<string, NoteSummary>
+  folders: Folder[]
+  tags: Tag[]
+  cursor: number
+}
+
 let shellSaveTimer = 0
-let pendingShell: ShellData | null = null
+let pendingShell: (() => ShellSources) | null = null
 let pendingShellUserId: string | null = null
+let lastSavedShell: ShellSources | null = null
 let activeUserId: string | null = null
 const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
 let forceUserNamespaces = false
@@ -222,16 +231,33 @@ export const localDb = {
     }
   },
 
-  scheduleShellSave(data: ShellData) {
-    pendingShell = data
+  /**
+   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per
+   * change used to cost ~1.9 ms even though the debounced write happens once.
+   */
+  scheduleShellSave(sources: () => ShellSources) {
+    pendingShell = sources
     pendingShellUserId = activeUserId
     window.clearTimeout(shellSaveTimer)
     shellSaveTimer = window.setTimeout(() => {
-      const snapshot = pendingShell
+      const build = pendingShell
       const userId = pendingShellUserId
       pendingShell = null
       pendingShellUserId = null
-      if (snapshot) void localDb.saveShell(snapshot, userId)
+      if (!build || !userId) return
+      const current = build()
+      if (lastSavedShell
+        && lastSavedShell.notes === current.notes
+        && lastSavedShell.folders === current.folders
+        && lastSavedShell.tags === current.tags
+        && lastSavedShell.cursor === current.cursor) return
+      lastSavedShell = current
+      void localDb.saveShell({
+        notes: Object.values(current.notes),
+        folders: current.folders,
+        tags: current.tags,
+        cursor: current.cursor,
+      }, userId)
     }, 1200)
   },
 
@@ -255,6 +281,10 @@ export const localDb = {
   },
   setContent: (id: string, value: CachedNoteContent) =>
     safeSet(userScopedKey(KEY.content(id)), value),
+  setContentBatch: (entries: Array<[string, CachedNoteContent]>) =>
+    entries.length
+      ? setMany(entries.map(([id, value]) => [userScopedKey(KEY.content(id)), value] as [string, CachedNoteContent]), store).catch(() => {})
+      : Promise.resolve(),
   dropContent: (id: string) => del(userScopedKey(KEY.content(id)), store).catch(() => {}),
 
   getOutbox: async (): Promise<OutboxItem[]> => normalizeOutbox(await safeGet<unknown>(userScopedKey(KEY.outbox))),
@@ -269,6 +299,29 @@ export const localDb = {
           ...items.filter((entry) => entry.id !== item.id),
           { ...item, createdAt: previous?.createdAt ?? item.createdAt },
         ]
+      },
+      store,
+    )
+  },
+
+  /**
+   * One transaction for a whole flush. enqueueOutbox() reads and rewrites the entire queue,
+   * so calling it per queued write costs K reads plus K clones of an array that grows with K.
+   */
+  enqueueOutboxBatch(items: OutboxItem[]): Promise<void> {
+    if (!items.length) return Promise.resolve()
+    return update<OutboxItem[]>(
+      userScopedKey(KEY.outbox),
+      (current) => {
+        let merged = normalizeOutbox(current)
+        for (const item of items) {
+          const previous = merged.find((entry) => entry.id === item.id)
+          merged = [
+            ...merged.filter((entry) => entry.id !== item.id),
+            { ...item, createdAt: previous?.createdAt ?? item.createdAt },
+          ]
+        }
+        return merged
       },
       store,
     )
@@ -428,6 +481,7 @@ async function clearLocalData(): Promise<void> {
   shellSaveTimer = 0
   pendingShell = null
   pendingShellUserId = null
+  lastSavedShell = null
   await clearStore(store)
 }
 

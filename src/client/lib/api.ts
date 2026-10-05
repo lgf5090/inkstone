@@ -386,7 +386,7 @@ export const api = {
 
   search: (q: string, limit = 50, signal?: AbortSignal) =>
     request<SearchResponse>(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`, { signal }),
-  reindex: () => request<{ ok: true; indexed: number }>('/api/search/reindex', { method: 'POST' }),
+  reindex: () => request<{ ok: true; queued: number }>('/api/search/reindex', { method: 'POST' }),
   graph: (params: import('@shared/types').GraphQuery = {}, signal?: AbortSignal) =>
     request<GraphResponse>(`/api/graph${toQuery({
       mode: params.mode,

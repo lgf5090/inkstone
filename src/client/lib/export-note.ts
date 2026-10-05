@@ -68,21 +68,35 @@ async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
   })
 }
 
+const IMAGE_FETCH_CONCURRENCY = 6
+const IMAGE_FETCH_TIMEOUT_MS = 30_000
+
 async function inlinePrivateImages(html: string): Promise<string> {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const images = [...doc.querySelectorAll<HTMLImageElement>('img[src^="/api/files/"]')]
-  await Promise.all(images.map(async (image) => {
-    try {
-      const response = await fetch(image.getAttribute('src')!, { credentials: 'same-origin' })
-      if (!response.ok)
-        return
-      const dataUrl = await blobToDataUrl(await response.blob())
-      if (dataUrl)
-        image.setAttribute('src', dataUrl)
+  // Attachments reach 25 MB each, so the fetches are capped in flight and always time out
+  // rather than hanging an export on a stalled object.
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < images.length) {
+      const image = images[next++]
+      if (!image) break
+      try {
+        const response = await fetch(image.getAttribute('src')!, {
+          credentials: 'same-origin',
+          signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+        })
+        if (!response.ok)
+          continue
+        const dataUrl = await blobToDataUrl(await response.blob())
+        if (dataUrl)
+          image.setAttribute('src', dataUrl)
+      }
+      catch {
+      }
     }
-    catch {
-    }
-  }))
+  }
+  await Promise.all(Array.from({ length: Math.min(IMAGE_FETCH_CONCURRENCY, images.length) }, worker))
   return doc.body.innerHTML
 }
 

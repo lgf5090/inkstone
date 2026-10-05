@@ -705,21 +705,38 @@ export function toPlainText(md: string): string {
   return t.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-const CJK_CHAR = /[\u2e80-\u9fff\uf900-\ufaff]/
 const CJK_GLOBAL = /[\u2e80-\u9fff\uf900-\ufaff\uff01-\uffe0]/g
 
+/** Code point count without materialising `[...text]`, which costs one array slot per character. */
+function codePointLength(text: string): number {
+  let total = 0
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
+      const next = text.charCodeAt(index + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) index++
+    }
+    total++
+  }
+  return total
+}
 
 export function countText(md: string): { words: number; chars: number } {
   const plain = toPlainText(md)
   let cjk = 0
-  for (const ch of plain) if (CJK_CHAR.test(ch)) cjk++
+  // The CJK ranges are all BMP, so scanning UTF-16 units matches the per-code-point test
+  // while surrogate pairs (which decode outside those ranges) stay uncounted either way.
+  for (let index = 0; index < plain.length; index++) {
+    const code = plain.charCodeAt(index)
+    if ((code >= 0x2e80 && code <= 0x9fff) || (code >= 0xf900 && code <= 0xfaff)) cjk++
+  }
   const latin = plain.match(/[A-Za-z0-9_'’-]+/g)?.length ?? 0
-  return { words: cjk + latin, chars: [...md].length }
+  return { words: cjk + latin, chars: codePointLength(md) }
 }
 
 
 export function segmentCJK(text: string): string {
-  return text.replace(CJK_GLOBAL, (c) => ` ${c} `).replace(/\s{2,}/g, ' ')
+  return text.replace(CJK_GLOBAL, ' $& ').replace(/\s{2,}/g, ' ')
 }
 
 export function readingMinutes(words: number): number {

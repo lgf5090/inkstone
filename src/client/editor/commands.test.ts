@@ -25,6 +25,19 @@ describe('completeCodeFenceOnEnter', () => {
     expect(result.handled).toBe(false)
     expect(result.state.doc.toString()).toBe('```\nconsole.log(1)\n```')
   })
+
+  it('ignores a plain text line even while an earlier fence is still open', () => {
+    const result = runFenceCompletion('```ts\nstill inside the fence')
+
+    expect(result.handled).toBe(false)
+    expect(result.state.doc.toString()).toBe('```ts\nstill inside the fence')
+  })
+
+  it('ignores a fence line when the caret is not at its end', () => {
+    const result = runFenceCompletion('```ts', 3)
+
+    expect(result.handled).toBe(false)
+  })
 })
 
 describe('toolbar formatting commands', () => {

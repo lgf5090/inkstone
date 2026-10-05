@@ -124,18 +124,24 @@ export function decideRegistration(input: {
   return { ok: false, reason: 'registration_closed' }
 }
 
-async function gate(env: Env): Promise<RegistrationDecision> {
-  const countRow = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{ n: number }>()
-  return decideRegistration({
-    userCount: countRow?.n ?? 0,
-    registrationOpen: await getAllowRegistration(env.DB),
-  })
+interface RegistrationGate {
+  decision: RegistrationDecision
+  hasAnyUser: boolean
 }
 
-async function setupTokenRequired(env: Env): Promise<boolean> {
-  if (!env.SETUP_TOKEN) return false
+async function gate(env: Env): Promise<RegistrationGate> {
   const countRow = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{ n: number }>()
-  return !countRow
+  return {
+    decision: decideRegistration({
+      userCount: countRow?.n ?? 0,
+      registrationOpen: await getAllowRegistration(env.DB),
+    }),
+    hasAnyUser: Boolean(countRow),
+  }
+}
+
+function setupTokenRequired(env: Env, hasAnyUser: boolean): boolean {
+  return Boolean(env.SETUP_TOKEN) && !hasAnyUser
 }
 
 
@@ -150,11 +156,12 @@ authRoutes.post('/register', async (c) => {
   const weak = validateNewPassword(body.password)
   if (weak) throw new ApiError(400, 'weak_password', weak)
 
-  if (!(await gate(c.env)).ok) {
+  const { decision, hasAnyUser } = await gate(c.env)
+  if (!decision.ok) {
     throw new ApiError(403, 'registration_closed', 'Registration is closed on this instance')
   }
 
-  if (await setupTokenRequired(c.env)) {
+  if (setupTokenRequired(c.env, hasAnyUser)) {
     const provided = typeof body.setupToken === 'string' ? body.setupToken : ''
     if (!provided || !timingSafeEqual(provided, c.env.SETUP_TOKEN as string)) {
       throw new ApiError(403, 'setup_token_required', 'A valid setup token is required to create the first account')
@@ -250,9 +257,11 @@ authRoutes.post('/login', async (c) => {
   // identity-scoped throttling keys, never the shared per-IP buckets, or an
   // attacker with any low-value account could reset the per-IP failure
   // ceiling between bursts of password guessing.
-  await clearLoginFailures(db, loginSuccessClearTargets(username, requestClientIp(c)))
-
-  if (await hasEnabledTotp(db, row.id)) {
+  const [, totpEnabled] = await Promise.all([
+    clearLoginFailures(db, loginSuccessClearTargets(username, requestClientIp(c))),
+    hasEnabledTotp(db, row.id),
+  ])
+  if (totpEnabled) {
     return c.json(await createTotpLoginChallenge(db, row.id, row.password_hash))
   }
 

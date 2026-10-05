@@ -7,21 +7,41 @@ import type { Env } from '../env'
 import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
 import { verifyMcpApiKey } from './api-keys'
 import { createInkstoneMcpServer, type McpAuthProps } from './server'
-import { isMcpEnabled, MCP_SUPPORTED_SCOPES } from './settings'
+import { isMcpEnabledOnce, MCP_SUPPORTED_SCOPES } from './settings'
 
 const app = createApp()
+
+const roleMemo = new WeakMap<D1Database, Map<string, { value: { role: string } | null; expiresAt: number }>>()
+const ROLE_MEMO_MS = 5_000
+const ROLE_MEMO_MAX = 512
+
+/** The account role gates tool availability and changes rarely, so it is read once per window. */
+async function readUserRole(db: D1Database, userId: string): Promise<{ role: string } | null> {
+  const now = Date.now()
+  let cache = roleMemo.get(db)
+  if (!cache) {
+    cache = new Map()
+    roleMemo.set(db, cache)
+  }
+  const cached = cache.get(userId)
+  if (cached && cached.expiresAt > now) return cached.value
+  const value = await db.prepare(`SELECT role FROM users WHERE id = ?1`)
+    .bind(userId)
+    .first<{ role: string }>() ?? null
+  cache.set(userId, { value, expiresAt: now + ROLE_MEMO_MS })
+  if (cache.size > ROLE_MEMO_MAX) cache.clear()
+  return value
+}
 
 export class InkstoneMcpApi extends WorkerEntrypoint<Env, McpAuthProps> {
   async fetch(request: Request): Promise<Response> {
     const database = await initializeDatabase(this.env)
-    if (!await isMcpEnabled(this.env.DB)) {
+    if (!await isMcpEnabledOnce(this.env.DB)) {
       return Response.json({ error: 'MCP is disabled in Inkstone settings' }, { status: 403 })
     }
     const auth = this.ctx.props
     if (!isAuthProps(auth)) return Response.json({ error: 'Invalid OAuth grant' }, { status: 401 })
-    const user = await this.env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
-      .bind(auth.userId)
-      .first<{ role: string }>()
+    const user = await readUserRole(this.env.DB, auth.userId)
     if (!user) return Response.json({ error: 'Inkstone account no longer exists' }, { status: 401 })
 
     const requestUrl = new URL(request.url)
@@ -111,7 +131,7 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
     },
     clientRegistrationCallback: async ({ request }) => {
       await initializeDatabase(env)
-      if (!await isMcpEnabled(env.DB)) {
+      if (!await isMcpEnabledOnce(env.DB)) {
         return { code: 'access_denied', description: 'MCP is disabled', status: 403 }
       }
       const ip = request.headers.get('CF-Connecting-IP')?.slice(0, 80) || 'unknown'

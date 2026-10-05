@@ -118,14 +118,59 @@ export function splitTags(joined: string | null | undefined): string[] {
 }
 
 
-export const NOTE_COLUMNS = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev,
+const NOTE_COLUMNS_BASE = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev,
   n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, n.position,
-  n.content_hash, n.created_at, n.updated_at, n.deleted_at,
+  n.content_hash, n.created_at, n.updated_at, n.deleted_at`
+
+/** Listing columns without tags; pair with noteTagsQueryForPage so a page pays one join. */
+export const NOTE_COLUMNS_NOTAGS = NOTE_COLUMNS_BASE
+
+/**
+ * The per-row subquery is the cheap shape for a handful of rows: SQLite runs it once per
+ * note. A page of 500 turns it into 500 index walks whose tags are never indexed for it,
+ * so listings use NOTE_COLUMNS_NOTAGS plus noteTagsQueryForPage in the same batch.
+ */
+export const NOTE_COLUMNS = `${NOTE_COLUMNS_BASE},
   (SELECT GROUP_CONCAT(t.name, char(1)) FROM note_tags nt
      JOIN tags t ON t.id = nt.tag_id
     WHERE nt.note_id = n.id AND t.user_id = n.user_id) AS tag_names`
 
 export const NOTE_COLUMNS_FULL = `${NOTE_COLUMNS}, n.content`
+
+export interface NoteTagRow {
+  note_id: string
+  name: string
+}
+
+/**
+ * Mirrors an already-built page query (`from` is the `FROM notes n WHERE … ORDER BY … LIMIT …`
+ * tail) to fetch that page's tags as flat rows. `?1` must be bound to the account id.
+ */
+export function noteTagsQueryForPage(pageFrom: string): string {
+  return `SELECT nt.note_id, t.name FROM note_tags nt
+    JOIN tags t ON t.id = nt.tag_id AND t.user_id = ?1
+   WHERE nt.note_id IN (SELECT n.id ${pageFrom})`
+}
+
+/** Rewrites rows in place so the existing mappers keep reading `tag_names`. */
+export function attachNoteTags<T extends { id: string; tag_names?: string | null }>(
+  rows: T[],
+  tagRows: NoteTagRow[],
+): void {
+  if (!rows.length) return
+  const owned = new Set(rows.map((row) => row.id))
+  const byNote = new Map<string, string[]>()
+  for (const tagRow of tagRows) {
+    if (!owned.has(tagRow.note_id)) continue
+    const names = byNote.get(tagRow.note_id)
+    if (names) names.push(tagRow.name)
+    else byNote.set(tagRow.note_id, [tagRow.name])
+  }
+  for (const row of rows) {
+    const names = byNote.get(row.id)
+    row.tag_names = names ? names.join(String.fromCharCode(TAG_SEP_CODE)) : null
+  }
+}
 
 /** Body + metadata without the per-row tag GROUP_CONCAT subquery. */
 export const NOTE_CONTENT_COLUMNS = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev,

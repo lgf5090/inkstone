@@ -60,6 +60,9 @@ export function shouldPersistShareView(
 }
 
 const shareViewWindows = new Map<string, ShareViewWindow>()
+/** Sweep at most once per window, and never let the map grow without a hard ceiling. */
+const SHARE_VIEW_WINDOWS_MAX = 10_000
+let shareViewSweepAt = 0
 
 export function sharePasscodeProblem(password: unknown): string | null {
   if (typeof password !== 'string' || password.length === 0) return null
@@ -68,10 +71,14 @@ export function sharePasscodeProblem(password: unknown): string | null {
 }
 
 function noteShareView(slug: string, ip: string, now: number): boolean {
-  if (shareViewWindows.size > 1_000) {
+  if (now >= shareViewSweepAt) {
+    shareViewSweepAt = now + VIEW_WINDOW_MS
     for (const [key, value] of shareViewWindows) {
       if (now - value.windowStart >= VIEW_WINDOW_MS) shareViewWindows.delete(key)
     }
+    // View counts are display-only; dropping them beats paying an O(n) sweep per request
+    // or growing the isolate without bound under many distinct visitors.
+    if (shareViewWindows.size > SHARE_VIEW_WINDOWS_MAX) shareViewWindows.clear()
   }
   const hit = shouldPersistShareView(
     shareViewWindows.get(`${slug}:${ip}`) ?? { count: 0, windowStart: 0 },

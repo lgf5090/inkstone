@@ -208,7 +208,7 @@ export function DataSettings() {
           <Button size="sm" variant="secondary" icon={<RefreshCw size={13}/>} loading={busy === 'reindex'} disabled={busy !== null} onClick={() => run('reindex', async () => {
             try {
                 const res = await api.reindex();
-                toast({ title: t("settings.rebuilt_the_index_for_value0_notes", { value0: res.indexed }), tone: 'success' });
+                toast({ title: t("settings.mcp_ai_search_reindexed", { count: res.queued }), tone: 'success' });
             }
             catch (err) {
                 toast({ title: t("settings.rebuild_failed"), description: err instanceof Error ? err.message : String(err), tone: 'danger' });

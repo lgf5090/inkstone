@@ -29,6 +29,27 @@ export async function isMcpEnabled(db: D1Database): Promise<boolean> {
 
 export async function setMcpEnabled(db: D1Database, enabled: boolean): Promise<void> {
   await setMeta(db, MCP_ENABLED_KEY, enabled ? '1' : '0')
+  enabledMemo.delete(db)
+}
+
+const enabledMemo = new WeakMap<D1Database, { value: Promise<boolean>; expiresAt: number }>()
+const MCP_ENABLED_MEMO_MS = 5_000
+
+/**
+ * Every MCP HTTP request needs the switch, and the endpoint is hit once per tool call, so the
+ * single-key read is memoized per isolate. Flipping the switch in this isolate drops the entry
+ * immediately; another isolate converges within the window.
+ */
+export function isMcpEnabledOnce(db: D1Database): Promise<boolean> {
+  const now = Date.now()
+  const cached = enabledMemo.get(db)
+  if (cached && cached.expiresAt > now) return cached.value
+  const value = isMcpEnabled(db).catch((error) => {
+    enabledMemo.delete(db)
+    throw error
+  })
+  enabledMemo.set(db, { value, expiresAt: now + MCP_ENABLED_MEMO_MS })
+  return value
 }
 
 export async function getMcpPreferences(db: D1Database, userId: string): Promise<McpPreferences> {

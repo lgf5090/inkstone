@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { Archive, Columns2, FileText, FolderInput, MoreHorizontal, Star, Trash2 } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
 import { numericCollator } from '../../lib/collator';
@@ -27,7 +27,11 @@ export function groupExplorerNotes(notes: Record<string, NoteSummary>, folders: 
     return groups;
 }
 
-export function ExplorerNote({ note, depth, canOpenToSide }: { note: NoteSummary; depth: number; canOpenToSide: boolean }) {
+export const ExplorerNote = memo(ExplorerNoteRow);
+
+// Every explorer row subscribes to several store slices; without memoising the row, a note
+// change re-renders every visible row in the explorer.
+function ExplorerNoteRow({ note, depth, canOpenToSide }: { note: NoteSummary; depth: number; canOpenToSide: boolean }) {
     const active = useUi((s) => s.activeNoteId === note.id);
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);

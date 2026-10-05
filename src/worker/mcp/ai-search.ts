@@ -11,15 +11,24 @@
 import { toPlainText } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
 import { getMeta, selectQueueUsersRoundRobin, setMeta } from '../db/metadata'
+import { ApiError } from '../lib/errors'
+import { acquireLease } from '../lib/lease'
 import type { Env } from '../env'
 
 export const AI_EMBEDDING_MODEL = '@cf/baai/bge-m3'
 const AI_EMBEDDING_DIMS = 1024
 const EMBED_TEXT_MAX_CHARS = 4_000
-const MAX_SEMANTIC_VECTORS = 200
+// 2 pages of 500 vectors keep one response under D1's result cap (≈4.1 MB of BLOB) while
+// lifting the recall window from a fixed 200 notes to 1000.
+const SEMANTIC_SCAN_PAGE = 500
+const SEMANTIC_SCAN_PAGES = 2
 const SEMANTIC_TOP_K = 40
 const DRAIN_USERS_PER_RUN = 10
 const DRAIN_PER_USER = 25
+const DRAIN_LEASE_MS = 60_000
+const EMBED_MAX_ATTEMPTS = 5
+const EMBED_RETRY_BACKOFF_MS = 5 * 60_000
+const WRITE_DRAIN_ITEMS = 2
 const AI_DRAIN_CURSOR_META_KEY = 'ai-index-drain-user-v1'
 const ENQUEUE_CHUNK = 200
 const EMBED_CHUNK = 16
@@ -49,6 +58,7 @@ interface QueueRow {
   note_id: string
   kind: AiIndexKind
   created_at: number
+  attempts: number
 }
 
 interface EmbeddingRow {
@@ -94,16 +104,36 @@ export async function getAiSearchStatus(
   }
 }
 
+const AI_PREF_MEMO_MS = 30_000
+const AI_PREF_MEMO_MAX = 512
+const aiPrefMemo = new Map<string, { db: D1Database; enabled: boolean; expiresAt: number }>()
+
 export async function setAiSearchEnabled(
   db: D1Database,
   userId: string,
   enabled: boolean,
 ): Promise<void> {
+  aiPrefMemo.delete(userId)
   await setMeta(db, aiSearchPrefKey(userId), enabled ? '1' : '0')
 }
 
 export async function isAiSearchEnabled(db: D1Database, userId: string): Promise<boolean> {
   return await getMeta(db, aiSearchPrefKey(userId)) === '1'
+}
+
+/**
+ * Drain-only view of the preference. `noteIndexQueueStatement` keeps the authoritative
+ * guard in SQL, so a stale entry can only skip or start an empty background drain; it
+ * never queues work the account is not allowed to have.
+ */
+async function isAiSearchEnabledMemoized(db: D1Database, userId: string): Promise<boolean> {
+  const now = Date.now()
+  const cached = aiPrefMemo.get(userId)
+  if (cached && cached.db === db && cached.expiresAt > now) return cached.enabled
+  const enabled = await isAiSearchEnabled(db, userId)
+  if (aiPrefMemo.size >= AI_PREF_MEMO_MAX) aiPrefMemo.clear()
+  aiPrefMemo.set(userId, { db, enabled, expiresAt: now + AI_PREF_MEMO_MS })
+  return enabled
 }
 
 // Stored in app_meta instead of a column on mcp_preferences: D1 does not
@@ -119,16 +149,6 @@ function aiSearchPrefKey(userId: string): string {
  * vice versa. Queuing is skipped entirely while the account has AI search
  * disabled, except deletions which always clean up stale vectors.
  */
-export async function enqueueNoteIndex(
-  db: D1Database,
-  userId: string,
-  noteId: string,
-  kind: AiIndexKind,
-  now = Date.now(),
-): Promise<void> {
-  await noteIndexQueueStatement(db, userId, noteId, kind, now).run()
-}
-
 export function noteIndexQueueStatement(
   db: D1Database,
   userId: string,
@@ -203,10 +223,12 @@ export async function clearAiIndex(db: D1Database, userId: string): Promise<numb
 }
 
 /**
- * Processes queued embedding jobs. Called from the hourly cron with a large
- * budget and from write paths (via waitUntil) with a small one. Items are
- * processed sequentially so Workers AI rate limits are respected; a failing
- * item stops the batch and is retried on the next run.
+ * Processes queued embedding jobs. Called from cron with a large budget and from
+ * write/import paths (via waitUntil) with a small one. Items are processed in
+ * chunks so one Workers AI call covers up to EMBED_CHUNK notes, and sequentially so
+ * rate limits are respected. A chunk that fails is retried item by item, and items
+ * that still fail are pushed to the back of the queue with a retry delay instead of
+ * freezing the whole account.
  */
 export async function drainAiIndexQueue(env: Env, max: number): Promise<{ processed: number }> {
   if (!env.AI) return { processed: 0 }
@@ -217,56 +239,160 @@ export async function drainAiIndexQueue(env: Env, max: number): Promise<{ proces
     env.DB,
     'ai_index_queue',
     AI_DRAIN_CURSOR_META_KEY,
-    Math.min(DRAIN_USERS_PER_RUN, Math.ceil(budget / DRAIN_PER_USER)),
+    Math.min(DRAIN_USERS_PER_RUN, Math.max(1, Math.ceil(budget / DRAIN_PER_USER))),
   )
-  for (const user_id of users) {
+  for (let index = 0; index < users.length; index++) {
     if (processed >= budget) break
+    const user_id = users[index]!
     if (!await isAiSearchEnabled(env.DB, user_id)) {
       // The account turned AI search off; its queue would otherwise grow forever.
       await env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1`).bind(user_id).run()
       continue
     }
-    processed += await drainUserQueue(env, user_id, Math.min(budget - processed, DRAIN_PER_USER))
+    const remaining = budget - processed
+    // DRAIN_PER_USER keeps multi-account rounds fair, while a lone busy account may
+    // spend the whole budget instead of leaving 92% of it unused.
+    const share = Math.min(remaining, Math.max(DRAIN_PER_USER, Math.ceil(remaining / (users.length - index))))
+    processed += await drainUserQueue(env, user_id, () => share)
   }
   return { processed }
 }
 
+const scheduledAiDrains = new WeakMap<D1Database, Map<string, ScheduledAiDrain>>()
+
+interface ScheduledAiDrain {
+  max: number
+  promise: Promise<number>
+}
+
 /**
- * Drains a couple of queued embeddings right after a write so semantic
- * results stay fresh between cron runs. Never blocks the response.
+ * Coalesces background embedding drains per account inside one isolate so a burst of
+ * writes cannot queue several drains over the same head items.
  */
+export function scheduleAiDrain(
+  c: { env: Env; executionCtx?: { waitUntil: (promise: Promise<unknown>) => void } | undefined },
+  userId: string,
+  max: number,
+): void {
+  if (!c.executionCtx || !c.env.AI) return
+  const byUser = scheduledAiDrains.get(c.env.DB) ?? new Map<string, ScheduledAiDrain>()
+  scheduledAiDrains.set(c.env.DB, byUser)
+  const existing = byUser.get(userId)
+  if (existing) {
+    existing.max = Math.max(existing.max, max)
+    return
+  }
+  const scheduled: ScheduledAiDrain = { max, promise: Promise.resolve(0) }
+  scheduled.promise = drainUserQueueForWrites(c.env, userId, () => scheduled.max)
+    .finally(() => {
+      if (byUser.get(userId) === scheduled) byUser.delete(userId)
+    })
+    .catch((error) => {
+      console.warn('[inkstone] Background embedding drain failed:', error instanceof Error ? error.message : error)
+      return 0
+    })
+  byUser.set(userId, scheduled)
+  c.executionCtx.waitUntil(scheduled.promise)
+}
+
+/** Queues a couple of embeddings right after a note write. Never blocks the response. */
 export function scheduleAiDrainForNote(
   c: { env: Env; executionCtx?: { waitUntil: (promise: Promise<unknown>) => void } | undefined },
   userId: string,
 ): void {
-  if (!c.executionCtx) return
-  c.executionCtx.waitUntil(drainUserQueueForWrites(c.env, userId).catch((error) => {
-    console.warn('[inkstone] Background embedding drain failed:', error instanceof Error ? error.message : error)
-  }))
+  scheduleAiDrain(c, userId, WRITE_DRAIN_ITEMS)
 }
 
-async function drainUserQueueForWrites(env: Env, userId: string, max = 2): Promise<void> {
-  if (!env.AI) return
-  if (!await isAiSearchEnabled(env.DB, userId)) return
-  await drainUserQueue(env, userId, max)
+async function drainUserQueueForWrites(env: Env, userId: string, budgetOf: () => number): Promise<number> {
+  if (!env.AI) return 0
+  if (!await isAiSearchEnabledMemoized(env.DB, userId)) return 0
+  return drainUserQueue(env, userId, budgetOf)
 }
 
-async function drainUserQueue(env: Env, userId: string, max: number): Promise<number> {
-  const { results } = await env.DB.prepare(
-    `SELECT note_id, kind, created_at FROM ai_index_queue
-      WHERE user_id = ?1 ORDER BY created_at ASC LIMIT ?2`,
-  ).bind(userId, max).all<QueueRow>()
+async function drainUserQueue(env: Env, userId: string, budgetOf: () => number): Promise<number> {
+  let release: Awaited<ReturnType<typeof acquireLease>>
+  try {
+    release = await acquireLease(
+      env.DB,
+      `ai-drain:${userId}`,
+      DRAIN_LEASE_MS,
+      'An embedding drain for this account is already running',
+    )
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) return 0
+    throw error
+  }
   let done = 0
-  for (let offset = 0; offset < results.length; offset += EMBED_CHUNK) {
-    const chunk = results.slice(offset, offset + EMBED_CHUNK)
+  try {
+    while (done < budgetOf()) {
+      const take = Math.min(budgetOf() - done, DRAIN_PER_USER)
+      const { results } = await env.DB.prepare(
+        `SELECT note_id, kind, created_at, attempts FROM ai_index_queue
+          WHERE user_id = ?1 AND (next_retry_at IS NULL OR next_retry_at <= ?3)
+          ORDER BY created_at ASC LIMIT ?2`,
+      ).bind(userId, take, Date.now()).all<QueueRow>()
+      if (!results.length) break
+      const progressed = await drainQueueRows(env, userId, results)
+      done += progressed
+      // Nothing committed: the whole window was pushed back with a retry delay, so
+      // re-reading it in this run would only repeat the same failure.
+      if (progressed === 0) break
+      if (!await release.renew()) break
+    }
+  } finally {
+    await release()
+  }
+  return done
+}
+
+async function drainQueueRows(env: Env, userId: string, rows: QueueRow[]): Promise<number> {
+  let done = 0
+  for (let offset = 0; offset < rows.length; offset += EMBED_CHUNK) {
+    const chunk = rows.slice(offset, offset + EMBED_CHUNK)
     try {
       done += await processQueueChunk(env, userId, chunk)
+      continue
     } catch (error) {
-      console.warn('[inkstone] AI index drain paused:', error instanceof Error ? error.message : error)
-      break
+      console.warn('[inkstone] AI embed chunk failed, retrying items:', error instanceof Error ? error.message : error)
+    }
+    for (const item of chunk) {
+      try {
+        done += await processQueueChunk(env, userId, [item])
+      } catch (error) {
+        console.warn('[inkstone] AI embed failed, backing off:', error instanceof Error ? error.message : error)
+        await penalizeQueueItems(env.DB, userId, [item])
+      }
     }
   }
   return done
+}
+
+/**
+ * Keeps one failing note from freezing the account's queue: the row is re-armed with a
+ * retry delay, and dropped after EMBED_MAX_ATTEMPTS so the head always advances. The
+ * note keeps `created_at` as its identity guard so a newer edit is never penalised.
+ */
+async function penalizeQueueItems(db: D1Database, userId: string, items: QueueRow[]): Promise<void> {
+  const now = Date.now()
+  const dropped = items.filter((item) => item.attempts + 1 >= EMBED_MAX_ATTEMPTS)
+  const retrying = items.filter((item) => item.attempts + 1 < EMBED_MAX_ATTEMPTS)
+  const statements: D1PreparedStatement[] = dropped.map((item) =>
+    db.prepare(
+      `DELETE FROM ai_index_queue
+        WHERE user_id = ?1 AND note_id = ?2 AND created_at = ?3`,
+    ).bind(userId, item.note_id, item.created_at),
+  )
+  for (const item of retrying) {
+    statements.push(db.prepare(
+      `UPDATE ai_index_queue SET attempts = ?4, next_retry_at = ?5
+        WHERE user_id = ?1 AND note_id = ?2 AND created_at = ?3`,
+    ).bind(userId, item.note_id, item.created_at, item.attempts + 1, now + EMBED_RETRY_BACKOFF_MS))
+  }
+  if (statements.length) await db.batch(statements)
+  if (dropped.length) {
+    console.warn(`[inkstone] Dropped ${dropped.length} embedding queue item(s) after ${EMBED_MAX_ATTEMPTS} attempts; `
+      + 're-save the note to re-index it')
+  }
 }
 
 async function processQueueChunk(env: Env, userId: string, items: QueueRow[]): Promise<number> {
@@ -359,28 +485,50 @@ export async function searchSemanticNotes(
 ): Promise<SemanticSearchHit[] | null> {
   if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
   const queryVector = await embedQueryText(env.AI, query)
-  const { binds, where } = semanticWhere(userId, filters)
-  binds.push(MAX_SEMANTIC_VECTORS)
-  const { results } = await db.prepare(
-    `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector, e.norm
-       FROM ai_note_embeddings e JOIN notes n
-         ON n.id = e.note_id AND n.user_id = e.user_id
-      WHERE ${where}
-      ORDER BY e.indexed_at DESC
-      LIMIT ?${binds.length}`,
-  ).bind(...binds).all<EmbeddingRow>()
-  if (!results.length) return []
   const queryNorm = vectorNorm(queryVector)
-  const scored = results.map((row) => ({
-    row,
-    score: cosineSimilarityPrecomputed(queryVector, queryNorm, decodeVector(row.vector), row.norm ?? undefined),
-  }))
-  scored.sort((a, b) =>
+  const { binds, where } = semanticWhere(userId, filters)
+  const best: ScoredEmbeddingRow[] = []
+  let afterIndexedAt = Number.POSITIVE_INFINITY
+  let afterNoteId = ''
+  for (let page = 0; page < SEMANTIC_SCAN_PAGES; page++) {
+    // Keyset on (indexed_at, note_id): the window used to be a fixed 200-row freshness cut,
+    // which for a 5000-note account meant 4% of the index could ever be recalled at all.
+    const cursorBinds = page === 0 ? [] : [afterIndexedAt, afterNoteId]
+    const cursorClause = page === 0
+      ? ''
+      : ` AND (e.indexed_at < ?${binds.length + 1}
+        OR (e.indexed_at = ?${binds.length + 1} AND e.note_id > ?${binds.length + 2}))`
+    const pageBinds = [...binds, ...cursorBinds, SEMANTIC_SCAN_PAGE]
+    const { results } = await db.prepare(
+      `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector, e.norm,
+              e.indexed_at, e.note_id
+         FROM ai_note_embeddings e JOIN notes n
+           ON n.id = e.note_id AND n.user_id = e.user_id
+        WHERE ${where}${cursorClause}
+        ORDER BY e.indexed_at DESC, e.note_id ASC
+        LIMIT ?${pageBinds.length}`,
+    ).bind(...pageBinds).all<ScannedVectorRow>()
+    if (!results.length) break
+    for (const row of results) {
+      keepBestRows(best, row, cosineSimilarityPrecomputed(
+        queryVector,
+        queryNorm,
+        decodeVector(row.vector),
+        row.norm ?? undefined,
+      ))
+    }
+    const last = results[results.length - 1]!
+    afterIndexedAt = last.indexed_at
+    afterNoteId = last.note_id
+    if (results.length < SEMANTIC_SCAN_PAGE) break
+  }
+  if (!best.length) return []
+  best.sort((a, b) =>
     b.score - a.score ||
     b.row.updated_at - a.row.updated_at ||
     a.row.id.localeCompare(b.row.id),
   )
-  return scored.slice(0, SEMANTIC_TOP_K).map(({ row, score }) => ({
+  return best.slice(0, SEMANTIC_TOP_K).map(({ row, score }) => ({
     id: row.id,
     title: row.title,
     excerpt: row.excerpt,
@@ -388,6 +536,36 @@ export async function searchSemanticNotes(
     updatedAt: row.updated_at,
     score,
   }))
+}
+
+type ScannedVectorRow = EmbeddingRow & { indexed_at: number; note_id: string }
+
+interface ScoredEmbeddingRow {
+  row: ScannedVectorRow
+  score: number
+}
+
+/** Keeps the SEMANTIC_TOP_K strongest rows seen so far while scanning pages of vectors. */
+function keepBestRows(
+  kept: ScoredEmbeddingRow[],
+  row: ScannedVectorRow,
+  score: number,
+): void {
+  if (kept.length < SEMANTIC_TOP_K) {
+    kept.push({ row, score })
+    return
+  }
+  let weakestIndex = 0
+  let weakestScore = kept[0]!.score
+  for (let index = 1; index < kept.length; index++) {
+    const candidate = kept[index]!.score
+    if (candidate < weakestScore) {
+      weakestIndex = index
+      weakestScore = candidate
+    }
+  }
+  if (score <= weakestScore) return
+  kept[weakestIndex] = { row, score }
 }
 
 /**

@@ -1,4 +1,5 @@
 import { LIMITS } from '@shared/constants'
+import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from './errors'
 
 
@@ -189,7 +190,7 @@ export function clampInt(
 
 
 export function assertContentSize(content: string): void {
-  if (new TextEncoder().encode(content).byteLength > LIMITS.contentMaxBytes) {
+  if (utf8ByteLength(content) > LIMITS.contentMaxBytes) {
     throw ApiError.tooLarge(`Note content exceeds the ${LIMITS.contentMaxBytes / 1_000_000} MB limit`)
   }
 }

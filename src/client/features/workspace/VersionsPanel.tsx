@@ -167,17 +167,17 @@ interface DiffLine {
     kind: 'same' | 'add' | 'remove';
     text: string;
 }
-interface DiffResult {
+export interface DiffResult {
     lines: DiffLine[];
     added: number;
     removed: number;
     simplified: boolean;
 }
 const MAX_LCS_CELLS = 600000;
-const MAX_RENDERED_DIFF_LINES = 4000;
+export const MAX_RENDERED_DIFF_LINES = 4000;
 
 
-function computeLineDiff(before: string, after: string): DiffResult {
+export function computeLineDiff(before: string, after: string): DiffResult {
     const a = before.split('\n');
     const b = after.split('\n');
     let prefix = 0;
@@ -189,25 +189,55 @@ function computeLineDiff(before: string, after: string): DiffResult {
         a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) {
         suffix++;
     }
-    const head: DiffLine[] = a
-        .slice(0, prefix)
-        .map((text) => ({ kind: 'same', text }));
-    const tail: DiffLine[] = suffix
-        ? a.slice(a.length - suffix).map((text) => ({ kind: 'same', text }))
-        : [];
     const beforeMiddle = a.slice(prefix, a.length - suffix);
     const afterMiddle = b.slice(prefix, b.length - suffix);
     const cells = beforeMiddle.length * afterMiddle.length;
     const simplified = cells > MAX_LCS_CELLS;
-    const middle = simplified
-        ? [
-            ...beforeMiddle.map((text): DiffLine => ({ kind: 'remove', text })),
-            ...afterMiddle.map((text): DiffLine => ({ kind: 'add', text })),
-        ]
-        : computeMiddleLcs(beforeMiddle, afterMiddle);
-    const added = middle.reduce((count, line) => count + (line.kind === 'add' ? 1 : 0), 0);
-    const removed = middle.reduce((count, line) => count + (line.kind === 'remove' ? 1 : 0), 0);
-    const lines = limitDiffLines([...head, ...middle, ...tail]);
+    // The middle is only materialized when the LCS actually needs it; the unchanged head and
+    // tail used to cost one object per line of the whole file (60k) before being truncated.
+    const middle = simplified ? null : computeMiddleLcs(beforeMiddle, afterMiddle);
+    let added = 0;
+    let removed = 0;
+    if (middle) {
+        for (const line of middle) {
+            if (line.kind === 'add')
+                added++;
+            else if (line.kind === 'remove')
+                removed++;
+        }
+    }
+    else {
+        removed = beforeMiddle.length;
+        added = afterMiddle.length;
+    }
+    const middleLength = middle ? middle.length : beforeMiddle.length + afterMiddle.length;
+    const total = prefix + middleLength + suffix;
+    const lineAt = (index: number): DiffLine => {
+        if (index < prefix)
+            return { kind: 'same', text: a[index]! };
+        const rest = index - prefix;
+        if (rest < middleLength) {
+            if (middle) return middle[rest]!;
+            return rest < beforeMiddle.length
+                ? { kind: 'remove', text: beforeMiddle[rest]! }
+                : { kind: 'add', text: afterMiddle[rest - beforeMiddle.length]! };
+        }
+        return { kind: 'same', text: a[a.length - suffix + (rest - middleLength)]! };
+    };
+    if (total <= MAX_RENDERED_DIFF_LINES) {
+        const lines: DiffLine[] = [];
+        for (let index = 0; index < total; index++) lines.push(lineAt(index));
+        return { lines, added, removed, simplified };
+    }
+    const headKeep = Math.floor((MAX_RENDERED_DIFF_LINES - 1) / 2);
+    const tailKeep = MAX_RENDERED_DIFF_LINES - headKeep - 1;
+    const lines: DiffLine[] = [];
+    for (let index = 0; index < headKeep; index++) lines.push(lineAt(index));
+    lines.push({
+        kind: 'same',
+        text: t("workspace.value0_unchanged_lines_hidden", { value0: total - headKeep - tailKeep }),
+    });
+    for (let index = total - tailKeep; index < total; index++) lines.push(lineAt(index));
     return { lines, added, removed, simplified };
 }
 function computeMiddleLcs(a: string[], b: string[]): DiffLine[] {
@@ -248,16 +278,4 @@ function computeMiddleLcs(a: string[], b: string[]): DiffLine[] {
         lines.push({ kind: 'add', text: b[j++]! });
     }
     return lines;
-}
-function limitDiffLines(lines: DiffLine[]): DiffLine[] {
-    if (lines.length <= MAX_RENDERED_DIFF_LINES)
-        return lines;
-    const before = Math.floor((MAX_RENDERED_DIFF_LINES - 1) / 2);
-    const after = MAX_RENDERED_DIFF_LINES - before - 1;
-    const hidden = lines.length - before - after;
-    return [
-        ...lines.slice(0, before),
-        { kind: 'same', text: t("workspace.value0_unchanged_lines_hidden", { value0: hidden }) },
-        ...lines.slice(-after),
-    ];
 }

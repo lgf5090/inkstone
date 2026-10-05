@@ -120,12 +120,25 @@ function withContentsEntry(contents: Record<string, string>, id: string, text: s
     const keys = Object.keys(next);
     if (keys.length <= CONTENTS_CACHE_MAX) return next;
     const activeId = useUi.getState().activeNoteId;
-    const protectedIds = new Set<string>([id, ...(activeId ? [activeId] : [])]);
+    const ui = useUi.getState();
+    // Both split panes are on screen, and dirty notes hold unsent bodies: evicting any of
+    // them leaves that pane stuck on its loading skeleton.
+    const protectedIds = new Set<string>([
+        id,
+        ...(activeId ? [activeId] : []),
+        ...(ui.workspacePrimaryNoteId ? [ui.workspacePrimaryNoteId] : []),
+        ...(ui.workspaceSecondaryNoteId ? [ui.workspaceSecondaryNoteId] : []),
+        ...dirty.keys(),
+    ]);
     for (const noteId of pendingNoteMutations.keys()) protectedIds.add(noteId);
+    // The size is tracked by hand: Object.keys(next) inside this loop made eviction O(K²)
+    // exactly when the protected set pushes the survivors to the back of the key order.
+    let remaining = keys.length;
     for (const key of keys) {
-        if (Object.keys(next).length <= CONTENTS_CACHE_MAX) break;
+        if (remaining <= CONTENTS_CACHE_MAX) break;
         if (protectedIds.has(key)) continue;
         delete next[key];
+        remaining--;
     }
     return next;
 }
@@ -374,38 +387,42 @@ export const useNotes = create<NotesState>((set, get) => ({
             }
         }
         const previousNoteIds = payload.full ? Object.keys(get().notes) : [];
-        set((state) => {
-            const notes = reconcileNotes(state.notes, payload.notes, payload.deletions, payload.full);
-            const replaceFacets = payload.full || payload.facetsFull;
-            const remoteFolders = replaceFacets
-                ? reconcileList(state.folders, payload.folders, folderEqual)
-                : mergeById(state.folders, payload.folders, payload.deletions, 'folder', folderEqual);
-            const folders = applyPendingFolderMutations(remoteFolders);
-            const tags = replaceFacets
-                ? reconcileList(state.tags, payload.tags, tagEqual)
-                : mergeById(state.tags, payload.tags, payload.deletions, 'tag', tagEqual);
-            if (notes === state.notes &&
-                folders === state.folders &&
-                tags === state.tags &&
-                payload.cursor === state.cursor) {
-                return state;
-            }
-            if (folders !== state.folders)
+        const before = get();
+        const notes = reconcileNotes(before.notes, payload.notes, payload.deletions, payload.full);
+        const replaceFacets = payload.full || payload.facetsFull;
+        const remoteFolders = replaceFacets
+            ? reconcileList(before.folders, payload.folders, folderEqual)
+            : mergeById(before.folders, payload.folders, payload.deletions, 'folder', folderEqual);
+        const folders = applyPendingFolderMutations(remoteFolders);
+        const tags = replaceFacets
+            ? reconcileList(before.tags, payload.tags, tagEqual)
+            : mergeById(before.tags, payload.tags, payload.deletions, 'tag', tagEqual);
+        // zustand happens to call an updater once, but a set() that bumps module counters and
+        // writes to IDB would double-fire the moment that stops holding.
+        if (notes !== before.notes || folders !== before.folders || tags !== before.tags
+            || payload.cursor !== before.cursor) {
+            if (folders !== before.folders)
                 folderStateGeneration++;
-            if (tags !== state.tags)
+            if (tags !== before.tags)
                 tagStateGeneration++;
-            localDb.scheduleShellSave({
-                notes: Object.values(notes),
+            localDb.scheduleShellSave(() => ({
+                notes,
                 folders,
                 tags,
                 cursor: payload.cursor,
-            });
-            return { notes, folders, tags, cursor: payload.cursor };
-        });
+            }));
+            set({ notes, folders, tags, cursor: payload.cursor });
+        }
         reconcileFolderUi(get().folders);
-        for (const remote of payload.notes) {
-            if (hasOwnContent(get().contents, remote.id) && !dirty.has(remote.id))
-                revalidateNote(remote.id, remote.rev, set, get);
+        // A full snapshot carries fresh summaries for every note, and openNote() revalidates a
+        // body the moment it is displayed, so the fan-out only spent requests on closed panes.
+        if (!payload.full) {
+            const stale: Array<{ id: string; rev: number }> = [];
+            for (const remote of payload.notes) {
+                if (hasOwnContent(get().contents, remote.id) && !dirty.has(remote.id))
+                    stale.push({ id: remote.id, rev: remote.rev });
+            }
+            void queueRevalidations(stale, set, get);
         }
         const candidates = payload.full ? [...previousNoteIds, ...deletionIds] : deletionIds;
         for (const id of new Set(candidates)) {
@@ -1090,15 +1107,10 @@ export const useNotes = create<NotesState>((set, get) => ({
         const folder = get().folders.find((item) => item.id === id);
         if (!folder)
             return false;
-        const noteMutations: Array<[string, PendingNoteMutation]> = [];
         const movedAt = Date.now();
-        for (const note of Object.values(get().notes)) {
-            if (note.folderId !== id)
-                continue;
-            const mutation = beginNoteMutation(note.id, { folderId: folder.parentId, updatedAt: movedAt }, set, get);
-            if (mutation)
-                noteMutations.push([note.id, mutation]);
-        }
+        const noteMutations = beginNoteMutations(Object.values(get().notes)
+            .filter((note) => note.folderId === id)
+            .map((note) => ({ id: note.id, patch: { folderId: folder.parentId, updatedAt: movedAt } })), set, get);
         const mutation = beginFolderMutation(id, true, (folders) => removeFolderAndPromoteChildren(folders, id), set, get);
         reconcileFolderUi(get().folders);
         void enqueueFolderWrite(id, () => api.folders.remove(id, 'move-up')).then(() => {
@@ -1334,6 +1346,7 @@ const pendingOutboxWrites = new Map<string, PendingOutboxEntry>();
 const pendingContentWrites = new Map<string, CachedNoteContent>();
 let localDbWriteTimer: number | null = null;
 const LOCAL_DB_WRITE_DELAY_MS = 300;
+const BLUR_FLUSH_THROTTLE_MS = 1_000;
 
 function scheduleLocalDbFlush(): void {
     if (localDbWriteTimer !== null)
@@ -1356,27 +1369,35 @@ export async function flushLocalDbWrites(): Promise<void> {
     pendingOutboxWrites.clear();
     pendingContentWrites.clear();
 
-    for (const [, entry] of currentOutbox) {
-        try {
-            await localDb.enqueueOutbox(entry.item);
+    // One transaction for the whole flush: enqueueOutbox() rewrites the entire queue, so
+    // doing it per item cost K reads and K clones of an array that itself grows with K.
+    try {
+        await localDb.enqueueOutboxBatch(currentOutbox.map(([, entry]) => entry.item));
+        for (const [, entry] of currentOutbox) {
             for (const r of entry.resolvers)
                 r(true);
-        } catch {
+        }
+    } catch {
+        for (const [, entry] of currentOutbox) {
             for (const r of entry.resolvers)
                 r(false);
         }
     }
-    for (const [id, content] of currentContent) {
-        try {
-            await localDb.setContent(id, content);
-        } catch { }
-    }
+    await localDb.setContentBatch(currentContent);
 }
 
 if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', () => void flushLocalDbWrites());
     window.addEventListener('beforeunload', () => void flushLocalDbWrites());
-    window.addEventListener('blur', () => void flushLocalDbWrites());
+    // Alt-Tab storms used to rewrite the whole shell + outbox on every focus change. The
+    // debounced timer still covers the tab while it is open, and pagehide stays immediate.
+    let lastBlurFlushAt = 0;
+    window.addEventListener('blur', () => {
+        const now = Date.now();
+        if (now - lastBlurFlushAt < BLUR_FLUSH_THROTTLE_MS) return;
+        lastBlurFlushAt = now;
+        void flushLocalDbWrites();
+    });
 }
 
 function stageNoteTextWrite(id: string, content: string, title: string | undefined, set: SetNotesState, get: () => NotesState): void {
@@ -1644,23 +1665,42 @@ function compactOptimisticPatch(patch: OptimisticNotePatch): OptimisticNotePatch
     return compact;
 }
 function beginNoteMutation(id: string, patch: OptimisticNotePatch, set: SetNotesState, get: () => NotesState): PendingNoteMutation | null {
-    const before = get().notes[id];
-    if (!before || !Object.keys(patch).length)
-        return null;
-    const mutation: PendingNoteMutation = { patch, before };
-    const pending = pendingNoteMutations.get(id);
-    if (pending)
-        pending.push(mutation);
-    else
-        pendingNoteMutations.set(id, [mutation]);
-    set((state) => {
-        const current = state.notes[id];
-        return current
-            ? { notes: { ...state.notes, [id]: { ...current, ...patch } } }
-            : state;
-    });
-    scheduleShellSave(get);
-    return mutation;
+    return beginNoteMutations([{ id, patch }], set, get)[0]?.[1] ?? null;
+}
+
+/**
+ * One Record copy and one shell save for a whole batch of optimistic patches. Deleting a
+ * folder with 500 notes used to copy the full notes map once per note (3.0 ms each, so
+ * 1.5–2.4 s of blocked main thread) before the request even started.
+ */
+function beginNoteMutations(
+    entries: Array<{ id: string; patch: OptimisticNotePatch }>,
+    set: SetNotesState,
+    get: () => NotesState,
+): Array<[string, PendingNoteMutation]> {
+    const state = get();
+    const applied: Array<[string, PendingNoteMutation]> = [];
+    let notes = state.notes;
+    for (const { id, patch } of entries) {
+        const before = state.notes[id];
+        if (!before || !Object.keys(patch).length)
+            continue;
+        const mutation: PendingNoteMutation = { patch, before };
+        const pending = pendingNoteMutations.get(id);
+        if (pending)
+            pending.push(mutation);
+        else
+            pendingNoteMutations.set(id, [mutation]);
+        applied.push([id, mutation]);
+        if (notes === state.notes)
+            notes = { ...state.notes };
+        notes[id] = { ...notes[id]!, ...patch };
+    }
+    if (notes !== state.notes) {
+        set({ notes });
+        scheduleShellSave(get);
+    }
+    return applied;
 }
 function finishNoteMutation(id: string, mutation: PendingNoteMutation): void {
     const pending = pendingNoteMutations.get(id);
@@ -1937,11 +1977,37 @@ function requestNote(id: string): Promise<Note> {
     noteRequests.set(id, request);
     return request;
 }
-function revalidateNote(id: string, rev: number, set: SetNotesState, get: () => NotesState): void {
-    if (dirty.has(id) || validatedRevisions.get(id) === rev)
+/**
+ * A sync page can carry 500 notes whose cached bodies we hold, and each revalidation is a
+ * whole-note GET plus a full-content IndexedDB write; unbounded fan-out froze the tab.
+ */
+const REVALIDATE_CONCURRENCY = 4;
+let revalidateQueue: Array<{ id: string; rev: number }> = [];
+let revalidateRunning = false;
+
+async function queueRevalidations(items: Array<{ id: string; rev: number }>, set: SetNotesState, get: () => NotesState): Promise<void> {
+    if (!items.length)
         return;
+    revalidateQueue.push(...items);
+    if (revalidateRunning)
+        return;
+    revalidateRunning = true;
+    try {
+        while (revalidateQueue.length) {
+            const batch = revalidateQueue.splice(0, REVALIDATE_CONCURRENCY);
+            await Promise.all(batch.map((item) => revalidateNote(item.id, item.rev, set, get)));
+        }
+    }
+    finally {
+        revalidateRunning = false;
+    }
+}
+
+function revalidateNote(id: string, rev: number, set: SetNotesState, get: () => NotesState): Promise<void> {
+    if (dirty.has(id) || validatedRevisions.get(id) === rev)
+        return Promise.resolve();
     validatedRevisions.set(id, rev);
-    void requestNote(id)
+    return requestNote(id)
         .then((note) => {
         validatedRevisions.set(id, note.rev);
         adoptNote(note, set, get);
@@ -1981,12 +2047,14 @@ function noteSummaryEqual(a: NoteSummary, b: NoteSummary): boolean {
         a.tags.every((tag, index) => tag === b.tags[index]));
 }
 function scheduleShellSave(get: () => NotesState): void {
-    const state = get();
-    localDb.scheduleShellSave({
-        notes: Object.values(state.notes),
-        folders: state.folders,
-        tags: state.tags,
-        cursor: state.cursor,
+    localDb.scheduleShellSave(() => {
+        const state = get();
+        return {
+            notes: state.notes,
+            folders: state.folders,
+            tags: state.tags,
+            cursor: state.cursor,
+        };
     });
 }
 function deletionCursorFrom(err: ApiError): number | null {
@@ -2811,6 +2879,8 @@ function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]
     }
     return visible[0]?.id ?? null;
 }
+const EMPTY_FOLDERS: Folder[] = [];
+
 export function useVisibleNotes(): NoteSummary[] {
     const locale = useLocale();
     const notes = useNotes((s) => s.notes);
@@ -2820,8 +2890,11 @@ export function useVisibleNotes(): NoteSummary[] {
     const tag = useUi((s) => s.tag);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
+    // `folders` only takes part in the folder view; without this the whole list re-derives
+    // whenever a folder is renamed, reordered or created.
+    const scopedFolders = view === 'folder' ? folders : EMPTY_FOLDERS;
     return useMemo(() => {
-        const folderScope = view === 'folder' && folderId ? folderDescendantIds(folders, folderId) : undefined;
+        const folderScope = view === 'folder' && folderId ? folderDescendantIds(scopedFolders, folderId) : undefined;
         const list = Object.values(notes).filter((n) => matchesView(n, view, folderId, tag, folderScope));
         if (view === 'recent') {
             return list
@@ -2831,7 +2904,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, folders, view, folderId, tag, sort, order, locale]);
+    }, [notes, scopedFolders, view, folderId, tag, sort, order, locale]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];

@@ -285,6 +285,7 @@ async function loadTag(
 
 interface TagRewriteResult {
   rewritten: number
+  remaining: number
   rollback: () => Promise<void>
 }
 
@@ -296,6 +297,7 @@ export async function rewriteTagInNotes(
   from: string,
   to: string | null,
   forceInline = false,
+  budgetNotes = Number.POSITIVE_INFINITY,
 ): Promise<TagRewriteResult> {
   const { results } = await env.DB.prepare(
     `SELECT n.id FROM notes n
@@ -309,14 +311,17 @@ export async function rewriteTagInNotes(
     await env.DB.batch([
       rewriteQueueStatement(env.DB, userId, to === null ? 'tag-delete' : 'tag-rename', tagId, from, to ?? ''),
     ])
-    return { rewritten: 0, rollback: async () => {} }
+    return { rewritten: 0, remaining: 0, rollback: async () => {} }
   }
 
   let rewritten = 0
   const rewrittenNotes: RewrittenTagNote[] = []
   try {
     const candidateIds = results.map((c) => c.id)
-    const FETCH_CHUNK = 50
+    const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds
+    const remaining = candidateIds.length - plan.length
+    const LOAD_CHUNK = 10
+    const CONCURRENCY_LIMIT = 5
     type CandidateNote = {
       id: string
       title: string
@@ -325,118 +330,108 @@ export async function rewriteTagInNotes(
       updated_at: number
       deleted_at: number | null
     }
-    const loadedNotes: CandidateNote[] = []
-    for (let i = 0; i < candidateIds.length; i += FETCH_CHUNK) {
-      const chunk = candidateIds.slice(i, i + FETCH_CHUNK)
-      const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(', ')
-      const rows = await env.DB.prepare(
+    // Load and rewrite in small windows: a hub tag must not pin every candidate body in
+    // the isolate before the first write happens.
+    for (let start = 0; start < plan.length; start += LOAD_CHUNK) {
+      const windowIds = plan.slice(start, start + LOAD_CHUNK)
+      const placeholders = windowIds.map((_, idx) => `?${idx + 2}`).join(', ')
+      const { results: loaded } = await env.DB.prepare(
         `SELECT id, title, content, rev, updated_at, deleted_at
            FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
-      ).bind(userId, ...chunk).all<CandidateNote>()
-      loadedNotes.push(...rows.results)
-    }
+      ).bind(userId, ...windowIds).all<CandidateNote>()
+      const notesToRewrite = loaded.filter((note) => replaceTagInContent(note.content, from, to) !== note.content)
+      for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
+        const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
+        const outcomes = await Promise.all(
+          batch.map(async (initialNote) => {
+            let currentNote: CandidateNote | null = initialNote
+            for (let attempt = 0; attempt < 5; attempt++) {
+              if (!currentNote) return { success: true }
+              const content = replaceTagInContent(currentNote.content, from, to)
+              if (content === currentNote.content) return { success: true }
 
-    const notesToRewrite: CandidateNote[] = []
-    for (const note of loadedNotes) {
-      if (!note) continue
-      const content = replaceTagInContent(note.content, from, to)
-      if (content === note.content) continue
-      notesToRewrite.push(note)
-    }
-
-    const CONCURRENCY_LIMIT = 5
-    for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
-      const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
-      const outcomes = await Promise.all(
-        batch.map(async (initialNote) => {
-          let currentNote: CandidateNote | null = initialNote
-          for (let attempt = 0; attempt < 5; attempt++) {
-            if (!currentNote) return { success: true }
-            const content = replaceTagInContent(currentNote.content, from, to)
-            if (content === currentNote.content) return { success: true }
-
-            const title = currentNote.title
-            const { words, chars } = countText(content)
-            const hash = await sha256Hex(content)
-            const now = Math.max(Date.now(), currentNote.updated_at + 1)
-            const nextRev = currentNote.rev + 1
-            const mutationGuard = `EXISTS (SELECT 1 FROM notes
-              WHERE id = ?1 AND user_id = ?2 AND rev = ?3
-                AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-            const mutationValues = [currentNote.id, userId, nextRev, hash, title, now] as const
-            const update = env.DB.prepare(
-              `UPDATE notes SET title = ?1, content = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
-                 content_hash = ?6, rev = ?7, updated_at = ?8
-                WHERE id = ?9 AND user_id = ?10 AND rev = ?11`,
-            ).bind(
-              title,
-              content,
-              deriveExcerpt(content),
-              words,
-              chars,
-              hash,
-              nextRev,
-              now,
-              currentNote.id,
-              userId,
-              currentNote.rev,
-            )
-            const snapshot = env.DB.prepare(
-              `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
-               SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-                WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
-            ).bind(
-              newId(),
-              currentNote.id,
-              userId,
-              currentNote.title,
-              currentNote.content,
-              utf8ByteLength(currentNote.content),
-              now,
-              ...mutationValues,
-            )
-            const trim = env.DB.prepare(
-              `DELETE FROM note_versions WHERE note_id = ?1
-                 AND ${shiftSqlPlaceholders(mutationGuard, 1)}
-                 AND id IN (
-                   SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
-            ).bind(currentNote.id, ...mutationValues, LIMITS.versionsPerNote)
-            const statements: D1PreparedStatement[] = [update, snapshot, trim]
-            if (currentNote.deleted_at === null) {
-              statements.push(...buildNoteDerivedStatements({
-                db: env.DB,
-                userId,
-                noteId: currentNote.id,
+              const title = currentNote.title
+              const { words, chars } = countText(content)
+              const hash = await sha256Hex(content)
+              const now = Math.max(Date.now(), currentNote.updated_at + 1)
+              const nextRev = currentNote.rev + 1
+              const mutationGuard = `EXISTS (SELECT 1 FROM notes
+                WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+                  AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+              const mutationValues = [currentNote.id, userId, nextRev, hash, title, now] as const
+              const update = env.DB.prepare(
+                `UPDATE notes SET title = ?1, content = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
+                   content_hash = ?6, rev = ?7, updated_at = ?8
+                  WHERE id = ?9 AND user_id = ?10 AND rev = ?11`,
+              ).bind(
                 title,
                 content,
-                ftsEnabled,
-                titleChanged: title !== currentNote.title,
-                previousTitle: currentNote.title,
-                expectedRev: nextRev,
-                expectedContentHash: hash,
-                expectedTitle: title,
-                expectedUpdatedAt: now,
-              }).statements)
+                deriveExcerpt(content),
+                words,
+                chars,
+                hash,
+                nextRev,
+                now,
+                currentNote.id,
+                userId,
+                currentNote.rev,
+              )
+              const snapshot = env.DB.prepare(
+                `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+                  WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
+              ).bind(
+                newId(),
+                currentNote.id,
+                userId,
+                currentNote.title,
+                currentNote.content,
+                utf8ByteLength(currentNote.content),
+                now,
+                ...mutationValues,
+              )
+              const trim = env.DB.prepare(
+                `DELETE FROM note_versions WHERE note_id = ?1
+                   AND ${shiftSqlPlaceholders(mutationGuard, 1)}
+                   AND id IN (
+                     SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+              ).bind(currentNote.id, ...mutationValues, LIMITS.versionsPerNote)
+              const statements: D1PreparedStatement[] = [update, snapshot, trim]
+              if (currentNote.deleted_at === null) {
+                statements.push(...buildNoteDerivedStatements({
+                  db: env.DB,
+                  userId,
+                  noteId: currentNote.id,
+                  title,
+                  content,
+                  ftsEnabled,
+                  titleChanged: title !== currentNote.title,
+                  previousTitle: currentNote.title,
+                  expectedRev: nextRev,
+                  expectedContentHash: hash,
+                  expectedTitle: title,
+                  expectedUpdatedAt: now,
+                }).statements)
+              }
+              statements.push(
+                env.DB.prepare(
+                  `INSERT INTO changes (user_id, entity, entity_id, op, at)
+                   SELECT ?1, 'note', ?2, 'upsert', ?3
+                    WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
+                ).bind(userId, currentNote.id, now, ...mutationValues),
+              )
+              const [updated] = await env.DB.batch(statements)
+              if (updated?.meta.changes) {
+                return { success: true, rewrittenNote: { note: currentNote, nextRev, updatedAt: now } }
+              }
+              currentNote = await env.DB.prepare(
+                `SELECT id, title, content, rev, updated_at, deleted_at
+                   FROM notes WHERE id = ?1 AND user_id = ?2`,
+              ).bind(currentNote.id, userId).first<CandidateNote>()
             }
-            statements.push(
-              env.DB.prepare(
-                `INSERT INTO changes (user_id, entity, entity_id, op, at)
-                 SELECT ?1, 'note', ?2, 'upsert', ?3
-                  WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
-              ).bind(userId, currentNote.id, now, ...mutationValues),
-            )
-            const [updated] = await env.DB.batch(statements)
-            if (updated?.meta.changes) {
-              return { success: true, rewrittenNote: { note: currentNote, nextRev, updatedAt: now } }
-            }
-            currentNote = await env.DB.prepare(
-              `SELECT id, title, content, rev, updated_at, deleted_at
-                 FROM notes WHERE id = ?1 AND user_id = ?2`,
-            ).bind(currentNote.id, userId).first<CandidateNote>()
-          }
-          return { success: false }
-        }),
-      )
+            return { success: false }
+          }),
+        )
       for (const res of outcomes) {
         if (!res.success) {
           throw ApiError.conflict(`Some notes are still being edited. Safely completed ${rewritten} notes; try again later`)
@@ -446,9 +441,11 @@ export async function rewriteTagInNotes(
           rewrittenNotes.push(res.rewrittenNote)
         }
       }
+      }
     }
     return {
       rewritten,
+      remaining,
       rollback: () => rollbackTagRewrites(env, ftsEnabled, userId, rewrittenNotes),
     }
   } catch (error) {

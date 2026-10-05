@@ -329,6 +329,16 @@ filesRoutes.delete('/:id', requireAuth, async (c) => {
   return c.json({ ok: true, cleanupPending: true })
 })
 
+/** 1 when a note change landed after `scanCursor`, i.e. the prune must hold off. */
+async function isPruneStale(db: D1Database, userId: string, scanCursor: number): Promise<number> {
+  const row = await db.prepare(
+    `SELECT EXISTS (
+       SELECT 1 FROM changes WHERE user_id = ?1 AND entity = 'note' AND seq > ?2
+     ) AS fresh`,
+  ).bind(userId, scanCursor).first<{ fresh: number }>()
+  return row?.fresh ? 1 : 0
+}
+
 filesRoutes.post('/prune', requireAuth, async (c) => {
   const userId = c.get('userId')
 
@@ -395,12 +405,14 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
     const files: AttachmentRow[] = (await query.all<AttachmentRow>()).results
     if (!files.length) break
 
+    // One freshness probe per page replaces the NOT EXISTS subquery that used to run for
+    // every attachment and every statement; a change landing mid-page only defers the
+    // remaining rows to the next prune, which is what the guard already tolerated.
+    const stale = await isPruneStale(c.env.DB, userId, scanCursor)
+
     for (const file of files) {
       if (referenced.has(file.id)) continue
-      const guard = `id = ?1 AND user_id = ?2 AND NOT EXISTS (
-        SELECT 1 FROM changes c
-         WHERE c.user_id = ?2 AND c.entity = 'note' AND c.seq > ?3
-      )`
+      const guard = `id = ?1 AND user_id = ?2 AND ?6 = 0`
       const needed = 3
       if (statements.length + needed > 100) await flush()
       statements.push(
@@ -413,6 +425,7 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
           scanCursor,
           attachmentCleanupTarget(file.storage, attachmentObjectKey(file)),
           Date.now(),
+          stale,
         ),
       )
       operations.push({ kind: 'queue' })
@@ -421,17 +434,14 @@ filesRoutes.post('/prune', requireAuth, async (c) => {
           `DELETE FROM import_mappings
             WHERE user_id = ?1 AND entity = 'attachment' AND target_id = ?2
               AND EXISTS (
-                SELECT 1 FROM attachments a
-                 WHERE a.id = ?2 AND a.user_id = ?1 AND NOT EXISTS (
-                   SELECT 1 FROM changes c
-                    WHERE c.user_id = ?1 AND c.entity = 'note' AND c.seq > ?3
-                 )
+                SELECT 1 FROM attachments a WHERE a.id = ?2 AND a.user_id = ?1 AND ?4 = 0
               )`,
-        ).bind(userId, file.id, scanCursor),
+        ).bind(userId, file.id, scanCursor, stale),
       )
       operations.push({ kind: 'mapping' })
       statements.push(
-        c.env.DB.prepare(`DELETE FROM attachments WHERE ${guard}`).bind(file.id, userId, scanCursor),
+        c.env.DB.prepare(`DELETE FROM attachments WHERE id = ?1 AND user_id = ?2 AND ?3 = 0`)
+          .bind(file.id, userId, stale),
       )
       operations.push({ kind: 'delete', file })
     }

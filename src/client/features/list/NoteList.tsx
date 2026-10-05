@@ -21,14 +21,24 @@ import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 
 const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
+/** The concatenated key is the only copied string; bound it by characters, not entries. */
+const SEARCH_KEY_CACHE_MAX_CHARS = 4_000_000;
+let searchKeyCacheChars = 0;
 function searchKeyOfNote(n: NoteSummary, contents: Record<string, string> | null): string {
     const body = contents ? contents[n.id] ?? n.excerpt : n.excerpt;
     const tags = n.tags.join(' ');
     const cached = searchKeyCache.get(n.id);
     if (cached && cached.rev === n.rev && cached.title === n.title && cached.body === body && cached.tags === tags) return cached.text;
     const text = `${n.title} ${body} ${tags}`;
-    if (searchKeyCache.size > 2000) searchKeyCache.clear();
+    const previous = searchKeyCache.get(n.id);
+    if (previous)
+        searchKeyCacheChars -= previous.text.length;
     searchKeyCache.set(n.id, { rev: n.rev, title: n.title, body, tags, text });
+    searchKeyCacheChars += text.length;
+    if (searchKeyCacheChars > SEARCH_KEY_CACHE_MAX_CHARS) {
+        searchKeyCache.clear();
+        searchKeyCacheChars = 0;
+    }
     return text;
 }
 const VIEW_MESSAGE_KEYS: Record<ViewKind, MessageKey> = {
@@ -125,7 +135,6 @@ export function NoteList() {
         })];
     }, [notes, deferredFilter, searchList, remote, allNotes]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
-    const filteredPositions = useMemo(() => new Map(filteredIds.map((id, index) => [id, index + 1])), [filteredIds]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
     const itemHeight = density === 'compact' ? 42 : 72;
@@ -136,6 +145,11 @@ export function NoteList() {
     const bottomSpacerHeight = Math.max(0, (filtered.length - endIndex) * itemHeight);
     const rendered = useMemo(() => isVirtual ? filtered.slice(safeStartIndex, endIndex) : filtered, [filtered, isVirtual, safeStartIndex, endIndex]);
     const renderedIds = useMemo(() => new Set(rendered.map((item) => item.note.id)), [rendered]);
+    // Only rendered rows ask for their position, so the map covers the window instead of
+    // allocating one entry per note on every filter change.
+    const filteredPositions = useMemo(
+        () => new Map(rendered.map((item, index) => [item.note.id, safeStartIndex + index + 1])),
+        [rendered, safeStartIndex]);
     const groups = useMemo(() => groupNotes(rendered, sort, view === 'trash', nowMinute, filtered.some((i) => i.note.isPinned)), [rendered, sort, view, locale, nowMinute, filtered]);
     useEffect(() => {
         setStartIndex(0);

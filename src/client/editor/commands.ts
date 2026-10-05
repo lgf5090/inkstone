@@ -485,10 +485,12 @@ export const completeCodeFenceOnEnter: StateCommand = ({ state, dispatch }) => {
     if (!range.empty)
         return false;
     const line = state.doc.lineAt(range.head);
-    if (range.head !== line.to || openFenceBeforeLine(state, line.number))
-        return false;
     const match = FENCE_RE.exec(line.text);
     if (!match)
+        return false;
+    // openFenceBeforeLine walks every earlier line, so it only runs for lines that are
+    // themselves fence markers.
+    if (range.head !== line.to || openFenceBeforeLine(state, line.number))
         return false;
     const fence = match[1]!;
     const insert = `\n\n${fence}`;

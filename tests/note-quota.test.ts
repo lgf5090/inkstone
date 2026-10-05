@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { expect, it } from 'vitest'
 import { LIMITS } from '../src/shared/constants'
-import { assertNoteQuota } from '../src/worker/db/quota'
+import { assertNoteQuota, consumeNoteQuota, openNoteQuotaBudget } from '../src/worker/db/quota'
 import { makeD1 } from './doubles/d1-sqlite'
 
 function seeded(count: number) {
@@ -33,4 +33,18 @@ it('ignores trashed notes when counting', async () => {
     sqlite.prepare('INSERT INTO notes VALUES (?, ?, 1)').run(`t${index}`, 'user')
   }
   await expect(assertNoteQuota(makeD1(sqlite), 'user')).resolves.toBeUndefined()
+})
+
+it('budgets a whole import from a single count', async () => {
+  const budget = await openNoteQuotaBudget(seeded(LIMITS.notesMaxPerUser - 2), 'user')
+  expect(() => {
+    consumeNoteQuota(budget)
+    consumeNoteQuota(budget)
+  }).not.toThrow()
+  expect(() => consumeNoteQuota(budget)).toThrow(/quota/i)
+})
+
+it('rejects an import that starts over the quota', async () => {
+  const budget = await openNoteQuotaBudget(seeded(LIMITS.notesMaxPerUser), 'user')
+  expect(() => consumeNoteQuota(budget)).toThrow(/quota/i)
 })

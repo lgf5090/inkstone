@@ -19,12 +19,20 @@ export function useSyncScroll(
   enabled: boolean,
 ): () => void {
   const anchorsRef = useRef<PreviewAnchor[] | null>(null)
+  const curveRef = useRef<{
+    from: PreviewAnchor[]
+    lines: number
+    paddingTop: number
+    max: number
+    curve: PreviewAnchor[]
+  } | null>(null)
   const driverRef = useRef<ScrollSide | null>(null)
   const frameRef = useRef(0)
   const releaseRef = useRef(0)
 
   const invalidate = useCallback(() => {
     anchorsRef.current = null
+    curveRef.current = null
   }, [])
 
   useEffect(() => {
@@ -35,35 +43,43 @@ export function useSyncScroll(
     const editor = view.scrollDOM
     driverRef.current = null
     anchorsRef.current = null
+    curveRef.current = null
 
-    const getCurve = (): PreviewAnchor[] => {
+    const getCurve = (paddingTop: number, max: number): PreviewAnchor[] => {
       anchorsRef.current ??= measurePreviewAnchors(preview)
-      return buildScrollCurve(
-        anchorsRef.current,
-        view.state.doc.lines,
-        previewPaddingTop(preview),
-        maxScroll(preview),
-      )
+      const anchors = anchorsRef.current
+      const lines = view.state.doc.lines
+      const cached = curveRef.current
+      // Scrolling asks for the curve once per frame; rebuilding it walked and re-allocated
+      // every anchor (2858 at 1 MB notes) 60 times a second.
+      if (cached && cached.from === anchors && cached.lines === lines
+        && cached.paddingTop === paddingTop && cached.max === max)
+        return cached.curve
+      const curve = buildScrollCurve(anchors, lines, paddingTop, max)
+      curveRef.current = { from: anchors, lines, paddingTop, max, curve }
+      return curve
     }
 
     const syncFromEditor = () => {
+      const previewMax = maxScroll(preview)
       const edge = scrollEdge(editor.scrollTop, maxScroll(editor))
       if (edge === 'top') {
         setScrollTop(preview, 0)
         return
       }
       if (edge === 'bottom') {
-        setScrollTop(preview, maxScroll(preview))
+        setScrollTop(preview, previewMax)
         return
       }
 
       const paddingTop = previewPaddingTop(preview)
-      const target = previewTopForLine(getCurve(), editorLineAtScroll(view, editor.scrollTop))
+      const target = previewTopForLine(getCurve(paddingTop, previewMax), editorLineAtScroll(view, editor.scrollTop))
       setScrollTop(preview, target - paddingTop)
     }
 
     const syncFromPreview = () => {
-      const edge = scrollEdge(preview.scrollTop, maxScroll(preview))
+      const previewMax = maxScroll(preview)
+      const edge = scrollEdge(preview.scrollTop, previewMax)
       if (edge === 'top') {
         setScrollTop(editor, 0)
         return
@@ -73,9 +89,10 @@ export function useSyncScroll(
         return
       }
 
+      const paddingTop = previewPaddingTop(preview)
       const line = sourceLineForPreviewTop(
-        getCurve(),
-        preview.scrollTop + previewPaddingTop(preview),
+        getCurve(paddingTop, previewMax),
+        preview.scrollTop + paddingTop,
       )
       setScrollTop(editor, editorScrollForLine(view, line))
     }
