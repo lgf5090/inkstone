@@ -111,6 +111,8 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
                 return;
             }
             const current = document.activeElement as HTMLElement | null;
+            if (current?.closest('[role="menu"]'))
+                return;
             const index = current ? focusable.indexOf(current) : -1;
             if (event.shiftKey && index <= 0) {
                 event.preventDefault();

@@ -6,7 +6,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { api } from '../../lib/api'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
-import { GraphPanel } from './GraphPanel'
+import { GraphPanel, pickDirectional, type CanvasNode } from './GraphPanel'
 
 const PREFS_KEY = 'inkstone.graph.preferences.v1'
 const SPIRAL_ANGLE = 2.399963
@@ -16,7 +16,7 @@ const TITLES = Array.from({ length: 12 }, (_, index) => `Note ${index + 1}`)
 
 type GraphParams = Parameters<typeof api.graph>[0]
 type MessageKey = Parameters<typeof t>[0]
-type Draw = { op: string; args: number[] }
+type Draw = { op: string; args: number[]; alpha: number }
 
 let draws: Draw[] = []
 let strokes: string[] = []
@@ -29,6 +29,9 @@ let reducedMotion = false
 let themeName = 'light'
 let root: Root
 let container: HTMLDivElement
+let closeMock = vi.fn()
+let openNoteMock = vi.fn()
+let createNoteMock = vi.fn()
 
 function graphResponse(titles: string[], folderName: string | null = null): GraphResponse {
   return {
@@ -79,10 +82,10 @@ function installCanvas() {
         if (prop in target) return target[prop as string]
         return (...args: number[]) => {
           if (prop === 'arc' || prop === 'translate' || prop === 'scale') {
-            draws.push({ op: String(prop), args })
+            draws.push({ op: String(prop), args, alpha: Number(store.globalAlpha ?? 1) })
           }
-          if (prop === 'stroke') strokes.push(String(target.strokeStyle))
-          if (prop === 'fillText') texts.push(String(target.fillStyle))
+          if (prop === 'stroke') strokes.push(String(store.strokeStyle))
+          if (prop === 'fillText') texts.push(String(store.fillStyle))
         }
       },
       set: (target, prop, value) => {
@@ -136,8 +139,23 @@ function arcRadii(): number[] {
   return draws.filter((draw) => draw.op === 'arc').map((draw) => draw.args[2]!)
 }
 
+function arcAlphas(): number[] {
+  return draws.filter((draw) => draw.op === 'arc').map((draw) => draw.alpha)
+}
+
+function nodeArcs(): Array<[number, number]> {
+  const arcs = draws.filter((draw) => draw.op === 'arc')
+  const smallest = Math.min(...arcs.map((arc) => arc.args[2]!))
+  return arcs.filter((arc) => arc.args[2] === smallest).map((arc) => [arc.args[0]!, arc.args[1]!])
+}
+
 function scaleOps(): number[] {
   return draws.filter((draw) => draw.op === 'scale').map((draw) => draw.args[0]!)
+}
+
+function translateOps(): number[] {
+  const first = draws.find((draw) => draw.op === 'translate')
+  return first ? [first.args[0]!, first.args[1]!] : []
 }
 
 function spiralPositions(count: number): Array<[number, number]> {
@@ -216,9 +234,37 @@ function takeRequest() {
 }
 
 async function mount() {
+  closeMock = vi.fn()
   await act(async () => {
-    root.render(createElement(GraphPanel, { onClose: vi.fn() }))
+    root.render(createElement(GraphPanel, { onClose: closeMock }))
   })
+}
+
+function firePointer(node: Element, type: string, init: Record<string, unknown>) {
+  const base = { bubbles: true, clientX: 0, clientY: 0, button: 0, pointerId: 1, isPrimary: true }
+  const merged = { ...base, ...init }
+  const Constructor = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent
+  const event = new Constructor(type, merged)
+  if (!('pointerId' in event)) Object.assign(event, { pointerId: merged.pointerId })
+  act(() => {
+    node.dispatchEvent(event)
+  })
+}
+
+function canvasNode() {
+  const canvas = document.querySelector('canvas')
+  if (!canvas) throw new Error('canvas not mounted')
+  return canvas
+}
+
+function selectedTitle(): string | null {
+  const span = [...document.querySelectorAll('main span')]
+    .find((node) => /^Note \d+$/.test(node.textContent ?? ''))
+  return span?.textContent ?? null
+}
+
+function titleIndex(title: string | null): number {
+  return Number((title ?? '').replace('Note ', '')) - 1
 }
 
 const originalNotes = useNotes.getState()
@@ -243,6 +289,8 @@ beforeEach(async () => {
   installCanvas()
   installComputedStyle()
   installRaf()
+  Element.prototype.setPointerCapture = function setPointerCapture() {}
+  Element.prototype.releasePointerCapture = function releasePointerCapture() {}
   reducedMotion = false
   themeName = 'light'
   draws = []
@@ -262,7 +310,13 @@ beforeEach(async () => {
     createdAt: 1,
     updatedAt: 1,
   }]
-  useNotes.setState({ folders, tags: [], hydrated: true, loading: false })
+  closeMock = vi.fn()
+  openNoteMock = vi.fn()
+  createNoteMock = vi.fn()
+  useNotes.setState({
+    folders, tags: [], hydrated: true, loading: false,
+    openNote: openNoteMock, createNote: createNoteMock,
+  })
   useUi.setState({ activeNoteId: null })
   vi.spyOn(api, 'graph').mockImplementation((params) => {
     graphCalls.push(params)
@@ -473,5 +527,236 @@ describe('graph empty states', () => {
 
     await click(action!)
     expect(graphCalls[0]?.mode).toBe('global')
+  })
+})
+
+function synthetic(id: string, x: number, y: number): CanvasNode {
+  return {
+    id,
+    title: id,
+    kind: 'note',
+    degree: 1,
+    inDegree: 1,
+    outDegree: 1,
+    folderId: null,
+    folderName: null,
+    folderColor: null,
+    tags: [],
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    r: 6,
+  }
+}
+
+describe('graph pointer and keyboard interaction', () => {
+  it('walks the canvas by screen direction rather than array order', () => {
+    const origin = synthetic('origin', 0, 0)
+    const nearRight = synthetic('near-right', 40, 6)
+    const farRight = synthetic('far-right', 300, -4)
+    const aboveRight = synthetic('above-right', 60, -200)
+    const nodes = [farRight, aboveRight, origin, nearRight]
+    expect(pickDirectional(nodes, origin, 'ArrowRight')?.id).toBe('near-right')
+    expect(pickDirectional(nodes, origin, 'ArrowUp')?.id).toBe('above-right')
+    expect(pickDirectional(nodes, origin, 'ArrowLeft')).toBeNull()
+  })
+
+  it('opens a note on double-click rather than on a single click', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const [x, y] = arcPositions()[0]!
+    const canvas = canvasNode()
+
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y })
+    firePointer(canvas, 'pointerup', { clientX: x, clientY: y })
+    await act(async () => {})
+    expect(closeMock).not.toHaveBeenCalled()
+    expect(openNoteMock).not.toHaveBeenCalled()
+
+    canvas.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: x, clientY: y }))
+    await act(async () => {})
+    expect(openNoteMock).toHaveBeenCalledWith('note-0')
+    expect(closeMock).toHaveBeenCalled()
+  })
+
+  it('keeps a dragged node where it was dropped', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const [x, y] = arcPositions()[1]!
+    const canvas = canvasNode()
+
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y })
+    firePointer(canvas, 'pointermove', { clientX: x + 120, clientY: y + 90 })
+    firePointer(canvas, 'pointerup', { clientX: x + 120, clientY: y + 90 })
+    await pump(30)
+    const dropped = arcPositions()[1]!
+    expect(Math.abs(dropped[0] - (x + 120))).toBeLessThan(2)
+    expect(Math.abs(dropped[1] - (y + 90))).toBeLessThan(2)
+  })
+
+  it('keeps direct neighbours at full strength when a node is hovered', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const [x, y] = arcPositions()[0]!
+    firePointer(canvasNode(), 'pointermove', { clientX: x, clientY: y })
+    await pump(1)
+    const alphas = arcAlphas()
+    expect(alphas[0]).toBe(1)
+    expect(alphas[1]).toBe(1)
+    expect(alphas[TITLES.length - 1]).toBeLessThan(1)
+  })
+
+  it('still starts a drag after a lost pointer capture', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const [x, y] = arcPositions()[2]!
+    const canvas = canvasNode()
+
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y, pointerId: 1 })
+    firePointer(canvas, 'lostpointercapture', { pointerId: 1 })
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y, pointerId: 2 })
+    firePointer(canvas, 'pointermove', { clientX: x + 80, clientY: y + 40, pointerId: 2 })
+    await pump(1)
+    expect(Math.abs(arcPositions()[2]![0] - (x + 80))).toBeLessThan(2)
+  })
+
+  it('ignores a right-button release while the left button is dragging', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const [x, y] = arcPositions()[0]!
+    const canvas = canvasNode()
+
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y, pointerId: 1, button: 0 })
+    firePointer(canvas, 'pointermove', { clientX: x + 40, clientY: y, pointerId: 1 })
+    firePointer(canvas, 'pointerup', { clientX: x + 40, clientY: y, pointerId: 1, button: 2 })
+    firePointer(canvas, 'pointermove', { clientX: x + 120, clientY: y, pointerId: 1 })
+    await pump(1)
+    expect(Math.abs(arcPositions()[0]![0] - (x + 120))).toBeLessThan(2)
+  })
+
+  it('keeps the hit target at least seven css pixels wide when zoomed out', async () => {
+    await mount()
+    await takeRequest()
+    const canvas = canvasNode()
+    for (let step = 0; step < 4; step += 1) {
+      await act(async () => {
+        canvas.dispatchEvent(new KeyboardEvent('keydown', { key: '-', bubbles: true }))
+      })
+    }
+    await pump(1)
+    const scale = scaleOps()[0]!
+    expect(scale).toBeLessThan(0.5)
+    const placed = arcPositions()
+    let rightmost = 0
+    for (let index = 1; index < placed.length; index += 1) {
+      if (placed[index]![0] > placed[rightmost]![0]) rightmost = index
+    }
+    const [x, y] = placed[rightmost]!
+
+    firePointer(canvas, 'pointermove', { clientX: (x + 30) * scale, clientY: y * scale })
+    await pump(1)
+    expect(selectedTitle()).not.toBeNull()
+  })
+
+  it('anchors keyboard zoom at the viewport centre rather than the world origin', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    canvas.getBoundingClientRect = () => ({
+      left: 100, top: 50, right: 900, bottom: 650, width: 800, height: 600, x: 100, y: 50,
+    } as DOMRect)
+
+    firePointer(canvas, 'pointerdown', { clientX: 700, clientY: 500 })
+    firePointer(canvas, 'pointermove', { clientX: 750, clientY: 520 })
+    firePointer(canvas, 'pointerup', { clientX: 750, clientY: 520 })
+    await pump(1)
+    expect(translateOps()).toEqual([50, 20])
+
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: '+', bubbles: true }))
+    })
+    await pump(1)
+    const after = translateOps()
+    expect(Math.abs(after[0] + 20)).toBeLessThan(1)
+    expect(Math.abs(after[1] + 36)).toBeLessThan(1)
+  })
+
+  it('closes the settings drawer before the panel on Escape', async () => {
+    await mount()
+    await takeRequest()
+    await openSettings()
+    expect(document.querySelector('aside')).not.toBeNull()
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(document.querySelector('aside')).toBeNull()
+    expect(closeMock).not.toHaveBeenCalled()
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(closeMock).toHaveBeenCalled()
+  })
+
+  it('moves the selection to the spatial neighbour on ArrowRight', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    const press = async (key: string) => {
+      await act(async () => {
+        canvas.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+      })
+    }
+
+    await press('ArrowRight')
+    const first = selectedTitle()
+    expect(first).toMatch(/^Note \d+$/)
+    await pump(1)
+
+    await press('ArrowRight')
+    const second = selectedTitle()
+    expect(second).toMatch(/^Note \d+$/)
+    expect(second).not.toBe(first)
+    const placed = nodeArcs()
+    expect(placed.length).toBe(TITLES.length)
+    expect(placed[titleIndex(second)][0]).toBeGreaterThan(placed[titleIndex(first)][0])
+  })
+
+  it('opens the node menu from the keyboard and pins the node from it', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+
+    const menu = document.querySelector('[role="menu"]')
+    expect(menu).not.toBeNull()
+    const pin = [...menu!.querySelectorAll('button')].find((node) => node.textContent?.includes(t('graph.pin')))
+    expect(pin).toBeDefined()
+
+    await click(pin!)
+    await pump(1)
+    expect(strokes).toContain('#444444')
+
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    const again = document.querySelector('[role="menu"]')
+    expect([...again!.querySelectorAll('button')].some((node) => node.textContent?.includes(t('graph.unpin')))).toBe(true)
+    expect([...again!.querySelectorAll('button')].some((node) => node.textContent?.trim() === t('graph.pin'))).toBe(false)
   })
 })

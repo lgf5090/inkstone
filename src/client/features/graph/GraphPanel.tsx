@@ -62,12 +62,13 @@ const DEFAULT_PREFERENCES: GraphPreferences = {
   nodeScale: 1,
 }
 
-interface CanvasNode extends GraphNode {
+export interface CanvasNode extends GraphNode {
   x: number
   y: number
   vx: number
   vy: number
   r: number
+  pinned?: boolean
 }
 
 interface CanvasState {
@@ -83,6 +84,7 @@ interface CanvasState {
   raf: number
   needsFit: boolean
   palette: Palette
+  emphasis: { id: string | null; neighbours: Set<string> }
   schedule: (() => void) | null
 }
 
@@ -241,6 +243,7 @@ function stepPhysics(
   }
   let movement = 0
   for (const node of nodes) {
+    if (node.pinned) { node.vx = 0; node.vy = 0; continue }
     if (node === held) continue
     node.vx *= 0.86; node.vy *= 0.86
     const moveX = Math.max(-8, Math.min(8, node.vx))
@@ -274,6 +277,30 @@ function persistPreferences(prefs: GraphPreferences): string | null {
     return null
   }
   return serialized
+}
+
+const DIRECTION: Record<string, readonly [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+}
+
+export function pickDirectional(nodes: CanvasNode[], from: CanvasNode, key: string): CanvasNode | null {
+  const dir = DIRECTION[key]
+  if (!dir) return null
+  let best: CanvasNode | null = null
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const node of nodes) {
+    if (node === from) continue
+    const dx = node.x - from.x
+    const dy = node.y - from.y
+    const along = dx * dir[0] + dy * dir[1]
+    if (along <= 0) continue
+    const score = along + Math.abs(dx * dir[1] - dy * dir[0]) * 2
+    if (score < bestScore) { bestScore = score; best = node }
+  }
+  return best
 }
 
 function normalizedResponse(response: GraphResponse): GraphResponse {
@@ -328,10 +355,12 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const stateRef = useRef<CanvasState>({
     nodes: [], edges: [], scale: 1, offsetX: 0, offsetY: 0,
     dragging: null, pointers: new Map(), pinch: null,
-    frame: 0, raf: 0, needsFit: false, palette: FALLBACK_PALETTE, schedule: null,
+    frame: 0, raf: 0, needsFit: false, palette: FALLBACK_PALETTE,
+    emphasis: { id: null, neighbours: new Set<string>() }, schedule: null,
   })
 
   useEscape(true, onClose)
+  useEscape(settingsOpen, () => setSettingsOpen(false))
   useLockScroll(true)
   useDialogFocus(true, panelRef)
 
@@ -502,6 +531,16 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       ctx.scale(state.scale, state.scale)
       const emphasizedId = hoverRef.current?.id ?? selectedIdRef.current
       const palette = state.palette
+      if (state.emphasis.id !== (emphasizedId ?? null)) {
+        const neighbours = new Set<string>()
+        if (emphasizedId) {
+          for (const edge of state.edges) {
+            if (edge.a.id === emphasizedId) neighbours.add(edge.b.id)
+            else if (edge.b.id === emphasizedId) neighbours.add(edge.a.id)
+          }
+        }
+        state.emphasis = { id: emphasizedId ?? null, neighbours }
+      }
       ctx.lineWidth = 1 / state.scale
       for (const edge of state.edges) {
         const related = emphasizedId === edge.a.id || emphasizedId === edge.b.id
@@ -525,15 +564,20 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       for (const node of state.nodes) {
         const active = node.id === activeNoteIdRef.current
         const emphasized = node.id === emphasizedId
+        const inFocus = emphasized || active || state.emphasis.neighbours.has(node.id)
+        ctx.globalAlpha = emphasizedId && !inFocus ? 0.55 : 1
         ctx.beginPath(); ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2)
         ctx.fillStyle = active || emphasized ? palette.accent : nodeColor(node, prefsRef.current.groupBy, palette.node)
-        ctx.globalAlpha = emphasizedId && !emphasized && !active ? 0.55 : 1
         if (node.kind === 'unresolved') {
           ctx.strokeStyle = ctx.fillStyle
           ctx.lineWidth = 1.5 / state.scale
           ctx.stroke()
         } else {
           ctx.fill()
+        }
+        if (node.pinned) {
+          ctx.globalAlpha = 1; ctx.strokeStyle = palette.label; ctx.lineWidth = 1 / state.scale
+          ctx.beginPath(); ctx.arc(node.x, node.y, node.r + 2.5, 0, Math.PI * 2); ctx.stroke()
         }
         if (active || selectedIdRef.current === node.id) {
           ctx.strokeStyle = palette.accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 3 / state.scale
@@ -572,6 +616,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       window.clearTimeout(fitTimer)
       cancelAnimationFrame(state.raf)
       state.raf = 0; state.schedule = null
+      state.pointers.clear(); state.dragging = null; state.pinch = null
       themeObserver.disconnect()
       observer.disconnect()
     }
@@ -601,14 +646,15 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     return { x: (clientX - rect.left - state.offsetX) / state.scale, y: (clientY - rect.top - state.offsetY) / state.scale }
   }, [])
   const nodeAt = useCallback((x: number, y: number): CanvasNode | null => {
-    const nodes = stateRef.current.nodes
+    const state = stateRef.current
+    const slop = 7 / state.scale
     // Squared compare instead of Math.hypot: pointermove fires up to 240 times a second and
     // hypot does overflow scaling work this path never needs.
-    for (let index = nodes.length - 1; index >= 0; index--) {
-      const node = nodes[index]!
+    for (let index = state.nodes.length - 1; index >= 0; index--) {
+      const node = state.nodes[index]!
       const dx = node.x - x
       const dy = node.y - y
-      const reach = node.r + 7
+      const reach = node.r + slop
       if (dx * dx + dy * dy <= reach * reach) return node
     }
     return null
@@ -647,12 +693,61 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     state.dragging = null
     if (!drag) return
     const moved = Math.abs(clientX - drag.startX) + Math.abs(clientY - drag.startY)
-    if (drag.node && moved < 5) {
-      if (drag.node.kind === 'note') void openNote(drag.node.id)
-      else void createNote?.({ title: drag.node.title, open: true })
-      onClose()
+    if (drag.node && moved >= 5) {
+      drag.node.pinned = true
+      state.schedule?.()
     }
+  }, [])
+
+  const openSelected = useCallback((node: CanvasNode) => {
+    if (node.kind === 'unresolved') void createNote?.({ title: node.title, open: true })
+    else void openNote(node.id)
+    onClose()
   }, [createNote, onClose, openNote])
+
+  const openNodeAt = useCallback((clientX: number, clientY: number) => {
+    const point = toWorld(clientX, clientY)
+    const node = nodeAt(point.x, point.y)
+    if (node) openSelected(node)
+  }, [nodeAt, openSelected, toWorld])
+
+  const zoomAt = useCallback((next: number, clientX: number, clientY: number) => {
+    const state = stateRef.current
+    const canvas = canvasRef.current
+    if (!canvas || next === state.scale) return
+    const rect = canvas.getBoundingClientRect()
+    const x = clientX - rect.left
+    const y = clientY - rect.top
+    state.offsetX = x - (x - state.offsetX) / state.scale * next
+    state.offsetY = y - (y - state.offsetY) / state.scale * next
+    state.scale = next
+    state.schedule?.()
+  }, [])
+
+  const zoomFromCenter = useCallback((next: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    zoomAt(next, rect.left + rect.width / 2, rect.top + rect.height / 2)
+  }, [zoomAt])
+
+  const centerOn = useCallback((node: CanvasNode) => {
+    const state = stateRef.current
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    state.offsetX = rect.width / 2 - node.x * state.scale
+    state.offsetY = rect.height / 2 - node.y * state.scale
+    state.schedule?.()
+  }, [])
+
+  const releasePointer = useCallback((id: number) => {
+    const state = stateRef.current
+    state.pointers.delete(id)
+    state.dragging = null
+    state.pinch = null
+    state.schedule?.()
+  }, [])
 
   const selected = data?.nodes.find((node) => node.id === selectedId) ?? null
   const counts = useMemo(() => {
@@ -671,13 +766,13 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     return [...seen.entries()].slice(0, 8).map(([name, color]) => ({ name, color }))
   }, [data, prefs.groupBy])
   const menuItems: MenuItem[] = context ? [
-    { id: 'open', label: context.node.kind === 'unresolved' ? t('graph.create_note') : t('graph.open_note'), icon: <FolderOpen size={14}/>, onSelect: () => {
-      if (context.node.kind === 'unresolved') void createNote?.({ title: context.node.title, open: true })
-      else void openNote(context.node.id)
-      onClose()
-    } },
+    { id: 'open', label: context.node.kind === 'unresolved' ? t('graph.create_note') : t('graph.open_note'), icon: <FolderOpen size={14}/>, onSelect: () => openSelected(context.node) },
     { id: 'right', label: t('graph.open_to_right'), icon: <PanelRightClose size={14}/>, disabled: context.node.kind === 'unresolved', onSelect: () => { void openNote(context.node.id, { pane: 'secondary' }) } },
-    { id: 'local', label: t('graph.make_local_center'), icon: <CircleDot size={14}/>, disabled: context.node.kind === 'unresolved', separatorBefore: true, onSelect: () => {
+    { id: 'pin', label: context.node.pinned ? t('graph.unpin') : t('graph.pin'), icon: <CircleDot size={14}/>, separatorBefore: true, onSelect: () => {
+      context.node.pinned = !context.node.pinned
+      stateRef.current.schedule?.()
+    } },
+    { id: 'local', label: t('graph.make_local_center'), icon: <CircleDot size={14}/>, disabled: context.node.kind === 'unresolved', onSelect: () => {
       void openNote(context.node.id)
       setPrefs((value) => ({ ...value, mode: 'local' }))
     } },
@@ -717,11 +812,11 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       </label>
       <div className="ml-auto flex items-center gap-1">
         <Tooltip label={t('common.zoom_out')}><IconButton label={t('common.zoom_out')} size="sm" disabled={!data?.nodes.length} onClick={() => {
-          const state = stateRef.current; state.scale = Math.max(0.2, state.scale - 0.2); state.schedule?.()
+          zoomFromCenter(Math.max(0.2, stateRef.current.scale - 0.2))
         }}><Minus size={14}/></IconButton></Tooltip>
         <Tooltip label={t('graph.fit')}><IconButton label={t('graph.fit')} size="sm" disabled={!data?.nodes.length} onClick={fitGraph}><Maximize2 size={13}/></IconButton></Tooltip>
         <Tooltip label={t('common.zoom_in')}><IconButton label={t('common.zoom_in')} size="sm" disabled={!data?.nodes.length} onClick={() => {
-          const state = stateRef.current; state.scale = Math.min(4, state.scale + 0.2); state.schedule?.()
+          zoomFromCenter(Math.min(4, stateRef.current.scale + 0.2))
         }}><Plus size={14}/></IconButton></Tooltip>
         <Tooltip label={t('graph.settings')}><IconButton label={t('graph.settings')} size="sm" aria-pressed={settingsOpen} onClick={() => setSettingsOpen((value) => !value)}><Settings2 size={14}/></IconButton></Tooltip>
         <Tooltip label={t('common.close')} combo="escape" side="left"><IconButton label={t('common.close')} size="sm" onClick={onClose} className="ml-1"><X size={16}/></IconButton></Tooltip>
@@ -766,21 +861,29 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
               if (state.pointers.size >= 2 && state.pinch) {
                 const [a, b] = [...state.pointers.values()]
                 const distance = Math.hypot(b!.x - a!.x, b!.y - a!.y)
-                state.scale = Math.min(4, Math.max(0.2, state.pinch.scale * distance / Math.max(1, state.pinch.distance)))
-                state.schedule?.(); return
+                const next = Math.min(4, Math.max(0.2, state.pinch.scale * distance / Math.max(1, state.pinch.distance)))
+                zoomAt(next, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2); return
               }
               moveDrag(event.clientX, event.clientY)
             }}
             onPointerUp={(event) => {
               lastPointerEventAtRef.current = performance.now()
+              if (event.button !== 0) return
               const state = stateRef.current
+              const wasPinching = state.pointers.size >= 2
               state.pointers.delete(event.pointerId)
-              if (!state.pinch) endDrag(event.clientX, event.clientY)
               if (state.pointers.size < 2) state.pinch = null
+              if (wasPinching) {
+                state.dragging = null
+                const remaining = [...state.pointers.values()][0]
+                if (remaining) beginDrag(remaining.x, remaining.y, 0)
+              } else {
+                endDrag(event.clientX, event.clientY)
+              }
             }}
-            onPointerCancel={(event) => {
-              const state = stateRef.current; state.pointers.delete(event.pointerId); state.dragging = null; state.pinch = null
-            }}
+            onPointerCancel={(event) => releasePointer(event.pointerId)}
+            onLostPointerCapture={(event) => releasePointer(event.pointerId)}
+            onDoubleClick={(event) => openNodeAt(event.clientX, event.clientY)}
             onMouseDown={(event) => { if (performance.now() - lastPointerEventAtRef.current > 80) beginDrag(event.clientX, event.clientY, event.button) }}
             onMouseMove={(event) => { if (performance.now() - lastPointerEventAtRef.current > 80) moveDrag(event.clientX, event.clientY) }}
             onMouseUp={(event) => { if (performance.now() - lastPointerEventAtRef.current > 80) endDrag(event.clientX, event.clientY) }}
@@ -796,31 +899,35 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             }}
             onWheel={(event) => {
               const state = stateRef.current
-              const rect = event.currentTarget.getBoundingClientRect()
-              const x = event.clientX - rect.left, y = event.clientY - rect.top
               const next = graphScaleAfterWheel(state.scale, event.deltaY)
               if (next === state.scale) return
               event.preventDefault()
-              state.offsetX = x - (x - state.offsetX) / state.scale * next
-              state.offsetY = y - (y - state.offsetY) / state.scale * next
-              state.scale = next; state.schedule?.()
+              zoomAt(next, event.clientX, event.clientY)
             }}
             onKeyDown={(event) => {
               const state = stateRef.current
-              if (event.key === '+' || event.key === '=') state.scale = Math.min(4, state.scale + 0.2)
-              else if (event.key === '-') state.scale = Math.max(0.2, state.scale - 0.2)
+              if (event.key === '+' || event.key === '=') zoomFromCenter(Math.min(4, state.scale + 0.2))
+              else if (event.key === '-') zoomFromCenter(Math.max(0.2, state.scale - 0.2))
               else if (event.key === 'Home') fitGraph()
               else if (event.key === 'Enter' && selectedIdRef.current) {
-                const selectedNode = state.nodes.find((node) => node.id === selectedIdRef.current)
-                if (selectedNode?.kind === 'note') void openNote(selectedNode.id)
-                else if (selectedNode) void createNote?.({ title: selectedNode.title, open: true })
-                if (selectedNode) onClose()
+                const node = state.nodes.find((item) => item.id === selectedIdRef.current)
+                if (node) openSelected(node)
+              }
+              else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+                const node = state.nodes.find((item) => item.id === selectedIdRef.current)
+                if (node) {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setContext({
+                    x: rect.left + state.offsetX + node.x * state.scale,
+                    y: rect.top + state.offsetY + node.y * state.scale,
+                    node,
+                  })
+                }
               }
               else if (event.key.startsWith('Arrow')) {
-                const current = Math.max(0, state.nodes.findIndex((node) => node.id === selectedIdRef.current))
-                const step = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1
-                const next = state.nodes[(current + step + state.nodes.length) % state.nodes.length]
-                if (next) setSelectedId(next.id)
+                const current = state.nodes.find((item) => item.id === selectedIdRef.current) ?? state.nodes[0]
+                const next = current ? pickDirectional(state.nodes, current, event.key) : null
+                if (next) { setSelectedId(next.id); centerOn(next) }
               } else return
               event.preventDefault(); state.schedule?.()
             }}/>
