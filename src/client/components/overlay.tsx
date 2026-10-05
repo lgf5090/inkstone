@@ -57,7 +57,7 @@ export function useClickOutside(refs: RefObject<HTMLElement | null>[], active: b
 let scrollLockCount = 0;
 let unlockedBodyOverflow = '';
 export function useLockScroll(active: boolean): void {
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!active)
             return;
         if (scrollLockCount === 0)

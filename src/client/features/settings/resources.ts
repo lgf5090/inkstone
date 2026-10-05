@@ -7,8 +7,9 @@ export const backupRunsResource = createSettingsResource(async () => (await api.
 export const mcpResource = createSettingsResource(() => api.mcp.get())
 export const statsResource = createSettingsResource(() => api.settings.stats())
 export const totpResource = createSettingsResource(() => api.auth.totp.status())
+export const sharesResource = createSettingsResource(async () => (await api.share.list()).shares)
 
-const resources = [backupTargetsResource, backupRunsResource, mcpResource, statsResource, totpResource]
+const resources = [backupTargetsResource, backupRunsResource, mcpResource, statsResource, totpResource, sharesResource]
 useSession.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id || (state.status === 'anonymous' && previous.status !== 'anonymous')) {
     resources.forEach((resource) => resource.clear())

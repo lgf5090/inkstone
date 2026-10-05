@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Camera, KeyRound, LogOut, ShieldCheck, UserRound } from 'lucide-react'
 import { PROFILE_NAME_MAX_LENGTH } from '@shared/avatar'
 import { LIMITS } from '@shared/constants'
@@ -9,8 +9,9 @@ import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { AvatarPicker } from './AvatarPicker'
 import { TotpSettings } from './TotpSettings'
+
+const AvatarPicker = lazy(() => import('./AvatarPicker').then((m) => ({ default: m.AvatarPicker })))
 
 export function AccountSettings() {
   const user = useSession((state) => state.user)
@@ -160,12 +161,14 @@ function ProfileSection() {
         </form>
       </div>
 
-      <AvatarPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        displayName={user.name}
-        preference={user.avatarUrl}
-      />
+      {pickerOpen && (<Suspense fallback={null}>
+          <AvatarPicker
+            open
+            onClose={() => setPickerOpen(false)}
+            displayName={user.name}
+            preference={user.avatarUrl}
+          />
+        </Suspense>)}
     </section>
   )
 }

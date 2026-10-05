@@ -107,7 +107,7 @@ export function SettingsPanel({ onClose }: {
     });
     useLockScroll(true);
     useDialogFocus(true, panelRef);
-    useEffect(() => scheduleSettingsWarmup(200), []);
+    useEffect(() => { scheduleSettingsWarmup(0) }, []);
     useEffect(() => {
         if (!target)
             return;

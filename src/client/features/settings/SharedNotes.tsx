@@ -9,48 +9,39 @@ import { confirm } from '../../components/overlay'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
+import { useSettingsResource } from './resource'
+import { sharesResource } from './resources'
 import { SharePanel } from '../share/SharePanel'
 
 export function SharedNotes() {
-  const [shares, setShares] = useState<ShareListItem[] | null>(null)
+  const [shares, setShares] = useSettingsResource(sharesResource)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<ShareListItem | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
-  const requestRef = useRef<AbortController | null>(null)
   const copiedTimer = useRef(0)
   const revokeRef = useRef<string | null>(null)
   const toast = useUi((state) => state.toast)
   const openNote = useNotes((state) => state.openNote)
   const pull = useNotes((state) => state.pull)
 
-  const load = useCallback(async (initial = false) => {
-    requestRef.current?.abort()
-    const controller = new AbortController()
-    requestRef.current = controller
-    if (initial) setShares(null)
+  const load = useCallback(async (force = false) => {
     setRefreshing(true)
     setError(null)
     try {
-      const result = await api.share.list(controller.signal)
-      if (!controller.signal.aborted) setShares(result.shares)
+      await sharesResource.load(force)
     } catch (cause) {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+      setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      if (requestRef.current === controller) {
-        requestRef.current = null
-        setRefreshing(false)
-      }
+      setRefreshing(false)
     }
   }, [])
 
   useEffect(() => {
-    void load(true)
+    void load()
     return () => {
-      requestRef.current?.abort()
-      requestRef.current = null
       window.clearTimeout(copiedTimer.current)
     }
   }, [load])
@@ -86,7 +77,6 @@ export function SharedNotes() {
       })
       if (!ok) return
       await api.share.remove(share.noteId)
-      requestRef.current?.abort()
       setShares((current) => current?.filter((item) => item.noteId !== share.noteId) ?? null)
       toast({ title: t('share.link_revoked'), tone: 'success' })
     } catch (cause) {
@@ -119,7 +109,7 @@ export function SharedNotes() {
         <h3 className="text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('share.shared_notes')}</h3>
         <p className="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">{t('share.shared_notes_description')}</p>
       </div>
-      <Button size="sm" variant="ghost" icon={<RefreshCw size={13}/>} loading={refreshing} onClick={() => void load()} aria-label={t('share.refresh_list')} title={t('share.refresh_list')} />
+      <Button size="sm" variant="ghost" icon={<RefreshCw size={13}/>} loading={refreshing} onClick={() => void load(true)} aria-label={t('share.refresh_list')} title={t('share.refresh_list')} />
     </div>
 
     {shares && shares.length > 0 && <div className="relative mb-2">
@@ -129,7 +119,7 @@ export function SharedNotes() {
 
     {error && <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-2 text-[12px] text-[var(--danger)]">
       <span>{t('share.could_not_load_list')}: {error}</span>
-      <Button size="sm" variant="secondary" onClick={() => void load(shares === null)}>{t('common.retry')}</Button>
+      <Button size="sm" variant="secondary" onClick={() => void load(true)}>{t('common.retry')}</Button>
     </div>}
 
     {shares === null ? (refreshing && <p role="status" className="py-4 text-center text-[12px] text-[var(--text-tertiary)]">{t('common.loading')}</p>) :
@@ -166,6 +156,6 @@ export function SharedNotes() {
         })}
       </div>}
 
-    {selected && <SharePanel key={selected.noteId} targetNote={{ id: selected.noteId, title: selected.noteTitle }} onClose={() => setSelected(null)} onChanged={() => void load()} />}
+    {selected && <SharePanel key={selected.noteId} targetNote={{ id: selected.noteId, title: selected.noteTitle }} onClose={() => setSelected(null)} onChanged={() => void load(true)} />}
   </section>
 }

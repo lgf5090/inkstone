@@ -1,4 +1,4 @@
-import { backupRunsResource, backupTargetsResource, mcpResource, statsResource, totpResource } from './resources'
+import { backupRunsResource, backupTargetsResource, mcpResource, sharesResource, statsResource, totpResource } from './resources'
 import { useSession } from '../../store/session'
 import type { MessageKey } from '../../lib/i18n'
 
@@ -33,19 +33,28 @@ export function warmSettingsSection(section: SettingsSection): void {
   const resources = section === 'backup' ? [backupTargetsResource, backupRunsResource]
     : section === 'mcp' ? [mcpResource]
     : section === 'data' ? [statsResource]
-    : section === 'account' ? [totpResource] : []
+    : section === 'account' ? [totpResource]
+    : section === 'shares' ? [sharesResource] : []
   resources.forEach((resource) => { void resource.load().catch(() => {}) })
 }
 
-export function scheduleSettingsWarmup(delay = 1200): () => void {
-  const queue = Object.keys(settingsLoaders) as Array<keyof typeof settingsLoaders>
-  let timer: number
-  const next = () => {
-    const section = queue.shift()
-    if (!section) return
-    void settingsLoaders[section]().catch(() => {})
-    timer = window.setTimeout(next, 150)
-  }
-  timer = window.setTimeout(next, delay)
-  return () => window.clearTimeout(timer)
+const warmupQueue: SettingsSection[] = []
+const queuedWarmup = new Set<SettingsSection>()
+let warmupTimer: number | undefined
+
+function drainWarmupQueue(): void {
+  warmupTimer = undefined
+  const section = warmupQueue.shift()
+  if (!section) return
+  warmSettingsSection(section)
+  if (warmupQueue.length) warmupTimer = window.setTimeout(drainWarmupQueue, 150)
+}
+
+export function scheduleSettingsWarmup(delay = 1200): void {
+  (Object.keys(settingsLoaders) as SettingsSection[]).forEach((section) => {
+    if (queuedWarmup.has(section)) return
+    queuedWarmup.add(section)
+    warmupQueue.push(section)
+  })
+  if (warmupTimer === undefined) warmupTimer = window.setTimeout(drainWarmupQueue, delay)
 }
