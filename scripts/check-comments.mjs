@@ -43,6 +43,14 @@ const allowed = new Map([
     "// Only the OAuth consent page may be resumed after sign-in, so a crafted ?next",
     "// can never send the browser somewhere else with an authenticated session.",
   ]],
+  ["src/client/features/command/CommandPalette.tsx", [
+    "// The pointer already sits on its row; scrolling would move other rows under it and",
+    "// re-trigger the highlight, so only keyboard movement scrolls.",
+  ]],
+  ["src/client/features/command/palette-perf.test.ts", [
+    "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
+    "/** React synthesises onMouseEnter from native mouseover, so a raw mouseenter never reaches it. */",
+  ]],
   ["src/client/features/graph/GraphPanel.tsx", [
     "// Private browsing or a locked-down browser can reject local preferences.",
     "// Physics-parameter tweaks resume the simulation without rebuilding nodes.",
@@ -54,6 +62,10 @@ const allowed = new Map([
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
     "// Only rendered rows ask for their position, so the map covers the window instead of",
     "// allocating one entry per note on every filter change.",
+    "// Body text only ever reaches the search key through this record, so the memo has to",
+    "// depend on it; reading it imperatively left freshly-opened notes unsearchable.",
+    "// Crossing the tablet/desktop width is a layout change, not a new context: wiping the",
+    "// query there loses a search the user is still typing.",
   ]],
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
@@ -69,6 +81,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/shell/AppShell.tsx", [
     "// Keep settings prewarming out of the boot + first-sync window.",
+    "// Ctrl+Shift+P is the first thing a returning user presses, and a cold chunk plus",
+    "// `fallback={null}` reads as the shortcut being ignored.",
   ]],
   ["src/client/features/sidebar/ExplorerNote.tsx", [
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
@@ -125,6 +139,9 @@ const allowed = new Map([
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
+  ]],
+  ["src/client/lib/hooks.ts", [
+    "/**\n * A clock safe to keep in a dependency list: it only changes on a tick boundary,\n * so a caller that re-renders on pointer movement does not re-derive its inputs.\n */",
   ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
