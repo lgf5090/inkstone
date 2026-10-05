@@ -21,6 +21,10 @@ export function friendlyError(err: unknown): string {
     return 'Could not connect. Check DNS, the port, and the TLS certificate'
   }
   return message
+    .replace(/\bBearer\s+[^\s,]+/gi, 'Bearer [redacted]')
+    .replace(/:\/\/[^\s/@]+:[^\s@]+@/g, '://[redacted]@')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 240)
 }
 
 

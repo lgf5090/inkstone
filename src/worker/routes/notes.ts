@@ -189,6 +189,11 @@ notesRoutes.post('/trash/empty', async (c) => {
   if ((row?.count ?? 0) > 0) {
     const trashed = `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL`
     const statements = [
+      c.env.DB.prepare(
+        `DELETE FROM mcp_operations WHERE user_id = ?1 AND EXISTS (
+           SELECT 1 FROM notes n WHERE n.user_id = ?1 AND n.deleted_at IS NOT NULL
+             AND instr(mcp_operations.response_json, n.id) > 0)`,
+      ).bind(userId),
       c.env.DB.prepare(`DELETE FROM note_tags WHERE note_id IN (${trashed})`).bind(userId),
       c.env.DB.prepare(`DELETE FROM links WHERE source_note_id IN (${trashed})`).bind(userId),
       c.env.DB.prepare(
@@ -716,6 +721,11 @@ notesRoutes.delete('/:id/purge', async (c) => {
         WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
     ).bind(id, userId, id, userId, row.rev),
     guarded(`DELETE FROM note_versions WHERE note_id = ?1`),
+    c.env.DB.prepare(
+      `DELETE FROM mcp_operations
+        WHERE user_id = ?1 AND instr(response_json, ?2) > 0
+          AND ${shiftSqlPlaceholders(guard, 2)}`,
+    ).bind(userId, id, id, userId, row.rev),
     c.env.DB.prepare(
       `DELETE FROM share_asset_sessions
         WHERE slug IN (SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2)

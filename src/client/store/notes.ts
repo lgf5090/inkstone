@@ -7,6 +7,7 @@ import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
 import type { AppLocale, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
+import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds } from '../lib/folders';
 import { useSession } from './session';
@@ -1997,9 +1998,7 @@ function outboxId(noteId: string): string {
     return `patch:${CLIENT_ID}:${noteId}`;
 }
 function newLocalWriteId(): string {
-    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return randomLocalId();
 }
 const NOTE_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
 function newLocalEntityId(): string {

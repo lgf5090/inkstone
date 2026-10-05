@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, KeyRound, Loader2, TriangleAlert } from 'lucide-react'
 import { LIMITS } from '@shared/constants'
 import type { TotpLoginChallenge } from '@shared/types'
@@ -13,11 +13,18 @@ import { useSession } from '../../store/session'
 export function LoginPage() {
   const initialCredentials = initialLoginCredentials()
   const site = useSession((state) => state.site)
+  const user = useSession((state) => state.user)
   const authError = useSession((state) => state.authError)
   const passwordLogin = useSession((state) => state.passwordLogin)
   const totpLogin = useSession((state) => state.totpLogin)
   const passwordRegister = useSession((state) => state.passwordRegister)
   const firstRun = Boolean(site && !site.initialized)
+  // Only the OAuth consent page may be resumed after sign-in, so a crafted ?next
+  // can never send the browser somewhere else with an authenticated session.
+  const resumeTarget = (() => {
+    const next = new URLSearchParams(window.location.search).get('next') ?? ''
+    return next.startsWith('/authorize?') || next === '/authorize' ? next : null
+  })()
   const [mode, setMode] = useState<'login' | 'register'>(firstRun ? 'register' : 'login')
   const [username, setUsername] = useState(initialCredentials.username)
   const [password, setPassword] = useState(initialCredentials.password)
@@ -30,6 +37,10 @@ export function LoginPage() {
   const [setupRequired, setSetupRequired] = useState(false)
   const [setupToken, setSetupToken] = useState('')
   const busyRef = useRef(false)
+  useEffect(() => {
+    if (resumeTarget && user) window.location.replace(resumeTarget)
+  }, [resumeTarget, user])
+
   const registerMode = mode === 'register' || firstRun
   const showModeSwitch = !firstRun && site?.registrationOpen
 

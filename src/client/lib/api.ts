@@ -38,13 +38,11 @@ import type {
   UserSettings,
 } from '@shared/types'
 import { publishBroadcast } from './db'
+import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
 
 
-export const CLIENT_ID =
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
+export const CLIENT_ID = randomLocalId()
 
 export class ApiError extends Error {
   constructor(

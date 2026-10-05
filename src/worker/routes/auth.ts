@@ -112,7 +112,7 @@ async function destroyPresentedSessions(c: Context<AppBindings>): Promise<void> 
 authRoutes.get('/session', async (c) => {
   const user = c.get('user')
   if (user) return c.json(await sessionInfo(c.env, user))
-  const body: SessionInfo = { user: null, site: await buildSiteInfo(c.env), settings: null }
+  const body: SessionInfo = { user: null, site: await buildSiteInfo(c.env, false), settings: null }
   return c.json(body)
 })
 

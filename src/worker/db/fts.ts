@@ -209,14 +209,6 @@ export async function drainFtsQueue(
   return results.length
 }
 
-export async function hasPendingFtsWork(db: D1Database, userId: string): Promise<boolean> {
-  const row = await db
-    .prepare(`SELECT 1 AS pending FROM fts_index_queue WHERE user_id = ?1 LIMIT 1`)
-    .bind(userId)
-    .first<{ pending: number }>()
-  return row?.pending === 1
-}
-
 export async function drainAllFtsQueues(db: D1Database, maxUsers = 20): Promise<number> {
   const users = await selectQueueUsersRoundRobin(
     db,

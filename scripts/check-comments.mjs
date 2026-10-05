@@ -3,11 +3,16 @@ import path from 'node:path'
 import ts from 'typescript'
 
 const UPDATE = process.argv.includes('--update')
+const UPDATE_ARMED = process.env.INKSTONE_COMMENTS_UPDATE === '1'
 const RUNNER_DIRECTIVE = /^\/\/ @vitest-environment [\w-]+$/
 const DECL_BLOCK = '\nconst allowed = new Map([\n'
 const MAP_TAIL = '\n])\n'
 
 const allowed = new Map([
+  ["scripts/check-comments.mjs", [
+    "// The rebuild rewrites this gate’s own allowlist, so it has to be armed explicitly and",
+    "// cannot be reached by a plain flag; the summary makes the diff reviewable afterwards.",
+  ]],
   ["scripts/check-i18n.mjs", [
     "// The OAuth consent page is a self-contained HTML document with its own",
     "// language switch (cookie-based); it does not use the React i18n layer.",
@@ -27,6 +32,10 @@ const allowed = new Map([
     "/** Decorations change presentation only; all editing, undo, search and saving use Markdown. */",
     "// Keep typing synchronous and cheap. Reparse after a short idle window; never",
     "// display stale HTML for a block whose source was touched in the meantime.",
+  ]],
+  ["src/client/features/auth/LoginPage.tsx", [
+    "// Only the OAuth consent page may be resumed after sign-in, so a crafted ?next",
+    "// can never send the browser somewhere else with an authenticated session.",
   ]],
   ["src/client/features/graph/GraphPanel.tsx", [
     "// Private browsing or a locked-down browser can reject local preferences.",
@@ -76,6 +85,11 @@ const allowed = new Map([
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",
     "/** Parse once with the full document environment so reference links retain their targets. */",
+  ]],
+  ["src/client/lib/random-id.ts", [
+    "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
+    "// No WebCrypto at all: still monotonic-unique inside this tab, never predictable",
+    "// across tabs the way Math.random() was.",
   ]],
   ["src/client/lib/sync.ts", [
     "/**\n   * Applies live setting changes (realtime toggle, poll interval) without\n   * tearing down the engine, its WebSocket, or its leadership claim.\n   */",
@@ -185,6 +199,11 @@ const allowed = new Map([
   ]],
   ["src/worker/lib/rewrite-drain.ts", [
     "/**\n * Drains fan-out rewrites (note renames, tag renames/deletions) that were\n * deferred because they touched more notes than the inline budget allows.\n * Rows are claimed with a guarded DELETE ... RETURNING so overlapping cron\n * runs cannot double-process them.\n */",
+    "// A rewrite still failing a day later needs an operator, not another cron slot.",
+  ]],
+  ["src/worker/lib/security-headers.ts", [
+    "// The OAuth provider and the MCP handler answer their own responses, so the app",
+    "// middleware never sees them and the headers have to be applied at the edge.",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -274,6 +293,17 @@ const allowed = new Map([
     "// 160 KB cost the regex version ~8.7 s and the blowup scales with the square of",
     "// the length, so the 1.9 MB content cap extrapolates to ~20 min per call.",
   ]],
+  ["tests/phase4-regressions.test.ts", [
+    "// The curated hints stay, because they are what tells an operator what to fix.",
+    "// notes/tags tables are absent on purpose: every rewrite attempt must fail.",
+    "// The retried row keeps its original age so it can eventually age out.",
+  ]],
+  ["tests/platform-contract.test.ts", [
+    "// Nothing else in this repository reads the deployment configs or the lockfile, so the",
+    "// claims in SECURITY.md had no mechanical check at all. These assertions are that check.",
+    "// The demo form is static assets only, so it must not grow a Worker entry point.",
+    "// Postinstall code runs before any Worker policy applies, so the set is allow-listed.",
+  ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
   ]],
@@ -316,7 +346,16 @@ for (const file of files) {
   else if (extension === '.toml' && /^[ \t]*#/m.test(text)) failures.push(`${relative(file)} contains a TOML comment`)
 }
 
+// The rebuild rewrites this gate’s own allowlist, so it has to be armed explicitly and
+// cannot be reached by a plain flag; the summary makes the diff reviewable afterwards.
 if (UPDATE) {
+  if (!UPDATE_ARMED) {
+    console.error(
+      `--update rewrites the comment allowlist in scripts/check-comments.mjs itself.
+Run it deliberately as: INKSTONE_COMMENTS_UPDATE=1 node scripts/check-comments.mjs --update`,
+    )
+    process.exit(1)
+  }
   rebuildAllowlist()
 } else {
   for (const [file, comments] of allowed) {
@@ -436,6 +475,12 @@ function rebuildAllowlist() {
     const comments = [...kept, ...added]
     if (comments.length) next.push([name, comments])
   }
+  let addedTotal = 0
+  let staleTotal = 0
+  for (const [name, comments] of next) {
+    addedTotal += comments.length - (allowed.get(name)?.length ?? 0)
+    staleTotal += (allowed.get(name)?.length ?? 0) - comments.filter((comment) => allowed.get(name)?.includes(comment)).length
+  }
   const blocks = next.map(([name, comments]) =>
     `  [${JSON.stringify(name)}, [\n${comments.map((comment) => `    ${JSON.stringify(comment)},`).join('\n')}\n  ]],`)
   const scriptPath = path.resolve('scripts/check-comments.mjs')
@@ -447,5 +492,6 @@ function rebuildAllowlist() {
   const updated = `${source.slice(0, head)}${blocks.join('\n')}${source.slice(end)}`
   fs.writeFileSync(scriptPath, updated)
   console.log(`comment allowlist rebuilt: ${next.reduce((total, [, comments]) => total + comments.length, 0)} approved comments across ${next.length} files`)
+  console.log(`  net change: ${addedTotal >= 0 ? '+' : ''}${addedTotal} added, ${staleTotal} stale entries removed`)
   process.exit(0)
 }

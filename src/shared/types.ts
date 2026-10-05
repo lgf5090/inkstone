@@ -28,7 +28,7 @@ export interface SiteInfo {
   attachmentStorage: 'r2' | 'kv' | null
 
   realtimeEnabled: boolean
-  version: string
+  version?: string
 }
 
 export interface SessionInfo {
