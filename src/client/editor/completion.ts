@@ -1,4 +1,5 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
+import type { EditorView } from '@codemirror/view';
 import { normalizeLinkKey } from '@shared/markdown-utils';
 import { truncateText } from '@shared/text-utils';
 import { fuzzyMatch } from '../lib/fuzzy';
@@ -13,6 +14,21 @@ export interface CompletionSources {
         name: string;
         count: number;
     }[];
+}
+
+/**
+ * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of
+ * a `]]` that is already there; appending another one produced `[[Title]]]]`.
+ */
+function applyWikiTitle(view: EditorView, from: number, to: number | undefined, title: string): void {
+    const end = to ?? from;
+    const alreadyClosed = view.state.sliceDoc(end, end + 2) === ']]';
+    const insert = alreadyClosed ? title : `${title}]]`;
+    view.dispatch({
+        changes: { from, to: end, insert },
+        selection: { anchor: from + insert.length },
+        scrollIntoView: true,
+    });
 }
 
 export function wikiLinkSource(getSources: () => CompletionSources) {
@@ -39,13 +55,7 @@ export function wikiLinkSource(getSources: () => CompletionSources) {
                 label: note.title,
                 detail: note.excerpt ? truncateText(note.excerpt, 34) : undefined,
                 boost: match.score / 10,
-                apply: (view, _completion, from, to) => {
-                    const insert = `${note.title}]]`;
-                    view.dispatch({
-                        changes: { from, to, insert },
-                        selection: { anchor: from + insert.length },
-                    });
-                },
+                apply: (view, _completion, from, to) => applyWikiTitle(view, from, to, note.title),
             });
         }
         if (query.trim() && !options.some((o) => o.label === query.trim())) {
@@ -53,10 +63,7 @@ export function wikiLinkSource(getSources: () => CompletionSources) {
                 label: query.trim(),
                 detail: t("editor.create_new_note"),
                 boost: -20,
-                apply: (view, _completion, from, to) => {
-                    const insert = `${query.trim()}]]`;
-                    view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
-                },
+                apply: (view, _completion, from, to) => applyWikiTitle(view, from, to, query.trim()),
             });
         }
         return {

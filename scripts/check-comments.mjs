@@ -33,6 +33,9 @@ const allowed = new Map([
     "// A tab item lives inside an open set by definition, so only the set-level openers",
     "// have to check whether an earlier container is still waiting for its closer.",
   ]],
+  ["src/client/editor/completion.ts", [
+    "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
+  ]],
   ["src/client/editor/live-preview.ts", [
     "// Preserve the source line under the pointer, including rows inside tables/lists.",
     "/** Decorations change presentation only; all editing, undo, search and saving use Markdown. */",
