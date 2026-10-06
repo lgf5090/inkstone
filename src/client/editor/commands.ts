@@ -408,6 +408,29 @@ export const insertTabs: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
+/**
+ * A column block arrives as two columns, because the `::` that divides them is the one part of the
+ * syntax a reader cannot guess from the header.
+ */
+export const insertColumns: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const selected = state.sliceDoc(range.from, range.to);
+    const first = selected || t("editor.column_1");
+    const insert = `::: cols\n${first}\n::\n${t("editor.column_2")}\n:::\n`;
+    const cursor = range.from + '::: cols\n'.length;
+    dispatch(state.update({
+        changes: { from: range.from, to: range.to, insert },
+        selection: EditorSelection.range(cursor, cursor + first.length),
+        scrollIntoView: true,
+        userEvent: 'input.insert',
+    }));
+    return true;
+};
+
+export function insertAlign(align: 'left' | 'center' | 'right' | 'justify'): StateCommand {
+    return insertWrappedBlock(`::: ${align}`, ':::', '', `::: ${align}`.length + 1);
+}
+
 export const insertFrontMatter: StateCommand = ({ state, dispatch }) => {
     const source = state.doc.toString();
     if (/^---[ \t]*\r?\n/.test(source)) {
@@ -539,7 +562,7 @@ export const completeCodeFenceOnEnter: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
-const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set)\}?(?![\w-])[ \t]*(.*)$/;
+const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set|cols|left|center|right|justify)\}?(?![\w-])[ \t]*(.*)$/;
 const COLON_CLOSER_RE = /^[ \t]{0,3}(:{3,})[ \t]*$/;
 
 export const completeColonFenceOnEnter: StateCommand = ({ state, dispatch }) => {

@@ -263,3 +263,25 @@ it('expands a transclusion into the printed document instead of a spinner', asyn
   const fromBody = html.slice(html.indexOf('note-embed-body'))
   expect(fromBody.slice(0, fromBody.indexOf('</div>'))).toContain('class="katex"')
 })
+
+it('carries the layout blocks into the printed document', async () => {
+  const content = [
+    '::: justify',
+    'a justified paragraph',
+    ':::',
+    '',
+    '::: cols 1fr 2fr',
+    'left column',
+    '::',
+    'right column',
+    ':::',
+  ].join('\n')
+  const { html } = await capturePrint(content)
+  expect(html).toContain('markdown-cols')
+  expect(html).toContain('data-cols="2"')
+  expect(html).toContain('.markdown-cols[data-cols="2"]')
+  expect(html).toContain('.markdown-align[data-align="justify"]')
+  // The header's fractions only reach CSS as a custom property, so an export that never ran the
+  // enhancer would print two equal columns and quietly lose the author's widths.
+  expect(html).toContain('--panel-cols-tracks: 1fr 2fr')
+})

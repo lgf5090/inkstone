@@ -894,6 +894,9 @@ export function replaceWikiLinkTarget(content: string, from: string, to: string)
 function stripContainerMarkers(text: string): string {
   return text
     .replace(/^[ \t]{0,3}:{3,}.*$/gm, (line) => {
+      // A layout block's remainder is its configuration, not a title, so the whole line goes; a
+      // `::: details Some title` keeps its, because there the remainder is the title.
+      if (/^[ \t]{0,3}:{3,}[ \t]*(?:cols|left|center|right|justify)(?![\w-])(?:[ \t].*)?$/.test(line)) return ''
       const afterColons = line.replace(/^[ \t]{0,3}:{3,}[ \t]*/, '')
       const keyword = /^(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item)(?![\w-]))[ \t]*/.exec(afterColons)
       const label = keyword ? afterColons.slice(keyword[0].length) : afterColons

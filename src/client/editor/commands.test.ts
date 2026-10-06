@@ -199,6 +199,17 @@ describe('completeColonFenceOnEnter', () => {
     expect(result.doc).toBe(':::: tabs\n::: tab-item A\n\n:::')
   })
 
+  it('closes a layout block the same way, in either spelling', () => {
+    expect(runColonCompletion('::: cols').doc).toBe('::: cols\n\n:::')
+    expect(runColonCompletion('::: cols center').doc).toBe('::: cols center\n\n:::')
+    expect(runColonCompletion('::: justify').doc).toBe('::: justify\n\n:::')
+    expect(runColonCompletion(':::center').doc).toBe(':::center\n\n:::')
+  })
+
+  it('still leaves a directive nobody recognises for the author to finish', () => {
+    expect(runColonCompletion('::: whatever').handled).toBe(false)
+  })
+
   it('leaves a closer line alone', () => {
     const result = runColonCompletion(':::: tabs\n::: tab-item A\n\n:::')
     expect(result.handled).toBe(false)

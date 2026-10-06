@@ -1,5 +1,5 @@
 import { renderMarkdown } from './markdown/renderer'
-import { bakeChartsToImages, renderMath, renderPendingCharts, renderPendingMermaid } from './markdown/enhance'
+import { applyPanelColumnTracks, bakeChartsToImages, renderMath, renderPendingCharts, renderPendingMermaid } from './markdown/enhance'
 import { resolveNoteEmbeds } from './markdown/embeds'
 // Inlined so the print frame carries its own math styles: the frame inherits this
 // document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
@@ -15,6 +15,39 @@ const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5
 // so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.
 const CDN_MATH_STYLESHEET = `<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">`
 const INLINE_MATH_STYLESHEET = `<style>${katexPrintCss}</style>`
+
+/**
+ * The `:::` layout blocks, drawn for a document with no stylesheet of its own.
+ *
+ * An export loses the prose sheet it was read against, so a column block that is not given its grid
+ * here silently becomes a stack — the author's layout survives in the source and nowhere on the page.
+ */
+export const LAYOUT_PRINT_STYLES = `
+.markdown-align { margin: 0.9em 0; }
+.markdown-align > :first-child { margin-top: 0; }
+.markdown-align > :last-child { margin-bottom: 0; }
+.markdown-align[data-align="left"] { text-align: left; }
+.markdown-align[data-align="center"] { text-align: center; }
+.markdown-align[data-align="right"] { text-align: right; }
+.markdown-align[data-align="justify"] { text-align: justify; }
+.markdown-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; margin: 0.95em 0; }
+.markdown-cols[data-cols="1"] { grid-template-columns: var(--panel-cols-tracks, minmax(0, 1fr)); }
+.markdown-cols[data-cols="2"] { grid-template-columns: var(--panel-cols-tracks, repeat(2, minmax(0, 1fr))); }
+.markdown-cols[data-cols="3"] { grid-template-columns: var(--panel-cols-tracks, repeat(3, minmax(0, 1fr))); }
+.markdown-cols[data-cols="4"] { grid-template-columns: var(--panel-cols-tracks, repeat(4, minmax(0, 1fr))); }
+.markdown-cols[data-cols="5"] { grid-template-columns: var(--panel-cols-tracks, repeat(5, minmax(0, 1fr))); }
+.markdown-cols[data-cols="6"] { grid-template-columns: var(--panel-cols-tracks, repeat(6, minmax(0, 1fr))); }
+.markdown-cols[data-cols-gap="narrow"] { gap: 6px; }
+.markdown-cols[data-cols-gap="wide"] { gap: 24px; }
+.markdown-col { min-width: 0; }
+.markdown-col > :first-child { margin-top: 0; }
+.markdown-col > :last-child { margin-bottom: 0; }
+.markdown-cols[data-cols-align="left"] .markdown-col { text-align: left; }
+.markdown-cols[data-cols-align="center"] .markdown-col { text-align: center; }
+.markdown-cols[data-cols-align="right"] .markdown-col { text-align: right; }
+.markdown-cols[data-cols-align="justify"] .markdown-col { text-align: justify; }
+.markdown-cols[data-cols-divider] > .markdown-col + .markdown-col { border-left: 1px solid #e5e7eb; padding-left: 8px; margin-left: -8px; }
+`
 
 export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob)
@@ -101,6 +134,9 @@ async function prepareExportBody(note: { title: string; content: string }): Prom
   await renderPendingCharts(doc.body, false, { instant: true })
   bakeChartsToImages(doc.body)
   expandHiddenBlocks(doc.body)
+  // Column widths reach CSS as a custom property rather than an attribute, and the export path runs
+  // no enhancer, so the one hand the header's `1fr 2fr` has to be given to the stylesheet here.
+  applyPanelColumnTracks(doc.body)
   stripInertControls(doc.body)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
 }
@@ -224,6 +260,7 @@ summary { font-weight: 600; }
 details[open] summary { margin-bottom: 0.4em; }
 .tab-panel { margin: 0.9em 0; }
 .tab-panel-label { margin: 0 0 0.4em; font-weight: 600; color: #4b5563; break-after: avoid; }
+${LAYOUT_PRINT_STYLES}
 .callout { border-left: 4px solid #6b7280; border-radius: 6px; padding: 0.65em 1em; margin: 0.9em 0; background: #f9fafb; }
 .callout[data-callout="warning"], .callout[data-callout="question"] { border-color: #d97706; }
 .callout[data-callout="danger"], .callout[data-callout="failure"] { border-color: #dc2626; }
