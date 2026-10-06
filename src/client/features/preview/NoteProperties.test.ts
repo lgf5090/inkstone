@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseFrontMatter } from '@shared/markdown-utils';
 import { t } from '../../lib/i18n';
+import { encodeDataValue } from '../../lib/markdown/data-attr';
+import { currentTagDrag, endTagDrag } from '../tags/tagDrag';
 
 const editContent = vi.fn();
 const openView = vi.fn();
@@ -22,6 +24,13 @@ vi.mock('../../store/notes', () => ({
 }));
 vi.mock('../../store/ui', () => ({
   useUi: (selector: (state: typeof store) => unknown) => selector(store),
+}));
+
+const openTagPageByName = vi.fn(async (_name: string) => {});
+
+vi.mock('../tags/tagMutations', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../tags/tagMutations')>()),
+  openTagPageByName,
 }));
 
 const { NoteProperties } = await import('./NoteProperties');
@@ -99,6 +108,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   editContent.mockReset();
   openView.mockReset();
+  openTagPageByName.mockReset();
   store = {
     editContent,
     openView,
@@ -231,5 +241,51 @@ describe('NoteProperties', () => {
     expect(byLabel(t('properties.add'))).toBeNull();
     expect(host.querySelector('[role="switch"]')).toBeNull();
     expect(editContent).not.toHaveBeenCalled();
+  });
+
+  it('hands a tag over as a drag the tag tree can read', () => {
+    render(SOURCE);
+    const pill = pillButton('demo');
+    expect(pill?.draggable).toBe(true);
+    const bag = new Map<string, string>();
+    const dataTransfer = {
+      types: [] as string[],
+      effectAllowed: '',
+      setData: (key: string, value: string) => {
+        bag.set(key, value);
+      },
+      getData: (key: string) => bag.get(key) ?? '',
+    };
+    const event = new Event('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+    act(() => {
+      pill!.dispatchEvent(event);
+    });
+    expect(bag.get('application/x-inkstone-tag')).toBe(encodeDataValue('demo'));
+    expect(bag.get('text/plain')).toBe('#demo');
+    expect(currentTagDrag()).toBe('demo');
+    endTagDrag();
+    expect(currentTagDrag()).toBeNull();
+  });
+
+  it('sends a modifier click on a pill to the tag page', () => {
+    render(SOURCE);
+    const pill = pillButton('demo')!;
+    expect(pill.getAttribute('data-tag')).not.toBeNull();
+    click(pill);
+    expect(openView).toHaveBeenCalledWith('tag', { tag: 'demo' });
+    expect(openTagPageByName).not.toHaveBeenCalled();
+    const alt = new MouseEvent('click', { bubbles: true, cancelable: true, altKey: true });
+    act(() => {
+      pill.dispatchEvent(alt);
+    });
+    expect(openTagPageByName).toHaveBeenCalledWith('demo');
+    expect(openView).toHaveBeenCalledTimes(1);
+  });
+
+  it('colours a pill whose spelling differs from the stored tag', () => {
+    store.tags = [{ id: 't-demo', name: '\uFF24\uFF45\uFF4D\uFF4F', color: '#123456', count: 2, createdAt: 1 }];
+    render(SOURCE);
+    expect(pillButton('demo')?.querySelector('span[style]')?.getAttribute('style')).toContain('rgb(18, 52, 86)');
   });
 });

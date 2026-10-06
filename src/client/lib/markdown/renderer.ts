@@ -342,7 +342,7 @@ md.renderer.rules.block_reference = (tokens, index) => {
     const id = tokens[index]!.content;
     return `<a class="block-reference" data-block-ref="${escapeAttr(id)}" href="#%5E${escapeAttr(id)}">((${escapeHtml(id)}))</a>`;
 };
-md.renderer.rules.inline_tag = (tokens, index) => `<span class="inline-tag" data-tag="${escapeAttr(encodeDataValue(tokens[index]!.content))}" role="link" tabindex="0">#${escapeHtml(tokens[index]!.content)}</span>`;
+md.renderer.rules.inline_tag = (tokens, index) => `<span class="inline-tag" data-tag="${escapeAttr(encodeDataValue(tokens[index]!.content))}" role="link" tabindex="0" draggable="true">#${escapeHtml(tokens[index]!.content)}</span>`;
 md.core.ruler.before('github-task-lists', 'obsidian_blocks', (state) => {
     const seenBlockIds = new Set<string>();
     for (let index = 0; index < state.tokens.length; index++) {

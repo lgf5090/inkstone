@@ -7,6 +7,7 @@ import { installTestGlobals, stubBreakpoint } from '../../lib/test-render';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { SidebarTags } from './SidebarTags';
+import { decodeDataValue } from '../../lib/markdown/data-attr';
 
 const originalUi = useUi.getState();
 const originalNotes = useNotes.getState();
@@ -65,7 +66,7 @@ describe('the tag drag destination hint', () => {
         const bag = new Map<string, string>();
         await act(() => root.render(createElement(SidebarTags)));
         await act(() => { rowOf(name).dispatchEvent(drag('dragstart', bag)); });
-        expect(bag.get(MIME)).toBe(name);
+        expect(decodeDataValue(bag.get(MIME)!)).toBe(name);
         return bag;
     }
 

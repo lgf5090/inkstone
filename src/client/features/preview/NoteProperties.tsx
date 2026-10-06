@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react';
 import { ChevronDown, Plus, X } from 'lucide-react';
-import { deleteFrontMatterValue, parseFrontMatter, renameFrontMatterValue, replaceTagInContent, setFrontMatterValue } from '@shared/markdown-utils';
+import { deleteFrontMatterValue, parseFrontMatter, renameFrontMatterValue, replaceTagInContent, setFrontMatterValue, tagKey } from '@shared/markdown-utils';
 import type { FrontMatterValue } from '@shared/markdown-utils';
 import { cn } from '../../lib/cn';
 import { Tooltip } from '../../components/overlay';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { TagContextMenuAt, type TagMenuRequest } from '../tags/TagContextMenuAt';
+import { beginTagDrag, endTagDrag } from '../tags/tagDrag';
+import { openTagPageByName, wantsTagPage } from '../tags/tagMutations';
+import { encodeDataValue } from '../../lib/markdown/data-attr';
 import { t } from '../../lib/i18n';
 
 export function NoteProperties({ noteId }: {
@@ -97,16 +100,22 @@ function TagValues({ names, asTags, readOnly, onRemove, onAdd }: {
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const tags = useNotes((s) => s.tags);
     const openView = useUi((s) => s.openView);
-    const colors = new Map(tags.map((tag) => [tag.name.toLocaleLowerCase(), tag.color]));
+    const colors = new Map(tags.map((tag) => [tagKey(tag.name), tag.color]));
     const pills = (<span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
       {names.map((name) => (<span key={name} className="flex max-w-full items-center rounded-[var(--r-sm)] bg-[var(--accent-soft)] text-[11.5px] text-[var(--text-primary)]">
-            {asTags ? (<button type="button" onClick={() => openView('tag', { tag: name })} onContextMenu={(event) => {
+            {asTags ? (<button type="button" draggable onDragStart={(event) => beginTagDrag(name, event.dataTransfer)} onDragEnd={endTagDrag} data-tag={encodeDataValue(name)} onClick={(event) => {
+                  if (wantsTagPage(event)) {
+                    void openTagPageByName(name)
+                    return
+                  }
+                  openView('tag', { tag: name })
+                }} title={t('tags.drag_hint')} onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   setTagMenu({ name, x: event.clientX, y: event.clientY });
               }} className="min-w-0 truncate py-0.5 pl-1.5 hover:underline">
                 <span className="text-[var(--text-quaternary)]">#</span>
-                <span style={{ color: colors.get(name.toLocaleLowerCase()) ?? undefined }}>{name}</span>
+                <span style={{ color: colors.get(tagKey(name)) ?? undefined }}>{name}</span>
               </button>) : <span className="min-w-0 truncate py-0.5 pl-1.5">{name}</span>}
             {!readOnly && (<button type="button" aria-label={t('properties.remove_tag_value0', { value0: name })} onClick={() => onRemove(name)} className="flex size-5 items-center justify-center text-[var(--text-quaternary)] hover:text-[var(--danger)]">
                 <X size={10}/>

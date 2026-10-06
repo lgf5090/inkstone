@@ -161,6 +161,10 @@ const allowed = new Map([
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
     "// Heads are in document order, so the active one is the last entry at or above top.",
   ]],
+  ["src/client/features/preview/Preview.tsx", [
+    "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
+    "// reference plugin does; a plain click still just filters.",
+  ]],
   ["src/client/features/preview/link-hover-host.ts", [
     "// A hashtag only previews anything when the user gave that tag a page; the alternative is a",
     "// card that duplicates the note the reader is already looking at.",
@@ -194,6 +198,11 @@ const allowed = new Map([
     "/**\n * The tag a pointer landed on: markdown hands us `#tag` spans as DOM, so every surface that wants\n * the menu reads the encoded name off the closest one. Returns null when the pointer is not on a\n * tag, which leaves the browser's own context menu alone.\n */",
     "/**\n * The tag menu at a pointer position, for surfaces whose rows are not React components of their own\n * (the preview renders markdown, so `#tag` spans arrive as DOM). One request at a time; the caller\n * clears it through onClose.\n */",
   ]],
+  ["src/client/features/tags/tagDrag.ts", [
+    "/**\n * A dragged tag is kept in page memory as well as in the DataTransfer. The type list is readable\n * during dragover but the payload is not, so the sidebar can recognise a tag drag early yet still\n * needs the name from here to label the destination. Same-document only, which is all we drag\n * between. The plain-text twin is the hashtag itself: a drop onto anything that takes text, the\n * editor included, writes a tag rather than an encoded blob.\n */",
+    "/** A drop is a tag drop only when it carries our own type, so a note or a file can never reach the rename path. */",
+    "/** The dragged tag name, or null when the payload is not one of our tag drags. */",
+  ]],
   ["src/client/features/tags/tagMutations.ts", [
     "// The delta carries every note the server-side rewrite touched, and pull() falls back",
     "// to a full snapshot on its own when the server says the cursor is stale.",
@@ -202,6 +211,9 @@ const allowed = new Map([
     "// Re-read instead of winding back.",
     "/**\n * A tag page is a note whose frontmatter alias spells the tag (`aliases: [\"#a/b\"]`), named after\n * it with the path separators turned into spaces. The alias is what makes the note carry the tag,\n * so a page shows up in the tag's own count without a second index to keep in sync.\n */",
     "/**\n * The reference plugin hands tag expressions to Obsidian's global search. Here the note-list\n * search box is that surface: its text goes to /api/search verbatim, and that route understands\n * `tag:` (whole subtree) and `-tag:`, so the menu writes the same grammar a person can type.\n */",
+    "/** Where a family ends up when `source` is rewritten to `destination`, segment for segment. */",
+    "/**\n * The family members whose new name is already some *other* tag's name. Checking only the root\n * misses the case the reference plugin warns about: moving `a` under `b` when both already have\n * an `x` child silently merges `a/x` into `b/x`, and a merge cannot be undone by renaming back.\n * A pure case change is not a merge, so it is skipped the same way the reference skips it.\n */",
+    "/** Alt/opt or cmd/ctrl plus a click is how the reference plugin opens a tag page. */",
   ]],
   ["src/client/features/tags/useTagMenuItems.tsx", [
     "/**\n * One tag menu, four entrances: the sidebar row, an inline `#tag` in the preview, a hashtag in the\n * editor, and a pill in the properties panel. A name that is not in the facet list yet (a tag typed\n * into a note that has not been saved) still gets the read-only half, so nothing here can be clicked\n * against a row that no longer exists.\n */",

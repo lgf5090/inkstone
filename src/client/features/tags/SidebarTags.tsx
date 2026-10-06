@@ -12,12 +12,12 @@ import { t } from '../../lib/i18n';
 import { ManageTagsModal } from './ManageTagsModal';
 import { useTagMenuItems } from './useTagMenuItems';
 import { createTag, moveTag, renameTag, tagMoveTarget } from './tagMutations';
+import { beginTagDrag, currentTagDrag, droppedTagName, endTagDrag, findDroppedTag, isTagDrag } from './tagDrag';
 import { useLinkHoverHost } from '../preview/link-hover-host';
 import { WikiLinkHoverCard } from '../preview/wiki-link-hover-card';
 import { encodeDataValue } from '../../lib/markdown/data-attr';
 
 const COLLAPSED_ROW_LIMIT = 12;
-const TAG_MIME = 'application/x-inkstone-tag';
 const ROOT_DROP = '\u0000root';
 
 export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
@@ -105,12 +105,16 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         if (created)
             openView('tag', { tag: created.name });
     };
+    const draggedTag = () => {
+        const name = dragPath ?? currentTagDrag();
+        return name ? findDroppedTag(tags, name) : null;
+    };
     return (<>
       <section className="mt-4">
       <div
         className="group/head flex items-center justify-between pr-1"
         onDragOver={(event) => {
-          if (!dragPath || !tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, null)) return;
+          if (!isTagDrag(event.dataTransfer) || !tagMoveTarget(draggedTag(), null)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'move';
           setDropPath(ROOT_DROP);
@@ -120,10 +124,11 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         }}
         onDrop={(event) => {
           event.preventDefault();
-          const name = event.dataTransfer.getData(TAG_MIME);
+          const name = droppedTagName(event.dataTransfer);
+          endTagDrag();
           setDropPath(null);
           setDragPath(null);
-          const source = tags.find((item) => item.name === name);
+          const source = name ? findDroppedTag(tags, name) : null;
           if (source) void moveTag(source, null);
         }}>
         {mobile
@@ -206,16 +211,16 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, renameTagSegment(node.fullPath, value));
-                }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath && dragPath ? tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, node.fullPath) : null} onDragStart={(event) => {
+                }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
                     if (node.isVirtual) return;
-                    event.dataTransfer.setData(TAG_MIME, node.fullPath);
-                    event.dataTransfer.effectAllowed = 'move';
+                    beginTagDrag(node.fullPath, event.dataTransfer);
                     setDragPath(node.fullPath);
                 }} onDragEnd={() => {
+                    endTagDrag();
                     setDragPath(null);
                     setDropPath(null);
                 }} onDragOver={(event) => {
-                    if (!dragPath || dragPath === node.fullPath || !tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, node.fullPath)) return;
+                    if (!isTagDrag(event.dataTransfer) || !tagMoveTarget(draggedTag(), node.fullPath)) return;
                     event.preventDefault();
                     event.stopPropagation();
                     event.dataTransfer.dropEffect = 'move';
@@ -226,10 +231,11 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     if (dropPath !== node.fullPath) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    const name = event.dataTransfer.getData(TAG_MIME);
+                    const name = droppedTagName(event.dataTransfer);
+                    endTagDrag();
                     setDropPath(null);
                     setDragPath(null);
-                    const source = tags.find((item) => item.name === name);
+                    const source = name ? findDroppedTag(tags, name) : null;
                     if (source) void moveTag(source, node.fullPath);
                 }}/>))}
         {(activeTags.length > 1 || excludedTags.length > 0) && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">

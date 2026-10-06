@@ -63,16 +63,8 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   if (next === tag.name) return
   const tags = useNotes.getState().tags
   const target = tags.find((candidate) => candidate.id !== tag.id && tagNamesEqual(candidate.name, next))
-  if (target) {
-    const merge = await confirm({
-      title: t('tags.merge_confirm_value0_value1', { value0: tag.name, value1: target.name }),
-      description: t('tags.merge_description'),
-      confirmLabel: t('tags.merge'),
-    })
-    if (!merge) return
-  }
-
   const destination = target?.name ?? next
+  if (!await confirmFamilyMerge(tags, tag.name, destination)) return
   const before = useNotes.getState()
   const beforeUi = useUi.getState()
   setOptimisticTagCache((state) => ({
@@ -115,6 +107,76 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
     }), refreshed),
     tone: refreshed ? 'success' : 'warning',
   })
+}
+
+/** Where a family ends up when `source` is rewritten to `destination`, segment for segment. */
+export function tagRemap(source: string, destination: string): (name: string) => string {
+  const prefix = `${source}/`
+  return (name) => name === source
+    ? destination
+    : name.startsWith(prefix) ? `${destination}/${name.slice(prefix.length)}` : name
+}
+
+/**
+ * The family members whose new name is already some *other* tag's name. Checking only the root
+ * misses the case the reference plugin warns about: moving `a` under `b` when both already have
+ * an `x` child silently merges `a/x` into `b/x`, and a merge cannot be undone by renaming back.
+ * A pure case change is not a merge, so it is skipped the same way the reference skips it.
+ */
+export function familyMergeConflicts(
+  tags: readonly { name: string }[],
+  source: string,
+  destination: string,
+): { from: string, into: string }[] {
+  const key = (name: string) => tagKey(name)
+  const sourceKey = key(source)
+  const inFamily = (name: string) => {
+    const value = key(name)
+    return value === sourceKey || value.startsWith(`${sourceKey}/`)
+  }
+  const remap = tagRemap(source, destination)
+  const outsiders = new Map(tags.filter((tag) => !inFamily(tag.name)).map((tag) => [key(tag.name), tag.name]))
+  const conflicts: { from: string, into: string }[] = []
+  for (const tag of tags) {
+    if (!inFamily(tag.name)) continue
+    const next = remap(tag.name)
+    if (key(next) === key(tag.name)) continue
+    const into = outsiders.get(key(next))
+    if (into !== undefined) conflicts.push({ from: tag.name, into })
+  }
+  return conflicts
+}
+
+async function confirmFamilyMerge(tags: readonly { name: string }[], source: string, destination: string): Promise<boolean> {
+  const conflicts = familyMergeConflicts(tags, source, destination)
+  if (!conflicts.length) return true
+  const onlyTheRoot = conflicts.length === 1 && tagNamesEqual(conflicts[0]!.from, source)
+  if (onlyTheRoot) {
+    return await confirm({
+      title: t('tags.merge_confirm_value0_value1', { value0: source, value1: conflicts[0]!.into }),
+      description: t('tags.merge_description'),
+      confirmLabel: t('tags.merge'),
+    })
+  }
+  const [first] = conflicts
+  return await confirm({
+    title: t('tags.family_merge_title'),
+    description: t('tags.family_merge_value0_value1_value2', {
+      value0: source,
+      value1: destination,
+      value2: conflicts.length,
+    }) + t('tags.family_merge_example_value0_value1', { value0: first!.from, value1: first!.into }),
+    confirmLabel: t('tags.merge'),
+  })
+}
+
+/** Alt/opt or cmd/ctrl plus a click is how the reference plugin opens a tag page. */
+export function wantsTagPage(event: { altKey: boolean, ctrlKey: boolean, metaKey: boolean }): boolean {
+  return event.altKey || event.ctrlKey || event.metaKey
+}
+
+export async function openTagPageByName(name: string): Promise<void> {
+  await openTagPage({ id: '', name, color: null, count: 0, createdAt: 0 })
 }
 
 export type TagSearchMode = 'new' | 'require' | 'exclude'
@@ -260,12 +322,10 @@ export function tagMoveTarget(tag: Tag | null | undefined, parent: string | null
 export async function moveTag(tag: Tag, parent: string | null): Promise<void> {
   const destination = tagMoveTarget(tag, parent)
   if (!destination) return
-  const prefix = `${tag.name}/`
   const before = useNotes.getState()
   const beforeUi = useUi.getState()
-  const remap = (name: string): string => name === tag.name
-    ? destination
-    : name.startsWith(prefix) ? destination + name.slice(prefix.length - 1) : name
+  if (!await confirmFamilyMerge(before.tags, tag.name, destination)) return
+  const remap = tagRemap(tag.name, destination)
   setOptimisticTagCache((state) => ({
     tags: state.tags.map((candidate) => ({ ...candidate, name: remap(candidate.name) })),
     notes: rewriteNoteTags(state.notes, remap),

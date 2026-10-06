@@ -33,6 +33,8 @@ import { NoteProperties } from './NoteProperties'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 import { useLinkHoverHost } from './link-hover-host'
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../tags/TagContextMenuAt'
+import { openTagPageByName, wantsTagPage } from '../tags/tagMutations'
+import { beginTagDrag, endTagDrag } from '../tags/tagDrag'
 import { preferredScrollBehavior } from '../../lib/motion'
 
 export interface PreviewProps {
@@ -348,7 +350,14 @@ export const Preview = memo(function Preview({
     const tag = target.closest<HTMLElement>('[data-tag]')
     if (tag) {
       event.preventDefault()
-      openView('tag', { tag: decodeDataValue(tag.dataset.tag) })
+      const name = decodeDataValue(tag.dataset.tag)
+      // Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the
+      // reference plugin does; a plain click still just filters.
+      if (wantsTagPage(event)) {
+        void openTagPageByName(name)
+        return
+      }
+      openView('tag', { tag: name })
       return
     }
 
@@ -398,7 +407,9 @@ export const Preview = memo(function Preview({
       data-preview-scroller
       onScroll={(event) => onScroll?.(event.currentTarget)}
     >
-      <NoteProperties noteId={sourceNoteId ?? null}/>
+      <div onMouseMove={hover.handleMouseMove} onMouseLeave={onMouseLeave}>
+        <NoteProperties noteId={sourceNoteId ?? null}/>
+      </div>
       <div
         ref={hostRef}
         onClick={onClick}
@@ -410,6 +421,12 @@ export const Preview = memo(function Preview({
           event.stopPropagation()
           setTagMenu(request)
         }}
+        onDragStart={(event) => {
+          const source = (event.target as HTMLElement).closest<HTMLElement>('[data-tag]')
+          if (!source?.dataset.tag) return
+          beginTagDrag(decodeDataValue(source.dataset.tag), event.dataTransfer)
+        }}
+        onDragEnd={endTagDrag}
         onMouseMove={hover.handleMouseMove}
         onMouseLeave={onMouseLeave}
         onFocus={onFocus}
