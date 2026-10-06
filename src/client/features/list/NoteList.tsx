@@ -17,6 +17,7 @@ import { useUi } from '../../store/ui';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
 import { folderPathLabel } from '../../lib/folders';
 import { writeNoteDrag } from '../../lib/note-drag';
+import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
 import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
@@ -117,7 +118,7 @@ export function NoteList() {
     const title = useMemo(() => {
         if (searchList) return t('shell.search_all_notes');
         if (view === 'folder')
-            return (folderId ? folderPathLabel(folders, folderId) : '') || t("navigation.folder");
+            return virtualFolderLabel(folderId) ?? ((folderId ? folderPathLabel(folders, folderId) : '') || t("navigation.folder"));
         if (view === 'tag')
             return `#${tag ?? ''}`;
         return t(VIEW_MESSAGE_KEYS[view]);
@@ -280,7 +281,7 @@ export function NoteList() {
         {breakpoint !== 'mobile' && <div className="mb-2.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
-            {view === 'folder' && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
+            {view === 'folder' && !isVirtualFolderId(folderId) && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             {breakpoint === 'tablet' && (<Tooltip label={t("notes.open_navigation")}>

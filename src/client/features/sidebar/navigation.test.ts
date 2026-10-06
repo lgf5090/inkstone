@@ -6,7 +6,9 @@ import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { initI18n, t } from '../../lib/i18n';
 import { api } from '../../lib/api';
 import { getInboxFolderId, setInboxFolderId } from '../../lib/folder-prefs';
-import { useNotes } from '../../store/notes';
+import { loadCalendarPrefs, saveCalendarPrefs } from '../../lib/calendar-prefs';
+import { useNotes, useVisibleNotes } from '../../store/notes';
+import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { Sidebar } from './Sidebar';
 import { FOLDER_ICON_CHOICES } from '../folders/FolderAppearanceMenus';
@@ -46,6 +48,13 @@ afterEach(async () => {
 
 const button = (scope: ParentNode, label: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.trim() === label || element.getAttribute('aria-label') === label)!;
 const click = async (element: HTMLElement) => { expect(element).toBeTruthy(); await act(() => element.click()); };
+const byLabel = (scope: ParentNode, label: string) => {
+    const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.replace(/✓$/,'').trim() === label || element.getAttribute('aria-label') === label);
+    if (!found)
+        throw new Error(`missing control ${label}`);
+    return found;
+};
+const folderTree = () => document.querySelector<HTMLElement>(`[role="tree"][aria-label="${t('navigation.folder')}"]`)!;
 
 describe('folder drag feedback', () => {
     async function drag(target: EventTarget, type: string) {
@@ -174,7 +183,7 @@ describe('mobile navigation sheets', () => {
         await act(() => root.render(createElement(MobileLibraryFilters)));
         await click(container.querySelectorAll<HTMLButtonElement>('[aria-haspopup="dialog"]')[2]!);
         const sheet = document.querySelector('[role="dialog"]')!;
-        await click(button(sheet, t('sidebar.expand')));
+        await click(button(sheet.querySelector('[data-folder-drop-target]')!, t('sidebar.expand')));
         await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
         expect(document.querySelector('[role="dialog"]')).toBeTruthy();
         await click(sheet.querySelector<HTMLButtonElement>('[data-tree-note-open]')!);
@@ -304,12 +313,6 @@ describe('folder row menu', () => {
     const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
     const allButtons = (scope: ParentNode) => [...scope.querySelectorAll<HTMLButtonElement>('button')];
     const labels = (scope: ParentNode) => allButtons(scope).map((element) => element.textContent?.trim() ?? '');
-    const byLabel = (scope: ParentNode, label: string) => {
-        const found = allButtons(scope).find((element) => element.textContent?.trim() === label || element.getAttribute('aria-label') === label);
-        if (!found)
-            throw new Error(`missing control ${label}`);
-        return found;
-    };
     const flyout = () => document.querySelector<HTMLElement>('[role="group"][aria-label]')!;
 
     beforeEach(() => {
@@ -318,7 +321,7 @@ describe('folder row menu', () => {
 
     async function openFolderMenu() {
         await act(() => root.render(createElement(Sidebar)));
-        await click(byLabel(container, t('common.more_actions')));
+        await click(byLabel(container.querySelector('[data-folder-drop-target]')!, t('common.more_actions')));
         return menu();
     }
 
@@ -378,7 +381,7 @@ describe('folder row menu', () => {
         expect(useUi.getState().toasts.at(-1)?.title).toBe(t('folders.inbox_set_toast', { value0: folder.name }));
         await act(() => root.render(createElement(Sidebar)));
         expect(container.querySelector('[data-folder-drop-target] svg.lucide-inbox')).toBeTruthy();
-        await click(byLabel(container, t('common.more_actions')));
+        await click(byLabel(container.querySelector('[data-folder-drop-target]')!, t('common.more_actions')));
         await click(byLabel(menu(), t('folders.unset_inbox')));
         expect(getInboxFolderId()).toBeNull();
         await act(() => root.render(createElement(Sidebar)));
@@ -442,7 +445,7 @@ describe('folder tree keyboard', () => {
         const second: Folder = { ...folder, id: 'folder-2', name: 'Second', position: 1 };
         useNotes.setState({ folders: [folder, second], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
-        const rows = () => [...container.querySelectorAll<HTMLElement>('[data-tree-row]')];
+        const rows = () => [...folderTree().querySelectorAll<HTMLElement>('[data-tree-row]')];
         expect(rows().map((element) => element.textContent?.trim())).toEqual(['Project', 'Second']);
         await act(() => rows()[0]!.focus());
         await press(rows()[0]!, 'ArrowDown');
@@ -455,15 +458,127 @@ describe('folder tree keyboard', () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id, position: 1 };
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
-        const parentRow = container.querySelector<HTMLElement>('[data-tree-row]')!;
+        const parentRow = folderTree().querySelector<HTMLElement>('[data-tree-row]')!;
         await act(() => parentRow.focus());
         await press(parentRow, 'ArrowRight');
         expect(useUi.getState().expandedFolders).toContain(folder.id);
         await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
         await press(parentRow, 'ArrowRight');
-        const rows = [...container.querySelectorAll<HTMLElement>('[data-tree-row]')];
+        const rows = [...folderTree().querySelectorAll<HTMLElement>('[data-tree-row]')];
         expect(document.activeElement).toBe(rows[1]);
         await press(rows[1]!, 'ArrowLeft');
         expect(document.activeElement).toBe(parentRow);
+    });
+});
+
+
+describe('built-in logical folders', () => {
+    const treeRows = () => [...document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-row]')].map((element) => element.textContent?.trim());
+    const header = () => document.querySelector<HTMLElement>('#sidebar-folders > div')!;
+    const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
+
+    async function openHeaderMenu() {
+        await act(() => root.render(createElement(Sidebar)));
+        await act(() => {
+            header().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        });
+        return menu();
+    }
+
+    it('renders calendar, todo and inbox above the real folders', async () => {
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true });
+        await act(() => root.render(createElement(Sidebar)));
+        expect(treeRows().slice(0, 3)).toEqual([t('sidebar.calendar_folder'), t('sidebar.todo_folder'), t('sidebar.inbox_folder')]);
+        expect(treeRows()).toContain(folder.name);
+    });
+
+    it('hides a built-in row when its header-menu checkbox is cleared', async () => {
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true });
+        const scope = await openHeaderMenu();
+        const labels = [...scope.querySelectorAll<HTMLButtonElement>('button')].map((element) => element.textContent?.replace(/✓$/,'').trim());
+        expect(labels.slice(-3)).toEqual([t('sidebar.calendar_folder'), t('sidebar.todo_folder'), t('sidebar.inbox_folder')]);
+        await click(byLabel(scope, t('sidebar.calendar_folder')));
+        expect(loadCalendarPrefs().calendarVisible).toBe(false);
+        await act(() => root.render(createElement(Sidebar)));
+        expect(treeRows().slice(0, 2)).toEqual([t('sidebar.todo_folder'), t('sidebar.inbox_folder')]);
+    });
+
+    it('buckets notes by creation week and opens the calendar node as a folder view', async () => {
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: false, inboxVisible: false });
+        const dated = { ...note, createdAt: new Date(2026, 9, 6).getTime() };
+        useNotes.setState({ notes: { [dated.id]: dated } });
+        await act(() => root.render(createElement(Sidebar)));
+        const calendarRow = treeRows().indexOf(t('sidebar.calendar_folder'));
+        expect(calendarRow).toBe(0);
+        const toggle = document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-toggle]')[0]!;
+        await click(toggle);
+        await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+        const yearRow = [...document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-row]')].find((element) => element.textContent?.trim() === '2026');
+        expect(yearRow).toBeTruthy();
+        await click(yearRow!);
+        expect(useUi.getState()).toMatchObject({ view: 'folder', folderId: 'cal:2026' });
+        expect(document.querySelector<HTMLElement>('[role="tree"][aria-label="' + t('navigation.folder') + '"] [data-tree-row]')).toBeTruthy();
+    });
+
+    it('aggregates unfiled notes under the inbox row and reveals them on expand', async () => {
+        saveCalendarPrefs({ calendarVisible: false, todoVisible: false, inboxVisible: true });
+        const loose = { ...note, id: 'loose', title: 'Loose end', folderId: null };
+        useNotes.setState({ notes: { [note.id]: note, [loose.id]: loose } });
+        await act(() => root.render(createElement(Sidebar)));
+        const inbox = document.querySelector<HTMLElement>('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!;
+        expect(inbox.querySelector('[data-tree-note-open]')).toBeNull();
+        await click(byLabel(inbox, t('sidebar.expand')));
+        await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+        expect(inbox.querySelector<HTMLElement>('[data-tree-note-open]')?.textContent?.trim()).toBe('Loose end');
+        expect(container.querySelector('[data-folder-drop-target] [data-tree-note-open]')).toBeNull();
+    });
+});
+
+describe('virtual folder filtering', () => {
+    function VisibleIdsProbe({ onRender }: { onRender: (ids: string[]) => void }) {
+        onRender(useVisibleNotes().map((item) => item.id));
+        return null;
+    }
+
+    async function visibleFor(folderId: string): Promise<string[]> {
+        let ids: string[] = [];
+        useUi.getState().openView('folder', { folderId });
+        await act(() => root.render(createElement(VisibleIdsProbe, { onRender: (next) => { ids = next; } })));
+        return ids;
+    }
+
+    beforeEach(() => {
+        const dated = { ...note, id: 'dated', title: 'Dated', createdAt: new Date(2026, 9, 6).getTime() };
+        const old = { ...note, id: 'old', title: 'Old', createdAt: new Date(2021, 0, 1).getTime() };
+        useNotes.setState({ notes: { [note.id]: note, dated, old } });
+    });
+
+    it('selects notes inside a calendar month and its week leaf', async () => {
+        expect(await visibleFor('cal:2026:q4:10')).toEqual(['dated']);
+        expect(await visibleFor('cal:2026:q4:10:w41')).toEqual(['dated']);
+        expect(await visibleFor('cal:2020:q4:12:w53')).toEqual(['old']);
+    });
+
+    it('selects every note of the calendar root without leaking other folders', async () => {
+        expect(await visibleFor('cal')).toEqual([note.id, 'dated', 'old'].sort());
+    });
+
+    it('keeps the todo tree to the configured tags', async () => {
+        const notes = {
+            tagged: { ...note, id: 'tagged', tags: ['chore'] },
+            other: { ...note, id: 'other', tags: ['reading'] },
+            plain: { ...note, id: 'plain', tags: ['archive'] },
+        };
+        useNotes.setState({ notes });
+        useSession.setState({ settings: { ...useSession.getState().settings, notes: { todoTag: 'chore' } } });
+        expect(await visibleFor('todo')).toEqual(['tagged']);
+        useSession.setState({ settings: { ...useSession.getState().settings, notes: { todoTag: 'chore,reading' } } });
+        expect((await visibleFor('todo')).sort()).toEqual(['other', 'tagged']);
+    });
+
+    it('shows only unfiled notes for the inbox node and still honours real folders', async () => {
+        useNotes.setState({ notes: { [note.id]: note, loose: { ...note, id: 'loose', folderId: null } } });
+        expect(await visibleFor('inbox')).toEqual(['loose']);
+        expect(await visibleFor(folder.id)).toEqual([note.id]);
     });
 });

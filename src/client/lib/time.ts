@@ -24,6 +24,10 @@ function dateTimeFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeForma
 }
 
 
+export function dateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 export function shortTime(ts: number, now = Date.now()): string {
   if (!Number.isFinite(ts) || !ts) return ''
   const date = new Date(ts)

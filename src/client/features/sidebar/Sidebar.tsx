@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderClosed, FolderInput, FolderOpen, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Plus, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Hash, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Plus, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
 import { LIMITS } from '@shared/constants';
 import type { NoteSummary, Tag, ViewKind } from '@shared/types';
 import { compareTagNames } from '@shared/markdown-utils';
@@ -14,6 +14,7 @@ import { useUpdate } from '../../store/update';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { folderDescendantIds, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { setInboxFolderId, useFolderPreferences } from '../../lib/folder-prefs';
+import { saveCalendarPrefs, useCalendarTreePreferences } from '../../lib/calendar-prefs';
 import { exportFolderAsZip } from '../../lib/export-folder';
 import { FOLDER_DRAG_TYPE, isNoteDrag, leftDropTarget, moveNotesToFolder, readDraggedNoteIds, restoreNoteFolders } from '../../lib/note-drag';
 import { FolderPicker } from '../folders/FolderPicker';
@@ -24,6 +25,9 @@ import { createTag, deleteTag, renameTag, setTagColor } from '../tags/tagMutatio
 import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
+import { FolderMotionIcon } from './FolderMotionIcon';
+import { useTreeChildrenMount } from './useTreeChildrenMount';
+import { CalendarTree, InboxTree, TodoTree } from './virtual-tree';
 import { useBreakpoint } from '../../lib/hooks';
 export function Sidebar({ collapsed = false, onCollapse, }: {
     collapsed?: boolean;
@@ -294,6 +298,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const headerRef = useRef<HTMLDivElement>(null);
     const headerMenu = useContextMenu();
     const { inboxFolderId } = useFolderPreferences();
+    const { calendarVisible, todoVisible, inboxVisible } = useCalendarTreePreferences();
     useEffect(() => () => window.clearTimeout(createdTimerRef.current), []);
     const create = (parentId: string | null) => {
         if (creatingRef.current)
@@ -419,9 +424,18 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         { id: 'manage', label: t("folders.manage_folders"), icon: <Settings2 size={13}/>, onSelect: () => openPanel('folders') },
         { id: 'expand-all', label: allExpanded ? t("folders.collapse_all") : t("folders.expand_all"), icon: allExpanded ? <ChevronsDownUp size={13}/> : <ChevronsUpDown size={13}/>, disabled: parentFolderIds.length === 0, onSelect: toggleAllExpanded },
         { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: tree.length < 2, onSelect: () => sortSiblings(tree) },
+        {
+            id: 'show-calendar',
+            label: t("sidebar.calendar_folder"),
+            checked: calendarVisible,
+            separatorBefore: true,
+            onSelect: () => saveCalendarPrefs({ calendarVisible: !calendarVisible }),
+        },
+        { id: 'show-todo', label: t("sidebar.todo_folder"), checked: todoVisible, onSelect: () => saveCalendarPrefs({ todoVisible: !todoVisible }) },
+        { id: 'show-inbox', label: t("sidebar.inbox_folder"), checked: inboxVisible, onSelect: () => saveCalendarPrefs({ inboxVisible: !inboxVisible }) },
     ];
     return (<>
-      <section className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOverCapture={(event) => {
+      <section id="sidebar-folders" className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOverCapture={(event) => {
             if (!event.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && !isNoteDrag(event))
                 return;
             if (event.target instanceof Element && event.target.closest('[data-folder-drop-target]')) {
@@ -478,9 +492,11 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
 
       {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
           <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
+        <CalendarTree />
+        <TodoTree />
+        <InboxTree />
         <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
           {tree.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
-          {notesByFolder.get(null)?.map((note) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide}/>)}
         </div>
       </section>
       <FolderPicker open={Boolean(movingFolder)} title={t("folders.choose_parent")} folders={folders} currentId={movingFolder?.parentId ?? null} excludedIds={excludedMoveTargets} onSelect={(parentId) => {
@@ -531,25 +547,9 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     const active = view === 'folder' && activeFolderId === node.id;
     const hasChildren = node.children.length > 0 || Boolean(notesByFolder.get(node.id)?.length);
     const justCreated = createdFolderId === node.id;
-    const [childrenMounted, setChildrenMounted] = useState(expanded && hasChildren);
-    const [childrenVisible, setChildrenVisible] = useState(expanded && hasChildren);
     const renaming = renamingId === node.id;
     const canCreateChild = node.depth + 1 < LIMITS.folderDepthMax;
-    useEffect(() => {
-        if (!hasChildren) {
-            setChildrenVisible(false);
-            setChildrenMounted(false);
-            return;
-        }
-        if (expanded) {
-            setChildrenMounted(true);
-            const openTimer = window.setTimeout(() => setChildrenVisible(true), 0);
-            return () => window.clearTimeout(openTimer);
-        }
-        setChildrenVisible(false);
-        const closeTimer = window.setTimeout(() => setChildrenMounted(false), 340);
-        return () => window.clearTimeout(closeTimer);
-    }, [expanded, hasChildren]);
+    const { childrenMounted, childrenVisible } = useTreeChildrenMount(expanded, hasChildren);
     const rename = (name: string) => {
         const trimmed = name.trim();
         if (!trimmed || trimmed === node.name) {
@@ -774,15 +774,6 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);
-}
-function FolderMotionIcon({ open, drawing }: {
-    open: boolean;
-    drawing: boolean;
-}) {
-    return (<span aria-hidden="true" data-open={open || undefined} data-drawing={drawing || undefined} className="folder-motion-icon">
-      <FolderClosed size={14} className="folder-motion-icon__closed"/>
-      <FolderOpen size={14} className="folder-motion-icon__open"/>
-    </span>);
 }
 export function TagSection({ mobile = false }: { mobile?: boolean }) {
     const tags = useNotes((s) => s.tags);

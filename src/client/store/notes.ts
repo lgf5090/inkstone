@@ -11,6 +11,18 @@ import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds } from '../lib/folders';
 import { clearInboxFolderIfDeleted, getInboxFolderId } from '../lib/folder-prefs';
+import {
+    INBOX_TREE,
+    TODO_TREE,
+    calendarPeriodMatchesNote,
+    isTodoNoteForTags,
+    parseVirtualId,
+    resolveTodoTag,
+    splitTodoTags,
+    virtualTreeNamespace,
+    type CalendarPeriod,
+    type VirtualTreeNamespace,
+} from '../lib/calendar-tree';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -2824,7 +2836,35 @@ function numberMapEqual(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, n
 export function useNavigationCounts(): NavigationCounts {
     return useNotes((state) => selectNavigationProjection(state.notes).counts);
 }
-function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null, tag: string | null, folderScope?: ReadonlySet<string>): boolean {
+interface VirtualFolderMatch {
+    ns: VirtualTreeNamespace;
+    period: CalendarPeriod;
+    todoTags: string[];
+}
+
+function resolveVirtualFolder(folderId: string | null): VirtualFolderMatch | null {
+    const ns = virtualTreeNamespace(folderId);
+    if (!ns || !folderId)
+        return null;
+    const period = parseVirtualId(folderId, ns);
+    if (!period)
+        return null;
+    return {
+        ns,
+        period,
+        todoTags: splitTodoTags(resolveTodoTag(useSession.getState().settings.notes?.todoTag)),
+    };
+}
+
+function matchesVirtualFolder(note: NoteSummary, match: VirtualFolderMatch): boolean {
+    if (match.ns === INBOX_TREE)
+        return !note.folderId;
+    if (match.ns === TODO_TREE && !isTodoNoteForTags(note, match.todoTags))
+        return false;
+    return calendarPeriodMatchesNote(match.period, note);
+}
+
+function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null, tag: string | null, folderScope?: ReadonlySet<string>, virtual?: VirtualFolderMatch | null): boolean {
     if (view === 'trash')
         return Boolean(note.deletedAt);
     if (note.deletedAt)
@@ -2839,6 +2879,8 @@ function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null,
         case 'unfiled':
             return !note.folderId;
         case 'folder':
+            if (virtual)
+                return matchesVirtualFolder(note, virtual);
             return Boolean(note.folderId && (folderScope?.has(note.folderId) ?? note.folderId === folderId));
         case 'tag':
             return Boolean(tag && note.tags.includes(tag));
@@ -2872,11 +2914,12 @@ function compareTrash(a: NoteSummary, b: NoteSummary): number {
 }
 function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
     const ui = useUi.getState();
-    const folderScope = ui.view === 'folder' && ui.folderId ? folderDescendantIds(folders, ui.folderId) : undefined;
+    const virtual = ui.view === 'folder' ? resolveVirtualFolder(ui.folderId) : null;
+    const folderScope = ui.view === 'folder' && ui.folderId && !virtual ? folderDescendantIds(folders, ui.folderId) : undefined;
     const active = ui.activeNoteId ? notes[ui.activeNoteId] : undefined;
-    if (active && matchesView(active, ui.view, ui.folderId, ui.tag, folderScope))
+    if (active && matchesView(active, ui.view, ui.folderId, ui.tag, folderScope, virtual))
         return active.id;
-    const visible = Object.values(notes).filter((note) => matchesView(note, ui.view, ui.folderId, ui.tag, folderScope));
+    const visible = Object.values(notes).filter((note) => matchesView(note, ui.view, ui.folderId, ui.tag, folderScope, virtual));
     if (ui.view === 'recent') {
         visible.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     }
@@ -2902,9 +2945,11 @@ export function useVisibleNotes(): NoteSummary[] {
     // `folders` only takes part in the folder view; without this the whole list re-derives
     // whenever a folder is renamed, reordered or created.
     const scopedFolders = view === 'folder' ? folders : EMPTY_FOLDERS;
+    const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
     return useMemo(() => {
-        const folderScope = view === 'folder' && folderId ? folderDescendantIds(scopedFolders, folderId) : undefined;
-        const list = Object.values(notes).filter((n) => matchesView(n, view, folderId, tag, folderScope));
+        const virtual = view === 'folder' ? resolveVirtualFolder(folderId) : null;
+        const folderScope = view === 'folder' && folderId && !virtual ? folderDescendantIds(scopedFolders, folderId) : undefined;
+        const list = Object.values(notes).filter((n) => matchesView(n, view, folderId, tag, folderScope, virtual));
         if (view === 'recent') {
             return list
                 .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
@@ -2913,7 +2958,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, scopedFolders, view, folderId, tag, sort, order, locale]);
+    }, [notes, scopedFolders, view, folderId, tag, sort, order, locale, todoTag]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];

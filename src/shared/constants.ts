@@ -105,7 +105,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
     realtime: true,
     pollIntervalMs: 15_000,
   },
+  notes: {
+    todoTag: '',
+  },
 }
+
+export const TODO_TAG_LIST_MAX = 8
 
 export const BACKUP_INTERVALS: Record<string, number> = {
   off: 0,
@@ -135,6 +140,9 @@ export function mergeSettings(partial: unknown): UserSettings {
   const preview = asRecord(src.preview)
   const backup = asRecord(src.backup)
   const sync = asRecord(src.sync)
+  const notes = asRecord(src.notes)
+
+  base.notes.todoTag = normalizeTodoTags(notes.todoTag)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -224,7 +232,21 @@ export function mergeSettings(partial: unknown): UserSettings {
 }
 
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'backup', 'sync'] as const
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'backup', 'sync', 'notes'] as const
+
+export function normalizeTodoTags(value: unknown): string {
+  if (typeof value !== 'string')
+    return ''
+  const seen = new Set<string>()
+  for (const part of value.split(',')) {
+    const tag = part.trim().replace(/^#/, '').slice(0, LIMITS.tagNameMaxLength)
+    if (tag)
+      seen.add(tag)
+    if (seen.size === TODO_TAG_LIST_MAX)
+      break
+  }
+  return [...seen].join(',')
+}
 
 function sameFlatRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keys = Object.keys(a)
@@ -257,6 +279,7 @@ function cloneDefaultSettings(): UserSettings {
     preview: { ...DEFAULT_SETTINGS.preview },
     backup: { ...DEFAULT_SETTINGS.backup },
     sync: { ...DEFAULT_SETTINGS.sync },
+    notes: { ...DEFAULT_SETTINGS.notes },
   }
 }
 
