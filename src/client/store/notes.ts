@@ -10,7 +10,21 @@ import { api, ApiError, CLIENT_ID } from '../lib/api';
 import { dateKey } from '../lib/time';
 import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
-import { folderDescendantIds } from '../lib/folders';
+import { folderDescendantIds, isUnfiled, noteFolderOwner } from '../lib/folders';
+import { clearInboxFolderIfDeleted, getInboxFolderId } from '../lib/folder-prefs';
+import {
+    INBOX_TREE,
+    TODO_TREE,
+    calendarPeriodMatchesNote,
+    isTodoNoteForTags,
+    isVirtualFolderId,
+    parseVirtualId,
+    resolveTodoTag,
+    splitTodoTags,
+    virtualTreeNamespace,
+    type CalendarPeriod,
+    type VirtualTreeNamespace,
+} from '../lib/calendar-tree';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -1116,6 +1130,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         const mutation = beginFolderMutation(id, true, (folders) => removeFolderAndPromoteChildren(folders, id), set, get);
         reconcileFolderUi(get().folders);
         void enqueueFolderWrite(id, () => api.folders.remove(id, 'move-up')).then(() => {
+            clearInboxFolderIfDeleted(id);
             finishFolderMutation(mutation);
             for (const [noteId, noteMutation] of noteMutations)
                 finishNoteMutation(noteId, noteMutation);
@@ -2730,11 +2745,12 @@ function normalizeFolder(folder: Folder): Folder {
 }
 function reconcileFolderUi(folders: Folder[]): void {
     const validIds = new Set(folders.map((folder) => folder.id));
+    const isRealOrVirtual = (id: string) => validIds.has(id) || isVirtualFolderId(id);
     const ui = useUi.getState();
-    const expandedFolders = ui.expandedFolders.filter((id) => validIds.has(id));
+    const expandedFolders = ui.expandedFolders.filter(isRealOrVirtual);
     if (expandedFolders.length !== ui.expandedFolders.length)
         useUi.setState({ expandedFolders });
-    if (ui.view === 'folder' && (!ui.folderId || !validIds.has(ui.folderId)))
+    if (ui.view === 'folder' && (!ui.folderId || !isVirtualFolderId(ui.folderId) && !validIds.has(ui.folderId)))
         ui.openView('all');
 }
 function tagEqual(a: Tag, b: Tag): boolean {
@@ -2755,13 +2771,21 @@ export function createContextualNote(input?: {
     open?: boolean;
 }): Promise<string | null> {
     const ui = useUi.getState();
+    const inboxFolderId = getInboxFolderId();
+    const inbox = inboxFolderId && (useNotes.getState().folders ?? []).some((folder) => folder.id === inboxFolderId)
+        ? inboxFolderId
+        : null;
+    const folderId = ui.view === 'folder' ? ui.folderId : inbox;
     if (ui.view === 'trash' || ui.view === 'archived') {
         ui.openView('all');
-        return useNotes.getState().createNote(input);
+        return useNotes.getState().createNote({
+            ...input,
+            ...(folderId ? { folderId } : {}),
+        });
     }
     return useNotes.getState().createNote({
         ...input,
-        ...(ui.view === 'folder' ? { folderId: ui.folderId } : {}),
+        ...(folderId ? { folderId } : {}),
         ...(ui.view === 'tag' && ui.tags.length && input?.content === undefined ? { content: `${ui.tags.map((name) => `#${name}`).join(' ')}\n\n` } : {}),
         ...(ui.view === 'starred' ? { isStarred: true } : {}),
     });
@@ -2791,14 +2815,17 @@ interface NavigationProjection {
     folderCounts: ReadonlyMap<string, number>;
 }
 let navigationProjectionNotes: Record<string, NoteSummary> | null = null;
+let navigationProjectionFolders: Folder[] | null = null;
 let navigationProjectionCache: NavigationProjection = {
     counts: { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 },
     folderCounts: new Map(),
 };
-function selectNavigationProjection(notes: Record<string, NoteSummary>): NavigationProjection {
-    if (notes === navigationProjectionNotes)
+function selectNavigationProjection(notes: Record<string, NoteSummary>, folders: Folder[]): NavigationProjection {
+    if (notes === navigationProjectionNotes && folders === navigationProjectionFolders)
         return navigationProjectionCache;
     navigationProjectionNotes = notes;
+    navigationProjectionFolders = folders;
+    const folderIds = new Set(folders.map((folder) => folder.id));
     const counts: NavigationCounts = { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 };
     const folderCounts = new Map<string, number>();
     for (const note of Object.values(notes)) {
@@ -2813,11 +2840,12 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>): Navigat
         counts.all++;
         if (note.isStarred)
             counts.starred++;
-        if (!note.folderId) {
+        const owner = noteFolderOwner(note, folderIds);
+        if (owner === null) {
             counts.unfiled++;
         }
         else {
-            folderCounts.set(note.folderId, (folderCounts.get(note.folderId) ?? 0) + 1);
+            folderCounts.set(owner, (folderCounts.get(owner) ?? 0) + 1);
         }
         if (!note.tags.length)
             counts.untagged++;
@@ -2853,9 +2881,54 @@ function numberMapEqual(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, n
     return true;
 }
 export function useNavigationCounts(): NavigationCounts {
-    return useNotes((state) => selectNavigationProjection(state.notes).counts);
+    return useNotes((state) => selectNavigationProjection(state.notes, state.folders).counts);
 }
-function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null, tags: readonly string[], folderScope?: ReadonlySet<string>): boolean {
+interface VirtualFolderMatch {
+    ns: VirtualTreeNamespace;
+    period: CalendarPeriod;
+    todoTags: string[];
+    folderIds: ReadonlySet<string>;
+}
+
+function viewContext(view: ViewKind, folderId: string | null, tags: readonly string[], folders: Folder[]): ViewContext {
+    const virtual = view === 'folder' ? resolveVirtualFolder(folderId) : null;
+    const folderScope = view === 'folder' && folderId && !virtual ? folderDescendantIds(folders, folderId) : undefined;
+    return { folderId, tags, folderScope, folderIds: new Set(folders.map((folder) => folder.id)), virtual };
+}
+
+function resolveVirtualFolder(folderId: string | null): VirtualFolderMatch | null {
+    const ns = virtualTreeNamespace(folderId);
+    if (!ns || !folderId)
+        return null;
+    const period = parseVirtualId(folderId, ns);
+    if (!period)
+        return null;
+    return {
+        ns,
+        period,
+        todoTags: splitTodoTags(resolveTodoTag(useSession.getState().settings.notes?.todoTag)),
+        folderIds: new Set(useNotes.getState().folders.map((folder) => folder.id)),
+    };
+}
+
+function matchesVirtualFolder(note: NoteSummary, match: VirtualFolderMatch): boolean {
+    if (match.ns === INBOX_TREE)
+        return isUnfiled(note, match.folderIds);
+    if (match.ns === TODO_TREE && !isTodoNoteForTags(note, match.todoTags))
+        return false;
+    return calendarPeriodMatchesNote(match.period, note);
+}
+
+interface ViewContext {
+    folderId: string | null;
+    tags: readonly string[];
+    folderScope?: ReadonlySet<string>;
+    folderIds: ReadonlySet<string>;
+    virtual?: VirtualFolderMatch | null;
+}
+
+function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boolean {
+    const { folderId, tags, folderScope, folderIds, virtual } = ctx;
     if (view === 'trash')
         return Boolean(note.deletedAt);
     if (note.deletedAt)
@@ -2868,10 +2941,12 @@ function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null,
         case 'starred':
             return note.isStarred;
         case 'unfiled':
-            return !note.folderId;
+            return isUnfiled(note, folderIds);
         case 'untagged':
             return !note.tags.length;
         case 'folder':
+            if (virtual)
+                return matchesVirtualFolder(note, virtual);
             return Boolean(note.folderId && (folderScope?.has(note.folderId) ?? note.folderId === folderId));
         case 'tag':
             return tags.length > 0 && notesCarryEveryTag(note.tags, tags);
@@ -2911,11 +2986,11 @@ function compareTrash(a: NoteSummary, b: NoteSummary): number {
 }
 function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
     const ui = useUi.getState();
-    const folderScope = ui.view === 'folder' && ui.folderId ? folderDescendantIds(folders, ui.folderId) : undefined;
+    const ctx = viewContext(ui.view, ui.folderId, ui.tags, folders);
     const active = ui.activeNoteId ? notes[ui.activeNoteId] : undefined;
-    if (active && matchesView(active, ui.view, ui.folderId, ui.tags, folderScope))
+    if (active && matchesView(active, ui.view, ctx))
         return active.id;
-    const visible = Object.values(notes).filter((note) => matchesView(note, ui.view, ui.folderId, ui.tags, folderScope));
+    const visible = Object.values(notes).filter((note) => matchesView(note, ui.view, ctx));
     if (ui.view === 'recent') {
         visible.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     }
@@ -2939,12 +3014,14 @@ export function useVisibleNotes(): NoteSummary[] {
     const dateFilter = useUi((s) => s.dateFilter);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
-    // `folders` only takes part in the folder view; without this the whole list re-derives
-    // whenever a folder is renamed, reordered or created.
-    const scopedFolders = view === 'folder' ? folders : EMPTY_FOLDERS;
+    // `folders` only takes part in the folder and unfiled views, where a note's ownership is
+    // resolved against the live folder set; without this the whole list re-derives whenever an
+    // unrelated folder is renamed, reordered or created.
+    const scopedFolders = view === 'folder' || view === 'unfiled' ? folders : EMPTY_FOLDERS;
+    const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
     return useMemo(() => {
-        const folderScope = view === 'folder' && folderId ? folderDescendantIds(scopedFolders, folderId) : undefined;
-        const list = Object.values(notes).filter((n) => matchesView(n, view, folderId, tags, folderScope) && inDateRange(n, dateFilter));
+        const ctx = viewContext(view, folderId, tags, scopedFolders);
+        const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDateRange(n, dateFilter));
         if (view === 'recent') {
             return list
                 .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
@@ -2953,7 +3030,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, scopedFolders, view, folderId, tags, dateFilter, sort, order, locale]);
+    }, [notes, scopedFolders, view, folderId, tags, dateFilter, sort, order, locale, todoTag]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];
@@ -2963,7 +3040,7 @@ export interface FolderNode extends Folder {
 }
 export function useFolderTree(): FolderNode[] {
     const folders = useNotes((s) => s.folders);
-    const direct = useNotes((state) => selectNavigationProjection(state.notes).folderCounts);
+    const direct = useNotes((state) => selectNavigationProjection(state.notes, state.folders).folderCounts);
     return useMemo(() => buildFolderTree(folders, direct), [folders, direct]);
 }
 export function buildFolderTree(folders: Folder[], direct: ReadonlyMap<string, number>): FolderNode[] {

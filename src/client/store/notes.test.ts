@@ -27,6 +27,8 @@ vi.mock('../lib/api', async () => {
   return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create } } }
 })
 import { useNotes } from './notes'
+import { api } from '../lib/api'
+import { getInboxFolderId, setInboxFolderId } from '../lib/folder-prefs'
 import { ApiError } from '../lib/api'
 
 const note: Note = {
@@ -95,6 +97,31 @@ it('saves conflicting local edits as a copy without retrying over the server not
   expect(useNotes.getState().contents[note.id]).toBe('remote important edit')
   expect(useNotes.getState().notes[note.id].rev).toBe(3)
   expect(mocks.queue).toHaveLength(0)
+})
+
+it('forgets the inbox folder only once its deletion is confirmed', async () => {
+  const folderA = { id: 'folder-a', parentId: null, name: 'A', icon: null, color: null,
+    position: 0, createdAt: 1, updatedAt: 1 }
+  setInboxFolderId('folder-a')
+  useNotes.setState({ folders: [folderA] })
+  const remove = vi.spyOn(api.folders, 'remove').mockResolvedValue({ ok: true })
+  expect(useNotes.getState().deleteFolder('folder-a')).toBe(true)
+  expect(getInboxFolderId()).toBe('folder-a')
+  await vi.waitFor(() => expect(getInboxFolderId()).toBeNull())
+  expect(remove).toHaveBeenCalledWith('folder-a', 'move-up')
+  remove.mockRestore()
+})
+
+it('keeps the inbox folder when the deletion is refused', async () => {
+  const folderA = { id: 'folder-a', parentId: null, name: 'A', icon: null, color: null,
+    position: 0, createdAt: 1, updatedAt: 1 }
+  setInboxFolderId('folder-a')
+  useNotes.setState({ folders: [folderA] })
+  const remove = vi.spyOn(api.folders, 'remove').mockRejectedValue(new ApiError(500, 'boom', 'boom'))
+  expect(useNotes.getState().deleteFolder('folder-a')).toBe(true)
+  await vi.waitFor(() => expect(remove).toHaveBeenCalled())
+  expect(getInboxFolderId()).toBe('folder-a')
+  remove.mockRestore()
 })
 
 it('recomputes the sidebar tag count the moment the tag leaves the note body', () => {

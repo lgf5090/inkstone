@@ -136,12 +136,17 @@ export interface SyncSettings {
   pollIntervalMs: number
 }
 
+export interface NotesSettings {
+  todoTag: string
+}
+
 export interface UserSettings {
   appearance: AppearanceSettings
   editor: EditorSettings
   preview: PreviewSettings
   backup: BackupSettings
   sync: SyncSettings
+  notes: NotesSettings
 }
 
 

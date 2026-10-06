@@ -1,9 +1,10 @@
-import { Segmented, SettingRow, Slider, Switch } from '../../components/form';
+import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
+    const notes = useSession((s) => s.settings.notes);
     const update = useSession((s) => s.updateSettings);
     return (<div className="space-y-6">
       <section>
@@ -28,6 +29,12 @@ export function EditorSettings() {
 
         <SettingRow title={t("settings.spellcheck")}>
           <Switch checked={editor.spellcheck} onChange={(spellcheck) => void update({ editor: { spellcheck } })} label={t("settings.spellcheck")}/>
+        </SettingRow>
+      </section>
+
+      <section>
+        <SettingRow title={t("settings.todo_tag")} description={t("settings.todo_tag_hint")}>
+          <Input aria-label={t("settings.todo_tag")} value={notes.todoTag} onChange={(event) => void update({ notes: { todoTag: event.target.value } })} className="w-[200px]"/>
         </SettingRow>
       </section>
 

@@ -16,6 +16,8 @@ import { Empty, NoteListSkeleton } from '../../components/feedback';
 import { useUi } from '../../store/ui';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
 import { folderPathLabel } from '../../lib/folders';
+import { writeNoteDrag } from '../../lib/note-drag';
+import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
 import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
@@ -120,7 +122,7 @@ export function NoteList() {
     const title = useMemo(() => {
         if (searchList) return t('shell.search_all_notes');
         if (view === 'folder')
-            return (folderId ? folderPathLabel(folders, folderId) : '') || t("navigation.folder");
+            return virtualFolderLabel(folderId) ?? ((folderId ? folderPathLabel(folders, folderId) : '') || t("navigation.folder"));
         if (view === 'tag')
             return tagFilters.map((name) => `#${name}`).join(' + ');
         return t(VIEW_MESSAGE_KEYS[view]);
@@ -291,7 +293,7 @@ export function NoteList() {
         {breakpoint !== 'mobile' && <div className="mb-2.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
-            {view === 'folder' && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
+            {view === 'folder' && !isVirtualFolderId(folderId) && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
             {dateFilter && (<div className="mt-1 flex min-w-0 items-center gap-1 rounded-full border border-[var(--border-subtle)] py-0.5 pr-0.5 pl-1.5 text-[10.5px] text-[var(--text-tertiary)]">
               <CalendarDays size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
               <span className="min-w-0 truncate">{dayFilterText}</span>
@@ -553,8 +555,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const titleParts = splitByRanges(note.title || t("common.untitled_note"), highlight);
     return (<>
       <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} aria-posinset={position} aria-setsize={total} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: density === 'compact' ? 'auto 42px' : 'auto 72px' }} onDragStart={(e) => {
-            e.dataTransfer.setData('application/x-inkstone-note', note.id);
-            e.dataTransfer.effectAllowed = 'move';
+            writeNoteDrag(e, selectedIds.length > 1 && selectedIds.includes(note.id) ? selectedIds : [note.id]);
         }} onClick={(event) => {
             if (event.altKey && breakpoint === 'desktop') {
                 event.preventDefault();

@@ -168,7 +168,7 @@ function blobToDataUrl(blob: Blob): Promise<string | null> {
   })
 }
 
-function safeFileName(title: string): string {
+export function safeFileName(title: string): string {
   return title
     .replace(/[\\/:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')

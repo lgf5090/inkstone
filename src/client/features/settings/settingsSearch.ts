@@ -31,6 +31,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'appearance', titleKey: 'settings.preview_typography', termKeys: ['settings.body_font', 'settings.body_text_size', 'settings.line_height', 'settings.content_width'] },
 
   { section: 'editor', titleKey: 'settings.editor_font', termKeys: ['settings.monospace', 'common.sans_serif'] },
+  { section: 'editor', titleKey: 'settings.todo_tag', detailKey: 'settings.todo_tag_hint' },
   { section: 'editor', titleKey: 'settings.editor_font_size' },
   { section: 'editor', titleKey: 'settings.show_line_numbers' },
   { section: 'editor', titleKey: 'settings.show_toolbar' },

@@ -1,9 +1,9 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ChevronRight, Clock, CornerUpLeft, FilePlus2, FileText, FolderClosed, FolderInput, FolderOpen, FolderPlus, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Settings, Star, Sun, Trash2, Waypoints, } from 'lucide-react';
-import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
+import { numericCollator } from '../../lib/collator';
 import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primitives';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { switchThemeWithTransition, useUi } from '../../store/ui';
@@ -11,11 +11,19 @@ import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { folderDescendantIds, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
-import { FolderAppearance, FolderPicker } from '../folders/FolderPicker';
-import { SidebarTags } from '../tags/SidebarTags';
-import { t, useLocale } from "../../lib/i18n";
+import { setInboxFolderId, useFolderPreferences } from '../../lib/folder-prefs';
+import { saveCalendarPrefs, useCalendarTreePreferences } from '../../lib/calendar-prefs';
+import { exportFolderAsZip } from '../../lib/export-folder';
+import { FOLDER_DRAG_TYPE, isNoteDrag, leftDropTarget, moveNotesToFolder, readDraggedNoteIds, restoreNoteFolders } from '../../lib/note-drag';
+import { FolderPicker } from '../folders/FolderPicker';
+import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
+import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
+import { SidebarTags } from '../tags/SidebarTags';import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
+import { FolderMotionIcon } from './FolderMotionIcon';
+import { useTreeChildrenMount } from './useTreeChildrenMount';
+import { CalendarTree, InboxTree, isDropBlockedTarget, TodoTree } from './virtual-tree';
 import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
 export function Sidebar({ collapsed = false, onCollapse, }: {
@@ -208,10 +216,11 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
 }) {
     const [dropping, setDropping] = useDropState(false);
     const patchNote = useNotes((s) => s.patchNote);
+    const toast = useUi((s) => s.toast);
     const acceptsDrop = view === 'unfiled' || view === 'starred' || view === 'archived' || view === 'trash';
     const deleteNote = useNotes((s) => s.deleteNote);
     return (<button type="button" aria-current={active ? 'page' : undefined} onClick={() => onSelect(view)} onDragOver={(e) => {
-            if (!acceptsDrop || !e.dataTransfer.types.includes('application/x-inkstone-note'))
+            if (!acceptsDrop || !isNoteDrag(e))
                 return;
             e.preventDefault();
             setDropping(true);
@@ -220,18 +229,33 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
                 setDropping(false);
         }} onDrop={(e) => {
             setDropping(false);
-            const id = e.dataTransfer.getData('application/x-inkstone-note');
-            if (!id)
+            const ids = readDraggedNoteIds(e);
+            if (ids.length === 0)
                 return;
             e.preventDefault();
-            if (view === 'unfiled')
-                void patchNote(id, { folderId: null });
-            else if (view === 'starred')
-                void patchNote(id, { isStarred: true });
-            else if (view === 'archived')
-                void patchNote(id, { isArchived: true });
-            else if (view === 'trash')
-                void deleteNote(id);
+            if (view === 'unfiled') {
+                void (async () => {
+                    const previous = await moveNotesToFolder(ids, null);
+                    if (previous.length === 0)
+                        return;
+                    toast({
+                        title: t("folders.moved_value0_to_value1", { value0: previous.length, value1: t("navigation.unfiled") }),
+                        tone: 'success',
+                        action: { label: t("common.undo"), run: () => void restoreNoteFolders(previous) },
+                    });
+                })();
+                return;
+            }
+            void (async () => {
+                for (const id of ids) {
+                    if (view === 'starred')
+                        await patchNote(id, { isStarred: true });
+                    else if (view === 'archived')
+                        await patchNote(id, { isArchived: true });
+                    else if (view === 'trash')
+                        await deleteNote(id);
+                }
+            })();
         }} className={cn('group relative flex h-10 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2 text-left md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]', dropping && 'ring-1 ring-[var(--accent)]')}>
@@ -258,6 +282,9 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const createFolder = useNotes((s) => s.createFolder);
     const patchFolder = useNotes((s) => s.patchFolder);
     const expandFolder = useUi((s) => s.expandFolder);
+    const expandedFolders = useUi((s) => s.expandedFolders);
+    const openPanel = useUi((s) => s.openPanel);
+    const toast = useUi((s) => s.toast);
     const [creating, setCreating] = useState(false);
     const creatingRef = useRef(false);
     const createdTimerRef = useRef<number>(0);
@@ -265,8 +292,12 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const movingIdsRef = useRef(new Set<string>());
     const [renamingId, setRenamingId] = useState<string | null>(null);
     const [movingId, setMovingId] = useState<string | null>(null);
-    const [appearanceId, setAppearanceId] = useState<string | null>(null);
     const [rootDropping, setRootDropping] = useDropState(false);
+    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    const headerRef = useRef<HTMLDivElement>(null);
+    const headerMenu = useContextMenu();
+    const { inboxFolderId } = useFolderPreferences();
+    const { calendarVisible, todoVisible, inboxVisible } = useCalendarTreePreferences();
     useEffect(() => () => window.clearTimeout(createdTimerRef.current), []);
     const create = (parentId: string | null) => {
         if (creatingRef.current)
@@ -324,7 +355,6 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         }
     };
     const movingFolder = movingId ? folders.find((folder) => folder.id === movingId) ?? null : null;
-    const appearanceFolder = appearanceId ? folders.find((folder) => folder.id === appearanceId) ?? null : null;
     const excludedMoveTargets = useMemo(() => {
         if (!movingId)
             return undefined;
@@ -338,11 +368,76 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         }
         return excluded;
     }, [folders, movingId]);
-    return (<>
-      <section className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOverCapture={(event) => {
-            if (!event.dataTransfer.types.includes('application/x-inkstone-folder') && !event.dataTransfer.types.includes('application/x-inkstone-note'))
+    const parentFolderIds = useMemo(() => folders
+        .filter((folder) => folders.some((child) => child.parentId === folder.id))
+        .map((folder) => folder.id), [folders]);
+    const allExpanded = parentFolderIds.length > 0 && parentFolderIds.every((id) => expandedFolders.includes(id));
+    const toggleAllExpanded = () => {
+        if (allExpanded)
+            useUi.setState((state) => ({ expandedFolders: state.expandedFolders.filter((id) => !parentFolderIds.includes(id)) }));
+        else
+            useUi.setState((state) => ({ expandedFolders: [...new Set([...state.expandedFolders, ...parentFolderIds])] }));
+    };
+    const sortSiblings = (ordered: FolderNode[]) => {
+        const collator = numericCollator(locale);
+        const target = [...ordered].sort((a, b) => collator.compare(a.name, b.name) || a.id.localeCompare(b.id));
+        if (target.every((node, index) => node.id === ordered[index]?.id))
+            return;
+        for (const node of target)
+            patchFolder(node.id, { beforeId: null });
+        toast({ title: t("folders.sorted_by_name"), tone: 'success' });
+    };
+    const dropNotes = (noteIds: string[], folderId: string | null) => {
+        void (async () => {
+            const previous = await moveNotesToFolder(noteIds, folderId);
+            if (previous.length === 0)
                 return;
-            if (event.target instanceof Element && event.target.closest('[data-folder-drop-target]')) {
+            const name = folderId ? folders.find((folder) => folder.id === folderId)?.name ?? '' : t("navigation.unfiled");
+            toast({
+                title: t("folders.moved_value0_to_value1", { value0: previous.length, value1: name }),
+                tone: 'success',
+                action: { label: t("common.undo"), run: () => void restoreNoteFolders(previous) },
+            });
+        })();
+    };
+    const exportZip = (node: FolderNode) => {
+        toast({ title: t("folders.export_zip_preparing"), tone: 'default' });
+        void exportFolderAsZip(node.id).then((result) => {
+            toast({
+                title: result.count === 0 ? t("folders.export_zip_empty") : t("folders.export_zip_success", { value0: result.count }),
+                tone: result.count === 0 ? 'default' : 'success',
+            });
+        }, () => toast({ title: t("common.export_failed"), tone: 'danger' }));
+    };
+    const toggleInbox = (node: FolderNode) => {
+        if (inboxFolderId === node.id) {
+            setInboxFolderId(null);
+            toast({ title: t("folders.inbox_cleared_toast"), tone: 'default' });
+            return;
+        }
+        setInboxFolderId(node.id);
+        toast({ title: t("folders.inbox_set_toast", { value0: node.name }), tone: 'success' });
+    };
+    const headerMenuItems: MenuItem[] = [
+        { id: 'new-folder', label: t("common.new_folder"), icon: <FolderPlus size={13}/>, onSelect: () => void create(null) },
+        { id: 'manage', label: t("folders.manage_folders"), icon: <Settings2 size={13}/>, onSelect: () => openPanel('folders') },
+        { id: 'expand-all', label: allExpanded ? t("folders.collapse_all") : t("folders.expand_all"), icon: allExpanded ? <ChevronsDownUp size={13}/> : <ChevronsUpDown size={13}/>, disabled: parentFolderIds.length === 0, onSelect: toggleAllExpanded },
+        { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: tree.length < 2, onSelect: () => sortSiblings(tree) },
+        {
+            id: 'show-todo',
+            label: t("sidebar.todo_folder"),
+            checked: todoVisible,
+            separatorBefore: true,
+            onSelect: () => saveCalendarPrefs({ todoVisible: !todoVisible }),
+        },
+        { id: 'show-calendar', label: t("sidebar.calendar_folder"), checked: calendarVisible, onSelect: () => saveCalendarPrefs({ calendarVisible: !calendarVisible }) },
+        { id: 'show-inbox', label: t("sidebar.inbox_folder"), checked: inboxVisible, onSelect: () => saveCalendarPrefs({ inboxVisible: !inboxVisible }) },
+    ];
+    return (<>
+      <section id="sidebar-folders" className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOverCapture={(event) => {
+            if (!event.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && !isNoteDrag(event))
+                return;
+            if ((event.target instanceof Element && event.target.closest('[data-folder-drop-target]')) || isDropBlockedTarget(event.target)) {
                 setRootDropping(false);
                 return;
             }
@@ -353,23 +448,36 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             if (leftDropTarget(event))
                 setRootDropping(false);
         }} onDrop={(event) => {
-            const noteId = event.dataTransfer.getData('application/x-inkstone-note');
-            if (noteId) {
+            const noteIds = readDraggedNoteIds(event);
+            if (noteIds.length > 0) {
                 event.preventDefault();
                 setRootDropping(false);
-                void useNotes.getState().patchNote(noteId, { folderId: null });
+                dropNotes(noteIds, null);
                 return;
             }
-            const folderId = event.dataTransfer.getData('application/x-inkstone-folder');
+            const folderId = event.dataTransfer.getData(FOLDER_DRAG_TYPE);
             if (!folderId)
                 return;
             event.preventDefault();
             setRootDropping(false);
             void move(folderId, null, null);
         }}>
-      <div className="group/head flex items-center justify-between pr-1">
+      <div ref={headerRef} className="group/head flex items-center justify-between pr-1" onContextMenu={(event) => {
+            setHeaderMenuOpen(false);
+            headerMenu.onContextMenu(event);
+        }}>
         {mobile ? <button data-navigation-item type="button" onClick={() => useUi.getState().openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button> : <SectionLabel>{t("navigation.folder")}</SectionLabel>}
         <div className="flex items-center">
+        {parentFolderIds.length > 0 && (<Tooltip label={allExpanded ? t("folders.collapse_all") : t("folders.expand_all")}>
+            <IconButton label={allExpanded ? t("folders.collapse_all") : t("folders.expand_all")} size="sm" onClick={toggleAllExpanded} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
+              {allExpanded ? <ChevronsDownUp size={13}/> : <ChevronsUpDown size={13}/>}
+            </IconButton>
+          </Tooltip>)}
+        <Tooltip label={t("folders.manage_folders")}>
+          <IconButton label={t("folders.manage_folders")} size="sm" onClick={() => openPanel('folders')} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
+            <Settings2 size={13}/>
+          </IconButton>
+        </Tooltip>
         <Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
           <IconButton label={t("common.new_note")} size="sm" onClick={() => void createContextualNote()}><FilePlus2 size={13}/></IconButton>
         </Tooltip>
@@ -381,24 +489,24 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         </div>
       </div>
 
-      {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
+        <TodoTree />
+        <CalendarTree />
+        <InboxTree />
+        {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
           <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
         <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
-          {tree.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} onEditAppearance={setAppearanceId} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
-          {notesByFolder.get(null)?.map((note) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide}/>)}
+          {tree.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
         </div>
       </section>
       <FolderPicker open={Boolean(movingFolder)} title={t("folders.choose_parent")} folders={folders} currentId={movingFolder?.parentId ?? null} excludedIds={excludedMoveTargets} onSelect={(parentId) => {
             if (movingId)
                 void move(movingId, parentId, null);
         }} onClose={() => setMovingId(null)}/>
-      <FolderAppearance open={Boolean(appearanceFolder)} folder={appearanceFolder} onChange={(patch) => {
-            if (appearanceId)
-                patchFolder(appearanceId, patch);
-        }} onClose={() => setAppearanceId(null)}/>
+      <Menu anchor={headerRef} open={headerMenuOpen} onClose={() => setHeaderMenuOpen(false)} items={headerMenuItems}/>
+      {headerMenu.point && (<Menu anchor={headerMenu.point} open onClose={headerMenu.close} items={headerMenuItems}/>)}
     </>);
 }
-function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, onChooseParent, onEditAppearance, createdFolderId, renamingId, onStartRename, onFinishRename, }: {
+function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, onChooseParent, onSortSiblings, onExportZip, onDropNotes, onToggleInbox, createdFolderId, renamingId, onStartRename, onFinishRename, }: {
     node: FolderNode;
     notesByFolder: Map<string | null, NoteSummary[]>;
     mobile: boolean;
@@ -410,7 +518,10 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     onCreateChild: (parentId: string | null) => void;
     onMove: (id: string, parentId: string | null, beforeId: string | null) => boolean;
     onChooseParent: (id: string) => void;
-    onEditAppearance: (id: string) => void;
+    onSortSiblings: (siblings: FolderNode[]) => void;
+    onExportZip: (node: FolderNode) => void;
+    onDropNotes: (noteIds: string[], folderId: string | null) => void;
+    onToggleInbox: (node: FolderNode) => void;
     createdFolderId: string | null;
     renamingId: string | null;
     onStartRename: (id: string) => void;
@@ -423,7 +534,8 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     const folders = useNotes((s) => s.folders ?? []);
     const patchFolder = useNotes((s) => s.patchFolder);
     const deleteFolder = useNotes((s) => s.deleteFolder);
-    const patchNote = useNotes((s) => s.patchNote);
+    const { inboxFolderId } = useFolderPreferences();
+    const isInbox = inboxFolderId === node.id;
     const directNoteCount = node.directNotes;
     const [dropState, setDropState] = useDropState<'none' | 'before' | 'inside' | 'after'>('none');
     const menu = useContextMenu();
@@ -434,25 +546,9 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     const active = view === 'folder' && activeFolderId === node.id;
     const hasChildren = node.children.length > 0 || Boolean(notesByFolder.get(node.id)?.length);
     const justCreated = createdFolderId === node.id;
-    const [childrenMounted, setChildrenMounted] = useState(expanded && hasChildren);
-    const [childrenVisible, setChildrenVisible] = useState(expanded && hasChildren);
     const renaming = renamingId === node.id;
     const canCreateChild = node.depth + 1 < LIMITS.folderDepthMax;
-    useEffect(() => {
-        if (!hasChildren) {
-            setChildrenVisible(false);
-            setChildrenMounted(false);
-            return;
-        }
-        if (expanded) {
-            setChildrenMounted(true);
-            const openTimer = window.setTimeout(() => setChildrenVisible(true), 0);
-            return () => window.clearTimeout(openTimer);
-        }
-        setChildrenVisible(false);
-        const closeTimer = window.setTimeout(() => setChildrenMounted(false), 340);
-        return () => window.clearTimeout(closeTimer);
-    }, [expanded, hasChildren]);
+    const { childrenMounted, childrenVisible } = useTreeChildrenMount(expanded, hasChildren);
     const rename = (name: string) => {
         const trimmed = name.trim();
         if (!trimmed || trimmed === node.name) {
@@ -508,32 +604,73 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
         void onMove(node.id, parentNode.parentId, parentSiblings[parentIndex + 1]?.id ?? null);
     };
     const menuItems: MenuItem[] = [
-        { id: 'rename', label: t("sidebar.rename"), onSelect: () => onStartRename(node.id) },
+        { id: 'rename', label: t("sidebar.rename"), icon: <Pencil size={13}/>, onSelect: () => onStartRename(node.id) },
         { id: 'new-note', label: t("sidebar.create_new_note_here"), icon: <FilePlus2 size={13}/>, onSelect: () => {
             useUi.getState().openExplorer(node.id);
             useUi.getState().expandFolder(node.id);
             void useNotes.getState().createNote({ folderId: node.id });
         } },
         { id: 'new-child', label: t("sidebar.new_subfolder"), icon: <FolderPlus size={13}/>, disabled: !canCreateChild, onSelect: () => onCreateChild(node.id) },
-        { id: 'appearance', label: t("folders.appearance"), icon: <Palette size={13}/>, onSelect: () => onEditAppearance(node.id) },
+        { id: 'color', label: t("folders.color"), icon: <Palette size={13}/>, separatorBefore: true, submenu: ({ closeMenu }) => (<FolderColorMenu color={node.color} onSelectColor={(color) => {
+                patchFolder(node.id, { color });
+                closeMenu();
+            }} onManageFolders={() => {
+                closeMenu();
+                useUi.getState().openPanel('folders');
+            }}/>) },
+        { id: 'icon', label: t("folders.icon"), icon: <Smile size={13}/>, submenu: ({ closeMenu }) => (<FolderIconMenu icon={node.icon} onSelectIcon={(icon) => {
+                patchFolder(node.id, { icon });
+                closeMenu();
+            }}/>) },
+        { id: 'inbox', label: isInbox ? t("folders.unset_inbox") : t("folders.set_as_inbox"), icon: <Inbox size={13}/>, onSelect: () => onToggleInbox(node) },
         { id: 'move-to', label: t("folders.move_to"), icon: <FolderInput size={13}/>, separatorBefore: true, onSelect: () => onChooseParent(node.id) },
         { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, onSelect: moveEarlier },
         { id: 'move-later', label: t("sidebar.move_later"), icon: <ArrowDown size={13}/>, disabled: index === siblings.length - 1, onSelect: moveLater },
         { id: 'move-out', label: t("sidebar.move_out_one_level"), icon: <CornerUpLeft size={13}/>, disabled: !parentNode, onSelect: moveOut },
+        { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: siblings.length < 2, onSelect: () => onSortSiblings(siblings) },
+        { id: 'export-zip', label: t("folders.export_zip"), icon: <Download size={13}/>, separatorBefore: true, onSelect: () => onExportZip(node) },
+        { id: 'manage', label: t("folders.manage_folders"), icon: <Settings2 size={13}/>, onSelect: () => useUi.getState().openPanel('folders') },
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
+    const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+        if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey)
+            return;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (moveTreeFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1))
+                event.preventDefault();
+            return;
+        }
+        if (event.key === 'ArrowRight') {
+            if (expandOrReveal(event.currentTarget))
+                event.preventDefault();
+            return;
+        }
+        if (event.key === 'ArrowLeft') {
+            if (collapseOrLeave(event.currentTarget))
+                event.preventDefault();
+            return;
+        }
+        if (event.key === 'F2') {
+            event.preventDefault();
+            onStartRename(node.id);
+            return;
+        }
+        if (event.key === 'Delete') {
+            event.preventDefault();
+            void remove();
+        }
+    };
     return (<div role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} className={cn(justCreated && 'anim-tree-item-enter')} data-new-folder={justCreated || undefined}>
       <div ref={buttonRef} data-folder-drop-target onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
         }} onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes('application/x-inkstone-note') &&
-                !e.dataTransfer.types.includes('application/x-inkstone-folder'))
+            if (!isNoteDrag(e) && !e.dataTransfer.types.includes(FOLDER_DRAG_TYPE))
                 return;
             e.preventDefault();
             e.stopPropagation();
             e.dataTransfer.dropEffect = 'move';
-            if (e.dataTransfer.types.includes('application/x-inkstone-note')) {
+            if (isNoteDrag(e)) {
                 setDropState('inside');
                 return;
             }
@@ -547,12 +684,12 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             e.preventDefault();
             e.stopPropagation();
             setDropState('none');
-            const noteId = e.dataTransfer.getData('application/x-inkstone-note');
-            if (noteId) {
-                void patchNote(noteId, { folderId: node.id });
+            const noteIds = readDraggedNoteIds(e);
+            if (noteIds.length > 0) {
+                onDropNotes(noteIds, node.id);
                 return;
             }
-            const folderId = e.dataTransfer.getData('application/x-inkstone-folder');
+            const folderId = e.dataTransfer.getData(FOLDER_DRAG_TYPE);
             if (folderId && folderId !== node.id) {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const ratio = rect.height ? (e.clientY - rect.top) / rect.height : 0.5;
@@ -567,7 +704,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                     void onMove(folderId, node.id, null);
             }
         }} draggable={!renaming} onDragStart={(e) => {
-            e.dataTransfer.setData('application/x-inkstone-folder', node.id);
+            e.dataTransfer.setData(FOLDER_DRAG_TYPE, node.id);
             e.dataTransfer.effectAllowed = 'move';
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
@@ -575,7 +712,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
         {dropState === 'before' && <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-px bg-[var(--accent)]"/>}
         {dropState === 'after' && <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-px bg-[var(--accent)]"/>}
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
-          <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} onClick={(e) => {
+          <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} data-tree-toggle aria-expanded={hasChildren ? expanded : undefined} onClick={(e) => {
                 e.stopPropagation();
                 toggleFolder(node.id);
             }} aria-label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} className={cn('flex size-8 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] md:size-4', 'transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]', expanded && 'rotate-90', !hasChildren && 'invisible')}>
@@ -596,14 +733,17 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                 }
                 e.stopPropagation();
             }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<Tooltip label={folderPathLabel(folders, node.id)} side="right">
-            <button data-navigation-item={mobile || undefined} type="button" aria-current={active ? 'page' : undefined} onClick={() => {
+            <button data-navigation-item={mobile || undefined} data-tree-row type="button" aria-current={active ? 'page' : undefined} onClick={() => {
                 if (mobile) openFolderView(folders, node.id);
                 else {
                     useUi.getState().openExplorer(node.id);
                     toggleFolder(node.id);
                 }
-            }} onDoubleClick={() => onStartRename(node.id)} className="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">
-              {node.name}
+            }} onDoubleClick={() => onStartRename(node.id)} onKeyDown={onKeyDown} className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-1 text-left text-[12.5px] font-medium">
+              <span className="min-w-0 truncate">{node.name}</span>
+              {isInbox && (<Tooltip label={t("folders.inbox")} side="right">
+                <Inbox size={11} aria-label={t("folders.inbox")} className="shrink-0 text-[var(--accent)]"/>
+              </Tooltip>)}
             </button>
           </Tooltip>)}
 
@@ -625,7 +765,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
 
       {childrenMounted && (<div role="group" aria-hidden={!childrenVisible} inert={!childrenVisible} className={cn('folder-children-grid', childrenVisible && 'is-expanded')}>
           <div className="min-h-0 space-y-px overflow-hidden">
-            {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} onEditAppearance={onEditAppearance} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
+            {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} onSortSiblings={onSortSiblings} onExportZip={onExportZip} onDropNotes={onDropNotes} onToggleInbox={onToggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
             {notesByFolder.get(node.id)?.map((note) => <ExplorerNote key={note.id} note={note} depth={node.depth + 1} canOpenToSide={canOpenToSide}/>)}
           </div>
         </div>)}
@@ -633,15 +773,6 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);
-}
-function FolderMotionIcon({ open, drawing }: {
-    open: boolean;
-    drawing: boolean;
-}) {
-    return (<span aria-hidden="true" data-open={open || undefined} data-drawing={drawing || undefined} className="folder-motion-icon">
-      <FolderClosed size={14} className="folder-motion-icon__closed"/>
-      <FolderOpen size={14} className="folder-motion-icon__open"/>
-    </span>);
 }
 function useDropState<T>(idle: T) {
     const [state, setState] = useState(idle);
@@ -668,8 +799,4 @@ function useDropState<T>(idle: T) {
         };
     }, [state, idle]);
     return [state, setState] as const;
-}
-function leftDropTarget(event: React.DragEvent<HTMLElement>): boolean {
-    const next = event.relatedTarget;
-    return !(next instanceof Node) || !event.currentTarget.contains(next);
 }

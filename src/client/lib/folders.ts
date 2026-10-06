@@ -22,6 +22,14 @@ export function folderDescendantIds(folders: Folder[], rootId: string): Set<stri
     return ids;
 }
 
+export function noteFolderOwner(note: { folderId: string | null }, folderIds: ReadonlySet<string>): string | null {
+    return note.folderId && folderIds.has(note.folderId) ? note.folderId : null;
+}
+
+export function isUnfiled(note: { folderId: string | null }, folderIds: ReadonlySet<string>): boolean {
+    return noteFolderOwner(note, folderIds) === null;
+}
+
 export function folderPath(folders: Folder[], folderId: string | null): Folder[] {
     if (!folderId)
         return [];
