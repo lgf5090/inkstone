@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { replaceTagInContent, sortTagNames } from '@shared/markdown-utils'
+import { replaceTagInContent, sortTagNames, tagKey } from '@shared/markdown-utils'
 import type { NoteSummary, Tag } from '@shared/types'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -187,8 +187,8 @@ export function tagMoveTarget(tag: Tag | null | undefined, parent: string | null
   const leaf = tag.name.split('/').filter(Boolean).at(-1) ?? tag.name
   const destination = parent ? `${parent}/${leaf}` : leaf
   if (destination === tag.name) return null
-  const lower = destination.toLocaleLowerCase()
-  const source = tag.name.toLocaleLowerCase()
+  const lower = tagKey(destination)
+  const source = tagKey(tag.name)
   if (lower === source || lower.startsWith(`${source}/`)) return null
   return destination
 }
@@ -212,7 +212,11 @@ export async function moveTag(tag: Tag, parent: string | null): Promise<void> {
   try {
     await api.tags.move(tag.id, parent)
   } catch (error) {
+    // A failed move may still have renamed part of the family server-side, so restoring the
+    // snapshot we took before our own optimistic edit would also undo any move that raced us.
+    // Re-read instead of winding back.
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
+    await useNotes.getState().pull().catch(() => {})
     useUi.getState().toast({
       title: t('tags.move_failed'),
       description: error instanceof Error ? error.message : String(error),

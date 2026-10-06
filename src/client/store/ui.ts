@@ -444,11 +444,12 @@ export const useUi = create<UiState>((set, get) => ({
   }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
 
-  openView: (view, options) =>
-    set({
-      view,
+  openView: (view, options) => {
+    const tags = tagFilter(options?.tags ?? (options?.tag ? [options.tag] : []))
+    return set({
+      view: view === 'tag' && !tags.length ? 'all' : view,
       folderId: options?.folderId ?? null,
-      tags: tagFilter(options?.tags ?? (options?.tag ? [options.tag] : [])),
+      tags,
       selectedIds: [],
       dateFilter: null,
       mobilePane: 'list',
@@ -456,7 +457,8 @@ export const useUi = create<UiState>((set, get) => ({
       searchList: false,
 
       navDrawerOpen: false,
-    }),
+    })
+  },
 
   toggleTagFilter: (tag, additive) => set((s) => {
     const name = tag.trim()

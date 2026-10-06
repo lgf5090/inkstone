@@ -120,6 +120,23 @@ describe('moving a tag between levels', () => {
     expect(content('n1')).toContain('meeting')
   })
 
+  it('leaves an unrelated tag that merely shares a prefix alone', async () => {
+    const root = tag('a')
+    const sibling = tag('ab')
+    tag('a/x')
+    tag('p')
+    note('n1', '---\ntags: [ab]\n---\nbody #ab here')
+    link('n1', sibling)
+
+    const moved = await json<{ ok: true; moved: number }>(await move(root, 'p'))
+    expect(moved.moved).toBe(2)
+    expect(await names()).toEqual(['ab', 'p', 'p/a', 'p/a/x'])
+    expect(content('n1')).toContain('tags: [ab]')
+    expect(content('n1')).toContain('body #ab here')
+    expect(content('n1')).not.toContain('p/ab')
+    void root
+  })
+
   it('refuses to drop a tag inside its own subtree', async () => {
     const root = tag('work')
     tag('work/deep')

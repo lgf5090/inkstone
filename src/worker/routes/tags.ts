@@ -280,12 +280,13 @@ tagsRoutes.post('/:id/move', async (c) => {
 
   // The whole family is snapshotted before anything moves, so each step below only ever sees
   // the exact name it was asked about. Length-descending is just a stable, readable order for
-  // the change rows clients receive.
+  // the change rows clients receive. The `/` in the LIKE pattern is load-bearing: without that
+  // boundary `a` would claim the unrelated sibling `ab` and rewrite every `#ab` in the library.
   const { results: family } = await c.env.DB.prepare(
     `SELECT id, name FROM tags
       WHERE user_id = ?1 AND (name = ?2 COLLATE NOCASE OR name LIKE ?3 COLLATE NOCASE ESCAPE '\\')
       ORDER BY length(name) DESC, name COLLATE NOCASE`,
-  ).bind(userId, tag.name, likePattern(tag.name)).all<{ id: string; name: string }>()
+  ).bind(userId, tag.name, likePattern(`${tag.name}/`)).all<{ id: string; name: string }>()
 
   const familyIds = new Set(family.map((member) => member.id))
   const plan: TagMoveStep[] = []
@@ -318,9 +319,14 @@ tagsRoutes.post('/:id/move', async (c) => {
     throw error
   }
 
-  // Rewriting the bodies already made the derived pass create the destination rows, so a move
-  // must not rename in place: it copies the source row onto the destination and drops the
-  // source, the same shape a merge takes. An UPDATE here would hit idx_tags_unique.
+  // Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source
+  // tag row, so that row has to still exist. It also means the derived pass has already created
+  // the destination rows, which is why the batch below copies onto them instead of renaming in
+  // place (an UPDATE would hit idx_tags_unique).
+  //
+  // Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose
+  // rollback is a no-op, so if a LATER member fails, an earlier queued rename can still land.
+  // That converges to a partially moved family with a duplicate tag, not to lost text.
   const now = Date.now()
   const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
   const statements = plan.flatMap((step) => {
@@ -368,8 +374,7 @@ tagsRoutes.post('/:id/move', async (c) => {
     }
     throw ApiError.conflict('The tag move was refused. Refresh and try again')
   }
-  const dropped = plan.filter((_step, index) => !outcomes[index * 6 + 5]?.meta.changes)
-  if (dropped.length) {
+  if (plan.some((_step, index) => !outcomes[index * 6 + 5]?.meta.changes)) {
     try {
       for (const rewrite of rewrites.reverse()) await rewrite.rollback()
     } catch {

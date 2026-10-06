@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { LIMITS } from '../src/shared/constants'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { syncRoutes } from '../src/worker/routes/sync'
 import type { AppBindings } from '../src/worker/env'
@@ -123,6 +124,28 @@ describe('a note change recomputes the sidebar tag counts', () => {
     expect(after.full).toBe(false)
     expect(after.facetsFull).toBe(false)
     expect(after.tags.map((item) => [item.id, item.count])).toEqual([['t-red', 1]])
+  })
+
+  it('carries the recount on the last page of a paginated delta, not on every page', async () => {
+    tag('t-red', 'red')
+    note('n1')
+    link('n1', 't-red')
+    const floor = deltaFloor()
+    // Fill the first page past syncBatchSize with tag rows (cheap to serve) plus one note row, so
+    // the assertion is about the paging rule rather than about loading five hundred bodies.
+    change('note', 'n1', 'upsert')
+    for (let index = 0; index < LIMITS.syncBatchSize; index++)
+      change('tag', 't-red', 'upsert')
+    change('note', 'n1', 'upsert')
+
+    const first = await delta(floor)
+    expect(first.hasMore).toBe(true)
+    expect(first.facetsFull, 'every page would ship the whole tag list').toBe(false)
+
+    const last = await delta(first.cursor)
+    expect(last.hasMore).toBe(false)
+    expect(last.facetsFull).toBe(true)
+    expect(countOf(last, 'red')).toBe(1)
   })
 
   it('never counts another account or an archived note', async () => {

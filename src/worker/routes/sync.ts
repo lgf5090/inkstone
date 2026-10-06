@@ -101,7 +101,11 @@ syncRoutes.get('/', requireAuth, async (c) => {
   // Tag counts are a projection over `note_tags`, and a note write only emits a `note` change
   // row. Without this the delta would carry stale counts forever. Note deletions never reach
   // `noteIds` (they become `deletions`), so the flag has to read the raw change rows.
-  const facetsFull = changes.some((ch) => ch.entity === 'note')
+  //
+  // Only on the last page: the client applies every delta page through its own applySync, so
+  // marking each one full would ship the whole tag list once per page (442 KB per 5 000 tags).
+  // The final page's recount already covers everything the earlier pages moved.
+  const facetsFull = !hasMore && changes.some((ch) => ch.entity === 'note')
   const settingsChanged = [...latest.values()].some((item) => item.entity === 'settings')
   const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
   const siteChanged = [...latest.values()].some((item) => item.entity === 'site')

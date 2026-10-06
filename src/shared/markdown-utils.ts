@@ -437,7 +437,8 @@ function keyInScope(tag: string, want: string): boolean {
 
 /**
  * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.
- * Keep this in step with the notes list route, which spells the same rule in SQL.
+ * The notes list route spells the same rule in SQL, but `COLLATE NOCASE` only folds ASCII, so a
+ * non-ASCII case variant can match here and not there. The offline shell is the stricter side.
  */
 export function tagInScope(tagName: string, scope: string): boolean {
   return keyInScope(tagKey(tagName), tagKey(scope))
