@@ -28,6 +28,9 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
 // The OAuth provider and the MCP handler answer their own responses, so the app
 // middleware never sees them and the headers have to be applied at the edge.
 export function withSecurityHeaders(response: Response, url: string): Response {
+  // A 101 handshake response carries the socket, and `new Response()` only accepts 200-599,
+  // so rebuilding it to add headers would throw and tear down the WebSocket upgrade.
+  if (response.status < 200) return response
   const headers = new Headers(response.headers)
   for (const [name, value] of Object.entries(securityHeaders(url))) {
     if (!headers.has(name)) headers.set(name, value)

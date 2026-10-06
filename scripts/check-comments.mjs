@@ -740,6 +740,10 @@ const allowed = new Map([
     "/** Notes the reader took out of the graph. Sent comma-separated, like `tags`. */",
     "/** Which side of a link a local graph walks. Only meaningful with `mode: 'local'`. */",
   ]],
+  ["src/worker/app.ts", [
+    "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
+    "// mutate its headers — which the Response constructor rejects below 200.",
+  ]],
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
   ]],
@@ -858,6 +862,8 @@ const allowed = new Map([
     "// which our own `script-src 'self'` refuses — and without that bootstrap the SPA",
     "// never mounts, so nobody can use `npm run dev`. Only a dev build serving an HTML",
     "// document may set this; the contract test pins the gate.",
+    "// A 101 handshake response carries the socket, and `new Response()` only accepts 200-599,",
+    "// so rebuilding it to add headers would throw and tear down the WebSocket upgrade.",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
