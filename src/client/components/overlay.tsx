@@ -273,7 +273,7 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, label = t("overlay.menu"), }: {
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -283,6 +283,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     items: MenuItem[];
     align?: 'start' | 'end';
     width?: number;
+    zIndex?: number;
     label?: string;
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
@@ -483,7 +484,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     if (!open)
         return null;
     return (<>
-      {createPortal(<div ref={menuRef} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed z-[260] max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin }}>
+      {createPortal(<div ref={menuRef} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
       {items.map((item, index) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
@@ -516,10 +517,11 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
           </button>
         </div>))}
     </div>, document.body)}
-      {submenuItem?.submenu && createPortal(<div ref={submenuRef} role="group" aria-label={submenuItem.label} tabIndex={-1} className="anim-pop fixed z-[265] outline-none" style={{
+      {submenuItem?.submenu && createPortal(<div ref={submenuRef} role="group" aria-label={submenuItem.label} tabIndex={-1} className="anim-pop fixed outline-none" style={{
         top: submenuPosition?.top ?? 0,
         left: submenuPosition?.left ?? 0,
         visibility: submenuPosition ? 'visible' : 'hidden',
+        zIndex: zIndex + 5,
       }}>
           {typeof submenuItem.submenu === 'function'
             ? submenuItem.submenu({ closeMenu: onClose })

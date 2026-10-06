@@ -8,6 +8,7 @@ import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, c
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import type { EditorSettings } from '@shared/types';
 import { cn } from '../lib/cn';
+import { useThemeDark } from '../lib/hooks';
 import { editorTheme } from './theme';
 import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } from './decorations';
 import { codeFenceSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
@@ -15,6 +16,9 @@ import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, smartEnter, tableTab } from './commands';
 import { editorKeymap } from './shortcuts';
 import { livePreview } from './live-preview';
+import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
+import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
+import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
@@ -22,6 +26,7 @@ const externalValueUpdate = Annotation.define<boolean>();
 export interface CodeEditorProps {
     value: string;
     live?: boolean;
+    noteId?: string;
     noteTitle?: string;
     onHeadings?: (headings: Heading[]) => void;
     onChange: (value: string) => void;
@@ -42,12 +47,16 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
 
     const cbRef = useRef({ onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle });
     cbRef.current = { onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle };
+    const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
+    const dark = useThemeDark();
+    const hoverRef = useRef({ propose: hover.propose, card: hover.card, hideNow: hover.hideNow });
+    hoverRef.current = { propose: hover.propose, card: hover.card, hideNow: hover.hideNow };
 
     const liveCompartment = useRef(new Compartment());
     const lineNumbersCompartment = useRef(new Compartment());
@@ -125,6 +134,16 @@ export function CodeEditor({ value, live = false, noteTitle = '', onHeadings, on
                     cbRef.current.onScroll?.(view);
                 },
             }),
+            linkHoverExtension(),
+            linkHoverFacet.of({
+                propose: (link, options) => hoverRef.current.propose(link, options),
+                hide: () => {
+                    if (!hoverRef.current.card)
+                        return false;
+                    hoverRef.current.hideNow();
+                    return true;
+                },
+            }),
         ];
         const view = new EditorView({
             state: EditorState.create({ doc: value, extensions }),
@@ -200,5 +219,8 @@ export function CodeEditor({ value, live = false, noteTitle = '', onHeadings, on
     useEffect(() => {
         viewRef.current?.dispatch({ effects: setFocusMode.of(settings.focusMode) });
     }, [settings.focusMode]);
-    return (<div ref={hostRef} className={cn('ink-editor', className)} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter}/>);
+    return (<>
+      <div ref={hostRef} className={cn('ink-editor', className)} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter}/>
+      {hover.card && (<WikiLinkHoverCard card={hover.card} path={hover.card.noteId ? [hover.card.noteId] : []} depth={1} dark={dark} onClose={hover.hideNow} onEnter={hover.clearPendingHide} onLeave={hover.armHide} onPin={handlePin}/>)}
+    </>);
 }

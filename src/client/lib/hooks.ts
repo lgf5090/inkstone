@@ -107,3 +107,16 @@ export function useResizeObserver<T extends HTMLElement>(
     return () => observer.disconnect()
   }, [ref, handler])
 }
+
+
+export function useThemeDark(): boolean {
+  const [isDark, setIsDark] = useState(() => (document.documentElement.dataset.theme ?? 'dark') === 'dark')
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark((document.documentElement.dataset.theme ?? 'dark') === 'dark')
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return isDark
+}
