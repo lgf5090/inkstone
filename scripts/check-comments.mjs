@@ -25,6 +25,11 @@ const allowed = new Map([
     "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n */",
     "// The timeline fixture is the reference project's own demo text, copied verbatim so the",
     "// space-free `:::timeline` spelling and the Han titles are exercised as authors write them.",
+    "// A built-in template tags its notes with a Han label, so the tag merge has to keep a",
+    "// non-ASCII item in a flow list intact. The gate replaces one occurrence per listed",
+    "// fragment, so the tag is named as many times as the fixture spells it.",
+    "// A tag view is the case that matters for the merge, and the built-in catalog tags in Han,",
+    "// so the fixture spells the tag twice: once going in, once coming back out.",
   ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
@@ -107,6 +112,7 @@ const allowed = new Map([
     "/**\n * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole\n * note. All of it is one transaction, so one undo takes the fence back — the same contract every\n * other insertion here has. Returns false when the text holds no headings and no lists, which is not\n * something the command can report on its own; {@link generateMindmapFromOutline} does.\n */",
     "/** The menu-level action: says so when there was no outline to draw, instead of looking like a dead item. */",
     "/**\n * A column block arrives as two columns, because the `::` that divides them is the one part of the\n * syntax a reader cannot guess from the header.\n */",
+    "/**\n * Insert the configured new-note template at each caret.\n *\n * This interpolates only: the note already exists, so merging its front matter\n * tags would fight the properties the author wrote. `{{folder}}` and `{{tags}}`\n * are filled from the note being edited, and `{{cursor}}` lands the caret\n * inside the inserted text.\n */",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
@@ -491,6 +497,32 @@ const allowed = new Map([
   ["src/client/features/tags/useTagMenuItems.tsx", [
     "/**\n * One tag menu, four entrances: the sidebar row, an inline `#tag` in the preview, a hashtag in the\n * editor, and a pill in the properties panel. A name that is not in the facet list yet (a tag typed\n * into a note that has not been saved) still gets the read-only half, so nothing here can be clicked\n * against a row that no longer exists.\n */",
   ]],
+  ["src/client/features/templates/gallery-actions.ts", [
+    "/**\n * Batch actions apply one store write per template. Each write re-serializes the\n * whole library, so the count reported back is the number that actually changed\n * rather than the size of the selection.\n */",
+  ]],
+  ["src/client/features/templates/gallery-export.ts", [
+    "/** Built-ins are re-seeded by the app, so an export carries only what the user made. */",
+  ]],
+  ["src/client/features/templates/gallery-keyboard.ts", [
+    "/** True while a dialog, a menu, or a text field owns the keyboard. */",
+    "/** Non-arrow shortcut keys; returns true once the event was consumed. */",
+    "/**\n * Moves the focus ring across the grid. The column count is read from the laid-out\n * grid rather than assumed, because the same panel is one column on a phone and\n * three on a wide desktop.\n */",
+    "/** Template ids are opaque and can start with a digit, which is not a bare CSS attribute value. */",
+  ]],
+  ["src/client/features/templates/gallery-modals.tsx", [
+    "// Reading the whole file into a string first, so an oversized drop fails",
+    "// here instead of freezing the tab on JSON.parse.",
+  ]],
+  ["src/client/features/templates/gallery-persist.ts", [
+    "/** localStorage is shared and hand-editable, so a malformed entry falls back rather than throws. */",
+    "/**\n * Tags are typed as one comma-separated line. The full-width comma is what a\n * Chinese keyboard produces, and a run of whitespace counts as a separator so\n * `daily  reading` does not become one tag.\n */",
+  ]],
+  ["src/client/features/templates/gallery-state.ts", [
+    "/**\n * The filter and selection are remembered between visits, but the search box is\n * typed one character at a time, so the write is deferred: persisting per\n * keystroke put a synchronous localStorage flush in front of every repaint.\n */",
+  ]],
+  ["src/client/features/templates/template-card.tsx", [
+    "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
+  ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
@@ -562,6 +594,8 @@ const allowed = new Map([
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",
     "/**\n   * Takes a getter so a keystroke only stores a closure: materialising 5000 summaries per\n   * change used to cost ~1.9 ms even though the debounced write happens once.\n   */",
     "/**\n   * One transaction for a whole flush. enqueueOutbox() reads and rewrites the entire queue,\n   * so calling it per queued write costs K reads plus K clones of an array that grows with K.\n   */",
+    "/** The whole client-side template library, persisted as one per-account record. */",
+    "/**\n   * Reads the per-account template library, dropping any stored entry that no\n   * longer matches the shape. A corrupt record degrades to an unseeded library\n   * rather than throwing the gallery into an error state.\n   */",
   ]],
   ["src/client/lib/export-note.ts", [
     "// Pinned so an exported document cannot silently load a different stylesheet: the hash",
@@ -1228,6 +1262,9 @@ const allowed = new Map([
     "/**\n * A tree row edits one segment, so committing it has to re-attach the parent path — sending the\n * bare segment would silently move the tag to the top level.\n */",
     "/**\n * Paths of the siblings sharing `fullPath`'s parent that themselves have children — the rows a\n * \"toggle this level\" action has to touch.\n */",
   ]],
+  ["src/client/lib/template-notes.ts", [
+    "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter.\n */",
+  ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
     "// jsdom answers every media query with `false`, which the app reads as a phone, so a case written",
@@ -1253,6 +1290,32 @@ const allowed = new Map([
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
     "// Quota or private-mode writes can throw; the pref stays authoritative in memory.",
+  ]],
+  ["src/client/store/new-note.ts", [
+    "/** Fresh-note construction: template expansion, caret hand-off, and title sync. */",
+    "/** True when the template had no front matter for `tags` to be merged into. */",
+    "/**\n * Build the initial content of a fresh note from the configured template\n * (`settings.notes.newNoteTemplate`). An empty or whitespace-only template\n * yields a blank note, which is the pre-template behaviour.\n *\n * Tags the note was created under are merged into the front matter `tags`\n * list rather than written as body text, so a note made from a tag view lands\n * on that tag page without the tag cluttering the first line. `tagsUnapplied`\n * reports the ones that had nowhere to go.\n */",
+    "// A tag only lands in the note through the front matter merge; without a",
+    "// metadata block in the template there is nothing to merge into, and the",
+    "// caller decides whether to fall back to a body tag instead.",
+    "/**\n * Rewrite the note's existing front matter `title` property, or return null\n * when the note has no front matter or never declared one: renaming a plain\n * note must not bolt a metadata block onto it.\n */",
+    "/**\n * The title a body edit just declared for itself, or null to leave the note's\n * title alone. Only a *change* in the front matter `title` counts: comparing\n * against the previous content is what stops a note whose title was renamed\n * while the property stayed behind from snapping back on the next keystroke.\n */",
+    "/** The folder a new note belongs to, given the view the reader is looking at. */",
+    "/**\n * Pending caret positions for freshly created notes, consumed by the editor on\n * mount. A note created in the background never mounts, so the map is bounded to\n * the most recent entries rather than growing for the length of the session.\n */",
+  ]],
+  ["src/client/store/note-templates.ts", [
+    "/** Coordinates the client-side template library: built-in seeding, categories and CRUD. */",
+    "/** Account the hydrated library belongs to; a change forces a re-read. */",
+    "/**\n * Re-read the catalog for the entries the user never touched. Editing a built-in\n * flips `builtin` to false, so a customized copy keeps its text and only the\n * pristine ones follow the interface language and catalog changes.\n */",
+    "/**\n * Bring an existing library up to the current catalog without touching anything\n * the user made or edited. Returns the same object when there is nothing to\n * write, so hydration can skip a pointless save.\n */",
+    "/**\n * Read the library for `owner`. Hydration is keyed to the account because the\n * record is stored per user: keyed on nothing, a second sign-in in one browser\n * would keep showing the first account's templates. Runs are chained so a slow\n * read for the previous account can never land after the new one has.\n */",
+    "// The account moved on while this read was in flight, so its result belongs",
+    "// to nobody: publishing it would show one account's library under another.",
+    "// Customizing a built-in template hands ownership to the user, so it",
+    "// becomes deletable and drops the built-in badge.",
+    "// Category ids survive when they exist locally (custom categories",
+    "// imported in the same batch included); unknown ids fall back to",
+    "// uncategorized instead of dangling.",
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
@@ -1281,6 +1344,10 @@ const allowed = new Map([
     "// `beforeunload` and `pagehide` are browser-forced APIs, allowed as an exception to the no-native-",
     "// dialog rule: this listener only persists queued writes. It never calls preventDefault or sets",
     "// `returnValue`, so the browser shows no leave-page prompt (tests/no-native-dialogs.test.ts).",
+    "/** Caret offset for an explicitly supplied `content`; ignored when the template builds it. */",
+    "// The tags a note was created under go to the store as a list rather than as",
+    "// body text: the new-note template decides where they land, and its front",
+    "// matter is where a tag page expects them.",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",
@@ -1326,6 +1393,9 @@ const allowed = new Map([
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
     "/** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */",
+    "/**\n * The template inserted at the top of a new note. Keep the placeholders ASCII:\n * they are filled in at creation time with the note title and the current\n * date and time. The first line must be `---`, since a leading blank line would\n * stop the front matter from parsing at all.\n */",
+    "/**\n * Ceiling the server applies to the stored template. The settings editor caps\n * input at the same number so what a reader sees in the preview is what the\n * account keeps.\n */",
+    "/**\n   * A shared template is a snippet, not a document. Kept under the route's JSON\n   * body ceiling so an oversized post is refused with a specific message rather\n   * than by the transport limit.\n   */",
   ]],
   ["src/shared/markdown-utils.ts", [
     "/** Provides pure Markdown analysis shared by the browser and Worker runtimes. */",
@@ -1363,6 +1433,29 @@ const allowed = new Map([
     "/**\n * The LIKE pattern for a tag prefix: escapes the two wildcards and the escape character, then\n * appends `%`. Paired with `ESCAPE '\\\\'` in SQL and with tagInScope() in TypeScript, which spell\n * the same subtree rule for the offline shell.\n */",
     "// A layout block's remainder is its configuration, not a title, so the whole line goes; a",
     "// `::: details Some title` keeps its, because there the remainder is the title.",
+    "/**\n * Add a tag to the note's front matter `tags` list, creating the property when\n * it is missing. Returns `content` untouched when there is no front matter to\n * write into, when the tag is blank, or when the note already carries it. An\n * existing flow list keeps its flow spelling, so the default template's\n * `tags: []` becomes `tags: [daily]` rather than three rewritten lines.\n */",
+  ]],
+  ["src/shared/note-template-render.ts", [
+    "/**\n * Renders a new-note template into note content.\n *\n * Placeholders are filled in a single left-to-right pass, so a value that\n * itself looks like a placeholder (`{{tags}}` inside a note title) is written\n * out literally instead of being expanded a second time.\n */",
+    "/** Placeholders the renderer knows. Anything else is copied through untouched. */",
+    "/** Contextual values a caller supplies per note; both render verbatim, see `renderNewNoteTemplate`. */",
+    "/** Offset for the editor caret, or null when the template had no `{{cursor}}`. */",
+    "/**\n * Half-open span of the front matter *values*, i.e. the lines between the two\n * `---` fences. Placeholders inside it are quoted for YAML; the same\n * placeholder in the body is written as plain text, because a heading such as\n * `# {{title}}` must not gain JSON quotes.\n */",
+    "/**\n * Quote a scalar only when YAML would read it as something else: a leading\n * indicator, a structural character, surrounding whitespace, a line break, or a\n * spelling YAML resolves to a number, date or boolean.\n */",
+    "/** A value that lands inside front matter must not carry a line break. */",
+    "/**\n * Fill the template's placeholders for one note.\n *\n * `folder` and `tags` are inserted verbatim rather than quoted, because\n * `{{tags}}` conventionally expands into a flow list (`tags: [a, b]`) that\n * quoting would destroy. Both are flattened to a single line first.\n */",
+    "/**\n * Render a new-note template into final content and merge the tags a note was\n * created under into its front matter.\n *\n * Interpolation runs before the merge on purpose: the YAML round trip the merge\n * performs would parse a raw `{{tags}}` as a flow mapping and leave it behind in\n * the note. The caret offset is then shifted by however many characters the\n * merge added ahead of it.\n */",
+  ]],
+  ["src/shared/note-templates.ts", [
+    "/**\n * Built-in template library catalog.\n *\n * The gallery is seeded per user from this catalog on first run. Names,\n * descriptions and Markdown bodies live in the locale resources (one entry per\n * language), so the catalog only references message keys. Bump\n * `TEMPLATE_SEED_VERSION` when adding or changing built-in entries: hydration\n * merges the missing/updated entries into existing user libraries without\n * touching user-created templates or user edits.\n */",
+    "/**\n * Cross-cutting labels (not categories) used to tag built-in templates. Each\n * key maps to a localized label; user templates keep arbitrary free-form tags.\n */",
+    "/**\n * Increment when the built-in catalog changes so already-seeded libraries pick\n * up new or updated entries. User edits to an entry that shares a built-in id\n * are never overwritten by a re-seed.\n */",
+    "/**\n * Portable format for exporting/importing a user's template library. Only\n * user-created templates and categories are exported; built-ins are re-seeded\n * by the app itself and stay out of the file.\n */",
+    "/**\n * Bounds applied to an imported library. An export file is untrusted input of\n * arbitrary size, so every variable-length field is clamped here rather than\n * at each consumer, and the entry counts are capped so one paste cannot grow the\n * IndexedDB record past what the gallery can render.\n */",
+    "/** Entries dropped for being malformed or over budget; reported so the UI can say so out loud. */",
+    "/**\n * Parses and validates an exported template library. Returns a null `data` when\n * the payload is not a well-formed export; malformed entries are dropped\n * individually so a partially broken file can still be imported.\n */",
+    "/** Validates one entry and clamps its fields; returns null when it is unusable. */",
+    "/**\n   * Ceiling on the combined body size of one import. The per-entry cap alone\n   * would let a file of 2000 full-size templates ask the browser to store 128 MB\n   * under a single IndexedDB key.\n   */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -1383,6 +1476,13 @@ const allowed = new Map([
     "/** Draw each tag as its own node, linking the notes that carry it. Sent as `1`. */",
     "/** Notes the reader took out of the graph. Sent comma-separated, like `tags`. */",
     "/** Which side of a link a local graph walks. Only meaningful with `mode: 'local'`. */",
+    "/**\n   * Inserted at the top of every new note. Empty or whitespace-only yields a\n   * blank note. Capped by `NEW_NOTE_TEMPLATE_MAX_LENGTH`, which is also the\n   * limit the server applies when persisting settings.\n   */",
+    "/** Rewrite the front matter `title` property whenever the note title changes. */",
+    "/** Adopt a changed front matter `title` property as the note title. */",
+    "/** True for categories shipped with the app; they cannot be renamed or deleted. */",
+    "/** True for templates shipped with the app; they can be edited but not deleted. */",
+    "/** Free-form labels shown in the gallery and used as a filter. */",
+    "/** Manual sort position within the category; falls back to recency when absent. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
@@ -1460,6 +1560,7 @@ const allowed = new Map([
     "// user owns — to \"(user_id=? AND source_note_id=?)\". The two OR-shaped",
     "// predicates (includeOrphans, local BFS) keep their old plans: one index",
     "// cannot serve an OR across two columns.",
+    "// The shared template directory: one row per published template, listed newest first.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -1598,6 +1699,13 @@ const allowed = new Map([
     "// ceiling between bursts of password guessing.",
     "// Malformed names collapse to one shared identity, so they keep only the",
     "// per-IP buckets: otherwise strangers could lock out a user who mistypes.",
+  ]],
+  ["src/worker/routes/community-templates.ts", [
+    "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
+    "/**\n * Resolves the row an update targets and enforces both ceilings. A supplied id\n * is only honoured when it is new or already belongs to this account, so one\n * author can neither overwrite nor squat another author's id.\n */",
+    "// `created_at` is deliberately absent from the UPDATE list: re-publishing an",
+    "// existing template refreshes its text but must not jump it back to the top",
+    "// of the directory.",
   ]],
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",
@@ -1813,6 +1921,10 @@ const allowed = new Map([
   ["tests/tag-move-route.test.ts", [
     "// Six statements per family member, so fifteen of them are ninety. node:sqlite runs a batch",
     "// of any size, so only counting the calls here can catch an unchunked one.",
+  ]],
+  ["tests/template-library-storage.test.ts", [
+    "// The migration only runs on the bind that switches accounts, so start from",
+    "// a different one to make this case independent of test order.",
   ]],
   ["tests/throttle-lock-decay.test.ts", [
     "// The per-slug global work budget from shareVerifyThrottleTargets: 60 attempts per ten",

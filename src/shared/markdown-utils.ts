@@ -814,6 +814,35 @@ export function renameFrontMatterValue(content: string, from: string, to: string
   })
 }
 
+/**
+ * Add a tag to the note's front matter `tags` list, creating the property when
+ * it is missing. Returns `content` untouched when there is no front matter to
+ * write into, when the tag is blank, or when the note already carries it. An
+ * existing flow list keeps its flow spelling, so the default template's
+ * `tags: []` becomes `tags: [daily]` rather than three rewritten lines.
+ */
+export function appendFrontMatterTag(content: string, tag: string): string {
+  const parsed = parseFrontMatter(content)
+  if (!parsed.lineOffset || parsed.errors.length) return content
+  const clean = tag.trim().replace(/^#/, '').trim()
+  if (!clean) return content
+  const known = frontMatterTags(parsed.data)
+    .map((item) => item.replace(/^#/, '').trim())
+    .filter(Boolean)
+  if (known.some((item) => tagNamesEqual(item, clean))) return content
+  const key = !Object.prototype.hasOwnProperty.call(parsed.data, 'tags') &&
+    Object.prototype.hasOwnProperty.call(parsed.data, 'tag')
+    ? 'tag'
+    : 'tags'
+  return rewriteFrontMatter(content, (document) => {
+    const next = [...known, clean]
+    const node = document.get(key, true)
+    if (isSeq(node)) node.items = next.map((item) => new Scalar(item))
+    else document.set(key, next)
+    return true
+  })
+}
+
 function rewriteFrontMatter(
   content: string,
   mutate: (document: FrontMatterDocument) => boolean,

@@ -88,6 +88,21 @@ const allowedHanFragments = new Map([
         '\u9879\u76ee\u5f00\u6e90',
         '\u6b63\u5f0f\u5f00\u6e90',
     ]],
+    // A built-in template tags its notes with a Han label, so the tag merge has to keep a
+    // non-ASCII item in a flow list intact. The gate replaces one occurrence per listed
+        // fragment, so the tag is named as many times as the fixture spells it.
+    // A tag view is the case that matters for the merge, and the built-in catalog tags in Han,
+    // so the fixture spells the tag twice: once going in, once coming back out.
+    [path.resolve('src/client/store/new-note.test.ts'), [
+        '\u6bcf\u65e5',
+        '\u6bcf\u65e5',
+    ]],
+    [path.resolve('src/shared/note-template-render.test.ts'), [
+        '\u6bcf\u65e5',
+        '\u6bcf\u65e5',
+        '\u6bcf\u65e5',
+        '\u5e74\u5ea6\u8ba1\u5212',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.
