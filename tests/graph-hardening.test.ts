@@ -76,6 +76,17 @@ describe('graph storage and route hardening', () => {
     expect(orphans).not.toMatch(/source_note_id = n\.id\s+OR\s+\w+\.target_note_id = n\.id/)
   })
 
+  it('header action rows wrap instead of pushing controls off the window', () => {
+    const workspace = read('../src/client/features/workspace/Workspace.tsx')
+    const headers = workspace.match(/<header className="flex min-h-11[^"]*"/g) ?? []
+    expect(headers.length).toBe(2)
+    for (const header of headers) expect(header).toContain('flex-wrap')
+    const companion = read('../src/client/features/graph/LocalGraphPanel.tsx')
+    expect(companion).toMatch(/min-h-8[^"]*flex-wrap/)
+    // The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.
+    expect(companion).toMatch(/className="h-6[^"]*md:h-6"/)
+  })
+
   it('graph controls come from the shared form primitives', () => {
     const panel = graphSources()
     expect(panel).toContain("from '../../../components/form'")

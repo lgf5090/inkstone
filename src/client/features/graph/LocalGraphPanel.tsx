@@ -68,7 +68,7 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph }: LocalGraph
 
   return <section className="flex h-64 shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-base)]"
     aria-label={t('graph.local_graph')}>
-    <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 text-[11px] font-semibold tracking-[.04em] text-[var(--text-tertiary)]">
+    <div className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-1 text-[11px] font-semibold tracking-[.04em] text-[var(--text-tertiary)]">
       <div className="flex min-w-0 items-center gap-1.5">
         <Waypoints size={12} aria-hidden="true"/>
         <span className="truncate">{t('graph.local_graph')}</span>
@@ -76,7 +76,7 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph }: LocalGraph
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         <Tooltip label={t('graph.depth')}>
-          <Select aria-label={t('graph.depth')} value={String(depth)} className="h-6 max-w-16 text-[10.5px]"
+          <Select aria-label={t('graph.depth')} value={String(depth)} className="h-6 max-w-16 text-[10.5px] md:h-6"
             onChange={(event) => setDepth(Number(event.target.value))}>
             {GRAPH_DEPTHS.map((option) => <option key={option} value={String(option)}>{option}</option>)}
           </Select>

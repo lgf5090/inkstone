@@ -271,7 +271,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         return <NoNoteSelected onCreate={() => void createContextualNote()}/>;
     if (!loaded) {
         return (<div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-editor)]" aria-busy={!loadError}>
-        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
+        <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-1">
           {isMobile && onMobileBack && <IconButton label={t("workspace.back_to_notes")} size="sm" onClick={onMobileBack}><ArrowLeft size={16}/></IconButton>}
           <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">{note.title || t("common.untitled_note")}</span>
           {grouped && pane === 'secondary' && <IconButton label={t("workspace.close_right_note")} size="sm" onClick={closeSecondaryNote}><X size={15}/></IconButton>}
@@ -389,7 +389,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             activateWorkspacePane(pane);
     };
     return (<div role={grouped ? 'region' : undefined} aria-label={grouped ? (pane === 'secondary' ? t("workspace.right_note_pane") : t("workspace.left_note_pane")) : undefined} data-workspace-pane={grouped ? pane : undefined} onPointerDownCapture={activatePane} onFocusCapture={activatePane} className={cn('flex h-full min-h-0 flex-col bg-[var(--bg-editor)]', grouped && paneActive && 'shadow-[inset_0_2px_0_var(--accent)]')}>
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
+      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-1">
         {isMobile && onMobileBack && (<Tooltip label={t("workspace.back_to_notes")} side="right">
             <IconButton label={t("workspace.back_to_notes")} size="sm" onClick={onMobileBack}>
               <ArrowLeft size={16}/>
