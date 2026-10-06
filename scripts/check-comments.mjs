@@ -918,6 +918,18 @@ const allowed = new Map([
     "/**\n * The table text for a model. Unpadded: a body a toggle wrote should read like one a person typed, and\n * trailing spaces inside every cell would show up in the note as whitespace the editor keeps.\n */",
     "/** The number a cell means: thousands separators allowed, anything unreadable is zero. */",
   ]],
+  ["src/client/lib/markdown/code-formatter/c-style.ts", [
+    "/**\n * A slash opens a comment or a regex depending on what came before it, and the two\n * failures are asymmetric: reading a regex that opens with an escaped star as a block\n * comment puts the formatter inside a comment that never closes, so every line below it\n * is copied verbatim and the block silently stops being formatted. Division is therefore\n * the default, and a regex is only recognised where a value can start.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/index.ts", [
+    "/**\n * The ceiling on the body one press may rewrite. Every formatter here is linear per line, but they are all\n * driven from a click on a block a reader did not write: a shared note hands one author's text to another\n * person's main thread, and a fence can be pasted as well as typed. The number sits far above any block a\n * person reads in a note, so it refuses a blob rather than a big example.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/json.ts", [
+    "/**\n * JSON is reformatted by re-emitting its own tokens, never by `JSON.parse` + `JSON.stringify`. A round-trip\n * through a parsed value rewrites the data it is only supposed to re-indent: `1.0` becomes `1`, `1e10` becomes\n * `10000000000`, and an integer past `Number.MAX_SAFE_INTEGER` comes back with different digits. Stripping\n * `//` comments before parsing is no better, because it also eats the `//` of every `\"https://…\"` value.\n * Scanning instead of parsing keeps every scalar byte for byte and leaves comments where they were written.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/markup.ts", [
+    "/**\n * Placeholders come back out in one pass with a function replacer. A string replacement would read `$&` and\n * `$1` inside the restored text as patterns — a script body holding `\"$&\"` would be rewritten with a copy of\n * the placeholder — and a loop over the blocks would let a literal that *mentions* a later placeholder have\n * it substituted by that later pass.\n */",
+  ]],
   ["src/client/lib/markdown/colon-fence.ts", [
     "/**\n * The one reading of `:::` fences that both halves of the family have to agree on.\n *\n * The renderer scans markdown-it's line index while a settings toolbar scans the note's raw text, and\n * the two fail identically if each keeps its own copy of the rule: a line inside a ``` fence is text,\n * a `::: word` opens a container however the author spaced it, and a bare `::` separates columns only\n * when it is not inside a container that owns it. Every one of those judgements lives here and is\n * reached through a line reader, so a container can never be split one way on screen and another way\n * when a toolbar edits its header.\n */",
     "/** The slice of a markdown-it block state this module needs; kept structural so tests can fake it. */",
