@@ -579,6 +579,12 @@ const allowed = new Map([
   ["src/worker/routes/tags.ts", [
     "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
     "// the isolate before the first write happens.",
+    "// The whole family is snapshotted before anything moves, so each step below only ever sees",
+    "// the exact name it was asked about. Length-descending is just a stable, readable order for",
+    "// the change rows clients receive.",
+    "// Rewriting the bodies already made the derived pass create the destination rows, so a move",
+    "// must not rename in place: it copies the source row onto the destination and drops the",
+    "// source, the same shape a merge takes. An UPDATE here would hit idx_tags_unique.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",

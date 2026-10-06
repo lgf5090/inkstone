@@ -11,9 +11,11 @@ import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 import { ManageTagsModal } from './ManageTagsModal';
 import { TagAppearance } from './TagAppearance';
-import { createTag, deleteTag, renameTag, setTagColor, setTagPinned } from './tagMutations';
+import { createTag, deleteTag, moveTag, renameTag, setTagColor, setTagPinned, tagMoveTarget } from './tagMutations';
 
 const COLLAPSED_ROW_LIMIT = 12;
+const TAG_MIME = 'application/x-inkstone-tag';
+const ROOT_DROP = '\u0000root';
 
 export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const tags = useNotes((s) => s.tags);
@@ -31,6 +33,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const [appearanceId, setAppearanceId] = useState<string | null>(null);
     const [draftParent, setDraftParent] = useState<string | null>(null);
     const [manageOpen, setManageOpen] = useState(false);
+    const [dropPath, setDropPath] = useState<string | null>(null);
+    const [dragPath, setDragPath] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const tree = useMemo(() => buildTagTree(tags), [tags]);
@@ -73,7 +77,25 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     };
     return (<>
       <section className="mt-4">
-      <div className="group/head flex items-center justify-between pr-1">
+      <div
+        className="group/head flex items-center justify-between pr-1"
+        onDragOver={(event) => {
+          if (!dragPath || !tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, null)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setDropPath(ROOT_DROP);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropPath(null);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const name = event.dataTransfer.getData(TAG_MIME);
+          setDropPath(null);
+          setDragPath(null);
+          const source = tags.find((item) => item.name === name);
+          if (source) void moveTag(source, null);
+        }}>
         {mobile
             ? <button data-navigation-item type="button" onClick={() => openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button>
             : <SectionLabel>{t('navigation.tag')}</SectionLabel>}
@@ -154,7 +176,32 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, value);
-                }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(node.tag.id)} onCreateChild={startDraft} onManage={() => setManageOpen(true)}/>))}
+                }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(node.tag.id)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} onDragStart={(event) => {
+                    if (node.isVirtual) return;
+                    event.dataTransfer.setData(TAG_MIME, node.fullPath);
+                    event.dataTransfer.effectAllowed = 'move';
+                    setDragPath(node.fullPath);
+                }} onDragEnd={() => {
+                    setDragPath(null);
+                    setDropPath(null);
+                }} onDragOver={(event) => {
+                    if (!dragPath || dragPath === node.fullPath || !tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, node.fullPath)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.dataTransfer.dropEffect = 'move';
+                    setDropPath(node.fullPath);
+                }} onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null) && dropPath === node.fullPath) setDropPath(null);
+                }} onDrop={(event) => {
+                    if (dropPath !== node.fullPath) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const name = event.dataTransfer.getData(TAG_MIME);
+                    setDropPath(null);
+                    setDragPath(null);
+                    const source = tags.find((item) => item.name === name);
+                    if (source) void moveTag(source, node.fullPath);
+                }}/>))}
         {activeTags.length > 1 && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
             <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>
             {activeTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagFilter(name, true)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
@@ -229,7 +276,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
     </div>);
 }
-function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onEditColor, onCreateChild, onManage, }: {
+function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onEditColor, onCreateChild, onManage, dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
     node: TagTreeNode;
     searching: boolean;
     query: string;
@@ -245,6 +292,13 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     onEditColor: () => void;
     onCreateChild: (path: string) => void;
     onManage: () => void;
+    dragging: boolean;
+    dropTarget: boolean;
+    onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
+    onDragEnd: () => void;
+    onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+    onDragLeave: (event: React.DragEvent<HTMLDivElement>) => void;
+    onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
 }) {
     const menu = useContextMenu();
     const rowRef = useRef<HTMLDivElement>(null);
@@ -270,7 +324,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     return (<div ref={rowRef} role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} aria-selected={active} data-tag-row data-row-index={node.isVirtual ? undefined : node.tag.id} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
-        }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 text-[12.5px] transition-colors duration-[var(--dur-fast)] md:h-[30px]', highlighted && 'ring-1 ring-[var(--accent-ring)]', active
+        }} draggable={!node.isVirtual} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 text-[12.5px] transition-colors duration-[var(--dur-fast)] md:h-[30px]', highlighted && 'ring-1 ring-[var(--accent-ring)]', dropTarget && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]', dragging && 'opacity-45', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: 4 + node.depth * 13 }}>
       {hasChildren ? (<button type="button" aria-label={expanded ? t('tags.collapse_children') : t('tags.expand_children')} onClick={onToggle} className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:size-5">

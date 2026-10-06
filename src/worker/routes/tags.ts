@@ -258,6 +258,131 @@ tagsRoutes.patch('/:id', async (c) => {
   return c.json(row ? toTag(row) : { ok: true })
 })
 
+tagsRoutes.post('/:id/move', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const body = await readJson<{ parent?: string | null }>(c, JSON_BODY_LIMITS.small)
+  if (body.parent === undefined) throw ApiError.badRequest('parent is required')
+  if (body.parent !== null && typeof body.parent !== 'string') {
+    throw ApiError.badRequest('parent must be a string or null')
+  }
+  const parent = body.parent === null ? '' : body.parent.trim().replace(/^#+/, '')
+  if (body.parent !== null && !parent) throw ApiError.badRequest('parent cannot be empty')
+  if (/[\s#]/.test(parent)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
+
+  const tag = await loadTag(c.env.DB, userId, id)
+  if (!tag) throw ApiError.notFound('Tag not found')
+
+  const leaf = tag.name.split('/').filter(Boolean).at(-1)!
+  const destination = parent ? `${parent}/${leaf}` : leaf
+  if (destination === tag.name) return c.json({ ok: true as const, moved: 0 })
+  if (isWithin(destination, tag.name)) throw ApiError.badRequest('A tag cannot be moved inside itself')
+
+  // The whole family is snapshotted before anything moves, so each step below only ever sees
+  // the exact name it was asked about. Length-descending is just a stable, readable order for
+  // the change rows clients receive.
+  const { results: family } = await c.env.DB.prepare(
+    `SELECT id, name FROM tags
+      WHERE user_id = ?1 AND (name = ?2 COLLATE NOCASE OR name LIKE ?3 COLLATE NOCASE ESCAPE '\\')
+      ORDER BY length(name) DESC, name COLLATE NOCASE`,
+  ).bind(userId, tag.name, likePattern(tag.name)).all<{ id: string; name: string }>()
+
+  const familyIds = new Set(family.map((member) => member.id))
+  const plan: TagMoveStep[] = []
+  for (const member of family) {
+    const to = destination + member.name.slice(tag.name.length)
+    if (to === member.name) continue
+    if (to.length > LIMITS.tagNameMaxLength) {
+      throw ApiError.badRequest(`Moving this tag would push "${to}" past ${LIMITS.tagNameMaxLength} characters`)
+    }
+    const clash = await c.env.DB.prepare(
+      `SELECT id FROM tags WHERE user_id = ?1 AND name = ?2 COLLATE NOCASE LIMIT 1`,
+    ).bind(userId, to).first<{ id: string }>()
+    if (clash && !familyIds.has(clash.id)) throw ApiError.conflict(`A tag named "${to}" already exists`)
+    plan.push({ id: member.id, from: member.name, to })
+  }
+  if (!plan.length) return c.json({ ok: true as const, moved: 0 })
+
+  const ftsEnabled = c.get('database').ftsEnabled
+  const rewrites: TagRewriteResult[] = []
+  try {
+    for (const step of plan) {
+      rewrites.push(await rewriteTagInNotes(c.env, ftsEnabled, userId, step.id, step.from, step.to))
+    }
+  } catch (error) {
+    try {
+      for (const rewrite of rewrites.reverse()) await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag move could not be rolled back safely; refresh and try again')
+    }
+    throw error
+  }
+
+  // Rewriting the bodies already made the derived pass create the destination rows, so a move
+  // must not rename in place: it copies the source row onto the destination and drops the
+  // source, the same shape a merge takes. An UPDATE here would hit idx_tags_unique.
+  const now = Date.now()
+  const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
+  const statements = plan.flatMap((step) => {
+    const targetId = newId()
+    const source = [step.id, userId, step.from] as const
+    return [
+      c.env.DB.prepare(
+        `INSERT INTO tags (id, user_id, name, color, is_manual, is_pinned, created_at)
+         SELECT ?4, ?2, ?5, source.color, 1, source.is_pinned, source.created_at
+           FROM tags source WHERE source.id = ?1 AND source.user_id = ?2 AND source.name = ?3
+         ON CONFLICT(user_id, name) DO UPDATE SET
+           color = COALESCE(tags.color, excluded.color),
+           is_manual = 1,
+           is_pinned = MAX(tags.is_pinned, excluded.is_pinned)`,
+      ).bind(...source, targetId, step.to),
+      c.env.DB.prepare(
+        `INSERT OR IGNORE INTO note_tags (note_id, tag_id)
+         SELECT nt.note_id, target.id
+           FROM note_tags nt JOIN tags target ON target.user_id = ?2 AND target.name = ?4
+          WHERE nt.tag_id = ?1 AND ${guard}`,
+      ).bind(...source, step.to),
+      c.env.DB.prepare(`DELETE FROM note_tags WHERE tag_id = ?1 AND ${guard}`).bind(...source),
+      c.env.DB.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'tag', target.id, 'upsert', ?4
+           FROM tags target WHERE target.user_id = ?2 AND target.name = ?5 AND ${guard}`,
+      ).bind(...source, now, step.to),
+      c.env.DB.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${guard}`,
+      ).bind(...source, now),
+      c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
+        .bind(...source),
+    ]
+  })
+
+  let outcomes: D1Result[]
+  try {
+    outcomes = await c.env.DB.batch(statements)
+  } catch (error) {
+    try {
+      for (const rewrite of [...rewrites].reverse()) await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag move could not be rolled back safely; refresh and try again')
+    }
+    throw ApiError.conflict('The tag move was refused. Refresh and try again')
+  }
+  const dropped = plan.filter((_step, index) => !outcomes[index * 6 + 5]?.meta.changes)
+  if (dropped.length) {
+    try {
+      for (const rewrite of rewrites.reverse()) await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag move could not be rolled back safely; refresh and try again')
+    }
+    throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+  }
+
+  await broadcastCursor(c)
+  scheduleFtsDrain(c)
+  return c.json({ ok: true as const, moved: plan.length })
+})
+
 tagsRoutes.delete('/:id', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
@@ -299,6 +424,16 @@ tagsRoutes.delete('/:id', async (c) => {
   return c.json({ ok: true, affected: rewrite.rewritten })
 })
 
+function isWithin(name: string, ancestor: string): boolean {
+  const lower = name.toLocaleLowerCase()
+  return lower === ancestor.toLocaleLowerCase()
+    || lower.startsWith(`${ancestor.toLocaleLowerCase()}/`)
+}
+
+function likePattern(value: string): string {
+  return `${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+}
+
 async function loadTag(
   db: D1Database,
   userId: string,
@@ -308,6 +443,12 @@ async function loadTag(
     tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
   ).bind(userId, id).first<TagRow>()
   return row ? toTag(row) : null
+}
+
+interface TagMoveStep {
+  id: string
+  from: string
+  to: string
 }
 
 interface TagRewriteResult {

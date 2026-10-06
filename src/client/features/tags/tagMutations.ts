@@ -182,6 +182,71 @@ export async function removeTagFromNote(noteId: string, name: string): Promise<v
   if (next !== content) state.editContent(noteId, next)
 }
 
+export function tagMoveTarget(tag: Tag | null | undefined, parent: string | null): string | null {
+  if (!tag) return null
+  const leaf = tag.name.split('/').filter(Boolean).at(-1) ?? tag.name
+  const destination = parent ? `${parent}/${leaf}` : leaf
+  if (destination === tag.name) return null
+  const lower = destination.toLocaleLowerCase()
+  const source = tag.name.toLocaleLowerCase()
+  if (lower === source || lower.startsWith(`${source}/`)) return null
+  return destination
+}
+
+export async function moveTag(tag: Tag, parent: string | null): Promise<void> {
+  const destination = tagMoveTarget(tag, parent)
+  if (!destination) return
+  const prefix = `${tag.name}/`
+  const before = useNotes.getState()
+  const beforeUi = useUi.getState()
+  const remap = (name: string): string => name === tag.name
+    ? destination
+    : name.startsWith(prefix) ? destination + name.slice(prefix.length - 1) : name
+  setOptimisticTagCache((state) => ({
+    tags: state.tags.map((candidate) => ({ ...candidate, name: remap(candidate.name) })),
+    notes: rewriteNoteTags(state.notes, remap),
+  }))
+  if (beforeUi.view === 'tag' && beforeUi.tags.length) {
+    beforeUi.openView('tag', { tags: beforeUi.tags.map(remap) })
+  }
+  try {
+    await api.tags.move(tag.id, parent)
+  } catch (error) {
+    setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
+    useUi.getState().toast({
+      title: t('tags.move_failed'),
+      description: error instanceof Error ? error.message : String(error),
+      tone: 'danger',
+    })
+    return
+  }
+  let refreshed = true
+  try {
+    await useNotes.getState().pull()
+    rewriteLoadedNoteContents(tag.name, destination)
+  } catch {
+    refreshed = false
+  }
+  useUi.getState().toast({
+    title: t('tags.moved_value0', { value0: destination }),
+    tone: refreshed ? 'success' : 'warning',
+  })
+}
+
+function rewriteNoteTags(
+  notes: Record<string, NoteSummary>,
+  remap: (name: string) => string,
+): Record<string, NoteSummary> {
+  const next = { ...notes }
+  for (const [id, note] of Object.entries(notes)) {
+    if (!note.tags.some((name) => remap(name) !== name)) continue
+    const unique = new Map(note.tags.map((name) => remap(name))
+      .map((name) => [name.normalize('NFKC').toLocaleLowerCase(), name]))
+    next[id] = { ...note, tags: sortTagNames(unique.values()) }
+  }
+  return next
+}
+
 export async function setTagColor(tag: Tag, color: string | null): Promise<void> {
   const cachedTag = useNotes.getState().tags.find((candidate) => candidate.id === tag.id)
   const currentColor = cachedTag ? cachedTag.color : tag.color

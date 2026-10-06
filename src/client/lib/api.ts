@@ -386,6 +386,8 @@ export const api = {
       request<Tag | { ok: true; renamed: number }>(`/api/tags/${id}`, { method: 'PATCH', body }),
     remove: (id: string) =>
       request<{ ok: true; affected: number }>(`/api/tags/${id}`, { method: 'DELETE' }),
+    move: (id: string, parent: string | null) =>
+      request<{ ok: true; moved: number }>(`/api/tags/${id}/move`, { method: 'POST', body: { parent } }),
   },
 
   search: (q: string, limit = 50, signal?: AbortSignal) =>

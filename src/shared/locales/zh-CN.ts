@@ -1065,6 +1065,8 @@ export const ZH_CN_MESSAGES = {
     "tags.filter_placeholder": "筛选标签…",
     "tags.invalid_name": "标签名不能包含空格或 #",
     "tags.merge": "合并标签",
+    "tags.move_failed": "移动标签失败",
+    "tags.moved_value0": "标签已移动到 #{value0}",
     "tags.manage": "管理标签",
     "tags.merge_confirm_value0_value1": "将「{value0}」合并到「{value1}」？",
     "tags.merge_description": "两个标签会合并为一个，相关笔记正文和元数据会统一使用已有标签名。",
