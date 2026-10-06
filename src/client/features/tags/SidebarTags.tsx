@@ -1,20 +1,24 @@
-import { useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronsUpDown, CornerDownRight, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Tag, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronRight, ChevronsUpDown, Hash, MoreHorizontal, Pin, Plus, Search, Tag, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
-import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, searchTagTree } from '../../lib/tag-tree';
+import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton, SectionLabel } from '../../components/primitives';
+import { commitOnEnter } from '../../components/form';
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useNavigationCounts, useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 import { ManageTagsModal } from './ManageTagsModal';
-import { TagAppearance } from './TagAppearance';
-import { createTag, deleteTag, moveTag, renameTag, setTagColor, setTagPinned, tagMoveTarget } from './tagMutations';
+import { useTagMenuItems } from './useTagMenuItems';
+import { createTag, moveTag, renameTag, tagMoveTarget } from './tagMutations';
+import { beginTagDrag, currentTagDrag, droppedTagName, endTagDrag, findDroppedTag, isTagDrag } from './tagDrag';
+import { useLinkHoverHost } from '../preview/link-hover-host';
+import { WikiLinkHoverCard } from '../preview/wiki-link-hover-card';
+import { encodeDataValue } from '../../lib/markdown/data-attr';
 
 const COLLAPSED_ROW_LIMIT = 12;
-const TAG_MIME = 'application/x-inkstone-tag';
 const ROOT_DROP = '\u0000root';
 
 export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
@@ -25,12 +29,13 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const activeTags = useUi((s) => s.tags);
     const openView = useUi((s) => s.openView);
     const toggleTagFilter = useUi((s) => s.toggleTagFilter);
+    const toggleTagExclusion = useUi((s) => s.toggleTagExclusion);
+    const excludedTags = useUi((s) => s.excludedTags);
     const [query, setQuery] = useState('');
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
     const [listOpen, setListOpen] = useState(false);
     const [cursor, setCursor] = useState(-1);
     const [renamingId, setRenamingId] = useState<string | null>(null);
-    const [appearanceId, setAppearanceId] = useState<string | null>(null);
     const [draftParent, setDraftParent] = useState<string | null>(null);
     const [manageOpen, setManageOpen] = useState(false);
     const [dropPath, setDropPath] = useState<string | null>(null);
@@ -38,6 +43,33 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const tree = useMemo(() => buildTagTree(tags), [tags]);
+    const hover = useLinkHoverHost(null);
+    // Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the
+    // user was looking at. Replay the path change against the open set as the tags arrive.
+    const previousPaths = useRef(new Map<string, string>());
+    useEffect(() => {
+        const renamed = new Map<string, string>()
+        for (const tag of tags) {
+            const before = previousPaths.current.get(tag.id)
+            if (before && before !== tag.name) renamed.set(before, tag.name)
+        }
+        previousPaths.current = new Map(tags.map((tag) => [tag.id, tag.name]))
+        if (!renamed.size) return
+        setExpanded((current) => {
+            let changed = false
+            const next = new Set<string>()
+            for (const path of current) {
+                let translated = path
+                for (const [from, to] of renamed) {
+                    if (path === from) { translated = to; break }
+                    if (path.startsWith(`${from}/`)) { translated = to + path.slice(from.length); break }
+                }
+                if (translated !== path) changed = true
+                next.add(translated)
+            }
+            return changed ? next : current
+        })
+    }, [tags]);
     const searching = Boolean(query.trim());
     const searched = useMemo(() => searchTagTree(tree, query), [tree, query]);
     const shownNodes = searching ? searched.nodes : tree;
@@ -45,7 +77,6 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const allExpanded = parentPaths.length > 0 && parentPaths.every((path) => expanded.has(path));
     const flattened = useMemo(() => flattenTagTree(shownNodes, searching ? new Set(parentPaths) : expanded), [shownNodes, expanded, searching, parentPaths]);
     const rows = searching || listOpen ? flattened : flattened.slice(0, COLLAPSED_ROW_LIMIT);
-    const appearanceTag = appearanceId ? tags.find((tag) => tag.id === appearanceId) ?? null : null;
     const open = (path: string, additive: boolean) => {
         setCursor(-1);
         if (additive)
@@ -75,12 +106,16 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         if (created)
             openView('tag', { tag: created.name });
     };
+    const draggedTag = () => {
+        const name = dragPath ?? currentTagDrag();
+        return name ? findDroppedTag(tags, name) : null;
+    };
     return (<>
       <section className="mt-4">
       <div
         className="group/head flex items-center justify-between pr-1"
         onDragOver={(event) => {
-          if (!dragPath || !tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, null)) return;
+          if (!isTagDrag(event.dataTransfer) || !tagMoveTarget(draggedTag(), null)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'move';
           setDropPath(ROOT_DROP);
@@ -90,10 +125,11 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         }}
         onDrop={(event) => {
           event.preventDefault();
-          const name = event.dataTransfer.getData(TAG_MIME);
+          const name = droppedTagName(event.dataTransfer);
+          endTagDrag();
           setDropPath(null);
           setDragPath(null);
-          const source = tags.find((item) => item.name === name);
+          const source = name ? findDroppedTag(tags, name) : null;
           if (source) void moveTag(source, null);
         }}>
         {mobile
@@ -151,7 +187,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {searching && rows.length > 0 && <p className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: searched.hitCount })}</p>}
       </>)}
 
-      <div ref={listRef} role="tree" aria-label={t('navigation.tag')} className="mt-0.5 space-y-px">
+      <div ref={listRef} role="tree" aria-label={t('navigation.tag')} className="mt-0.5 space-y-px" onMouseMove={hover.hover.handleMouseMove} onMouseLeave={hover.onMouseLeave}>
         {!searching && tags.length > 0 && (<button data-navigation-item type="button" aria-current={view === 'untagged' ? 'page' : undefined} onClick={() => {
                     setCursor(-1);
                     openView('untagged');
@@ -175,17 +211,17 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
           </p>}
         {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
-                    void renameTag(node.tag, value);
-                }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(node.tag.id)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} onDragStart={(event) => {
+                    void renameTag(node.tag, renameTagSegment(node.fullPath, value));
+                }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
                     if (node.isVirtual) return;
-                    event.dataTransfer.setData(TAG_MIME, node.fullPath);
-                    event.dataTransfer.effectAllowed = 'move';
+                    beginTagDrag(node.fullPath, event.dataTransfer);
                     setDragPath(node.fullPath);
                 }} onDragEnd={() => {
+                    endTagDrag();
                     setDragPath(null);
                     setDropPath(null);
                 }} onDragOver={(event) => {
-                    if (!dragPath || dragPath === node.fullPath || !tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, node.fullPath)) return;
+                    if (!isTagDrag(event.dataTransfer) || !tagMoveTarget(draggedTag(), node.fullPath)) return;
                     event.preventDefault();
                     event.stopPropagation();
                     event.dataTransfer.dropEffect = 'move';
@@ -196,30 +232,44 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     if (dropPath !== node.fullPath) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    const name = event.dataTransfer.getData(TAG_MIME);
+                    const name = droppedTagName(event.dataTransfer);
+                    endTagDrag();
                     setDropPath(null);
                     setDragPath(null);
-                    const source = tags.find((item) => item.name === name);
+                    const source = name ? findDroppedTag(tags, name) : null;
                     if (source) void moveTag(source, node.fullPath);
                 }}/>))}
-        {activeTags.length > 1 && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
-            <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>
+        {(activeTags.length > 1 || excludedTags.length > 0) && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
+            {activeTags.length > 1 && <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>}
             {activeTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagFilter(name, true)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
                 <span className="truncate">#{name}</span>
                 <X size={9} className="shrink-0"/>
               </button>))}
-            <button type="button" onClick={() => openView('all')} className="px-1 text-[var(--accent)] hover:underline">{t('common.clear')}</button>
+            {excludedTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagExclusion(name)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 text-[var(--text-secondary)] line-through decoration-[var(--danger)]">
+                <span className="truncate">#{name}</span>
+                <X size={9} className="shrink-0 no-underline"/>
+              </button>))}
+            <button type="button" onClick={() => {
+                    openView('all');
+                    for (const name of excludedTags) toggleTagExclusion(name);
+                }} className="px-1 text-[var(--accent)] hover:underline">{t('common.clear')}</button>
           </div>)}
         {!searching && flattened.length > COLLAPSED_ROW_LIMIT && (<button type="button" onClick={() => setListOpen((value) => !value)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
             {listOpen ? t('common.collapse') : t('sidebar.show_all_value0_tags', { value0: flattened.length })}
           </button>)}
       </div>
       </section>
-      <TagAppearance open={Boolean(appearanceTag)} tag={appearanceTag} onChange={(color) => {
-            if (appearanceTag)
-                void setTagColor(appearanceTag, color);
-        }} onClose={() => setAppearanceId(null)}/>
-      <ManageTagsModal open={manageOpen} onClose={() => setManageOpen(false)}/>
+      {hover.hover.card && (<WikiLinkHoverCard
+          card={hover.hover.card}
+          path={hover.hover.card.noteId ? [hover.hover.card.noteId] : []}
+          depth={1}
+          dark={(document.documentElement.dataset.theme ?? 'dark') === 'dark'}
+          onClose={hover.hover.hideNow}
+          onEnter={hover.hover.clearPendingHide}
+          onLeave={hover.hover.armHide}
+          onPin={hover.handlePin}
+        />)}
+            <ManageTagsModal open={manageOpen} onClose={() => setManageOpen(false)}/>
     </>);
 }
 function toggleSet(previous: ReadonlySet<string>, value: string): Set<string> {
@@ -266,8 +316,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
             else
                 onCancel();
         }} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                finish(event.currentTarget.value);
+            commitOnEnter(event, () => finish(event.currentTarget.value));
             if (event.key === 'Escape') {
                 finishedRef.current = true;
                 onCancel();
@@ -276,7 +325,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
     </div>);
 }
-function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onEditColor, onCreateChild, onManage, dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
+function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, excluded, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, dropHint, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
     node: TagTreeNode;
     searching: boolean;
     query: string;
@@ -289,11 +338,14 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     onStartRename: () => void;
     onFinishRename: (value: string) => void;
     onCancelRename: () => void;
-    onEditColor: () => void;
+    excluded: boolean;
+    onToggleLevel: (paths: readonly string[], open: boolean) => void;
+    levelSiblings: readonly string[];
     onCreateChild: (path: string) => void;
     onManage: () => void;
     dragging: boolean;
     dropTarget: boolean;
+    dropHint: string | null;
     onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
     onDragEnd: () => void;
     onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -311,17 +363,20 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
         finishedRef.current = true;
         onFinishRename(value);
     };
+    const realTagItems = useTagMenuItems(node.tag.name, {
+        excluded,
+        onStartRename,
+        onCreateChild,
+        onManage,
+    });
     const menuItems: MenuItem[] = node.isVirtual
-        ? [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle }]
-        : [
-            { id: 'pin', label: node.tag.isPinned ? t('tags.unpin') : t('tags.pin'), icon: <Pin size={13}/>, onSelect: () => void setTagPinned(node.tag, !node.tag.isPinned) },
-            { id: 'rename', label: t('tags.rename'), icon: <Pencil size={13}/>, onSelect: onStartRename },
-            { id: 'child', label: t('tags.new_child'), icon: <CornerDownRight size={13}/>, onSelect: () => onCreateChild(node.fullPath) },
-            { id: 'color', label: t('tags.color'), icon: <Palette size={13}/>, onSelect: onEditColor },
-            { id: 'manage', label: t('tags.manage'), icon: <Settings2 size={13}/>, onSelect: onManage },
-            { id: 'delete', label: t('tags.delete'), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void deleteTag(node.tag) },
-        ];
-    return (<div ref={rowRef} role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} aria-selected={active} data-tag-row data-row-index={node.isVirtual ? undefined : node.tag.id} onContextMenu={(event) => {
+        ? levelSiblings.length
+            ? [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle },
+               { id: 'level', label: t('tags.expand_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => onToggleLevel(levelSiblings, true) },
+               { id: 'level-collapse', label: t('tags.collapse_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => onToggleLevel(levelSiblings, false) }]
+            : [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle }]
+        : realTagItems;
+    return (<div ref={rowRef} role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} aria-selected={active} data-tag={encodeDataValue(node.fullPath)} data-tag-row data-row-index={node.isVirtual ? undefined : node.tag.id} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
         }} draggable={!node.isVirtual} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 text-[12.5px] transition-colors duration-[var(--dur-fast)] md:h-[30px]', highlighted && 'ring-1 ring-[var(--accent-ring)]', dropTarget && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]', dragging && 'opacity-45', active
@@ -332,11 +387,11 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
           </button>) : <span className="size-6 shrink-0 md:size-5"/>}
       <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? (active ? 'var(--accent)' : 'var(--text-quaternary)') }}/>
       {node.tag.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
+      {excluded && <span aria-hidden="true" className="shrink-0 text-[11px] text-[var(--danger)]">−</span>}
       {renaming ? (<input aria-label={t('tags.rename')} autoFocus defaultValue={node.name} onFocus={() => {
             finishedRef.current = false;
         }} onBlur={(event) => finishRename(event.currentTarget.value)} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                finishRename(event.currentTarget.value);
+            commitOnEnter(event, () => finishRename(event.currentTarget.value));
             if (event.key === 'Escape') {
                 finishedRef.current = true;
                 onCancelRename();
@@ -359,6 +414,9 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
             </IconButton>
           </Tooltip>
         </>)}
+      {dropHint && (<span className="pointer-events-none absolute top-1/2 right-1 max-w-[72%] -translate-y-1/2 truncate rounded-[var(--r-sm)] bg-[var(--accent)] px-1.5 py-0.5 text-[10.5px] text-[var(--accent-contrast)]">
+            {t('tags.move_to_value0', { value0: dropHint })}
+          </span>)}
       <Menu anchor={rowRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);

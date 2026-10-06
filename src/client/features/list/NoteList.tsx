@@ -89,7 +89,8 @@ export function NoteList() {
     const hydrated = useNotes((s) => s.hydrated);
     const openNote = useNotes((s) => s.openNote);
     const { emptyTrash, emptyingTrash } = useEmptyTrash();
-    const [filter, setFilter] = useState('');
+    const filter = useUi((s) => s.searchQuery);
+    const setFilter = useUi((s) => s.setSearchQuery);
     const deferredFilter = useDeferredValue(filter);
     const debouncedFilter = useDebounced(filter.trim(), 180);
     const filterRef = useRef<HTMLInputElement>(null);
@@ -103,7 +104,10 @@ export function NoteList() {
 
     // Crossing the tablet/desktop width is a layout change, not a new context: wiping the
     // query there loses a search the user is still typing.
-    useEffect(() => setFilter(''), [view, folderId, tagFilters, searchList]);
+    // Leaving a folder or a tag view changes what the box means, so the query goes with it.
+    // Entering global search does not: a menu writes an expression there and flips the flag in
+    // the same action, and clearing it one effect later would drop what was just asked for.
+    useEffect(() => setFilter(''), [view, folderId, tagFilters]);
     useEffect(() => {
         if (searchList) filterRef.current?.focus();
     }, [searchList, searchRequest]);

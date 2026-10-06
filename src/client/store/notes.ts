@@ -2,7 +2,7 @@
 import { create, type StoreApi } from 'zustand';
 import { numericCollator } from '../lib/collator';
 import { useMemo } from 'react';
-import { countText, deriveExcerpt, extractTags, normalizeLinkKey, notesCarryEveryTag, sortTagNames } from '@shared/markdown-utils';
+import { countText, deriveExcerpt, extractTags, normalizeLinkKey, notesCarryAnyTag, notesCarryEveryTag, sortTagNames } from '@shared/markdown-utils';
 import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
 import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
@@ -2890,10 +2890,10 @@ interface VirtualFolderMatch {
     folderIds: ReadonlySet<string>;
 }
 
-function viewContext(view: ViewKind, folderId: string | null, tags: readonly string[], folders: Folder[]): ViewContext {
+function viewContext(view: ViewKind, folderId: string | null, tags: readonly string[], excludedTags: readonly string[], folders: Folder[]): ViewContext {
     const virtual = view === 'folder' ? resolveVirtualFolder(folderId) : null;
     const folderScope = view === 'folder' && folderId && !virtual ? folderDescendantIds(folders, folderId) : undefined;
-    return { folderId, tags, folderScope, folderIds: new Set(folders.map((folder) => folder.id)), virtual };
+    return { folderId, tags, excludedTags, folderScope, folderIds: new Set(folders.map((folder) => folder.id)), virtual };
 }
 
 function resolveVirtualFolder(folderId: string | null): VirtualFolderMatch | null {
@@ -2922,13 +2922,14 @@ function matchesVirtualFolder(note: NoteSummary, match: VirtualFolderMatch): boo
 interface ViewContext {
     folderId: string | null;
     tags: readonly string[];
+    excludedTags: readonly string[];
     folderScope?: ReadonlySet<string>;
     folderIds: ReadonlySet<string>;
     virtual?: VirtualFolderMatch | null;
 }
 
 function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boolean {
-    const { folderId, tags, folderScope, folderIds, virtual } = ctx;
+    const { folderId, tags, excludedTags, folderScope, folderIds, virtual } = ctx;
     if (view === 'trash')
         return Boolean(note.deletedAt);
     if (note.deletedAt)
@@ -2936,6 +2937,8 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
     if (view === 'archived')
         return note.isArchived;
     if (note.isArchived)
+        return false;
+    if (excludedTags.length && notesCarryAnyTag(note.tags, excludedTags))
         return false;
     switch (view) {
         case 'starred':
@@ -2986,7 +2989,7 @@ function compareTrash(a: NoteSummary, b: NoteSummary): number {
 }
 function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
     const ui = useUi.getState();
-    const ctx = viewContext(ui.view, ui.folderId, ui.tags, folders);
+    const ctx = viewContext(ui.view, ui.folderId, ui.tags, ui.excludedTags, folders);
     const active = ui.activeNoteId ? notes[ui.activeNoteId] : undefined;
     if (active && matchesView(active, ui.view, ctx))
         return active.id;
@@ -3011,6 +3014,7 @@ export function useVisibleNotes(): NoteSummary[] {
     const view = useUi((s) => s.view);
     const folderId = useUi((s) => s.folderId);
     const tags = useUi((s) => s.tags);
+    const excludedTags = useUi((s) => s.excludedTags);
     const dateFilter = useUi((s) => s.dateFilter);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
@@ -3020,7 +3024,7 @@ export function useVisibleNotes(): NoteSummary[] {
     const scopedFolders = view === 'folder' || view === 'unfiled' ? folders : EMPTY_FOLDERS;
     const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
     return useMemo(() => {
-        const ctx = viewContext(view, folderId, tags, scopedFolders);
+        const ctx = viewContext(view, folderId, tags, excludedTags, scopedFolders);
         const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDateRange(n, dateFilter));
         if (view === 'recent') {
             return list
@@ -3030,7 +3034,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, scopedFolders, view, folderId, tags, dateFilter, sort, order, locale, todoTag]);
+    }, [notes, scopedFolders, view, folderId, tags, excludedTags, dateFilter, sort, order, locale, todoTag]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];

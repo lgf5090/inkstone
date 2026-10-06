@@ -182,7 +182,7 @@ function useHoverCandidateMachine({
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
     if (!enabledRef.current || !isHoverFinePointer()) return
     window.clearTimeout(timers.hideTimerRef.current)
-    const link = (event.target as HTMLElement).closest<HTMLElement>('[data-wikilink]')
+    const link = (event.target as HTMLElement).closest<HTMLElement>('[data-wikilink], [data-tag]')
     if (!link) {
       window.clearTimeout(timers.showTimerRef.current)
       candidateRef.current = null

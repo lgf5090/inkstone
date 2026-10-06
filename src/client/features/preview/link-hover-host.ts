@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { parseWikiTarget } from '../../lib/markdown/renderer'
 import { findNoteByTitle, useNotes } from '../../store/notes'
+import { findTagPage } from '../tags/tagMutations'
 import { useSession } from '../../store/session'
 import { usePinnedWindows } from '../../store/pinned-windows'
 import { withPinnedWindowSize } from '../../lib/pinned-window-size'
@@ -9,6 +10,13 @@ import { useLinkHover } from './link-hover'
 import type { WikiLinkHoverCardState } from '../../types/hover-card'
 
 export function resolveHoverCandidate(link: HTMLElement, sourceNoteId: string | null): WikiLinkHoverCardState | null {
+  // A hashtag only previews anything when the user gave that tag a page; the alternative is a
+  // card that duplicates the note the reader is already looking at.
+  if (link.dataset.tag !== undefined && link.dataset.wikilink === undefined) {
+    const page = findTagPage(decodeDataValue(link.dataset.tag))
+    if (!page) return null
+    return { anchor: link, title: page.title, noteId: page.id, missing: false, headline: page.title }
+  }
   const parsed = parseWikiTarget(decodeDataValue(link.dataset.wikilink))
   const notes = useNotes.getState().notes
   if (parsed.noteTitle) {
@@ -49,7 +57,7 @@ export function useLinkHoverHost(sourceNoteId: string | null) {
   const onMouseLeave = useCallback(() => hover.handleMouseLeave(), [hover.handleMouseLeave])
 
   const onFocus = useCallback((event: React.FocusEvent) => {
-    const link = (event.target as HTMLElement).closest<HTMLElement>('[data-wikilink]')
+    const link = (event.target as HTMLElement).closest<HTMLElement>("[data-wikilink], [data-tag]")
     if (!link) return
     hover.propose(link, { immediate: true })
   }, [hover.propose])

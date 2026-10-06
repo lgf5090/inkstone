@@ -1,10 +1,13 @@
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder, StateEffect } from '@codemirror/state'
+import { encodeDataValue } from '../lib/markdown/data-attr'
 import { syntaxTree } from '@codemirror/language'
 
 
 const taskDone = Decoration.mark({ class: 'cm-md-task-done' })
-const tagMark = Decoration.mark({ class: 'cm-md-tag' })
+// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,
+// and the hover and context-menu paths both identify a hashtag by that datum.
+const tagMarkFor = (name: string) => Decoration.mark({ class: 'cm-md-tag', attributes: { 'data-tag': encodeDataValue(name) } })
 const wikiMark = Decoration.mark({ class: 'cm-md-wikilink' })
 
 const TAG_RE = /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/gu
@@ -52,7 +55,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         markDecorations.push({
           from: line.from + offset,
           to: line.from + offset + 1 + match[2]!.length,
-          deco: tagMark,
+          deco: tagMarkFor(match[2]!),
         })
       }
 

@@ -3,14 +3,19 @@ import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
+import { parseQuery } from '@shared/search-query'
+import { tagKey } from '@shared/markdown-utils'
 import {
   deriveExcerpt,
   deriveTitle,
   extractAttachmentIds,
   extractWikiLinks,
+  isUsableTagName,
   normalizeLinkKey,
+  notesCarryAnyTag,
   notesCarryEveryTag,
   replaceTagInContent,
+  tagNamesEqual,
   wikiNoteTarget,
 } from '@shared/markdown-utils'
 import type {
@@ -157,6 +162,12 @@ export function createDemoBackend(): DemoBackend {
         const scopes = c.req.queries('tag') ?? []
         notes = notes.filter((note) => notesCarryEveryTag(note.tags, scopes))
       }
+      const excluded = [...new Set(c.req.queries('excludeTag') ?? [])]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .slice(0, LIMITS.tagFilterMax)
+      if (excluded.length)
+        notes = notes.filter((note) => !notesCarryAnyTag(note.tags, excluded))
       if (view === 'untagged') notes = notes.filter((note) => note.tags.length === 0)
       if (view === 'all' || view === 'recent') notes = notes.filter((note) => !note.isArchived)
     }
@@ -476,11 +487,10 @@ export function createDemoBackend(): DemoBackend {
     const existingById = requestedId ? listTags(state).find((tag) => tag.id === requestedId) : null
     if (existingById) return c.json(existingById)
     const name = typeof body.name === 'string' ? body.name.trim().replace(/^#+/, '') : ''
-    if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) {
+    if (!name || !isUsableTagName(name) || name.length > LIMITS.tagNameMaxLength) {
       return apiError(400, 'bad_request', 'Tag name is invalid')
     }
-    const existing = listTags(state).find((tag) =>
-      tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0)
+    const existing = listTags(state).find((tag) => tagNamesEqual(tag.name, name))
     if (existing) return apiError(409, 'conflict', 'A tag with this name already exists')
     const id = requestedId ?? newDemoId()
     state.tagIds.set(name, id)
@@ -503,25 +513,43 @@ export function createDemoBackend(): DemoBackend {
     }
     if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== current.name) {
       const requestedName = body.name.trim().replace(/^#/, '')
-      const existing = listTags(state).find((tag) => tag.id !== current.id
-        && tag.name.localeCompare(requestedName, undefined, { sensitivity: 'base' }) === 0)
+      if (!isUsableTagName(requestedName)) return apiError(400, 'bad_request', 'Tag name is invalid')
+      const existing = listTags(state).find((tag) => tag.id !== current.id && tagNamesEqual(tag.name, requestedName))
       const nextName = existing?.name ?? requestedName
-      let renamed = 0
-      for (const note of state.notes.values()) {
-        const content = replaceTagInContent(note.content, current.name, nextName)
-        if (content === note.content) continue
-        state.notes.set(note.id, refreshNote({ ...note, rev: note.rev + 1, updatedAt: Date.now() }, content))
-        renamed++
+      // Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would
+      // orphan the whole branch. Deepest first so each pass only sees its own exact name.
+      const sourcePrefix = `${current.name}/`
+      const family = listTags(state)
+        .filter((tag) => tag.id === current.id
+          || tag.name.toLocaleLowerCase().startsWith(sourcePrefix.toLocaleLowerCase()))
+        .sort((left, right) => right.name.length - left.name.length)
+      const remapped = (name: string): string => name.toLocaleLowerCase() === current.name.toLocaleLowerCase()
+        ? nextName
+        : nextName + name.slice(sourcePrefix.length - 1)
+      if (family.some((member) => remapped(member.name).length > LIMITS.tagNameMaxLength)) {
+        return apiError(400, 'bad_request', 'Renaming this tag would make a descendant name too long')
       }
-      state.tagIds.delete(current.name)
-      if (!existing) state.tagIds.set(nextName, current.id)
-      state.tagColors.set(nextName, body.color === null || typeof body.color === 'string'
-        ? body.color
-        : state.tagColors.get(nextName) ?? state.tagColors.get(current.name) ?? null)
-      state.tagColors.delete(current.name)
-      state.tagPins.set(nextName,
-        state.tagPins.get(current.name) === true || state.tagPins.get(nextName) === true)
-      if (nextName !== current.name) state.tagPins.delete(current.name)
+      let renamed = 0
+      for (const member of family) {
+        const target = remapped(member.name)
+        if (target === member.name) continue
+        for (const note of state.notes.values()) {
+          const content = replaceTagInContent(note.content, member.name, target)
+          if (content === note.content) continue
+          state.notes.set(note.id, refreshNote({ ...note, rev: note.rev + 1, updatedAt: Date.now() }, content))
+          renamed++
+        }
+        state.tagIds.delete(member.name)
+        state.tagIds.set(target, member.id)
+        const color = body.color === null || typeof body.color === 'string'
+          ? body.color
+          : state.tagColors.get(target) ?? state.tagColors.get(member.name) ?? null
+        state.tagColors.delete(member.name)
+        state.tagColors.set(target, color)
+        const pinned = state.tagPins.get(member.name) === true || state.tagPins.get(target) === true
+        state.tagPins.delete(member.name)
+        if (pinned) state.tagPins.set(target, true)
+      }
       state.cursor++
       return c.json({ ok: true as const, renamed })
     }
@@ -539,7 +567,7 @@ export function createDemoBackend(): DemoBackend {
       return apiError(400, 'bad_request', 'parent must be a string or null')
     }
     const parent = body.parent === null ? '' : body.parent.trim().replace(/^#+/, '')
-    if (body.parent !== null && (!parent || /[\s#]/.test(parent))) {
+    if (body.parent !== null && (!parent || !isUsableTagName(parent))) {
       return apiError(400, 'bad_request', 'parent is not a valid tag path')
     }
     const leaf = current.name.split('/').filter(Boolean).at(-1) ?? current.name
@@ -561,6 +589,9 @@ export function createDemoBackend(): DemoBackend {
       .filter((tag) => !family.some((member) => member.id === tag.id))
       .map((tag) => tag.name.toLocaleLowerCase()))
     for (const member of family) {
+      if (remap(member.name).length > LIMITS.tagNameMaxLength) {
+        return apiError(400, 'bad_request', 'Moving this tag would make a descendant name too long')
+      }
       if (outsiders.has(remap(member.name).toLocaleLowerCase())) {
         return apiError(409, 'conflict', `A tag named "${remap(member.name)}" already exists`)
       }
@@ -608,21 +639,35 @@ export function createDemoBackend(): DemoBackend {
 
   app.get('/api/search', (c) => {
     const started = performance.now()
-    const query = (c.req.query('q') ?? '').trim()
+    const query = parseQuery((c.req.query('q') ?? '').trim())
     const limit = Math.max(1, Math.min(100, Number(c.req.query('limit')) || 50))
-    const needle = query.toLocaleLowerCase()
-    const results = [...state.notes.values()]
-      .filter((note) => note.deletedAt === null && `${note.title}\n${note.content}`.toLocaleLowerCase().includes(needle))
+    const folderIds = query.folder
+      ? folderDescendants(state, [...state.folders.values()].find((folder) => tagKey(folder.name) === tagKey(query.folder!))?.id ?? '__none__')
+      : null
+    const matched = [...state.notes.values()]
+      .filter((note) => {
+        const haystack = `${note.title}\n${note.content}`.toLocaleLowerCase()
+        if (!query.terms.every((term) => haystack.includes(term.toLocaleLowerCase()))) return false
+        if (!notesCarryEveryTag(note.tags, query.tags)) return false
+        if (notesCarryAnyTag(note.tags, query.excludedTags)) return false
+        if (folderIds && !folderIds.has(note.folderId ?? '')) return false
+        if (query.starred === true && !note.isStarred) return false
+        if (query.archived === true && !note.isArchived) return false
+        if (query.archived === false && note.isArchived) return false
+        if (query.trash ? note.deletedAt === null : note.deletedAt !== null) return false
+        return true
+      })
+      .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
       .slice(0, limit)
-      .map((note) => ({ note: summarize(note), snippet: deriveExcerpt(note.content, 140), score: 1 }))
     const response: SearchResponse = {
-      results,
+      results: matched.map((note) => ({ note: summarize(note), snippet: deriveExcerpt(note.content, 140), score: 1 })),
       mode: 'like',
       took: Math.max(0, performance.now() - started),
-      query: { text: query, tags: [], folder: null, starred: null, archived: null },
+      query,
     }
     return c.json(response)
   })
+
   app.post('/api/search/reindex', (c) => c.json({ ok: true as const, queued: state.notes.size }))
   app.get('/api/graph', (c) => {
     const mode = c.req.query('mode') === 'local' ? 'local' : 'global'

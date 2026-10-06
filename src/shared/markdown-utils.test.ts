@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, replaceTagInContent, toPlainText } from './markdown-utils'
+import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, replaceTagInContent, tagNamesEqual, toPlainText } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -78,6 +78,95 @@ describe('container markers in plain text', () => {
 
   it('ignores container-looking lines inside code fences', () => {
     expect(toPlainText('```\n:::: tabs\n```').trim()).toBe('')
+  })
+})
+
+describe('tag list separators', () => {
+  const tagsOf = (tags: string) => extractTags(['---', `tags: ${tags}`, '---', 'body'].join('\n'))
+
+  it('splits a flow sequence written with a full-width comma', () => {
+    expect(tagsOf('[getting-started, Inkstone]')).toEqual(['getting-started', 'Inkstone'])
+  })
+
+  it('splits the punctuation a CJK keyboard produces', () => {
+    expect(tagsOf('[\u7532\u3001\u4e59]')).toEqual(['\u7532', '\u4e59'])
+    expect(tagsOf('[a\uff1bb]')).toEqual(['a', 'b'])
+    expect(tagsOf('getting-started\uff0cInkstone')).toEqual(['getting-started', 'Inkstone'])
+  })
+
+  it('keeps a well formed list exactly as written', () => {
+    expect(tagsOf('[a, b/c]')).toEqual(['a', 'b/c'])
+    expect(tagsOf('\n  - a\n  - b/c')).toEqual(['a', 'b/c'])
+  })
+
+  it('never yields a name the tag API would reject', () => {
+    for (const name of tagsOf('[one two, three#four, five]'))
+      expect(isUsableTagName(name)).toBe(true)
+    expect(tagsOf('[one two, three#four, five]')).toEqual(['five', 'one', 'two'])
+  })
+})
+
+
+describe('tag-shaped aliases are tags', () => {
+  const fm = (...lines: string[]) => ['---', ...lines, '---', 'body'].join('\n')
+
+  it('counts a page alias as the tag it names', () => {
+    expect(extractTags(fm('aliases: ["#a/b"]'))).toEqual(['a/b'])
+    expect(extractTags(fm('Aliases: [ "#a/b" ]'))).toEqual(['a/b'])
+    expect(extractTags(fm('alias: "#wip"'))).toEqual(['wip'])
+    expect(extractTags(fm('aliases:', "  - '#two'", '  - One'))).toEqual(['two'])
+  })
+
+  it('ignores ordinary aliases and dedupes against the tags key', () => {
+    expect(extractTags(fm('aliases: [Note B, Plain Name]'))).toEqual([])
+    expect(extractTags(fm('tags: [a]', 'aliases: ["#a"]'))).toEqual(['a'])
+    expect(extractTags(fm('aliases: ["#a", "#"]'))).toEqual(['a'])
+  })
+
+  it('rewrites a page alias when the tag is renamed', () => {
+    const next = replaceTagInContent(fm('aliases: ["#a/b"]'), 'a/b', 'x/y')
+    expect(next).toContain('aliases: ["#x/y"]')
+    expect(extractTags(next)).toEqual(['x/y'])
+  })
+
+  it('drops the alias entry when the tag is deleted and keeps the rest', () => {
+    const next = replaceTagInContent(fm('aliases: ["#a", Other]'), 'a', null)
+    expect(next).toContain('Other')
+    expect(next).not.toContain('#a')
+  })
+
+  it('leaves an unhashéd alias alone during a rename of the same word', () => {
+    const source = fm('aliases: [wip]')
+    expect(replaceTagInContent(source, 'wip', 'done')).toBe(source)
+  })
+
+  it('does not re-space a tag list it was not asked to change', () => {
+    const source = fm('tags: a,b')
+    expect(replaceTagInContent(source, 'zzz', 'yyy')).toBe(source)
+  })
+})
+
+describe('tagNamesEqual', () => {
+  it('folds the same things the tag key folds', () => {
+    expect(tagNamesEqual('work', 'WORK')).toBe(true)
+    expect(tagNamesEqual('work', '\uFF37\uFF2F\uFF32\uFF2B')).toBe(true)
+    expect(tagNamesEqual('A/b', 'a/B')).toBe(true)
+  })
+
+  it('does not fold what the server does not fold', () => {
+    expect(tagNamesEqual('stra\u00DFe', 'STRASSE')).toBe(false)
+    expect(tagNamesEqual('caf\u00E9', 'CAFE')).toBe(false)
+    expect(tagNamesEqual('a', 'a/b')).toBe(false)
+  })
+})
+
+describe('isUsableTagName', () => {
+  it.each(['a', 'a/b', '\u6807\u7b7e', '\u2162'])('accepts %s', (name) => {
+    expect(isUsableTagName(name)).toBe(true)
+  })
+
+  it.each(['', 'a b', 'a#b', 'a,b', 'a\uff0cb', 'a\u3001b', 'a;b', 'a\uff1bb'])('rejects %s', (name) => {
+    expect(isUsableTagName(name)).toBe(false)
   })
 })
 

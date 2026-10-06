@@ -97,30 +97,32 @@ beforeAll(() => {
     proto.getClientRects = () => [] as unknown as DOMRectList
 })
 
-async function runCommand(command: StateCommandLike, doc: string, caret: number, anchorTo?: number, withCompletions = false) {
+async function runCommand(command: StateCommandLike, doc: string, caret: number, anchorTo?: number, withCompletions = false, source: 'wiki' | 'tag' = 'wiki') {
   const { EditorView } = await import('@codemirror/view')
   const { autocompletion, completionStatus } = await import('@codemirror/autocomplete')
-  const { wikiLinkSource } = await import('./completion')
+  const { tagSource, wikiLinkSource } = await import('./completion')
   const selection = anchorTo === undefined ? EditorSelection.cursor(caret) : EditorSelection.range(caret, anchorTo)
+  const sources = () => ({
+    notes: () => [{ id: '1', title: 'Welcome to Inkstone', excerpt: '' }],
+    tags: () => [{ name: 'work/meeting', count: 3 }, { name: 'job', count: 1 }],
+  })
   const extensions = withCompletions ? [autocompletion({
-    override: [wikiLinkSource(() => ({
-      notes: () => [{ id: '1', title: 'Welcome to Inkstone', excerpt: '' }],
-      tags: () => [],
-    }))],
+    override: [(source === 'tag' ? tagSource : wikiLinkSource)(sources)],
   })] : []
   const state = EditorState.create({ doc, selection, extensions })
-  const host = document.createElement('div')
-  document.body.append(host)
-  const view = new EditorView({ state, parent: host })
+  const parent = document.createElement('div')
+  document.body.append(parent)
+  const view = new EditorView({ state, parent })
   await command({ state: view.state, dispatch: (value: Parameters<EditorView['dispatch']>[0]) => view.dispatch(value), view })
   await new Promise((resolve) => setTimeout(resolve, 120))
   const result = {
     text: view.state.doc.toString(),
     head: view.state.selection.main.head,
     status: completionStatus(view.state),
+    focused: view.hasFocus,
   }
   view.destroy()
-  host.remove()
+  parent.remove()
   return result
 }
 
@@ -140,6 +142,22 @@ describe('toolbar wiki link insertion', () => {
     const result = await runCommand(toggleNoteEmbed as StateCommandLike, '', 0, undefined, true)
     expect(result.text).toBe('![[]]')
     expect(['active', 'pending'], result.text).toContain(result.status)
+  })
+
+  it('opens the tag list when the toolbar inserts a hashtag', async () => {
+    const { insertTag } = await import('./commands')
+    const result = await runCommand(insertTag as StateCommandLike, 'Status: ', 8, undefined, true, 'tag')
+    expect(result.text).toBe('Status: #')
+    expect(result.head).toBe(9)
+    expect(['active', 'pending'], result.text).toContain(result.status)
+    expect(result.focused, 'the toolbar button took focus, so the command has to give it back').toBe(true)
+  })
+
+  it('keeps the hashtag inert when it lands inside a word', async () => {
+    const { insertTag } = await import('./commands')
+    const result = await runCommand(insertTag as StateCommandLike, 'abc', 3, undefined, true, 'tag')
+    expect(result.text).toBe('abc#')
+    expect(result.status).toBeNull()
   })
 
   it('wraps a selection without touching the markers', async () => {

@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { replaceTagInContent, sortTagNames, tagKey } from '@shared/markdown-utils'
+import { isUsableTagName, normalizeLinkKey, replaceTagInContent, sortTagNames, tagKey, tagNamesEqual } from '@shared/markdown-utils'
 import type { NoteSummary, Tag } from '@shared/types'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -19,7 +19,7 @@ const tagColorWrites = new Map<string, TagColorWrite>()
 
 export function normalizeTagName(value: string): string | null {
   const name = value.trim().replace(/^#+/, '')
-  if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) return null
+  if (!isUsableTagName(name) || name.length > LIMITS.tagNameMaxLength) return null
   return name
 }
 
@@ -29,8 +29,7 @@ export function createTag(value: string): string | null {
     useUi.getState().toast({ title: t('tags.invalid_name'), tone: 'danger' })
     return null
   }
-  const existing = useNotes.getState().tags.find((tag) =>
-    tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0)
+  const existing = useNotes.getState().tags.find((tag) => tagNamesEqual(tag.name, name))
   if (existing) return existing.id
 
   const id = newTagId()
@@ -63,18 +62,9 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   }
   if (next === tag.name) return
   const tags = useNotes.getState().tags
-  const target = tags.find((candidate) => candidate.id !== tag.id
-    && candidate.name.localeCompare(next, undefined, { sensitivity: 'base' }) === 0)
-  if (target) {
-    const merge = await confirm({
-      title: t('tags.merge_confirm_value0_value1', { value0: tag.name, value1: target.name }),
-      description: t('tags.merge_description'),
-      confirmLabel: t('tags.merge'),
-    })
-    if (!merge) return
-  }
-
+  const target = tags.find((candidate) => candidate.id !== tag.id && tagNamesEqual(candidate.name, next))
   const destination = target?.name ?? next
+  if (!await confirmFamilyMerge(tags, tag.name, destination)) return
   const before = useNotes.getState()
   const beforeUi = useUi.getState()
   setOptimisticTagCache((state) => ({
@@ -117,6 +107,144 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
     }), refreshed),
     tone: refreshed ? 'success' : 'warning',
   })
+}
+
+/** Where a family ends up when `source` is rewritten to `destination`, segment for segment. */
+export function tagRemap(source: string, destination: string): (name: string) => string {
+  const prefix = `${source}/`
+  return (name) => name === source
+    ? destination
+    : name.startsWith(prefix) ? `${destination}/${name.slice(prefix.length)}` : name
+}
+
+/**
+ * The family members whose new name is already some *other* tag's name. Checking only the root
+ * misses the case the reference plugin warns about: moving `a` under `b` when both already have
+ * an `x` child silently merges `a/x` into `b/x`, and a merge cannot be undone by renaming back.
+ * A pure case change is not a merge, so it is skipped the same way the reference skips it.
+ */
+export function familyMergeConflicts(
+  tags: readonly { name: string }[],
+  source: string,
+  destination: string,
+): { from: string, into: string }[] {
+  const key = (name: string) => tagKey(name)
+  const sourceKey = key(source)
+  const inFamily = (name: string) => {
+    const value = key(name)
+    return value === sourceKey || value.startsWith(`${sourceKey}/`)
+  }
+  const remap = tagRemap(source, destination)
+  const outsiders = new Map(tags.filter((tag) => !inFamily(tag.name)).map((tag) => [key(tag.name), tag.name]))
+  const conflicts: { from: string, into: string }[] = []
+  for (const tag of tags) {
+    if (!inFamily(tag.name)) continue
+    const next = remap(tag.name)
+    if (key(next) === key(tag.name)) continue
+    const into = outsiders.get(key(next))
+    if (into !== undefined) conflicts.push({ from: tag.name, into })
+  }
+  return conflicts
+}
+
+async function confirmFamilyMerge(tags: readonly { name: string }[], source: string, destination: string): Promise<boolean> {
+  const conflicts = familyMergeConflicts(tags, source, destination)
+  if (!conflicts.length) return true
+  const onlyTheRoot = conflicts.length === 1 && tagNamesEqual(conflicts[0]!.from, source)
+  if (onlyTheRoot) {
+    return await confirm({
+      title: t('tags.merge_confirm_value0_value1', { value0: source, value1: conflicts[0]!.into }),
+      description: t('tags.merge_description'),
+      confirmLabel: t('tags.merge'),
+      tone: 'danger',
+    })
+  }
+  const [first] = conflicts
+  return await confirm({
+    title: t('tags.family_merge_title'),
+    description: t('tags.family_merge_value0_value1_value2', {
+      value0: source,
+      value1: destination,
+      value2: conflicts.length,
+    }) + t('tags.family_merge_example_value0_value1', { value0: first!.from, value1: first!.into }),
+    confirmLabel: t('tags.merge'),
+    tone: 'danger',
+  })
+}
+
+/** Alt/opt or cmd/ctrl plus a click is how the reference plugin opens a tag page. */
+export function wantsTagPage(event: { altKey: boolean, ctrlKey: boolean, metaKey: boolean }): boolean {
+  return event.altKey || event.ctrlKey || event.metaKey
+}
+
+export async function openTagPageByName(name: string): Promise<void> {
+  await openTagPage({ id: '', name, color: null, count: 0, createdAt: 0 })
+}
+
+export type TagSearchMode = 'new' | 'require' | 'exclude'
+
+/**
+ * The reference plugin hands tag expressions to Obsidian's global search. Here the note-list
+ * search box is that surface: its text goes to /api/search verbatim, and that route understands
+ * `tag:` (whole subtree) and `-tag:`, so the menu writes the same grammar a person can type.
+ */
+export function searchTag(tag: Tag, mode: TagSearchMode): void {
+  const ui = useUi.getState()
+  const expression = `${mode === 'exclude' ? '-' : ''}tag:#${tag.name}`
+  if (mode === 'new') {
+    ui.openSearchList(expression)
+    return
+  }
+  const current = ui.searchQuery.trim()
+  const absent = !current.toLowerCase().split(/\s+/).includes(expression.toLowerCase())
+  ui.setSearchQuery(absent ? [current, expression].filter(Boolean).join(' ') : current)
+  if (!ui.searchList) ui.openSearchList()
+}
+
+/**
+ * A tag page is a note whose frontmatter alias spells the tag (`aliases: ["#a/b"]`), named after
+ * it with the path separators turned into spaces. The alias is what makes the note carry the tag,
+ * so a page shows up in the tag's own count without a second index to keep in sync.
+ */
+export function tagPageTitle(name: string): string {
+  return name.split('/').filter(Boolean).join(' ')
+}
+
+export function findTagPage(tagName: string): NoteSummary | null {
+  return findTagPageIn(useNotes.getState().notes, tagName)
+}
+
+export function findTagPageIn(notes: Record<string, NoteSummary>, tagName: string): NoteSummary | null {
+  const wanted = normalizeLinkKey(tagPageTitle(tagName))
+  for (const note of Object.values(notes)) {
+    if (note.deletedAt) continue
+    if (!note.tags.some((tag) => tagNamesEqual(tag, tagName))) continue
+    if (normalizeLinkKey(note.title) === wanted) return note
+  }
+  return null
+}
+
+export async function createTagPage(tag: Tag): Promise<string | null> {
+  const content = ['---', `aliases: ["#${tag.name}"]`, '---', ''].join('\n')
+  return await useNotes.getState().createNote({ title: tagPageTitle(tag.name), content })
+}
+
+export async function openTagPage(tag: Tag): Promise<void> {
+  const page = findTagPage(tag.name)
+  if (page) {
+    await useNotes.getState().openNote(page.id)
+    return
+  }
+  const create = await confirm({
+    title: t('tags.page_missing_value0', { value0: tag.name }),
+    description: t('tags.page_missing_description'),
+    confirmLabel: t('tags.create_page'),
+  })
+  if (!create) {
+    useUi.getState().openView('tag', { tag: tag.name })
+    return
+  }
+  await createTagPage(tag)
 }
 
 export async function deleteTag(tag: Tag): Promise<void> {
@@ -196,12 +324,10 @@ export function tagMoveTarget(tag: Tag | null | undefined, parent: string | null
 export async function moveTag(tag: Tag, parent: string | null): Promise<void> {
   const destination = tagMoveTarget(tag, parent)
   if (!destination) return
-  const prefix = `${tag.name}/`
   const before = useNotes.getState()
   const beforeUi = useUi.getState()
-  const remap = (name: string): string => name === tag.name
-    ? destination
-    : name.startsWith(prefix) ? destination + name.slice(prefix.length - 1) : name
+  if (!await confirmFamilyMerge(before.tags, tag.name, destination)) return
+  const remap = tagRemap(tag.name, destination)
   setOptimisticTagCache((state) => ({
     tags: state.tags.map((candidate) => ({ ...candidate, name: remap(candidate.name) })),
     notes: rewriteNoteTags(state.notes, remap),
@@ -343,8 +469,7 @@ function withRefreshWarning(description: string, refreshed: boolean): string {
 function optimisticRenameTags(tags: Tag[], sourceId: string, destination: string): Tag[] {
   const source = tags.find((tag) => tag.id === sourceId)
   if (!source) return tags
-  const target = tags.find((tag) => tag.id !== sourceId
-    && tag.name.localeCompare(destination, undefined, { sensitivity: 'base' }) === 0)
+  const target = tags.find((tag) => tag.id !== sourceId && tagNamesEqual(tag.name, destination))
   if (!target) return tags.map((tag) => tag.id === sourceId ? { ...tag, name: destination } : tag)
   return tags
     .filter((tag) => tag.id !== sourceId)

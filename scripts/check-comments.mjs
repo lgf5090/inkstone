@@ -67,12 +67,19 @@ const allowed = new Map([
   ["src/client/components/activity-calendar/use-activity-calendar.ts", [
     "// Marks an external month jump (settings preview click) or an internal jump (week click, gap-cell follow, endpoint locate) with the same fade-in + receding accent ring.",
   ]],
+  ["src/client/components/form.tsx", [
+    "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",
+  ]],
   ["src/client/components/overlay.tsx", [
     "// With no host mounted there is no dialog to show, so the only answer we may give is the",
     "// cancelling one. Falling back to `window.confirm` would reintroduce a native prompt.",
   ]],
   ["src/client/components/primitives.tsx", [
     "// dicebear ships full micah style data; keep it out of the boot chunk.",
+  ]],
+  ["src/client/demo/backend.ts", [
+    "// Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would",
+    "// orphan the whole branch. Deepest first so each pass only sees its own exact name.",
   ]],
   ["src/client/editor/CodeEditor.tsx", [
     "// Preserve undo history across mode changes once editing has started.",
@@ -96,6 +103,14 @@ const allowed = new Map([
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
+  ]],
+  ["src/client/editor/decorations.ts", [
+    "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
+    "// and the hover and context-menu paths both identify a hashtag by that datum.",
+  ]],
+  ["src/client/editor/link-hover-plugin.ts", [
+    "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
+    "// its own; without this the sidebar and preview hover but the editor does not.",
   ]],
   ["src/client/editor/live-preview.ts", [
     "// Preserve the source line under the pointer, including rows inside tables/lists.",
@@ -133,6 +148,9 @@ const allowed = new Map([
     "// means \"find the note\", and the server layer already answers that including archived",
     "// notes; scoping the local layer to the view made archived notes findable online and",
     "// invisible offline.",
+    "// Leaving a folder or a tag view changes what the box means, so the query goes with it.",
+    "// Entering global search does not: a menu writes an expression there and flips the flag in",
+    "// the same action, and clearing it one effect later would drop what was just asked for.",
   ]],
   ["src/client/features/list/gap-indicator.ts", [
     "/** Latest non-deleted note's edit date key (null when there are no notes). */",
@@ -149,10 +167,14 @@ const allowed = new Map([
     "// cached copy here would silently overwrite whatever was typed in the last few frames.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
+    "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
+    "// reference plugin does; a plain click still just filters.",
     "// A chart is an instance plus a ResizeObserver, and neither is reachable from the note once this",
     "// host is thrown away, so nothing else would ever run their teardown.",
     "// Charts draw on the live host rather than in the staged copy: a canvas is pixels and an instance, and",
     "// neither survives the serialization and cloning the swap does.",
+    "// Every block head is built here rather than on the live host so it is part of the markup the",
+    "// preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.",
     "// A drawn chart is a canvas plus a live instance, and neither is in innerHTML, so re-syncing this",
     "// subtree from the staging copy would put the placeholder text back over a chart that did not change.",
     "// The stated format is compared beside the body: which reader draws a chart is not written anywhere",
@@ -163,8 +185,6 @@ const allowed = new Map([
     "// canvas. Preserving it there left an off switch with a chart still drawn on screen.",
     "// The line is still re-stamped: a format toggle changes how many lines a block above occupies,",
     "// which moves this one, and the line is what the toolbar resolves its write against.",
-    "// Every block head is built here rather than on the live host so it is part of the markup the",
-    "// preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.",
   ]],
   ["src/client/features/preview/block-actions.ts", [
     "/**\n * The preview's entry point for the block settings toolbars and the runnable JavaScript block: one\n * enhancer and one click route, so a block family costs no new branch in the preview's handlers.\n *\n * The runnable block's controls come from `enhanceJsExampleControlsInRoot`, which only this surface\n * calls — a share page draws the same block with no run button.\n */",
@@ -231,6 +251,10 @@ const allowed = new Map([
     "/**\n * The switch and the run button live here rather than in the rendered markup: a share page and an\n * export draw the same block with no controls nobody can press, and the code only ever runs on the\n * surface where the reader is the author.\n */",
     "/**\n * The code comes from the note's own fence rather than the rendered `<code>`: the line decoration\n * pads an empty line with a space so the gutter has something to draw, and that space would land\n * inside a multi-line string the note never wrote.\n */",
   ]],
+  ["src/client/features/preview/link-hover-host.ts", [
+    "// A hashtag only previews anything when the user gave that tag a page; the alternative is a",
+    "// card that duplicates the note the reader is already looking at.",
+  ]],
   ["src/client/features/preview/markdown-tabs.ts", [
     "// A nested group numbers its own panels from zero, so an outer click that reached inside",
     "// would relabel the inner buttons and hide the panel the inner group has selected.",
@@ -256,12 +280,33 @@ const allowed = new Map([
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
   ]],
+  ["src/client/features/tags/SidebarTags.tsx", [
+    "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
+    "// user was looking at. Replay the path change against the open set as the tags arrive.",
+  ]],
+  ["src/client/features/tags/TagContextMenuAt.tsx", [
+    "/**\n * The tag a pointer landed on: markdown hands us `#tag` spans as DOM, so every surface that wants\n * the menu reads the encoded name off the closest one. Returns null when the pointer is not on a\n * tag, which leaves the browser's own context menu alone.\n */",
+    "/**\n * The tag menu at a pointer position, for surfaces whose rows are not React components of their own\n * (the preview renders markdown, so `#tag` spans arrive as DOM). One request at a time; the caller\n * clears it through onClose.\n */",
+  ]],
+  ["src/client/features/tags/tagDrag.ts", [
+    "/**\n * A dragged tag is kept in page memory as well as in the DataTransfer. The type list is readable\n * during dragover but the payload is not, so the sidebar can recognise a tag drag early yet still\n * needs the name from here to label the destination. Same-document only, which is all we drag\n * between. The plain-text twin is the hashtag itself: a drop onto anything that takes text, the\n * editor included, writes a tag rather than an encoded blob.\n */",
+    "/** A drop is a tag drop only when it carries our own type, so a note or a file can never reach the rename path. */",
+    "/** The dragged tag name, or null when the payload is not one of our tag drags. */",
+  ]],
   ["src/client/features/tags/tagMutations.ts", [
     "// The delta carries every note the server-side rewrite touched, and pull() falls back",
     "// to a full snapshot on its own when the server says the cursor is stale.",
     "// A failed move may still have renamed part of the family server-side, so restoring the",
     "// snapshot we took before our own optimistic edit would also undo any move that raced us.",
     "// Re-read instead of winding back.",
+    "/**\n * A tag page is a note whose frontmatter alias spells the tag (`aliases: [\"#a/b\"]`), named after\n * it with the path separators turned into spaces. The alias is what makes the note carry the tag,\n * so a page shows up in the tag's own count without a second index to keep in sync.\n */",
+    "/**\n * The reference plugin hands tag expressions to Obsidian's global search. Here the note-list\n * search box is that surface: its text goes to /api/search verbatim, and that route understands\n * `tag:` (whole subtree) and `-tag:`, so the menu writes the same grammar a person can type.\n */",
+    "/** Where a family ends up when `source` is rewritten to `destination`, segment for segment. */",
+    "/**\n * The family members whose new name is already some *other* tag's name. Checking only the root\n * misses the case the reference plugin warns about: moving `a` under `b` when both already have\n * an `x` child silently merges `a/x` into `b/x`, and a merge cannot be undone by renaming back.\n * A pure case change is not a merge, so it is skipped the same way the reference skips it.\n */",
+    "/** Alt/opt or cmd/ctrl plus a click is how the reference plugin opens a tag page. */",
+  ]],
+  ["src/client/features/tags/useTagMenuItems.tsx", [
+    "/**\n * One tag menu, four entrances: the sidebar row, an inline `#tag` in the preview, a hashtag in the\n * editor, and a pill in the properties panel. A name that is not in the facet list yet (a tag typed\n * into a note that has not been saved) still gets the read-only half, so nothing here can be clicked\n * against a row that no longer exists.\n */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -613,8 +658,14 @@ const allowed = new Map([
     "// the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and",
     "// re-ran a full pull. One reclaim per minute still takes over after the leader closes.",
   ]],
+  ["src/client/lib/tag-tree.test.ts", [
+    "// The level a row belongs to is its parent's children, so \"toggle this level\" has to",
+    "// return only the branches at that level that can actually be expanded.",
+  ]],
   ["src/client/lib/tag-tree.ts", [
     "/**\n * A parent that matches on its own keeps its whole subtree, so `work` still shows `work/meeting`;\n * a parent that only leads to a match is kept unhighlighted so the child stays reachable.\n */",
+    "/**\n * A tree row edits one segment, so committing it has to re-attach the parent path — sending the\n * bare segment would silently move the tag to the top level.\n */",
+    "/**\n * Paths of the siblings sharing `fullPath`'s parent that themselves have children — the rows a\n * \"toggle this level\" action has to touch.\n */",
   ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
@@ -685,6 +736,12 @@ const allowed = new Map([
     "// persisted (toasts, selection). Serializing 22 keys per keystroke cost more than the",
     "// localStorage write the 220 ms debounce already coalesces, so serialization waits too.",
     "/** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */",
+    "/** Tags hidden from every view, matched subtree-wide exactly like `tags`. */",
+    "// Tag identity is tagKey-folded everywhere else (facets, subtree matching, the worker's",
+    "// `COLLATE NOCASE`), so a filter list has to compare names the same way: a width- or",
+    "// case-variant would otherwise occupy two slots that match exactly the same notes.",
+    "// The list search box holds this string and forwards it to /api/search verbatim, so an",
+    "// expression written from a tag menu is the same grammar a person can type by hand.",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -725,6 +782,15 @@ const allowed = new Map([
     "/**\n * The deduplication key `extractTags` uses: case- and width-insensitive. Listings call this once\n * per tag per keystroke, so the same handful of names are folded over and over; the bounded cache\n * follows the one in lib/fuzzy.ts.\n */",
     "/**\n * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own\n * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.\n */",
     "/**\n * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.\n * The notes list route spells the same rule in SQL, but `COLLATE NOCASE` only folds ASCII, so a\n * non-ASCII case variant can match here and not there. The offline shell is the stricter side.\n */",
+    "// Replace the sequence's items in place: `document.set` builds a fresh node that always",
+    "// stringifies as a block list, which would turn the user's `tags: [a, b]` into three lines.",
+    "// Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).",
+    "/**\n * A tag list can be separated by ASCII or by the full-width punctuation a Chinese keyboard\n * produces. YAML only splits a flow sequence on the ASCII comma, so `tags: [a\\uFF0Cb]` reaches us as\n * the single item `a\\uFF0Cb`; splitting here is what stops that becoming one bogus tag.\n */",
+    "/**\n * Whether two spellings name the same tag. `localeCompare(…, { sensitivity: 'base' })` looks\n * like the same question but also folds German expansions (`ß`/`ss`) and accent equivalences\n * the server's `COLLATE NOCASE` never folds, so it predicts a merge that will not happen.\n */",
+    "/**\n * A tag-shaped front-matter alias marks the note as that tag's page (the shape Tag Wrangler\n * uses), so it has to reach the tag list the same way `tags:` does. Plain aliases keep their\n * spaces and are dropped by `isUsableTagName` a few lines later, never by this filter.\n */",
+    "// An alias only names a tag page when it is spelled like a tag; `aliases: [Note B]` is an",
+    "// ordinary alias and must survive a rename of an unrelated tag untouched.",
+    "/**\n * The LIKE pattern for a tag prefix: escapes the two wildcards and the escape character, then\n * appends `%`. Paired with `ESCAPE '\\\\'` in SQL and with tagInScope() in TypeScript, which spell\n * the same subtree rule for the offline shell.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -1000,6 +1066,9 @@ const allowed = new Map([
     "// integer there as a result-column ordinal and rejects 0 outright.",
     "// The folder view is recursive, so folder: has to walk the subtree too. UNION rather than",
     "// UNION ALL keeps a parent_id cycle from looping forever.",
+    "// Both halves stay in step with the note-list route's `tag` / `excludeTag` params and with",
+    "// tagInScope(): a search for a parent also means its subtree, otherwise the sidebar count and",
+    "// the search result set disagree about the same click.",
   ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
@@ -1024,18 +1093,18 @@ const allowed = new Map([
   ["src/worker/routes/tags.ts", [
     "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
     "// the isolate before the first write happens.",
-    "// The whole family is snapshotted before anything moves, so each step below only ever sees",
-    "// the exact name it was asked about. Length-descending is just a stable, readable order for",
-    "// the change rows clients receive. The `/` in the LIKE pattern is load-bearing: without that",
-    "// boundary `a` would claim the unrelated sibling `ab` and rewrite every `#ab` in the library.",
-    "// Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source",
-    "// tag row, so that row has to still exist. It also means the derived pass has already created",
-    "// the destination rows, which is why the batch below copies onto them instead of renaming in",
-    "// place (an UPDATE would hit idx_tags_unique).",
-    "//",
-    "// Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose",
-    "// rollback is a no-op, so if a LATER member fails, an earlier queued rename can still land.",
-    "// That converges to a partially moved family with a duplicate tag, not to lost text.",
+    "/**\n * The tag plus every descendant, deepest name first, each mapped onto `destination`. The `/` in\n * the LIKE pattern is load-bearing: without that boundary `a` would claim the unrelated sibling\n * `ab` and rewrite every `#ab` in the library. The family is snapshotted before anything is\n * written so each step only ever sees the exact name it was asked about.\n */",
+    "// The family snapshot doubles as the descendant probe: the root is always a step (next",
+    "// differs from its name), so more than one step means a subtree has to move with it.",
+    "// A parent rename that left `a/x` behind would orphan the whole subtree.",
+    "// Merging into an existing `next` is still allowed: the batch copies onto the",
+    "// destination row rather than refusing.",
+    "// One IN query per ~90 names instead of two round trips per step; D1 caps bound variables",
+    "// well below what a long family can produce, and node:sqlite does not complain.",
+    "/**\n * Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source tag\n * row, so that row has to still exist. The derived pass then creates the destination rows from\n * the rewritten content, which is why the batch copies onto them instead of renaming in place\n * (an UPDATE would hit idx_tags_unique).\n *\n * Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose\n * rollback is a no-op, so a later member failing cannot undo an earlier queued rename. That\n * converges to a partially moved family with a duplicate tag, never to lost text. A family\n * large enough to need several batches has the same exposure inside the row pass: each batch\n * is its own transaction, so a failure in a later one leaves the earlier ones applied.\n */",
+    "// Six statements per member, so a family of fourteen already outgrows the batch ceiling this",
+    "// repo respects elsewhere (MAX_BATCH_STATEMENTS in routes/folders.ts). Each chunk is its own",
+    "// transaction, so a late failure leaves the earlier chunk applied; note bodies still roll back.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
@@ -1166,6 +1235,10 @@ const allowed = new Map([
     "// Every delta assertion therefore needs a change row behind it to stay on the delta branch.",
     "// Fill the first page past syncBatchSize with tag rows (cheap to serve) plus one note row, so",
     "// the assertion is about the paging rule rather than about loading five hundred bodies.",
+  ]],
+  ["tests/tag-move-route.test.ts", [
+    "// Six statements per family member, so fifteen of them are ninety. node:sqlite runs a batch",
+    "// of any size, so only counting the calls here can catch an unchunked one.",
   ]],
   ["tests/throttle-lock-decay.test.ts", [
     "// The per-slug global work budget from shareVerifyThrottleTargets: 60 attempts per ten",

@@ -72,7 +72,7 @@ describe('confirm', () => {
     const { result } = ask('Empty the trash?')
     const panel = dialog()
     expect(panel.contains(document.activeElement)).toBe(true)
-    expect(document.activeElement).toBe(buttonIn(panel, t('overlay.confirm')))
+    expect(document.activeElement).toBe(buttonIn(panel, t('common.cancel')))
     await act(async () => { buttonIn(panel, t('overlay.confirm')).click() })
     await expect(result()).resolves.toBe(true)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
@@ -111,5 +111,35 @@ describe('confirm', () => {
     expect(dialog().textContent).toContain('Clean unreferenced files?')
     await act(async () => { buttonIn(dialog(), t('common.cancel')).click() })
     await expect(second.result()).resolves.toBe(false)
+  })
+})
+
+describe('confirm focus', () => {
+  function askWith(options: Parameters<typeof confirm>[0]) {
+    let pending = Promise.resolve(false)
+    act(() => {
+      pending = confirm(options)
+    })
+    return pending
+  }
+
+  it('puts the first Enter on the safe answer when the action cannot be undone', async () => {
+    mountHost()
+    const asked = askWith({ title: 'Merge the tags?', tone: 'danger', confirmLabel: 'Merge', cancelLabel: 'Keep' })
+    expect(document.activeElement).toBe(buttonIn(dialog(), 'Keep'))
+    await act(async () => {
+      buttonIn(dialog(), 'Keep').click()
+    })
+    await expect(asked).resolves.toBe(false)
+  })
+
+  it('keeps the primary action focused when the confirm only adds something', async () => {
+    mountHost()
+    const asked = askWith({ title: 'Create the tag page?', confirmLabel: 'Create', cancelLabel: 'Cancel' })
+    expect(document.activeElement).toBe(buttonIn(dialog(), 'Create'))
+    await act(async () => {
+      buttonIn(dialog(), 'Create').click()
+    })
+    await expect(asked).resolves.toBe(true)
   })
 })

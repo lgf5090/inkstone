@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Slider } from './form'
+import { Slider, commitOnEnter } from './form'
 
 const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)))
 
@@ -100,5 +100,19 @@ describe('Slider', () => {
     act(() => root.unmount())
     await nextFrame()
     expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('commitOnEnter', () => {
+  it('cancels the Enter before committing so it cannot answer a dialog it just opened', () => {
+    const calls: string[] = []
+    const enter = { key: 'Enter', preventDefault: () => calls.push('prevent') } as unknown as Parameters<typeof commitOnEnter>[0]
+    expect(commitOnEnter(enter, () => calls.push('commit'))).toBe(true)
+    expect(calls).toEqual(['prevent', 'commit'])
+  })
+
+  it('leaves every other key to the field', () => {
+    const other = { key: 'a', preventDefault: () => undefined } as unknown as Parameters<typeof commitOnEnter>[0]
+    expect(commitOnEnter(other, () => undefined)).toBe(false)
   })
 })

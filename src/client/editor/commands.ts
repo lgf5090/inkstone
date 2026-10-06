@@ -283,20 +283,27 @@ export function insertText(text: string, cursorOffset?: number): StateCommand {
     };
 }
 
-export function insertPrefix(prefix: string): StateCommand {
-    return ({ state, dispatch }) => {
+export function insertPrefix(prefix: string, options: { suggest?: boolean } = {}): StateCommand {
+    return (target) => {
+        const { state, dispatch } = target;
+        const view = (target as { view?: EditorView }).view;
         const changes = state.changeByRange((range) => ({
             changes: { from: range.from, insert: prefix },
             range: range.empty
                 ? EditorSelection.cursor(range.from + prefix.length)
                 : EditorSelection.range(range.from + prefix.length, range.to + prefix.length),
         }));
-        dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
+        dispatch(state.update(changes, {
+            scrollIntoView: true,
+            userEvent: options.suggest ? 'input.type' : 'input.insert',
+        }));
+        if (options.suggest && view)
+            view.focus();
         return true;
     };
 }
 
-export const insertTag = insertPrefix('#');
+export const insertTag = insertPrefix('#', { suggest: true });
 
 export const insertBlockId: StateCommand = ({ state, dispatch }) => {
     const range = state.selection.main;

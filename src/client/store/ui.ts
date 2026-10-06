@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
 import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
+import { tagKey } from '@shared/markdown-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
 
 
@@ -35,6 +36,7 @@ interface UiState {
   navCollapsed: boolean
   listCollapsed: boolean
   searchList: boolean
+  searchQuery: string
   searchRequest: number
 
   navDrawerOpen: boolean
@@ -51,6 +53,8 @@ interface UiState {
   folderId: string | null
   /** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */
   tags: string[]
+  /** Tags hidden from every view, matched subtree-wide exactly like `tags`. */
+  excludedTags: string[]
   dateFilter: DateRangeFilter | null
   calendarJump: { year: number; month: number; nonce: number } | null
   sort: SortKey
@@ -87,11 +91,13 @@ interface UiState {
   toggleNav: () => void
   toggleNavDrawer: (open?: boolean) => void
   toggleList: () => void
-  openSearchList: () => void
+  openSearchList: (seed?: string) => void
+  setSearchQuery: (value: string) => void
   openExplorer: (folderId?: string | null) => void
   setMobilePane: (pane: UiState['mobilePane']) => void
   openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null; tags?: readonly string[] }) => void
   toggleTagFilter: (tag: string, additive: boolean) => void
+  toggleTagExclusion: (tag: string) => void
   setDateFilter: (value: DateRangeFilter | null) => void
   requestCalendarJump: (year: number, month: number) => void
   setSort: (sort: SortKey, order?: SortOrder) => void
@@ -132,6 +138,7 @@ const DEFAULTS = {
   view: 'all' as ViewKind,
   folderId: null,
   tags: [] as string[],
+  excludedTags: [] as string[],
   dateFilter: null as DateRangeFilter | null,
   calendarJump: null as { year: number; month: number; nonce: number } | null,
   sort: 'updated' as SortKey,
@@ -164,6 +171,7 @@ const PERSISTED_KEYS = [
   'view',
   'folderId',
   'tags',
+  'excludedTags',
   'sort',
   'order',
   'density',
@@ -202,6 +210,9 @@ function loadPersisted(): Partial<UiState> {
     }
     if (Array.isArray(value.tags)) {
       out.tags = tagFilter(value.tags)
+    }
+    if (Array.isArray(value.excludedTags)) {
+      out.excludedTags = tagFilter(value.excludedTags)
     }
     if (isChoice(value.sort, ['updated', 'created', 'title'])) out.sort = value.sort as SortKey
     if (isChoice(value.order, ['asc', 'desc'])) out.order = value.order as SortOrder
@@ -266,6 +277,19 @@ function tagFilter(value: readonly unknown[]): string[] {
     .map((item) => truncateText(item.trim(), LIMITS.tagNameMaxLength))
     .filter(Boolean)
   return uniqueStrings(names, LIMITS.tagFilterMax)
+}
+
+// Tag identity is tagKey-folded everywhere else (facets, subtree matching, the worker's
+// `COLLATE NOCASE`), so a filter list has to compare names the same way: a width- or
+// case-variant would otherwise occupy two slots that match exactly the same notes.
+function hasTag(list: readonly string[], name: string): boolean {
+  const key = tagKey(name)
+  return list.some((item) => tagKey(item) === key)
+}
+
+function dropTag(list: readonly string[], name: string): string[] {
+  const key = tagKey(name)
+  return list.filter((item) => tagKey(item) !== key)
 }
 
 function isChoice(value: unknown, choices: readonly string[]): value is string {
@@ -334,6 +358,7 @@ export const useUi = create<UiState>((set, get) => ({
   lightbox: null,
   mobilePane: 'list',
   searchList: false,
+  searchQuery: '',
   searchRequest: 0,
   ...loadPersisted(),
 
@@ -433,11 +458,15 @@ export const useUi = create<UiState>((set, get) => ({
   toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
-  openSearchList: () => set((s) => ({
+  openSearchList: (seed) => set((s) => ({
     view: 'all', folderId: null, tags: [], selectedIds: [], dateFilter: null,
     searchList: true, searchRequest: s.searchRequest + 1, listCollapsed: false,
     mobilePane: 'list', navDrawerOpen: false, panel: null,
+    ...(seed === undefined ? {} : { searchQuery: seed }),
   })),
+  // The list search box holds this string and forwards it to /api/search verbatim, so an
+  // expression written from a tag menu is the same grammar a person can type by hand.
+  setSearchQuery: (value) => set({ searchQuery: truncateText(value, 512) }),
   openExplorer: (folderId = null) => set({
     view: folderId ? 'folder' : 'all', folderId, tags: [],
     searchList: false, listCollapsed: true, selectedIds: [], navDrawerOpen: false,
@@ -461,14 +490,19 @@ export const useUi = create<UiState>((set, get) => ({
     })
   },
 
+  toggleTagExclusion: (tag) => set((s) => {
+    const name = tag.trim()
+    if (!name) return {}
+    const excludedTags = hasTag(s.excludedTags, name) ? dropTag(s.excludedTags, name) : tagFilter([...s.excludedTags, name])
+    const tags = tagFilter(dropTag(s.tags, name))
+    return { excludedTags, tags, view: tags.length ? 'tag' : s.view === 'tag' ? 'all' : s.view }
+  }),
+
   toggleTagFilter: (tag, additive) => set((s) => {
     const name = tag.trim()
     if (!name) return {}
     if (!additive) return { view: 'tag', tags: [name], selectedIds: [] }
-    const removing = s.tags.some((item) => item.toLowerCase() === name.toLowerCase())
-    const tags = removing
-      ? s.tags.filter((item) => item.toLowerCase() !== name.toLowerCase())
-      : tagFilter([...s.tags, name])
+    const tags = hasTag(s.tags, name) ? dropTag(s.tags, name) : tagFilter([...s.tags, name])
     return { view: tags.length ? 'tag' : 'all', tags, selectedIds: [] }
   }),
 
