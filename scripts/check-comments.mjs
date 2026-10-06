@@ -2254,6 +2254,9 @@ const allowed = new Map([
     "/** Idrefs that point at nothing: axe reads these as a broken relationship, not as an absent control. */",
     "// Scoped to the description: the modal holds other boxes with placeholders (a comment draft).",
     "// Previewing shows what the note will hold, so entering it is also the commit.",
+    "// The field claims Escape so cancelling a rename does not close the card. It has to hand the claim",
+    "// back afterwards: while focus stayed here, the dialog's own Escape handler was skipped every time,",
+    "// so a reader who tabbed into the title could open a card and never escape out of it.",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-item-detail.tsx", [
     "/** Who each member column may offer, keyed by column id. */",
@@ -2264,6 +2267,10 @@ const allowed = new Map([
     "/** The card's lower half: what it carries and what has been said about it. */",
     "/** The card's property half: tags, priority, dates, and the columns it carries. */",
     "/* A box that holds an uncommitted draft is keyed by the card it belongs to, so switching cards\n      gives a fresh one. The section name is part of the key because two such boxes sit side by side\n      here, and React reads a repeated key as two children being the same child. */",
+    "// Set on the Escape path so the blur that follows does not commit what was just discarded.",
+    "// The field claims Escape so cancelling a rename does not close the card. It has to give",
+    "// the claim back afterwards, or a reader who tabs into the title can open a card and never",
+    "// Escape out of it — the dialog's own handler is skipped for as long as focus stays here.",
   ]],
   ["src/client/lib/markdown/kanban/ui/kanban-label-language.test.ts", [
     "/**\n * Three kanban controls named themselves in a language the reader may not speak: a tag chip's remove\n * button borrowed the *mindmap* shortcut string, a subtask's completion toggle was the literal\n * `'Mark complete'`, and the progress bar's catch-all segment was the literal `'Other'`. Both label\n * probes that already existed pass on all three — the name is present, and nothing was concatenated —\n * so each case mounts the real surface once per shipped language and requires the phrase to be the\n * kanban resource's own entry for that action, with the thing it acts on named inside the message.\n */",

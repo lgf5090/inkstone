@@ -115,12 +115,18 @@ function DetailTitleDraft({
   const [draft, setDraft] = useState(title)
   const lastTarget = useRef(itemId)
   const lastSent = useRef(title)
+  // Set on the Escape path so the blur that follows does not commit what was just discarded.
+  const discarding = useRef(false)
   if (lastTarget.current !== itemId) {
     lastTarget.current = itemId
     lastSent.current = title
     setDraft(title)
   }
   const commitDraft = () => {
+    if (discarding.current) {
+      discarding.current = false
+      return
+    }
     if (draft === lastSent.current) return
     lastSent.current = draft
     onChangeTitle(draft)
@@ -135,7 +141,14 @@ function DetailTitleDraft({
       onBlur={commitDraft}
       onKeyDown={(e) => {
         if (e.key === 'Enter') commitDraft()
-        if (e.key === 'Escape') setDraft(lastSent.current)
+        if (e.key === 'Escape') {
+          setDraft(lastSent.current)
+          // The field claims Escape so cancelling a rename does not close the card. It has to give
+          // the claim back afterwards, or a reader who tabs into the title can open a card and never
+          // Escape out of it — the dialog's own handler is skipped for as long as focus stays here.
+          discarding.current = true
+          e.currentTarget.blur()
+        }
       }}
       className='w-full rounded-[var(--r-xs)] border-0 bg-transparent text-[length:var(--text-18)] font-bold text-[var(--text-primary)] outline-none focus:bg-[var(--bg-inset)] px-[var(--sp-1)]'
       placeholder={t('preview.kanban_card_title')}

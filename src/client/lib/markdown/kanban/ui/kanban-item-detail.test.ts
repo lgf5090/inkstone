@@ -177,6 +177,24 @@ describe('KanbanItemDetail title draft commit', () => {
     view.dispose()
   })
 
+  // The field claims Escape so cancelling a rename does not close the card. It has to hand the claim
+  // back afterwards: while focus stayed here, the dialog's own Escape handler was skipped every time,
+  // so a reader who tabbed into the title could open a card and never escape out of it.
+  it('gives Escape back to the dialog after a cancel', () => {
+    const view = renderDetail(item)
+    const input = titleInput()
+    act(() => {
+      input.focus()
+      typeInto(input, 'Abandoned')
+    })
+    expect(document.activeElement).toBe(input)
+    act(() => { pressKey(input, 'Escape') })
+    expect(input.value).toBe(item.title)
+    expect(view.props.onUpdate).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(input)
+    view.dispose()
+  })
+
   it('shows the new item title when the detail target changes', () => {
     const view = renderDetail(item)
     act(() => { typeInto(titleInput(), 'Dirty draft') })
