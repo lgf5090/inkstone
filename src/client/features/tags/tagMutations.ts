@@ -81,8 +81,8 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
     tags: optimisticRenameTags(state.tags, tag.id, destination),
     notes: rewriteNoteSummaryTags(state.notes, tag.name, destination),
   }))
-  if (beforeUi.view === 'tag' && beforeUi.tag === tag.name) {
-    beforeUi.openView('tag', { tag: destination })
+  if (beforeUi.view === 'tag' && beforeUi.tags.includes(tag.name)) {
+    beforeUi.openView('tag', { tags: beforeUi.tags.map((name) => name === tag.name ? destination : name) })
   }
   let result: Awaited<ReturnType<typeof api.tags.patch>>
   try {
@@ -90,8 +90,8 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   } catch (error) {
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
     const ui = useUi.getState()
-    if (ui.view === 'tag' && ui.tag === destination) {
-      ui.openView(beforeUi.view, { folderId: beforeUi.folderId, tag: beforeUi.tag })
+    if (ui.view === 'tag' && ui.tags.includes(destination)) {
+      ui.openView(beforeUi.view, { folderId: beforeUi.folderId, tags: beforeUi.tags })
     }
     ui.toast({
       title: t('tags.rename_failed'),
@@ -134,14 +134,18 @@ export async function deleteTag(tag: Tag): Promise<void> {
     tags: state.tags.filter((candidate) => candidate.id !== tag.id),
     notes: rewriteNoteSummaryTags(state.notes, tag.name, null),
   }))
-  if (beforeUi.view === 'tag' && beforeUi.tag === tag.name) beforeUi.openView('all')
+  if (beforeUi.view === 'tag' && beforeUi.tags.includes(tag.name)) {
+    const rest = beforeUi.tags.filter((name) => name !== tag.name)
+    if (rest.length) beforeUi.openView('tag', { tags: rest })
+    else beforeUi.openView('all')
+  }
   let result: Awaited<ReturnType<typeof api.tags.remove>>
   try {
     result = await api.tags.remove(tag.id)
   } catch (error) {
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
     const ui = useUi.getState()
-    if (beforeUi.view === 'tag' && ui.view === 'all') ui.openView('tag', { tag: tag.name })
+    if (beforeUi.view === 'tag' && ui.view === 'all') ui.openView('tag', { tags: beforeUi.tags })
     ui.toast({
       title: t('tags.delete_failed'),
       description: error instanceof Error ? error.message : String(error),
@@ -167,6 +171,15 @@ export async function deleteTag(tag: Tag): Promise<void> {
     ),
     tone: refreshed ? 'success' : 'warning',
   })
+}
+
+export async function removeTagFromNote(noteId: string, name: string): Promise<void> {
+  await useNotes.getState().openNote(noteId, { activate: false })
+  const state = useNotes.getState()
+  const content = state.contents[noteId]
+  if (content === undefined) return
+  const next = replaceTagInContent(content, name, null)
+  if (next !== content) state.editContent(noteId, next)
 }
 
 export async function setTagColor(tag: Tag, color: string | null): Promise<void> {

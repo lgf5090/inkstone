@@ -30,7 +30,7 @@ beforeEach(async () => {
   await initI18n()
   remove = vi.fn(async () => {})
   useNotes.setState({ notes: { [note.id]: note }, folders: [], tags: [], hydrated: true, loading: false, deleteNote: remove })
-  useUi.setState({ activeNoteId: note.id, selectedIds: [note.id], recentNoteIds: [note.id], view: 'all', folderId: null, tag: null })
+  useUi.setState({ activeNoteId: note.id, selectedIds: [note.id], recentNoteIds: [note.id], view: 'all', folderId: null, tags: [] })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)

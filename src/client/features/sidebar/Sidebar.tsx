@@ -274,7 +274,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         const startingNavigation = {
             view: startingUi.view,
             folderId: startingUi.folderId,
-            tag: startingUi.tag,
+            tags: startingUi.tags,
             activeNoteId: startingUi.activeNoteId,
         };
         try {
@@ -287,7 +287,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             const currentUi = useUi.getState();
             if (currentUi.view === startingNavigation.view &&
                 currentUi.folderId === startingNavigation.folderId &&
-                currentUi.tag === startingNavigation.tag &&
+                currentUi.tags === startingNavigation.tags &&
                 currentUi.activeNoteId === startingNavigation.activeNoteId) {
                 if (parentId)
                     expandFolder(parentId);

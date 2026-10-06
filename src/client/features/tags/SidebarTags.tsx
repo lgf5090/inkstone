@@ -20,8 +20,9 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const counts = useNavigationCounts();
     const view = useUi((s) => s.view);
     const listVisible = useUi((s) => !s.listCollapsed && !s.searchList);
-    const activeTag = useUi((s) => s.tag);
+    const activeTags = useUi((s) => s.tags);
     const openView = useUi((s) => s.openView);
+    const toggleTagFilter = useUi((s) => s.toggleTagFilter);
     const [query, setQuery] = useState('');
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
     const [listOpen, setListOpen] = useState(false);
@@ -41,9 +42,12 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const flattened = useMemo(() => flattenTagTree(shownNodes, searching ? new Set(parentPaths) : expanded), [shownNodes, expanded, searching, parentPaths]);
     const rows = searching || listOpen ? flattened : flattened.slice(0, COLLAPSED_ROW_LIMIT);
     const appearanceTag = appearanceId ? tags.find((tag) => tag.id === appearanceId) ?? null : null;
-    const open = (path: string) => {
+    const open = (path: string, additive: boolean) => {
         setCursor(-1);
-        openView('tag', { tag: path });
+        if (additive)
+            toggleTagFilter(path, true);
+        else
+            openView('tag', { tag: path });
     };
     const moveCursor = (step: number) => {
         if (!rows.length)
@@ -112,7 +116,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     moveCursor(-1);
                 }
                 if (event.key === 'Enter' && rows[cursor])
-                    open(rows[cursor]!.fullPath);
+                    open(rows[cursor]!.fullPath, false);
                 event.stopPropagation();
             }} className={cn('h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-7 pl-7 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] md:h-[28px] md:pr-6', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none')}/>
           {query && (<button type="button" aria-label={t('notes.clear_filters')} onClick={() => {
@@ -147,10 +151,18 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     inputRef.current?.focus();
                 }} className="text-[var(--accent)] hover:underline">{t('notes.clear_filters')}</button>
           </p>}
-        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTag === node.fullPath} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={() => open(node.fullPath)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
+        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, value);
                 }} onCancelRename={() => setRenamingId(null)} onEditColor={() => setAppearanceId(node.tag.id)} onCreateChild={startDraft} onManage={() => setManageOpen(true)}/>))}
+        {activeTags.length > 1 && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
+            <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>
+            {activeTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagFilter(name, true)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
+                <span className="truncate">#{name}</span>
+                <X size={9} className="shrink-0"/>
+              </button>))}
+            <button type="button" onClick={() => openView('all')} className="px-1 text-[var(--accent)] hover:underline">{t('common.clear')}</button>
+          </div>)}
         {!searching && flattened.length > COLLAPSED_ROW_LIMIT && (<button type="button" onClick={() => setListOpen((value) => !value)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
             {listOpen ? t('common.collapse') : t('sidebar.show_all_value0_tags', { value0: flattened.length })}
           </button>)}
@@ -226,7 +238,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     highlighted: boolean;
     renaming: boolean;
     onToggle: () => void;
-    onOpen: () => void;
+    onOpen: (event: React.MouseEvent<HTMLButtonElement>) => void;
     onStartRename: () => void;
     onFinishRename: (value: string) => void;
     onCancelRename: () => void;
@@ -276,7 +288,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
                 onCancelRename();
             }
             event.stopPropagation();
-        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button data-navigation-item type="button" aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={node.isVirtual ? undefined : onStartRename} className="min-w-0 flex-1 truncate py-1 text-left font-medium">
+        }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button data-navigation-item type="button" title={t('tags.cmd_click')} aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={node.isVirtual ? undefined : onStartRename} className="min-w-0 flex-1 truncate py-1 text-left font-medium">
           <TagNameText name={node.name} query={searching ? query : ''}/>
         </button>)}
       {!renaming && (<>

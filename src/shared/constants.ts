@@ -22,6 +22,8 @@ export const LIMITS = {
   contentMaxBytes: 1_900_000,
   folderNameMaxLength: 120,
   tagNameMaxLength: 60,
+  /** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */
+  tagFilterMax: 12,
   organizerIconMaxLength: 8,
   tagsMaxPerUser: 5_000,
   foldersMaxPerUser: 2_000,

@@ -8,6 +8,7 @@ import {
   extractAttachmentIds,
   extractWikiLinks,
   normalizeLinkKey,
+  notesCarryEveryTag,
   replaceTagInContent,
   wikiNoteTarget,
 } from '@shared/markdown-utils'
@@ -151,7 +152,10 @@ export function createDemoBackend(): DemoBackend {
       if (view === 'unfiled') notes = notes.filter((note) => note.folderId === null)
       if (view === 'archived') notes = notes.filter((note) => note.isArchived)
       if (view === 'folder') notes = notes.filter((note) => note.folderId === query.folderId)
-      if (view === 'tag') notes = notes.filter((note) => note.tags.includes(query.tag ?? ''))
+      if (view === 'tag') {
+        const scopes = c.req.queries('tag') ?? []
+        notes = notes.filter((note) => notesCarryEveryTag(note.tags, scopes))
+      }
       if (view === 'untagged') notes = notes.filter((note) => note.tags.length === 0)
       if (view === 'all' || view === 'recent') notes = notes.filter((note) => !note.isArchived)
     }

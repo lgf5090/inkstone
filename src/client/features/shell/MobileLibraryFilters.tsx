@@ -16,7 +16,7 @@ export function MobileLibraryFilters() {
     const dragStart = useRef<number | null>(null);
     const id = useId();
     const view = useUi((s) => s.view);
-    const tag = useUi((s) => s.tag);
+    const tags = useUi((s) => s.tags);
     const folderId = useUi((s) => s.folderId);
     const folders = useNotes((s) => s.folders);
     const counts = useNavigationCounts();
@@ -37,7 +37,7 @@ export function MobileLibraryFilters() {
     ];
     const controls = [
         { id: 'menu' as const, icon: FileText, label: items.find((item) => item.view === view)?.label ?? t('navigation.note_views'), active: view !== 'tag' && view !== 'folder' },
-        { id: 'tag' as const, icon: Hash, label: view === 'tag' ? tag : t('navigation.tag'), active: view === 'tag' },
+        { id: 'tag' as const, icon: Hash, label: view === 'tag' ? tags.join(' + ') : t('navigation.tag'), active: view === 'tag' },
         { id: 'folder' as const, icon: FolderClosed, label: view === 'folder' ? folders.find((folder) => folder.id === folderId)?.name : t('navigation.folder'), active: view === 'folder' },
     ];
     return <div className="mobile-library-filters relative mt-2">

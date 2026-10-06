@@ -95,13 +95,24 @@ notesRoutes.get('/', async (c) => {
     where += ` AND n.folder_id = ?${binds.length}`
   }
 
+  // Several `tag` params combine with AND, and each one also matches its whole subtree so the
+  // rolled-up count in the sidebar and the result set agree. Both halves have to stay in step
+  // with tagInScope(), which spells the same rule in TypeScript for the offline shell.
   if (view === 'tag') {
-    const tag = c.req.query('tag')
-    if (!tag) throw ApiError.badRequest('Missing tag')
-    binds.push(tag)
-    where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-                 WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                   AND t.name = ?${binds.length} COLLATE NOCASE)`
+    const tags = [...new Set(new URL(c.req.url).searchParams.getAll('tag'))]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, LIMITS.tagFilterMax)
+    if (!tags.length) throw ApiError.badRequest('Missing tag')
+    for (const tag of tags) {
+      binds.push(tag, likePattern(`${tag}/`))
+      const nameBind = binds.length - 1
+      const prefixBind = binds.length
+      where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
+                   WHERE nt.note_id = n.id AND t.user_id = n.user_id
+                     AND (t.name = ?${nameBind} COLLATE NOCASE
+                       OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`
+    }
   }
 
   const countWhere = where
@@ -1356,6 +1367,10 @@ export function encodeNotesListCursor(
     id: row.id,
   }
   return `n1.${toBase64Url(utf8(JSON.stringify(payload)))}`
+}
+
+function likePattern(value: string): string {
+  return `${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
 }
 
 export function parseNotesListCursor(

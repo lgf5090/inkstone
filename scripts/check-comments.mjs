@@ -264,6 +264,7 @@ const allowed = new Map([
     "// The subscriber fires on every notification, including the ones that change nothing",
     "// persisted (toasts, selection). Serializing 22 keys per keystroke cost more than the",
     "// localStorage write the 220 ms debounce already coalesces, so serialization waits too.",
+    "/** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -273,6 +274,7 @@ const allowed = new Map([
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
+    "/** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */",
   ]],
   ["src/shared/markdown-utils.ts", [
     "/** Provides pure Markdown analysis shared by the browser and Worker runtimes. */",
@@ -296,6 +298,8 @@ const allowed = new Map([
     "/**\n * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written\n * on an item line is not a link anywhere else either. Blanked in place: the offsets that\n * `replaceTagInContent` splices with have to stay valid.\n */",
     "/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */",
     "/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */",
+    "/** The deduplication key `extractTags` uses: case- and width-insensitive. */",
+    "/**\n * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.\n * Keep this in step with the notes list route, which spells the same rule in SQL.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -542,6 +546,9 @@ const allowed = new Map([
     "// lower(n.content) subexpression across the three references below.",
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
+    "// Several `tag` params combine with AND, and each one also matches its whole subtree so the",
+    "// rolled-up count in the sidebar and the result set agree. Both halves have to stay in step",
+    "// with tagInScope(), which spells the same rule in TypeScript for the offline shell.",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -642,6 +649,10 @@ const allowed = new Map([
     "// Corrupt row on purpose: tags owned by another account must never surface on this page.",
     "// The routes read a mid-batch SELECT by index (count, page, tags) while still using",
     "// results.at(-1) for the change seq, so position alignment is load bearing.",
+  ]],
+  ["tests/notes-tag-views.test.ts", [
+    "// The route spells the subtree rule in SQL and the offline shell spells it in TypeScript;",
+    "// one drifts silently and the sidebar count stops matching the list.",
   ]],
   ["tests/phase4-regressions.test.ts", [
     "// The curated hints stay, because they are what tells an operator what to fix.",

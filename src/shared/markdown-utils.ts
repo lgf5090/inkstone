@@ -414,6 +414,25 @@ export function sortTagNames(tags: Iterable<string>): string[] {
 }
 
 
+/** The deduplication key `extractTags` uses: case- and width-insensitive. */
+export function tagKey(name: string): string {
+  return name.normalize('NFKC').toLocaleLowerCase()
+}
+
+/**
+ * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.
+ * Keep this in step with the notes list route, which spells the same rule in SQL.
+ */
+export function tagInScope(tagName: string, scope: string): boolean {
+  const tag = tagKey(tagName)
+  const want = tagKey(scope)
+  return tag === want || tag.startsWith(`${want}/`)
+}
+
+export function notesCarryEveryTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
+  return scopes.every((scope) => tagLists.some((name) => tagInScope(name, scope)))
+}
+
 export function extractTags(content: string): string[] {
   const frontMatter = parseFrontMatter(content)
   const out = new Map<string, string>()
