@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ChevronsUpDown, CornerDownRight, EyeOff, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Tag, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
@@ -39,6 +39,32 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const tree = useMemo(() => buildTagTree(tags), [tags]);
+    // Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the
+    // user was looking at. Replay the path change against the open set as the tags arrive.
+    const previousPaths = useRef(new Map<string, string>());
+    useEffect(() => {
+        const renamed = new Map<string, string>()
+        for (const tag of tags) {
+            const before = previousPaths.current.get(tag.id)
+            if (before && before !== tag.name) renamed.set(before, tag.name)
+        }
+        previousPaths.current = new Map(tags.map((tag) => [tag.id, tag.name]))
+        if (!renamed.size) return
+        setExpanded((current) => {
+            let changed = false
+            const next = new Set<string>()
+            for (const path of current) {
+                let translated = path
+                for (const [from, to] of renamed) {
+                    if (path === from) { translated = to; break }
+                    if (path.startsWith(`${from}/`)) { translated = to + path.slice(from.length); break }
+                }
+                if (translated !== path) changed = true
+                next.add(translated)
+            }
+            return changed ? next : current
+        })
+    }, [tags]);
     const searching = Boolean(query.trim());
     const searched = useMemo(() => searchTagTree(tree, query), [tree, query]);
     const shownNodes = searching ? searched.nodes : tree;

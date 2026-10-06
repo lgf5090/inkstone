@@ -67,6 +67,10 @@ const allowed = new Map([
   ["src/client/components/primitives.tsx", [
     "// dicebear ships full micah style data; keep it out of the boot chunk.",
   ]],
+  ["src/client/demo/backend.ts", [
+    "// Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would",
+    "// orphan the whole branch. Deepest first so each pass only sees its own exact name.",
+  ]],
   ["src/client/editor/CodeEditor.tsx", [
     "// Preserve undo history across mode changes once editing has started.",
   ]],
@@ -170,6 +174,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
+  ]],
+  ["src/client/features/tags/SidebarTags.tsx", [
+    "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
+    "// user was looking at. Replay the path change against the open set as the tags arrive.",
   ]],
   ["src/client/features/tags/tagMutations.ts", [
     "// The delta carries every note the server-side rewrite touched, and pull() falls back",

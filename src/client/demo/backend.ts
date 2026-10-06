@@ -513,22 +513,37 @@ export function createDemoBackend(): DemoBackend {
       const existing = listTags(state).find((tag) => tag.id !== current.id
         && tag.name.localeCompare(requestedName, undefined, { sensitivity: 'base' }) === 0)
       const nextName = existing?.name ?? requestedName
+      // Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would
+      // orphan the whole branch. Deepest first so each pass only sees its own exact name.
+      const sourcePrefix = `${current.name}/`
+      const family = listTags(state)
+        .filter((tag) => tag.id === current.id
+          || tag.name.toLocaleLowerCase().startsWith(sourcePrefix.toLocaleLowerCase()))
+        .sort((left, right) => right.name.length - left.name.length)
+      const remapped = (name: string): string => name.toLocaleLowerCase() === current.name.toLocaleLowerCase()
+        ? nextName
+        : nextName + name.slice(sourcePrefix.length - 1)
       let renamed = 0
-      for (const note of state.notes.values()) {
-        const content = replaceTagInContent(note.content, current.name, nextName)
-        if (content === note.content) continue
-        state.notes.set(note.id, refreshNote({ ...note, rev: note.rev + 1, updatedAt: Date.now() }, content))
-        renamed++
+      for (const member of family) {
+        const target = remapped(member.name)
+        if (target === member.name) continue
+        for (const note of state.notes.values()) {
+          const content = replaceTagInContent(note.content, member.name, target)
+          if (content === note.content) continue
+          state.notes.set(note.id, refreshNote({ ...note, rev: note.rev + 1, updatedAt: Date.now() }, content))
+          renamed++
+        }
+        state.tagIds.delete(member.name)
+        state.tagIds.set(target, member.id)
+        const color = body.color === null || typeof body.color === 'string'
+          ? body.color
+          : state.tagColors.get(target) ?? state.tagColors.get(member.name) ?? null
+        state.tagColors.delete(member.name)
+        state.tagColors.set(target, color)
+        const pinned = state.tagPins.get(member.name) === true || state.tagPins.get(target) === true
+        state.tagPins.delete(member.name)
+        if (pinned) state.tagPins.set(target, true)
       }
-      state.tagIds.delete(current.name)
-      if (!existing) state.tagIds.set(nextName, current.id)
-      state.tagColors.set(nextName, body.color === null || typeof body.color === 'string'
-        ? body.color
-        : state.tagColors.get(nextName) ?? state.tagColors.get(current.name) ?? null)
-      state.tagColors.delete(current.name)
-      state.tagPins.set(nextName,
-        state.tagPins.get(current.name) === true || state.tagPins.get(nextName) === true)
-      if (nextName !== current.name) state.tagPins.delete(current.name)
       state.cursor++
       return c.json({ ok: true as const, renamed })
     }
