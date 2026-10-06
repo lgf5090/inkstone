@@ -1,11 +1,11 @@
-import { CornerDownRight, EyeOff, FileText, Palette, Pencil, Pin, Search, SearchCheck, SearchX, Settings2, Trash2 } from 'lucide-react';
+import { CornerDownRight, EyeOff, FileText, Palette, Pencil, Pin, Search, SearchCheck, SearchX, Settings2, Trash2, X } from 'lucide-react';
 import { t } from '../../lib/i18n';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import type { MenuItem } from '../../components/overlay';
 import type { Tag } from '@shared/types';
 import { TagColorMenu } from './TagAppearanceMenus';
-import { deleteTag, findTagPageIn, openTagPage, searchTag, setTagColor, setTagPinned } from './tagMutations';
+import { deleteTag, findTagPageIn, openTagPage, removeTagFromNote, searchTag, setTagColor, setTagPinned } from './tagMutations';
 import { tagNamesEqual } from '@shared/markdown-utils';
 
 export interface TagMenuOptions {
@@ -28,6 +28,8 @@ export function useTagMenuItems(name: string, options: TagMenuOptions = {}): Men
     const hasPage = useNotes((state) => findTagPageIn(state.notes, name) !== null);
     const excludedTags = useUi((state) => state.excludedTags);
     const toggleTagExclusion = useUi((state) => state.toggleTagExclusion);
+    const activeNoteId = useUi((state) => state.activeNoteId);
+    const carried = useNotes((state) => (activeNoteId ? state.notes[activeNoteId]?.tags.some((tag) => tagNamesEqual(tag, name)) ?? false : false));
     const tag = stored ?? { ...MISSING_TAG, name };
     const known = Boolean(stored);
     const excluded = options.excluded ?? excludedTags.some((item) => tagNamesEqual(item, name));
@@ -36,6 +38,9 @@ export function useTagMenuItems(name: string, options: TagMenuOptions = {}): Men
         items.push({ id: 'pin', label: tag.isPinned ? t('tags.unpin') : t('tags.pin'), icon: <Pin size={13}/>, disabled: !known, onSelect: () => void setTagPinned(tag, !tag.isPinned) });
     }
     items.push({ id: 'exclude', label: excluded ? t('tags.stop_excluding') : t('tags.exclude'), icon: <EyeOff size={13}/>, onSelect: () => toggleTagExclusion(name) });
+    if (carried && activeNoteId) {
+        items.push({ id: 'remove-from-note', label: t('properties.remove_tag_value0', { value0: name }), icon: <X size={13}/>, onSelect: () => void removeTagFromNote(activeNoteId, name) });
+    }
     if (options.onStartRename && known) {
         items.push({ id: 'rename', label: t('tags.rename'), icon: <Pencil size={13}/>, disabled: !known, onSelect: options.onStartRename });
     }

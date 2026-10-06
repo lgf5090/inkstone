@@ -116,6 +116,38 @@ describe('the tag menu reaches every surface', () => {
         expect(menuText()).toContain(t('tags.open_page'));
     });
 
+    it('offers to remove the tag from the note on screen', async () => {
+        const editContent = vi.fn();
+        useNotes.setState({
+            notes: { n1: note('n1', 'Meeting', ['work']) },
+            contents: { n1: 'Title\n\nbody #work and #other\n' },
+            openNote: vi.fn(async () => undefined),
+            editContent,
+        });
+        useUi.setState({ activeNoteId: 'n1' });
+        await act(() => root.render(createElement(TagContextMenuAt, {
+            request: { name: 'work', x: 8, y: 8 },
+            onClose: vi.fn(),
+        })));
+        const label = t('properties.remove_tag_value0', { value0: 'work' });
+        expect(menuText()).toContain(label);
+        const item = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((element) => element.textContent?.trim() === label);
+        await act(async () => {
+            item?.click();
+        });
+        expect(editContent).toHaveBeenCalledWith('n1', 'Title\n\nbody  and #other\n');
+    });
+
+    it('offers no removal when the note does not carry the tag', async () => {
+        useNotes.setState({ notes: { n1: note('n1', 'Meeting', ['other']) } });
+        useUi.setState({ activeNoteId: 'n1' });
+        await act(() => root.render(createElement(TagContextMenuAt, {
+            request: { name: 'work', x: 8, y: 8 },
+            onClose: vi.fn(),
+        })));
+        expect(menuText()).not.toContain(t('properties.remove_tag_value0', { value0: 'work' }));
+    });
+
     it('hides the row-only actions for a name with no tag behind it', async () => {
         await act(() => root.render(createElement(TagContextMenuAt, {
             request: { name: 'neverused', x: 8, y: 8 },
