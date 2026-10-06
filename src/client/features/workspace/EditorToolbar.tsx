@@ -4,7 +4,7 @@ import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertMermaid, insertRunnableJsBlock, insertTable, insertTabs, insertTag, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertMermaid, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 
@@ -78,6 +78,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
         { id: 'details', label: t('workspace.details_block'), onSelect: run(insertDetails) },
         { id: 'tabs', label: t('common.tabs'), onSelect: run(insertTabs) },
         { id: 'columns', label: t('workspace.columns'), onSelect: run(insertColumns) },
+        { id: 'timeline', label: t('workspace.timeline'), onSelect: run(insertTimeline) },
         { id: 'align-left', label: t('workspace.align_left'), onSelect: run(insertAlign('left')), separatorBefore: true },
         { id: 'align-center', label: t('workspace.align_center'), onSelect: run(insertAlign('center')) },
         { id: 'align-right', label: t('workspace.align_right'), onSelect: run(insertAlign('right')) },

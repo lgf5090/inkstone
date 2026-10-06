@@ -53,7 +53,7 @@ describe('containerDirectiveSource', () => {
     const result = complete(':::')
     expect(result).not.toBeNull()
     expect(result!.from).toBe(3)
-    expect(result!.options.map((option) => option.label)).toEqual(['details', 'tabs', 'tab-item', '{tab-set}', '{tab-item}', 'cols', 'left', 'center', 'right', 'justify'])
+    expect(result!.options.map((option) => option.label)).toEqual(['details', 'tabs', 'tab-item', 'timeline', '{tab-set}', '{tab-item}', 'cols', 'left', 'center', 'right', 'justify'])
   })
 
   it('keeps the marker length out of the replacement range', () => {

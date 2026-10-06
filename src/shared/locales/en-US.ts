@@ -262,6 +262,7 @@ export const EN_US_MESSAGES = {
     "editor.start_writing": "Start writing…",
     "editor.tab_1": "Tab 1",
     "editor.tab_2": "Tab 2",
+    "editor.timeline_node": "Event",
     "editor.upload_failed_value0": "<!-- Upload failed: {value0} -->",
     "editor.uploading_value0": "![Uploading {value0}…]()",
     "editor.column_1": "Column 1",
@@ -416,6 +417,10 @@ export const EN_US_MESSAGES = {
     "markdown.the_front_matter_root_must_be_a_yaml_mapping": "The Front Matter root must be a YAML mapping",
     "markdown.the_tasks_in_the_example_are_read_only": "The tasks in the example are read-only",
     "markdown.tip": "Tip",
+    "markdown.timeline_done": "Done",
+    "markdown.timeline_doing": "Doing",
+    "markdown.timeline_error": "Error",
+    "markdown.timeline_milestone": "Milestone",
     "markdown.todo": "Todo",
     "markdown.warning": "Warning",
     "navigation.all_notes": "All notes",
@@ -1475,6 +1480,7 @@ export const EN_US_MESSAGES = {
     "workspace.split_view": "Split view",
     "workspace.table": "Table",
     "workspace.the_current_content_will_be_automatically_saved_as_a_new_version_first_a": "The current content will be automatically saved as a new version first and will not be lost.",
+    "workspace.timeline": "Timeline",
     "workspace.title": "[[title]]",
     "workspace.title_748d7d": "Title",
     "workspace.title_level": "Title level",
@@ -1674,6 +1680,17 @@ This is the first tab panel.
 This is the second tab panel.
 :::
 ::::
+~~~~
+
+~~~~md-example title="Timeline"
+::: timeline Project history {dense}
+:: [milestone] 2024-01-15 Kickoff
+The plan was agreed and the work was split up.
+:: [doing] 2024-06-30 First release
+Shipping the first slice.
+:: [todo] Next
+Leave a node plain until you know what belongs in it.
+:::
 ~~~~
 
 ~~~~md-example title="Code block with a title, line numbers, and highlighting"

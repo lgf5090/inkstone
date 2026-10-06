@@ -232,3 +232,30 @@ describe('completeColonFenceOnEnter', () => {
     expect(renderMarkdown(doc).html).toContain('<summary>Notes</summary>')
   })
 })
+
+describe('timeline insertion', () => {
+  it('writes a two-node skeleton that renders as a timeline', async () => {
+    const { insertTimeline } = await import('./commands')
+    const result = await runCommand(insertTimeline as StateCommandLike, '', 0)
+    const lines = result.text.split('\n')
+    expect(lines[0]).toBe('::: timeline')
+    expect(lines[1]).toMatch(/^:: \[done\] \S/)
+    expect(lines[2]).toMatch(/^:: \S/)
+    expect(lines[3]).toBe(':::')
+    expect(renderMarkdown(result.text).html.match(/markdown-timeline-item/g)).toHaveLength(2)
+  })
+
+  it('turns every selected line into its own node and selects the first title', async () => {
+    const { insertTimeline } = await import('./commands')
+    const doc = 'alpha\nbeta'
+    const result = await runCommand(insertTimeline as StateCommandLike, doc, 0, doc.length)
+    expect(result.text).toBe('::: timeline\n:: [done] alpha\n:: beta\n:::\n')
+    expect(result.head).toBe('::: timeline\n:: [done] alpha'.length)
+  })
+
+  it('closes a timeline header on Enter', () => {
+    const result = runColonCompletion('::: timeline History')
+    expect(result.handled).toBe(true)
+    expect(result.doc).toBe('::: timeline History\n\n:::')
+  })
+})

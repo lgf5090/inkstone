@@ -263,6 +263,7 @@ export const ZH_CN_MESSAGES = {
     "editor.start_writing": "开始写点什么…",
     "editor.tab_1": "标签 1",
     "editor.tab_2": "标签 2",
+    "editor.timeline_node": "事件",
     "editor.upload_failed_value0": "<!-- 上传失败：{value0} -->",
     "editor.uploading_value0": "![上传中 {value0}…]()",
     "editor.column_1": "第一栏",
@@ -417,6 +418,10 @@ export const ZH_CN_MESSAGES = {
     "markdown.the_front_matter_root_must_be_a_yaml_mapping": "Front Matter 顶层必须是 YAML 映射",
     "markdown.the_tasks_in_the_example_are_read_only": "示例中的任务为只读",
     "markdown.tip": "技巧",
+    "markdown.timeline_done": "已完成",
+    "markdown.timeline_doing": "进行中",
+    "markdown.timeline_error": "异常",
+    "markdown.timeline_milestone": "里程碑",
     "markdown.todo": "待办",
     "markdown.warning": "警告",
     "navigation.all_notes": "所有笔记",
@@ -1476,6 +1481,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.split_view": "分栏",
     "workspace.table": "表格",
     "workspace.the_current_content_will_be_automatically_saved_as_a_new_version_first_a": "当前内容会先自动存为一个新版本，不会丢失。",
+    "workspace.timeline": "时间线",
     "workspace.title": "[[标题]]",
     "workspace.title_748d7d": "标题",
     "workspace.title_level": "标题层级",
@@ -1675,6 +1681,17 @@ flowchart LR
 这是第二个标签页的内容。
 :::
 ::::
+~~~~
+
+~~~~md-example title="时间线"
+::: timeline 项目历程 {dense}
+:: [milestone] 2024-01-15 立项
+确定了方案，并把工作拆开分派。
+:: [doing] 2024-06-30 首个版本
+正在发布第一个切片。
+:: [todo] 下一步
+还不确定的节点可以先留着。
+:::
 ~~~~
 
 ~~~~md-example title="带标题、行号和高亮的代码块"

@@ -898,7 +898,7 @@ function stripContainerMarkers(text: string): string {
       // `::: details Some title` keeps its, because there the remainder is the title.
       if (/^[ \t]{0,3}:{3,}[ \t]*(?:cols|left|center|right|justify)(?![\w-])(?:[ \t].*)?$/.test(line)) return ''
       const afterColons = line.replace(/^[ \t]{0,3}:{3,}[ \t]*/, '')
-      const keyword = /^(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item)(?![\w-]))[ \t]*/.exec(afterColons)
+      const keyword = /^(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item|timeline)(?![\w-]))[ \t]*/.exec(afterColons)
       const label = keyword ? afterColons.slice(keyword[0].length) : afterColons
       return /^\[[^\]\n]*\]$/.test(label.trim()) ? label.trim().slice(1, -1) : label
     })

@@ -1,16 +1,16 @@
 /** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */
 import MarkdownIt from 'markdown-it';
-import type Token from 'markdown-it/lib/token.mjs';
 import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs';
+import type Token from 'markdown-it/lib/token.mjs';
 import taskLists from 'markdown-it-task-lists';
 import footnote from 'markdown-it-footnote';
 import anchor from 'markdown-it-anchor';
 import mark from 'markdown-it-mark';
 import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
-import { getLocale, t } from '../i18n';
+import { getLocale, t, type MessageKey } from '../i18n';
 import { parseEmbedSize, splitAltSize } from './attachments';
-import { blockLine, findColonFenceEnd, scanRenderBody, type ColonLineSource } from './colon-fence';
+import { blockLine, colonFenceMark, findColonFenceEnd, scanRenderBody, type ColonLineSource } from './colon-fence';
 import { effectiveTabsPosition, isVerticalTabsPosition, matchPanelHeader, parseTabsOptions } from './panel-options';
 import type { TabsOptions } from './panel-options';
 import { findColonTabSegments, renderAlignContainer, renderColsContainer } from './panels';
@@ -19,6 +19,8 @@ import { encodeDataValue } from './data-attr';
 import { parseFenceInfo } from './fence-info';
 import { readCodeOptions } from './code-options';
 import { EXAMPLE_SPLIT_DEFAULTS, exampleRatioLabel, parseExampleSplit, type ExampleFamily } from './example-split';
+import { isTimelineDateTime, parseTimelineItem, splitTimelineInfo } from './timeline-options';
+import type { TimelineItem, TimelineOptions, TimelineStatus } from './timeline-options';
 import { readFenceStyle } from './chart/style';
 import { CHART_LANGUAGES } from './chart/body';
 export interface Heading {
@@ -112,10 +114,11 @@ md.renderer.rules.front_matter = (tokens, index, _options, env) => {
         .join('');
     return `<details class="frontmatter-properties" data-line="0"><summary>${escapeHtml(t("markdown.properties"))}</summary><dl>${rows}</dl></details>`;
 };
-const COLON_CONTAINER_OPEN = /^(:{3,})[ \t]*(details|tabs|t)\b(?:[ \t]+(.*))?$/;
+const COLON_CONTAINER_OPEN = /^(:{3,})[ \t]*(details|tabs|t|timeline)\b(?:[ \t]+(.*))?$/;
 const COLON_DIRECTIVE_TABS = /^(:{3,})[ \t]*\{(tab-set)\}[ \t]*(.*)$/;
 const TAB_ITEM_OPEN = /^(:{3,})(?:\{tab-item\}|[ \t]*tab-item)(?:[ \t]+(.*?))?[ \t]*$/;
 const AT_TAB = /^@tab(?:(?::active|\+))?[ \t]+(.+?)[ \t]*$/;
+const TIMELINE_NODE_MARK = /^::(?!:)[ \t]*(.*)$/;
 const INTERRUPTS_CONTAINER_CHAIN = { alt: ['paragraph', 'reference', 'blockquote', 'list'] };
 md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, silent) => {
     const source = blockLine(state, startLine);
@@ -140,6 +143,9 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
             renderAlignContainer(state, startLine, end, nextLine, panel.align);
         else
             renderColsContainer(state, startLine, end, nextLine, panel.cols);
+    }
+    else if (kind === 'timeline') {
+        renderTimelineContainer(state, startLine, end, nextLine, legacyMatch?.[3] ?? '');
     }
     else if (kind === 'details') {
         const rawInfo = (legacyMatch?.[3] ?? directiveMatch?.[3] ?? '').trim();
@@ -260,6 +266,35 @@ md.renderer.rules.panel_col_open = (tokens, index) => `<div class="markdown-col"
     index: number;
 }).index}">`;
 md.renderer.rules.panel_col_close = () => '</div>';
+const TIMELINE_STATUS_KEYS: Record<TimelineStatus, MessageKey> = {
+    todo: 'markdown.todo',
+    doing: 'markdown.timeline_doing',
+    done: 'markdown.timeline_done',
+    milestone: 'markdown.timeline_milestone',
+    error: 'markdown.timeline_error',
+};
+md.renderer.rules.timeline_open = (tokens, index, _options, env) => {
+    const token = tokens[index]!;
+    const { title, options } = token.meta as { title: string, options: TimelineOptions };
+    const attrs = [
+        sourceLineAttribute(token.map?.[0]),
+        options.dense ? ' data-timeline-dense="true"' : '',
+        options.status ? '' : ' data-timeline-status="off"',
+        options.marker === 'number' ? ' data-timeline-marker="number"' : '',
+    ].join('');
+    const caption = title ? `<div class="markdown-timeline-caption">${md.renderInline(title, env)}</div>` : '';
+    return `<div class="markdown-timeline-block"${attrs}>${caption}`;
+};
+md.renderer.rules.timeline_close = () => '</div>';
+md.renderer.rules.timeline_item_open = (tokens, index, _options, env) => {
+    const { item, sourceLine } = tokens[index]!.meta as { item: TimelineItem, sourceLine: number };
+    const datetime = isTimelineDateTime(item.time) ? ` data-datetime="${escapeAttr(item.time)}"` : '';
+    const time = item.time ? `<span class="markdown-timeline-time"${datetime}>${escapeHtml(item.time)}</span>` : '';
+    const title = item.title ? `<span class="markdown-timeline-title">${md.renderInline(item.title, env)}</span>` : '';
+    const status = `<span class="markdown-timeline-status">${escapeHtml(t(TIMELINE_STATUS_KEYS[item.status]))}</span>`;
+    return `<li class="markdown-timeline-item" data-status="${escapeAttr(item.status)}"${sourceLineAttribute(sourceLine)}><span class="markdown-timeline-node" aria-hidden="true"></span><div class="markdown-timeline-body"><div class="markdown-timeline-head">${time}${title}${status}</div>`;
+};
+md.renderer.rules.timeline_item_close = () => '</div></li>';
 const MATH_INLINE = /^\$(?!\s)((?:[^$\\]|\\.)+?)(?<!\s)\$/;
 md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
     if (state.src[state.pos] !== '$')
@@ -1076,6 +1111,120 @@ function findDirectiveTabSegments(state: {
 function stripBracketTitle(value: string): string {
     const trimmed = value.trim();
     return /^\[[^\][\n]*\]$/.test(trimmed) ? trimmed.slice(1, -1).trim() : trimmed;
+}
+function sourceLineAttribute(sourceLine: number | undefined): string {
+    return sourceLine === undefined ? '' : ` data-line="${sourceLine}"`;
+}
+/**
+ * The `::` lines that open a node, ignoring the ones inside a code fence or a nested `:::` block.
+ * `colonFenceMark` decides what counts as a container line here too, so this scan and the one that
+ * found the block's own end can never disagree about where a `:::` starts a level.
+ */
+function findTimelineNodeMarks(state: StateBlock, start: number, end: number): Array<{ line: number, head: string }> {
+    const marks: Array<{ line: number, head: string }> = [];
+    let fence: { char: string, length: number } | null = null;
+    let nested = 0;
+    for (let line = start; line < end; line++) {
+        const text = blockLine(state, line);
+        const codeFence = /^(`{3,}|~{3,})/.exec(text);
+        if (codeFence) {
+            const marker = codeFence[1]!;
+            if (!fence)
+                fence = { char: marker[0]!, length: marker.length };
+            else if (marker[0] === fence.char && marker.length >= fence.length)
+                fence = null;
+            continue;
+        }
+        if (fence)
+            continue;
+        const container = colonFenceMark(text);
+        if (container) {
+            if (container.opens)
+                nested++;
+            else if (nested > 0)
+                nested--;
+            continue;
+        }
+        if (nested > 0)
+            continue;
+        const mark = TIMELINE_NODE_MARK.exec(text);
+        if (mark)
+            marks.push({ line, head: mark[1]!.trim() });
+    }
+    return marks;
+}
+function renderTimelineContainer(state: StateBlock, startLine: number, end: number, nextLine: number, info: string): void {
+    const { title, options } = splitTimelineInfo(info);
+    const marks = findTimelineNodeMarks(state, startLine + 1, end);
+    const open = state.push('timeline_open', 'div', 1);
+    open.block = true;
+    open.map = [startLine, nextLine];
+    open.meta = { title, options };
+    const bodyStart = startLine + 1;
+    const firstNode = marks[0]?.line ?? end;
+    if (marks.length && hasTextBetween(state, bodyStart, firstNode)) {
+        const intro = state.push('timeline_intro_open', 'div', 1);
+        intro.block = true;
+        intro.attrSet('class', 'markdown-timeline-intro');
+        state.md.block.tokenize(state, bodyStart, firstNode);
+        state.push('timeline_intro_close', 'div', -1).block = true;
+    }
+    if (marks.length) {
+        const list = state.push('timeline_list_open', 'ol', 1);
+        list.block = true;
+        list.attrSet('class', 'markdown-timeline');
+        list.attrSet('role', 'list');
+        marks.forEach((mark, index) => {
+            const item = state.push('timeline_item_open', 'li', 1);
+            item.block = true;
+            item.meta = { item: parseTimelineItem(mark.head), sourceLine: mark.line };
+            const bodyFrom = state.tokens.length;
+            state.md.block.tokenize(state, mark.line + 1, marks[index + 1]?.line ?? end);
+            hardBreakOwnParagraphs(state.tokens, bodyFrom, state.tokens.length);
+            state.push('timeline_item_close', 'li', -1).block = true;
+        });
+        state.push('timeline_list_close', 'ol', -1).block = true;
+    }
+    else {
+        state.md.block.tokenize(state, bodyStart, end);
+    }
+    state.push('timeline_close', 'div', -1).block = true;
+}
+function hasTextBetween(state: StateBlock, start: number, end: number): boolean {
+    for (let line = start; line < end; line++) {
+        if (blockLine(state, line).trim())
+            return true;
+    }
+    return false;
+}
+/**
+ * A node is written as a stack of short lines that each mean something on their own, so the soft
+ * breaks of its own paragraphs are raised to hard breaks. Only the paragraphs sitting directly in
+ * the node are touched: a list, quote or table the author put there keeps the app-wide line rules.
+ */
+function hardBreakOwnParagraphs(tokens: Token[], from: number, to: number): void {
+    let depth = 0;
+    for (let index = from; index < to; index++) {
+        const token = tokens[index]!;
+        if (token.nesting === 1)
+            depth++;
+        if (depth === 1 && token.type === 'inline' && token.content.includes('\n'))
+            token.content = raiseSoftBreaks(token.content);
+        if (token.nesting === -1)
+            depth--;
+    }
+}
+function raiseSoftBreaks(content: string): string {
+    return content.split('\n')
+        .map((segment, index, all) =>
+            index === all.length - 1 || endsWithHardBreak(segment) ? segment : `${segment}\\`)
+        .join('\n');
+}
+function endsWithHardBreak(segment: string): boolean {
+    if (/ {2,}$/.test(segment))
+        return true;
+    const trailingBackslash = /\\+$/.exec(segment)?.[0].length ?? 0;
+    return trailingBackslash % 2 === 1;
 }
 function matchingClose(tokens: Token[], start: number, openType: string, closeType: string): number {
     let depth = 0;
