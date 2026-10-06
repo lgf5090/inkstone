@@ -382,10 +382,12 @@ export const api = {
     list: () => request<{ tags: Tag[] }>('/api/tags'),
     create: (body: { id?: string; name: string; color?: string | null }) =>
       request<Tag>('/api/tags', { method: 'POST', body }),
-    patch: (id: string, body: { name?: string; color?: string | null }) =>
+    patch: (id: string, body: { name?: string; color?: string | null; isPinned?: boolean }) =>
       request<Tag | { ok: true; renamed: number }>(`/api/tags/${id}`, { method: 'PATCH', body }),
     remove: (id: string) =>
       request<{ ok: true; affected: number }>(`/api/tags/${id}`, { method: 'DELETE' }),
+    move: (id: string, parent: string | null) =>
+      request<{ ok: true; moved: number }>(`/api/tags/${id}/move`, { method: 'POST', body: { parent } }),
   },
 
   search: (q: string, limit = 50, signal?: AbortSignal) =>
@@ -399,8 +401,13 @@ export const api = {
       q: params.q,
       folderId: params.folderId,
       tag: params.tag,
+      tags: params.tags?.length ? params.tags.join(',') : undefined,
+      tagsMatch: params.tags?.length ? params.tagsMatch : undefined,
       includeOrphans: params.includeOrphans === undefined ? undefined : params.includeOrphans ? 1 : 0,
       includeUnresolved: params.includeUnresolved === undefined ? undefined : params.includeUnresolved ? 1 : 0,
+      tagNodes: params.showTagNodes === undefined ? undefined : params.showTagNodes ? 1 : 0,
+      excluded: params.excluded?.length ? params.excluded.join(',') : undefined,
+      direction: params.mode === 'local' ? params.direction : undefined,
       limit: params.limit,
     })}`, { signal }),
 

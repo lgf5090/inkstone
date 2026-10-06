@@ -2,7 +2,7 @@
 import { create, type StoreApi } from 'zustand';
 import { numericCollator } from '../lib/collator';
 import { useMemo } from 'react';
-import { countText, deriveExcerpt, extractTags, normalizeLinkKey, sortTagNames } from '@shared/markdown-utils';
+import { countText, deriveExcerpt, extractTags, normalizeLinkKey, notesCarryEveryTag, sortTagNames } from '@shared/markdown-utils';
 import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
 import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
@@ -481,7 +481,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         const stopWatchingNavigation = useUi.subscribe((ui, previous) => {
             if (!selected && (paneNoteId(ui) !== paneNoteId(previous) ||
                 ui.mobilePane !== previous.mobilePane || ui.view !== previous.view ||
-                ui.folderId !== previous.folderId || ui.tag !== previous.tag ||
+                ui.folderId !== previous.folderId || ui.tags !== previous.tags ||
                 (activate && ui.activeWorkspacePane !== previous.activeWorkspacePane)))
                 navigationChanged = true;
         });
@@ -1335,6 +1335,12 @@ function commitPendingSummaryDerivation(id: string): void {
             return state;
         }
         shellChanged = true;
+        const contributes = summary.deletedAt === null && !summary.isArchived;
+        const facetTags = contributes && tags !== summary.tags
+            ? adjustTagCountsForNoteEdit(state.tags, summary.tags, tags)
+            : state.tags;
+        if (facetTags !== state.tags)
+            tagStateGeneration++;
         return {
             notes: {
                 ...state.notes,
@@ -1347,10 +1353,32 @@ function commitPendingSummaryDerivation(id: string): void {
                     updatedAt: pending.updatedAt,
                 },
             },
+            tags: facetTags,
         };
     });
     if (shellChanged)
         scheduleShellSave(pending.get);
+}
+export function adjustTagCountsForNoteEdit(
+    tags: Tag[],
+    previous: readonly string[],
+    next: readonly string[],
+): Tag[] {
+    const before = new Set(previous.map(tagNameKey));
+    const after = new Set(next.map(tagNameKey));
+    let changed = false;
+    const out = tags.map((tag) => {
+        const key = tagNameKey(tag.name);
+        const delta = (after.has(key) ? 1 : 0) - (before.has(key) ? 1 : 0);
+        if (delta === 0)
+            return tag;
+        changed = true;
+        return { ...tag, count: Math.max(0, tag.count + delta) };
+    });
+    return changed ? out : tags;
+}
+function tagNameKey(name: string): string {
+    return name.normalize('NFKC').toLocaleLowerCase();
 }
 function equalStringArrays(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((value, index) => value === b[index]);
@@ -2722,6 +2750,7 @@ function tagEqual(a: Tag, b: Tag): boolean {
     return (a.id === b.id &&
         a.name === b.name &&
         a.color === b.color &&
+        Boolean(a.isPinned) === Boolean(b.isPinned) &&
         a.count === b.count &&
         a.createdAt === b.createdAt);
 }
@@ -2750,7 +2779,7 @@ export function createContextualNote(input?: {
     return useNotes.getState().createNote({
         ...input,
         ...(folderId ? { folderId } : {}),
-        ...(ui.view === 'tag' && ui.tag && input?.content === undefined ? { content: `#${ui.tag}\n\n` } : {}),
+        ...(ui.view === 'tag' && ui.tags.length && input?.content === undefined ? { content: `${ui.tags.map((name) => `#${name}`).join(' ')}\n\n` } : {}),
         ...(ui.view === 'starred' ? { isStarred: true } : {}),
     });
 }
@@ -2770,6 +2799,7 @@ export interface NavigationCounts {
     all: number;
     starred: number;
     unfiled: number;
+    untagged: number;
     archived: number;
     trash: number;
 }
@@ -2780,7 +2810,7 @@ interface NavigationProjection {
 let navigationProjectionNotes: Record<string, NoteSummary> | null = null;
 let navigationProjectionFolders: Folder[] | null = null;
 let navigationProjectionCache: NavigationProjection = {
-    counts: { all: 0, starred: 0, unfiled: 0, archived: 0, trash: 0 },
+    counts: { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 },
     folderCounts: new Map(),
 };
 function selectNavigationProjection(notes: Record<string, NoteSummary>, folders: Folder[]): NavigationProjection {
@@ -2789,7 +2819,7 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>, folders:
     navigationProjectionNotes = notes;
     navigationProjectionFolders = folders;
     const folderIds = new Set(folders.map((folder) => folder.id));
-    const counts: NavigationCounts = { all: 0, starred: 0, unfiled: 0, archived: 0, trash: 0 };
+    const counts: NavigationCounts = { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 };
     const folderCounts = new Map<string, number>();
     for (const note of Object.values(notes)) {
         if (note.deletedAt) {
@@ -2810,6 +2840,8 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>, folders:
         else {
             folderCounts.set(owner, (folderCounts.get(owner) ?? 0) + 1);
         }
+        if (!note.tags.length)
+            counts.untagged++;
     }
     const stableCounts = navigationCountsEqual(navigationProjectionCache.counts, counts)
         ? navigationProjectionCache.counts
@@ -2828,6 +2860,7 @@ function navigationCountsEqual(a: NavigationCounts, b: NavigationCounts): boolea
     return a.all === b.all &&
         a.starred === b.starred &&
         a.unfiled === b.unfiled &&
+        a.untagged === b.untagged &&
         a.archived === b.archived &&
         a.trash === b.trash;
 }
@@ -2850,10 +2883,10 @@ interface VirtualFolderMatch {
     folderIds: ReadonlySet<string>;
 }
 
-function viewContext(view: ViewKind, folderId: string | null, tag: string | null, folders: Folder[]): ViewContext {
+function viewContext(view: ViewKind, folderId: string | null, tags: readonly string[], folders: Folder[]): ViewContext {
     const virtual = view === 'folder' ? resolveVirtualFolder(folderId) : null;
     const folderScope = view === 'folder' && folderId && !virtual ? folderDescendantIds(folders, folderId) : undefined;
-    return { folderId, tag, folderScope, folderIds: new Set(folders.map((folder) => folder.id)), virtual };
+    return { folderId, tags, folderScope, folderIds: new Set(folders.map((folder) => folder.id)), virtual };
 }
 
 function resolveVirtualFolder(folderId: string | null): VirtualFolderMatch | null {
@@ -2881,14 +2914,14 @@ function matchesVirtualFolder(note: NoteSummary, match: VirtualFolderMatch): boo
 
 interface ViewContext {
     folderId: string | null;
-    tag: string | null;
+    tags: readonly string[];
     folderScope?: ReadonlySet<string>;
     folderIds: ReadonlySet<string>;
     virtual?: VirtualFolderMatch | null;
 }
 
 function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boolean {
-    const { folderId, tag, folderScope, folderIds, virtual } = ctx;
+    const { folderId, tags, folderScope, folderIds, virtual } = ctx;
     if (view === 'trash')
         return Boolean(note.deletedAt);
     if (note.deletedAt)
@@ -2902,12 +2935,14 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
             return note.isStarred;
         case 'unfiled':
             return isUnfiled(note, folderIds);
+        case 'untagged':
+            return !note.tags.length;
         case 'folder':
             if (virtual)
                 return matchesVirtualFolder(note, virtual);
             return Boolean(note.folderId && (folderScope?.has(note.folderId) ?? note.folderId === folderId));
         case 'tag':
-            return Boolean(tag && note.tags.includes(tag));
+            return tags.length > 0 && notesCarryEveryTag(note.tags, tags);
         case 'recent':
         case 'all':
         default:
@@ -2944,7 +2979,7 @@ function compareTrash(a: NoteSummary, b: NoteSummary): number {
 }
 function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
     const ui = useUi.getState();
-    const ctx = viewContext(ui.view, ui.folderId, ui.tag, folders);
+    const ctx = viewContext(ui.view, ui.folderId, ui.tags, folders);
     const active = ui.activeNoteId ? notes[ui.activeNoteId] : undefined;
     if (active && matchesView(active, ui.view, ctx))
         return active.id;
@@ -2968,7 +3003,7 @@ export function useVisibleNotes(): NoteSummary[] {
     const folders = useNotes((s) => s.folders);
     const view = useUi((s) => s.view);
     const folderId = useUi((s) => s.folderId);
-    const tag = useUi((s) => s.tag);
+    const tags = useUi((s) => s.tags);
     const dateFilter = useUi((s) => s.dateFilter);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
@@ -2978,7 +3013,7 @@ export function useVisibleNotes(): NoteSummary[] {
     const scopedFolders = view === 'folder' || view === 'unfiled' ? folders : EMPTY_FOLDERS;
     const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
     return useMemo(() => {
-        const ctx = viewContext(view, folderId, tag, scopedFolders);
+        const ctx = viewContext(view, folderId, tags, scopedFolders);
         const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDateRange(n, dateFilter));
         if (view === 'recent') {
             return list
@@ -2988,7 +3023,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, scopedFolders, view, folderId, tag, dateFilter, sort, order, locale, todoTag]);
+    }, [notes, scopedFolders, view, folderId, tags, dateFilter, sort, order, locale, todoTag]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];

@@ -194,6 +194,7 @@ export interface Tag {
   id: string
   name: string
   color: string | null
+  isPinned?: boolean
   count: number
   createdAt: number
 }
@@ -238,6 +239,7 @@ export type ViewKind =
   | 'recent'
   | 'starred'
   | 'unfiled'
+  | 'untagged'
   | 'archived'
   | 'trash'
   | 'folder'
@@ -315,7 +317,8 @@ export interface SearchResponse {
 export interface GraphNode {
   id: string
   title: string
-  kind: 'note' | 'unresolved'
+  /** `tag` nodes are synthesized from note tags, `unresolved` from links to missing notes. */
+  kind: 'note' | 'unresolved' | 'tag'
   degree: number
   inDegree: number
   outDegree: number
@@ -351,8 +354,18 @@ export interface GraphQuery {
   q?: string
   folderId?: string
   tag?: string
+  /** Tags to filter by. Overrides `tag`; sent comma-separated. */
+  tags?: string[]
+  /** How multiple tags combine: `any` (default) for union, `all` for intersection. */
+  tagsMatch?: 'any' | 'all'
   includeOrphans?: boolean
   includeUnresolved?: boolean
+  /** Draw each tag as its own node, linking the notes that carry it. Sent as `1`. */
+  showTagNodes?: boolean
+  /** Notes the reader took out of the graph. Sent comma-separated, like `tags`. */
+  excluded?: string[]
+  /** Which side of a link a local graph walks. Only meaningful with `mode: 'local'`. */
+  direction?: 'both' | 'incoming' | 'outgoing'
   limit?: number
 }
 

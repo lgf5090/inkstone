@@ -43,7 +43,7 @@ describe('the list honours the calendar day filter', () => {
 
   beforeEach(() => {
     useNotes.setState({ ...originalNotes, notes: NOTES, folders: [], tags: [] })
-    useUi.setState({ ...originalUi, view: 'all', folderId: null, tag: null, dateFilter: null })
+    useUi.setState({ ...originalUi, view: 'all', folderId: null, tags: [], dateFilter: null })
     rendered = renderElement(createElement(VisibleProbe))
   })
 

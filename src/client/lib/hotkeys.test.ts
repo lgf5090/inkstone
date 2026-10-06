@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IS_MAC, isEditableTarget, matches, prettyCombo, register } from './hotkeys'
+import { APP_SHORTCUTS } from './shortcuts'
 
 const disposers: (() => void)[] = []
 afterEach(() => {
@@ -72,5 +73,31 @@ describe('hotkey matching and display', () => {
     const handler = listen('delete')
     expect(press(child, { key: 'Delete' }).defaultPrevented).toBe(false)
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('opens and closes the graph from an editor or an open dialog', () => {
+    const handler = listen(APP_SHORTCUTS.graph, { allowInInput: true, allowInOverlay: true })
+    const modifiers = IS_MAC ? { metaKey: true } : { ctrlKey: true }
+    const editor = document.createElement('textarea')
+    document.body.append(editor)
+    expect(press(editor, { key: 'g', shiftKey: true, ...modifiers }).defaultPrevented).toBe(true)
+    editor.remove()
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    document.body.append(dialog)
+    expect(press(dialog, { key: 'G', shiftKey: true, ...modifiers }).defaultPrevented).toBe(true)
+    dialog.remove()
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives every app shortcut its own chord', () => {
+    const chords = Object.entries(APP_SHORTCUTS)
+    const seen = new Map<string, string>()
+    for (const [name, chord] of chords) {
+      const clash = seen.get(chord)
+      expect(clash, `${name} and ${clash} both bind ${chord}`).toBeUndefined()
+      seen.set(chord, name)
+    }
+    expect(APP_SHORTCUTS.graph).toBe('mod+shift+g')
   })
 })

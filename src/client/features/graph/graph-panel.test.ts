@@ -14,7 +14,7 @@ const SPIRAL_RADIUS = 18
 const FRAME_BUDGET = 180
 const TITLES = Array.from({ length: 12 }, (_, index) => `Note ${index + 1}`)
 
-type GraphParams = Parameters<typeof api.graph>[0]
+type GraphParams = NonNullable<Parameters<typeof api.graph>[0]>
 type MessageKey = Parameters<typeof t>[0]
 type Draw = { op: string; args: number[]; alpha: number }
 
@@ -42,7 +42,7 @@ function graphResponse(titles: string[], folderName: string | null = null): Grap
       degree: 1,
       inDegree: 1,
       outDegree: 1,
-      folderId: folderName ? 'k'.repeat(26) : null,
+      folderId: folderName ? 'folder-1' : null,
       folderName,
       folderColor: null,
       tags: [],
@@ -328,7 +328,7 @@ beforeEach(async () => {
   })
   useUi.setState({ activeNoteId: null })
   vi.spyOn(api, 'graph').mockImplementation((params) => {
-    graphCalls.push(params)
+    graphCalls.push(params ?? {})
     return new Promise<GraphResponse>((resolve) => {
       pendingResolvers.push(resolve)
     })
@@ -556,6 +556,7 @@ function synthetic(id: string, x: number, y: number): CanvasNode {
     vx: 0,
     vy: 0,
     r: 6,
+    colorGroup: null,
   }
 }
 
@@ -783,5 +784,360 @@ describe('graph pointer and keyboard interaction', () => {
     const again = document.querySelector('[role="menu"]')
     expect([...again!.querySelectorAll('button')].some((node) => node.textContent?.includes(t('graph.unpin')))).toBe(true)
     expect([...again!.querySelectorAll('button')].some((node) => node.textContent?.trim() === t('graph.pin'))).toBe(false)
+  })
+})
+
+async function toggleSwitch(labelKey: MessageKey) {
+  const label = t(labelKey)
+  const control = buttons(document).find((node) => node.getAttribute('role') === 'switch' && node.getAttribute('aria-label') === label)
+  if (!control) throw new Error(`switch for ${labelKey} not found`)
+  await click(control)
+  await act(async () => { vi.advanceTimersByTime(340) })
+}
+
+function selectByLabel(labelKey: MessageKey): HTMLSelectElement | undefined {
+  return document.querySelector<HTMLSelectElement>(`select[aria-label="${t(labelKey)}"]`) ?? undefined
+}
+
+async function chooseOption(labelKey: MessageKey, value: string) {
+  const select = selectByLabel(labelKey)
+  if (!select) throw new Error(`select for ${labelKey} not found`)
+  await act(async () => {
+    select.value = value
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => { vi.advanceTimersByTime(340) })
+}
+
+function lastRequest(): GraphParams {
+  const last = graphCalls[graphCalls.length - 1]
+  if (!last) throw new Error('no graph request recorded')
+  return last
+}
+
+function menuButtonByText(text: string) {
+  const menu = document.querySelector('[role="menu"]')
+  if (!menu) return undefined
+  return [...menu.querySelectorAll('button')].find((node) => node.textContent?.includes(text))
+}
+
+describe('graph header tools', () => {
+  it('gates the picture export and full screen controls on a drawn graph', async () => {
+    await mount()
+    const png = () => buttonByLabel(t('graph.export_png'))
+    expect(png()?.disabled).toBe(true)
+    await takeRequest()
+    expect(buttonByLabel(t('graph.export_png'))?.disabled).toBe(false)
+    expect(buttonByLabel(t('graph.export_svg'))?.disabled).toBe(false)
+    expect(buttonByLabel(t('graph.fullscreen'))).toBeDefined()
+  })
+
+  it('hands a rendered picture to the browser as a file', async () => {
+    const blobs: Blob[] = []
+    HTMLCanvasElement.prototype.toBlob = function toBlob(callback: (blob: Blob | null) => void) {
+      callback(new Blob(['png'], { type: 'image/png' }))
+    } as unknown as HTMLCanvasElement['toBlob']
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: (blob: Blob) => { blobs.push(blob); return 'blob:graph' },
+      revokeObjectURL: () => {},
+    })
+    const clicked: string[] = []
+    const originalClick = HTMLAnchorElement.prototype.click
+    HTMLAnchorElement.prototype.click = function clickAnchor(this: HTMLAnchorElement) {
+      clicked.push(this.download)
+    }
+    await mount()
+    await takeRequest()
+    await click(buttonByLabel(t('graph.export_png'))!)
+    await act(async () => {})
+    HTMLAnchorElement.prototype.click = originalClick
+    expect(clicked).toEqual(['graph-global.png'])
+    expect(blobs).toHaveLength(1)
+  })
+
+  it('writes an svg file from the scene without a raster canvas', async () => {
+    const downloads: string[] = []
+    const originalClick = HTMLAnchorElement.prototype.click
+    HTMLAnchorElement.prototype.click = function clickAnchor(this: HTMLAnchorElement) {
+      downloads.push(this.download)
+    }
+    vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:graph', revokeObjectURL: () => {} })
+    await mount()
+    await takeRequest()
+    await click(buttonByLabel(t('graph.export_svg'))!)
+    await act(async () => {})
+    HTMLAnchorElement.prototype.click = originalClick
+    expect(downloads).toEqual(['graph-global.svg'])
+  })
+
+  it('asks the browser for the whole screen and follows its answer', async () => {
+    const panel = { requestFullscreen: vi.fn(() => Promise.resolve()) }
+    const exit = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit })
+    await mount()
+    await takeRequest()
+    const dialog = document.querySelector('[role="dialog"]')!
+    Object.defineProperty(dialog, 'requestFullscreen', { configurable: true, value: panel.requestFullscreen })
+    await click(buttonByLabel(t('graph.fullscreen'))!)
+    expect(panel.requestFullscreen).toHaveBeenCalled()
+
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: dialog })
+    await act(async () => {
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    const leave = buttonByLabel(t('graph.exit_fullscreen'))
+    expect(leave).toBeDefined()
+    await click(leave!)
+    expect(exit).toHaveBeenCalled()
+  })
+
+  it('says how many notes the filter line located and walks onto the first', async () => {
+    await mount()
+    await takeRequest()
+    await typeSearch('Note 3')
+    await takeRequest()
+    await pump(1)
+    expect(document.querySelector('[data-graph-search-status]')?.textContent).toBe(t('graph.matching_notes', { count: 1 }))
+    await click(buttonByLabel(t('graph.jump_to_first_match'))!)
+    expect(selectedTitle()).toBe('Note 3')
+  })
+
+  it('says so when the filter line located nothing', async () => {
+    await mount()
+    await takeRequest()
+    await typeSearch('zzzz')
+    await act(async () => {
+      pendingResolvers.shift()!(graphResponse([]))
+    })
+    expect(document.querySelector('[data-graph-search-status]')?.textContent).toBe(t('graph.no_matching_notes'))
+  })
+})
+
+describe('graph legend as a filter', () => {
+  async function mountFolderGraph() {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: 'global', groupBy: 'folder' }))
+    await mount()
+    await act(async () => {
+      pendingResolvers.shift()!(graphResponse(TITLES, 'Alpha'))
+    })
+  }
+
+  it('narrows the graph to the colour it names', async () => {
+    await mountFolderGraph()
+    const row = buttons(document.querySelector('[role="list"]')!).find((node) => node.textContent?.includes('Alpha'))
+    expect(row).toBeDefined()
+    await click(row!)
+    expect(lastRequest().folderId).toBe('folder-1')
+    expect(row!.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('gives the whole graph back on the second press', async () => {
+    await mountFolderGraph()
+    const row = () => buttons(document.querySelector('[role="list"]')!).find((node) => node.textContent?.includes('Alpha'))!
+    await click(row())
+    await click(row())
+    expect(lastRequest().folderId).toBeUndefined()
+    expect(row().getAttribute('aria-pressed')).toBe('false')
+  })
+})
+
+describe('graph settings drawer additions', () => {
+  it('carries the node limit into the request', async () => {
+    await mount()
+    await takeRequest()
+    await openSettings()
+    await setRange('graph.node_limit', '120', 'limit')
+    expect(lastRequest().limit).toBe(120)
+  })
+
+  it('sends several tags and the way they combine', async () => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: 'global' }))
+    await mount()
+    await takeRequest()
+    await openSettings()
+    const chips = buttons(document).filter((node) => node.getAttribute('aria-pressed') !== null && node.textContent?.includes('alpha'))
+    expect(chips.length).toBeGreaterThan(0)
+    await click(chips[0]!)
+    expect(lastRequest().tags).toEqual(['alpha'])
+    expect(lastRequest().tagsMatch).toBeUndefined()
+  })
+
+  it('asks the server for tag nodes when the toggle is on', async () => {
+    await mount()
+    await takeRequest()
+    await openSettings()
+    expect(lastRequest().showTagNodes).toBe(false)
+    await toggleSwitch('graph.show_tags')
+    expect(lastRequest().showTagNodes).toBe(true)
+  })
+
+  it('walks only one side of a link when the local graph says so', async () => {
+    useUi.setState({ activeNoteId: 'note-0' })
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: 'local' }))
+    await mount()
+    await takeRequest()
+    await openSettings()
+    expect(selectByLabel('graph.link_direction')).toBeDefined()
+    await chooseOption('graph.link_direction', 'incoming')
+    expect(lastRequest().direction).toBe('incoming')
+    expect(lastRequest().mode).toBe('local')
+  })
+
+  it('keeps a note out of the graph until it is restored', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    const expected = `note-${titleIndex(selectedTitle())}`
+    const hide = menuButtonByText(t('graph.exclude_note'))
+    expect(hide).toBeDefined()
+    await click(hide!)
+    await act(async () => { vi.advanceTimersByTime(340) })
+    expect(lastRequest().excluded).toEqual([expected])
+    const stored = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')
+    expect(stored.excludedNoteIds).toEqual([expected])
+  })
+
+  it('remembers which nodes were pinned', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    const expected = `note-${titleIndex(selectedTitle())}`
+    await click(menuButtonByText(t('graph.pin'))!)
+    await act(async () => { vi.advanceTimersByTime(340) })
+    const stored = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')
+    expect(stored.pinnedNodeIds).toEqual([expected])
+  })
+
+  it('restores the look without dropping the scope the reader chose', async () => {
+    useUi.setState({ activeNoteId: 'note-0' })
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: 'local', repulsion: 1500 }))
+    await mount()
+    await takeRequest()
+    await openSettings()
+    const restore = buttonByText(t('graph.restore_defaults'))
+    expect(restore).toBeDefined()
+    await click(restore!)
+    expect(lastRequest().mode).toBe('local')
+    expect(lastRequest().limit).toBe(350)
+  })
+})
+
+describe('graph legend durability', () => {
+  it('names the hollow ring even when nothing is grouped by colour', async () => {
+    await mount()
+    await act(async () => {
+      const response = graphResponse(TITLES)
+      response.nodes.push({
+        id: 'unresolved:ghost',
+        title: 'Ghost',
+        kind: 'unresolved',
+        degree: 1,
+        inDegree: 1,
+        outDegree: 0,
+        folderId: null,
+        folderName: null,
+        folderColor: null,
+        tags: [],
+      })
+      pendingResolvers.shift()!(response)
+    })
+    const legend = document.querySelector('[role="list"][aria-label]')
+    expect(legend?.textContent).toContain(t('graph.unresolved_legend'))
+  })
+})
+
+describe('graph review hardening', () => {
+  it('keeps a pinned node pinned across a refetch', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    await click(menuButtonByText(t('graph.pin'))!)
+    await pump(1)
+    const pinRing = 6.4 + 2.5
+    expect(arcRadii().some((radius) => Math.abs(radius - pinRing) < 0.01)).toBe(true)
+
+    await typeSearch('Note')
+    await takeRequest()
+    await pump(1)
+    expect(arcRadii().some((radius) => Math.abs(radius - pinRing) < 0.01)).toBe(true)
+  })
+
+  function tagNodeResponse(): GraphResponse {
+    const response = graphResponse(TITLES)
+    response.nodes.unshift({
+      id: 'tag:alpha',
+      title: 'alpha',
+      kind: 'tag',
+      degree: 4,
+      inDegree: 4,
+      outDegree: 0,
+      folderId: null,
+      folderName: null,
+      folderColor: null,
+      tags: [],
+    })
+    return response
+  }
+
+  async function mountWithTag(): Promise<CanvasNode> {
+    await mount()
+    await act(async () => {
+      pendingResolvers.shift()!(tagNodeResponse())
+    })
+    await pump(1)
+    const [x, y] = arcPositions()[0]!
+    const canvas = canvasNode()
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y })
+    firePointer(canvas, 'pointerup', { clientX: x, clientY: y })
+    await act(async () => {})
+    return { x, y } as unknown as CanvasNode
+  }
+
+  it('filters by the tag rather than opening a tag node', async () => {
+    await mountWithTag()
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await act(async () => {})
+    expect(openNoteMock).not.toHaveBeenCalled()
+    expect(lastRequest().tags).toEqual(['alpha'])
+  })
+
+  it('offers the tag filter as the primary action for a tag node', async () => {
+    const point = await mountWithTag()
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    const menu = document.querySelector('[role="menu"]')!
+    const labels = [...menu.querySelectorAll('button')].map((node) => node.textContent?.trim())
+    expect(labels[0]).toBe(t('graph.filter_by_tag', { value: 'alpha' }))
+    expect(labels.some((label) => label?.includes(t('graph.create_note')))).toBe(false)
+    expect(labels.some((label) => label?.includes(t('graph.open_note')))).toBe(false)
+    void point
   })
 })

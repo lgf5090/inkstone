@@ -49,7 +49,8 @@ interface UiState {
 
   view: ViewKind
   folderId: string | null
-  tag: string | null
+  /** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */
+  tags: string[]
   dateFilter: DateRangeFilter | null
   calendarJump: { year: number; month: number; nonce: number } | null
   sort: SortKey
@@ -66,6 +67,7 @@ interface UiState {
   panel: PanelName | null
   outlineOpen: boolean
   backlinksOpen: boolean
+  localGraphOpen: boolean
   toasts: ToastItem[]
   lightbox: { src: string; alt: string } | null
 
@@ -88,7 +90,8 @@ interface UiState {
   openSearchList: () => void
   openExplorer: (folderId?: string | null) => void
   setMobilePane: (pane: UiState['mobilePane']) => void
-  openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null }) => void
+  openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null; tags?: readonly string[] }) => void
+  toggleTagFilter: (tag: string, additive: boolean) => void
   setDateFilter: (value: DateRangeFilter | null) => void
   requestCalendarJump: (year: number, month: number) => void
   setSort: (sort: SortKey, order?: SortOrder) => void
@@ -103,6 +106,7 @@ interface UiState {
   togglePanel: (panel: PanelName) => void
   toggleOutline: () => void
   toggleBacklinks: () => void
+  toggleLocalGraph: () => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
   toast: (input: Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }) => string
@@ -127,7 +131,7 @@ const DEFAULTS = {
   listCollapsed: true,
   view: 'all' as ViewKind,
   folderId: null,
-  tag: null,
+  tags: [] as string[],
   dateFilter: null as DateRangeFilter | null,
   calendarJump: null as { year: number; month: number; nonce: number } | null,
   sort: 'updated' as SortKey,
@@ -159,7 +163,7 @@ const PERSISTED_KEYS = [
   'workspacePaneLayouts',
   'view',
   'folderId',
-  'tag',
+  'tags',
   'sort',
   'order',
   'density',
@@ -196,8 +200,8 @@ function loadPersisted(): Partial<UiState> {
     if (value.folderId === null || typeof value.folderId === 'string') {
       out.folderId = value.folderId?.slice(0, 128) ?? null
     }
-    if (value.tag === null || typeof value.tag === 'string') {
-      out.tag = typeof value.tag === 'string' ? truncateText(value.tag, LIMITS.tagNameMaxLength) : null
+    if (Array.isArray(value.tags)) {
+      out.tags = tagFilter(value.tags)
     }
     if (isChoice(value.sort, ['updated', 'created', 'title'])) out.sort = value.sort as SortKey
     if (isChoice(value.order, ['asc', 'desc'])) out.order = value.order as SortOrder
@@ -254,6 +258,14 @@ function loadPersisted(): Partial<UiState> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function tagFilter(value: readonly unknown[]): string[] {
+  const names = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => truncateText(item.trim(), LIMITS.tagNameMaxLength))
+    .filter(Boolean)
+  return uniqueStrings(names, LIMITS.tagFilterMax)
 }
 
 function isChoice(value: unknown, choices: readonly string[]): value is string {
@@ -317,6 +329,7 @@ export const useUi = create<UiState>((set, get) => ({
   panel: null,
   outlineOpen: false,
   backlinksOpen: false,
+  localGraphOpen: false,
   toasts: [],
   lightbox: null,
   mobilePane: 'list',
@@ -421,22 +434,23 @@ export const useUi = create<UiState>((set, get) => ({
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
   openSearchList: () => set((s) => ({
-    view: 'all', folderId: null, tag: null, selectedIds: [], dateFilter: null,
+    view: 'all', folderId: null, tags: [], selectedIds: [], dateFilter: null,
     searchList: true, searchRequest: s.searchRequest + 1, listCollapsed: false,
     mobilePane: 'list', navDrawerOpen: false, panel: null,
   })),
   openExplorer: (folderId = null) => set({
-    view: folderId ? 'folder' : 'all', folderId, tag: null,
+    view: folderId ? 'folder' : 'all', folderId, tags: [],
     searchList: false, listCollapsed: true, selectedIds: [], navDrawerOpen: false,
     dateFilter: null,
   }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
 
-  openView: (view, options) =>
-    set({
-      view,
+  openView: (view, options) => {
+    const tags = tagFilter(options?.tags ?? (options?.tag ? [options.tag] : []))
+    return set({
+      view: view === 'tag' && !tags.length ? 'all' : view,
       folderId: options?.folderId ?? null,
-      tag: options?.tag ?? null,
+      tags,
       selectedIds: [],
       dateFilter: null,
       mobilePane: 'list',
@@ -444,7 +458,19 @@ export const useUi = create<UiState>((set, get) => ({
       searchList: false,
 
       navDrawerOpen: false,
-    }),
+    })
+  },
+
+  toggleTagFilter: (tag, additive) => set((s) => {
+    const name = tag.trim()
+    if (!name) return {}
+    if (!additive) return { view: 'tag', tags: [name], selectedIds: [] }
+    const removing = s.tags.some((item) => item.toLowerCase() === name.toLowerCase())
+    const tags = removing
+      ? s.tags.filter((item) => item.toLowerCase() !== name.toLowerCase())
+      : tagFilter([...s.tags, name])
+    return { view: tags.length ? 'tag' : 'all', tags, selectedIds: [] }
+  }),
 
   setSort: (sort, order) => set((s) => ({ sort, order: order ?? s.order })),
   setDensity: (density) => set({ density }),
@@ -488,6 +514,7 @@ export const useUi = create<UiState>((set, get) => ({
   togglePanel: (panel) => set((s) => ({ panel: s.panel === panel ? null : panel })),
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
   toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
+  toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
   showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
 

@@ -588,7 +588,7 @@ describe('virtual folder filtering', () => {
 describe('virtual tree state survives folder refreshes', () => {
     it('keeps virtual expansion and the virtual folder view after refreshFolders', async () => {
         const list = vi.spyOn(api.folders, 'list').mockResolvedValue({ folders: [folder] });
-        useUi.setState({ expandedFolders: ['cal:2026', 'cal:2026:q4', folder.id], view: 'folder', folderId: 'cal:2026:q4', tag: null, searchList: false, listCollapsed: false });
+        useUi.setState({ expandedFolders: ['cal:2026', 'cal:2026:q4', folder.id], view: 'folder', folderId: 'cal:2026:q4', searchList: false, listCollapsed: false });
         await useNotes.getState().refreshFolders();
         expect(useUi.getState().expandedFolders).toEqual(expect.arrayContaining(['cal:2026', 'cal:2026:q4', folder.id]));
         expect(useUi.getState()).toMatchObject({ view: 'folder', folderId: 'cal:2026:q4' });
@@ -743,7 +743,7 @@ describe('unfiled view', () => {
         const filed = { ...note, id: 'filed', title: 'Filed', folderId: folder.id };
         const loose = { ...note, id: 'loose', title: 'Loose', folderId: null };
         useNotes.setState({ folders: [folder], notes: { filed, loose } });
-        useUi.setState({ view: 'unfiled', folderId: null, tag: null, searchList: false, listCollapsed: false, expandedFolders: ['inbox'] });
+        useUi.setState({ view: 'unfiled', folderId: null, searchList: false, listCollapsed: false, expandedFolders: ['inbox'] });
         let ids: string[] = [];
         await act(() => root.render(createElement(UnfiledProbe, { onIds: (next) => { ids = next; } })));
         expect(ids).toEqual(['loose']);

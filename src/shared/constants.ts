@@ -22,6 +22,8 @@ export const LIMITS = {
   contentMaxBytes: 1_900_000,
   folderNameMaxLength: 120,
   tagNameMaxLength: 60,
+  /** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */
+  tagFilterMax: 12,
   organizerIconMaxLength: 8,
   tagsMaxPerUser: 5_000,
   foldersMaxPerUser: 2_000,
@@ -41,6 +43,15 @@ export const LIMITS = {
   changeLogKept: 5000,
   syncBatchSize: 500,
   searchLimit: 50,
+  graphNodeLimitMin: 50,
+  graphNodeLimitMax: 600,
+  graphNodeLimitDefault: 350,
+  graphDepthMin: 1,
+  graphDepthMax: 3,
+  graphDepthDefault: 1,
+  graphTagsMax: 20,
+  graphExcludedMax: 200,
+  graphColorGroupMax: 5,
 
   ftsContentChars: 200_000,
 } as const
@@ -62,7 +73,7 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
   full: '100%',
 }
 
-export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'archived', 'trash', 'folder', 'tag']
+export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
 
 export const DEFAULT_SETTINGS: UserSettings = {
   appearance: {
