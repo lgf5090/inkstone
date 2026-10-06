@@ -7,6 +7,7 @@ import { LoginPage } from './features/auth/LoginPage'
 import { dismissBootScreen } from './lib/boot'
 import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup } from './store/pwa'
+import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
 
 const AppShell = lazy(() =>
@@ -14,6 +15,12 @@ const AppShell = lazy(() =>
 )
 const SharePage = lazy(() =>
   import('./features/share/SharePage').then((module) => ({ default: module.SharePage })),
+)
+const PresentationOverlay = lazy(() =>
+  import('./features/presentation').then((module) => ({ default: module.PresentationOverlay })),
+)
+const PresenterWindow = lazy(() =>
+  import('./features/presentation').then((module) => ({ default: module.PresenterWindow })),
 )
 
 export function App() {
@@ -25,31 +32,47 @@ export function App() {
     const match = /^\/s\/([A-Za-z0-9_-]+)/.exec(location.pathname)
     return match?.[1] ?? null
   })
+  // The presenter console is a second window over the same app, and it is a document that has been
+  // handed a capability rather than an account session: it speaks on the BroadcastChannel and reads
+  // nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.
+  const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
 
   useEffect(() => {
-    if (shareSlug) return
+    if (shareSlug || isPresenter) return
     void load()
-  }, [load, shareSlug])
+  }, [load, shareSlug, isPresenter])
 
   useEffect(() => watchSystemTheme(), [])
 
   useEffect(() => {
+    if (isPresenter) return
     initializePwa()
-  }, [])
+  }, [isPresenter])
 
   useEffect(() => {
-    if (!shareSlug && status !== 'loading') requestOfflineWarmup()
-  }, [shareSlug, status])
+    if ((shareSlug || isPresenter) || status !== 'loading') return
+    requestOfflineWarmup()
+  }, [shareSlug, isPresenter, status])
 
   useEffect(() => {
-    if (shareSlug || status !== 'loading') dismissBootScreen()
-  }, [status, shareSlug])
+    if (shareSlug || isPresenter || status !== 'loading') dismissBootScreen()
+  }, [status, shareSlug, isPresenter])
 
   useEffect(() => {
-    if (shareSlug) return
+    if (shareSlug || isPresenter) return
     const timer = window.setTimeout(() => dismissBootScreen(), 8000)
     return () => window.clearTimeout(timer)
-  }, [shareSlug])
+  }, [shareSlug, isPresenter])
+
+  if (isPresenter) {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<PageFallback />}>
+          <PresenterWindow />
+        </Suspense>
+      </ErrorBoundary>
+    )
+  }
 
   if (shareSlug) {
     return (
@@ -75,6 +98,11 @@ export function App() {
           </Suspense>
         )}
       </ErrorBoundary>
+      {/* A show outlives the layout that started it: the shell swaps its whole workspace subtree
+          when the breakpoint moves, so the overlay is hosted above that switch rather than inside
+          it. It is only mounted while a show is up, which is also what keeps the deck-splitting code
+          out of the boot chunk for everyone who is not presenting. */}
+      {status === 'authed' && <ShowOverlay />}
       <Toaster />
       <ConfirmHost />
       <PromptHost />
@@ -91,5 +119,15 @@ function PageFallback() {
     >
       <Spinner size={18} />
     </div>
+  )
+}
+
+function ShowOverlay() {
+  const open = usePresentation((s) => s.open)
+  if (!open) return null
+  return (
+    <Suspense fallback={null}>
+      <PresentationOverlay />
+    </Suspense>
   )
 }

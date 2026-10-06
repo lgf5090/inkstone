@@ -3,10 +3,11 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { usePresentation } from '../../store/presentation'
 import { startPresentationFromNote } from './start-presentation'
+import { APP_SHORTCUTS } from '../../lib/shortcuts'
 
 /** The key that starts a show, spelled once: the row in the editor's right-click menu prints this same
  * string, so the two cannot drift into showing different keys for one action. */
-export const PRESENTATION_START_COMBO = 'mod+alt+p'
+export const PRESENTATION_START_COMBO = APP_SHORTCUTS.present
 
 /**
  * The show's app-level shortcut: present the note that is on screen, from wherever the keyboard
@@ -20,7 +21,7 @@ export const PRESENTATION_START_COMBO = 'mod+alt+p'
 export const PRESENTATION_HOTKEYS: Hotkey[] = [
   {
     id: 'presentation',
-    combo: PRESENTATION_START_COMBO,
+    combo: APP_SHORTCUTS.present,
     description: () => t('workspace.presentation_mode'),
     group: () => t('common.note'),
     allowInInput: true,

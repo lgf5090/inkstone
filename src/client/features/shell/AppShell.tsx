@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Eye, FileText, PanelLeft, PencilLine, UserRound } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { registerAll, type Hotkey } from '../../lib/hotkeys';
+import { PRESENTATION_HOTKEYS } from '../presentation';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useBreakpoint } from '../../lib/hooks';
 import { useSyncEngine } from '../../lib/sync';
@@ -363,5 +364,5 @@ export const GLOBAL_HOTKEYS: Hotkey[] = [
 ];
 
 function useGlobalHotkeys(): void {
-    useEffect(() => registerAll(GLOBAL_HOTKEYS), []);
+    useEffect(() => registerAll([...GLOBAL_HOTKEYS, ...PRESENTATION_HOTKEYS]), []);
 }
