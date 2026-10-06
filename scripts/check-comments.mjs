@@ -60,6 +60,10 @@ const allowed = new Map([
   ["src/client/components/activity-calendar/use-activity-calendar.ts", [
     "// Marks an external month jump (settings preview click) or an internal jump (week click, gap-cell follow, endpoint locate) with the same fade-in + receding accent ring.",
   ]],
+  ["src/client/components/overlay.tsx", [
+    "// With no host mounted there is no dialog to show, so the only answer we may give is the",
+    "// cancelling one. Falling back to `window.confirm` would reintroduce a native prompt.",
+  ]],
   ["src/client/components/primitives.tsx", [
     "// dicebear ships full micah style data; keep it out of the boot chunk.",
   ]],
@@ -378,6 +382,9 @@ const allowed = new Map([
     "/**\n * A sync page can carry 500 notes whose cached bodies we hold, and each revalidation is a\n * whole-note GET plus a full-content IndexedDB write; unbounded fan-out froze the tab.\n */",
     "// `folders` only takes part in the folder view; without this the whole list re-derives",
     "// whenever a folder is renamed, reordered or created.",
+    "// `beforeunload` and `pagehide` are browser-forced APIs, allowed as an exception to the no-native-",
+    "// dialog rule: this listener only persists queued writes. It never calls preventDefault or sets",
+    "// `returnValue`, so the browser shows no leave-page prompt (tests/no-native-dialogs.test.ts).",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",
@@ -387,6 +394,7 @@ const allowed = new Map([
     "// Push unsaved offline edits before clearing local data, otherwise",
     "// they would be silently dropped. Dynamic import keeps the session",
     "// store free of a circular dependency on the notes store.",
+    "// Loaded lazily so this store keeps depending on no component module.",
   ]],
   ["src/client/store/ui.ts", [
     "// The subscriber fires on every notification, including the ones that change nothing",
