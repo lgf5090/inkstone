@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertChartBody, readChartBody } from './convert';
+import { CHART_BODY_LIMIT_BYTES, ChartBodyTooLargeError } from './limit';
 import { parseChartJson } from './json';
 import { readChartTable } from './table';
 
@@ -33,6 +34,33 @@ describe('reading a chart body whichever format it is written in', () => {
         expect(Object.prototype.hasOwnProperty.call(polluted, '__proto__')).toBe(false);
         expect(Object.getPrototypeOf(polluted)).toBe(Object.prototype);
         expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    });
+});
+
+describe('the ceiling on how much body a block will read', () => {
+    const huge = 'x'.repeat(CHART_BODY_LIMIT_BYTES + 1);
+
+    it('refuses a JSON body past the limit before parsing it', () => {
+        expect(() => parseChartJson(huge)).toThrow(ChartBodyTooLargeError);
+    });
+
+    it('refuses a table body past the limit before walking its rows', () => {
+        expect(() => readChartTable(huge)).toThrow(ChartBodyTooLargeError);
+    });
+
+    it('names the size as the reason a toggle cannot write the other way', () => {
+        expect(convertChartBody(huge)).toEqual({ ok: false, reason: 'too-large' });
+        expect(convertChartBody(`| :bar: | a |\n| --- | --- |\n${huge}`)).toEqual({ ok: false, reason: 'too-large' });
+    });
+
+    it('refuses a body one character past the limit and reads one exactly at it', () => {
+        expect(new ChartBodyTooLargeError().limitKb).toBe(CHART_BODY_LIMIT_BYTES / 1024);
+        const head = '{"type":"bar","data":{"labels":["a"],"datasets":[{"label":"s","data":[1]}]},"p":"';
+        const pad = 'x'.repeat(CHART_BODY_LIMIT_BYTES - head.length - 2);
+        const atLimit = `${head}${pad}"}`;
+        expect(atLimit.length).toBe(CHART_BODY_LIMIT_BYTES);
+        expect(parseChartJson(atLimit)).toMatchObject({ type: 'bar' });
+        expect(() => parseChartJson(`${atLimit}x`)).toThrow(ChartBodyTooLargeError);
     });
 });
 

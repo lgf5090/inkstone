@@ -45,4 +45,5 @@ export {
     type StyleRead,
 } from './style';
 export { parseChartJson } from './json';
+export { assertChartBodySize, ChartBodyTooLargeError, CHART_BODY_LIMIT_BYTES } from './limit';
 export { convertChartBody, readChartBody, type ChartConversion, type ChartConvertFailure } from './convert';

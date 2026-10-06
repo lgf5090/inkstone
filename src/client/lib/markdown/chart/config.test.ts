@@ -91,6 +91,26 @@ describe('a chart table as a chart.js config', () => {
         expect(datasets.map((set) => set.label)).toEqual(['g']);
     });
 
+    // The Chinese spellings name the columns a note is written with, not copy the page renders, so they
+    // live beside the syntax rather than in the locale catalog.
+    it('reads the Chinese column names the syntax documents', () => {
+        const groupA = '组一';
+        const groupB = '组二';
+        const named = table('scatter', ['', '横坐标', '纵坐标', '大小', '系列'], [['a', '1', '2', '6', groupA], ['b', '3', '4', '20', groupB]]);
+        const config = tableToChartConfig(named);
+        expect(config.type).toBe('bubble');
+        const datasets = (config.data as { datasets: { label: string, data: unknown[] }[] }).datasets;
+        expect(datasets.map((set) => set.label)).toEqual([groupA, groupB]);
+        expect(datasets[0]!.data[0]).toEqual({ x: 1, y: 2, name: 'a', r: 6 });
+    });
+
+    it('reads the other Chinese word for a series column', () => {
+        const grouped = '分组';
+        const named = table('scatter', ['', 'x', 'y', grouped], [['a', '1', '2', 'g']]);
+        const datasets = (tableToChartConfig(named).data as { datasets: { label: string }[] }).datasets;
+        expect(datasets.map((set) => set.label)).toEqual(['g']);
+    });
+
     // A header that names nothing still has the documented order: name, x, y. Reading the absent column
     // as -1 put every point on the same axis position and drew a confident picture of nothing.
     it('falls back to the documented column order when the header names no axis', () => {

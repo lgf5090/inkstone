@@ -6,6 +6,7 @@
  * Only the *text* ↔ *model* half lives here. What a model means for a drawing engine is decided by
  * that engine (./config), so the syntax stays readable without importing one.
  */
+import { assertChartBodySize } from './limit';
 import type { MessageKey } from '../../i18n';
 
 /**
@@ -167,6 +168,7 @@ export function formatKeywordCell(keyword: ChartKeyword): string {
 
 /** Reads a chart table out of fence text. Ragged rows are padded, the way a rendered table pads them. */
 export function readChartTable(body: string): ChartTable {
+    assertChartBodySize(body);
     const lines = body.split('\n').filter((line) => line.trim().length > 0);
     if (lines.length < 2)
         throw new ChartTableError('no-header');

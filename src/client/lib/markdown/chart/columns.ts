@@ -9,15 +9,16 @@ import type { ChartTable } from './table';
 
 /**
  * The header words the syntax documents for a scatter's columns. These are matched against a note's own
- * cells and never rendered, so they are input vocabulary rather than UI copy — which is why the ASCII
- * spellings are the only ones held here: this fork's i18n gate keeps Chinese out of `src/client`
- * entirely, and the reference's Chinese column aliases would need that gate widened to arrive.
+ * cells and never rendered, so they are input vocabulary rather than UI copy: a note written in Chinese
+ * means the same chart whatever language the reader's interface is in, which is why they cannot come from
+ * the locale catalog. `SCATTER_HEADER_WORDS` is named in scripts/check-i18n.mjs as the one place Chinese
+ * may sit in `src/client`; every other Han literal still fails that gate.
  */
 const SCATTER_HEADER_WORDS = {
-    x: ['x'],
-    y: ['y'],
-    size: ['size'],
-    series: ['series', 'group'],
+    x: ['x', '横坐标'],
+    y: ['y', '纵坐标'],
+    size: ['size', '大小'],
+    series: ['series', 'group', '系列', '分组'],
 };
 
 export interface ScatterColumns {

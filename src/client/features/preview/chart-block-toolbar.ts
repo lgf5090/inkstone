@@ -7,6 +7,7 @@
 import { decodeDataValue } from '../../lib/markdown/data-attr';
 import {
     applyChartFencePatch,
+    CHART_BODY_LIMIT_BYTES,
     chartFenceAt,
     convertChartBody,
     detectChartMode,
@@ -27,6 +28,7 @@ export interface ChartBlockActionApi {
 
 /** Why a body will not write the other way, in the words the author needs to act on. */
 const CONVERT_MESSAGES: Record<ChartConvertFailure, MessageKey> = {
+    'too-large': 'markdown.chart_body_too_large',
     'unknown-kind': 'markdown.chart_kind_unknown',
     'empty-table': 'markdown.chart_table_empty',
     'too-narrow': 'markdown.chart_table_narrow',
@@ -189,8 +191,8 @@ function exportPng(block: HTMLElement, toast: ChartBlockActionApi['toast']): voi
     }, 'image/png');
 }
 
-function declined(toast: ChartBlockActionApi['toast'], messageKey: MessageKey): boolean {
-    toast({ title: t(messageKey), tone: 'warning' });
+function declined(toast: ChartBlockActionApi['toast'], messageKey: MessageKey, params?: Record<string, string | number>): boolean {
+    toast({ title: params === undefined ? t(messageKey) : t(messageKey, params), tone: 'warning' });
     return true;
 }
 
@@ -214,8 +216,12 @@ export function convertChartFence(line: number, api: ChartBlockActionApi): boole
         return declined(api.toast, 'preview.chart_block_moved');
     const target = otherStyle(detectChartMode(fence.body));
     const converted = convertChartBody(fence.body);
-    if (!converted.ok)
+    if (!converted.ok) {
+        // The size refusal names the ceiling it hit, because the author's next question is what to cut.
+        if (converted.reason === 'too-large')
+            return declined(api.toast, CONVERT_MESSAGES[converted.reason], { limit: CHART_BODY_LIMIT_BYTES / 1024 });
         return declined(api.toast, CONVERT_MESSAGES[converted.reason]);
+    }
     const next = applyChartFencePatch(api.content, fence, { body: converted.body, style: target });
     if (next === null)
         return declined(api.toast, 'preview.chart_block_moved');

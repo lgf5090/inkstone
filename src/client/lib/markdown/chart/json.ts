@@ -3,6 +3,7 @@
  * and trailing commas allowed before the strict parse is retried, because a config typed out of a
  * documentation page arrives with both.
  */
+import { assertChartBodySize } from './limit';
 import { safeReviver } from './table';
 
 function cleanChartConfig(raw: string): string {
@@ -18,6 +19,7 @@ function cleanChartConfig(raw: string): string {
  * author's hand-written JSON arriving by the other door, so it goes through the same guard.
  */
 export function parseChartJson(raw: string): Record<string, unknown> {
+    assertChartBodySize(raw);
     let initialErr: unknown = null;
     try {
         return JSON.parse(raw, safeReviver) as Record<string, unknown>;

@@ -16,6 +16,11 @@ const allowed = new Map([
   ["scripts/check-i18n.mjs", [
     "// The OAuth consent page is a self-contained HTML document with its own",
     "// language switch (cookie-based); it does not use the React i18n layer.",
+    "// The scatter table's own column vocabulary, matched against a note's cells and never rendered.",
+    "// See inputVocabularyConstants for the AST half of the same allowance.",
+    "// The demo data that exercises that vocabulary: the same column words plus two group labels, each",
+    "// written once so the first-occurrence replacement below covers the whole file.",
+    "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n */",
   ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
@@ -186,6 +191,7 @@ const allowed = new Map([
     "// A rewrite that leaves styling behind has changed what the block looks like, even though nothing",
     "// about the data moved and the accent now paints the series. Say it, rather than let the author find out.",
     "/** Returns false when the click belonged to no chart tool, so the caller can keep walking its branches. */",
+    "// The size refusal names the ceiling it hit, because the author's next question is what to cut.",
   ]],
   ["src/client/features/preview/markdown-tabs.ts", [
     "// A nested group numbers its own panels from zero, so an outer click that reached inside",
@@ -336,7 +342,6 @@ const allowed = new Map([
   ]],
   ["src/client/lib/markdown/chart/columns.ts", [
     "/**\n * Which columns of a scatter table mean x, y, size and series.\n *\n * The resolution lives beside the syntax rather than beside the drawing engine: a note that says\n * `cherry:mapping` must mean the same picture however it is drawn, and the day those two drift is the\n * day the format toggle starts losing data.\n */",
-    "/**\n * The header words the syntax documents for a scatter's columns. These are matched against a note's own\n * cells and never rendered, so they are input vocabulary rather than UI copy — which is why the ASCII\n * spellings are the only ones held here: this fork's i18n gate keeps Chinese out of `src/client`\n * entirely, and the reference's Chinese column aliases would need that gate widened to arrive.\n */",
     "/** -1 when no column carries a size, which is what keeps a picture a scatter and not a bubble. */",
     "/** -1 when every point lands in one series. */",
     "// A column the note did not name is absent, not column zero: the keyword cell leaves an empty header",
@@ -346,6 +351,7 @@ const allowed = new Map([
     "// A mapping that names a column the header does not have is a mistake in the note, not a hint to",
     "// fall back: falling back would draw a chart over different columns than the author pointed at.",
     "/**\n * The documented order — name, x, y, size, series — with the header words the syntax also accepts.\n * The search starts at the second cell because the first one is where the point's name lives.\n *\n * A column the header does not name falls back to its slot in that order rather than to -1: a scatter\n * whose header says `name | temp | sales` means the second and third cells, and reading -1 would have\n * every point land on the same axis position — a picture of nothing, drawn confidently.\n */",
+    "/**\n * The header words the syntax documents for a scatter's columns. These are matched against a note's own\n * cells and never rendered, so they are input vocabulary rather than UI copy: a note written in Chinese\n * means the same chart whatever language the reader's interface is in, which is why they cannot come from\n * the locale catalog. `SCATTER_HEADER_WORDS` is named in scripts/check-i18n.mjs as the one place Chinese\n * may sit in `src/client`; every other Han literal still fails that gate.\n */",
   ]],
   ["src/client/lib/markdown/chart/config.test.ts", [
     "// The keyword is matched case-insensitively, but the engine's name is camelCase: `:polarArea:` used to",
@@ -357,6 +363,8 @@ const allowed = new Map([
     "// nothing about the numbers.",
     "// A header that names nothing still has the documented order: name, x, y. Reading the absent column",
     "// as -1 put every point on the same axis position and drew a confident picture of nothing.",
+    "// The Chinese spellings name the columns a note is written with, not copy the page renders, so they",
+    "// live beside the syntax rather than in the locale catalog.",
   ]],
   ["src/client/lib/markdown/chart/config.ts", [
     "/**\n * The pair of translations between a chart table (./table) and a chart.js config.\n *\n * Both directions are total in one direction and partial in the other: a table always means *some*\n * config, but a config means a table only when everything in it survives being written as one. So\n * {@link chartConfigToTable} refuses rather than approximating — a toggle that quietly dropped a second\n * axis would leave the note drawing a different chart than it did before the press.\n */",
@@ -387,6 +395,11 @@ const allowed = new Map([
   ["src/client/lib/markdown/chart/json.ts", [
     "/**\n * The JSON half of a ```chart body. Chart blocks tolerate formatting: comment and `**` markers stripped\n * and trailing commas allowed before the strict parse is retried, because a config typed out of a\n * documentation page arrives with both.\n */",
     "/**\n * The config a note wrote, with the keys every other object shares refused on the way in. The keyword\n * cell of a chart table already runs its hand-written JSON through the reviver; a body is the same\n * author's hand-written JSON arriving by the other door, so it goes through the same guard.\n */",
+  ]],
+  ["src/client/lib/markdown/chart/limit.ts", [
+    "/**\n * The ceiling on how much body a single chart block will read.\n *\n * A chart body is the note's own text, and both doors into it — `JSON.parse` for a config, the row walk\n * for a table — cost more the longer the string is, and the drawing engine then lays the picture out\n * synchronously. Nothing else bounds them: a shared note hands one author's text to a visitor's browser,\n * and a block can be written by hand as well as pasted. The limit is set far above anything a person\n * authors and reads on a chart — a ten-series year of daily points is a few tens of kilobytes — so it\n * refuses a blob rather than a big chart.\n */",
+    "/** A body past that ceiling. Every caller turns this into the block's error state. */",
+    "/** Checked before either reader runs, so the size is never paid for in order to be declined. */",
   ]],
   ["src/client/lib/markdown/chart/palette.ts", [
     "/**\n * Chart colours derived from the account's accent.\n *\n * A chart library's default palette is a rainbow chosen by nobody for the benefit of everybody, and it\n * sits badly against a page whose whole identity is one accent. So the series colours are built from\n * that accent instead: the accent itself, its own tint and shade, and then the two hues a designed\n * group is made of — the complement taken as a saturated spot, and a lean toward the neighbour of the\n * complement. That is the shape the reference groups have (a slate base, its lighter and darker\n * siblings, one gold spot, one mauve), and it keeps a multi-series chart reading as this page.\n *\n * oklch is where the arithmetic happens, because the tokens are written in it and its lightness axis\n * is perceptual (a ladder of equal steps *looks* like equal steps, which hsl does not give).\n *\n * The answer is sRGB hex, though, and that is not a style choice: the drawing engine parses the colours\n * it is handed — it lifts one for a hover state and mixes one for a translucent fill — and a colour it\n * cannot parse falls back to black or transparent rather than to the browser's own painter. Hex is what\n * every path reads the same way.\n */",
@@ -435,6 +448,10 @@ const allowed = new Map([
   ]],
   ["src/client/lib/markdown/embeds.ts", [
     "/**\n * Embed bodies live in the note store, but every debounced preview re-ran the full render\n * pipeline (parse + markdown-it + sanitize) per embed, and the per-call fetch cache made two\n * panes embedding the same note ask the network twice. Both caches are exact: a key is only\n * reused while the markdown it was built from is still identical.\n */",
+  ]],
+  ["src/client/lib/markdown/enhance-chart.test.ts", [
+    "// The catalog is not loaded under test, so t() answers with the key: this pins which message the",
+    "// block chose. The KB figure it carries is pinned where the error is built, in chart/convert.",
   ]],
   ["src/client/lib/markdown/enhance.test.ts", [
     "// The second pass used to swap the shared config for its own, which re-allowed the",

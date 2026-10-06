@@ -48,7 +48,34 @@ const allowedHanFragments = new Map([
         'Inkstone \u4f1a\u8bdd\u5df2\u8fc7\u671f\uff0c\u8bf7\u767b\u5f55\u540e\u91cd\u8bd5\u3002',
         '\u4e2d\u6587',
     ]],
+    // The scatter table's own column vocabulary, matched against a note's cells and never rendered.
+    // See inputVocabularyConstants for the AST half of the same allowance.
+    [path.resolve('src/client/lib/markdown/chart/columns.ts'), [
+        '\u6a2a\u5750\u6807',
+        '\u7eb5\u5750\u6807',
+        '\u5927\u5c0f',
+        '\u7cfb\u5217',
+        '\u5206\u7ec4',
+    ]],
+    // The demo data that exercises that vocabulary: the same column words plus two group labels, each
+    // written once so the first-occurrence replacement below covers the whole file.
+    [path.resolve('src/client/lib/markdown/chart/config.test.ts'), [
+        '\u6a2a\u5750\u6807',
+        '\u7eb5\u5750\u6807',
+        '\u5927\u5c0f',
+        '\u7cfb\u5217',
+        '\u5206\u7ec4',
+        '\u7ec4\u4e00',
+        '\u7ec4\u4e8c',
+    ]],
 ]);
+/**
+ * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.
+ * A chart table's scatter headers name the columns the author chose, and they must mean the same chart
+ * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these
+ * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
+ */
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS']);
 const english = readMessages(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES');
 const chinese = readMessages(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES');
 for (const key of english.keys()) {
@@ -129,7 +156,8 @@ for (const file of walk(root)) {
         if (!isTestFile &&
             (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
             /\p{Script=Han}/u.test(node.text) &&
-            !insideTranslationCall(node)) {
+            !insideTranslationCall(node) &&
+            !insideInputVocabulary(node)) {
             report(node, JSON.stringify(node.text));
         }
         ts.forEachChild(node, visit);
@@ -164,6 +192,17 @@ function rejectHan(file) {
     const line = before.split(/\r?\n/).length;
     const column = match.index - Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'));
     failures.push(`${path.relative(process.cwd(), file)}:${line}:${column} Chinese text is allowed only in src/shared/locales/zh-CN.ts`);
+}
+function insideInputVocabulary(node) {
+    let current = node.parent;
+    while (current && !ts.isSourceFile(current)) {
+        if (ts.isVariableDeclaration(current) &&
+            ts.isIdentifier(current.name) &&
+            inputVocabularyConstants.has(current.name.text))
+            return true;
+        current = current.parent;
+    }
+    return false;
 }
 function insideTranslationCall(node) {
     let current = node;

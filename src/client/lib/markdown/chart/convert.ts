@@ -8,12 +8,14 @@
  */
 import { detectChartMode, resolveChartMode } from './body';
 import { ChartConfigError, chartConfigToTable, tableToChartConfig } from './config';
+import { ChartBodyTooLargeError } from './limit';
 import { parseChartJson } from './json';
 import { ChartTableError, readChartTable, writeChartTable } from './table';
 import type { DeclaredStyle } from './style';
 
 /** Why a body cannot be written the other way. Every caller turns this into a sentence. */
 export type ChartConvertFailure =
+    | 'too-large'
     | 'invalid-json'
     | 'table-syntax'
     | 'not-a-config'
@@ -32,6 +34,8 @@ export function readChartBody(raw: string, style: DeclaredStyle | null = null): 
 }
 
 function failure(err: unknown): ChartConversion {
+    if (err instanceof ChartBodyTooLargeError)
+        return { ok: false, reason: 'too-large' };
     if (err instanceof ChartConfigError)
         return { ok: false, reason: err.reason };
     if (err instanceof ChartTableError)

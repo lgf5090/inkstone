@@ -4,6 +4,7 @@ import { decodeDataValue } from './data-attr';
 import { t, type MessageKey } from "../i18n";
 import { highlightWithPrism } from './prism';
 import {
+    ChartBodyTooLargeError,
     ChartConfigError,
     ChartTableError,
     CHART_TABLE_MESSAGES,
@@ -565,6 +566,8 @@ export function destroyChartInstances(root: HTMLElement | null): void {
 }
 
 function chartErrorMessage(err: unknown): string {
+    if (err instanceof ChartBodyTooLargeError)
+        return t("markdown.chart_body_too_large", { limit: err.limitKb });
     if (err instanceof ChartConfigError)
         return t(CHART_CONFIG_MESSAGES[err.reason]);
     if (err instanceof ChartTableError)

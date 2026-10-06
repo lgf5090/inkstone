@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { destroyChartInstances, renderPendingCharts } from './enhance';
 import { renderMarkdown } from './renderer';
 import { t } from '../i18n';
+import { CHART_BODY_LIMIT_BYTES } from './chart/limit';
 
 interface FakeChart {
     destroyed: boolean
@@ -232,6 +233,17 @@ describe('a chart that cannot be drawn', () => {
         const host = chartHost('```chart style=table\n| :nope: | a |\n| --- | --- |\n| r | 1 |\n```\n');
         await renderPendingCharts(host, false);
         expect(block(host).textContent).toContain(t('markdown.chart_kind_unknown'));
+    });
+
+    it('refuses a body too large to draw, on the size message rather than a parse one', async () => {
+        const host = chartHost(`\`\`\`chart\n${'x'.repeat(CHART_BODY_LIMIT_BYTES + 1)}\n\`\`\`\n`);
+        await renderPendingCharts(host, false);
+        expect(built).toHaveLength(0);
+        expect(block(host).classList.contains('has-error')).toBe(true);
+        // The catalog is not loaded under test, so t() answers with the key: this pins which message the
+        // block chose. The KB figure it carries is pinned where the error is built, in chart/convert.
+        expect(block(host).textContent).toContain(t('markdown.chart_body_too_large', { limit: CHART_BODY_LIMIT_BYTES / 1024 }));
+        expect(block(host).textContent).not.toContain(t('markdown.chart_convert_invalid_json'));
     });
 
     it('keeps the author’s own body on screen beside the reason', async () => {
