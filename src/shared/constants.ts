@@ -103,6 +103,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     layout: 'live',
     syncScroll: true,
     showToc: true,
+    outlineMode: 'sidebar',
     math: true,
     mermaid: true,
     codeBlockCollapse: true,
