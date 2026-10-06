@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { relayoutMindmap, watchMindmapContainer } from './resize';
+import { relayoutMindmap, watchMindmapBox, watchMindmapContainer } from './resize';
 import type { MindmapHandle } from './types';
 
 class FakeResizeObserver {
@@ -79,6 +79,39 @@ describe('relayoutMindmap', () => {
         const container = canvasWithTopic('[[Alpha]]');
         relayoutMindmap({ container, handle: null });
         expect(container.querySelector('a')).toBeNull();
+    });
+});
+
+describe('watchMindmapBox', () => {
+    it('declines to watch where the environment has no ResizeObserver', () => {
+        const seen: number[] = [];
+        expect(watchMindmapBox({ container: canvasWithTopic('Core'), handle: null }, () => seen.push(1))).toBeNull();
+        expect(seen).toEqual([]);
+    });
+
+    it('declines to watch an element that does not exist yet', () => {
+        stubObserver();
+        expect(watchMindmapBox({ container: null, handle: null }, () => {
+            throw new Error('nothing is watched');
+        })).toBeNull();
+        expect(FakeResizeObserver.instances).toEqual([]);
+    });
+
+    it('reports every real box and no zero one', () => {
+        stubObserver();
+        let boxed = 0;
+        watchMindmapBox({ container: canvasWithTopic('Core'), handle: null }, () => {
+            boxed++;
+        });
+        const observer = FakeResizeObserver.instances[0]!;
+        observer.report(0, 0);
+        expect(boxed).toBe(0);
+        observer.report(600, 400);
+        expect(boxed).toBe(1);
+        observer.report(600, 0);
+        expect(boxed).toBe(1);
+        observer.report(640, 420);
+        expect(boxed).toBe(2);
     });
 });
 

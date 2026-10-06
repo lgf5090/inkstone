@@ -97,6 +97,18 @@ export function mindmapBlocks(root: ParentNode): HTMLElement[] {
 }
 
 /**
+ * Whether an element has a box to measure against.
+ *
+ * The library reads node boxes out of the DOM as it draws, so every caller that touches the drawing
+ * needs this answer first: a tab panel that is not showing measures nothing at all, while a `::: details`
+ * that is collapsed only clips its content and leaves the boxes inside it real.
+ */
+export function hasLayoutBox(node: HTMLElement): boolean {
+    const box = node.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+}
+
+/**
  * The block's canonical body: what the renderer encoded onto it, with the final line
  * feed markdown-it appends to a fence removed. Everything that compares bodies
  * (write-back, source sync) goes through here so both sides agree.

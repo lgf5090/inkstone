@@ -25,28 +25,37 @@ export function relayoutMindmap(entry: MindmapResizeTarget): void {
 }
 
 /**
+ * Calls `onBoxed` for every report of a real box, and for no other.
+ *
+ * This is the contract both watchers share: a zero box is not a size, it is the block being kept out
+ * of the layout (a tab panel that is not showing, a closed `details`, an edit-only pane), and
+ * measuring against one is what puts `NaN` into the connectors. An observer also reports once the
+ * moment it starts observing, so installing one on a block that already has a box calls straight back
+ * — waiting for a box is safe to install and then forget.
+ */
+export function watchMindmapBox(entry: MindmapResizeTarget, onBoxed: () => void): ResizeObserver | null {
+    if (typeof ResizeObserver === 'undefined' || !entry.container)
+        return null;
+    const observer = new ResizeObserver((observed) => {
+        const box = observed[0]?.contentRect;
+        if (!box || box.width === 0 || box.height === 0)
+            return;
+        onBoxed();
+    });
+    observer.observe(entry.container);
+    return observer;
+}
+
+/**
  * The library measures node boxes once at init and on explicit layout calls; it
  * never watches its container. When the host pane changes size afterwards — a
  * split-layout cycle after the map mounted, a dragged divider, a resized
  * window — the drawing keeps its stale geometry and can end up outside the
  * block entirely, unreachable for clicks. Watching the container re-fits the
  * map whenever its box actually changes; jsdom has no ResizeObserver, and the
- * degraded surfaces that use the registry would not re-fit anyway.
+ * degraded surfaces that use the registry would not re-fit anyway. The report
+ * taken the moment watching starts is also what re-fits a fresh map once for free.
  */
 export function watchMindmapContainer(entry: MindmapResizeTarget): ResizeObserver | null {
-    if (typeof ResizeObserver === 'undefined' || !entry.container)
-        return null;
-    const observer = new ResizeObserver((observed) => {
-        const box = observed[0]?.contentRect;
-        // A zero box means the pane is currently hidden (edit-only layout); there
-        // is nothing to fit into, and the next resize will bring one.
-        if (!box || box.width === 0 || box.height === 0)
-            return;
-        // The observer reports once the moment it starts observing, which is right after the map was
-        // first drawn; a fresh map therefore arrives re-laid-out once for free, which is also what
-        // keeps a map that mounted into a hidden pane from staying broken.
-        relayoutMindmap(entry);
-    });
-    observer.observe(entry.container);
-    return observer;
+    return watchMindmapBox(entry, () => relayoutMindmap(entry));
 }
