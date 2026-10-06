@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createElement } from 'react';
 import { installTestGlobals, renderElement } from '../../lib/test-render';
+import { useUi } from '../../store/ui';
+import { __resetOutlineHeadings, outlineHeadingsFor } from './outline-registry';
 import { Outline, getHeadingTypography, getHeadingIcon } from './Outline';
 import type { Heading } from '../../lib/markdown/renderer';
 import { Heading1, Heading2, Heading3, Heading4, Heading5, Heading6 } from 'lucide-react';
@@ -314,5 +316,123 @@ describe('Outline filtering', () => {
         await type(input, '^chapter(');
         expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1', 'note-a']);
         unmount();
+    });
+});
+
+describe('Outline palette commands', () => {
+    async function send(action: string): Promise<void> {
+        await act(async () => { useUi.getState().sendOutlineCommand(action as never); });
+    }
+
+    it('expands and collapses one level at a time', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, vi.fn(), { defaultLevel: 6 });
+        expect(slugs(container)).toHaveLength(4);
+        await send('level-down');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1']);
+        await send('level-down');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1']);
+        await send('level-down');
+        expect(slugs(container)).toEqual(['chapter-1']);
+        await send('level-up');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1']);
+        unmount();
+    });
+
+    it('clamps stepping at the widest level present', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, vi.fn(), { defaultLevel: 1 });
+        expect(slugs(container)).toEqual(['chapter-1']);
+        await send('level-up');
+        await send('level-up');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1']);
+        await send('level-up');
+        expect(slugs(container)).toHaveLength(4);
+        await send('level-up');
+        expect(slugs(container)).toHaveLength(4);
+        unmount();
+    });
+
+    it('collapses everything then expands everything', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        await send('collapse-all');
+        expect(slugs(container)).toEqual(['chapter-1']);
+        await send('expand-all');
+        expect(slugs(container)).toHaveLength(4);
+        unmount();
+    });
+
+    it('returns to the configured default level', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, vi.fn(), { defaultLevel: 2 });
+        await send('expand-all');
+        expect(slugs(container)).toHaveLength(4);
+        await send('reset-level');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1']);
+        unmount();
+    });
+
+    it('opens and focuses the filter box', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        expect(container.querySelector('input[type="search"]')).toBeNull();
+        await send('focus-search');
+        const input = container.querySelector<HTMLInputElement>('input[type="search"]');
+        expect(input).not.toBeNull();
+        expect(document.activeElement).toBe(input);
+        unmount();
+    });
+
+    it('ignores a command replayed with the same sequence number', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, vi.fn(), { defaultLevel: 6 });
+        await send('collapse-all');
+        expect(slugs(container)).toEqual(['chapter-1']);
+        await act(async () => { /* re-render without a new command */ });
+        expect(slugs(container)).toEqual(['chapter-1']);
+        unmount();
+    });
+});
+
+describe('Outline note switching', () => {
+    function renderWithNote(headings: Heading[], noteId: string, props: Record<string, unknown> = {}) {
+        return renderElement(createElement(Outline, { headings, onSelect: vi.fn(), noteId, ...props }));
+    }
+
+    it('clears the filter when the note changes and keep-search is off', async () => {
+        const { container, unmount, rerender } = renderWithNote(FOUR_LEVEL_HEADINGS, 'n1');
+        await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.search}"]`)!);
+        await type(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'detail');
+        expect(container.querySelectorAll('button[data-slug]').length).toBe(3);
+        rerender(createElement(Outline, { headings: BRANCH_HEADINGS, onSelect: vi.fn(), noteId: 'n2' }));
+        const input = container.querySelector<HTMLInputElement>('input[type="search"]');
+        expect(input?.value ?? '').toBe('');
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        unmount();
+    });
+
+    it('keeps the filter across a note change when keep-search is on', async () => {
+        const { container, unmount, rerender } = renderWithNote(FOUR_LEVEL_HEADINGS, 'n1', { keepSearch: true });
+        await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.search}"]`)!);
+        await type(container.querySelector<HTMLInputElement>('input[type="search"]')!, 'eta');
+        // Only "Detail 1.1.1" carries the substring; its two ancestors stay drawn as the path to it.
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1']);
+        rerender(createElement(Outline, { headings: BRANCH_HEADINGS, onSelect: vi.fn(), noteId: 'n2', keepSearch: true }));
+        expect(container.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe('eta');
+        expect(slugs(container)).toEqual(['alpha', 'beta']);
+        unmount();
+    });
+
+    it('lets an override win over the scroll reading', () => {
+        const { container, unmount, rerender } = renderWithNote(FOUR_LEVEL_HEADINGS, 'n1', { activeOverride: 'detail-1-1-1' });
+        expect(container.querySelector('button[aria-current="location"]')!.getAttribute('data-slug')).toBe('detail-1-1-1');
+        rerender(createElement(Outline, { headings: FOUR_LEVEL_HEADINGS, onSelect: vi.fn(), noteId: 'n1' }));
+        expect(container.querySelector('button[aria-current="location"]')).toBeNull();
+        unmount();
+    });
+
+    it('publishes the active note outline for the clipboard commands', () => {
+        __resetOutlineHeadings();
+        expect(outlineHeadingsFor('n1')).toEqual([]);
+        const { unmount } = renderWithNote(BRANCH_HEADINGS, 'n1');
+        expect(outlineHeadingsFor('n1').map((h) => h.slug)).toEqual(['alpha', 'beta', 'gamma']);
+        expect(outlineHeadingsFor('other')).toEqual([]);
+        unmount();
+        expect(outlineHeadingsFor('n1')).toEqual([]);
     });
 });

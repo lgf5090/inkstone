@@ -98,6 +98,14 @@ export function EditorSettings() {
           <Switch checked={preview.outlineShowProgress} onChange={(outlineShowProgress) => void update({ preview: { outlineShowProgress } })} label={t("settings.outline_show_progress")}/>
         </SettingRow>}
 
+        {preview.showToc && <SettingRow title={t("settings.outline_keep_search")} description={t("settings.outline_keep_search_description")}>
+          <Switch checked={preview.outlineKeepSearch} onChange={(outlineKeepSearch) => void update({ preview: { outlineKeepSearch } })} label={t("settings.outline_keep_search")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_locate_by_cursor")} description={t("settings.outline_locate_by_cursor_description")}>
+          <Switch checked={preview.outlineLocateByCursor} onChange={(outlineLocateByCursor) => void update({ preview: { outlineLocateByCursor } })} label={t("settings.outline_locate_by_cursor")}/>
+        </SettingRow>}
+
         <SettingRow title={t("settings.link_hover_preview")} description={t("settings.link_hover_preview_description")}>
           <Switch checked={preview.linkHover} onChange={(linkHover) => void update({ preview: { linkHover } })} label={t("settings.link_hover_preview")}/>
         </SettingRow>

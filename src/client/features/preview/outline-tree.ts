@@ -108,6 +108,29 @@ export function clamp(value: number, minimum: number, maximum: number): number {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
 
+export interface OutlineExportOptions {
+    numbering: boolean;
+    /** Leading indent per visual tier, matched to what the panel draws. */
+    indent: string;
+}
+
+/**
+ * Flattens the outline to clipboard text. Tiers come from the rendered tree rather than the raw
+ * `#` count, so a document that jumps H1 → H3 exports two levels, the same shape the reader sees.
+ */
+export function stringifyOutline(tree: OutlineNode[], options: OutlineExportOptions): string {
+    const counters: number[] = [];
+    const lines: string[] = [];
+    for (const node of tree) {
+        counters.length = node.tier + 1;
+        counters[node.tier] = (counters[node.tier] ?? 0) + 1;
+        const indent = options.indent.repeat(node.tier);
+        const number = options.numbering ? `${counters.slice(0, node.tier + 1).join('.')} ` : '';
+        lines.push(`${indent}${number}${node.heading.text}`);
+    }
+    return lines.join('\n');
+}
+
 /** A document that fits its viewport has nothing left to read, so it counts as finished. */
 export function readingProgress(scrollTop: number, scrollHeight: number, clientHeight: number): number {
     const distance = scrollHeight - clientHeight;

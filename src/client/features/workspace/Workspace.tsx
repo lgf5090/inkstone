@@ -137,6 +137,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
     const [containerWidth, setContainerWidth] = useState(0);
     const [outlineHovered, setOutlineHovered] = useState(false);
+    const [cursorLine, setCursorLine] = useState<number | null>(null);
     const isMobile = breakpoint === 'mobile';
     const paneActive = !grouped || pane === 'active' || activeWorkspacePane === pane;
     const mobilePane = useUi((s) => s.mobilePane);
@@ -150,6 +151,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const outlineMode = previewSettings.outlineMode;
     const outlineDefaultLevel = previewSettings.outlineDefaultLevel;
     const outlineShowProgress = previewSettings.outlineShowProgress;
+    const outlineKeepSearch = previewSettings.outlineKeepSearch;
+    const outlineLocateByCursor = previewSettings.outlineLocateByCursor;
     const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover';
     const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && !outlineIsFloating;
     const outlineFloatingVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && outlineIsFloating
@@ -251,6 +254,20 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         view.focus();
     }, [view]);
     const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, previewSettings.syncScroll && showSplit);
+    // Headings arrive in document order, so the cursor's heading is the last one at or above it.
+    const outlineCursorActive = useMemo(() => {
+        if (!outlineLocateByCursor || !showEditor || cursorLine === null || headings.length === 0) return null;
+        let low = 0;
+        let high = headings.length - 1;
+        let found = -1;
+        while (low <= high) {
+            const middle = (low + high) >> 1;
+            if (headings[middle]!.line <= cursorLine) { found = middle; low = middle + 1; }
+            else { high = middle - 1; }
+        }
+        return found >= 0 ? headings[found]!.slug : headings[0]!.slug;
+    }, [outlineLocateByCursor, showEditor, cursorLine, headings]);
+
     const jumpToHeading = useCallback((heading: Heading) => {
         if (view && showEditor) {
             const line = Math.min(view.state.doc.lines, heading.line + 1);
@@ -523,17 +540,17 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
-            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady}/>
+            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}
 
         {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
             <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
-            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress}/>)}
+            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive}/>)}
           </div>)}
-        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress}/>}
-        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} containerRef={containerRef}/>)}
+        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive}/>}
+        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} containerRef={containerRef}/>)}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}
@@ -543,7 +560,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       <Menu anchor={moreButtonRef} open={moreMenuOpen} onClose={() => setMoreMenuOpen(false)} items={grouped ? groupedItems : mobileItems} align="end" width={220}/>
       {isMobile && (<Drawer open={mobileOutlineOpen} onClose={() => setMobileOutlineOpen(false)} side="right" width={320} title={t("common.outline")}>
-          <Outline headings={headings} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} className="max-h-none w-full self-stretch py-3" onSelect={(heading) => {
+          <Outline headings={headings} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} className="max-h-none w-full self-stretch py-3" onSelect={(heading) => {
                 jumpToHeading(heading);
                 setMobileOutlineOpen(false);
             }}/>

@@ -20,6 +20,7 @@ import { t } from '../../lib/i18n';
 import {
     activeHeadingIndex,
     buildOutlineTree,
+    clamp,
     collapsedToLevel,
     computeHiddenByCollapse,
     filterTree,
@@ -28,6 +29,8 @@ import {
     readingProgress,
     type OutlineNode,
 } from './outline-tree';
+import { publishOutlineHeadings } from './outline-registry';
+import { useUi } from '../../store/ui';
 
 const ACTIVE_BAR_W = 'w-[var(--sp-0-625)]';
 
@@ -192,7 +195,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -200,14 +203,81 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     noteId?: string;
     defaultLevel?: number;
     showProgress?: boolean;
+    /** Slug chosen from the editor cursor; wins over the preview-scroll reading. */
+    activeOverride?: string | null;
+    keepSearch?: boolean;
 }) {
-    const { active, progress } = useOutlineTracking(headings, scrollerRef);
+    const tracked = useOutlineTracking(headings, scrollerRef);
+    const active = activeOverride ?? tracked.active;
+    const { progress } = tracked;
     const tree = useMemo(() => buildOutlineTree(headings), [headings]);
     const { collapsed, setCollapsed, toggle } = useOutlineCollapse(tree, noteId, defaultLevel);
     const [query, setQuery] = useState('');
     const [useRegex, setUseRegex] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
+    const [level, setLevel] = useState(defaultLevel);
     const listRef = useRef<HTMLUListElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+    const command = useUi((state) => state.outlineCommand);
+    // Seeded with the command already in the store so remounting never replays a stale request.
+    const appliedCommandRef = useRef<number>(command?.seq ?? 0);
+    const pendingSearchFocusRef = useRef(false);
+
+    const maxLevel = Math.min(tree.reduce((deepest, node) => Math.max(deepest, node.heading.level), 1), MAX_LEVEL_BUTTONS);
+
+    useEffect(() => {
+        publishOutlineHeadings(noteId, headings);
+        return () => { publishOutlineHeadings(undefined, []); };
+    }, [noteId, headings]);
+
+    const lastQueryNoteRef = useRef(noteId);
+    useEffect(() => {
+        if (keepSearch || lastQueryNoteRef.current === noteId)
+            return;
+        lastQueryNoteRef.current = noteId;
+        setQuery('');
+    }, [noteId, keepSearch]);
+
+    useEffect(() => {
+        if (!command || appliedCommandRef.current === command.seq)
+            return;
+        appliedCommandRef.current = command.seq;
+        if (command.action === 'focus-search')
+            pendingSearchFocusRef.current = true;
+        switch (command.action) {
+            case 'focus-search':
+                setSearchOpen(true);
+                break;
+            case 'expand-all':
+                setLevel(maxLevel);
+                setCollapsed(new Set());
+                break;
+            case 'collapse-all':
+                setLevel(1);
+                setCollapsed(collapsedToLevel(tree, 1));
+                break;
+            case 'reset-level':
+                setLevel(defaultLevel);
+                setCollapsed(collapsedToLevel(tree, defaultLevel));
+                break;
+            case 'level-up':
+            case 'level-down': {
+                // A shallower document would otherwise need dead presses before anything moves.
+                const effective = Math.min(level, maxLevel);
+                const next = clamp(effective + (command.action === 'level-up' ? 1 : -1), 1, maxLevel);
+                setLevel(next);
+                setCollapsed(collapsedToLevel(tree, next));
+                break;
+            }
+        }
+    }, [command, tree, level, maxLevel, defaultLevel, setCollapsed]);
+
+    useEffect(() => {
+        if (!searchOpen || !pendingSearchFocusRef.current)
+            return;
+        pendingSearchFocusRef.current = false;
+        searchRef.current?.focus();
+    }, [searchOpen]);
 
     const hidden = useMemo(() => computeHiddenByCollapse(tree, collapsed), [tree, collapsed]);
     const searching = query.trim().length > 0;
@@ -229,10 +299,9 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
             ?.scrollIntoView({ block: 'nearest' });
     }, [locatedSlug, searching]);
 
-    const maxLevel = Math.min(tree.reduce((deepest, node) => Math.max(deepest, node.heading.level), 1), MAX_LEVEL_BUTTONS);
     const levelPresets = useMemo(() => {
         const presets = new Map<number, Set<string>>();
-        for (let level = 1; level <= maxLevel; level++) presets.set(level, collapsedToLevel(tree, level));
+        for (let depth = 1; depth <= maxLevel; depth++) presets.set(depth, collapsedToLevel(tree, depth));
         return presets;
     }, [tree, maxLevel]);
     const parents = useMemo(() => parentSlugs(tree), [tree]);
@@ -252,7 +321,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
       </div>
 
       {searchOpen && (<div className="mb-1 flex shrink-0 items-center gap-1 px-2">
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setQuery(''); setSearchOpen(false); } }} placeholder={t('outline.filter_placeholder')} aria-label={t('outline.filter_placeholder')} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-10-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"/>
+          <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setQuery(''); setSearchOpen(false); } }} placeholder={t('outline.filter_placeholder')} aria-label={t('outline.filter_placeholder')} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-10-5)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"/>
           <button type="button" role="switch" aria-checked={useRegex} aria-label={t('outline.regex')} title={t('outline.regex')} onClick={() => setUseRegex((current) => !current)} className={cn('shrink-0 rounded-[var(--r-sm)] p-0.5 transition-colors hover:bg-[var(--bg-hover)]', useRegex ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>
             <Asterisk size={11}/>
           </button>
@@ -262,11 +331,11 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
           <span className="tabular flex-1">{t('outline.match_count', { count: filter.matchCount })}</span>
           <button type="button" onClick={() => setQuery('')} aria-label={t('outline.clear_filter')} className="rounded-[var(--r-sm)] p-0.5 hover:bg-[var(--bg-hover)]"><X size={10}/></button>
         </div>) : (<div className="mb-1 flex shrink-0 flex-wrap items-center gap-0.5 px-2">
-          {Array.from({ length: maxLevel }, (_, offset) => offset + 1).map((level) => {
-            const preset = levelPresets.get(level)!;
-            return (<button key={level} type="button" title={t('outline.expand_to_level', { level })} aria-label={t('outline.expand_to_level', { level })} aria-pressed={isSameSet(collapsed, preset)} onClick={() => setCollapsed(preset)} className={cn('h-4 min-w-4 rounded-[var(--r-sm)] px-0.5 text-[length:var(--text-10-5)] tabular transition-colors hover:bg-[var(--bg-hover)]', isSameSet(collapsed, preset) ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>{level}</button>);
+          {Array.from({ length: maxLevel }, (_, offset) => offset + 1).map((depth) => {
+            const preset = levelPresets.get(depth)!;
+            return (<button key={depth} type="button" title={t('outline.expand_to_level', { level: depth })} aria-label={t('outline.expand_to_level', { level: depth })} aria-pressed={isSameSet(collapsed, preset)} onClick={() => { setLevel(depth); setCollapsed(preset); }} className={cn('h-4 min-w-4 rounded-[var(--r-sm)] px-0.5 text-[length:var(--text-10-5)] tabular transition-colors hover:bg-[var(--bg-hover)]', isSameSet(collapsed, preset) ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--text-quaternary)]')}>{depth}</button>);
           })}
-          <button type="button" title={allCollapsed ? t('outline.expand_all') : t('outline.collapse_all')} aria-label={allCollapsed ? t('outline.expand_all') : t('outline.collapse_all')} onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(parents))} className="ml-auto shrink-0 rounded-[var(--r-sm)] p-0.5 text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+          <button type="button" title={allCollapsed ? t('outline.expand_all') : t('outline.collapse_all')} aria-label={allCollapsed ? t('outline.expand_all') : t('outline.collapse_all')} onClick={() => { setLevel(allCollapsed ? maxLevel : 1); setCollapsed(allCollapsed ? new Set() : new Set(parents)); }} className="ml-auto shrink-0 rounded-[var(--r-sm)] p-0.5 text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
             <ChevronRight size={11} className={cn('transition-transform duration-[var(--dur-fast)]', allCollapsed ? 'rotate-90' : '-rotate-90')}/>
           </button>
         </div>)}

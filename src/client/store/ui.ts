@@ -20,6 +20,9 @@ export type PanelName =
 
 export type WorkspacePane = 'primary' | 'secondary'
 
+/** Palette/hotkey actions the outline panel owns but the shell has to trigger. */
+export type OutlineCommand = 'focus-search' | 'reset-level' | 'expand-all' | 'collapse-all' | 'level-up' | 'level-down'
+
 export interface ToastItem {
   id: string
   title: string
@@ -72,6 +75,7 @@ interface UiState {
 
   panel: PanelName | null
   outlineOpen: boolean
+  outlineCommand: { action: OutlineCommand; seq: number } | null
   backlinksOpen: boolean
   localGraphOpen: boolean
   toasts: ToastItem[]
@@ -113,6 +117,7 @@ interface UiState {
   closePanel: () => void
   togglePanel: (panel: PanelName) => void
   toggleOutline: () => void
+  sendOutlineCommand: (action: OutlineCommand) => void
   toggleBacklinks: () => void
   toggleLocalGraph: () => void
   showBacklinks: () => void
@@ -363,6 +368,7 @@ export const useUi = create<UiState>((set, get) => ({
   navDrawerOpen: false,
   panel: null,
   outlineOpen: false,
+  outlineCommand: null as { action: OutlineCommand; seq: number } | null,
   backlinksOpen: false,
   localGraphOpen: false,
   toasts: [],
@@ -558,6 +564,7 @@ export const useUi = create<UiState>((set, get) => ({
   closePanel: () => set({ panel: null }),
   togglePanel: (panel) => set((s) => ({ panel: s.panel === panel ? null : panel })),
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
+  sendOutlineCommand: (action) => set((s) => ({ outlineCommand: { action, seq: (s.outlineCommand?.seq ?? 0) + 1 } })),
   toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
   toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
   showBacklinks: () => set({ backlinksOpen: true }),

@@ -34,13 +34,15 @@ interface DragVisual {
     edgeY: SnappedEdge;
 }
 
-export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, containerRef, }: {
+export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, containerRef, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
     noteId?: string;
     defaultLevel: number;
     showProgress: boolean;
+    keepSearch: boolean;
+    activeOverride?: string | null;
     containerRef: RefObject<HTMLElement | null>;
 }) {
     const stored = useUi((state) => state.outlineFloatingPosition);
@@ -147,7 +149,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
         </Tooltip>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} className="h-full max-h-full w-full py-2 pr-2"/>
+        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} className="h-full max-h-full w-full py-2 pr-2"/>
       </div>
       {drag?.edgeX && <span aria-hidden="true" className={cnGuide('vertical', drag.edgeX)}/>}
       {drag?.edgeY && <span aria-hidden="true" className={cnGuide('horizontal', drag.edgeY)}/>}

@@ -11,6 +11,7 @@ import {
     parentSlugs,
     pruneCollapsed,
     readingProgress,
+    stringifyOutline,
 } from './outline-tree';
 
 function heading(level: number, text: string, slug = text.toLowerCase().replace(/\s+/g, '-')): Heading {
@@ -196,5 +197,26 @@ describe('activeHeadingIndex', () => {
 describe('clamp', () => {
     it('keeps an empty range from inverting', () => {
         expect(clamp(5, 9, 2)).toBe(9);
+    });
+});
+
+describe('stringifyOutline', () => {
+    it('indents by visual tier, so a skipped level exports as one step', () => {
+        const tree = buildOutlineTree([heading(1, 'A'), heading(3, 'B'), heading(3, 'C')]);
+        expect(stringifyOutline(tree, { numbering: false, indent: '\t' })).toBe('A\n\tB\n\tC');
+    });
+
+    it('numbers hierarchically and resets a deeper counter on a new sibling', () => {
+        const tree = buildOutlineTree([heading(1, 'A'), heading(2, 'B'), heading(3, 'C'), heading(2, 'D'), heading(1, 'E')]);
+        expect(stringifyOutline(tree, { numbering: true, indent: '' })).toBe('1 A\n1.1 B\n1.1.1 C\n1.2 D\n2 E');
+    });
+
+    it('returns an empty string for an empty outline', () => {
+        expect(stringifyOutline([], { numbering: true, indent: '  ' })).toBe('');
+    });
+
+    it('keeps raw heading text untouched', () => {
+        const tree = buildOutlineTree([heading(1, 'Uses `code` and **bold**')]);
+        expect(stringifyOutline(tree, { numbering: false, indent: '' })).toBe('Uses `code` and **bold**');
     });
 });

@@ -175,11 +175,16 @@ const allowed = new Map([
   ]],
   ["src/client/features/preview/Outline.test.ts", [
     "/** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */",
+    "/* re-render without a new command */",
+    "// Only \"Detail 1.1.1\" carries the substring; its two ancestors stay drawn as the path to it.",
   ]],
   ["src/client/features/preview/Outline.tsx", [
     "/**\n * Expansion survives typing: the set is keyed by heading slug and only shed when those headings\n * stop being parents, so adding a heading elsewhere never reflows what the reader folded away.\n */",
     "// A scroll tick lands here every frame; quantising the ring to whole percent and",
     "// bailing when neither field moved keeps a long outline from re-rendering per frame.",
+    "/** Slug chosen from the editor cursor; wins over the preview-scroll reading. */",
+    "// Seeded with the command already in the store so remounting never replays a stale request.",
+    "// A shallower document would otherwise need dead presses before anything moves.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -384,6 +389,9 @@ const allowed = new Map([
   ["src/client/features/preview/outline-float.ts", [
     "/** A pane too narrow to move the panel keeps the saved ratio on that axis rather than discarding where it was parked. */",
   ]],
+  ["src/client/features/preview/outline-registry.ts", [
+    "/** Only the active note's outline is exportable; a stale snapshot must never reach the clipboard. */",
+  ]],
   ["src/client/features/preview/outline-tree.test.ts", [
     "// One and Two match; Alpha is drawn only because a child of it matched.",
   ]],
@@ -394,6 +402,8 @@ const allowed = new Map([
     "/**\n * Turns a query into a predicate. An unparseable regex matches everything, which keeps the panel\n * readable while the pattern is half-typed instead of blanking the outline.\n */",
     "/** Every match plus the ancestors that lead to it. */",
     "/** A document that fits its viewport has nothing left to read, so it counts as finished. */",
+    "/** Leading indent per visual tier, matched to what the panel draws. */",
+    "/**\n * Flattens the outline to clipboard text. Tiers come from the rendered tree rather than the raw\n * `#` count, so a document that jumps H1 → H3 exports two levels, the same shape the reader sees.\n */",
   ]],
   ["src/client/features/preview/panel-source.ts", [
     "/**\n * The source edits behind a layout block's settings toolbar.\n *\n * A block keeps its whole configuration on one header line, so most edits are a rewrite of that line\n * with the content below left byte-identical. Changing the column count is the one edit that also has\n * to touch the body: the number of columns a note holds is the number of `::` separators it carries,\n * and a header that disagrees with its own body is a block the reader cannot fix by looking at it.\n */",
@@ -521,6 +531,9 @@ const allowed = new Map([
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
     "// tail used to cost one object per line of the whole file (60k) before being truncated.",
+  ]],
+  ["src/client/features/workspace/Workspace.tsx", [
+    "// Headings arrive in document order, so the cursor's heading is the last one at or above it.",
   ]],
   ["src/client/features/workspace/reading-position.ts", [
     "// Reading position is optional when browser storage is unavailable.",
@@ -1335,6 +1348,7 @@ const allowed = new Map([
     "// The list search box holds this string and forwards it to /api/search verbatim, so an",
     "// expression written from a tag menu is the same grammar a person can type by hand.",
     "/** A 0…1 ratio of the travel space, so resizing the window keeps the panel where the reader put it. */",
+    "/** Palette/hotkey actions the outline panel owns but the shell has to trigger. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",

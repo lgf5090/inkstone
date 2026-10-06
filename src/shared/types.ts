@@ -126,6 +126,8 @@ export interface PreviewSettings {
   outlineMode: OutlineModeName
   outlineDefaultLevel: number
   outlineShowProgress: boolean
+  outlineKeepSearch: boolean
+  outlineLocateByCursor: boolean
   math: boolean
   mermaid: boolean
   chart: boolean
