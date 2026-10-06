@@ -10,6 +10,10 @@ import {
   selectedTabIndex,
 } from './markdown-tabs'
 
+const { remeasure } = vi.hoisted(() => ({ remeasure: vi.fn() }))
+
+vi.mock('../../lib/markdown/mindmap/registry', () => ({ remeasureMindmapBlock: remeasure }))
+
 const SCOPE = { noteId: 'note-1', userId: 'user-1' }
 
 afterEach(() => {
@@ -197,6 +201,39 @@ describe('the chart in a panel that was hidden', () => {
     applyTabSelection(group, 1)
     expect(listener).not.toHaveBeenCalled()
     window.removeEventListener('resize', listener)
+  })
+})
+
+describe('the map in a panel that was hidden', () => {
+  it('re-measures the map that just became visible, and only that one', () => {
+    remeasure.mockClear()
+    const root = surface(':::: tabs\n@tab One\n```mindmap\n- Core\n```\n@tab Two\n```mindmap\n- Other\n```\n::::')
+    const group = groups(root)[0]!
+    const panels = groupTabPanelsOf(group)
+    expect(panels).toHaveLength(2)
+    const shown = panels[1]!.querySelector('[data-mindmap]')
+    expect(shown).not.toBeNull()
+    applyTabSelection(group, 1)
+    expect(remeasure).toHaveBeenCalledTimes(1)
+    expect(remeasure.mock.calls[0]![0]).toBe(shown)
+  })
+
+  it('re-measures again for a panel that is opened a second time', () => {
+    remeasure.mockClear()
+    const root = surface(':::: tabs\n@tab One\na\n@tab Two\n```mindmap\n- Other\n```\n::::')
+    const group = groups(root)[0]!
+    applyTabSelection(group, 1)
+    applyTabSelection(group, 0)
+    applyTabSelection(group, 1)
+    expect(remeasure).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves the map alone when the block was already showing that panel', () => {
+    remeasure.mockClear()
+    const root = surface(':::: tabs\n@tab One\n```mindmap\n- Core\n```\n@tab Two\nb\n::::')
+    const group = groups(root)[0]!
+    applyTabSelection(group, 0)
+    expect(remeasure).not.toHaveBeenCalled()
   })
 })
 

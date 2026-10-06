@@ -18,7 +18,7 @@ import { detectMindmapMode, normalizeEol } from './body';
 import type { MindmapBlockEntry } from './entry';
 import { loadMindmapVendor } from './loader';
 import { decorateMindmapLinks } from './node-links';
-import { watchMindmapContainer } from './resize';
+import { relayoutMindmap, watchMindmapContainer } from './resize';
 import { renderStaticMindmapBlocks } from './static';
 import { APP_THEME_CHOICE, fenceThemeChoice, type MindmapThemeChoice } from './theme';
 import type { MindmapFenceWriter, MindmapVendorLoader, MindmapWriteResult, MindmapWriter } from './types';
@@ -118,6 +118,25 @@ export function mindmapEntryForNode(node: HTMLElement): MindmapBlockEntry | null
 /** The header button of a live block; a no-op while the block is still loading. */
 export function fitMindmapBlock(node: HTMLElement): void {
     mindmapEntryForNode(node)?.handle?.scaleFit();
+}
+
+/**
+ * Re-measure a map that has just become visible.
+ *
+ * A block mounted inside a hidden tab panel laid itself out against a zero box, which puts `NaN` into
+ * every connector below the first level. The container watcher repairs that when it reports a real
+ * size — but revealing a panel is not guaranteed to change the box it observes, and the surfaces that
+ * mirror a map without a live instance have no watcher at all, so whoever hides a map has to say so.
+ */
+export function remeasureMindmapBlock(node: HTMLElement): void {
+    const entry = mindmapEntryForNode(node);
+    if (!entry?.handle)
+        return;
+    const box = entry.container?.getBoundingClientRect();
+    // Still nothing to measure against: leave it to the watcher, which reports once a box exists.
+    if (!box || box.width === 0 || box.height === 0)
+        return;
+    relayoutMindmap(entry);
 }
 
 /** Notifies when a block becomes ready, changes owner or starts editing. */

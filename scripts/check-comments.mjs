@@ -299,7 +299,7 @@ const allowed = new Map([
     "/** The remembered choice is scoped by account as well as note, so two people sharing a browser do not\n * read each other's open tab. */",
     "// Storage can be unavailable (private mode / quota); the remembered choice is best-effort.",
     "// Persisting the choice is best-effort; in-session coordination still works.",
-    "/**\n * A panel that was hidden while its block was measured comes back with the size of nothing at all, so\n * everything that lays itself out on a real box has to be told here. Chart.js is configured\n * `responsive`, which is the resize event below; a mind map needs the direct nudge, because its\n * container watcher cannot fire — the box it watches only changes once the panel is already visible.\n */",
+    "/**\n * A panel that was hidden while its block was measured comes back with the size of nothing at all, so\n * everything that lays itself out on a real box has to be told here. Chart.js is configured\n * `responsive`, which is the resize event below; a mind map needs the direct nudge — it measured itself\n * against a zero box, and leaving the repair to its container watcher is a race rather than a design.\n */",
   ]],
   ["src/client/features/preview/mindmap-block-toolbar.test.ts", [
     "// Every press in that bar needs a live instance, so a block that has fallen back to its source or",
@@ -967,6 +967,7 @@ const allowed = new Map([
     "// \"loading\" class over a block whose canvas is back on screen. Centering a live canvas like a",
     "// spinner was visible for a beat after every format conversion.",
     "// The head is the preview toolbar layer's work; the registry only states what it can do with it.",
+    "/** The box a revealed tab panel hands the map; jsdom measures nothing on its own. */",
   ]],
   ["src/client/lib/markdown/mindmap/registry.ts", [
     "/**\n * Live mind map instances, one per block; the write-back itself lives in ./write.\n *\n * The preview re-renders by replacing the note's HTML wholesale, which destroys\n * every node inside it — including a map's DOM. So the registry owns the map's\n * own element (`container`) and re-parents it into the placeholder of each new\n * render: the instance, its camera, its selection and its undo stack all survive\n * a keystroke in the editor. That re-parenting is what makes two-way editing\n * feel native rather than a rebuild per keystroke.\n *\n * Blocks are matched to entries by their body first and by their number second,\n * so inserting a map above another one moves the instance with its text instead\n * of feeding it the neighbour's.\n */",
@@ -1022,15 +1023,23 @@ const allowed = new Map([
     "/** Applies one of the menu's palettes to the block, writing the fence and repainting. */",
     "/**\n * Builds a block again after a failed render: the retry button on the error\n * banner has no other way back, since the mount pass only runs when the note's\n * markup is committed.\n */",
     "/**\n * Hands the live map to the full screen overlay: the same instance, so its\n * camera, selection and undo stack carry over and there is never a second copy\n * of the same map writing to the same note.\n */",
+    "/**\n * Re-measure a map that has just become visible.\n *\n * A block mounted inside a hidden tab panel laid itself out against a zero box, which puts `NaN` into\n * every connector below the first level. The container watcher repairs that when it reports a real\n * size — but revealing a panel is not guaranteed to change the box it observes, and the surfaces that\n * mirror a map without a live instance have no watcher at all, so whoever hides a map has to say so.\n */",
+    "// Still nothing to measure against: leave it to the watcher, which reports once a box exists.",
+  ]],
+  ["src/client/lib/markdown/mindmap/resize.test.ts", [
+    "/** A map's own element holding one node the library has just finished rebuilding. */",
+    "// The report an observer makes the instant it starts observing, taken while the panel is",
+    "// still hidden: fitting to a zero box is what put NaN into the connectors in the first place.",
   ]],
   ["src/client/lib/markdown/mindmap/resize.ts", [
     "/** The slice of a registry entry the watcher needs; keeps this module decoupled. */",
     "/**\n * The library measures node boxes once at init and on explicit layout calls; it\n * never watches its container. When the host pane changes size afterwards — a\n * split-layout cycle after the map mounted, a dragged divider, a resized\n * window — the drawing keeps its stale geometry and can end up outside the\n * block entirely, unreachable for clicks. Watching the container re-fits the\n * map whenever its box actually changes; jsdom has no ResizeObserver, and the\n * degraded surfaces that use the registry would not re-fit anyway.\n */",
     "// A zero box means the pane is currently hidden (edit-only layout); there",
     "// is nothing to fit into, and the next resize will bring one.",
-    "// A relayout rebuilds every node from its topic text, taking any link the",
-    "// decorator had put on it with it — and the observer reports once the moment",
-    "// it starts observing, which is right after the map was first drawn.",
+    "/**\n * Re-measure a map against its container and draw the result.\n *\n * The library measures node boxes once at init and on explicit layout calls, so anything that changed\n * the box since then leaves the drawing stale: `scaleFit` alone only moves the viewport over the old\n * geometry. A relayout rebuilds every node from its topic text and draws no connector, which is why\n * `handle.layout()` pairs the library's `layout` with its `linkDiv`, and why the link decorator has to\n * run again afterwards.\n */",
+    "// The observer reports once the moment it starts observing, which is right after the map was",
+    "// first drawn; a fresh map therefore arrives re-laid-out once for free, which is also what",
+    "// keeps a map that mounted into a hidden pane from staying broken.",
   ]],
   ["src/client/lib/markdown/mindmap/session.ts", [
     "/**\n * The full screen view's handle on one block. Every method resolves the entry\n * again, so the facade keeps working when the preview re-renders underneath the\n * overlay (which re-parents the block but keeps the instance alive).\n */",

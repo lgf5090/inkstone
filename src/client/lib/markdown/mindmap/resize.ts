@@ -8,6 +8,23 @@ export interface MindmapResizeTarget {
 }
 
 /**
+ * Re-measure a map against its container and draw the result.
+ *
+ * The library measures node boxes once at init and on explicit layout calls, so anything that changed
+ * the box since then leaves the drawing stale: `scaleFit` alone only moves the viewport over the old
+ * geometry. A relayout rebuilds every node from its topic text and draws no connector, which is why
+ * `handle.layout()` pairs the library's `layout` with its `linkDiv`, and why the link decorator has to
+ * run again afterwards.
+ */
+export function relayoutMindmap(entry: MindmapResizeTarget): void {
+    if (!entry.handle)
+        return;
+    entry.handle.layout();
+    entry.handle.scaleFit();
+    decorateMindmapLinks(entry.container);
+}
+
+/**
  * The library measures node boxes once at init and on explicit layout calls; it
  * never watches its container. When the host pane changes size afterwards — a
  * split-layout cycle after the map mounted, a dragged divider, a resized
@@ -25,12 +42,10 @@ export function watchMindmapContainer(entry: MindmapResizeTarget): ResizeObserve
         // is nothing to fit into, and the next resize will bring one.
         if (!box || box.width === 0 || box.height === 0)
             return;
-        entry.handle?.layout();
-        entry.handle?.scaleFit();
-        // A relayout rebuilds every node from its topic text, taking any link the
-        // decorator had put on it with it — and the observer reports once the moment
-        // it starts observing, which is right after the map was first drawn.
-        decorateMindmapLinks(entry.container);
+        // The observer reports once the moment it starts observing, which is right after the map was
+        // first drawn; a fresh map therefore arrives re-laid-out once for free, which is also what
+        // keeps a map that mounted into a hidden pane from staying broken.
+        relayoutMindmap(entry);
     });
     observer.observe(entry.container);
     return observer;

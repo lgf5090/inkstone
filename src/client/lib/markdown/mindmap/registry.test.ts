@@ -8,10 +8,12 @@ import type { MindmapCreateOptions, MindmapFenceRef, MindmapHandle, MindmapVendo
 import {
     captureMindmapFocus,
     destroyMindmaps,
+    fitMindmapBlock,
     flushMindmaps,
     mindmapEntryForNode,
     mountMindmaps,
     pickMindmapTheme,
+    remeasureMindmapBlock,
     retryMindmap,
     type MindmapMountOptions,
 } from './registry';
@@ -426,5 +428,54 @@ describe('retry', () => {
         expect(first.calls.destroy).toBe(1);
         expect(h.options).toHaveLength(2);
         expect(root.querySelector('[data-mindmap-canvas]')).not.toBeNull();
+    });
+});
+
+describe('a map that was hidden and is shown again', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    function canvas(root: HTMLElement): HTMLElement {
+        return root.querySelector<HTMLElement>('[data-mindmap-canvas]')!;
+    }
+
+    /** The box a revealed tab panel hands the map; jsdom measures nothing on its own. */
+    function reportSize(root: HTMLElement): void {
+        vi.spyOn(canvas(root), 'getBoundingClientRect').mockReturnValue({ width: 619, height: 459 } as DOMRect);
+    }
+
+    it('re-measures against the box it just got rather than only moving the viewport', async () => {
+        const { root, h } = await mounted('- Core');
+        reportSize(root);
+        remeasureMindmapBlock(blocks(root)[0]!);
+        expect(h.handles[0]!.calls.layout).toBe(1);
+        expect(h.handles[0]!.calls.scaleFit).toBe(1);
+    });
+
+    it('leaves the map alone while its panel is still zero-sized', async () => {
+        const { root, h } = await mounted('- Core');
+        remeasureMindmapBlock(blocks(root)[0]!);
+        expect(h.handles[0]!.calls.layout).toBeUndefined();
+        expect(h.handles[0]!.calls.scaleFit).toBeUndefined();
+    });
+
+    it('moves the viewport without re-measuring for the header\'s fit button', async () => {
+        const { root, h } = await mounted('- Core');
+        reportSize(root);
+        fitMindmapBlock(blocks(root)[0]!);
+        expect(h.handles[0]!.calls.scaleFit).toBe(1);
+        expect(h.handles[0]!.calls.layout).toBeUndefined();
+    });
+
+    it('leaves a block the registry never mounted alone', async () => {
+        const { h } = await mounted('- Core');
+        const mirrored = blocks(host('- Other'))[0]!;
+        expect(() => {
+            remeasureMindmapBlock(mirrored);
+            fitMindmapBlock(mirrored);
+        }).not.toThrow();
+        expect(h.handles[0]!.calls.layout).toBeUndefined();
+        expect(h.handles[0]!.calls.scaleFit).toBeUndefined();
     });
 });
