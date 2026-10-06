@@ -1152,6 +1152,7 @@ const allowed = new Map([
     "/* The canvas is sized from this box, so it has to carry a height of its own rather than collapse to\n     the canvas's intrinsic one — otherwise a re-measure would read back the size it just wrote. */",
     "/* ---- mind map blocks ---- */",
     "/* The library's own full screen button asks the browser to full-screen just its canvas, which the\n   preview's re-parenting undoes on the next write; the registry routes the press to this overlay, so\n   the duplicate control is hidden rather than left to do something visibly wrong. */",
+    "/* The height belongs to the loading state only: it matches the canvas the map is about to\n     install, so mounting does not shove the note down, while a block that fell back to its\n     source or an error banner sizes to what it actually shows. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

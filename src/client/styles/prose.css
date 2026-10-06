@@ -1609,10 +1609,14 @@
 }
 .ink-prose .mindmap-block-placeholder {
   position: relative;
-  min-height: 320px;
+  min-height: 64px;
 }
 .ink-prose .mindmap-block.loading .mindmap-block-placeholder {
+  /* The height belongs to the loading state only: it matches the canvas the map is about to
+     install, so mounting does not shove the note down, while a block that fell back to its
+     source or an error banner sizes to what it actually shows. */
   display: flex;
+  min-height: 320px;
   align-items: center;
   justify-content: center;
   gap: 8px;
