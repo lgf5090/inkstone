@@ -54,6 +54,7 @@ describe('kanban render channels', () => {
       [path.join('editor', 'live-preview.ts')]: 'snapshot',
       [path.join('features', 'preview', 'card-content.ts')]: 'snapshot',
       [path.join('features', 'preview', 'Preview.tsx')]: 'live',
+      [path.join('features', 'presentation', 'presenter-view', 'use-presenter-slide-media.ts')]: 'snapshot',
       [path.join('features', 'presentation', 'use-slide-html.ts')]: 'snapshot',
       [path.join('features', 'share', 'SharePage.tsx')]: 'snapshot',
     })
@@ -89,8 +90,13 @@ describe('kanban render channels', () => {
    * only thing that says so, and it is read by `enhancePreview` rather than by the surface, so nothing
    * else would notice it going missing.
    */
-  it('asks for the board shape on the surface that projects a slide', () => {
-    const text = fs.readFileSync(path.join(CLIENT_ROOT, path.join('features', 'presentation', 'use-slide-html.ts')), 'utf8')
-    expect(text).toMatch(/kanbanShape:\s*'board'/)
+  it('asks for the board shape on the surfaces that project a slide', () => {
+    for (const file of [
+      path.join('features', 'presentation', 'use-slide-html.ts'),
+      path.join('features', 'presentation', 'presenter-view', 'use-presenter-slide-media.ts'),
+    ]) {
+      const text = fs.readFileSync(path.join(CLIENT_ROOT, file), 'utf8')
+      expect(text, file).toMatch(/kanbanShape:\s*'board'/)
+    }
   })
 })
