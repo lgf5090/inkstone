@@ -11,13 +11,14 @@ import { useUi } from '../../store/ui';
 import { FolderPicker } from '../folders/FolderPicker';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { collapseOrLeave, moveTreeFocus } from './tree-keyboard';
+import { noteFolderOwner } from '../../lib/folders';
 
 export function groupExplorerNotes(notes: Record<string, NoteSummary>, folders: Folder[], locale: string): Map<string | null, NoteSummary[]> {
     const folderIds = new Set(folders.map((folder) => folder.id));
     const groups = new Map<string | null, NoteSummary[]>();
     for (const note of Object.values(notes)) {
         if (note.deletedAt || note.isArchived) continue;
-        const parent = note.folderId && folderIds.has(note.folderId) ? note.folderId : null;
+        const parent = noteFolderOwner(note, folderIds);
         const siblings = groups.get(parent) ?? [];
         siblings.push(note);
         groups.set(parent, siblings);

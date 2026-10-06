@@ -686,3 +686,49 @@ describe('built-in row alignment', () => {
         }
     });
 });
+
+describe('sidebar partition and order', () => {
+    const orphan = { ...note, id: 'orphan', title: 'Orphan', folderId: 'deleted-folder' };
+    const loose = { ...note, id: 'loose', title: 'Loose', folderId: null };
+
+    beforeEach(() => {
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true, showEmptyPeriods: false });
+        useUi.setState({ expandedFolders: ['inbox', folder.id], view: 'all', folderId: null });
+    });
+
+    it('every live note lands in exactly one sidebar group', () => {
+        useNotes.setState({ folders: [folder], notes: { [note.id]: note, [orphan.id]: orphan, [loose.id]: loose } });
+        const groups = groupExplorerNotes(useNotes.getState().notes, useNotes.getState().folders, 'zh-CN');
+        const seen = [...groups.values()].flat().map((item) => item.id).sort();
+        expect(seen).toEqual([note.id, loose.id, orphan.id].sort());
+        expect(groups.get(null)?.map((item) => item.id).sort()).toEqual([loose.id, orphan.id].sort());
+        expect(groups.get(folder.id)?.map((item) => item.id)).toEqual([note.id]);
+    });
+
+    it('counts the orphan note as unfiled so the nav badge and the inbox agree', async () => {
+        useNotes.setState({ folders: [folder], notes: { [note.id]: note, [orphan.id]: orphan, [loose.id]: loose } });
+        await act(() => root.render(createElement(Sidebar)));
+        await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+        const inboxCount = await document.querySelector<HTMLElement>('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!
+            .querySelector('span.tabular')!.textContent;
+        expect(inboxCount).toBe('2');
+        const navUnfiled = [...document.querySelectorAll('button[aria-current], button')]
+            .find((element) => element.textContent?.trim().startsWith(t('navigation.unfiled')))?.textContent?.trim();
+        expect(navUnfiled).toBe(t('navigation.unfiled') + '2');
+                expect(container.querySelector('[role="tree"][aria-label="' + t('navigation.folder') + '"]')!.querySelectorAll('[data-tree-note-id]').length).toBe(1);
+    });
+
+    it('renders the three built-in rows above every folder and note row', async () => {
+        useNotes.setState({ folders: [folder], notes: { [note.id]: note, [orphan.id]: orphan, [loose.id]: loose } });
+        await act(() => root.render(createElement(Sidebar)));
+        const trees = [...document.querySelectorAll('#sidebar-folders [role="tree"]')]
+            .map((element) => element.getAttribute('aria-label'));
+        expect(trees).toEqual([t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder'), t('navigation.folder')]);
+        const folderTree = document.querySelector('#sidebar-folders [role="tree"][aria-label="' + t('navigation.folder') + '"]')!;
+        const builtIn = [...document.querySelectorAll('#sidebar-folders [role="tree"]')]
+            .filter((element) => element !== folderTree);
+        expect(builtIn.every((element) => element.compareDocumentPosition(folderTree) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+        expect(folderTree.querySelectorAll('[data-tree-note-id]').length).toBe(1);
+        expect(document.querySelector('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!.querySelectorAll('[data-tree-note-id]').length).toBe(2);
+    });
+});

@@ -23,6 +23,7 @@ import {
 } from '../../lib/calendar-tree';
 import { saveCalendarPrefs, useCalendarTreePreferences } from '../../lib/calendar-prefs';
 import { useNotes } from '../../store/notes';
+import { isUnfiled } from '../../lib/folders';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { ExplorerNote } from './ExplorerNote';
@@ -220,9 +221,13 @@ export function InboxTree() {
     const { inboxVisible } = useCalendarTreePreferences();
     const notes = useNotes((s) => s.notes);
     const locale = useLocale();
-    const unfiled = useMemo(() => Object.values(notes)
-        .filter((note) => !note.deletedAt && !note.isArchived && !note.folderId)
-        .sort((a, b) => a.title.localeCompare(b.title, locale)), [locale, notes]);
+    const folders = useNotes((s) => s.folders);
+    const unfiled = useMemo(() => {
+        const folderIds = new Set(folders.map((folder) => folder.id));
+        return Object.values(notes)
+            .filter((note) => !note.deletedAt && !note.isArchived && isUnfiled(note, folderIds))
+            .sort((a, b) => a.title.localeCompare(b.title, locale));
+    }, [folders, locale, notes]);
     const expanded = useUi((s) => s.expandedFolders.includes('inbox'));
     const view = useUi((s) => s.view);
     const active = view === 'unfiled';
