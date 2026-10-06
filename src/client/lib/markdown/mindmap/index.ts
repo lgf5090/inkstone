@@ -40,6 +40,7 @@ export {
     mindmapThemeMenuState,
     mountMindmaps,
     pickMindmapTheme,
+    remeasureMindmapBlock,
     retryMindmap,
     setMindmapThemeMenuOpen,
     subscribeMindmaps,
