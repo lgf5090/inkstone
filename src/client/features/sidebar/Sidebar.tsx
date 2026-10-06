@@ -5,6 +5,7 @@ import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
 import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primitives';
+import { commitOnEnter } from '../../components/form';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
@@ -725,8 +726,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
         </span>
 
         {renaming ? (<input aria-label={t("sidebar.rename")} autoFocus defaultValue={node.name} onBlur={(e) => void rename(e.target.value)} onKeyDown={(e) => {
-                if (e.key === 'Enter')
-                    void rename(e.currentTarget.value);
+                commitOnEnter(e, () => void rename(e.currentTarget.value));
                 if (e.key === 'Escape') {
                     e.currentTarget.value = node.name;
                     onFinishRename();

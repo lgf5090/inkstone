@@ -4,6 +4,7 @@ import { deleteFrontMatterValue, parseFrontMatter, renameFrontMatterValue, repla
 import type { FrontMatterValue } from '@shared/markdown-utils';
 import { cn } from '../../lib/cn';
 import { Tooltip } from '../../components/overlay';
+import { commitOnEnter } from '../../components/form';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { TagContextMenuAt, type TagMenuRequest } from '../tags/TagContextMenuAt';
@@ -179,8 +180,7 @@ function InlineInput({ 'aria-label': ariaLabel, initial, placeholder, className,
         onCommit(value);
     };
     return (<input aria-label={ariaLabel} autoFocus defaultValue={value} placeholder={placeholder} onChange={(event) => setValue(event.target.value)} onBlur={commit} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                commit();
+            commitOnEnter(event, commit);
             if (event.key === 'Escape') {
                 done.current = true;
                 onCancel();

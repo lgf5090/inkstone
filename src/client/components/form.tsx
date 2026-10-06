@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type Ref,
   type SelectHTMLAttributes,
@@ -28,6 +29,19 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   leading?: ReactNode
   trailing?: ReactNode
   invalid?: boolean
+}
+
+/**
+ * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm
+ * dialog, and the browser runs the keydown's default action after our handler returns, so the very
+ * keystroke that asked would otherwise press the dialog's own button and answer it.
+ */
+export function commitOnEnter(event: ReactKeyboardEvent, commit: () => void): boolean {
+  if (event.key !== 'Enter')
+    return false
+  event.preventDefault()
+  commit()
+  return true
 }
 
 export function Input({

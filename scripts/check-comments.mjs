@@ -60,6 +60,9 @@ const allowed = new Map([
   ["src/client/components/activity-calendar/use-activity-calendar.ts", [
     "// Marks an external month jump (settings preview click) or an internal jump (week click, gap-cell follow, endpoint locate) with the same fade-in + receding accent ring.",
   ]],
+  ["src/client/components/form.tsx", [
+    "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",
+  ]],
   ["src/client/components/overlay.tsx", [
     "// With no host mounted there is no dialog to show, so the only answer we may give is the",
     "// cancelling one. Falling back to `window.confirm` would reintroduce a native prompt.",

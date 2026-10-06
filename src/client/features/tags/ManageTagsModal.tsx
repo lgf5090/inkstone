@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
 import { buildTagTree, flattenTagTree, renameTagSegment } from '../../lib/tag-tree';
 import { Menu, Modal } from '../../components/overlay';
+import { commitOnEnter } from '../../components/form';
 import { useNotes } from '../../store/notes';
 import { t } from '../../lib/i18n';
 import { deleteTag, renameTag, setTagColor, setTagPinned } from './tagMutations';
@@ -131,8 +132,7 @@ function TagRenameInput({ initial, onCommit, onCancel }: {
         onCommit(value);
     };
     return (<input aria-label={t('tags.rename')} autoFocus value={value} onChange={(event) => setValue(event.target.value)} onBlur={commit} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                commit();
+            commitOnEnter(event, commit);
             if (event.key === 'Escape') {
                 done.current = true;
                 onCancel();

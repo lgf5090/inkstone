@@ -5,6 +5,7 @@ import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton, SectionLabel } from '../../components/primitives';
+import { commitOnEnter } from '../../components/form';
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useNavigationCounts, useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
@@ -315,8 +316,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
             else
                 onCancel();
         }} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                finish(event.currentTarget.value);
+            commitOnEnter(event, () => finish(event.currentTarget.value));
             if (event.key === 'Escape') {
                 finishedRef.current = true;
                 onCancel();
@@ -391,8 +391,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
       {renaming ? (<input aria-label={t('tags.rename')} autoFocus defaultValue={node.name} onFocus={() => {
             finishedRef.current = false;
         }} onBlur={(event) => finishRename(event.currentTarget.value)} onKeyDown={(event) => {
-            if (event.key === 'Enter')
-                finishRename(event.currentTarget.value);
+            commitOnEnter(event, () => finishRename(event.currentTarget.value));
             if (event.key === 'Escape') {
                 finishedRef.current = true;
                 onCancelRename();
