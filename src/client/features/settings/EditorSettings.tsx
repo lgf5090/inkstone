@@ -1,6 +1,7 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
+import type { OutlineModeName } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -76,6 +77,14 @@ export function EditorSettings() {
         <SettingRow title={t("settings.show_outline_by_default")}>
           <Switch checked={preview.showToc} onChange={(showToc) => void update({ preview: { showToc } })} label={t("settings.show_outline_by_default")}/>
         </SettingRow>
+
+        {preview.showToc && <SettingRow title={t("settings.outline_display_mode")} description={t("settings.outline_display_mode_desc")}>
+          <Segmented<OutlineModeName> label={t("settings.outline_display_mode")} value={preview.outlineMode} onChange={(outlineMode) => void update({ preview: { outlineMode } })} options={[
+            { value: 'sidebar', label: t("settings.outline_sidebar") },
+            { value: 'floating-always', label: t("settings.outline_floating_always") },
+            { value: 'floating-hover', label: t("settings.outline_floating_hover") },
+        ]}/>
+        </SettingRow>}
 
         <SettingRow title={t("settings.link_hover_preview")} description={t("settings.link_hover_preview_description")}>
           <Switch checked={preview.linkHover} onChange={(linkHover) => void update({ preview: { linkHover } })} label={t("settings.link_hover_preview")}/>

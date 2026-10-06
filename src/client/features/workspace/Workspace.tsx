@@ -135,6 +135,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const [exportMenuOpen, setExportMenuOpen] = useState(false);
     const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
     const [containerWidth, setContainerWidth] = useState(0);
+    const [outlineHovered, setOutlineHovered] = useState(false);
     const isMobile = breakpoint === 'mobile';
     const paneActive = !grouped || pane === 'active' || activeWorkspacePane === pane;
     const mobilePane = useUi((s) => s.mobilePane);
@@ -145,7 +146,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const livePreviewEnabled = editorSettings.livePreview;
     const showPreview = layout !== 'live';
     const showSplit = layout === 'split';
-    const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0;
+    const outlineMode = previewSettings.outlineMode;
+    const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover';
+    const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && !outlineIsFloating;
+    const outlineFloatingVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && outlineIsFloating
+        && (outlineMode === 'floating-always' || outlineHovered);
     const defaultOutlineWidth = outlineVisible ? OUTLINE_WIDTH : 0;
     const defaultContentWidth = Math.max(0, containerWidth - SPLIT_HANDLE_WIDTH - PREVIEW_BORDER_WIDTH - defaultOutlineWidth);
     const defaultEditorWidth = defaultContentWidth / 2;
@@ -513,18 +518,28 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       {editorSettings.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
 
-      <div ref={containerRef} className={cn("flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout}>
+      <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
             <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}
 
-        {showPreview && (<div className={cn('flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
+        {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
             <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
             {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef}/>)}
+            {outlineFloatingVisible && (<div className="pointer-events-none absolute top-0 right-0 z-10 h-full">
+              <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 py-5 pr-3 shadow-lg backdrop-blur-sm" style={{ width: OUTLINE_WIDTH }}>
+                <Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} className="w-full"/>
+              </div>
+            </div>)}
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading}/>}
+        {!showPreview && outlineFloatingVisible && (<div className="pointer-events-none absolute top-0 right-0 z-10 h-full">
+          <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 py-5 pr-3 shadow-lg backdrop-blur-sm" style={{ width: OUTLINE_WIDTH }}>
+            <Outline headings={headings} onSelect={jumpToHeading} className="w-full"/>
+          </div>
+        </div>)}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}

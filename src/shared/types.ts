@@ -117,11 +117,13 @@ export interface EditorSettings {
 }
 
 export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
+export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover'
 
 export interface PreviewSettings {
   layout: EditorLayout
   syncScroll: boolean
   showToc: boolean
+  outlineMode: OutlineModeName
   math: boolean
   mermaid: boolean
   codeBlockCollapse: boolean
