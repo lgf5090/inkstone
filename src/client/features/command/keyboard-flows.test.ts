@@ -49,7 +49,7 @@ afterEach(async () => {
 
 describe('shortcut contexts', () => {
   it('opens command mode without querying note search or listing note matches', async () => {
-    const search = vi.spyOn(api, 'search').mockResolvedValue({ results: [], mode: 'fts', took: 0, query: { text: '', tags: [], folder: null, starred: null, archived: null } })
+    const search = vi.spyOn(api, 'search').mockResolvedValue({ results: [], mode: 'fts', took: 0, query: { text: '', tags: [], excludedTags: [], folder: null, starred: null, archived: null } })
     await act(() => root.render(createElement(CommandPalette, { initialQuery: '> ', onClose: vi.fn() })))
     expect(document.querySelector<HTMLInputElement>('[role="combobox"]')?.value).toBe('> ')
     expect(document.querySelector('[role="listbox"]')?.textContent).toContain(t('command.archive_current_note'))
@@ -58,7 +58,7 @@ describe('shortcut contexts', () => {
   })
 
   it('opens note search separately from command mode', async () => {
-    vi.spyOn(api, 'search').mockResolvedValue({ results: [], mode: 'fts', took: 0, query: { text: 'Alpha', tags: [], folder: null, starred: null, archived: null } })
+    vi.spyOn(api, 'search').mockResolvedValue({ results: [], mode: 'fts', took: 0, query: { text: 'Alpha', tags: [], excludedTags: [], folder: null, starred: null, archived: null } })
     await act(() => root.render(createElement(CommandPalette, { initialQuery: 'Alpha', onClose: vi.fn() })))
     expect(document.querySelector<HTMLInputElement>('[role="combobox"]')?.value).toBe('Alpha')
     expect(document.querySelector('[role="listbox"]')?.textContent).toContain('Alpha')

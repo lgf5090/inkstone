@@ -130,6 +130,9 @@ const allowed = new Map([
     "// means \"find the note\", and the server layer already answers that including archived",
     "// notes; scoping the local layer to the view made archived notes findable online and",
     "// invisible offline.",
+    "// Leaving a folder or a tag view changes what the box means, so the query goes with it.",
+    "// Entering global search does not: a menu writes an expression there and flips the flag in",
+    "// the same action, and clearing it one effect later would drop what was just asked for.",
   ]],
   ["src/client/features/list/gap-indicator.ts", [
     "/** Latest non-deleted note's edit date key (null when there are no notes). */",
@@ -182,6 +185,7 @@ const allowed = new Map([
     "// snapshot we took before our own optimistic edit would also undo any move that raced us.",
     "// Re-read instead of winding back.",
     "/**\n * A tag page is a note whose frontmatter alias spells the tag (`aliases: [\"#a/b\"]`), named after\n * it with the path separators turned into spaces. The alias is what makes the note carry the tag,\n * so a page shows up in the tag's own count without a second index to keep in sync.\n */",
+    "/**\n * The reference plugin hands tag expressions to Obsidian's global search. Here the note-list\n * search box is that surface: its text goes to /api/search verbatim, and that route understands\n * `tag:` (whole subtree) and `-tag:`, so the menu writes the same grammar a person can type.\n */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -417,6 +421,8 @@ const allowed = new Map([
     "// Tag identity is tagKey-folded everywhere else (facets, subtree matching, the worker's",
     "// `COLLATE NOCASE`), so a filter list has to compare names the same way: a width- or",
     "// case-variant would otherwise occupy two slots that match exactly the same notes.",
+    "// The list search box holds this string and forwards it to /api/search verbatim, so an",
+    "// expression written from a tag menu is the same grammar a person can type by hand.",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -461,6 +467,7 @@ const allowed = new Map([
     "/**\n * A tag-shaped front-matter alias marks the note as that tag's page (the shape Tag Wrangler\n * uses), so it has to reach the tag list the same way `tags:` does. Plain aliases keep their\n * spaces and are dropped by `isUsableTagName` a few lines later, never by this filter.\n */",
     "// An alias only names a tag page when it is spelled like a tag; `aliases: [Note B]` is an",
     "// ordinary alias and must survive a rename of an unrelated tag untouched.",
+    "/**\n * The LIKE pattern for a tag prefix: escapes the two wildcards and the escape character, then\n * appends `%`. Paired with `ESCAPE '\\\\'` in SQL and with tagInScope() in TypeScript, which spell\n * the same subtree rule for the offline shell.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -726,6 +733,9 @@ const allowed = new Map([
     "// integer there as a result-column ordinal and rejects 0 outright.",
     "// The folder view is recursive, so folder: has to walk the subtree too. UNION rather than",
     "// UNION ALL keeps a parent_id cycle from looping forever.",
+    "// Both halves stay in step with the note-list route's `tag` / `excludeTag` params and with",
+    "// tagInScope(): a search for a parent also means its subtree, otherwise the sidebar count and",
+    "// the search result set disagree about the same click.",
   ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",

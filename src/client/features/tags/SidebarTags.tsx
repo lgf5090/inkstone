@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronsUpDown, CornerDownRight, EyeOff, FileText, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Tag, Trash2, X } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, CornerDownRight, EyeOff, FileText, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, SearchCheck, SearchX, Settings2, Tag, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
@@ -11,7 +11,7 @@ import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 import { ManageTagsModal } from './ManageTagsModal';
 import { TagColorMenu } from './TagAppearanceMenus';
-import { createTag, deleteTag, findTagPage, moveTag, openTagPage, renameTag, setTagColor, setTagPinned, tagMoveTarget } from './tagMutations';
+import { createTag, deleteTag, findTagPage, moveTag, openTagPage, renameTag, searchTag, setTagColor, setTagPinned, tagMoveTarget } from './tagMutations';
 
 const COLLAPSED_ROW_LIMIT = 12;
 const TAG_MIME = 'application/x-inkstone-tag';
@@ -357,6 +357,9 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
             { id: 'rename', label: t('tags.rename'), icon: <Pencil size={13}/>, onSelect: onStartRename },
             { id: 'child', label: t('tags.new_child'), icon: <CornerDownRight size={13}/>, onSelect: () => onCreateChild(node.fullPath) },
             { id: 'page', label: findTagPage(node.tag.name) ? t('tags.open_page') : t('tags.create_page'), icon: <FileText size={13}/>, onSelect: () => void openTagPage(node.tag) },
+            { id: 'search', label: t('tags.search_new_value0', { value0: node.tag.name }), icon: <Search size={13}/>, onSelect: () => searchTag(node.tag, 'new') },
+            { id: 'search-require', label: t('tags.search_require_value0', { value0: node.tag.name }), icon: <SearchCheck size={13}/>, onSelect: () => searchTag(node.tag, 'require') },
+            { id: 'search-exclude', label: t('tags.search_exclude_value0', { value0: node.tag.name }), icon: <SearchX size={13}/>, onSelect: () => searchTag(node.tag, 'exclude') },
             { id: 'color', label: t('tags.color'), icon: <Palette size={13}/>, submenu: ({ closeMenu }) => (<TagColorMenu color={node.tag.color} onSelectColor={(color) => {
                     onSelectColor(color);
                     closeMenu();

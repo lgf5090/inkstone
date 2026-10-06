@@ -474,6 +474,15 @@ function cachedKeys(names: readonly string[]): string[] {
   return out
 }
 
+/**
+ * The LIKE pattern for a tag prefix: escapes the two wildcards and the escape character, then
+ * appends `%`. Paired with `ESCAPE '\\'` in SQL and with tagInScope() in TypeScript, which spell
+ * the same subtree rule for the offline shell.
+ */
+export function likePattern(value: string): string {
+  return `${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+}
+
 export function extractTags(content: string): string[] {
   const frontMatter = parseFrontMatter(content)
   const out = new Map<string, string>()

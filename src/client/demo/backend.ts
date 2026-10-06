@@ -3,6 +3,8 @@ import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
+import { parseQuery } from '@shared/search-query'
+import { tagKey } from '@shared/markdown-utils'
 import {
   deriveExcerpt,
   deriveTitle,
@@ -637,21 +639,35 @@ export function createDemoBackend(): DemoBackend {
 
   app.get('/api/search', (c) => {
     const started = performance.now()
-    const query = (c.req.query('q') ?? '').trim()
+    const query = parseQuery((c.req.query('q') ?? '').trim())
     const limit = Math.max(1, Math.min(100, Number(c.req.query('limit')) || 50))
-    const needle = query.toLocaleLowerCase()
-    const results = [...state.notes.values()]
-      .filter((note) => note.deletedAt === null && `${note.title}\n${note.content}`.toLocaleLowerCase().includes(needle))
+    const folderIds = query.folder
+      ? folderDescendants(state, [...state.folders.values()].find((folder) => tagKey(folder.name) === tagKey(query.folder!))?.id ?? '__none__')
+      : null
+    const matched = [...state.notes.values()]
+      .filter((note) => {
+        const haystack = `${note.title}\n${note.content}`.toLocaleLowerCase()
+        if (!query.terms.every((term) => haystack.includes(term.toLocaleLowerCase()))) return false
+        if (!notesCarryEveryTag(note.tags, query.tags)) return false
+        if (notesCarryAnyTag(note.tags, query.excludedTags)) return false
+        if (folderIds && !folderIds.has(note.folderId ?? '')) return false
+        if (query.starred === true && !note.isStarred) return false
+        if (query.archived === true && !note.isArchived) return false
+        if (query.archived === false && note.isArchived) return false
+        if (query.trash ? note.deletedAt === null : note.deletedAt !== null) return false
+        return true
+      })
+      .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
       .slice(0, limit)
-      .map((note) => ({ note: summarize(note), snippet: deriveExcerpt(note.content, 140), score: 1 }))
     const response: SearchResponse = {
-      results,
+      results: matched.map((note) => ({ note: summarize(note), snippet: deriveExcerpt(note.content, 140), score: 1 })),
       mode: 'like',
       took: Math.max(0, performance.now() - started),
-      query: { text: query, tags: [], folder: null, starred: null, archived: null },
+      query,
     }
     return c.json(response)
   })
+
   app.post('/api/search/reindex', (c) => c.json({ ok: true as const, queued: state.notes.size }))
   app.get('/api/graph', (c) => {
     const mode = c.req.query('mode') === 'local' ? 'local' : 'global'

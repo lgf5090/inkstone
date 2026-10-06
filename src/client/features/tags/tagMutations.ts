@@ -117,6 +117,26 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   })
 }
 
+export type TagSearchMode = 'new' | 'require' | 'exclude'
+
+/**
+ * The reference plugin hands tag expressions to Obsidian's global search. Here the note-list
+ * search box is that surface: its text goes to /api/search verbatim, and that route understands
+ * `tag:` (whole subtree) and `-tag:`, so the menu writes the same grammar a person can type.
+ */
+export function searchTag(tag: Tag, mode: TagSearchMode): void {
+  const ui = useUi.getState()
+  const expression = `${mode === 'exclude' ? '-' : ''}tag:#${tag.name}`
+  if (mode === 'new') {
+    ui.openSearchList(expression)
+    return
+  }
+  const current = ui.searchQuery.trim()
+  const absent = !current.toLowerCase().split(/\s+/).includes(expression.toLowerCase())
+  ui.setSearchQuery(absent ? [current, expression].filter(Boolean).join(' ') : current)
+  if (!ui.searchList) ui.openSearchList()
+}
+
 /**
  * A tag page is a note whose frontmatter alias spells the tag (`aliases: ["#a/b"]`), named after
  * it with the path separators turned into spaces. The alias is what makes the note carry the tag,

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, isUsableTagName, replaceTagInContent, tagKey } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, isUsableTagName, likePattern, replaceTagInContent, tagKey } from '@shared/markdown-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
@@ -507,10 +507,6 @@ export async function applyTagFamily(
     throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
   }
   return { moved: plan.length, rewritten: rewrites.reduce((sum, r) => sum + r.rewritten, 0) }
-}
-
-function likePattern(value: string): string {
-  return `${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
 }
 
 async function loadTag(

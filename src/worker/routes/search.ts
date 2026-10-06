@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
+import { likePattern, segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
+import { emptyParsedQuery, parseQuery, type ParsedQuery } from '@shared/search-query'
 import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
 import { FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
@@ -20,95 +21,6 @@ export const searchRoutes = new Hono<AppBindings>()
 const GRAPH_EDGE_CANDIDATE_LIMIT = 10_000
 const GRAPH_NOTE_ID_CHUNK = 40
 
-
-export interface ParsedQuery {
-  text: string
-  terms: string[]
-  tags: string[]
-  folder: string | null
-  starred: boolean | null
-  archived: boolean | null
-  trash: boolean
-}
-
-
-export function parseQuery(raw: string): ParsedQuery {
-  const parsed: ParsedQuery = {
-    text: '',
-    terms: [],
-    tags: [],
-    folder: null,
-    starred: null,
-    archived: null,
-    trash: false,
-  }
-  const plain: string[] = []
-  const tokenRe = /([A-Za-z]+):"([^"]*)"|"([^"]*)"|(\S+)/g
-
-  for (const m of raw.matchAll(tokenRe)) {
-    const quotedKey = m[1]
-    const quotedValue = m[2]
-    const quoted = m[3]
-    const bare = m[4]
-    if (quotedKey !== undefined) {
-      const key = quotedKey.toLowerCase()
-      const value = quotedValue?.trim() ?? ''
-      if (key === 'tag' && value) parsed.tags.push(value.replace(/^#/, ''))
-      else if (key === 'folder' && value) parsed.folder = value
-      else if (value) {
-        const token = `${quotedKey}:${value}`
-        parsed.terms.push(token)
-        plain.push(token)
-      }
-      continue
-    }
-    if (quoted !== undefined) {
-      if (quoted.trim()) {
-        parsed.terms.push(quoted.trim())
-        plain.push(quoted.trim())
-      }
-      continue
-    }
-    const token = bare ?? ''
-    const colon = token.indexOf(':')
-    if (colon > 0) {
-      const key = token.slice(0, colon).toLowerCase()
-      const value = token.slice(colon + 1)
-      if (key === 'tag' && value) {
-        parsed.tags.push(value.replace(/^#/, ''))
-        continue
-      }
-      if (key === 'folder' && value) {
-        parsed.folder = value
-        continue
-      }
-      if (key === 'is') {
-        const qualifier = value.toLowerCase()
-        if (qualifier === 'starred') parsed.starred = true
-        else if (qualifier === 'archived') parsed.archived = true
-        else if (qualifier === 'unarchived') parsed.archived = false
-        else if (qualifier) {
-          parsed.terms.push(token)
-          plain.push(token)
-        }
-        if (qualifier) continue
-      }
-      if (key === 'in' && value.toLowerCase() === 'trash') {
-        parsed.trash = true
-        continue
-      }
-    }
-    if (token) {
-      parsed.terms.push(token)
-      plain.push(token)
-    }
-  }
-
-  parsed.terms = [...new Set(parsed.terms)].slice(0, 12)
-  parsed.tags = [...new Set(parsed.tags)].slice(0, 8)
-  parsed.text = plain.slice(0, 12).join(' ')
-  return parsed
-}
 
 export interface UserSearchResult {
   results: SearchHit[]
@@ -190,7 +102,7 @@ searchRoutes.get('/search', requireAuth, async (c) => {
       results: [],
       mode: 'fts',
       took: 0,
-      query: { text: '', tags: [], folder: null, starred: null, archived: null },
+      query: emptyParsedQuery(),
     }
     return c.json(empty)
   }
@@ -207,6 +119,7 @@ searchRoutes.get('/search', requireAuth, async (c) => {
     query: {
       text: q.text,
       tags: q.tags,
+      excludedTags: q.excludedTags,
       folder: q.folder,
       starred: q.starred,
       archived: q.archived,
@@ -326,12 +239,27 @@ function applyFilters(q: ParsedQuery, binds: unknown[], userIdParam: number, app
   if (q.archived === true) append(' AND n.is_archived = 1')
   else if (q.archived === false) append(' AND n.is_archived = 0')
 
+  // Both halves stay in step with the note-list route's `tag` / `excludeTag` params and with
+  // tagInScope(): a search for a parent also means its subtree, otherwise the sidebar count and
+  // the search result set disagree about the same click.
   for (const tag of q.tags) {
-    binds.push(tag)
+    binds.push(tag, likePattern(`${tag}/`))
+    const nameBind = binds.length - 1
+    const prefixBind = binds.length
     append(
       ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
           WHERE nt.note_id = n.id AND t.user_id = n.user_id
-            AND t.name = ?${binds.length} COLLATE NOCASE)`,
+            AND (t.name = ?${nameBind} COLLATE NOCASE OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`,
+    )
+  }
+  for (const tag of q.excludedTags) {
+    binds.push(tag, likePattern(`${tag}/`))
+    const nameBind = binds.length - 1
+    const prefixBind = binds.length
+    append(
+      ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
+          WHERE nt.note_id = n.id AND t.user_id = n.user_id
+            AND (t.name = ?${nameBind} COLLATE NOCASE OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`,
     )
   }
   if (q.folder) {

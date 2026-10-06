@@ -89,7 +89,7 @@ beforeEach(async () => {
     results: [],
     mode: 'fts',
     took: 0,
-    query: { text: '', tags: [], folder: null, starred: null, archived: null },
+    query: { text: '', tags: [], excludedTags: [], folder: null, starred: null, archived: null },
   })
   useNotes.setState({ notes, folders: [], tags: [], contents: {}, hydrated: true, loading: false })
   useUi.setState({ activeNoteId: null, selectedIds: [], recentNoteIds: [], view: 'all', folderId: null, tags: [] })

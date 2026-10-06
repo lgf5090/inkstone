@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDemoBackend } from './backend'
-import type { ListNotesResponse, SyncResponse, Tag } from '@shared/types'
+import type { ListNotesResponse, SearchResponse, SyncResponse, Tag } from '@shared/types'
 import { LIMITS } from '@shared/constants'
 import { tagInScope } from '@shared/markdown-utils'
 
@@ -207,5 +207,50 @@ describe('demo refuses the names the worker refuses', () => {
     const loaded = await backend.fetch(new Request(`http://localhost/api/notes/${note.id}`))
     const body = await loaded.json() as { tags: string[] }
     expect(body.tags).toEqual(['getting-started', 'Inkstone'])
+  })
+})
+
+describe('demo search reads the same expressions', () => {
+  async function create(title: string, tags: string[]): Promise<void> {
+    const response = await backend.fetch(new Request('http://localhost/api/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-inkstone-client': '1' },
+      body: JSON.stringify({ title, content: ['---', `tags: [${tags.join(', ')}]`, '---', ''].join('\n') }),
+    }))
+    expect(response.ok).toBe(true)
+  }
+
+  async function searchTitles(q: string): Promise<string[]> {
+    const body = await (await call('GET', `/api/search?q=${encodeURIComponent(q)}`)).json() as SearchResponse
+    return body.results.map((hit) => hit.note.title).sort()
+  }
+
+  beforeEach(async () => {
+    await create('expr parent', ['srch', 'other'])
+    await create('expr child', ['srch/deep'])
+    await create('expr stranger', ['other'])
+  })
+
+  it('treats tag: as the whole subtree', async () => {
+    expect(await searchTitles('tag:srch')).toEqual(['expr child', 'expr parent'])
+    expect(await searchTitles('tag:#srch/deep')).toEqual(['expr child'])
+    expect(await searchTitles('tag:SRCH')).toEqual(['expr child', 'expr parent'])
+  })
+
+  it('removes the subtree with -tag: and echoes both halves', async () => {
+    const without = await searchTitles('-tag:srch')
+    expect(without).toContain('expr stranger')
+    expect(without).not.toContain('expr parent')
+    expect(without).not.toContain('expr child')
+    expect(await searchTitles('tag:srch -tag:srch/deep')).toEqual(['expr parent'])
+    const encoded = encodeURIComponent('tag:srch -tag:srch/deep')
+    const body = await (await call('GET', `/api/search?q=${encoded}`)).json() as SearchResponse
+    expect(body.query.tags).toEqual(['srch'])
+    expect(body.query.excludedTags).toEqual(['srch/deep'])
+  })
+
+  it('requires the free text alongside the expressions', async () => {
+    expect(await searchTitles('stranger tag:other')).toEqual(['expr stranger'])
+    expect(await searchTitles('parent tag:other')).toEqual(['expr parent'])
   })
 })

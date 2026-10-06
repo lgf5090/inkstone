@@ -316,6 +316,7 @@ export interface SearchResponse {
   query: {
     text: string
     tags: string[]
+    excludedTags: string[]
     folder: string | null
     starred: boolean | null
     archived: boolean | null

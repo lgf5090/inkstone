@@ -282,7 +282,7 @@ describe('search list', () => {
         await input('second');
         expect(requests).toHaveLength(2);
         expect(requests[0]!.signal?.aborted).toBe(true);
-        const response = (title: string): Awaited<ReturnType<typeof api.search>> => ({ results: [{ note: { ...note, id: title, title }, snippet: '', score: 1 }], mode: 'fts', took: 1, query: { text: title, tags: [], folder: null, starred: null, archived: null } });
+        const response = (title: string): Awaited<ReturnType<typeof api.search>> => ({ results: [{ note: { ...note, id: title, title }, snippet: '', score: 1 }], mode: 'fts', took: 1, query: { text: title, tags: [], excludedTags: [], folder: null, starred: null, archived: null } });
         await act(() => requests[1]!.resolve(response('Current result')));
         await act(() => requests[0]!.resolve(response('Stale result')));
         const list = container.querySelector('[data-note-list]')!;

@@ -36,6 +36,7 @@ interface UiState {
   navCollapsed: boolean
   listCollapsed: boolean
   searchList: boolean
+  searchQuery: string
   searchRequest: number
 
   navDrawerOpen: boolean
@@ -90,7 +91,8 @@ interface UiState {
   toggleNav: () => void
   toggleNavDrawer: (open?: boolean) => void
   toggleList: () => void
-  openSearchList: () => void
+  openSearchList: (seed?: string) => void
+  setSearchQuery: (value: string) => void
   openExplorer: (folderId?: string | null) => void
   setMobilePane: (pane: UiState['mobilePane']) => void
   openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null; tags?: readonly string[] }) => void
@@ -356,6 +358,7 @@ export const useUi = create<UiState>((set, get) => ({
   lightbox: null,
   mobilePane: 'list',
   searchList: false,
+  searchQuery: '',
   searchRequest: 0,
   ...loadPersisted(),
 
@@ -455,11 +458,15 @@ export const useUi = create<UiState>((set, get) => ({
   toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
-  openSearchList: () => set((s) => ({
+  openSearchList: (seed) => set((s) => ({
     view: 'all', folderId: null, tags: [], selectedIds: [], dateFilter: null,
     searchList: true, searchRequest: s.searchRequest + 1, listCollapsed: false,
     mobilePane: 'list', navDrawerOpen: false, panel: null,
+    ...(seed === undefined ? {} : { searchQuery: seed }),
   })),
+  // The list search box holds this string and forwards it to /api/search verbatim, so an
+  // expression written from a tag menu is the same grammar a person can type by hand.
+  setSearchQuery: (value) => set({ searchQuery: truncateText(value, 512) }),
   openExplorer: (folderId = null) => set({
     view: folderId ? 'folder' : 'all', folderId, tags: [],
     searchList: false, listCollapsed: true, selectedIds: [], navDrawerOpen: false,

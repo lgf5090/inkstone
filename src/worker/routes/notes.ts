@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, extractTags, normalizeLinkKey, replaceWikiLinkTarget } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, extractTags, likePattern, normalizeLinkKey, replaceWikiLinkTarget } from '@shared/markdown-utils'
 import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
@@ -1381,10 +1381,6 @@ export function encodeNotesListCursor(
     id: row.id,
   }
   return `n1.${toBase64Url(utf8(JSON.stringify(payload)))}`
-}
-
-function likePattern(value: string): string {
-  return `${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
 }
 
 export function parseNotesListCursor(
