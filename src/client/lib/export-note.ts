@@ -1,6 +1,8 @@
 import { renderMarkdown } from './markdown/renderer'
 import { bakeChartsToImages, renderMath, renderPendingCharts, renderPendingMermaid } from './markdown/enhance'
 import { resolveNoteEmbeds } from './markdown/embeds'
+import { registerFenceBodies } from './markdown/fence-bodies'
+import { renderStaticKanbans } from './markdown/kanban/static'
 // Inlined so the print frame carries its own math styles: the frame inherits this
 // document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
 // refuses the CDN stylesheet, and the bundled url()s resolve to our own /assets/fonts.
@@ -91,6 +93,7 @@ const IMAGE_FETCH_TIMEOUT_MS = 30_000
 async function prepareExportBody(note: { title: string; content: string }): Promise<{ body: string; hasMath: boolean }> {
   const rendered = renderMarkdown(note.content)
   const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
+  registerFenceBodies(doc.body, rendered.fences)
   // Embeds resolve first: their expanded bodies carry their own images, placeholders and
   // tab sets, and every pass below runs over the whole document, so going early covers them.
   await resolveNoteEmbeds(doc.body, { currentContent: note.content, currentTitle: note.title })
@@ -100,6 +103,9 @@ async function prepareExportBody(note: { title: string; content: string }): Prom
   await renderPendingMermaid(doc, false)
   await renderPendingCharts(doc.body, false, { instant: true })
   bakeChartsToImages(doc.body)
+  // A board is a React root, and an exported document has no script to mount one with, so the fence
+  // is drawn as a still here the way the preview pane draws one for a card and a share page.
+  renderStaticKanbans(doc.body)
   expandHiddenBlocks(doc.body)
   stripInertControls(doc.body)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
@@ -236,6 +242,14 @@ details[open] summary { margin-bottom: 0.4em; }
 .note-embed-head { display: block; padding: 0.42em 0.75em; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-size: 0.86em; font-weight: 600; }
 .note-embed-body { display: block; padding: 0.7em 0.8em 0.05em; }
 .note-embed-body > :last-child { margin-bottom: 0.65em; }
+.kanban-snapshot { margin: 0.9em 0; padding: 0.7em 0.9em; border: 1px solid #e5e7eb; border-left: 3px solid #6b7280; border-radius: 8px; background: #f9fafb; }
+.kanban-snapshot-title { margin: 0 0 0.4em; font-weight: 600; break-after: avoid; }
+.kanban-snapshot-empty { margin: 0; color: #6b7280; font-style: italic; }
+.kanban-snapshot-groups { margin: 0; }
+.kanban-snapshot-group { margin: 0.55em 0 0.2em; font-size: 0.9em; font-weight: 600; color: #4b5563; break-after: avoid; }
+.kanban-snapshot-group-cards { margin: 0; }
+.kanban-snapshot-cards { list-style: none; margin: 0; padding: 0; }
+.kanban-snapshot-card { margin: 0.3em 0; padding: 0.4em 0.65em; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; break-inside: avoid; }
 .footnote-ref { font-size: 0.8em; }
 .footnotes { font-size: 0.9em; color: #4b5563; border-top: 1px solid #e5e7eb; margin-top: 1.5em; padding-top: 0.75em; }
 kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; border-radius: 4px; padding: 0.08em 0.35em; font-family: ui-monospace, monospace; font-size: 0.85em; }

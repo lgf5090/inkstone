@@ -2,6 +2,7 @@ import { StateEffect, StateField, type EditorState, type Extension, type Range }
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import { parseWikiTarget, renderMarkdownBlocks, type Heading, type MarkdownBlock } from '../lib/markdown/renderer';
+import { registerFenceBodies, type FenceBodies } from '../lib/markdown/fence-bodies';
 import { enhancePreview, renderPendingCharts, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
 import { resolveNoteEmbeds } from '../lib/markdown/embeds';
 import { useSession } from '../store/session';
@@ -15,10 +16,15 @@ const focusChanged = StateEffect.define<boolean>();
 const refresh = StateEffect.define<boolean>();
 
 class RenderedBlock extends WidgetType {
-    constructor(readonly block: MarkdownBlock, readonly source: string, readonly revision: number, readonly title: string) { super(); }
+    constructor(readonly block: MarkdownBlock, readonly source: string, readonly revision: number, readonly title: string, readonly fences: FenceBodies) { super(); }
     eq(other: RenderedBlock) {
+        // The fence set is re-parsed only when the document is, so identity says whether this block's
+        // board bodies are still the ones the host was registered with. Comparing by content instead
+        // would walk every board on every keystroke, which is the cost the reparse idle window exists
+        // to avoid; comparing not at all would keep a board showing the cards from before its edit.
         return this.block.html === other.block.html && this.block.startLine === other.block.startLine
             && this.block.endLine === other.block.endLine && this.revision === other.revision && this.title === other.title
+            && this.fences === other.fences
             && (!this.block.html.includes('data-embed-target') || this.source === other.source);
     }
     toDOM(view: EditorView) {
@@ -26,6 +32,9 @@ class RenderedBlock extends WidgetType {
         host.className = 'ink-prose cm-live-block';
         host.dataset.font = useSession.getState().settings.appearance.proseFont;
         host.innerHTML = this.block.html;
+        // A board's cards live in the render's fence set rather than in the markup, so this host has
+        // to carry the set before anything asks the block what it holds.
+        registerFenceBodies(host, this.fences);
         host.title = t('workspace.live_preview_hint');
         let alive = true;
         blockViews.set(host, view);
@@ -129,6 +138,8 @@ function getSharedBlockResizeObserver(): ResizeObserver {
 interface LiveState {
     blocks: MarkdownBlock[];
     headings: Heading[];
+    /** The fence bodies `blocks` were rendered from; a block's host is registered with this set. */
+    fences: FenceBodies;
     decorations: DecorationSet;
     focused: boolean;
     revision: number;
@@ -165,7 +176,7 @@ function decorate(state: EditorState, live: LiveState, title: string): Decoratio
         const active = state.selection.ranges.some((range) =>
             (live.focused || !range.empty) && range.from <= to && range.to >= from);
         if (active || from === to) continue;
-        ranges.push(Decoration.replace({ block: true, widget: new RenderedBlock(block, source, live.revision, title) }).range(from, to));
+        ranges.push(Decoration.replace({ block: true, widget: new RenderedBlock(block, source, live.revision, title, live.fences) }).range(from, to));
     }
     return Decoration.set(ranges, true);
 }

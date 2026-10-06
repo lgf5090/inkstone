@@ -7,6 +7,8 @@ import type { Attachment } from '@shared/types'
 import type { WikiTarget } from './renderer'
 import { attachmentFileName, isAttachmentTarget, parseEmbedSize, renderAttachmentEmbed } from './attachments'
 import { parseWikiTarget, renderMarkdown } from './renderer'
+import { registerFenceBodies } from './fence-bodies'
+import type { FenceBodies } from './fence-bodies'
 
 interface ResolveOptions {
   currentContent: string
@@ -44,17 +46,18 @@ const MAX_TOTAL_CHARS = 2_000_000
  * reused while the markdown it was built from is still identical.
  */
 const RENDERED_EMBED_CACHE_MAX = 64
-const renderedEmbeds = new Map<string, { markdown: string; html: string }>()
+const renderedEmbeds = new Map<string, { markdown: string; html: string; fences: FenceBodies }>()
 const pendingEmbedFetches = new Map<string, Promise<string>>()
 
-function renderEmbedMarkdown(signature: string, markdown: string): string {
+function renderEmbedMarkdown(signature: string, markdown: string): { html: string; fences: FenceBodies } {
   const cached = renderedEmbeds.get(signature)
-  if (cached && cached.markdown === markdown) return cached.html
-  const html = renderMarkdown(markdown).html
+  if (cached && cached.markdown === markdown) return cached
+  const rendered = renderMarkdown(markdown)
   if (cached) renderedEmbeds.delete(signature)
   if (renderedEmbeds.size >= RENDERED_EMBED_CACHE_MAX) renderedEmbeds.clear()
-  renderedEmbeds.set(signature, { markdown, html })
-  return html
+  const entry = { markdown, html: rendered.html, fences: rendered.fences }
+  renderedEmbeds.set(signature, entry)
+  return entry
 }
 
 async function fetchEmbedContent(noteId: string): Promise<string> {
@@ -164,7 +167,11 @@ async function resolveWithin(
       const head = embed.querySelector<HTMLElement>('.note-embed-head')
       if (!body) continue
       const rendered = renderEmbedMarkdown(resolved.signature, resolved.markdown)
-      body.innerHTML = rendered
+      body.innerHTML = rendered.html
+      // The embed's own fence bodies come from its own render, and a board or a chart inside it is
+      // keyed by that render's numbering. Registering the set on the body means the walk up from a
+      // block in here finds this set before the one the host carrying the embed registered.
+      registerFenceBodies(body, rendered.fences)
       body.querySelectorAll<HTMLInputElement>('input.task-list-item-checkbox').forEach((input) => {
         input.disabled = true
         input.removeAttribute('data-task-line')

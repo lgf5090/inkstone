@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Backlink } from '@shared/types'
 import { renderMarkdown } from '../../lib/markdown/renderer'
+import { registerFenceBodies } from '../../lib/markdown/fence-bodies'
 import { enhancePreview } from '../../lib/markdown/enhance'
 import { api } from '../../lib/api'
 import { localDb } from '../../lib/db'
@@ -189,6 +190,10 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
     const rendered = renderMarkdown(truncatedContent, { hideFrontMatter: true })
     const staging = document.createElement('div')
     staging.innerHTML = rendered.html
+    // The board's cards live in the render's fence set, not in the markup, so a surface that asks for
+    // the still has to register the set first — otherwise every board on a card reads as an empty
+    // fence and renders the error state instead of the cards the note holds.
+    registerFenceBodies(staging, rendered.fences)
     if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]') || staging.querySelector('[data-kanban]')) {
       await enhancePreview(staging, {
         math: args.previewMath,

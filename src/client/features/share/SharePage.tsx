@@ -6,6 +6,7 @@ import { api, ApiError } from '../../lib/api';
 import { fullTime } from '../../lib/time';
 import { readingMinutes, countText } from '@shared/markdown-utils';
 import { renderMarkdown } from '../../lib/markdown/renderer';
+import { registerFenceBodies } from '../../lib/markdown/fence-bodies';
 import { destroyChartInstances, enhancePreview, renderPendingCharts, renderPendingMermaid, resetMermaidNode, toggleCodeBlockCollapse } from '../../lib/markdown/enhance';
 import { Avatar, Button, Logo } from '../../components/primitives';
 import { Input } from '../../components/form';
@@ -104,6 +105,9 @@ export function SharePage({ slug }: {
         void (async () => {
             // A shared page is read by visitors who have no settings of their own; the author's choice to
             // hide diagrams is theirs, not a property of the note, so a shared note always draws.
+            // Registered first: a board's cards live in the render's fence set, not in the markup, and
+            // the still the share page draws reads that set.
+            if (rendered) registerFenceBodies(host, rendered.fences);
             await enhancePreview(host, { math: true, mermaid: true, chart: true, kanban: 'snapshot', dark, codeBlockCollapseLines: 24 });
             if (!isCurrent())
                 return;
