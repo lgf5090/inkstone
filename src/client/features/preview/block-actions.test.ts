@@ -157,3 +157,65 @@ describe('a chart block reached through the registry', () => {
     expect(closeBlockToolbarOverlay(root.querySelector('.chart-block-title')!)).toBeNull()
   })
 })
+
+describe('the layout and tab families through the registry', () => {
+  const SYNCED = ':::: tabs sync=lang\n@tab One\na\n@tab Two\nb\n::::'
+
+  function dressed(markdown: string, tabScope?: { noteId?: string | null, userId?: string | null }): HTMLElement {
+    const root = document.createElement('div')
+    root.className = 'ink-prose'
+    root.innerHTML = renderMarkdown(markdown).html
+    enhanceBlockToolbars(root, { chart: true, tabScope })
+    return root
+  }
+
+  it('wraps a layout block and dresses a tab block in one pass', () => {
+    const root = dressed('::: center\nx\n:::\n\n' + SYNCED)
+    expect(root.querySelectorAll('.panel-block')).toHaveLength(1)
+    expect(root.querySelectorAll('.markdown-tabs > .markdown-tabs-header-wrap')).toHaveLength(1)
+    expect(root.querySelectorAll('.block-settings')).toHaveLength(2)
+    expect(root.querySelectorAll('.block-settings-row')).toHaveLength(0)
+  })
+
+  it('carries the surface’s scope down to the tab block, so a remembered panel comes back', () => {
+    localStorage.setItem('inkstone:tabs-sync:v1:u7:n7:lang', '1')
+    const root = dressed(SYNCED, { noteId: 'n7', userId: 'u7' })
+    const tabs = root.querySelector<HTMLElement>('.markdown-tabs')!
+    const shown = [...tabs.querySelectorAll<HTMLElement>(':scope > [data-tab-panel]')].filter((panel) => !panel.hidden)
+    expect(shown.map((panel) => panel.dataset.tabPanel)).toEqual(['1'])
+    localStorage.clear()
+  })
+
+  it('leaves the block on its written panel when the surface has no scope', () => {
+    localStorage.setItem('inkstone:tabs-sync:v1:u8:n8:lang', '1')
+    const root = dressed(SYNCED)
+    const tabs = root.querySelector<HTMLElement>('.markdown-tabs')!
+    expect([...tabs.querySelectorAll<HTMLElement>(':scope > [data-tab-panel]')].filter((panel) => !panel.hidden).map((panel) => panel.dataset.tabPanel)).toEqual(['0'])
+    localStorage.clear()
+  })
+
+  it('routes a layout edit and a tab edit through the one click handler', () => {
+    const layout = dressed('::: center\nx\n:::')
+    layout.dataset.source = ''
+    const layoutContext = ctx({ content: '::: center\nx\n:::', committedSourceRef: { current: '::: center\nx\n:::' } })
+    expect(handleBlockToolbarClick({ preventDefault: vi.fn() }, layout.querySelector<HTMLElement>('[data-panel-action="toggle-settings"]')!, layoutContext)).toBe(true)
+    handleBlockToolbarClick({ preventDefault: vi.fn() }, layout.querySelector<HTMLElement>('[data-panel-action="set-align"][data-panel-val="right"]')!, layoutContext)
+    expect(layoutContext.api.editContent).toHaveBeenCalledWith('n1', '::: right\nx\n:::')
+
+    const tabs = dressed(SYNCED)
+    const tabEdits: string[] = []
+    const tabContext = ctx({ content: SYNCED, committedSourceRef: { current: SYNCED } })
+    tabContext.api.editContent = (_noteId: string, next: string) => tabEdits.push(next)
+    handleBlockToolbarClick({ preventDefault: vi.fn() }, tabs.querySelector<HTMLElement>('[data-tabs-action="add-tab"]')!, tabContext)
+    // i18n is uninitialised in this file, so the fallback tab title arrives as its key.
+    expect(tabEdits[0]).toContain('@tab common.tabs 3')
+  })
+
+  it('closes an open tab overlay when the reader clicks a layout block', () => {
+    const root = dressed(SYNCED + '\n\n::: center\nx\n:::')
+    handleBlockToolbarClick({ preventDefault: vi.fn() }, root.querySelector<HTMLElement>('[data-tabs-action="toggle-layout"]')!, ctx())
+    expect(root.querySelector<HTMLElement>('.markdown-tabs')!.classList.contains('is-layout-open')).toBe(true)
+    handleBlockToolbarClick({ preventDefault: vi.fn() }, root.querySelector<HTMLElement>('.markdown-align')!, ctx())
+    expect(root.querySelector<HTMLElement>('.markdown-tabs')!.classList.contains('is-layout-open')).toBe(false)
+  })
+})

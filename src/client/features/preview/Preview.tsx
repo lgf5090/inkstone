@@ -69,6 +69,7 @@ export const Preview = memo(function Preview({
   const scrollerRef = externalScrollerRef ?? internalScrollerRef
   const preview = useSession((s) => s.settings.preview)
   const appearance = useSession((s) => s.settings.appearance)
+  const userId = useSession((s) => s.user?.id)
   const locale = useLocale()
   const setLightbox = useUi((s) => s.setLightbox)
   const openView = useUi((s) => s.openView)
@@ -81,6 +82,10 @@ export const Preview = memo(function Preview({
   const sourceNoteId = noteId ?? activeNoteId
   const currentTitle = noteTitle ?? fallbackTitle
   const { hover, handlePin, onMouseLeave, onFocus, onBlur } = useLinkHoverHost(sourceNoteId ?? null)
+
+  // A tab block's remembered choice belongs to this account's reading of this note, so a shared
+  // browser does not carry one person's open tab over to the next.
+  const tabScope = useMemo(() => ({ noteId: sourceNoteId ?? null, userId: userId ?? null }), [sourceNoteId, userId])
 
 
   const debounced = useDebounced(content, 90)
@@ -187,7 +192,7 @@ export const Preview = memo(function Preview({
       })
       // Every block head is built here rather than on the live host so it is part of the markup the
       // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
-      enhanceBlockToolbars(staging, { chart: preview.chart })
+      enhanceBlockToolbars(staging, { chart: preview.chart, tabScope })
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
@@ -224,6 +229,7 @@ export const Preview = memo(function Preview({
   }, [
     debounced,
     embedContextTitle,
+    tabScope,
     rendered.hasEmbeds,
     rendered.html,
     scrollerRef,
@@ -341,7 +347,7 @@ export const Preview = memo(function Preview({
     const tabButton = target.closest<HTMLButtonElement>('[data-tab-button]')
     if (tabButton) {
       event.preventDefault()
-      selectMarkdownTab(tabButton)
+      selectMarkdownTab(tabButton, tabScope)
       return
     }
 
@@ -431,7 +437,7 @@ export const Preview = memo(function Preview({
     const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]')
     if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
-      moveMarkdownTabFocus(tab, event.key)
+      moveMarkdownTabFocus(tab, event.key, tabScope)
       return
     }
     const interactiveLink = (event.target as HTMLElement).closest<HTMLElement>(
