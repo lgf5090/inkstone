@@ -481,7 +481,7 @@ export function extractTags(content: string): string[] {
     const key = tagKey(value)
     if (!out.has(key)) out.set(key, value)
   }
-  for (const tag of frontMatterTags(frontMatter.data)) {
+  for (const tag of [...frontMatterTags(frontMatter.data), ...frontMatterTagAliases(frontMatter.data)]) {
     const normalized = tag.replace(/^#/, '').trim()
     if (isUsableTagName(normalized) && normalized.length <= 60 && !/^\d+$/.test(normalized)) add(normalized)
     if (out.size >= 64) return sortTagNames(out.values())
@@ -502,6 +502,24 @@ export const TAG_LIST_SEPARATOR = /[,\uFF0C\u3001;\uFF1B\s]+/
 
 export function isUsableTagName(name: string): boolean {
   return name.length > 0 && !/[\s#]/.test(name) && !/[,\uFF0C\u3001;\uFF1B]/.test(name)
+}
+
+/**
+ * A tag-shaped front-matter alias marks the note as that tag's page (the shape Tag Wrangler
+ * uses), so it has to reach the tag list the same way `tags:` does. Plain aliases keep their
+ * spaces and are dropped by `isUsableTagName` a few lines later, never by this filter.
+ */
+function frontMatterTagAliases(data: Record<string, unknown>): string[] {
+  const collected: unknown[] = []
+  for (const [key, value] of Object.entries(data)) {
+    if (!/^alias(?:es)?$/i.test(key)) continue
+    if (Array.isArray(value)) collected.push(...value)
+    else if (typeof value === 'string') collected.push(...value.split(/[,\n]/))
+  }
+  return collected
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.startsWith('#'))
 }
 
 function frontMatterTags(data: Record<string, unknown>): string[] {
@@ -690,46 +708,57 @@ function replaceTagInFrontMatter(
   if (document.errors.length) return header
   const data = document.toJS({ maxAliasCount: 20 }) as unknown
   if (!isPlainRecord(data)) return header
-  const key = Object.prototype.hasOwnProperty.call(data, 'tags')
-    ? 'tags'
-    : Object.prototype.hasOwnProperty.call(data, 'tag') ? 'tag' : null
-  if (!key) return header
-  const value = data[key]
-  const rewrite = (tag: string) => {
+  const tagKeys = Object.keys(data).filter((key) => /^tags?$/i.test(key))
+  const aliasKeys = Object.keys(data).filter((key) => /^alias(?:es)?$/i.test(key))
+  const keys = [...tagKeys, ...aliasKeys]
+  if (!keys.length) return header
+  // An alias only names a tag page when it is spelled like a tag; `aliases: [Note B]` is an
+  // ordinary alias and must survive a rename of an unrelated tag untouched.
+  const rewrite = (tag: string): string | null => {
     const hash = tag.trim().startsWith('#') ? '#' : ''
     const name = tag.trim().replace(/^#/, '')
     if (name !== from) return tag
     return to ? `${hash}${to}` : null
   }
-  let next: string[] | string | null = null
-  if (Array.isArray(value)) {
-    const values = value
-      .filter((item): item is string => typeof item === 'string')
-      .map(rewrite)
-      .filter((item): item is string => item !== null)
-    if (values.length === value.length && values.every((item, index) => item === value[index])) return header
-    next = values.length ? values : null
-  } else if (typeof value === 'string') {
-    const separator = value.includes(',') ? ', ' : ' '
-    const values = frontMatterTags({ [key]: value })
-      .map(rewrite)
-      .filter((item): item is string => item !== null)
-    const joined = values.join(separator)
-    if (joined === value) return header
-    next = joined || null
-  } else {
-    return header
-  }
-  if (next === null) document.delete(key)
-  else if (Array.isArray(next)) {
-    // Replace the sequence's items in place: `document.set` builds a fresh node that always
-    // stringifies as a block list, which would turn the user's `tags: [a, b]` into three lines.
-    // Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).
-    const node = document.get(key, true)
-    if (isSeq(node)) node.items = next.map((item) => new Scalar(item))
+  const rewriteAlias = (value: string): string | null => (value.trim().startsWith('#') ? rewrite(value) : value)
+  let changed = false
+  for (const key of keys) {
+    const isAlias = aliasKeys.includes(key)
+    const map = isAlias ? rewriteAlias : rewrite
+    const value = data[key]
+    let next: string[] | string | null
+    if (Array.isArray(value)) {
+      const values = value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => map(item))
+        .filter((item): item is string => item !== null)
+      if (values.length === value.length && values.every((item, index) => item === value[index])) continue
+      next = values.length ? values : null
+    } else if (typeof value === 'string') {
+      const separator = value.includes(',') ? ', ' : ' '
+      const parts = isAlias ? [value.trim()] : frontMatterTags({ [key]: value })
+      const values = parts
+        .map((item) => map(item))
+        .filter((item): item is string => item !== null)
+      const joined = values.join(separator)
+      if (values.length === parts.length && values.every((item, index) => item === parts[index])) continue
+      next = joined || null
+    } else {
+      continue
+    }
+    changed = true
+    if (next === null) document.delete(key)
+    else if (Array.isArray(next)) {
+      // Replace the sequence's items in place: `document.set` builds a fresh node that always
+      // stringifies as a block list, which would turn the user's `tags: [a, b]` into three lines.
+      // Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).
+      const node = document.get(key, true)
+      if (isSeq(node)) node.items = next.map((item) => new Scalar(item))
+      else document.set(key, next)
+    }
     else document.set(key, next)
   }
-  else document.set(key, next)
+  if (!changed) return header
   const closing = header.at(-1) ?? '---'
   const serialized = stringifyFrontMatter(document)
   return [header[0] ?? '---', ...(serialized ? serialized.split('\n') : []), closing]

@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { isUsableTagName, replaceTagInContent, sortTagNames, tagKey, tagNamesEqual } from '@shared/markdown-utils'
+import { isUsableTagName, normalizeLinkKey, replaceTagInContent, sortTagNames, tagKey, tagNamesEqual } from '@shared/markdown-utils'
 import type { NoteSummary, Tag } from '@shared/types'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -115,6 +115,48 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
     }), refreshed),
     tone: refreshed ? 'success' : 'warning',
   })
+}
+
+/**
+ * A tag page is a note whose frontmatter alias spells the tag (`aliases: ["#a/b"]`), named after
+ * it with the path separators turned into spaces. The alias is what makes the note carry the tag,
+ * so a page shows up in the tag's own count without a second index to keep in sync.
+ */
+export function tagPageTitle(name: string): string {
+  return name.split('/').filter(Boolean).join(' ')
+}
+
+export function findTagPage(tagName: string): NoteSummary | null {
+  const wanted = normalizeLinkKey(tagPageTitle(tagName))
+  for (const note of Object.values(useNotes.getState().notes)) {
+    if (note.deletedAt) continue
+    if (!note.tags.some((tag) => tagNamesEqual(tag, tagName))) continue
+    if (normalizeLinkKey(note.title) === wanted) return note
+  }
+  return null
+}
+
+export async function createTagPage(tag: Tag): Promise<string | null> {
+  const content = ['---', `aliases: ["#${tag.name}"]`, '---', ''].join('\n')
+  return await useNotes.getState().createNote({ title: tagPageTitle(tag.name), content })
+}
+
+export async function openTagPage(tag: Tag): Promise<void> {
+  const page = findTagPage(tag.name)
+  if (page) {
+    await useNotes.getState().openNote(page.id)
+    return
+  }
+  const create = await confirm({
+    title: t('tags.page_missing_value0', { value0: tag.name }),
+    description: t('tags.page_missing_description'),
+    confirmLabel: t('tags.create_page'),
+  })
+  if (!create) {
+    useUi.getState().openView('tag', { tag: tag.name })
+    return
+  }
+  await createTagPage(tag)
 }
 
 export async function deleteTag(tag: Tag): Promise<void> {

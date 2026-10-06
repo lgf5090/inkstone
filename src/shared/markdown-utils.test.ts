@@ -107,6 +107,45 @@ describe('tag list separators', () => {
 })
 
 
+describe('tag-shaped aliases are tags', () => {
+  const fm = (...lines: string[]) => ['---', ...lines, '---', 'body'].join('\n')
+
+  it('counts a page alias as the tag it names', () => {
+    expect(extractTags(fm('aliases: ["#a/b"]'))).toEqual(['a/b'])
+    expect(extractTags(fm('Aliases: [ "#a/b" ]'))).toEqual(['a/b'])
+    expect(extractTags(fm('alias: "#wip"'))).toEqual(['wip'])
+    expect(extractTags(fm('aliases:', "  - '#two'", '  - One'))).toEqual(['two'])
+  })
+
+  it('ignores ordinary aliases and dedupes against the tags key', () => {
+    expect(extractTags(fm('aliases: [Note B, Plain Name]'))).toEqual([])
+    expect(extractTags(fm('tags: [a]', 'aliases: ["#a"]'))).toEqual(['a'])
+    expect(extractTags(fm('aliases: ["#a", "#"]'))).toEqual(['a'])
+  })
+
+  it('rewrites a page alias when the tag is renamed', () => {
+    const next = replaceTagInContent(fm('aliases: ["#a/b"]'), 'a/b', 'x/y')
+    expect(next).toContain('aliases: ["#x/y"]')
+    expect(extractTags(next)).toEqual(['x/y'])
+  })
+
+  it('drops the alias entry when the tag is deleted and keeps the rest', () => {
+    const next = replaceTagInContent(fm('aliases: ["#a", Other]'), 'a', null)
+    expect(next).toContain('Other')
+    expect(next).not.toContain('#a')
+  })
+
+  it('leaves an unhashéd alias alone during a rename of the same word', () => {
+    const source = fm('aliases: [wip]')
+    expect(replaceTagInContent(source, 'wip', 'done')).toBe(source)
+  })
+
+  it('does not re-space a tag list it was not asked to change', () => {
+    const source = fm('tags: a,b')
+    expect(replaceTagInContent(source, 'zzz', 'yyy')).toBe(source)
+  })
+})
+
 describe('tagNamesEqual', () => {
   it('folds the same things the tag key folds', () => {
     expect(tagNamesEqual('work', 'WORK')).toBe(true)

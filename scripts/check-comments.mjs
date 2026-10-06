@@ -181,6 +181,7 @@ const allowed = new Map([
     "// A failed move may still have renamed part of the family server-side, so restoring the",
     "// snapshot we took before our own optimistic edit would also undo any move that raced us.",
     "// Re-read instead of winding back.",
+    "/**\n * A tag page is a note whose frontmatter alias spells the tag (`aliases: [\"#a/b\"]`), named after\n * it with the path separators turned into spaces. The alias is what makes the note carry the tag,\n * so a page shows up in the tag's own count without a second index to keep in sync.\n */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -457,6 +458,9 @@ const allowed = new Map([
     "// Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).",
     "/**\n * A tag list can be separated by ASCII or by the full-width punctuation a Chinese keyboard\n * produces. YAML only splits a flow sequence on the ASCII comma, so `tags: [a\\uFF0Cb]` reaches us as\n * the single item `a\\uFF0Cb`; splitting here is what stops that becoming one bogus tag.\n */",
     "/**\n * Whether two spellings name the same tag. `localeCompare(…, { sensitivity: 'base' })` looks\n * like the same question but also folds German expansions (`ß`/`ss`) and accent equivalences\n * the server's `COLLATE NOCASE` never folds, so it predicts a merge that will not happen.\n */",
+    "/**\n * A tag-shaped front-matter alias marks the note as that tag's page (the shape Tag Wrangler\n * uses), so it has to reach the tag list the same way `tags:` does. Plain aliases keep their\n * spaces and are dropped by `isUsableTagName` a few lines later, never by this filter.\n */",
+    "// An alias only names a tag page when it is spelled like a tag; `aliases: [Note B]` is an",
+    "// ordinary alias and must survive a rename of an unrelated tag untouched.",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
