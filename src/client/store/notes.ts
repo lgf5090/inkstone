@@ -2972,9 +2972,10 @@ export function useVisibleNotes(): NoteSummary[] {
     const dateFilter = useUi((s) => s.dateFilter);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
-    // `folders` only takes part in the folder view; without this the whole list re-derives
-    // whenever a folder is renamed, reordered or created.
-    const scopedFolders = view === 'folder' ? folders : EMPTY_FOLDERS;
+    // `folders` only takes part in the folder and unfiled views, where a note's ownership is
+    // resolved against the live folder set; without this the whole list re-derives whenever an
+    // unrelated folder is renamed, reordered or created.
+    const scopedFolders = view === 'folder' || view === 'unfiled' ? folders : EMPTY_FOLDERS;
     const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
     return useMemo(() => {
         const ctx = viewContext(view, folderId, tag, scopedFolders);

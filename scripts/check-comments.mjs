@@ -369,8 +369,9 @@ const allowed = new Map([
     "// debounced timer still covers the tab while it is open, and pagehide stays immediate.",
     "/**\n * One Record copy and one shell save for a whole batch of optimistic patches. Deleting a\n * folder with 500 notes used to copy the full notes map once per note (3.0 ms each, so\n * 1.5–2.4 s of blocked main thread) before the request even started.\n */",
     "/**\n * A sync page can carry 500 notes whose cached bodies we hold, and each revalidation is a\n * whole-note GET plus a full-content IndexedDB write; unbounded fan-out froze the tab.\n */",
-    "// `folders` only takes part in the folder view; without this the whole list re-derives",
-    "// whenever a folder is renamed, reordered or created.",
+    "// `folders` only takes part in the folder and unfiled views, where a note's ownership is",
+    "// resolved against the live folder set; without this the whole list re-derives whenever an",
+    "// unrelated folder is renamed, reordered or created.",
   ]],
   ["src/client/store/pwa.ts", [
     "// Reset the flag once the toast is gone, so a later installed worker can",

@@ -117,3 +117,24 @@ describe('folderExportFilename', () => {
         expect(folderExportFilename(folder('empty', '   ', null))).toBe('folder-export.zip');
     });
 });
+
+describe('zip entry safety', () => {
+    it('never lets a folder or note name escape the archive root', () => {
+        const escapee: Folder = { ...PROJECTS, id: 'dotdot', parentId: 'root', name: '..' };
+        const dotted: Folder = { ...PROJECTS, id: 'dots', parentId: 'root', name: '...' };
+        const paths = buildFolderExportPaths([PROJECTS, escapee, dotted], [
+            note('n1', 'ok', 'dotdot'),
+            note('n2', 'ok', 'dots'),
+            note('n3', '..', 'root'),
+            note('n4', '../evil', 'root'),
+        ], 'root');
+        for (const path of paths.values()) {
+            expect(path.startsWith('/'), path).toBe(false);
+            expect(path.split('/').includes('..'), path).toBe(false);
+            expect(path.startsWith('../'), path).toBe(false);
+        }
+        expect(paths.get('n1')).toBe('Projects/folder/ok.md');
+        expect(paths.get('n3')).toBe('Projects/note.md');
+        expect(paths.get('n4')).toBe('Projects/evil.md');
+    });
+});

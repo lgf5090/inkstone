@@ -14,7 +14,6 @@ import {
     isVirtualFolderId,
     noteWeekPeriod,
     parseVirtualId,
-    quarterOfMonth,
     splitTodoTags,
     virtualAncestorIds,
     virtualFolderLabel,
@@ -23,6 +22,7 @@ import {
     virtualPeriodKeyRange,
     virtualTreeNamespace,
 } from './index';
+import { quarterOfMonth } from './ids';
 
 function note(id: string, createdAt: number, tags: string[] = [], folderId: string | null = 'f1'): NoteSummary {
     return {

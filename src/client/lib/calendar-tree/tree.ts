@@ -1,13 +1,8 @@
 import type { NoteSummary } from '@shared/types';
 import type { VirtualTreeNamespace } from './ids';
-import { TODO_TREE, parseVirtualId, quarterOfMonth, splitTodoTags, virtualId } from './ids';
+import { TODO_TREE, parseVirtualId, quarterOfMonth, virtualId } from './ids';
 import { calendarNodeName, isTodoNoteForTags, noteWeekPeriod } from './periods';
 import type { CalendarNode, CalendarPeriod } from './types';
-
-export function filterTodoNotes(notes: Iterable<NoteSummary>, tagText: string = ''): NoteSummary[] {
-    const tags = splitTodoTags(tagText);
-    return [...notes].filter((note) => isTodoNoteForTags(note, tags));
-}
 
 export function virtualPathSegments(id: string | null | undefined, ns: VirtualTreeNamespace): string[] | null {
     const period = parseVirtualId(id, ns);

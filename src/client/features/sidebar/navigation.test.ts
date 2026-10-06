@@ -732,3 +732,24 @@ describe('sidebar partition and order', () => {
         expect(document.querySelector('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!.querySelectorAll('[data-tree-note-id]').length).toBe(2);
     });
 });
+
+describe('unfiled view', () => {
+    function UnfiledProbe({ onIds }: { onIds: (ids: string[]) => void }) {
+        onIds(useVisibleNotes().map((item) => item.id));
+        return null;
+    }
+
+    it('lists only notes without a folder, and agrees with the inbox row', async () => {
+        const filed = { ...note, id: 'filed', title: 'Filed', folderId: folder.id };
+        const loose = { ...note, id: 'loose', title: 'Loose', folderId: null };
+        useNotes.setState({ folders: [folder], notes: { filed, loose } });
+        useUi.setState({ view: 'unfiled', folderId: null, tag: null, searchList: false, listCollapsed: false, expandedFolders: ['inbox'] });
+        let ids: string[] = [];
+        await act(() => root.render(createElement(UnfiledProbe, { onIds: (next) => { ids = next; } })));
+        expect(ids).toEqual(['loose']);
+        await act(() => root.render(createElement(Sidebar)));
+        await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+        const inbox = document.querySelector('[role="tree"][aria-label="' + t('sidebar.inbox_folder') + '"]')!;
+        expect([...inbox.querySelectorAll('[data-tree-note-id]')].map((element) => element.getAttribute('data-tree-note-id'))).toEqual(['loose']);
+    });
+});

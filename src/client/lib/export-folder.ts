@@ -13,6 +13,11 @@ export interface FolderExportResult {
 
 const CONTENT_FETCH_CONCURRENCY = 4;
 
+function zipSegment(name: string, fallback: string): string {
+    const cleaned = safeFileName(name).replace(/^\.+/g, '').trim();
+    return cleaned || fallback;
+}
+
 export function folderExportFilename(root: Folder): string {
     return `${safeFileName(root.name) || 'folder'}-export.zip`;
 }
@@ -26,7 +31,7 @@ export function buildFolderExportPaths(folders: Folder[], notes: NoteSummary[], 
             continue;
         const segments = folderPath(folders, folder.id)
             .slice(rootDepth)
-            .map((item) => safeFileName(item.name) || 'folder');
+            .map((item) => zipSegment(item.name, 'folder'));
         directoryOf.set(folder.id, segments.join('/'));
     }
     const used = new Map<string, number>();
@@ -37,7 +42,7 @@ export function buildFolderExportPaths(folders: Folder[], notes: NoteSummary[], 
         const directory = directoryOf.get(note.folderId);
         if (directory === undefined)
             continue;
-        const base = safeFileName(note.title) || 'note';
+        const base = zipSegment(note.title, 'note');
         const key = `${directory}/${base}`;
         const seen = used.get(key) ?? 0;
         used.set(key, seen + 1);
@@ -112,7 +117,7 @@ export async function exportFolderAsZip(folderId: string): Promise<FolderExportR
         const title = note.title.trim();
         const frontMatter = title ? `---\ntitle: ${JSON.stringify(title)}\n---\n\n` : '';
         return {
-            name: paths.get(note.id) ?? `${safeFileName(note.title) || 'note'}.md`,
+            name: paths.get(note.id) ?? `${zipSegment(note.title, 'note')}.md`,
             lastModified: new Date(note.updatedAt || Date.now()),
             input: new Response(`${frontMatter}${contents.get(note.id) ?? ''}`),
         };
