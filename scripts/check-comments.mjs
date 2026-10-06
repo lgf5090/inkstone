@@ -137,6 +137,10 @@ const allowed = new Map([
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
   ]],
+  ["src/client/features/preview/NoteProperties.tsx", [
+    "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
+    "// cached copy here would silently overwrite whatever was typed in the last few frames.",
+  ]],
   ["src/client/features/preview/Outline.tsx", [
     "// One pass per layout change instead of one querySelector + one layout read per",
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
@@ -166,6 +170,9 @@ const allowed = new Map([
   ["src/client/features/tags/tagMutations.ts", [
     "// The delta carries every note the server-side rewrite touched, and pull() falls back",
     "// to a full snapshot on its own when the server says the cursor is stale.",
+    "// A failed move may still have renamed part of the family server-side, so restoring the",
+    "// snapshot we took before our own optimistic edit would also undo any move that raced us.",
+    "// Re-read instead of winding back.",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -319,6 +326,9 @@ const allowed = new Map([
     "// the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and",
     "// re-ran a full pull. One reclaim per minute still takes over after the leader closes.",
   ]],
+  ["src/client/lib/tag-tree.ts", [
+    "/**\n * A parent that matches on its own keeps its whole subtree, so `work` still shows `work/meeting`;\n * a parent that only leads to a match is kept unhighlighted so the child stays reachable.\n */",
+  ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
     "// jsdom answers every media query with `false`, which the app reads as a phone, so a case written",
@@ -382,6 +392,7 @@ const allowed = new Map([
     "// The subscriber fires on every notification, including the ones that change nothing",
     "// persisted (toasts, selection). Serializing 22 keys per keystroke cost more than the",
     "// localStorage write the 220 ms debounce already coalesces, so serialization waits too.",
+    "/** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -391,6 +402,7 @@ const allowed = new Map([
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
+    "/** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */",
   ]],
   ["src/shared/markdown-utils.ts", [
     "/** Provides pure Markdown analysis shared by the browser and Worker runtimes. */",
@@ -414,6 +426,9 @@ const allowed = new Map([
     "/**\n * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written\n * on an item line is not a link anywhere else either. Blanked in place: the offsets that\n * `replaceTagInContent` splices with have to stay valid.\n */",
     "/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */",
     "/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */",
+    "/**\n * The deduplication key `extractTags` uses: case- and width-insensitive. Listings call this once\n * per tag per keystroke, so the same handful of names are folded over and over; the bounded cache\n * follows the one in lib/fuzzy.ts.\n */",
+    "/**\n * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own\n * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.\n */",
+    "/**\n * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.\n * The notes list route spells the same rule in SQL, but `COLLATE NOCASE` only folds ASCII, so a\n * non-ASCII case variant can match here and not there. The offline shell is the stricter side.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -666,6 +681,9 @@ const allowed = new Map([
     "// lower(n.content) subexpression across the three references below.",
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
+    "// Several `tag` params combine with AND, and each one also matches its whole subtree so the",
+    "// rolled-up count in the sidebar and the result set agree. Both halves have to stay in step",
+    "// with tagInScope(), which spells the same rule in TypeScript for the offline shell.",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -689,10 +707,29 @@ const allowed = new Map([
     "// remaining pages.",
     "// Never move the client's cursor backwards, even if it reported a",
     "// seq ahead of the server (e.g. data was trimmed).",
+    "// Tag counts are a projection over `note_tags`, and a note write only emits a `note` change",
+    "// row. Without this the delta would carry stale counts forever. Note deletions never reach",
+    "// `noteIds` (they become `deletions`), so the flag has to read the raw change rows.",
+    "//",
+    "// Only on the last page: the client applies every delta page through its own applySync, so",
+    "// marking each one full would ship the whole tag list once per page (442 KB per 5 000 tags).",
+    "// The final page's recount already covers everything the earlier pages moved.",
   ]],
   ["src/worker/routes/tags.ts", [
     "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
     "// the isolate before the first write happens.",
+    "// The whole family is snapshotted before anything moves, so each step below only ever sees",
+    "// the exact name it was asked about. Length-descending is just a stable, readable order for",
+    "// the change rows clients receive. The `/` in the LIKE pattern is load-bearing: without that",
+    "// boundary `a` would claim the unrelated sibling `ab` and rewrite every `#ab` in the library.",
+    "// Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source",
+    "// tag row, so that row has to still exist. It also means the derived pass has already created",
+    "// the destination rows, which is why the batch below copies onto them instead of renaming in",
+    "// place (an UPDATE would hit idx_tags_unique).",
+    "//",
+    "// Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose",
+    "// rollback is a no-op, so if a LATER member fails, an earlier queued rename can still land.",
+    "// That converges to a partially moved family with a duplicate tag, not to lost text.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
@@ -771,6 +808,10 @@ const allowed = new Map([
     "// The routes read a mid-batch SELECT by index (count, page, tags) while still using",
     "// results.at(-1) for the change seq, so position alignment is load bearing.",
   ]],
+  ["tests/notes-tag-views.test.ts", [
+    "// The route spells the subtree rule in SQL and the offline shell spells it in TypeScript;",
+    "// one drifts silently and the sidebar count stops matching the list.",
+  ]],
   ["tests/phase4-regressions.test.ts", [
     "// The curated hints stay, because they are what tells an operator what to fix.",
   ]],
@@ -813,6 +854,12 @@ const allowed = new Map([
   ["tests/setup-token.test.ts", [
     "// Twelve guesses per ten minutes, then the fourteenth request is refused outright:",
     "// ordering this after the comparison left the zero-user window unthrottled.",
+  ]],
+  ["tests/tag-count-live-sync.test.ts", [
+    "// `since <= 0` makes the route answer with a full snapshot, which always carries full facets.",
+    "// Every delta assertion therefore needs a change row behind it to stay on the delta branch.",
+    "// Fill the first page past syncBatchSize with tag rows (cheap to serve) plus one note row, so",
+    "// the assertion is about the paging rule rather than about loading five hundred bodies.",
   ]],
   ["tests/throttle-lock-decay.test.ts", [
     "// The per-slug global work budget from shareVerifyThrottleTargets: 60 attempts per ten",

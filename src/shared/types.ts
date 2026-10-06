@@ -189,6 +189,7 @@ export interface Tag {
   id: string
   name: string
   color: string | null
+  isPinned?: boolean
   count: number
   createdAt: number
 }
@@ -233,6 +234,7 @@ export type ViewKind =
   | 'recent'
   | 'starred'
   | 'unfiled'
+  | 'untagged'
   | 'archived'
   | 'trash'
   | 'folder'

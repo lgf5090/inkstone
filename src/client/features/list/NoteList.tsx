@@ -19,6 +19,7 @@ import { folderPathLabel } from '../../lib/folders';
 import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
+import { removeTagFromNote } from '../tags/tagMutations';
 
 const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
 /** The concatenated key is the only copied string; bound it by characters, not entries. */
@@ -46,6 +47,7 @@ const VIEW_MESSAGE_KEYS: Record<ViewKind, MessageKey> = {
     recent: 'navigation.recently_edited',
     starred: 'navigation.favorites',
     unfiled: 'navigation.unfiled',
+  untagged: 'navigation.untagged',
     archived: 'navigation.archive',
     trash: 'navigation.trash',
     folder: 'navigation.folder',
@@ -64,7 +66,7 @@ export function NoteList() {
     const searchList = useUi((s) => s.searchList);
     const searchRequest = useUi((s) => s.searchRequest);
     const folderId = useUi((s) => s.folderId);
-    const tag = useUi((s) => s.tag);
+    const tagFilters = useUi((s) => s.tags);
     const dateFilter = useUi((s) => s.dateFilter);
     const setDateFilter = useUi((s) => s.setDateFilter);
     const sort = useUi((s) => s.sort);
@@ -98,7 +100,7 @@ export function NoteList() {
 
     // Crossing the tablet/desktop width is a layout change, not a new context: wiping the
     // query there loses a search the user is still typing.
-    useEffect(() => setFilter(''), [view, folderId, tag, searchList]);
+    useEffect(() => setFilter(''), [view, folderId, tagFilters, searchList]);
     useEffect(() => {
         if (searchList) filterRef.current?.focus();
     }, [searchList, searchRequest]);
@@ -120,9 +122,9 @@ export function NoteList() {
         if (view === 'folder')
             return (folderId ? folderPathLabel(folders, folderId) : '') || t("navigation.folder");
         if (view === 'tag')
-            return `#${tag ?? ''}`;
+            return tagFilters.map((name) => `#${name}`).join(' + ');
         return t(VIEW_MESSAGE_KEYS[view]);
-    }, [view, folderId, tag, folders, locale, searchList]);
+    }, [view, folderId, tagFilters, folders, locale, searchList]);
     const dayFilterText = useMemo(() => {
         if (!dateFilter) return '';
         const format = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -174,7 +176,7 @@ export function NoteList() {
     useEffect(() => {
         setStartIndex(0);
         listRef.current?.scrollTo?.({ top: 0 });
-    }, [view, folderId, tag, deferredFilter, sort, order, density]);
+    }, [view, folderId, tagFilters, deferredFilter, sort, order, density]);
     useEffect(() => {
         if (!activeNoteId)
             return;
@@ -201,7 +203,7 @@ export function NoteList() {
         listRef.current
             ?.querySelector<HTMLElement>(`[data-note-id="${activeNoteId}"]`)
             ?.scrollIntoView({ block: 'nearest' });
-    }, [activeNoteId, safeStartIndex, endIndex, view, folderId, tag]);
+    }, [activeNoteId, safeStartIndex, endIndex, view, folderId, tagFilters]);
     const onKeyDown = (event: React.KeyboardEvent) => {
         if (event.target !== event.currentTarget || event.nativeEvent.isComposing)
             return;
@@ -360,7 +362,7 @@ export function NoteList() {
         {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
       </header>
 
-      <div key={`${view}:${folderId ?? ''}:${tag ?? ''}`} ref={listRef} onScroll={onListScroll} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
+      <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} onScroll={onListScroll} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
         {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
         {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
               {group.label && (<div className="px-2 pt-3 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
@@ -399,6 +401,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const selected = selectedIds.includes(note.id);
     const selectionHighlighted = selected && (selectedIds.length > 1 || !active);
     const toggleSelected = useUi((s) => s.toggleSelected);
+    const openView = useUi((s) => s.openView);
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);
     const deleteNote = useNotes((s) => s.deleteNote);
@@ -596,9 +599,20 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
                 {note.excerpt}
               </p>)}
 
-            {note.tags.length > 0 && density === 'comfortable' && (<div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[10.5px] text-[var(--text-tertiary)]">
-                {note.tags.map((tag) => (<span key={tag} className="max-w-[70%] shrink-0 truncate" style={{ color: tagColors.get(tag) ?? undefined }}>
-                    #{tag}
+            {note.tags.length > 0 && density === 'comfortable' && (<div className="group/tags mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[10.5px] text-[var(--text-tertiary)]">
+                {note.tags.map((tag) => (<span key={tag} className="flex max-w-[70%] shrink-0 items-center gap-px truncate">
+                    <button type="button" onClick={(event) => {
+                            event.stopPropagation();
+                            openView('tag', { tag });
+                        }} className="truncate hover:underline" style={{ color: tagColors.get(tag) ?? undefined }}>
+                      #{tag}
+                    </button>
+                    <button type="button" aria-label={t("notes.remove_tag_value0", { value0: tag })} onClick={(event) => {
+                            event.stopPropagation();
+                            void removeTagFromNote(note.id, tag);
+                        }} className="shrink-0 text-[var(--text-quaternary)] opacity-0 transition-opacity hover:text-[var(--danger)] focus-visible:opacity-100 group-hover/tags:opacity-100">
+                      <X size={9}/>
+                    </button>
                   </span>))}
               </div>)}
           </div>
@@ -733,6 +747,7 @@ function ListEmpty({ view, filtering }: {
         archived: { art: 'archive', title: t("notes.archive_is_empty"), desc: t("notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted") },
         trash: { art: 'trash', title: t("notes.trash_is_empty"), desc: t("notes.deleted_notes_remain_until_you_restore_or_clear_them") },
         folder: { art: 'folder', title: t("notes.this_folder_is_still_empty"), desc: t("notes.drag_notes_in_or_create_new_ones_here") },
+        untagged: { art: 'tag', title: t("notes.every_note_has_a_tag"), desc: t("notes.write_tags_in_the_note_to_link_them_automatically") },
         tag: { art: 'tag', title: t("notes.there_are_no_notes_with_this_tag"), desc: t("notes.write_tags_in_the_note_to_link_them_automatically") },
     };
     const item = config[view] ?? config.all!;

@@ -92,7 +92,7 @@ beforeEach(async () => {
     query: { text: '', tags: [], folder: null, starred: null, archived: null },
   })
   useNotes.setState({ notes, folders: [], tags: [], contents: {}, hydrated: true, loading: false })
-  useUi.setState({ activeNoteId: null, selectedIds: [], recentNoteIds: [], view: 'all', folderId: null, tag: null })
+  useUi.setState({ activeNoteId: null, selectedIds: [], recentNoteIds: [], view: 'all', folderId: null, tags: [] })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)

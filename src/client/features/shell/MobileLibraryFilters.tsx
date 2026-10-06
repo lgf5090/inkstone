@@ -7,7 +7,8 @@ import { useDialogFocus, useEscape, useLockScroll } from '../../components/overl
 import { IconButton } from '../../components/primitives';
 import { useUi } from '../../store/ui';
 import { useNavigationCounts, useNotes } from '../../store/notes';
-import { FolderSection, TagSection } from '../sidebar/Sidebar';
+import { FolderSection } from '../sidebar/Sidebar';
+import { SidebarTags } from '../tags/SidebarTags';
 
 export function MobileLibraryFilters() {
     const [open, setOpen] = useState<'menu' | 'tag' | 'folder' | null>(null);
@@ -15,7 +16,7 @@ export function MobileLibraryFilters() {
     const dragStart = useRef<number | null>(null);
     const id = useId();
     const view = useUi((s) => s.view);
-    const tag = useUi((s) => s.tag);
+    const tags = useUi((s) => s.tags);
     const folderId = useUi((s) => s.folderId);
     const folders = useNotes((s) => s.folders);
     const counts = useNavigationCounts();
@@ -36,7 +37,7 @@ export function MobileLibraryFilters() {
     ];
     const controls = [
         { id: 'menu' as const, icon: FileText, label: items.find((item) => item.view === view)?.label ?? t('navigation.note_views'), active: view !== 'tag' && view !== 'folder' },
-        { id: 'tag' as const, icon: Hash, label: view === 'tag' ? tag : t('navigation.tag'), active: view === 'tag' },
+        { id: 'tag' as const, icon: Hash, label: view === 'tag' ? tags.join(' + ') : t('navigation.tag'), active: view === 'tag' },
         { id: 'folder' as const, icon: FolderClosed, label: view === 'folder' ? folders.find((folder) => folder.id === folderId)?.name : t('navigation.folder'), active: view === 'folder' },
     ];
     return <div className="mobile-library-filters relative mt-2">
@@ -66,7 +67,7 @@ export function MobileLibraryFilters() {
         }}>
             {open === 'menu' ? items.map(({ view: key, label, icon: Icon, count }) => <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => { openView(key); close(); }} className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] active:bg-[var(--bg-active)]', key === 'archived' && 'mt-3 border-t border-[var(--border-subtle)]', view === key && 'bg-[var(--accent-soft)] text-[var(--accent)]')}>
                 <Icon size={16} aria-hidden="true"/><span className="flex-1">{label}</span><span className="text-[var(--text-tertiary)]">{count}</span>
-            </button>) : open === 'folder' ? <FolderSection mobile/> : <TagSection mobile/>}
+            </button>) : open === 'folder' ? <FolderSection mobile/> : <SidebarTags mobile/>}
             </div>
           </div>
         </div>, document.body)}

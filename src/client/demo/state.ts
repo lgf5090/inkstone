@@ -37,6 +37,7 @@ export interface DemoState {
   folders: Map<string, Folder>
   tagIds: Map<string, string>
   tagColors: Map<string, string | null>
+  tagPins: Map<string, boolean>
   versions: Map<string, NoteVersion[]>
   attachments: Map<string, DemoAttachment>
   shares: Map<string, DemoShare>
@@ -94,6 +95,7 @@ export function createDemoState(): DemoState {
     folders: new Map(folders.map((item) => [item.id, item])),
     tagIds,
     tagColors,
+    tagPins: new Map(),
     versions: new Map(),
     attachments: new Map(),
     shares: new Map([[welcomeShare.noteId, { info: welcomeShare, password: null }]]),
@@ -148,6 +150,7 @@ export function listTags(state: DemoState): Tag[] {
       id,
       name,
       color: state.tagColors.get(name) ?? null,
+      isPinned: state.tagPins.get(name) === true,
       count: counts.get(name) ?? 0,
       createdAt: Date.now() - 86_400_000,
     }

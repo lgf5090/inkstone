@@ -22,6 +22,8 @@ export const LIMITS = {
   contentMaxBytes: 1_900_000,
   folderNameMaxLength: 120,
   tagNameMaxLength: 60,
+  /** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */
+  tagFilterMax: 12,
   organizerIconMaxLength: 8,
   tagsMaxPerUser: 5_000,
   foldersMaxPerUser: 2_000,
@@ -71,7 +73,7 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
   full: '100%',
 }
 
-export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'archived', 'trash', 'folder', 'tag']
+export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
 
 export const DEFAULT_SETTINGS: UserSettings = {
   appearance: {

@@ -96,3 +96,43 @@ it('saves conflicting local edits as a copy without retrying over the server not
   expect(useNotes.getState().notes[note.id].rev).toBe(3)
   expect(mocks.queue).toHaveLength(0)
 })
+
+it('recomputes the sidebar tag count the moment the tag leaves the note body', () => {
+  useNotes.setState({
+    notes: { [note.id]: { ...note, tags: ['demo'] } },
+    contents: { [note.id]: 'alpha #demo omega' },
+    tags: [{ id: 't-demo', name: 'demo', color: null, count: 3, createdAt: 1 }],
+  })
+  useNotes.getState().editContent(note.id, 'alpha omega')
+  vi.advanceTimersByTime(200)
+  expect(useNotes.getState().notes[note.id].tags).toEqual([])
+  expect(useNotes.getState().tags[0].count).toBe(2)
+})
+
+it('moves counts across a case difference instead of splitting one tag in two', () => {
+  useNotes.setState({
+    notes: { [note.id]: { ...note, tags: ['Inkstone'] } },
+    contents: { [note.id]: 'body #Inkstone' },
+    tags: [
+      { id: 't-inkstone', name: 'Inkstone', color: null, count: 1, createdAt: 1 },
+      { id: 't-demo', name: 'Demo', color: null, count: 1, createdAt: 1 },
+    ],
+  })
+  useNotes.getState().editContent(note.id, 'body #DEMO')
+  vi.advanceTimersByTime(200)
+  const tags = useNotes.getState().tags
+  expect(tags.find((item) => item.id === 't-inkstone')!.count).toBe(0)
+  expect(tags.find((item) => item.id === 't-demo')!.count).toBe(2)
+})
+
+it('leaves the counts untouched while editing a note that the archive excludes', () => {
+  useNotes.setState({
+    notes: { [note.id]: { ...note, isArchived: true, tags: ['demo'] } },
+    contents: { [note.id]: 'body #demo' },
+    tags: [{ id: 't-demo', name: 'demo', color: null, count: 5, createdAt: 1 }],
+  })
+  useNotes.getState().editContent(note.id, 'body')
+  vi.advanceTimersByTime(200)
+  expect(useNotes.getState().notes[note.id].tags).toEqual([])
+  expect(useNotes.getState().tags[0].count).toBe(5)
+})

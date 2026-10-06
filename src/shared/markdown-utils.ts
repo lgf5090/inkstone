@@ -414,6 +414,41 @@ export function sortTagNames(tags: Iterable<string>): string[] {
 }
 
 
+/**
+ * The deduplication key `extractTags` uses: case- and width-insensitive. Listings call this once
+ * per tag per keystroke, so the same handful of names are folded over and over; the bounded cache
+ * follows the one in lib/fuzzy.ts.
+ */
+const TAG_KEY_CACHE_LIMIT = 20_000
+const tagKeyCache = new Map<string, string>()
+
+export function tagKey(name: string): string {
+  const hit = tagKeyCache.get(name)
+  if (hit !== undefined) return hit
+  const key = name.normalize('NFKC').toLocaleLowerCase()
+  if (tagKeyCache.size < TAG_KEY_CACHE_LIMIT) tagKeyCache.set(name, key)
+  return key
+}
+
+function keyInScope(tag: string, want: string): boolean {
+  return tag === want
+    || (tag.length > want.length && tag[want.length] === '/' && tag.startsWith(want))
+}
+
+/**
+ * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.
+ * The notes list route spells the same rule in SQL, but `COLLATE NOCASE` only folds ASCII, so a
+ * non-ASCII case variant can match here and not there. The offline shell is the stricter side.
+ */
+export function tagInScope(tagName: string, scope: string): boolean {
+  return keyInScope(tagKey(tagName), tagKey(scope))
+}
+
+export function notesCarryEveryTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
+  const wants = scopes.map(tagKey)
+  return wants.every((want) => tagLists.some((name) => keyInScope(tagKey(name), want)))
+}
+
 export function extractTags(content: string): string[] {
   const frontMatter = parseFrontMatter(content)
   const out = new Map<string, string>()
@@ -652,8 +687,72 @@ function replaceTagInFrontMatter(
   if (next === null) document.delete(key)
   else document.set(key, next)
   const closing = header.at(-1) ?? '---'
-  const serialized = document.toString().replace(/\n$/, '')
+  const serialized = stringifyFrontMatter(document)
   return [header[0] ?? '---', ...(serialized ? serialized.split('\n') : []), closing]
+}
+
+/**
+ * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own
+ * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.
+ */
+function stringifyFrontMatter(document: FrontMatterDocument): string {
+  return document.toString({ flowCollectionPadding: false }).replace(/\n$/, '')
+}
+
+export type FrontMatterValue = string | number | boolean | string[]
+
+type FrontMatterDocument = ReturnType<typeof parseDocument>
+
+export function setFrontMatterValue(
+  content: string,
+  key: string,
+  value: FrontMatterValue,
+): string {
+  return rewriteFrontMatter(content, (document) => {
+    document.set(key, value)
+    return true
+  })
+}
+
+export function deleteFrontMatterValue(content: string, key: string): string {
+  return rewriteFrontMatter(content, (document) => {
+    if (!document.has(key)) return false
+    document.delete(key)
+    return true
+  })
+}
+
+export function renameFrontMatterValue(content: string, from: string, to: string): string {
+  if (!from || from === to) return content
+  return rewriteFrontMatter(content, (document) => {
+    if (!document.has(from) || document.has(to)) return false
+    document.set(to, document.get(from))
+    document.delete(from)
+    return true
+  })
+}
+
+function rewriteFrontMatter(
+  content: string,
+  mutate: (document: FrontMatterDocument) => boolean,
+): string {
+  const parsed = parseFrontMatter(content)
+  if (parsed.errors.length) return content
+  const document = parseDocument(parsed.raw, { prettyErrors: false, uniqueKeys: true })
+  if (document.errors.length) return content
+  if (!mutate(document)) return content
+  const lines = content.split('\n')
+  const body = lines.slice(parsed.lineOffset)
+  const remaining = document.toJS({ maxAliasCount: 20 }) as unknown
+  if (remaining === null || remaining === undefined
+    || (isPlainRecord(remaining) && !Object.keys(remaining).length)) {
+    return body.join('\n')
+  }
+  const serialized = stringifyFrontMatter(document)
+  if (!serialized.trim()) return body.join('\n')
+  const opening = parsed.lineOffset ? lines[0] ?? '---' : '---'
+  const closing = parsed.lineOffset ? lines[parsed.lineOffset - 1] ?? '---' : '---'
+  return [opening, ...serialized.split('\n'), closing, ...body].join('\n')
 }
 
 function replaceWikiLinkTargetLine(content: string, from: string, to: string): string {

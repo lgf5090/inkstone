@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { replaceTagInContent, sortTagNames } from '@shared/markdown-utils'
+import { replaceTagInContent, sortTagNames, tagKey } from '@shared/markdown-utils'
 import type { NoteSummary, Tag } from '@shared/types'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -81,8 +81,8 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
     tags: optimisticRenameTags(state.tags, tag.id, destination),
     notes: rewriteNoteSummaryTags(state.notes, tag.name, destination),
   }))
-  if (beforeUi.view === 'tag' && beforeUi.tag === tag.name) {
-    beforeUi.openView('tag', { tag: destination })
+  if (beforeUi.view === 'tag' && beforeUi.tags.includes(tag.name)) {
+    beforeUi.openView('tag', { tags: beforeUi.tags.map((name) => name === tag.name ? destination : name) })
   }
   let result: Awaited<ReturnType<typeof api.tags.patch>>
   try {
@@ -90,8 +90,8 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   } catch (error) {
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
     const ui = useUi.getState()
-    if (ui.view === 'tag' && ui.tag === destination) {
-      ui.openView(beforeUi.view, { folderId: beforeUi.folderId, tag: beforeUi.tag })
+    if (ui.view === 'tag' && ui.tags.includes(destination)) {
+      ui.openView(beforeUi.view, { folderId: beforeUi.folderId, tags: beforeUi.tags })
     }
     ui.toast({
       title: t('tags.rename_failed'),
@@ -134,14 +134,18 @@ export async function deleteTag(tag: Tag): Promise<void> {
     tags: state.tags.filter((candidate) => candidate.id !== tag.id),
     notes: rewriteNoteSummaryTags(state.notes, tag.name, null),
   }))
-  if (beforeUi.view === 'tag' && beforeUi.tag === tag.name) beforeUi.openView('all')
+  if (beforeUi.view === 'tag' && beforeUi.tags.includes(tag.name)) {
+    const rest = beforeUi.tags.filter((name) => name !== tag.name)
+    if (rest.length) beforeUi.openView('tag', { tags: rest })
+    else beforeUi.openView('all')
+  }
   let result: Awaited<ReturnType<typeof api.tags.remove>>
   try {
     result = await api.tags.remove(tag.id)
   } catch (error) {
     setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
     const ui = useUi.getState()
-    if (beforeUi.view === 'tag' && ui.view === 'all') ui.openView('tag', { tag: tag.name })
+    if (beforeUi.view === 'tag' && ui.view === 'all') ui.openView('tag', { tags: beforeUi.tags })
     ui.toast({
       title: t('tags.delete_failed'),
       description: error instanceof Error ? error.message : String(error),
@@ -167,6 +171,84 @@ export async function deleteTag(tag: Tag): Promise<void> {
     ),
     tone: refreshed ? 'success' : 'warning',
   })
+}
+
+export async function removeTagFromNote(noteId: string, name: string): Promise<void> {
+  await useNotes.getState().openNote(noteId, { activate: false })
+  const state = useNotes.getState()
+  const content = state.contents[noteId]
+  if (content === undefined) return
+  const next = replaceTagInContent(content, name, null)
+  if (next !== content) state.editContent(noteId, next)
+}
+
+export function tagMoveTarget(tag: Tag | null | undefined, parent: string | null): string | null {
+  if (!tag) return null
+  const leaf = tag.name.split('/').filter(Boolean).at(-1) ?? tag.name
+  const destination = parent ? `${parent}/${leaf}` : leaf
+  if (destination === tag.name) return null
+  const lower = tagKey(destination)
+  const source = tagKey(tag.name)
+  if (lower === source || lower.startsWith(`${source}/`)) return null
+  return destination
+}
+
+export async function moveTag(tag: Tag, parent: string | null): Promise<void> {
+  const destination = tagMoveTarget(tag, parent)
+  if (!destination) return
+  const prefix = `${tag.name}/`
+  const before = useNotes.getState()
+  const beforeUi = useUi.getState()
+  const remap = (name: string): string => name === tag.name
+    ? destination
+    : name.startsWith(prefix) ? destination + name.slice(prefix.length - 1) : name
+  setOptimisticTagCache((state) => ({
+    tags: state.tags.map((candidate) => ({ ...candidate, name: remap(candidate.name) })),
+    notes: rewriteNoteTags(state.notes, remap),
+  }))
+  if (beforeUi.view === 'tag' && beforeUi.tags.length) {
+    beforeUi.openView('tag', { tags: beforeUi.tags.map(remap) })
+  }
+  try {
+    await api.tags.move(tag.id, parent)
+  } catch (error) {
+    // A failed move may still have renamed part of the family server-side, so restoring the
+    // snapshot we took before our own optimistic edit would also undo any move that raced us.
+    // Re-read instead of winding back.
+    setOptimisticTagCache(() => ({ tags: before.tags, notes: before.notes }))
+    await useNotes.getState().pull().catch(() => {})
+    useUi.getState().toast({
+      title: t('tags.move_failed'),
+      description: error instanceof Error ? error.message : String(error),
+      tone: 'danger',
+    })
+    return
+  }
+  let refreshed = true
+  try {
+    await useNotes.getState().pull()
+    rewriteLoadedNoteContents(tag.name, destination)
+  } catch {
+    refreshed = false
+  }
+  useUi.getState().toast({
+    title: t('tags.moved_value0', { value0: destination }),
+    tone: refreshed ? 'success' : 'warning',
+  })
+}
+
+function rewriteNoteTags(
+  notes: Record<string, NoteSummary>,
+  remap: (name: string) => string,
+): Record<string, NoteSummary> {
+  const next = { ...notes }
+  for (const [id, note] of Object.entries(notes)) {
+    if (!note.tags.some((name) => remap(name) !== name)) continue
+    const unique = new Map(note.tags.map((name) => remap(name))
+      .map((name) => [name.normalize('NFKC').toLocaleLowerCase(), name]))
+    next[id] = { ...note, tags: sortTagNames(unique.values()) }
+  }
+  return next
 }
 
 export async function setTagColor(tag: Tag, color: string | null): Promise<void> {
@@ -217,6 +299,32 @@ export async function setTagColor(tag: Tag, color: string | null): Promise<void>
   if (sequence === write.sequence && tagColorWrites.get(tag.id) === write) {
     tagColorWrites.delete(tag.id)
   }
+}
+
+export async function setTagPinned(tag: Tag, pinned: boolean): Promise<void> {
+  const cached = useNotes.getState().tags.find((candidate) => candidate.id === tag.id)
+  const current = Boolean(cached ? cached.isPinned : tag.isPinned)
+  if (current === pinned) return
+
+  setOptimisticTagCache((state) => ({
+    tags: state.tags.map((candidate) => candidate.id === tag.id ? { ...candidate, isPinned: pinned } : candidate),
+  }))
+  try {
+    await api.tags.patch(tag.id, { isPinned: pinned })
+  } catch (error) {
+    setOptimisticTagCache((state) => ({
+      tags: state.tags.map((candidate) => candidate.id === tag.id && candidate.isPinned === pinned
+        ? { ...candidate, isPinned: current }
+        : candidate),
+    }))
+    useUi.getState().toast({
+      title: t('tags.pin_failed'),
+      description: error instanceof Error ? error.message : String(error),
+      tone: 'danger',
+    })
+    return
+  }
+  await useNotes.getState().refreshTags().catch(showRefreshWarning)
 }
 
 function showRefreshWarning(): void {

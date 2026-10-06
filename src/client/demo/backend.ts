@@ -9,6 +9,7 @@ import {
   extractAttachmentIds,
   extractWikiLinks,
   normalizeLinkKey,
+  notesCarryEveryTag,
   replaceTagInContent,
   wikiNoteTarget,
 } from '@shared/markdown-utils'
@@ -152,7 +153,11 @@ export function createDemoBackend(): DemoBackend {
       if (view === 'unfiled') notes = notes.filter((note) => note.folderId === null)
       if (view === 'archived') notes = notes.filter((note) => note.isArchived)
       if (view === 'folder') notes = notes.filter((note) => note.folderId === query.folderId)
-      if (view === 'tag') notes = notes.filter((note) => note.tags.includes(query.tag ?? ''))
+      if (view === 'tag') {
+        const scopes = c.req.queries('tag') ?? []
+        notes = notes.filter((note) => notesCarryEveryTag(note.tags, scopes))
+      }
+      if (view === 'untagged') notes = notes.filter((note) => note.tags.length === 0)
       if (view === 'all' || view === 'recent') notes = notes.filter((note) => !note.isArchived)
     }
     const sort = query.sort ?? 'updated'
@@ -490,6 +495,12 @@ export function createDemoBackend(): DemoBackend {
     if (typeof body.color === 'string' && !/^#[0-9a-f]{6}$/i.test(body.color)) {
       return apiError(400, 'bad_request', 'Tag color must be a six-digit hexadecimal color')
     }
+    if (body.isPinned !== undefined && typeof body.isPinned !== 'boolean') {
+      return apiError(400, 'bad_request', 'isPinned must be a boolean')
+    }
+    if (typeof body.name === 'string' && body.isPinned !== undefined) {
+      return apiError(400, 'bad_request', 'Rename and pinning have to be sent as separate requests')
+    }
     if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== current.name) {
       const requestedName = body.name.trim().replace(/^#/, '')
       const existing = listTags(state).find((tag) => tag.id !== current.id
@@ -508,13 +519,76 @@ export function createDemoBackend(): DemoBackend {
         ? body.color
         : state.tagColors.get(nextName) ?? state.tagColors.get(current.name) ?? null)
       state.tagColors.delete(current.name)
+      state.tagPins.set(nextName,
+        state.tagPins.get(current.name) === true || state.tagPins.get(nextName) === true)
+      if (nextName !== current.name) state.tagPins.delete(current.name)
       state.cursor++
       return c.json({ ok: true as const, renamed })
     }
     if (body.color === null || typeof body.color === 'string') state.tagColors.set(current.name, body.color)
+    if (typeof body.isPinned === 'boolean') state.tagPins.set(current.name, body.isPinned)
     state.cursor++
     return c.json(listTags(state).find((tag) => tag.id === current.id) ?? current)
   })
+  app.post('/api/tags/:id/move', async (c) => {
+    const current = listTags(state).find((tag) => tag.id === c.req.param('id'))
+    if (!current) return apiError(404, 'not_found', 'Tag not found')
+    const body = await jsonBody(c.req.raw)
+    if (body.parent === undefined) return apiError(400, 'bad_request', 'parent is required')
+    if (body.parent !== null && typeof body.parent !== 'string') {
+      return apiError(400, 'bad_request', 'parent must be a string or null')
+    }
+    const parent = body.parent === null ? '' : body.parent.trim().replace(/^#+/, '')
+    if (body.parent !== null && (!parent || /[\s#]/.test(parent))) {
+      return apiError(400, 'bad_request', 'parent is not a valid tag path')
+    }
+    const leaf = current.name.split('/').filter(Boolean).at(-1) ?? current.name
+    const destination = parent ? `${parent}/${leaf}` : leaf
+    if (destination === current.name) return c.json({ ok: true as const, moved: 0 })
+    const lower = destination.toLocaleLowerCase()
+    const source = current.name.toLocaleLowerCase()
+    if (lower === source || lower.startsWith(`${source}/`)) {
+      return apiError(400, 'bad_request', 'A tag cannot be moved inside itself')
+    }
+    const prefix = `${current.name}/`
+    const lowerPrefix = prefix.toLocaleLowerCase()
+    const family = listTags(state).filter((tag) =>
+      tag.name.toLocaleLowerCase() === source || tag.name.toLocaleLowerCase().startsWith(lowerPrefix))
+    const remap = (name: string): string => name.toLocaleLowerCase() === source
+      ? destination
+      : destination + name.slice(prefix.length - 1)
+    const outsiders = new Set(listTags(state)
+      .filter((tag) => !family.some((member) => member.id === tag.id))
+      .map((tag) => tag.name.toLocaleLowerCase()))
+    for (const member of family) {
+      if (outsiders.has(remap(member.name).toLocaleLowerCase())) {
+        return apiError(409, 'conflict', `A tag named "${remap(member.name)}" already exists`)
+      }
+    }
+    const ordered = [...family].sort((a, b) => b.name.length - a.name.length)
+    let moved = 0
+    for (const member of ordered) {
+      const to = remap(member.name)
+      if (to === member.name) continue
+      for (const item of state.notes.values()) {
+        const content = replaceTagInContent(item.content, member.name, to)
+        if (content === item.content) continue
+        state.notes.set(item.id, refreshNote({ ...item, rev: item.rev + 1, updatedAt: Date.now() }, content))
+      }
+      state.tagIds.delete(member.name)
+      state.tagIds.set(to, member.id)
+      const color = state.tagColors.get(member.name) ?? null
+      state.tagColors.delete(member.name)
+      state.tagColors.set(to, color)
+      const pinned = state.tagPins.get(member.name) === true
+      state.tagPins.delete(member.name)
+      if (pinned) state.tagPins.set(to, true)
+      moved++
+    }
+    state.cursor++
+    return c.json({ ok: true as const, moved })
+  })
+
   app.delete('/api/tags/:id', (c) => {
     const current = listTags(state).find((tag) => tag.id === c.req.param('id'))
     if (!current) return apiError(404, 'not_found', 'Tag not found')
@@ -527,6 +601,7 @@ export function createDemoBackend(): DemoBackend {
     }
     state.tagIds.delete(current.name)
     state.tagColors.delete(current.name)
+    state.tagPins.delete(current.name)
     state.cursor++
     return c.json({ ok: true as const, affected })
   })
@@ -677,7 +752,7 @@ export function createDemoBackend(): DemoBackend {
       full: changed,
       hasMore: false,
       nextKey: null,
-      facetsFull: true,
+      facetsFull: changed,
       settingsChanged: false,
       profileChanged: false,
       notes: changed ? [...state.notes.values()].map(summarize) : [],
