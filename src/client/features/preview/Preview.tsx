@@ -24,7 +24,6 @@ import {
   resetMermaidNode,
   toggleCodeBlockCollapse,
 } from '../../lib/markdown/enhance'
-import { enhanceChartBlockToolbars, handleChartBlockAction } from './chart-block-toolbar'
 import { updateTaskAtSourceLine } from '../../editor/commands'
 import { useUi } from '../../store/ui'
 import { useNotes, findNoteByTitle } from '../../store/notes'
@@ -182,10 +181,9 @@ export const Preview = memo(function Preview({
           ? preview.codeBlockCollapseLines
           : 0,
       })
-      enhanceBlockToolbars(staging)
-      // The head is built here rather than on the live host so it is part of the markup the preview
-      // diffs against; a toolbar added after the swap would be wiped by the next keystroke.
-      enhanceChartBlockToolbars(staging, { drawn: preview.chart })
+      // Every block head is built here rather than on the live host so it is part of the markup the
+      // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
+      enhanceBlockToolbars(staging, { chart: preview.chart })
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
@@ -274,21 +272,6 @@ export const Preview = memo(function Preview({
         if (snapshot && scroller && host) restorePreviewViewport(scroller, host, snapshot)
         startMermaidRender()
       }
-      return
-    }
-
-    const chartTool = target.closest<HTMLElement>('[data-chart-action]')
-    if (chartTool) {
-      event.preventDefault()
-      const committedSource = committedSourceRef.current
-      handleChartBlockAction(chartTool, {
-        content: committedSource,
-        // A write resolves the block's recorded line against the text the preview was built from, so it
-        // only runs while that text is still what the note holds.
-        canWrite: content === committedSource && Boolean(sourceNoteId),
-        onEdit: (next) => { if (sourceNoteId) editContent(sourceNoteId, next) },
-        toast,
-      })
       return
     }
 

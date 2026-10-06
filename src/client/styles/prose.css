@@ -1424,7 +1424,7 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.ink-prose .chart-tool-btn[aria-pressed='true'] {
+.ink-prose .chart-tool-btn[aria-expanded='true'] {
   color: var(--accent);
   background: var(--accent-soft);
 }

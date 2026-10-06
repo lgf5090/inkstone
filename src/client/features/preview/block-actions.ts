@@ -1,7 +1,8 @@
+import { chartToolbar } from './chart-block-toolbar'
 import { codeBlockToolbar } from './code-block-toolbar'
 import { exampleToolbar } from './example-layout'
 import { enhanceJsExampleControlsInRoot, handleJsExampleRun, handleJsExampleSwitch } from './js-runner'
-import type { BlockActionContext, BlockToolbarModule } from './block-overlay'
+import type { BlockActionContext, BlockToolbarModule, BlockToolbarOptions } from './block-overlay'
 
 /**
  * The preview's entry point for the block settings toolbars and the runnable JavaScript block: one
@@ -10,11 +11,11 @@ import type { BlockActionContext, BlockToolbarModule } from './block-overlay'
  * The runnable block's controls come from `enhanceJsExampleControlsInRoot`, which only this surface
  * calls — a share page draws the same block with no run button.
  */
-const MODULES: BlockToolbarModule[] = [exampleToolbar, codeBlockToolbar]
+const MODULES: BlockToolbarModule[] = [exampleToolbar, codeBlockToolbar, chartToolbar]
 
-export function enhanceBlockToolbars(root: HTMLElement): void {
+export function enhanceBlockToolbars(root: HTMLElement, options: BlockToolbarOptions): void {
   enhanceJsExampleControlsInRoot(root)
-  MODULES.forEach((module) => module.enhance(root))
+  MODULES.forEach((module) => module.enhance(root, options))
 }
 
 export function handleBlockToolbarClick(event: { preventDefault: () => void }, target: HTMLElement, ctx: BlockActionContext): boolean {
