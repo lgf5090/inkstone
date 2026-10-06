@@ -1,0 +1,61 @@
+import { useMemo } from 'react'
+import type { NoteTemplate } from '@shared/types'
+import { compareTemplates } from '../../store/note-templates'
+import type { GalleryFilter } from './gallery-persist'
+
+export function useGalleryDerived(
+  templates: NoteTemplate[],
+  filter: GalleryFilter,
+  query: string,
+  selectedIds: ReadonlySet<string>,
+) {
+  const counts = useMemo(() => {
+    const byCategory = new Map<string, number>()
+    const byTag = new Map<string, number>()
+    let uncategorized = 0
+    let starred = 0
+    for (const template of templates) {
+      if (template.categoryId === null) uncategorized++
+      else byCategory.set(template.categoryId, (byCategory.get(template.categoryId) ?? 0) + 1)
+      if (template.isStarred) starred++
+      for (const tag of template.tags)
+        byTag.set(tag, (byTag.get(tag) ?? 0) + 1)
+    }
+    return { byCategory, byTag, uncategorized, starred }
+  }, [templates])
+  const tagList = useMemo(() => [...counts.byTag.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+  [counts.byTag])
+  const visible = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase()
+    const matchesQuery = (template: NoteTemplate) => !normalized ||
+      template.name.toLocaleLowerCase().includes(normalized) ||
+      template.description.toLocaleLowerCase().includes(normalized) ||
+      template.content.toLocaleLowerCase().includes(normalized) ||
+      template.tags.some((tag) => tag.toLocaleLowerCase().includes(normalized))
+    const list = templates.filter((template) => {
+      if (filter.kind === 'favorites') return template.isStarred && matchesQuery(template)
+      if (filter.kind === 'uncategorized') return template.categoryId === null && matchesQuery(template)
+      if (filter.kind === 'community') return matchesQuery(template)
+      if (filter.kind === 'category') return template.categoryId === filter.id && matchesQuery(template)
+      if (filter.kind === 'tag') return template.tags.includes(filter.tag) && matchesQuery(template)
+      return matchesQuery(template)
+    })
+    return [...list].sort(compareTemplates)
+  }, [filter, query, templates])
+  const selectedTemplates = useMemo(() => templates.filter((item) => selectedIds.has(item.id)), [selectedIds, templates])
+  const visibleSelected = useMemo(() => visible.filter((item) => selectedIds.has(item.id)), [selectedIds, visible])
+  const allVisibleSelected = visible.length > 0 && visibleSelected.length === visible.length
+  const allSelectedStarred = selectedTemplates.length > 0 && selectedTemplates.every((item) => item.isStarred)
+  const hasDeletableSelection = selectedTemplates.some((item) => !item.builtin)
+  return {
+    counts,
+    tagList,
+    visible,
+    selectedTemplates,
+    visibleSelected,
+    allVisibleSelected,
+    allSelectedStarred,
+    hasDeletableSelection,
+  }
+}

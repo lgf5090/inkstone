@@ -1,0 +1,129 @@
+import { type KeyboardEvent, type RefObject } from 'react'
+import type { NoteTemplate } from '@shared/types'
+
+interface GalleryKeyboardDeps {
+  editing: unknown
+  renaming: unknown
+  moving: unknown
+  categoryDialog: unknown
+  isImportOpen: boolean
+  isBatchMoving: boolean
+  publishing: unknown
+  isHelpOpen: boolean
+  isMoreOpen: boolean
+  setIsHelpOpen: (value: boolean) => void
+  toggleSelectMode: () => void
+  searchRef: RefObject<HTMLInputElement | null>
+  selectMode: boolean
+  setSelectMode: (value: boolean) => void
+  visible: NoteTemplate[]
+  setSelectedIds: (value: ReadonlySet<string>) => void
+  toggleSelectAll: () => void
+  focusedId: string | null
+  gridRef: RefObject<HTMLDivElement | null>
+  toggleSelect: (id: string) => void
+  setFocusedId: (id: string | null) => void
+}
+
+function activeTemplateId(deps: Pick<GalleryKeyboardDeps, 'focusedId'>): string | null | undefined {
+  return deps.focusedId ?? (document.activeElement instanceof HTMLElement
+    ? document.activeElement.closest('[data-template-id]')?.getAttribute('data-template-id')
+    : null)
+}
+
+/** True while a dialog, a menu, or a text field owns the keyboard. */
+function galleryKeyGuard(deps: GalleryKeyboardDeps, event: KeyboardEvent): boolean {
+  if (deps.editing || deps.renaming || deps.moving || deps.categoryDialog || deps.isImportOpen ||
+    deps.isBatchMoving || deps.publishing || deps.isHelpOpen || deps.isMoreOpen)
+    return true
+  const target = event.target as HTMLElement
+  return target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable
+}
+
+/** Non-arrow shortcut keys; returns true once the event was consumed. */
+function handleGalleryModifiers(deps: GalleryKeyboardDeps, event: KeyboardEvent): boolean {
+  if (event.key === '?') {
+    event.preventDefault()
+    deps.setIsHelpOpen(true)
+    return true
+  }
+  if (event.key === '/') {
+    event.preventDefault()
+    deps.searchRef.current?.focus()
+    return true
+  }
+  if (event.key === 's' || event.key === 'S') {
+    event.preventDefault()
+    deps.toggleSelectMode()
+    return true
+  }
+  if (event.key === 'a' || event.key === 'A') {
+    event.preventDefault()
+    if (!deps.selectMode) {
+      deps.setSelectMode(true)
+      deps.setSelectedIds(new Set(deps.visible.map((item) => item.id)))
+    }
+    else {
+      deps.toggleSelectAll()
+    }
+    return true
+  }
+  if (event.key === ' ' && deps.selectMode) {
+    const activeId = activeTemplateId(deps)
+    if (activeId) {
+      event.preventDefault()
+      deps.toggleSelect(activeId)
+    }
+    return true
+  }
+  return false
+}
+
+function nextGalleryIndex(key: string, currentIndex: number, columns: number, count: number): number {
+  if (key === 'ArrowRight') return currentIndex < 0 ? 0 : Math.min(count - 1, currentIndex + 1)
+  if (key === 'ArrowDown') return currentIndex < 0 ? 0 : Math.min(count - 1, currentIndex + columns)
+  if (key === 'ArrowLeft') return currentIndex < 0 ? count - 1 : Math.max(0, currentIndex - 1)
+  if (key === 'ArrowUp') return currentIndex < 0 ? count - 1 : Math.max(0, currentIndex - columns)
+  return -1
+}
+
+/**
+ * Moves the focus ring across the grid. The column count is read from the laid-out
+ * grid rather than assumed, because the same panel is one column on a phone and
+ * three on a wide desktop.
+ */
+function handleGalleryArrows(deps: GalleryKeyboardDeps, event: KeyboardEvent): boolean {
+  if (deps.visible.length === 0) return false
+  const columns = deps.gridRef.current
+    ? getComputedStyle(deps.gridRef.current).gridTemplateColumns.split(' ').filter(Boolean).length
+    : 1
+  const activeId = activeTemplateId(deps)
+  const currentIndex = activeId ? deps.visible.findIndex((item) => item.id === activeId) : -1
+  const nextIndex = nextGalleryIndex(event.key, currentIndex, columns, deps.visible.length)
+  if (nextIndex < 0) return false
+  event.preventDefault()
+  const next = deps.visible[nextIndex]
+  if (!next) return false
+  deps.setFocusedId(next.id)
+  requestAnimationFrame(() => {
+    deps.gridRef.current?.querySelector(`[data-template-id="${cssEscape(next.id)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  })
+  return true
+}
+
+/** Template ids are opaque and can start with a digit, which is not a bare CSS attribute value. */
+function cssEscape(value: string): string {
+  return typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(value) : value.replace(/"/g, '\\"')
+}
+
+export function useGalleryKeyboard(deps: GalleryKeyboardDeps): (event: KeyboardEvent) => void {
+  return (event) => {
+    if (galleryKeyGuard(deps, event)) return
+    if (handleGalleryModifiers(deps, event)) return
+    handleGalleryArrows(deps, event)
+  }
+}

@@ -1,0 +1,232 @@
+import { useCallback } from 'react'
+import type { CommunityTemplate, NoteTemplate, NoteTemplateCategory } from '@shared/types'
+import { createNoteFromTemplate } from '../../lib/template-notes'
+import { templateOrderValue, useNoteTemplates } from '../../store/note-templates'
+import { useUi } from '../../store/ui'
+import { confirm } from '../../components/overlay'
+import { api } from '../../lib/api'
+import { t } from '../../lib/i18n'
+import type { GalleryLocalState } from './gallery-state'
+
+export function useGalleryFilterActions(state: GalleryLocalState, categories: NoteTemplateCategory[]) {
+  const { setFilter } = state
+  const toggleTagFilter = useCallback((tag: string) => {
+    setFilter((current) => current.kind === 'tag' && current.tag === tag
+      ? { kind: 'all' }
+      : { kind: 'tag', tag })
+  }, [setFilter])
+  const deleteCategory = useCallback(async (category: NoteTemplateCategory) => {
+    const ok = await confirm({
+      title: t('templates.delete_category'),
+      description: t('templates.delete_category_confirm', { value0: category.name }),
+      confirmLabel: t('templates.delete_category'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    useNoteTemplates.getState().deleteCategory(category.id)
+    setFilter((current) => current.kind === 'category' && current.id === category.id
+      ? { kind: 'all' }
+      : current)
+  }, [setFilter])
+  const categoryName = useCallback((id: string | null) => {
+    if (id === null) return t('templates.uncategorized')
+    return categories.find((item) => item.id === id)?.name ?? t('templates.uncategorized')
+  }, [categories])
+  return { toggleTagFilter, deleteCategory, categoryName }
+}
+
+export function useGalleryTemplateActions(state: GalleryLocalState, categories: NoteTemplateCategory[]) {
+  const { onClose } = state
+  const useTemplate = useCallback((template: NoteTemplate) => {
+    void (async () => {
+      if (await createNoteFromTemplate(template))
+        onClose()
+    })()
+  }, [onClose])
+  const deleteTemplate = useCallback(async (template: NoteTemplate) => {
+    const ok = await confirm({
+      title: t('templates.delete_template'),
+      description: t('templates.delete_template_confirm'),
+      confirmLabel: t('templates.delete_template'),
+      tone: 'danger',
+    })
+    if (ok)
+      useNoteTemplates.getState().deleteTemplate(template.id)
+  }, [])
+  const importCommunityTemplate = useCallback((item: CommunityTemplate) => {
+    const match = categories.find((category) => category.name.toLocaleLowerCase() === item.category.toLocaleLowerCase())
+    const id = useNoteTemplates.getState().createTemplate({
+      name: item.name,
+      description: item.description,
+      content: item.content,
+      categoryId: match?.id ?? null,
+      tags: item.tags,
+    })
+    useUi.getState().toast({
+      title: id ? t('templates.community_imported') : t('common.action_failed'),
+      tone: id ? 'success' : 'danger',
+    })
+  }, [categories])
+  const useCommunityTemplate = useCallback((item: CommunityTemplate) => {
+    void (async () => {
+      const now = Date.now()
+      const created = await createNoteFromTemplate({
+        id: item.id,
+        categoryId: null,
+        name: item.name,
+        description: item.description,
+        content: item.content,
+        tags: item.tags,
+        builtin: false,
+        isPinned: false,
+        isStarred: false,
+        createdAt: item.createdAt || now,
+        updatedAt: item.createdAt || now,
+      })
+      if (created)
+        onClose()
+    })()
+  }, [onClose])
+  return { useTemplate, deleteTemplate, importCommunityTemplate, useCommunityTemplate }
+}
+
+export function useGalleryCommunityActions(setCommunity: (updater: (current: CommunityTemplate[]) => CommunityTemplate[]) => void) {
+  const unpublishCommunityTemplate = useCallback(async (item: CommunityTemplate) => {
+    const ok = await confirm({
+      title: t('templates.community_unpublish'),
+      description: t('templates.community_unpublish_confirm'),
+      confirmLabel: t('templates.community_unpublish'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      await api.communityTemplates.remove(item.id)
+      setCommunity((current) => current.filter((entry) => entry.id !== item.id))
+      useUi.getState().toast({ title: t('templates.community_unpublished'), tone: 'success' })
+    }
+    catch {
+      useUi.getState().toast({ title: t('common.action_failed'), tone: 'danger' })
+    }
+  }, [setCommunity])
+  return { unpublishCommunityTemplate }
+}
+
+export function useGallerySelectActions(state: GalleryLocalState, visible: NoteTemplate[]) {
+  const { setSelectedIds, setSelectMode, setFocusedId } = state
+  const exitSelectMode = useCallback(() => {
+    setSelectedIds(new Set())
+    setSelectMode(false)
+    setFocusedId(null)
+  }, [setSelectedIds, setSelectMode, setFocusedId])
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode((current) => !current)
+    setSelectedIds(new Set())
+    setFocusedId(null)
+  }, [setSelectedIds, setSelectMode, setFocusedId])
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [setSelectedIds])
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((current) => {
+      if (visible.length > 0 && visible.every((item) => current.has(item.id)))
+        return new Set()
+      return new Set(visible.map((item) => item.id))
+    })
+  }, [visible])
+  return { exitSelectMode, toggleSelectMode, toggleSelect, toggleSelectAll }
+}
+
+/**
+ * Batch actions apply one store write per template. Each write re-serializes the
+ * whole library, so the count reported back is the number that actually changed
+ * rather than the size of the selection.
+ */
+export function useGalleryBatchActions(
+  state: GalleryLocalState,
+  selectedTemplates: NoteTemplate[],
+  allSelectedStarred: boolean,
+) {
+  const { setSelectedIds, setIsBatchMoving } = state
+  const batchToggleStar = useCallback(() => {
+    const store = useNoteTemplates.getState()
+    const star = !allSelectedStarred
+    let changed = 0
+    for (const template of selectedTemplates) {
+      if (template.isStarred !== star) {
+        store.toggleTemplateStar(template.id)
+        changed++
+      }
+    }
+    useUi.getState().toast({
+      title: t(star ? 'templates.batch_starred_value0' : 'templates.batch_unstarred_value0', { value0: changed }),
+      tone: 'success',
+    })
+  }, [allSelectedStarred, selectedTemplates])
+  const batchMove = useCallback((categoryId: string | null) => {
+    const store = useNoteTemplates.getState()
+    let moved = 0
+    for (const template of selectedTemplates) {
+      if (template.categoryId !== categoryId && store.updateTemplate(template.id, { categoryId }))
+        moved++
+    }
+    setSelectedIds(new Set())
+    setIsBatchMoving(false)
+    useUi.getState().toast({ title: t('templates.batch_moved_value0', { value0: moved }), tone: 'success' })
+  }, [selectedTemplates, setSelectedIds, setIsBatchMoving])
+  const batchDelete = useCallback(async () => {
+    const deletable = selectedTemplates.filter((item) => !item.builtin)
+    const ok = await confirm({
+      title: t('templates.delete_template'),
+      description: t('templates.batch_delete_confirm_value0', { value0: deletable.length }),
+      confirmLabel: t('templates.delete_template'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    const store = useNoteTemplates.getState()
+    let deleted = 0
+    for (const template of deletable) {
+      if (store.deleteTemplate(template.id))
+        deleted++
+    }
+    setSelectedIds(new Set())
+    useUi.getState().toast({ title: t('templates.batch_deleted_value0', { value0: deleted }), tone: 'success' })
+  }, [selectedTemplates, setSelectedIds])
+  return { batchToggleStar, batchMove, batchDelete }
+}
+
+export function useGalleryDragActions(state: GalleryLocalState, templates: NoteTemplate[]) {
+  const { draggingId, setDraggingId, setDropHint, setDropCategory } = state
+  const handleCardDrop = useCallback((target: NoteTemplate, after: boolean) => {
+    const source = templates.find((item) => item.id === draggingId)
+    if (!source || source.id === target.id) {
+      setDraggingId(null)
+      setDropHint(null)
+      return
+    }
+    const siblings = templates
+      .filter((item) => item.categoryId === target.categoryId && item.id !== source.id)
+      .sort((a, b) => templateOrderValue(a) - templateOrderValue(b))
+    let index = siblings.findIndex((item) => item.id === target.id)
+    if (index < 0) index = siblings.length
+    if (after) index += 1
+    useNoteTemplates.getState().placeTemplate(source.id, target.categoryId, index)
+    setDraggingId(null)
+    setDropHint(null)
+  }, [draggingId, templates, setDraggingId, setDropHint])
+  const handleCategoryDrop = useCallback((categoryId: string | null) => {
+    const source = templates.find((item) => item.id === draggingId)
+    if (source) {
+      const index = templates.filter((item) => item.categoryId === categoryId && item.id !== source.id).length
+      useNoteTemplates.getState().placeTemplate(source.id, categoryId, index)
+    }
+    setDraggingId(null)
+    setDropHint(null)
+    setDropCategory(null)
+  }, [draggingId, templates, setDraggingId, setDropHint, setDropCategory])
+  return { handleCardDrop, handleCategoryDrop }
+}

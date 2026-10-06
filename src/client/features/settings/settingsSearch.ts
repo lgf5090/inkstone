@@ -56,6 +56,12 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.indent_width', termKeys: ['settings.lines'] },
   { section: 'editor', titleKey: 'settings.writing_mode', termKeys: ['settings.typewriter_mode', 'settings.focus_mode'] },
 
+  { section: 'notes', titleKey: 'settings.new_note_template', detailKey: 'settings.new_note_template_description', termKeys: ['settings.restore_default_template', 'settings.new_note_template_characters', 'settings.new_notes'] },
+  { section: 'notes', titleKey: 'settings.new_note_template_preview', termKeys: ['settings.template_preview_title', 'settings.template_preview_folder', 'settings.template_preview_tag', 'settings.template_preview_context'] },
+  { section: 'notes', titleKey: 'settings.title_sync', termKeys: ['settings.sync_title_to_frontmatter', 'settings.sync_frontmatter_title'] },
+  { section: 'notes', titleKey: 'settings.sync_title_to_frontmatter', detailKey: 'settings.sync_title_to_frontmatter_desc' },
+  { section: 'notes', titleKey: 'settings.sync_frontmatter_title', detailKey: 'settings.sync_frontmatter_title_desc' },
+
   { section: 'backup', titleKey: 'settings.frequency', detailKey: 'settings.runs_from_cloudflare_cron_the_page_does_not_need_to_stay_open', termKeys: ['settings.manual', 'settings.hourly', 'settings.every_6_hours', 'settings.daily', 'settings.weekly', 'settings.monthly', 'settings.yearly'] },
   { section: 'backup', titleKey: 'settings.backup_retention', detailKey: 'settings.backup_retention_description', termKeys: ['settings.keep_all_backups', 'settings.keep_latest_backups'] },
   { section: 'backup', titleKey: 'settings.backup_target', termKeys: ['settings.add_backup_target', 'settings.webdav_backup', 'settings.s3_backup', 'settings.test_connection', 'settings.enabled'] },

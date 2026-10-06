@@ -4,7 +4,7 @@ import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { generateMindmapFromOutline, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertMermaid, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { generateMindmapFromOutline, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertMermaid, insertNoteTemplate, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 
@@ -61,6 +61,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
         { id: 'tag', label: t('workspace.insert_tag'), onSelect: run(insertTag) },
         { id: 'block-id', label: t('workspace.block_id'), onSelect: run(insertBlockId) },
         { id: 'front-matter', label: t('workspace.front_matter'), onSelect: run(insertFrontMatter), separatorBefore: true },
+        { id: 'note-template', label: t('editor.insert_note_template'), onSelect: run(insertNoteTemplate) },
         { id: 'comment', label: t('workspace.hidden_comment'), combo: editorCombo('comment'), onSelect: run(toggleComment), separatorBefore: true },
     ];
     const codeItems: MenuItem[] = [
