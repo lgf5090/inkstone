@@ -1416,9 +1416,16 @@ export async function flushLocalDbWrites(): Promise<void> {
     await localDb.setContentBatch(currentContent);
 }
 
+function flushQueuedWritesOnExit(): void {
+    // `beforeunload` and `pagehide` are browser-forced APIs, allowed as an exception to the no-native-
+    // dialog rule: this listener only persists queued writes. It never calls preventDefault or sets
+    // `returnValue`, so the browser shows no leave-page prompt (tests/no-native-dialogs.test.ts).
+    void flushLocalDbWrites();
+}
+
 if (typeof window !== 'undefined') {
-    window.addEventListener('pagehide', () => void flushLocalDbWrites());
-    window.addEventListener('beforeunload', () => void flushLocalDbWrites());
+    window.addEventListener('pagehide', flushQueuedWritesOnExit);
+    window.addEventListener('beforeunload', flushQueuedWritesOnExit);
     // Alt-Tab storms used to rewrite the whole shell + outbox on every focus change. The
     // debounced timer still covers the tab while it is open, and pagehide stays immediate.
     let lastBlurFlushAt = 0;

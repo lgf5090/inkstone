@@ -224,7 +224,14 @@ export const useSession = create<SessionState>((set, get) => ({
       await flushSettingsPatch(set, get)
       const unsaved = pending + (pendingSettingsPatch ? 1 : 0)
       if (unsaved > 0) {
-        const proceed = window.confirm(t('session.logout_pending_changes', { count: String(unsaved) }))
+        // Loaded lazily so this store keeps depending on no component module.
+        const { confirm } = await import('../components/overlay')
+        const proceed = await confirm({
+          title: t('common.log_out'),
+          description: t('session.logout_pending_changes', { count: String(unsaved) }),
+          confirmLabel: t('common.log_out'),
+          tone: 'danger',
+        })
         if (!proceed) return
       }
 

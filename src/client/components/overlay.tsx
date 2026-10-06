@@ -200,8 +200,10 @@ interface ConfirmRequest {
 let enqueueConfirm: ((request: ConfirmRequest) => void) | null = null;
 
 export function confirm(options: ConfirmOptions): Promise<boolean> {
+    // With no host mounted there is no dialog to show, so the only answer we may give is the
+    // cancelling one. Falling back to `window.confirm` would reintroduce a native prompt.
     if (!enqueueConfirm)
-        return Promise.resolve(window.confirm(options.title));
+        return Promise.resolve(false);
     return new Promise((resolve) => {
         enqueueConfirm?.({ options, resolve });
     });
