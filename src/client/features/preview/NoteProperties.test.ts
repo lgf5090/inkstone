@@ -11,6 +11,9 @@ interface Store {
   openView: typeof openView;
   contents: Record<string, string>;
   tags: Array<{ id: string; name: string; color: string | null; count: number; createdAt: number }>;
+  notes: Record<string, never>;
+  excludedTags: string[];
+  toggleTagExclusion: ReturnType<typeof vi.fn>;
 }
 let store: Store;
 
@@ -101,14 +104,17 @@ beforeEach(() => {
     openView,
     contents: {},
     tags: [{ id: 't-demo', name: 'demo', color: null, count: 2, createdAt: 1 }],
+    notes: {},
+    excludedTags: [],
+    toggleTagExclusion: vi.fn(),
   };
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
 });
 
-afterEach(() => {
-  act(() => root.unmount());
+afterEach(async () => {
+  await act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
 });

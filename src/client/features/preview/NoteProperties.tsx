@@ -6,6 +6,7 @@ import { cn } from '../../lib/cn';
 import { Tooltip } from '../../components/overlay';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
+import { TagContextMenuAt, type TagMenuRequest } from '../tags/TagContextMenuAt';
 import { t } from '../../lib/i18n';
 
 export function NoteProperties({ noteId }: {
@@ -93,12 +94,17 @@ function TagValues({ names, asTags, readOnly, onRemove, onAdd }: {
     onAdd: (name: string) => void;
 }) {
     const [adding, setAdding] = useState(false);
+    const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const tags = useNotes((s) => s.tags);
     const openView = useUi((s) => s.openView);
     const colors = new Map(tags.map((tag) => [tag.name.toLocaleLowerCase(), tag.color]));
-    return (<span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+    const pills = (<span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
       {names.map((name) => (<span key={name} className="flex max-w-full items-center rounded-[var(--r-sm)] bg-[var(--accent-soft)] text-[11.5px] text-[var(--text-primary)]">
-            {asTags ? (<button type="button" onClick={() => openView('tag', { tag: name })} className="min-w-0 truncate py-0.5 pl-1.5 hover:underline">
+            {asTags ? (<button type="button" onClick={() => openView('tag', { tag: name })} onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTagMenu({ name, x: event.clientX, y: event.clientY });
+              }} className="min-w-0 truncate py-0.5 pl-1.5 hover:underline">
                 <span className="text-[var(--text-quaternary)]">#</span>
                 <span style={{ color: colors.get(name.toLocaleLowerCase()) ?? undefined }}>{name}</span>
               </button>) : <span className="min-w-0 truncate py-0.5 pl-1.5">{name}</span>}
@@ -116,7 +122,13 @@ function TagValues({ names, asTags, readOnly, onRemove, onAdd }: {
               <Plus size={10}/>{t('properties.add_tag')}
             </button>
           </Tooltip>))}
-    </span>);
+    </span>)
+    if (!asTags)
+        return pills;
+    return (<>
+      {pills}
+      <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
+    </>)
 }
 function AddPropertyRow({ used, onCommit, onCancel }: {
     used: ReadonlySet<string>;

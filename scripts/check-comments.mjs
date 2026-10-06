@@ -153,6 +153,10 @@ const allowed = new Map([
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
     "// Heads are in document order, so the active one is the last entry at or above top.",
   ]],
+  ["src/client/features/preview/link-hover-host.ts", [
+    "// A hashtag only previews anything when the user gave that tag a page; the alternative is a",
+    "// card that duplicates the note the reader is already looking at.",
+  ]],
   ["src/client/features/preview/markdown-tabs.ts", [
     "// A nested group numbers its own panels from zero, so an outer click that reached inside",
     "// would relabel the inner buttons and hide the panel the inner group has selected.",
@@ -178,6 +182,10 @@ const allowed = new Map([
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
     "// user was looking at. Replay the path change against the open set as the tags arrive.",
   ]],
+  ["src/client/features/tags/TagContextMenuAt.tsx", [
+    "/**\n * The tag a pointer landed on: markdown hands us `#tag` spans as DOM, so every surface that wants\n * the menu reads the encoded name off the closest one. Returns null when the pointer is not on a\n * tag, which leaves the browser's own context menu alone.\n */",
+    "/**\n * The tag menu at a pointer position, for surfaces whose rows are not React components of their own\n * (the preview renders markdown, so `#tag` spans arrive as DOM). One request at a time; the caller\n * clears it through onClose.\n */",
+  ]],
   ["src/client/features/tags/tagMutations.ts", [
     "// The delta carries every note the server-side rewrite touched, and pull() falls back",
     "// to a full snapshot on its own when the server says the cursor is stale.",
@@ -186,6 +194,9 @@ const allowed = new Map([
     "// Re-read instead of winding back.",
     "/**\n * A tag page is a note whose frontmatter alias spells the tag (`aliases: [\"#a/b\"]`), named after\n * it with the path separators turned into spaces. The alias is what makes the note carry the tag,\n * so a page shows up in the tag's own count without a second index to keep in sync.\n */",
     "/**\n * The reference plugin hands tag expressions to Obsidian's global search. Here the note-list\n * search box is that surface: its text goes to /api/search verbatim, and that route understands\n * `tag:` (whole subtree) and `-tag:`, so the menu writes the same grammar a person can type.\n */",
+  ]],
+  ["src/client/features/tags/useTagMenuItems.tsx", [
+    "/**\n * One tag menu, four entrances: the sidebar row, an inline `#tag` in the preview, a hashtag in the\n * editor, and a pill in the properties panel. A name that is not in the facet list yet (a tag typed\n * into a note that has not been saved) still gets the read-only half, so nothing here can be clicked\n * against a row that no longer exists.\n */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",

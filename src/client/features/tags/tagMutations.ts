@@ -147,8 +147,12 @@ export function tagPageTitle(name: string): string {
 }
 
 export function findTagPage(tagName: string): NoteSummary | null {
+  return findTagPageIn(useNotes.getState().notes, tagName)
+}
+
+export function findTagPageIn(notes: Record<string, NoteSummary>, tagName: string): NoteSummary | null {
   const wanted = normalizeLinkKey(tagPageTitle(tagName))
-  for (const note of Object.values(useNotes.getState().notes)) {
+  for (const note of Object.values(notes)) {
     if (note.deletedAt) continue
     if (!note.tags.some((tag) => tagNamesEqual(tag, tagName))) continue
     if (normalizeLinkKey(note.title) === wanted) return note

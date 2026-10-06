@@ -32,6 +32,7 @@ import { capturePreviewInteractionState, restorePreviewInteractionState } from '
 import { NoteProperties } from './NoteProperties'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 import { useLinkHoverHost } from './link-hover-host'
+import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../tags/TagContextMenuAt'
 import { preferredScrollBehavior } from '../../lib/motion'
 
 export interface PreviewProps {
@@ -88,6 +89,7 @@ export const Preview = memo(function Preview({
   const wikiNavigationRef = useRef(0)
   const wikiScrollCleanupRef = useRef<() => void>(() => {})
   const [mermaidEpoch, setMermaidEpoch] = useState(0)
+  const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null)
 
   useLayoutEffect(() => {
     if (hostRef.current && !hostRef.current.hasChildNodes() && rendered.html) {
@@ -401,6 +403,13 @@ export const Preview = memo(function Preview({
         ref={hostRef}
         onClick={onClick}
         onKeyDown={onKeyDown}
+        onContextMenu={(event) => {
+          const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY)
+          if (!request) return
+          event.preventDefault()
+          event.stopPropagation()
+          setTagMenu(request)
+        }}
         onMouseMove={hover.handleMouseMove}
         onMouseLeave={onMouseLeave}
         onFocus={onFocus}
@@ -409,6 +418,7 @@ export const Preview = memo(function Preview({
         data-preview-content
         className="ink-prose"
       />
+      <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
       {hover.card && (
         <WikiLinkHoverCard
           card={hover.card}
