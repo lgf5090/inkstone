@@ -11,6 +11,9 @@
     Consolas, 'Liberation Mono', Menlo, 'Sarasa Mono SC', monospace;
 
 
+  --r-1: 1px;
+  --r-2: 2px;
+  --r-3: 3px;
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
@@ -18,6 +21,25 @@
   --r-xl: 16px;
   --r-2xl: 20px;
   --r-full: 999px;
+
+  --sp-0-5: 2px;
+  --sp-1: 4px;
+  --sp-1-5: 6px;
+  --sp-2: 8px;
+  --sp-2-5: 10px;
+  --sp-3: 12px;
+  --sp-3-5: 14px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  --text-6: 6px;
+  --text-8-5: 8.5px;
+  --text-9: 9px;
+  --text-9-5: 9.5px;
+  --text-10: 10px;
+  --text-10-5: 10.5px;
+  --text-11: 11px;
+  --text-12: 12px;
 
 
   --dur-fast: 130ms;

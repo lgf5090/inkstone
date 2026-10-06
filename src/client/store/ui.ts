@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AccentName, BackgroundName, EditorLayout, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
+import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
 import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
@@ -49,6 +49,8 @@ interface UiState {
   view: ViewKind
   folderId: string | null
   tag: string | null
+  dateFilter: DateRangeFilter | null
+  calendarJump: { year: number; month: number; nonce: number } | null
   sort: SortKey
   order: SortOrder
   density: UiDensity
@@ -86,6 +88,8 @@ interface UiState {
   openExplorer: (folderId?: string | null) => void
   setMobilePane: (pane: UiState['mobilePane']) => void
   openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null }) => void
+  setDateFilter: (value: DateRangeFilter | null) => void
+  requestCalendarJump: (year: number, month: number) => void
   setSort: (sort: SortKey, order?: SortOrder) => void
   setDensity: (density: UiDensity) => void
   toggleFolder: (id: string) => void
@@ -123,6 +127,8 @@ const DEFAULTS = {
   view: 'all' as ViewKind,
   folderId: null,
   tag: null,
+  dateFilter: null as DateRangeFilter | null,
+  calendarJump: null as { year: number; month: number; nonce: number } | null,
   sort: 'updated' as SortKey,
   order: 'desc' as SortOrder,
   density: 'comfortable' as UiDensity,
@@ -414,13 +420,14 @@ export const useUi = create<UiState>((set, get) => ({
   toggleNavDrawer: (open) => set((s) => ({ navDrawerOpen: open ?? !s.navDrawerOpen })),
   toggleList: () => set((s) => ({ listCollapsed: !s.listCollapsed })),
   openSearchList: () => set((s) => ({
-    view: 'all', folderId: null, tag: null, selectedIds: [],
+    view: 'all', folderId: null, tag: null, selectedIds: [], dateFilter: null,
     searchList: true, searchRequest: s.searchRequest + 1, listCollapsed: false,
     mobilePane: 'list', navDrawerOpen: false, panel: null,
   })),
   openExplorer: (folderId = null) => set({
     view: folderId ? 'folder' : 'all', folderId, tag: null,
     searchList: false, listCollapsed: true, selectedIds: [], navDrawerOpen: false,
+    dateFilter: null,
   }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
 
@@ -430,6 +437,7 @@ export const useUi = create<UiState>((set, get) => ({
       folderId: options?.folderId ?? null,
       tag: options?.tag ?? null,
       selectedIds: [],
+      dateFilter: null,
       mobilePane: 'list',
       listCollapsed: false,
       searchList: false,
@@ -439,6 +447,10 @@ export const useUi = create<UiState>((set, get) => ({
 
   setSort: (sort, order) => set((s) => ({ sort, order: order ?? s.order })),
   setDensity: (density) => set({ density }),
+  setDateFilter: (dateFilter) => set({ dateFilter }),
+  requestCalendarJump: (year, month) => set((s) => ({
+    calendarJump: { year, month, nonce: (s.calendarJump?.nonce ?? 0) + 1 },
+  })),
 
   toggleFolder: (id) =>
     set((s) => ({

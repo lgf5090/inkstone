@@ -1,11 +1,18 @@
 import type { AccentName, AppLocale, BackgroundName, ProseFont, ProseWidth, ThemePref, UiDensity } from '@shared/types'
+import { useMemo } from 'react'
 import { Check, Monitor, Moon, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Segmented, SettingRow, Slider } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
+import { YearGrid, type YearGridMonth } from '../../components/calendar-grids'
+import { buildYearHeatMeta, heatCell, yearHeatLevel } from '../../components/activity-calendar'
+import { buildActivityProjectionCached } from '../../lib/calendar-activity'
+import { setYearGridColumns, useYearGridColumns, type YearGridColumnsPref } from '../../lib/year-grid-prefs'
+import { weekStartFor } from '../../lib/time'
+import { useNotes } from '../../store/notes'
+import { switchThemeWithTransition, useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
-import { switchThemeWithTransition } from '../../store/ui'
-import { t, type MessageKey } from '../../lib/i18n'
+import { t, useLocale, type MessageKey } from '../../lib/i18n'
 
 const ACCENT_MESSAGE_KEYS: Record<AccentName, MessageKey> = {
   cinnabar: 'settings.accent.cinnabar',
@@ -24,6 +31,8 @@ export function AppearanceSettings({
 }) {
   const appearance = useSession((s) => s.settings.appearance)
   const update = useSession((s) => s.updateSettings)
+  const locale = useLocale()
+  const yearGridColumns = useYearGridColumns()
 
   return (
     <div>
@@ -121,6 +130,21 @@ export function AppearanceSettings({
             ]}
           />
         </SettingRow>
+
+        <SettingRow title={t("settings.year_grid_columns")} description={t("settings.year_grid_columns_desc")}>
+          <Segmented<YearGridColumnsPref>
+            label={t("settings.year_grid_columns")}
+            value={yearGridColumns}
+            onChange={setYearGridColumns}
+            options={[
+              { value: 'auto', label: t("settings.year_grid_columns_auto") },
+              { value: '3', label: t("settings.year_grid_columns_three") },
+              { value: '4', label: t("settings.year_grid_columns_four") },
+            ]}
+          />
+        </SettingRow>
+
+        <YearGridPreview columns={yearGridColumns} locale={locale}/>
       </section>
 
       <section>
@@ -206,5 +230,63 @@ function PreviewSample() {
         </div>
       </div>
     </section>
+  )
+}
+
+function PreviewMonthCard({ month, label, counts, yearMax, onJump }: {
+  month: YearGridMonth
+  label: string
+  counts: ReadonlyMap<string, number>
+  yearMax: number
+  onJump: (month: number) => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={t('settings.year_grid_columns_jump_value0', { value0: label })}
+      onClick={() => { onJump(month.month) }}
+      className="flex min-w-0 flex-col items-center gap-0.5 rounded-[var(--r-3)] p-px transition-colors hover:bg-[var(--bg-hover)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
+    >
+      <span className="text-[length:var(--text-12)] font-medium text-[var(--text-quaternary)]">{label}</span>
+      <span aria-hidden="true" className="grid w-full grid-cols-7 gap-px">
+        {month.cells.map((cell) => (
+          <span
+            key={cell.key}
+            className={cn('aspect-square w-full rounded-[var(--r-1)]', cell.today && 'ring-1 ring-inset ring-[var(--accent)]')}
+            style={heatCell(cell.inMonth ? yearHeatLevel(counts, yearMax, cell.key) : null)}
+          />
+        ))}
+      </span>
+    </button>
+  )
+}
+
+function YearGridPreview({ columns, locale }: { columns: YearGridColumnsPref; locale: string }) {
+  const notes = useNotes((s) => s.notes)
+  const previewYear = new Date().getFullYear()
+  const monthLabels = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat(locale, { month: 'short' })
+    return Array.from({ length: 12 }, (_, month) => formatter.format(new Date(previewYear, month, 1)))
+  }, [locale, previewYear])
+  const weekStart = weekStartFor(locale)
+  const { counts } = useMemo(() => buildActivityProjectionCached(notes), [notes])
+  const { yearMax } = useMemo(() => buildYearHeatMeta(counts, previewYear), [counts, previewYear])
+  const jumpToMonth = (month: number) => {
+    useUi.getState().requestCalendarJump(previewYear, month)
+    useUi.getState().closePanel()
+  }
+  return (
+    <div className="mt-1 mb-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-[length:var(--text-9-5)] font-medium text-[var(--text-quaternary)]">{t('settings.year_grid_columns_preview')}</span>
+        <span className="text-[length:var(--text-9-5)] text-[var(--text-quaternary)]">{t('settings.year_grid_columns_preview_tip')}</span>
+      </div>
+      <YearGrid
+        year={previewYear}
+        weekStart={weekStart}
+        columns={columns === '4' ? 4 : 3}
+        renderMonth={(month) => (<PreviewMonthCard key={month.month} month={month} label={monthLabels[month.month] ?? ''} counts={counts} yearMax={yearMax} onJump={jumpToMonth}/>)}
+      />
+    </div>
   )
 }
