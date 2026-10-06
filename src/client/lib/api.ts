@@ -401,8 +401,13 @@ export const api = {
       q: params.q,
       folderId: params.folderId,
       tag: params.tag,
+      tags: params.tags?.length ? params.tags.join(',') : undefined,
+      tagsMatch: params.tags?.length ? params.tagsMatch : undefined,
       includeOrphans: params.includeOrphans === undefined ? undefined : params.includeOrphans ? 1 : 0,
       includeUnresolved: params.includeUnresolved === undefined ? undefined : params.includeUnresolved ? 1 : 0,
+      tagNodes: params.showTagNodes === undefined ? undefined : params.showTagNodes ? 1 : 0,
+      excluded: params.excluded?.length ? params.excluded.join(',') : undefined,
+      direction: params.mode === 'local' ? params.direction : undefined,
       limit: params.limit,
     })}`, { signal }),
 

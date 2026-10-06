@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
+import { applyTagNodes } from '@shared/graph-tag-nodes'
 import {
   deriveExcerpt,
   deriveTitle,
@@ -631,8 +632,17 @@ export function createDemoBackend(): DemoBackend {
     const needle = (c.req.query('q') ?? '').trim().toLocaleLowerCase()
     const folderId = c.req.query('folderId') ?? ''
     const tag = (c.req.query('tag') ?? '').trim().toLocaleLowerCase()
+    const tags = [...new Set((c.req.query('tags') ?? '').split(',').map((item) => item.trim().toLocaleLowerCase()).filter(Boolean))]
+      .slice(0, LIMITS.graphTagsMax)
+    if (tags.length === 0 && tag) tags.push(tag)
+    const tagsMatch = c.req.query('tagsMatch') === 'all' ? 'all' : 'any'
     const includeOrphans = c.req.query('includeOrphans') !== '0'
     const includeUnresolved = c.req.query('includeUnresolved') === '1'
+    const showTagNodes = c.req.query('tagNodes') === '1'
+    const excluded = [...new Set((c.req.query('excluded') ?? '').split(',').map((item) => item.trim()).filter(Boolean))]
+      .slice(0, LIMITS.graphExcludedMax)
+    const rawDirection = c.req.query('direction')
+    const direction = rawDirection === 'incoming' || rawDirection === 'outgoing' ? rawDirection : 'both'
     const active = [...state.notes.values()]
       .filter((note) => note.deletedAt === null && !note.isArchived)
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
@@ -667,17 +677,22 @@ export function createDemoBackend(): DemoBackend {
       for (let level = 0; level < depth; level++) {
         const next = new Set<string>()
         for (const edge of uniqueEdges) {
-          if (frontier.has(edge.source) && !allowed.has(edge.target)) next.add(edge.target)
-          if (frontier.has(edge.target) && !allowed.has(edge.source)) next.add(edge.source)
+          if (direction !== 'outgoing' && frontier.has(edge.target) && !allowed.has(edge.source)) next.add(edge.source)
+          if (direction !== 'incoming' && frontier.has(edge.source) && !allowed.has(edge.target)) next.add(edge.target)
         }
         for (const id of next) allowed.add(id)
         frontier = next
       }
     }
+    const dropped = new Set(excluded.filter((id) => id !== centerId))
+    const matchesTags = (note: Note) => !tags.length || (tagsMatch === 'all'
+      ? tags.every((name) => note.tags.some((item) => item.toLocaleLowerCase() === name))
+      : note.tags.some((item) => tags.includes(item.toLocaleLowerCase())))
     const filtered = active.filter((note) => allowed.has(note.id)
+      && !dropped.has(note.id)
       && (!needle || note.title.toLocaleLowerCase().includes(needle))
       && (!folderId || note.folderId === folderId)
-      && (!tag || note.tags.some((name) => name.toLocaleLowerCase() === tag))
+      && matchesTags(note)
       && (includeOrphans || (degree.get(note.id) ?? 0) > 0))
       .sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0) || b.updatedAt - a.updatedAt)
     const shown = filtered.slice(0, limit)
@@ -713,6 +728,8 @@ export function createDemoBackend(): DemoBackend {
         for (const source of missing.sources) edges.push({ source, target: id })
       }
     }
+    const tagsByNote = new Map(nodes.map((node) => [node.id, node.tags]))
+    const tagNodes = showTagNodes ? applyTagNodes(nodes, edges, tagsByNote) : { added: 0, dropped: 0 }
     return c.json({
       nodes,
       edges,
@@ -720,9 +737,9 @@ export function createDemoBackend(): DemoBackend {
         mode,
         centerId: mode === 'local' ? centerId : null,
         depth,
-        totalNodes: filtered.length + unresolved.size,
+        totalNodes: filtered.length + unresolved.size + tagNodes.added + tagNodes.dropped,
         totalEdges: edges.length,
-        truncated: filtered.length > limit,
+        truncated: filtered.length > limit || tagNodes.dropped > 0,
         limit,
       },
     })

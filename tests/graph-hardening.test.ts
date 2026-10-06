@@ -1,12 +1,22 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { Env } from '../src/worker/env'
 import { initializeDatabase } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
+
+function graphSources(): string {
+  const root = new URL('../src/client/features/graph/', import.meta.url)
+  return readdirSync(root, { recursive: true })
+    .map((entry) => String(entry))
+    .filter((entry) => entry.endsWith('.tsx') || entry.endsWith('.ts'))
+    .filter((entry) => !entry.includes('.test.'))
+    .map((entry) => readFileSync(new URL(entry, root), 'utf8'))
+    .join('\n')
+}
 
 async function freshDatabase() {
   const sqlite = new DatabaseSync(':memory:')
@@ -66,9 +76,33 @@ describe('graph storage and route hardening', () => {
     expect(orphans).not.toMatch(/source_note_id = n\.id\s+OR\s+\w+\.target_note_id = n\.id/)
   })
 
+  it('header action rows wrap instead of pushing controls off the window', () => {
+    const workspace = read('../src/client/features/workspace/Workspace.tsx')
+    const headers = workspace.match(/<header className="flex min-h-11[^"]*"/g) ?? []
+    expect(headers.length).toBe(2)
+    for (const header of headers) expect(header).toContain('flex-wrap')
+    const companion = read('../src/client/features/graph/LocalGraphPanel.tsx')
+    expect(companion).toMatch(/min-h-8[^"]*flex-wrap/)
+    // The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.
+    expect(companion).toMatch(/className="h-6[^"]*md:h-6"/)
+  })
+
+  it('binds the graph panel through one shared chord on every surface', () => {
+    const shell = read('../src/client/features/shell/AppShell.tsx')
+    const entry = /id: 'graph',([\s\S]*?)handler: \(\) => ui\(\)\.togglePanel\('graph'\)/.exec(shell)?.[1] ?? ''
+    expect(entry).toContain('APP_SHORTCUTS.graph')
+    expect(entry).toContain('allowInInput: true')
+    expect(entry).toContain('allowInOverlay: true')
+    const surfaces = ['../src/client/features/sidebar/Sidebar.tsx', '../src/client/features/command/CommandPalette.tsx']
+      .map((path) => read(path))
+      .join('\n')
+    expect(surfaces).not.toMatch(/['"]mod\+shift\+g['"]/)
+    expect(surfaces.match(/combo: APP_SHORTCUTS\.graph/g)).toHaveLength(2)
+  })
+
   it('graph controls come from the shared form primitives', () => {
-    const panel = read('../src/client/features/graph/GraphPanel.tsx')
-    expect(panel).toContain("from '../../components/form'")
+    const panel = graphSources()
+    expect(panel).toContain("from '../../../components/form'")
     expect(panel).toContain('<Drawer')
     expect(panel).toMatch(/<Segmented[\s\S]*graph\.scope/)
     expect(panel).not.toMatch(/<select\b/)

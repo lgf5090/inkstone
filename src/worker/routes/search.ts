@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { segmentCJK, toPlainText, wikiNoteTarget } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
+import { applyTagNodes } from '@shared/graph-tag-nodes'
 import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
 import { FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
@@ -402,55 +403,51 @@ function contentWindowSql(termBindIndex: number): string {
 }
 
 
-searchRoutes.get('/graph', requireAuth, async (c) => {
-  const userId = c.get('userId')
-  const mode = c.req.query('mode') === 'local' ? 'local' : 'global'
-  const rawCenter = (c.req.query('center') ?? '').trim()
-  const centerId = rawCenter && isValidId(rawCenter) ? rawCenter : null
-  const depth = clampInt(c.req.query('depth'), 1, 3, 1)
-  const limit = clampInt(c.req.query('limit'), 50, 600, 350)
-  const query = (c.req.query('q') ?? '').trim()
-  const rawFolderId = (c.req.query('folderId') ?? '').trim()
-  const folderId = rawFolderId && isValidId(rawFolderId) ? rawFolderId : ''
-  const tag = (c.req.query('tag') ?? '').trim()
-  const includeOrphans = c.req.query('includeOrphans') !== '0'
-  const includeUnresolved = c.req.query('includeUnresolved') === '1'
+export type GraphLinkDirection = 'both' | 'incoming' | 'outgoing'
 
-  if (rawCenter && !centerId) {
-    throw new ApiError(400, 'bad_request', 'The center note id is not a valid note id')
-  }
-  if (rawFolderId && !folderId) {
-    throw new ApiError(400, 'bad_request', 'The folder id is not a valid folder id')
-  }
-  if (query.length > 200) {
-    throw new ApiError(400, 'bad_request', 'The graph search query cannot exceed 200 characters')
-  }
-  if (tag.length > LIMITS.tagNameMaxLength) {
-    throw new ApiError(400, 'bad_request', `The graph tag cannot exceed ${LIMITS.tagNameMaxLength} characters`)
-  }
-  if (mode === 'local' && !centerId) {
-    throw new ApiError(400, 'bad_request', 'A center note is required for the local graph')
-  }
+export interface GraphParams {
+  userId: string
+  mode: 'global' | 'local'
+  centerId: string | null
+  depth: number
+  limit: number
+  query: string
+  folderId: string
+  tags: string[]
+  tagsMatch: 'any' | 'all'
+  includeOrphans: boolean
+  includeUnresolved: boolean
+  showTagNodes: boolean
+  excluded: string[]
+  direction: GraphLinkDirection
+}
 
-  try {
-    await consumeAttemptBudget(c.env.DB, [{
-      key: `graph:${userId}`,
-      maxAttempts: 1200,
-      windowMs: 10 * 60 * 1000,
-      lockMs: 60 * 1000,
-    }])
-  } catch (error) {
-    if (error instanceof ThrottleError) {
-      throw new ApiError(
-        429,
-        'too_many_attempts',
-        `Too many graph requests. Try again in ${error.retryAfterSec} seconds`,
-        { retryAfter: error.retryAfterSec },
-      )
-    }
-    throw error
-  }
+export function localNeighborhoodSql(direction: GraphLinkDirection): string {
+  const reached = direction === 'incoming'
+    ? 'l.target_note_id = neighborhood.id'
+    : direction === 'outgoing'
+      ? 'l.source_note_id = neighborhood.id'
+      : '(l.source_note_id = neighborhood.id OR l.target_note_id = neighborhood.id)'
+  const neighbour = direction === 'incoming'
+    ? 'l.source_note_id'
+    : direction === 'outgoing'
+      ? 'l.target_note_id'
+      : 'CASE WHEN l.source_note_id = neighborhood.id THEN l.target_note_id ELSE l.source_note_id END'
+  return `WITH RECURSIVE neighborhood(id, depth, path) AS (
+      SELECT ? AS id, 0 AS depth, ',' || ? || ',' AS path
+      UNION
+      SELECT adjacent.id, neighborhood.depth + 1, neighborhood.path || adjacent.id || ','
+      FROM neighborhood
+      JOIN links l ON l.user_id = ? AND l.target_note_id IS NOT NULL AND ${reached}
+      JOIN notes adjacent ON adjacent.id = ${neighbour}
+        AND adjacent.user_id = l.user_id AND adjacent.deleted_at IS NULL AND adjacent.is_archived = 0
+      WHERE neighborhood.depth < ? AND INSTR(neighborhood.path, ',' || adjacent.id || ',') = 0
+    ), nearby AS (SELECT id, MIN(depth) AS depth FROM neighborhood GROUP BY id)`
+}
 
+export async function buildUserGraph(db: D1Database, params: GraphParams): Promise<GraphResponse> {
+  const { userId, mode, centerId, depth, limit, query, folderId, tags, tagsMatch } = params
+  const { includeOrphans, includeUnresolved, showTagNodes, excluded, direction } = params
   const filters: string[] = ['n.user_id = ?', 'n.deleted_at IS NULL', 'n.is_archived = 0']
   const filterBinds: unknown[] = [userId]
   if (query) {
@@ -461,13 +458,29 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     filters.push('n.folder_id = ?')
     filterBinds.push(folderId)
   }
-  if (tag) {
-    filters.push(`EXISTS (
-      SELECT 1 FROM note_tags nt_filter
-      JOIN tags t_filter ON t_filter.id = nt_filter.tag_id AND t_filter.user_id = n.user_id
-      WHERE nt_filter.note_id = n.id AND t_filter.name = ? COLLATE NOCASE
-    )`)
-    filterBinds.push(tag)
+  if (tags.length) {
+    if (tagsMatch === 'all') {
+      for (const item of tags) {
+        filters.push(`EXISTS (
+          SELECT 1 FROM note_tags nt_filter
+          JOIN tags t_filter ON t_filter.id = nt_filter.tag_id AND t_filter.user_id = n.user_id
+          WHERE nt_filter.note_id = n.id AND t_filter.name = ? COLLATE NOCASE
+        )`)
+        filterBinds.push(item)
+      }
+    } else {
+      filters.push(`EXISTS (
+        SELECT 1 FROM note_tags nt_filter
+        JOIN tags t_filter ON t_filter.id = nt_filter.tag_id AND t_filter.user_id = n.user_id
+        WHERE nt_filter.note_id = n.id AND t_filter.name COLLATE NOCASE IN (${tags.map(() => '?').join(', ')})
+      )`)
+      filterBinds.push(...tags)
+    }
+  }
+  const dropped = excluded.filter((id) => id !== centerId)
+  if (dropped.length) {
+    filters.push('n.id NOT IN (SELECT value FROM json_each(?))')
+    filterBinds.push(JSON.stringify(dropped))
   }
   if (!includeOrphans) {
     filters.push(`(EXISTS (
@@ -518,21 +531,10 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
   let rows: GraphRow[]
   let totalNodes = 0
   if (mode === 'local') {
-    const neighborhood = `WITH RECURSIVE neighborhood(id, depth) AS (
-      SELECT ? AS id, 0 AS depth
-      UNION
-      SELECT CASE WHEN l.source_note_id = neighborhood.id THEN l.target_note_id ELSE l.source_note_id END,
-        neighborhood.depth + 1
-      FROM neighborhood
-      JOIN links l ON l.user_id = ? AND l.target_note_id IS NOT NULL
-        AND (l.source_note_id = neighborhood.id OR l.target_note_id = neighborhood.id)      JOIN notes adjacent ON adjacent.id = CASE
-        WHEN l.source_note_id = neighborhood.id THEN l.target_note_id ELSE l.source_note_id END
-        AND adjacent.user_id = l.user_id AND adjacent.deleted_at IS NULL AND adjacent.is_archived = 0
-      WHERE neighborhood.depth < ?
-    ), nearby AS (SELECT id, MIN(depth) AS depth FROM neighborhood GROUP BY id)`
-    const prefixBinds = [centerId, userId, depth]
-    const [rowsResult, countResult] = await c.env.DB.batch([
-      c.env.DB.prepare(
+    const neighborhood = localNeighborhoodSql(direction)
+    const prefixBinds = [centerId, centerId, userId, depth]
+    const [rowsResult, countResult] = await db.batch([
+      db.prepare(
         `${neighborhood},
          ${linkDegreeCte}
          SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
@@ -546,7 +548,7 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
          WHERE ${filters.join(' AND ')}
          ORDER BY nearby.depth ASC, degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
       ).bind(...prefixBinds, userId, ...filterBinds, limit + 1),
-      c.env.DB.prepare(
+      db.prepare(
         `${neighborhood} SELECT COUNT(*) AS count FROM nearby JOIN notes n ON n.id = nearby.id
          WHERE ${filters.join(' AND ')}`,
       ).bind(...prefixBinds, ...filterBinds),
@@ -554,8 +556,8 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     rows = (rowsResult as D1Result<GraphRow>).results
     totalNodes = Number((countResult as D1Result<{ count: number }>).results?.[0]?.count ?? rows.length)
   } else {
-    const [rowsResult, countResult] = await c.env.DB.batch([
-      c.env.DB.prepare(
+    const [rowsResult, countResult] = await db.batch([
+      db.prepare(
         `WITH ${linkDegreeCte}
          SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
            COALESCE(lc.degree, 0) AS degree,
@@ -567,7 +569,7 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
          WHERE ${filters.join(' AND ')}
          ORDER BY degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
       ).bind(userId, ...filterBinds, limit + 1),
-      c.env.DB.prepare(
+      db.prepare(
         `SELECT COUNT(*) AS count FROM notes n WHERE ${filters.join(' AND ')}`,
       ).bind(...filterBinds),
     ])
@@ -586,7 +588,7 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
   if (ids.length) {
     const placeholders = ids.map(() => '?').join(',')
     const [linkResult, tagResult] = await Promise.all([
-      c.env.DB.prepare(
+      db.prepare(
         `SELECT source_note_id, target_note_id, target_key, target_title FROM links
          WHERE user_id = ? AND source_note_id IN (${placeholders})
            AND (target_note_id IN (${placeholders})${includeUnresolved ? ' OR target_note_id IS NULL' : ''})
@@ -597,7 +599,7 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
         target_key: string
         target_title: string
       }>(),
-      c.env.DB.prepare(
+      db.prepare(
         `SELECT nt.note_id, t.name, t.color FROM note_tags nt
          JOIN tags t ON t.id = nt.tag_id AND t.user_id = ?
          WHERE nt.note_id IN (${placeholders}) ORDER BY t.name COLLATE NOCASE ASC`,
@@ -666,23 +668,103 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     }
   }
   if (unresolved.size >= 50) truncated = true
+  const tagNodes = showTagNodes ? applyTagNodes(nodes, edges, tagsByNote) : { added: 0, dropped: 0 }
+  if (tagNodes.dropped > 0) truncated = true
 
-  const body: GraphResponse = {
+  return {
     nodes,
     edges,
     meta: {
       mode,
       centerId: mode === 'local' ? centerId : null,
       depth,
-      totalNodes: totalNodes + unresolved.size,
+      totalNodes: totalNodes + unresolved.size + tagNodes.added + tagNodes.dropped,
       totalEdges: edges.length,
       truncated,
       limit,
     },
   }
+}
+
+searchRoutes.get('/graph', requireAuth, async (c) => {
+  const userId = c.get('userId')
+  const mode = c.req.query('mode') === 'local' ? 'local' : 'global'
+  const rawCenter = (c.req.query('center') ?? '').trim()
+  const centerId = rawCenter && isValidId(rawCenter) ? rawCenter : null
+  const depth = clampInt(c.req.query('depth'), LIMITS.graphDepthMin, LIMITS.graphDepthMax, LIMITS.graphDepthDefault)
+  const limit = clampInt(c.req.query('limit'), LIMITS.graphNodeLimitMin, LIMITS.graphNodeLimitMax, LIMITS.graphNodeLimitDefault)
+  const query = (c.req.query('q') ?? '').trim()
+  const rawFolderId = (c.req.query('folderId') ?? '').trim()
+  const folderId = rawFolderId && isValidId(rawFolderId) ? rawFolderId : ''
+  const tag = (c.req.query('tag') ?? '').trim()
+  const tags = [...new Set((c.req.query('tags') ?? '').split(',').map((item) => item.trim()).filter(Boolean))]
+    .slice(0, LIMITS.graphTagsMax)
+  if (tags.length === 0 && tag) tags.push(tag)
+  const tagsMatch = c.req.query('tagsMatch') === 'all' ? 'all' : 'any'
+  const includeOrphans = c.req.query('includeOrphans') !== '0'
+  const includeUnresolved = c.req.query('includeUnresolved') === '1'
+  const showTagNodes = c.req.query('tagNodes') === '1'
+  const excluded = [...new Set((c.req.query('excluded') ?? '').split(',').map((item) => item.trim()).filter(isValidId))]
+    .slice(0, LIMITS.graphExcludedMax)
+  const rawDirection = c.req.query('direction')
+  const direction: GraphLinkDirection = rawDirection === 'incoming' || rawDirection === 'outgoing' ? rawDirection : 'both'
+
+  if (rawCenter && !centerId) {
+    throw new ApiError(400, 'bad_request', 'The center note id is not a valid note id')
+  }
+  if (rawFolderId && !folderId) {
+    throw new ApiError(400, 'bad_request', 'The folder id is not a valid folder id')
+  }
+  if (query.length > 200) {
+    throw new ApiError(400, 'bad_request', 'The graph search query cannot exceed 200 characters')
+  }
+  if (tag.length > LIMITS.tagNameMaxLength) {
+    throw new ApiError(400, 'bad_request', `The graph tag cannot exceed ${LIMITS.tagNameMaxLength} characters`)
+  }
+  if (tags.some((item) => item.length > LIMITS.tagNameMaxLength)) {
+    throw new ApiError(400, 'bad_request', `The graph tag cannot exceed ${LIMITS.tagNameMaxLength} characters`)
+  }
+  if (mode === 'local' && !centerId) {
+    throw new ApiError(400, 'bad_request', 'A center note is required for the local graph')
+  }
+
+  try {
+    await consumeAttemptBudget(c.env.DB, [{
+      key: `graph:${userId}`,
+      maxAttempts: 1200,
+      windowMs: 10 * 60 * 1000,
+      lockMs: 60 * 1000,
+    }])
+  } catch (error) {
+    if (error instanceof ThrottleError) {
+      throw new ApiError(
+        429,
+        'too_many_attempts',
+        `Too many graph requests. Try again in ${error.retryAfterSec} seconds`,
+        { retryAfter: error.retryAfterSec },
+      )
+    }
+    throw error
+  }
+
+  const body = await buildUserGraph(c.env.DB, {
+    userId,
+    mode,
+    centerId,
+    depth,
+    limit,
+    query,
+    folderId,
+    tags,
+    tagsMatch,
+    includeOrphans,
+    includeUnresolved,
+    showTagNodes,
+    excluded,
+    direction,
+  })
   return c.json(body)
 })
-
 
 searchRoutes.post('/search/reindex', requireAuth, async (c) => {
   const { ftsEnabled } = c.get('database')

@@ -3,6 +3,7 @@ import { IS_MAC } from './hotkeys'
 export const APP_SHORTCUTS = {
   command: 'mod+shift+p',
   search: 'mod+shift+f',
+  graph: 'mod+shift+g',
   newNote: IS_MAC ? 'mod+alt+shift+n' : 'mod+alt+n',
   settings: 'mod+,',
   toggleList: IS_MAC ? 'mod+alt+shift+b' : 'mod+alt+b',
