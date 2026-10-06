@@ -4,7 +4,7 @@ import { openSearchPanel, selectNextOccurrence } from '@codemirror/search';
 import type { MessageKey } from '../lib/i18n';
 import { IS_MAC } from '../lib/hotkeys';
 import { codeMirrorKey } from '../lib/shortcuts';
-import { insertLink, setHeading, toggleBold, toggleComment, toggleBulletList, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskDone, toggleTaskList } from './commands';
+import { insertLink, setHeading, toggleBold, toggleComment, toggleBulletList, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskDone, toggleTaskList, formatCodeBlock } from './commands';
 
 interface EditorShortcut {
     id: string;
@@ -37,6 +37,7 @@ export const EDITOR_SHORTCUTS: EditorShortcut[] = [
     { id: 'outdent', combo: 'mod+[', label: 'command.outdent', run: indentLess },
     { id: 'find', combo: 'mod+f', label: 'command.find_and_replace_in_this_note', run: openSearchPanel },
     { id: 'select-next', combo: 'mod+d', label: 'command.select_next_occurrence', run: selectNextOccurrence },
+    { id: 'format-code', combo: 'mod+alt+f', label: 'command.format_code_block', run: formatCodeBlock },
     { id: 'undo', combo: 'mod+z', label: 'common.undo', run: undo },
     { id: 'redo', combo: IS_MAC ? 'mod+shift+z' : 'mod+y', label: 'command.redo', run: redo },
     ...(!IS_MAC ? [{ id: 'redo-alternative', combo: 'mod+shift+z', label: 'command.redo' as const, run: redo }] : []),

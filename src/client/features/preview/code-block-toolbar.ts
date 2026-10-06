@@ -9,6 +9,8 @@ import {
   type CodeTheme,
 } from '../../lib/markdown/code-options'
 import { applyFencePatchAtSource, fenceAt } from '../../lib/markdown/fence-edit'
+import { parseFenceInfo } from '../../lib/markdown/fence-info'
+import { CODE_FORMAT_FAILURE_MESSAGES, formatCodeResult } from '../../lib/markdown/code-formatter'
 import { t } from '../../lib/i18n'
 import {
   blockActionSource,
@@ -19,11 +21,16 @@ import {
   type BlockOverlaySpec,
   type BlockToast,
   type BlockToolbarModule,
+  type CodeFormatToolbarOptions,
 } from './block-overlay'
 
 const CODE_BLOCK = '.code-block[data-line]:not(.markdown-example-code)'
 
 const SETTINGS_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>'
+
+const DEFAULT_FORMAT_OPTIONS: CodeFormatToolbarOptions = { enabled: true, tabSize: 2, keywordCase: 'upper' };
+
+const FORMAT_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></svg>';
 
 const OVERLAY_SPEC: BlockOverlaySpec = {
   block: CODE_BLOCK,
@@ -127,9 +134,44 @@ type CodeAction = (
   content: string,
   onEdit: (next: string) => void,
   toast: BlockToast,
+  format: CodeFormatToolbarOptions,
 ) => boolean
 
 const ACTIONS: Record<string, CodeAction> = {
+  'format-code': (block, _value, content, onEdit, toast, format) => {
+    const line = Number(block.dataset.line)
+    if (!Number.isInteger(line) || line < 0) {
+      toast({ title: t('preview.code_edit_unavailable'), tone: 'warning' })
+      return true
+    }
+    const fence = fenceAt(content, line, [])
+    if (fence === null) {
+      toast({ title: t('preview.code_edit_unavailable'), tone: 'warning' })
+      return true
+    }
+    const result = formatCodeResult(fence.body, parseFenceInfo(fence.info).language, {
+      tabSize: format.tabSize,
+      sqlKeywordCase: format.keywordCase,
+    })
+    if (!result.ok) {
+      toast({ title: t(CODE_FORMAT_FAILURE_MESSAGES[result.reason ?? 'failed']), tone: 'warning' })
+      return true
+    }
+    const next = applyFencePatchAtSource(content, { line, body: fence.body }, { body: result.text }, [])
+    if (next === null) {
+      toast({ title: t('preview.code_edit_unavailable'), tone: 'warning' })
+      return true
+    }
+    setBlockOverlay(OVERLAY_SPEC, block, null)
+    onEdit(next)
+    toast({
+      title: t('preview.code_format_done'),
+      tone: 'success',
+      duration: 5000,
+      action: { label: t('common.undo'), run: () => onEdit(content) },
+    })
+    return true
+  },
   'apply-title': (block, _value, content, onEdit, toast) => {
     const title = block.querySelector<HTMLInputElement>('[data-code-input="title"]')?.value ?? ''
     return commitCode(block, content, onEdit, (current) => ({ ...current, title: title.trim() }), toast)
@@ -166,6 +208,7 @@ export function executeCodeBlockAction(
   content: string,
   onEdit: (next: string) => void,
   toast: BlockToast,
+  format: CodeFormatToolbarOptions = DEFAULT_FORMAT_OPTIONS,
 ): boolean {
   const block = targetEl.closest<HTMLElement>(CODE_BLOCK)
   if (!block) return false
@@ -173,10 +216,17 @@ export function executeCodeBlockAction(
     toggleBlockOverlay(OVERLAY_SPEC, block, 'settings')
     return true
   }
-  return ACTIONS[action]?.(block, targetEl.dataset.codeVal ?? '', content, onEdit, toast) ?? false
+  return ACTIONS[action]?.(block, targetEl.dataset.codeVal ?? '', content, onEdit, toast, format) ?? false
 }
 
-export function enhanceCodeBlockToolbarsInRoot(root: HTMLElement): void {
+function formatButtonHtml(enabled: boolean): string {
+  if (!enabled) return ''
+  const label = escapeAttr(t('preview.code_format'))
+  return `<button type="button" class="block-tool-btn" data-code-action="format-code" title="${label}" aria-label="${label}">${FORMAT_ICON}</button>`
+}
+
+export function enhanceCodeBlockToolbarsInRoot(root: HTMLElement, options?: { codeFormat?: Partial<CodeFormatToolbarOptions> }): void {
+  const format = { ...DEFAULT_FORMAT_OPTIONS, ...options?.codeFormat };
   root.querySelectorAll<HTMLElement>(CODE_BLOCK).forEach((block) => {
     if (block.closest('.note-embed-body') || codeBlockTools(block)) return
     const head = block.querySelector<HTMLElement>(':scope > .code-block-head')
@@ -184,7 +234,7 @@ export function enhanceCodeBlockToolbarsInRoot(root: HTMLElement): void {
     const panelId = `code-settings-${block.dataset.line ?? '0'}`
     const label = escapeAttr(t('preview.code_settings'))
     const tools = document.createElement('div')
-    tools.innerHTML = `<div class="block-tools"><button type="button" class="block-tool-btn" data-code-action="toggle-settings" title="${label}" aria-label="${label}" aria-expanded="false" aria-controls="${panelId}">${SETTINGS_ICON}</button></div>`
+    tools.innerHTML = `<div class="block-tools">${formatButtonHtml(format.enabled)}<button type="button" class="block-tool-btn" data-code-action="toggle-settings" title="${label}" aria-label="${label}" aria-expanded="false" aria-controls="${panelId}">${SETTINGS_ICON}</button></div>`
     const toolbar = tools.firstElementChild ?? tools
     head.insertBefore(toolbar, head.querySelector('[data-code-collapse], [data-copy]'))
   })
@@ -206,6 +256,7 @@ export const codeBlockToolbar: BlockToolbarModule = {
       editable.source,
       (next) => ctx.api.editContent(editable.noteId, next),
       ctx.api.toast,
+      ctx.codeFormat,
     )
   },
 }
