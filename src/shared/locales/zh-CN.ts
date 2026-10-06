@@ -2236,4 +2236,4 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_cover_on": "放映画面已被遮挡：{value0}",
     "workspace.presentation_cover_off": "遮挡已解除",
     "workspace.presentation_context_menu": "演示控制菜单",
-} as const satisfies Record<MessageKey, string>;
+    "workspace.presentation_link_copy": "复制链接地址",} as const satisfies Record<MessageKey, string>;

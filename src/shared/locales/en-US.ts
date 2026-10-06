@@ -2235,5 +2235,5 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "workspace.presentation_cover_on": "The projector is covered: {value0}",
     "workspace.presentation_cover_off": "The cover is lifted",
     "workspace.presentation_context_menu": "Presentation menu",
-} as const;
+    "workspace.presentation_link_copy": "Copy link address",} as const;
 export type MessageKey = keyof typeof EN_US_MESSAGES;
