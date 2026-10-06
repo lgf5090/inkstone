@@ -146,6 +146,23 @@ const allowed = new Map([
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
     "// Heads are in document order, so the active one is the last entry at or above top.",
   ]],
+  ["src/client/features/preview/block-actions.ts", [
+    "/**\n * The preview's entry point for the block settings toolbars and the runnable JavaScript block: one\n * enhancer and one click route, so a block family costs no new branch in the preview's handlers.\n *\n * The runnable block's controls come from `enhanceJsExampleControlsInRoot`, which only this surface\n * calls — a share page draws the same block with no run button.\n */",
+  ]],
+  ["src/client/features/preview/block-overlay.ts", [
+    "/**\n * The shared prologue of a toolbar action: the note to edit and the committed text to edit it\n * against, or null when there is nothing to write. Writing while the preview still shows an older\n * document would move the fence the block was drawn from, and the patch would land somewhere else.\n */",
+    "/**\n   * Builds a panel the first time it is asked for. A note can hold hundreds of code blocks and the\n   * preview is rebuilt on every typing pause, so the panel a reader never opens must cost nothing.\n   */",
+  ]],
+  ["src/client/features/preview/js-runner-core.ts", [
+    "/**\n * Everything a note's code could use to leave the worker thread. The shadowed parameter names above\n * only cover the direct route: `Function('return this')()` still hands back the real worker scope,\n * so the same names are taken away there too. `navigator` is reached through its own object because\n * `sendBeacon` hangs off that rather than off the scope.\n */",
+    "// A property the engine refuses to redefine is one the note's code cannot reach either way;",
+    "// the page-side timeout is the backstop, so a refusal here is never a reason to stop.",
+  ]],
+  ["src/client/features/preview/js-runner.ts", [
+    "/**\n * The Worker thread is the sandbox: user code has no DOM and no parent reference, and `terminate()`\n * is the only hard stop for an endless loop. The page-side timeout is what bounds a run.\n */",
+    "/**\n * The switch and the run button live here rather than in the rendered markup: a share page and an\n * export draw the same block with no controls nobody can press, and the code only ever runs on the\n * surface where the reader is the author.\n */",
+    "/**\n * The code comes from the note's own fence rather than the rendered `<code>`: the line decoration\n * pads an empty line with a space so the gutter has something to draw, and that space would land\n * inside a multi-line string the note never wrote.\n */",
+  ]],
   ["src/client/features/preview/markdown-tabs.ts", [
     "// A nested group numbers its own panels from zero, so an outer click that reached inside",
     "// would relabel the inner buttons and hide the panel the inner group has selected.",
@@ -288,6 +305,11 @@ const allowed = new Map([
     "// Layered on the shared config so its forbidden tag and attribute lists keep applying.",
     "// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,",
     "// and DOMPurify sanitises the declarations themselves.",
+    "/**\n * How many lines this block folds beyond: its own `collapse=` when it wrote one (0 meaning it never\n * folds), otherwise the preview's setting. A block states its own preference because the note is\n * what a reader shares, while the setting is only this account's default.\n */",
+    "/**\n * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's\n * tracks are handed to CSS as custom properties instead. A column split can be a real track list —\n * the prose column has a definite width, so `45fr 55fr` divides exactly what it says.\n *\n * A row split cannot. The block's height is whatever its two panels' content needs, so dividing\n * that sum proportionally always inflates the shorter panel: a five-line source beside a thirty-line\n * output at 6:4 measured 800px of empty panel. Rows therefore get the ratio as a ceiling on each\n * panel (`--ex-a` / `--ex-b`), which shrinks a generous pane into its own scrollbox and never adds\n * a pixel of blank. One axis is written and the other cleared, so a block that switches between a\n * row split and a column split cannot keep reading the stale one.\n */",
+    "// `rl` moves the first panel to the right with `order`, and grid auto-placement follows",
+    "// that order, so the track list has to be reversed to keep the ratio naming the two",
+    "// panels of the pair rather than the left and right halves of the block.",
   ]],
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",
@@ -312,6 +334,7 @@ const allowed = new Map([
     "// label into a bare number.",
     "// markdown-it fills alt from the label children at render time, so the size suffix has to",
     "// come off `token.content` and be removed from the last text child, not from the alt attr.",
+    "/**\n * The runnable block. Its controls are deliberately absent: the markup is what a share page or an\n * export draws, and only the editing preview injects the switch and the run button (see\n * `features/preview/js-runner`). An output panel with nothing in it is the honest state elsewhere.\n */",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
@@ -401,6 +424,9 @@ const allowed = new Map([
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
+  ]],
+  ["src/client/styles/prose.css", [
+    "/* A row split has no definite height to divide, so the ratio caps each panel rather than\n     sizing its track: a generous pane scrolls into its share, a short one costs nothing. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

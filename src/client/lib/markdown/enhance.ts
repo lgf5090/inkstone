@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify';
 import { PURIFY_CONFIG } from './renderer';
 import { decodeDataValue } from './data-attr';
+import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from './example-split';
 import { t } from "../i18n";
 import { highlightWithPrism } from './prism';
 
@@ -77,6 +78,41 @@ function splitNodeAtNewlines(node: Node): Node[][] {
 const codeHighlightCache = new Map<string, { html: string; language: string } | null>();
 const decoratedLineCounts = new WeakMap<HTMLElement, number>();
 
+/**
+ * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's
+ * tracks are handed to CSS as custom properties instead. A column split can be a real track list —
+ * the prose column has a definite width, so `45fr 55fr` divides exactly what it says.
+ *
+ * A row split cannot. The block's height is whatever its two panels' content needs, so dividing
+ * that sum proportionally always inflates the shorter panel: a five-line source beside a thirty-line
+ * output at 6:4 measured 800px of empty panel. Rows therefore get the ratio as a ceiling on each
+ * panel (`--ex-a` / `--ex-b`), which shrinks a generous pane into its own scrollbox and never adds
+ * a pixel of blank. One axis is written and the other cleared, so a block that switches between a
+ * row split and a column split cannot keep reading the stale one.
+ */
+export function applyExampleSplits(root: HTMLElement): void {
+    root.querySelectorAll<HTMLElement>('.markdown-example-grid[data-example-layout]').forEach((grid) => {
+        const ratio = parseExampleRatio(grid.dataset.exampleRatio ?? '');
+        if (!ratio)
+            return;
+        grid.style.removeProperty('--ex-cols');
+        grid.style.removeProperty('--ex-rows');
+        grid.style.removeProperty('--ex-a');
+        grid.style.removeProperty('--ex-b');
+        if (isVerticalExampleLayout(grid.dataset.exampleLayout ?? '')) {
+            grid.style.setProperty('--ex-a', String(ratio[0]));
+            grid.style.setProperty('--ex-b', String(ratio[1]));
+        }
+        else {
+            // `rl` moves the first panel to the right with `order`, and grid auto-placement follows
+            // that order, so the track list has to be reversed to keep the ratio naming the two
+            // panels of the pair rather than the left and right halves of the block.
+            const reversed = grid.dataset.exampleLayout === 'rl';
+            grid.style.setProperty('--ex-cols', exampleSplitTracks(reversed ? [ratio[1], ratio[0]] : ratio));
+        }
+    });
+}
+
 async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
     await Promise.all([...root.querySelectorAll<HTMLElement>('.code-block')].map(async (block) => {
         const pre = directElementChild(block, 'PRE');
@@ -115,9 +151,23 @@ async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
 }
 let generatedCodeBlockId = 0;
 
+/**
+ * How many lines this block folds beyond: its own `collapse=` when it wrote one (0 meaning it never
+ * folds), otherwise the preview's setting. A block states its own preference because the note is
+ * what a reader shares, while the setting is only this account's default.
+ */
+function blockCollapseThreshold(block: HTMLElement, fallback: number): number {
+    const own = block.dataset.codeCollapseAt;
+    if (own === undefined || own === '')
+        return fallback;
+    const value = Number(own);
+    return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
 export function configureCodeBlockCollapsing(root: HTMLElement, collapseLines: number): void {
-    const threshold = Number.isInteger(collapseLines) && collapseLines >= 8 ? collapseLines : 0;
+    const fallback = Number.isInteger(collapseLines) && collapseLines >= 8 ? collapseLines : 0;
     root.querySelectorAll<HTMLElement>('.code-block:not(.markdown-example-code)').forEach((block) => {
+        const threshold = blockCollapseThreshold(block, fallback);
         const button = block.querySelector<HTMLButtonElement>('[data-code-collapse]');
         const pre = directElementChild(block, 'PRE');
         const known = decoratedLineCounts.get(block);
@@ -484,6 +534,7 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
         options.math ? renderMath(root) : Promise.resolve(),
     ]);
     configureCodeBlockCollapsing(root, options.codeBlockCollapseLines ?? 24);
+    applyExampleSplits(root);
 }
 export function invalidateMermaidTheme(root: HTMLElement | null): void {
     root?.querySelectorAll<HTMLElement>('[data-mermaid]').forEach((node) => {

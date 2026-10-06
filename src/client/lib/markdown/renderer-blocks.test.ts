@@ -30,6 +30,11 @@ const CORPUS: Array<[string, string]> = [
   ['html-block-open', '<div>\n<p>inside</p>\n<p>more</p>\n</div>\n\nafter\n'],
   ['deep-html', '<div><span><b>x</b></span></div>\n\n# H\n\n- li\n'],
   ['hr-and-html', '---\n\n<div>after rule</div>\n\n---\n\nend\n'],
+  ['md-example', '~~~md-example title="D" layout=rl ratio="3:7"\n**b**\n~~~\n\nAfter example.\n'],
+  ['js-example', '~~~~javascript-example title="R"\nconsole.log(1);\n~~~~\n\nAfter runnable.\n'],
+  ['two-examples', '~~~md-example\na\n~~~\n\n~~~md-example\nb\n~~~\n\n~~~js-example\n1\n~~~\n'],
+  ['nested-example', '~~~~~md-example\n~~~~md-example\nx\n~~~~\n~~~~~\n\nTail\n'],
+  ['code-options', '```ts title="a.ts" line-numbers start=3 {2} wrap collapse=20 theme=dark\nx\ny\n```\n\nAfter options.\n'],
 ]
 
 function signature(html: string): string {
@@ -38,7 +43,7 @@ function signature(html: string): string {
   const parts: string[] = []
   const walk = (node: Element): void => {
     const attrs = [...node.attributes]
-      .filter((a) => a.name === 'data-line' || a.name === 'data-task-line' || a.name === 'data-lang' || a.name === 'href' || a.name === 'class' || a.name === 'data-math' || a.name === 'data-mermaid')
+      .filter((a) => a.name === 'data-line' || a.name === 'data-task-line' || a.name === 'data-lang' || a.name === 'href' || a.name === 'class' || a.name === 'data-math' || a.name === 'data-mermaid' || a.name === 'data-example-family' || a.name === 'data-example-layout' || a.name === 'data-example-ratio' || a.name === 'data-code-title' || a.name === 'data-code-wrap' || a.name === 'data-code-collapse-at' || a.name === 'data-code-theme' || a.name === 'data-js-example-output' || a.name === 'data-code-start')
       .map((a) => `${a.name}=${a.value.replace(/\s+/g, ' ').replace(/ink-[0-9a-f-]{8,}/g, 'ink-N').trim()}`)
       .sort()
       .join(',')
