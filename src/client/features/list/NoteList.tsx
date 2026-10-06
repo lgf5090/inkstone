@@ -1,9 +1,9 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
-import { groupLabel } from '../../lib/time';
+import { groupLabel, parseDateKey } from '../../lib/time';
 import { useDebounced, useNow } from '../../lib/hooks';
 import { api } from '../../lib/api';
 import { fuzzyFilter, splitByRanges } from '../../lib/fuzzy';
@@ -67,6 +67,8 @@ export function NoteList() {
     const searchRequest = useUi((s) => s.searchRequest);
     const folderId = useUi((s) => s.folderId);
     const tag = useUi((s) => s.tag);
+    const dateFilter = useUi((s) => s.dateFilter);
+    const setDateFilter = useUi((s) => s.setDateFilter);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
     const density = useUi((s) => s.density);
@@ -123,6 +125,14 @@ export function NoteList() {
             return `#${tag ?? ''}`;
         return t(VIEW_MESSAGE_KEYS[view]);
     }, [view, folderId, tag, folders, locale, searchList]);
+    const dayFilterText = useMemo(() => {
+        if (!dateFilter) return '';
+        const format = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' });
+        const start = format.format(parseDateKey(dateFilter.start));
+        if (dateFilter.start === dateFilter.end)
+            return t('notes.filtering_by_day_value0', { value0: start });
+        return t('notes.filtering_by_day_range_value0', { value0: start, value1: format.format(parseDateKey(dateFilter.end)) });
+    }, [dateFilter, locale]);
     // Browsing the search panel shows the same collection as the sidebar, but typing into it
     // means "find the note", and the server layer already answers that including archived
     // notes; scoping the local layer to the view made archived notes findable online and
@@ -282,6 +292,13 @@ export function NoteList() {
           <div className="min-w-0">
             <h2 className="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
             {view === 'folder' && !isVirtualFolderId(folderId) && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
+            {dateFilter && (<div className="mt-1 flex min-w-0 items-center gap-1 rounded-full border border-[var(--border-subtle)] py-0.5 pr-0.5 pl-1.5 text-[10.5px] text-[var(--text-tertiary)]">
+              <CalendarDays size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
+              <span className="min-w-0 truncate">{dayFilterText}</span>
+              <IconButton label={t('notes.clear_day_filter')} size="sm" className="size-5" onClick={() => setDateFilter(null)}>
+                <X size={10}/>
+              </IconButton>
+            </div>)}
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             {breakpoint === 'tablet' && (<Tooltip label={t("notes.open_navigation")}>

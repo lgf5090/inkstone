@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, NoteSummary } from '@shared/types';
 import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { initI18n, t } from '../../lib/i18n';
+import { installTestGlobals } from '../../lib/test-render';
 import { api } from '../../lib/api';
 import { getInboxFolderId, setInboxFolderId } from '../../lib/folder-prefs';
 import { loadCalendarPrefs, saveCalendarPrefs } from '../../lib/calendar-prefs';
@@ -25,6 +26,7 @@ let container: HTMLDivElement;
 
 beforeEach(async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    installTestGlobals();
     Element.prototype.scrollIntoView = vi.fn();
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     await initI18n();
@@ -313,7 +315,7 @@ describe('folder row menu', () => {
     const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
     const allButtons = (scope: ParentNode) => [...scope.querySelectorAll<HTMLButtonElement>('button')];
     const labels = (scope: ParentNode) => allButtons(scope).map((element) => element.textContent?.trim() ?? '');
-    const flyout = () => document.querySelector<HTMLElement>('[role="group"][aria-label]')!;
+    const flyout = (label: string) => document.querySelector<HTMLElement>(`[role="group"][aria-label="${label}"]`)!;
 
     beforeEach(() => {
         setInboxFolderId(null);
@@ -350,13 +352,13 @@ describe('folder row menu', () => {
         useNotes.setState({ patchFolder });
         const scope = await openFolderMenu();
         await click(byLabel(scope, t('folders.color')));
-        const panel = flyout();
+        const panel = flyout(t('folders.color'));
         expect(byLabel(panel, t('folders.no_color')).getAttribute('aria-pressed')).toBe('true');
         expect(allButtons(panel).filter((element) => element.getAttribute('aria-pressed') !== null)).toHaveLength(ORGANIZER_COLORS.length + 1);
         await click(byLabel(panel, t('color.red')));
         expect(patchFolder).toHaveBeenCalledExactlyOnceWith(folder.id, { color: ORGANIZER_COLORS[0] });
         expect(document.querySelector('[role="menu"]')).toBeNull();
-        expect(flyout()).toBeNull();
+        expect(flyout(t('folders.color'))).toBeNull();
     });
 
     it('binds a custom emoji from the icon flyout', async () => {
@@ -364,7 +366,7 @@ describe('folder row menu', () => {
         useNotes.setState({ patchFolder });
         const scope = await openFolderMenu();
         await click(byLabel(scope, t('folders.icon')));
-        const panel = flyout();
+        const panel = flyout(t('folders.icon'));
         expect(allButtons(panel).filter((element) => element.getAttribute('aria-pressed') !== null)).toHaveLength(FOLDER_ICON_CHOICES.length + 1);
         const field = panel.querySelector<HTMLInputElement>('input')!;
         await act(() => {

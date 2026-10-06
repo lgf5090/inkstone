@@ -23,6 +23,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'appearance', titleKey: 'settings.accent_color', termKeys: ['settings.accent.cinnabar', 'settings.accent.indigo', 'settings.accent.celadon', 'settings.accent.amber', 'settings.accent.terracotta', 'settings.accent.wisteria', 'settings.accent.graphite'] },
   { section: 'appearance', titleKey: 'settings.background_color', termKeys: ['settings.background_paper', 'settings.background_white'] },
   { section: 'appearance', titleKey: 'settings.interface_density', termKeys: ['settings.comfortable', 'settings.compact'] },
+  { section: 'appearance', titleKey: 'settings.year_grid_columns', detailKey: 'settings.year_grid_columns_desc', termKeys: ['settings.year_grid_columns_auto', 'settings.year_grid_columns_three', 'settings.year_grid_columns_four'] },
   { section: 'appearance', titleKey: 'settings.body_font', termKeys: ['common.sans_serif', 'settings.serif'] },
   { section: 'appearance', titleKey: 'settings.body_text_size' },
   { section: 'appearance', titleKey: 'settings.line_height' },

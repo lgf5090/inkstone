@@ -5,8 +5,9 @@ import { useMemo } from 'react';
 import { countText, deriveExcerpt, extractTags, normalizeLinkKey, sortTagNames } from '@shared/markdown-utils';
 import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
-import type { AppLocale, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
+import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
+import { dateKey } from '../lib/time';
 import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds } from '../lib/folders';
@@ -2890,6 +2891,12 @@ function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null,
             return true;
     }
 }
+function inDateRange(note: NoteSummary, range: DateRangeFilter | null): boolean {
+    if (!range)
+        return true;
+    const key = dateKey(new Date(note.updatedAt));
+    return key >= range.start && key <= range.end;
+}
 function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder, locale: AppLocale): number {
     if (a.isPinned !== b.isPinned)
         return a.isPinned ? -1 : 1;
@@ -2940,6 +2947,7 @@ export function useVisibleNotes(): NoteSummary[] {
     const view = useUi((s) => s.view);
     const folderId = useUi((s) => s.folderId);
     const tag = useUi((s) => s.tag);
+    const dateFilter = useUi((s) => s.dateFilter);
     const sort = useUi((s) => s.sort);
     const order = useUi((s) => s.order);
     // `folders` only takes part in the folder view; without this the whole list re-derives
@@ -2949,7 +2957,7 @@ export function useVisibleNotes(): NoteSummary[] {
     return useMemo(() => {
         const virtual = view === 'folder' ? resolveVirtualFolder(folderId) : null;
         const folderScope = view === 'folder' && folderId && !virtual ? folderDescendantIds(scopedFolders, folderId) : undefined;
-        const list = Object.values(notes).filter((n) => matchesView(n, view, folderId, tag, folderScope, virtual));
+        const list = Object.values(notes).filter((n) => matchesView(n, view, folderId, tag, folderScope, virtual) && inDateRange(n, dateFilter));
         if (view === 'recent') {
             return list
                 .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
@@ -2958,7 +2966,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, scopedFolders, view, folderId, tag, sort, order, locale, todoTag]);
+    }, [notes, scopedFolders, view, folderId, tag, dateFilter, sort, order, locale, todoTag]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];

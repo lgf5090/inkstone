@@ -150,6 +150,11 @@ export interface UserSettings {
 }
 
 
+export interface DateRangeFilter {
+  start: string
+  end: string
+}
+
 export interface NoteSummary {
   id: string
   title: string
