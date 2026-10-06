@@ -116,6 +116,8 @@ export interface EditorSettings {
   autoSaveDelay: number
 }
 
+export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
+
 export interface PreviewSettings {
   layout: EditorLayout
   syncScroll: boolean
@@ -124,6 +126,12 @@ export interface PreviewSettings {
   mermaid: boolean
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
+  linkHover: boolean
+  linkHoverDelayMs: number
+  linkPreviewLength: number
+  pinnedWindowSize: PinnedWindowSizeName
+  pinnedWindowWidth: number
+  pinnedWindowHeight: number
 }
 
 export interface BackupSettings {
