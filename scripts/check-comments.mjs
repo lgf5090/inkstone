@@ -190,6 +190,11 @@ const allowed = new Map([
     "/** The menu-level action: says so when there was no outline to draw, instead of looking like a dead item. */",
     "/**\n * A column block arrives as two columns, because the `::` that divides them is the one part of the\n * syntax a reader cannot guess from the header.\n */",
     "/**\n * A board, in the format the selection already has: wrapping headings and list items yields an\n * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.\n * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the\n * body, so this command does not have to know.\n */",
+    "/**\n * Rewrite the body of the fence the cursor sits in, leaving the fence lines and the rest of the note\n * byte-identical. One transaction, so one press of undo is one format. The press says so when the cursor\n * was not on a block: a menu item and a key binding that both do nothing look exactly like a dead control.\n */",
+    "// The body was read back without the fence's own run of spaces, so it goes back with them re-added:",
+    "// a block inside a list item has to stay inside it.",
+    "// The range runs up to the start of the closing fence, so it ends in a line break the new body has to",
+    "// hand back — otherwise the last line of the block swallows the ``` that closed it.",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
@@ -330,6 +335,7 @@ const allowed = new Map([
     "/**\n * The surface's toast. `action` is what carries an undo for the toolbar presses that rewrite the\n * note — a format conversion has no editor keystroke behind it, so the offer has to travel with the\n * message that says it happened.\n */",
     "/**\n   * The two mind map head buttons whose panel is React state rather than prose markup, because the\n   * block they sit in is re-rendered wholesale from the note and would drop it. Only the surface that\n   * holds the note has that state, so the toolbar asks for it through here.\n   */",
     "/**\n   * Whose note the surface is drawing, for the families that remember a choice between visits. A\n   * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.\n   */",
+    "/** The knobs the code-block formatter reads at press time. A surface with no note to format leaves it\n   * out, and the toolbar falls back to the settings a fresh account has. */",
   ]],
   ["src/client/features/preview/card-content-chart.test.ts", [
     "/**\n * A note card renders a few lines of another note and deliberately draws neither diagrams nor charts,\n * but it only runs the enhancer at all when it spots something that needs it. A chart fence becomes a\n * `div.chart-block`, which is none of `pre code` / `[data-math]` / `[data-mermaid]`, so a note whose\n * only rich content is a chart skipped the pass and the card showed \"Rendering chart…\" forever — a\n * loading state nothing would ever resolve.\n */",
@@ -918,6 +924,9 @@ const allowed = new Map([
     "/**\n * The table text for a model. Unpadded: a body a toggle wrote should read like one a person typed, and\n * trailing spaces inside every cell would show up in the note as whitespace the editor keeps.\n */",
     "/** The number a cell means: thousands separators allowed, anything unreadable is zero. */",
   ]],
+  ["src/client/lib/markdown/code-formatter.ts", [
+    "/** Why a press wrote nothing, in the words the author can act on. */",
+  ]],
   ["src/client/lib/markdown/code-formatter/c-style.ts", [
     "/**\n * A slash opens a comment or a regex depending on what came before it, and the two\n * failures are asymmetric: reading a regex that opens with an escaped star as a block\n * comment puts the formatter inside a comment that never closes, so every line below it\n * is copied verbatim and the block silently stops being formatted. Division is therefore\n * the default, and a regex is only recognised where a value can start.\n */",
   ]],
@@ -1077,6 +1086,9 @@ const allowed = new Map([
     "/** The lines a text block contributes; an empty text contributes none. */",
     "/** Rewrites the whole block as plain text: the fence, its body and its closing line all go. */",
     "/** Inserts text on its own lines right after the block, leaving the fence alone. */",
+    "/** 0-based line of the closing fence, or -1 when the note leaves the block open. */",
+    "/** The run of spaces the opening fence is indented by, which the body was read back without. */",
+    "/**\n * The fence a line of the note sits inside, counting the opening and closing lines themselves, because a\n * cursor parked on a fence marker is still on that block. Fences never nest, so the scan jumps past each\n * block it has read instead of looking for an inner one.\n */",
   ]],
   ["src/client/lib/markdown/kanban/archive.ts", [
     "/**\n * The archive: cards a board has finished with but must not lose. An archived card leaves every\n * view, every count and every still snapshot, and comes back only through restore — deletion, by\n * contrast, is the operation the archive exists to keep people away from.\n */",

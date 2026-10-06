@@ -181,6 +181,11 @@ describe('formatCode - tsx and systems code', () => {
     expect(formatted).toContain('}');
   });
 
+  it('puts a space between a closing bracket and the brace it opens', () => {
+    const code = 'function f(){\nif(a){\nreturn 1\n}\nelse{return 2}\n}';
+    expect(formatCode(code, 'javascript')).toBe('function f() {\n  if (a) {\n    return 1\n  }\n  else { return 2 }\n}');
+  });
+
   it('formats Go and Rust code with brace indentation', () => {
     const goCode = 'package main\n\nfunc main() {\nfmt.Println("hello")\n}';
     expect(formatCode(goCode, 'go')).toContain('func main() {');

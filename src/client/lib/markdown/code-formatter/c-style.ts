@@ -172,6 +172,11 @@ function spaceOperatorsInCode(code: string): string {
   });
   s = s.replace(/,\s*/g, ', ');
   s = s.replace(/;\s*([^\s;])/g, '; $1');
+  s = s.replace(/([)\]])\s*\{/g, '$1 {');
+  s = s.replace(/\b(else|try|finally|do)\s*\{/g, '$1 {');
+  s = s.replace(/\b(if|for|while|switch|catch)\s*\(/g, '$1 (');
+  s = s.replace(/\{(?=[^\s}])/g, '{ ');
+  s = s.replace(/([^\s{])\}/g, '$1 }');
   s = s.replace(/([a-zA-Z0-9_$])\s*:\s*([a-zA-Z0-9_$'"`([{])/g, (match, p1, p2, offset) => {
     const prevChar = s[offset - 1];
     const nextChar = s[offset + match.length];
@@ -311,7 +316,7 @@ export function formatCStyle(code: string, tabSize: number): string {
     }
 
     const counts = structuralBrackets(tokens);
-    const startsClose = /^[}\])]|^(else\b|catch\b|finally\b)/.test(formatted);
+    const startsClose = /^[}\])]/.test(formatted);
     const lineIndent = startsClose ? Math.max(0, depth - 1) : depth;
 
     result.push(`${indent.repeat(lineIndent)}${formatted}`);
