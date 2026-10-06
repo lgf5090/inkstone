@@ -269,6 +269,11 @@ async function mountBlock(node: HTMLElement, entry: MindmapBlockEntry, options: 
     if (entry.handle) {
         // In the document first: the library measures node boxes as it draws (MindmapHandle.layout).
         placeContainer(entry);
+        // The staged copy this markup was diffed against always says "loading", and the swap copies
+        // that class over a block whose map is back on screen. Marking it ready here is what stops the
+        // block from briefly centering its canvas like a spinner; a body the vendor then refuses still
+        // ends in the error state, because that path re-marks the block afterwards.
+        markMindmapReady(node);
         if (themeChanged)
             applyEntryTheme(entry);
         // The fresh control ships the classic default, so the answer is written back even when

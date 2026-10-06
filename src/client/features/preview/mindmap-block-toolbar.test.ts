@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeDataValue } from '../../lib/markdown/data-attr';
 import { renderMarkdown } from '../../lib/markdown/renderer';
+import { showMindmapError, showMindmapSource } from '../../lib/markdown/mindmap/view';
 import { t } from '../../lib/i18n';
 import {
     applyMindmapSourceStates,
@@ -127,6 +128,17 @@ describe('the mind map head', () => {
         mindmapToolbar.enhance(root, { chart: true });
         expect(root.querySelector('.mindmap-block-head')).toBeNull();
         expect(root.querySelector('.mindmap-block-wrap')).toBeNull();
+    });
+
+    // Every press in that bar needs a live instance, so a block that has fallen back to its source or
+    // an error banner must not be left holding a row of buttons that answer to nothing.
+    it.each([showMindmapError, showMindmapSource])('drops the whole head bar in a degraded state (%s)', (degrade) => {
+        const root = host();
+        const block = root.querySelector<HTMLElement>('[data-mindmap]')!;
+        expect(block.querySelector('.mindmap-block-head')).not.toBeNull();
+        degrade(block, 'nope');
+        expect(block.querySelector('.mindmap-block-head')).toBeNull();
+        expect(block.querySelectorAll('[data-mindmap-action]')).toHaveLength(0);
     });
 });
 

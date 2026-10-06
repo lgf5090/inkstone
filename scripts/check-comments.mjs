@@ -287,6 +287,8 @@ const allowed = new Map([
     "/** The live host after the registry mounted a map into every block it holds. */",
     "// A format toggle above moves this block. The line is what the write-back resolves the fence",
     "// against, so a preserved subtree that kept the old one would report a block that had not moved.",
+    "// Every press in that bar needs a live instance, so a block that has fallen back to its source or",
+    "// an error banner must not be left holding a row of buttons that answer to nothing.",
   ]],
   ["src/client/features/preview/mindmap-block-toolbar.ts", [
     "/**\n * The toolbar a rendered mind map carries, as one block family in the preview's toolbar registry:\n * the format its body is written in, the source behind the picture, a palette, a fit, a full screen\n * view and an image export.\n *\n * The head is built here rather than in the renderer so that only a surface which mounts a live map\n * offers controls at all: a share page, an embedded note and an exported document get the picture or\n * its source, never a button with nothing behind it. It goes *inside* the block, because every head\n * helper in `lib/markdown/mindmap/view` is resolved from the block element — which is what the\n * registry keeps a handle on across re-renders.\n *\n * Three of the presses write to the note (format, palette, and through the full screen overlay the\n * outline exports), and each resolves the fence against the committed text rather than the live\n * editor buffer, so a rewrite that would land on a stale line declines instead of guessing.\n */",
@@ -852,6 +854,10 @@ const allowed = new Map([
     "/** The bus callbacks the registry handed each instance, so a test can fire them. */",
     "/** Mounts against a fresh harness and hands back everything a test needs to drive it. */",
     "// The head is the preview toolbar layer's work; the registry only states what it can do with it.",
+    "// A write the map made itself leaves `entry.source` already equal to the body the fresh markup",
+    "// carries, so the sync step has nothing to reload — while the swap has just copied the staged",
+    "// \"loading\" class over a block whose canvas is back on screen. Centering a live canvas like a",
+    "// spinner was visible for a beat after every format conversion.",
   ]],
   ["src/client/lib/markdown/mindmap/registry.ts", [
     "/**\n * Live mind map instances, one per block; the write-back itself lives in ./write.\n *\n * The preview re-renders by replacing the note's HTML wholesale, which destroys\n * every node inside it — including a map's DOM. So the registry owns the map's\n * own element (`container`) and re-parents it into the placeholder of each new\n * render: the instance, its camera, its selection and its undo stack all survive\n * a keystroke in the editor. That re-parenting is what makes two-way editing\n * feel native rather than a rebuild per keystroke.\n *\n * Blocks are matched to entries by their body first and by their number second,\n * so inserting a map above another one moves the instance with its text instead\n * of feeding it the neighbour's.\n */",
@@ -903,6 +909,10 @@ const allowed = new Map([
     "/** Applies one of the menu's palettes to the block, writing the fence and repainting. */",
     "/**\n * Builds a block again after a failed render: the retry button on the error\n * banner has no other way back, since the mount pass only runs when the note's\n * markup is committed.\n */",
     "/**\n * Hands the live map to the full screen overlay: the same instance, so its\n * camera, selection and undo stack carry over and there is never a second copy\n * of the same map writing to the same note.\n */",
+    "// The staged copy this markup was diffed against always says \"loading\", and the swap copies",
+    "// that class over a block whose map is back on screen. Marking it ready here is what stops the",
+    "// block from briefly centering its canvas like a spinner; a body the vendor then refuses still",
+    "// ends in the error state, because that path re-marks the block afterwards.",
   ]],
   ["src/client/lib/markdown/mindmap/resize.ts", [
     "/** The slice of a registry entry the watcher needs; keeps this module decoupled. */",
@@ -988,6 +998,7 @@ const allowed = new Map([
     "/** The name a palette goes by in the control and in the menu; a pick names itself. */",
     "/**\n * Shows what the map draws with, on the control itself: the palette's own name as the\n * button's text, and the full statement as its accessible name. A body that carries a\n * theme object of its own reads as \"custom\" here — picking another palette is what\n * replaces that object, and there is nowhere else to write one.\n */",
     "/** Fallback used wherever a live map cannot run: show the source, drop the inert controls. */",
+    "/**\n * Drops the block's head when the block has fallen back to its source or an error banner.\n *\n * Every control in that bar needs a live instance to act on, so leaving them up turns a block that\n * just said it failed into a row of dead buttons. The whole bar goes rather than a per-family list of\n * selectors, which would have to be kept in step with whatever the toolbar layer builds next; the\n * named controls are still listed for a head that came from somewhere else.\n */",
   ]],
   ["src/client/lib/markdown/mindmap/write.ts", [
     "/**\n * Keeping the note in step with a live map: the debounce that turns an operation\n * burst into a single write, the serialization, and the explicit writes the block's own\n * controls make (a format conversion, the header's palette pick).\n *\n * The fence is resolved against the note's *current* text by the writer the\n * surface hands over (see features/preview/mindmap-sync): when it no longer holds\n * the body the map was built from, the writer reports a conflict and the note is\n * left alone, because writing would drop whatever the user typed since.\n */",

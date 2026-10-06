@@ -150,8 +150,16 @@ export function mindmapEditing(node: HTMLElement | null): boolean {
     return Boolean(node?.querySelector('#input-box'));
 }
 
+/**
+ * Drops the block's head when the block has fallen back to its source or an error banner.
+ *
+ * Every control in that bar needs a live instance to act on, so leaving them up turns a block that
+ * just said it failed into a row of dead buttons. The whole bar goes rather than a per-family list of
+ * selectors, which would have to be kept in step with whatever the toolbar layer builds next; the
+ * named controls are still listed for a head that came from somewhere else.
+ */
 function removeHeadControls(node: HTMLElement): void {
-    node.querySelectorAll<HTMLElement>(`[data-mindmap-fullscreen], [data-mindmap-fit], ${MINDMAP_THEME_PICK_SELECTOR}`).forEach((control) => control.remove());
+    node.querySelectorAll<HTMLElement>(`.mindmap-block-head, [data-mindmap-fullscreen], [data-mindmap-fit], ${MINDMAP_THEME_PICK_SELECTOR}`).forEach((control) => control.remove());
 }
 
 /**

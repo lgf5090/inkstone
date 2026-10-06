@@ -193,6 +193,20 @@ describe('mountMindmaps', () => {
         expect(root.querySelector('[data-mindmap-canvas]')).toBe(canvas);
     });
 
+    // A write the map made itself leaves `entry.source` already equal to the body the fresh markup
+    // carries, so the sync step has nothing to reload — while the swap has just copied the staged
+    // "loading" class over a block whose canvas is back on screen. Centering a live canvas like a
+    // spinner was visible for a beat after every format conversion.
+    it('clears the loading class the swap leaves on a block whose map is still live', async () => {
+        const { root, h } = await mounted('- Core');
+        const block = blocks(root)[0]!;
+        block.classList.remove('is-ready');
+        block.classList.add('loading');
+        await mountWith(root, { vendor: h });
+        expect(block.classList.contains('is-ready')).toBe(true);
+        expect(block.classList.contains('loading')).toBe(false);
+    });
+
     it('leaves the camera alone for a fence edit that only moved the palette', async () => {
         const { root, h } = await mounted('{"nodeData":{"topic":"a"}}');
         const handle = h.handles[0]!;
