@@ -29,6 +29,8 @@ import { useSession } from '../../store/session'
 import { previewSourceAnchors } from './preview-anchors'
 import { moveMarkdownTabFocus, revealPreviewTarget, selectMarkdownTab } from './markdown-tabs'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
+import { closeBlockToolbarOverlay, enhanceBlockToolbars, handleBlockToolbarClick } from './block-actions'
+import type { BlockActionContext } from './block-overlay'
 import { NoteProperties } from './NoteProperties'
 import { preferredScrollBehavior } from '../../lib/motion'
 
@@ -162,6 +164,7 @@ export const Preview = memo(function Preview({
           ? preview.codeBlockCollapseLines
           : 0,
       })
+      enhanceBlockToolbars(staging)
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
@@ -218,8 +221,17 @@ export const Preview = memo(function Preview({
   }, [mermaidEpoch, preview.mermaid, startMermaidRender])
 
 
+  const blockActionContext = (): BlockActionContext => ({
+    content,
+    sourceNoteId,
+    committedSourceRef,
+    api: { editContent, toast },
+  })
+
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
+
+    if (handleBlockToolbarClick(event, target, blockActionContext())) return
 
     const mermaidRetry = target.closest<HTMLElement>('[data-mermaid-retry]')
     if (mermaidRetry) {
@@ -370,6 +382,14 @@ export const Preview = memo(function Preview({
   }
 
   const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      const trigger = closeBlockToolbarOverlay(event.target as HTMLElement)
+      if (trigger) {
+        event.preventDefault()
+        trigger.focus()
+        return
+      }
+    }
     const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]')
     if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
