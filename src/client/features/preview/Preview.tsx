@@ -148,9 +148,9 @@ export const Preview = memo(function Preview({
   // neither survives the serialization and cloning the swap does.
   const startChartRender = useCallback(() => {
     const host = hostRef.current
-    if (!host) return
+    if (!host || !preview.chart) return
     void renderPendingCharts(host, theme === 'dark')
-  }, [theme])
+  }, [preview.chart, theme])
 
 
   useEffect(() => {
@@ -171,6 +171,7 @@ export const Preview = memo(function Preview({
       await enhancePreview(staging, {
         math: preview.math,
         mermaid: preview.mermaid,
+        chart: preview.chart,
         dark: theme === 'dark',
         codeBlockCollapseLines: preview.codeBlockCollapse
           ? preview.codeBlockCollapseLines
@@ -178,7 +179,7 @@ export const Preview = memo(function Preview({
       })
       // The head is built here rather than on the live host so it is part of the markup the preview
       // diffs against; a toolbar added after the swap would be wiped by the next keystroke.
-      enhanceChartBlockToolbars(staging)
+      enhanceChartBlockToolbars(staging, { drawn: preview.chart })
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
@@ -219,6 +220,7 @@ export const Preview = memo(function Preview({
     scrollerRef,
     preview.math,
     preview.mermaid,
+    preview.chart,
     preview.codeBlockCollapse,
     preview.codeBlockCollapseLines,
     theme,
@@ -644,10 +646,14 @@ export function patchDom(dest: Node, src: Node): void {
     if (destEl.hasAttribute('data-chart') && srcEl.hasAttribute('data-chart')) {
       if (destEl.getAttribute('data-chart') === srcEl.getAttribute('data-chart') &&
         destEl.getAttribute('data-chart-style') === srcEl.getAttribute('data-chart-style') &&
-        destEl.dataset.rendered) {
-        // The drawn subtree stays, but the line is re-stamped: a format toggle changes how many lines a
-        // block above occupies, which moves this one, and the line is what the toolbar resolves its write
-        // against. Keeping the stale one made the next press report a block that had not moved at all.
+        destEl.dataset.rendered &&
+        !srcEl.classList.contains('chart-source')) {
+        // The body did not change, so the picture still stands. Except when the staged copy is showing
+        // its source instead: that is the renderer switch having been turned off, and the note text is
+        // identical either way, so the class is the only thing that says the block must stop being a
+        // canvas. Preserving it there left an off switch with a chart still drawn on screen.
+        // The line is still re-stamped: a format toggle changes how many lines a block above occupies,
+        // which moves this one, and the line is what the toolbar resolves its write against.
         if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return
       }

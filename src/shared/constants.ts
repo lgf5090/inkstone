@@ -105,6 +105,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     showToc: true,
     math: true,
     mermaid: true,
+    chart: true,
     codeBlockCollapse: true,
     codeBlockCollapseLines: 24,
   },
@@ -216,6 +217,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.showToc = booleanValue(preview.showToc, base.preview.showToc)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)
+  base.preview.chart = booleanValue(preview.chart, base.preview.chart)
   base.preview.codeBlockCollapse = booleanValue(preview.codeBlockCollapse, base.preview.codeBlockCollapse)
   base.preview.codeBlockCollapseLines = integerInRange(
     preview.codeBlockCollapseLines,

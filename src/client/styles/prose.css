@@ -1101,6 +1101,18 @@
   min-height: 0;
   justify-content: flex-start;
 }
+.ink-prose .chart-block.chart-source {
+  min-height: 0;
+  justify-content: flex-start;
+}
+.ink-prose .chart-block.chart-source > code {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .ink-prose .chart-error {
   display: grid;
   width: 100%;

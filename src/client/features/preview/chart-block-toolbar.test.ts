@@ -281,4 +281,59 @@ describe('the live chart subtree across a preview re-render', () => {
         patchChildren(live, staged(`${FENCE}chart style=json\n${TABLE_BODY}\n${FENCE}\n`));
         expect(live.querySelector<HTMLElement>('[data-chart]')!.dataset.rendered).toBeUndefined();
     });
+
+    // The note text is identical whether the renderer switch is on or off, so the class is the only thing
+    // that says the block must stop being a canvas. Preserving the drawn subtree here left an off switch
+    // with the chart still on screen — which no unit test of the switch itself could see.
+    it('replaces a drawn chart with the source view when the renderer switch goes off', () => {
+        const note = `${FENCE}chart style=table\n${TABLE_BODY}\n${FENCE}\n`;
+        const live = drawn(note);
+        const off = staged(note);
+        const block = off.querySelector<HTMLElement>('[data-chart]')!;
+        block.classList.remove('loading');
+        block.classList.add('chart-source');
+        block.append(document.createElement('code'));
+        patchChildren(live, off);
+        const kept = live.querySelector<HTMLElement>('[data-chart]')!;
+        expect(kept.querySelector('canvas')).toBeNull();
+        expect(kept.classList.contains('chart-source')).toBe(true);
+    });
+});
+
+describe('the head a chart block is given when charts are switched off', () => {
+    function offHead(note: string): HTMLElement {
+        const host = document.createElement('div');
+        host.innerHTML = renderMarkdown(note).html;
+        enhanceChartBlockToolbars(host, { drawn: false });
+        return host;
+    }
+
+    it('keeps the format toggle, which still rewrites the note', () => {
+        const host = offHead(`${'`'.repeat(3)}chart style=table\n${TABLE_BODY}\n${'`'.repeat(3)}\n`);
+        const buttons = [...host.querySelectorAll<HTMLElement>('[data-chart-action]')].map((b) => b.dataset.chartAction);
+        expect(buttons).toEqual(['convert-format']);
+    });
+
+    it('shows no source panel, because the block is already showing its body', () => {
+        const host = offHead(`${'`'.repeat(3)}chart\n${CONFIG_BODY}\n${'`'.repeat(3)}\n`);
+        expect(host.querySelector('[data-chart-source]')).toBeNull();
+        expect(host.querySelector('[data-chart-action="export-image"]')).toBeNull();
+    });
+
+    it('still writes the other format from that head', () => {
+        const note = `${'`'.repeat(3)}chart style=table\n${TABLE_BODY}\n${'`'.repeat(3)}\n`;
+        const host = offHead(note);
+        const { api: a, onEdit, toast } = api(note);
+        handleChartBlockAction(host.querySelector('[data-chart-action="convert-format"]') as HTMLElement, a);
+        expect(toast).not.toHaveBeenCalled();
+        expect(onEdit.mock.calls[0][0] as string).toContain('```chart style=json');
+    });
+
+    it('brings all three tools back when it is drawn', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderMarkdown(`${'`'.repeat(3)}chart\n${CONFIG_BODY}\n${'`'.repeat(3)}\n`).html;
+        enhanceChartBlockToolbars(host, { drawn: true });
+        expect([...host.querySelectorAll('[data-chart-action]')]).toHaveLength(3);
+        expect(host.querySelector('[data-chart-source]')).not.toBeNull();
+    });
 });

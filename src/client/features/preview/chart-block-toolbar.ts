@@ -83,7 +83,7 @@ function otherStyle(mode: DeclaredStyle): DeclaredStyle {
     return mode === 'table' ? 'json' : 'table';
 }
 
-function buildHead(block: HTMLElement): HTMLElement {
+function buildHead(block: HTMLElement, drawn: boolean): HTMLElement {
     const format = detectChartMode(blockSource(block));
     const head = document.createElement('div');
     head.className = 'chart-block-head';
@@ -92,11 +92,17 @@ function buildHead(block: HTMLElement): HTMLElement {
     title.textContent = t("preview.chart_title");
     const tools = document.createElement('span');
     tools.className = 'chart-block-tools';
-    tools.append(
+    const buttons: HTMLElement[] = [
         toolButton('convert-format', t(CONVERT_LABELS[otherStyle(format)]), t(FORMAT_LABELS[otherStyle(format)]), undefined, '--text'),
-        toolButton('toggle-source', t("preview.chart_show_source"), ICONS.source, false),
-        toolButton('export-image', t("preview.chart_export_image"), ICONS.export),
-    );
+    ];
+    // With charts switched off the block already shows its own body, so a panel repeating it would be a
+    // second copy to disagree with, and there is no canvas left to rasterize. The format toggle stays:
+    // it rewrites the note, which is something a reader can still want while the picture is off.
+    if (drawn) {
+        buttons.push(toolButton('toggle-source', t("preview.chart_show_source"), ICONS.source, false));
+        buttons.push(toolButton('export-image', t("preview.chart_export_image"), ICONS.export));
+    }
+    tools.append(...buttons);
     head.append(title, tools);
     return head;
 }
@@ -115,15 +121,21 @@ function buildSourcePanel(block: HTMLElement): HTMLElement {
 /**
  * Wraps every chart block under a root in its head and source panel. Runs on the staged copy, so the
  * head is part of the markup the preview diffs against and a re-render cannot lose it.
+ *
+ * `drawn` is false when the account has charts switched off: the block is showing its own body, so it
+ * gets the format toggle only.
  */
-export function enhanceChartBlockToolbars(root: HTMLElement): void {
+export function enhanceChartBlockToolbars(root: HTMLElement, { drawn = true }: { drawn?: boolean } = {}): void {
     root.querySelectorAll<HTMLElement>('[data-chart]').forEach((block) => {
         if (block.closest('.note-embed-body') || block.parentElement?.classList.contains('chart-block-wrap'))
             return;
         const wrapper = document.createElement('div');
         wrapper.className = 'chart-block-wrap';
         block.replaceWith(wrapper);
-        wrapper.append(buildHead(block), buildSourcePanel(block), block);
+        wrapper.append(buildHead(block, drawn));
+        if (drawn)
+            wrapper.append(buildSourcePanel(block));
+        wrapper.append(block);
     });
 }
 

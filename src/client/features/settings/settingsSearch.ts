@@ -41,6 +41,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.scroll_sync', detailKey: 'settings.keep_the_editor_and_preview_scrolled_together' },
   { section: 'editor', titleKey: 'settings.math', detailKey: 'settings.render_and_using_katex' },
   { section: 'editor', titleKey: 'settings.diagram', detailKey: 'settings.render_mermaid_code_blocks_into_flowcharts' },
+  { section: 'editor', titleKey: 'settings.chart', detailKey: 'settings.render_chart_fences_as_charts' },
   { section: 'editor', titleKey: 'settings.collapse_long_code_blocks', detailKey: 'settings.collapse_long_code_blocks_description' },
   { section: 'editor', titleKey: 'settings.code_block_collapse_after', termKeys: ['settings.lines'] },
   { section: 'editor', titleKey: 'settings.show_outline_by_default' },

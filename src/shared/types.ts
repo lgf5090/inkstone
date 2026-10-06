@@ -122,6 +122,7 @@ export interface PreviewSettings {
   showToc: boolean
   math: boolean
   mermaid: boolean
+  chart: boolean
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
 }

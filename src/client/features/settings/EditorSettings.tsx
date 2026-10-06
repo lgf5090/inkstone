@@ -65,6 +65,10 @@ export function EditorSettings() {
           <Switch checked={preview.mermaid} onChange={(mermaid) => void update({ preview: { mermaid } })} label={t("settings.diagram")}/>
         </SettingRow>
 
+        <SettingRow title={t("settings.chart")} description={t("settings.render_chart_fences_as_charts")}>
+          <Switch checked={preview.chart} onChange={(chart) => void update({ preview: { chart } })} label={t("settings.chart")}/>
+        </SettingRow>
+
         <SettingRow title={t("settings.collapse_long_code_blocks")} description={t("settings.collapse_long_code_blocks_description")}>
           <Switch checked={preview.codeBlockCollapse} onChange={(codeBlockCollapse) => void update({ preview: { codeBlockCollapse } })} label={t("settings.collapse_long_code_blocks")}/>
         </SettingRow>

@@ -41,9 +41,9 @@ class RenderedBlock extends WidgetType {
         const prepare = async () => {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
-            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, dark, codeBlockCollapseLines: 0 });
+            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, dark, codeBlockCollapseLines: 0 });
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
-            if (alive) await renderPendingCharts(host, dark);
+            if (alive && settings.chart) await renderPendingCharts(host, dark);
             if (alive) view.requestMeasure();
         };
         void prepare().catch(() => { if (alive) view.requestMeasure(); });
@@ -217,6 +217,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
             this.unsubscribe = useSession.subscribe((state, previous) => {
                 if (state.settings.preview.math !== previous.settings.preview.math
                     || state.settings.preview.mermaid !== previous.settings.preview.mermaid
+                    || state.settings.preview.chart !== previous.settings.preview.chart
                     || state.settings.appearance.proseFont !== previous.settings.appearance.proseFont) refreshView();
             });
             queueMicrotask(() => { const value = view.state.field(field, false); if (value) onHeadings(value.headings); });

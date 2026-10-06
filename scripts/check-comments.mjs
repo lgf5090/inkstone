@@ -164,9 +164,12 @@ const allowed = new Map([
     "// subtree from the staging copy would put the placeholder text back over a chart that did not change.",
     "// The stated format is compared beside the body: which reader draws a chart is not written anywhere",
     "// in its body text, so a note that only moved `style=` has to look changed here.",
-    "// The drawn subtree stays, but the line is re-stamped: a format toggle changes how many lines a",
-    "// block above occupies, which moves this one, and the line is what the toolbar resolves its write",
-    "// against. Keeping the stale one made the next press report a block that had not moved at all.",
+    "// The body did not change, so the picture still stands. Except when the staged copy is showing",
+    "// its source instead: that is the renderer switch having been turned off, and the note text is",
+    "// identical either way, so the class is the only thing that says the block must stop being a",
+    "// canvas. Preserving it there left an off switch with a chart still drawn on screen.",
+    "// The line is still re-stamped: a format toggle changes how many lines a block above occupies,",
+    "// which moves this one, and the line is what the toolbar resolves its write against.",
   ]],
   ["src/client/features/preview/chart-block-toolbar.test.ts", [
     "// The keyword cell re-serializes its configuration, so the compact spelling is what a toggle writes.",
@@ -174,6 +177,9 @@ const allowed = new Map([
     "// A format toggle changes how many lines a block above occupies, which moves this one. The line is",
     "// what the toolbar resolves its write against, so a preserved subtree must still take the new line —",
     "// holding the old one made the next press report a block that had not moved at all.",
+    "// The note text is identical whether the renderer switch is on or off, so the class is the only thing",
+    "// that says the block must stop being a canvas. Preserving the drawn subtree here left an off switch",
+    "// with the chart still on screen — which no unit test of the switch itself could see.",
   ]],
   ["src/client/features/preview/chart-block-toolbar.ts", [
     "/**\n * The toolbar a rendered chart carries: the format its body is written in, the source behind the\n * picture, and an image export. The format control is the only block tool in the preview that writes to\n * the note, so the write lives here rather than in the drawing layer — and it refuses rather than\n * approximates, because a rewrite that quietly changed what a chart means is worse than no rewrite.\n */",
@@ -184,7 +190,6 @@ const allowed = new Map([
     "// announces a control whose state nobody can hear.",
     "/** The body the renderer encoded onto the block, or '' when the markup carries none. */",
     "/** The format the control switches *to*: the other one, whichever the body is written in. */",
-    "/**\n * Wraps every chart block under a root in its head and source panel. Runs on the staged copy, so the\n * head is part of the markup the preview diffs against and a re-render cannot lose it.\n */",
     "/**\n * Which blocks have their source showing, keyed by the note line the block was drawn at — the same key\n * the preview's other interaction state is kept under, so a chart added above shifts with the rest.\n */",
     "/** The line a rendered block claims to sit on, or NaN when its markup carries none. */",
     "/**\n * Rewrites the fence as the other format. The block was drawn from the body the renderer encoded, so\n * that is what the fence is looked up by: when the note no longer holds it, nothing is written, in either\n * direction of the mistake.\n */",
@@ -192,11 +197,19 @@ const allowed = new Map([
     "// about the data moved and the accent now paints the series. Say it, rather than let the author find out.",
     "/** Returns false when the click belonged to no chart tool, so the caller can keep walking its branches. */",
     "// The size refusal names the ceiling it hit, because the author's next question is what to cut.",
+    "// With charts switched off the block already shows its own body, so a panel repeating it would be a",
+    "// second copy to disagree with, and there is no canvas left to rasterize. The format toggle stays:",
+    "// it rewrites the note, which is something a reader can still want while the picture is off.",
+    "/**\n * Wraps every chart block under a root in its head and source panel. Runs on the staged copy, so the\n * head is part of the markup the preview diffs against and a re-render cannot lose it.\n *\n * `drawn` is false when the account has charts switched off: the block is showing its own body, so it\n * gets the format toggle only.\n */",
   ]],
   ["src/client/features/preview/markdown-tabs.ts", [
     "// A nested group numbers its own panels from zero, so an outer click that reached inside",
     "// would relabel the inner buttons and hide the panel the inner group has selected.",
     "/** Opens every collapsed block and selects every tab panel the target sits inside. */",
+  ]],
+  ["src/client/features/share/SharePage.tsx", [
+    "// A shared page is read by visitors who have no settings of their own; the author's choice to",
+    "// hide diagrams is theirs, not a property of the note, so a shared note always draws.",
   ]],
   ["src/client/features/share/share-form.ts", [
     "// A new or replaced passcode must be at least 8 characters (the server",
@@ -492,6 +505,13 @@ const allowed = new Map([
     "// the colours it read before the accent moved — and the blocks in one note all see the same answer.",
     "// The stated format is in the key for the same reason the accent is: which reader runs is not",
     "// written anywhere in the body's text.",
+    "/**\n * Shows a chart block's own body instead of drawing it, for an account that turned charts off. The\n * instance is let go first: a block going quiet while its chart still lives would keep a canvas and a\n * ResizeObserver pointed at text that replaced them. The marker is dropped so switching the setting back\n * on draws again rather than finding the block already \"rendered\".\n */",
+    "// A block showing its body was told so by the renderer switch, and this pass is not the one that",
+    "// decides that. Carrying the refusal on the node means a caller that forgets to check the setting",
+    "// cannot draw over it.",
+    "// The chart library is only ever reached from the draw pass, so declining here means the chunk is",
+    "// never fetched — which is the whole point of the switch, and why it is decided before anything asks",
+    "// for a picture.",
   ]],
   ["src/client/lib/markdown/fence-edit.test.ts", [
     "// The renderer stamps the block with markdown-it's de-indented content, so a write that compared",
@@ -670,6 +690,10 @@ const allowed = new Map([
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
     "// next to the colour list rather than at each call site.",
+  ]],
+  ["src/shared/settings-preview-chart.test.ts", [
+    "/**\n * A stored settings object is older than any given key, so every renderer switch has to arrive through\n * `mergeSettings` rather than be read off the JSON: a stored `preview` that predates `chart` must come\n * back as the default, not as `undefined` coerced to \"off\" — that would silently stop drawing charts for\n * every account that existed before the switch shipped, with nothing wrong in the note.\n */",
+    "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
   ]],
   ["src/shared/text-utils.ts", [
     "/**\n * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and\n * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's\n * U+FFFD replacement.\n */",

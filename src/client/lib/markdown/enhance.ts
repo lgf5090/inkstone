@@ -760,6 +760,25 @@ async function renderChartNode(
 }
 
 /**
+ * Shows a chart block's own body instead of drawing it, for an account that turned charts off. The
+ * instance is let go first: a block going quiet while its chart still lives would keep a canvas and a
+ * ResizeObserver pointed at text that replaced them. The marker is dropped so switching the setting back
+ * on draws again rather than finding the block already "rendered".
+ */
+function showChartSource(root: HTMLElement): void {
+    root.querySelectorAll<HTMLElement>('[data-chart]').forEach((node) => {
+        destroyChartInstance(node);
+        node.classList.remove('loading', 'has-error');
+        node.classList.add('chart-source');
+        node.removeAttribute('aria-busy');
+        const code = document.createElement('code');
+        code.textContent = decodeDataValue(node.dataset.chart);
+        node.replaceChildren(code);
+        delete node.dataset.rendered;
+    });
+}
+
+/**
  * Draws every chart block under a root. `instant` is for the surfaces whose canvas is read rather than
  * looked at — an exported document — where an entrance animation is a picture of nothing at all.
  */
@@ -770,6 +789,11 @@ export async function renderPendingCharts(root: HTMLElement, dark: boolean, { in
     // the colours it read before the accent moved — and the blocks in one note all see the same answer.
     const paletteKey = chartPaletteKey(dark);
     for (const node of [...root.querySelectorAll<HTMLElement>('[data-chart]')]) {
+        // A block showing its body was told so by the renderer switch, and this pass is not the one that
+        // decides that. Carrying the refusal on the node means a caller that forgets to check the setting
+        // cannot draw over it.
+        if (node.classList.contains('chart-source'))
+            continue;
         const raw = decodeDataValue(node.dataset.chart);
         const style = parseStyleValue(node.dataset.chartStyle ?? null);
         // The stated format is in the key for the same reason the accent is: which reader runs is not
@@ -812,6 +836,7 @@ export function bakeChartsToImages(root: HTMLElement): void {
 export interface EnhanceOptions {
     math: boolean;
     mermaid: boolean;
+    chart: boolean;
     dark: boolean;
     codeBlockCollapseLines?: number;
 }
@@ -825,6 +850,11 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     else {
         showMermaidSource(root);
     }
+    // The chart library is only ever reached from the draw pass, so declining here means the chunk is
+    // never fetched — which is the whole point of the switch, and why it is decided before anything asks
+    // for a picture.
+    if (!options.chart)
+        showChartSource(root);
     if (!options.math)
         showMathSource(root);
     await Promise.allSettled([
