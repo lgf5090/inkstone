@@ -283,7 +283,7 @@ export const ZH_CN_MESSAGES = {
     "graph.folder": "文件夹",
     "graph.forces": "布局力",
     "graph.global": "全局",
-    "graph.graph_canvas_accessible": "关系图谱画布。方向键选择节点，加减号缩放，回车打开，Home 适应画布。",
+    "graph.graph_canvas_accessible": "关系图谱画布。方向键选择节点，加减号缩放，回车打开笔记（选中标签节点时按该标签筛选），Home 适应画布。",
     "graph.group_by": "按颜色分组",
     "graph.group_none": "不分组",
     "graph.interaction_hint": "拖动平移 · 滚轮或双指缩放 · 双击打开 · 右键或菜单键查看更多 · 方向键选择节点",

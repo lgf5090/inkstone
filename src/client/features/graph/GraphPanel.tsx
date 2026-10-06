@@ -30,6 +30,7 @@ import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import {
   DEFAULT_PREFERENCES,
+  GRAPH_PINNED_MAX,
   loadPreferences,
   persistPreferences,
   toggleListItem,
@@ -189,7 +190,10 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   }, [])
 
   const togglePin = useCallback((id: string) => {
-    setPrefs((current) => ({ ...current, pinnedNodeIds: toggleListItem(current.pinnedNodeIds, id) }))
+    setPrefs((current) => ({
+      ...current,
+      pinnedNodeIds: toggleListItem(current.pinnedNodeIds, id).slice(-GRAPH_PINNED_MAX),
+    }))
   }, [])
 
   const toggleExclude = useCallback((id: string) => {
@@ -224,17 +228,22 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       return
     }
     const noteId = hover.id
+    let cancelled = false
     const timer = window.setTimeout(() => {
       const cached = useNotes.getState().notes[noteId]
+      const apply = (excerpt: string | null) => { if (!cancelled) setPreviewExcerpt(excerpt) }
       if (cached) {
-        setPreviewExcerpt(cached.excerpt || null)
+        apply(cached.excerpt || null)
         return
       }
       api.notes.get(noteId).then((note) => {
-        setPreviewExcerpt(useNotes.getState().notes[noteId] ? note.excerpt || deriveExcerpt(note.content) : deriveExcerpt(note.content))
-      }).catch(() => { setPreviewExcerpt(null) })
+        apply(note.excerpt || deriveExcerpt(note.content))
+      }).catch(() => { apply(null) })
     }, GRAPH_PREVIEW_SHOW_MS)
-    return () => window.clearTimeout(timer)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [hover])
 
   const preview: GraphPreviewCard | null = hover && hoverAnchor && hover.kind !== 'unresolved'
@@ -260,14 +269,20 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     if (!context) return []
     const node = context.node
     const isNote = node.kind === 'note'
-    const items: MenuItem[] = [
-      {
+    const isTag = node.kind === 'tag'
+    const items: MenuItem[] = [isTag
+      ? {
+        id: 'open',
+        label: t('graph.filter_by_tag', { value: node.title }),
+        icon: <Filter size={14}/>,
+        onSelect: () => changePref('tags', toggleListItem(tagFilter, node.title)),
+      }
+      : {
         id: 'open',
         label: isNote ? t('graph.open_note') : t('graph.create_note'),
         icon: <FolderOpen size={14}/>,
         onSelect: () => openNode(node),
-      },
-    ]
+      }]
     if (isNote) {
       items.push({
         id: 'right',
@@ -287,7 +302,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
         },
       })
     }
-    for (const tag of node.tags.slice(0, 3)) {
+    for (const tag of isTag ? [] : node.tags.slice(0, 3)) {
       items.push({
         id: `tag:${tag.name}`,
         label: t('graph.filter_by_tag', { value: tag.name }),
@@ -425,6 +440,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
               onOpenNote: openNoteFromGraph,
               onCreateNote: createNoteFromGraph,
               onPinChange: togglePin,
+              onFilterByTag: (name) => changePref('tags', toggleListItem(tagFilter, name)),
             }}
             controlsRef={controlsRef}
             stateRef={stateRef}

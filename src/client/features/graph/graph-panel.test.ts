@@ -1061,3 +1061,83 @@ describe('graph legend durability', () => {
     expect(legend?.textContent).toContain(t('graph.unresolved_legend'))
   })
 })
+
+describe('graph review hardening', () => {
+  it('keeps a pinned node pinned across a refetch', async () => {
+    await mount()
+    await takeRequest()
+    await pump(1)
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    await click(menuButtonByText(t('graph.pin'))!)
+    await pump(1)
+    const pinRing = 6.4 + 2.5
+    expect(arcRadii().some((radius) => Math.abs(radius - pinRing) < 0.01)).toBe(true)
+
+    await typeSearch('Note')
+    await takeRequest()
+    await pump(1)
+    expect(arcRadii().some((radius) => Math.abs(radius - pinRing) < 0.01)).toBe(true)
+  })
+
+  function tagNodeResponse(): GraphResponse {
+    const response = graphResponse(TITLES)
+    response.nodes.unshift({
+      id: 'tag:alpha',
+      title: 'alpha',
+      kind: 'tag',
+      degree: 4,
+      inDegree: 4,
+      outDegree: 0,
+      folderId: null,
+      folderName: null,
+      folderColor: null,
+      tags: [],
+    })
+    return response
+  }
+
+  async function mountWithTag(): Promise<CanvasNode> {
+    await mount()
+    await act(async () => {
+      pendingResolvers.shift()!(tagNodeResponse())
+    })
+    await pump(1)
+    const [x, y] = arcPositions()[0]!
+    const canvas = canvasNode()
+    firePointer(canvas, 'pointerdown', { clientX: x, clientY: y })
+    firePointer(canvas, 'pointerup', { clientX: x, clientY: y })
+    await act(async () => {})
+    return { x, y } as unknown as CanvasNode
+  }
+
+  it('filters by the tag rather than opening a tag node', async () => {
+    await mountWithTag()
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await act(async () => {})
+    expect(openNoteMock).not.toHaveBeenCalled()
+    expect(lastRequest().tags).toEqual(['alpha'])
+  })
+
+  it('offers the tag filter as the primary action for a tag node', async () => {
+    const point = await mountWithTag()
+    const canvas = canvasNode()
+    await act(async () => {
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }))
+    })
+    const menu = document.querySelector('[role="menu"]')!
+    const labels = [...menu.querySelectorAll('button')].map((node) => node.textContent?.trim())
+    expect(labels[0]).toBe(t('graph.filter_by_tag', { value: 'alpha' }))
+    expect(labels.some((label) => label?.includes(t('graph.create_note')))).toBe(false)
+    expect(labels.some((label) => label?.includes(t('graph.open_note')))).toBe(false)
+    void point
+  })
+})

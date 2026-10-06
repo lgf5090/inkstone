@@ -282,7 +282,7 @@ export const EN_US_MESSAGES = {
     "graph.folder": "Folder",
     "graph.forces": "Forces",
     "graph.global": "Global",
-    "graph.graph_canvas_accessible": "Graph canvas. Use arrow keys to select nodes, plus and minus to zoom, Enter to open, and Home to fit.",
+    "graph.graph_canvas_accessible": "Graph canvas. Use arrow keys to select nodes, plus and minus to zoom, Enter to open a note (or filter by tag on a tag node), and Home to fit.",
     "graph.group_by": "Color by",
     "graph.group_none": "No grouping",
     "graph.interaction_hint": "Drag to pan · Scroll or pinch to zoom · Double-click to open · Right-click or Menu key for more · Arrow keys to walk nodes",

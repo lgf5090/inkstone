@@ -82,6 +82,8 @@ export function GraphCanvas({
   contextReportRef.current = onContextNode
   const paintErrorRef = useRef(onPaintError)
   paintErrorRef.current = onPaintError
+  const pinnedIdsRef = useRef(pinnedIds)
+  pinnedIdsRef.current = pinnedIds
 
   const setSelected = useCallback((id: string | null) => {    if (selectedIdRef.current === id) return
     selectedIdRef.current = id
@@ -161,7 +163,7 @@ export function GraphCanvas({
       selectedIdRef.current = null
       selectReportRef.current?.(null)
     }
-    current.nodes = buildSceneNodes(data, prefsRef.current, carried, [])
+    current.nodes = buildSceneNodes(data, prefsRef.current, carried, pinnedIdsRef.current)
     current.edges = buildSceneEdges(data, current.nodes)
     current.needsFit = true
     current.frame = 0
@@ -385,7 +387,8 @@ export function GraphCanvas({
   }, [])
 
   const openNode = useCallback((node: CanvasNode) => {
-    if (node.kind === 'unresolved') callbacksRef.current.onCreateNote(node.title)
+    if (node.kind === 'tag') callbacksRef.current.onFilterByTag?.(node.title)
+    else if (node.kind === 'unresolved') callbacksRef.current.onCreateNote(node.title)
     else callbacksRef.current.onOpenNote(node.id)
   }, [])
 
