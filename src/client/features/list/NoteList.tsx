@@ -46,6 +46,7 @@ const VIEW_MESSAGE_KEYS: Record<ViewKind, MessageKey> = {
     recent: 'navigation.recently_edited',
     starred: 'navigation.favorites',
     unfiled: 'navigation.unfiled',
+  untagged: 'navigation.untagged',
     archived: 'navigation.archive',
     trash: 'navigation.trash',
     folder: 'navigation.folder',
@@ -716,6 +717,7 @@ function ListEmpty({ view, filtering }: {
         archived: { art: 'archive', title: t("notes.archive_is_empty"), desc: t("notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted") },
         trash: { art: 'trash', title: t("notes.trash_is_empty"), desc: t("notes.deleted_notes_remain_until_you_restore_or_clear_them") },
         folder: { art: 'folder', title: t("notes.this_folder_is_still_empty"), desc: t("notes.drag_notes_in_or_create_new_ones_here") },
+        untagged: { art: 'tag', title: t("notes.every_note_has_a_tag"), desc: t("notes.write_tags_in_the_note_to_link_them_automatically") },
         tag: { art: 'tag', title: t("notes.there_are_no_notes_with_this_tag"), desc: t("notes.write_tags_in_the_note_to_link_them_automatically") },
     };
     const item = config[view] ?? config.all!;

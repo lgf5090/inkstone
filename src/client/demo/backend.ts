@@ -152,6 +152,7 @@ export function createDemoBackend(): DemoBackend {
       if (view === 'archived') notes = notes.filter((note) => note.isArchived)
       if (view === 'folder') notes = notes.filter((note) => note.folderId === query.folderId)
       if (view === 'tag') notes = notes.filter((note) => note.tags.includes(query.tag ?? ''))
+      if (view === 'untagged') notes = notes.filter((note) => note.tags.length === 0)
       if (view === 'all' || view === 'recent') notes = notes.filter((note) => !note.isArchived)
     }
     const sort = query.sort ?? 'updated'

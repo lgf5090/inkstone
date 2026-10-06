@@ -2774,6 +2774,7 @@ export interface NavigationCounts {
     all: number;
     starred: number;
     unfiled: number;
+    untagged: number;
     archived: number;
     trash: number;
 }
@@ -2783,14 +2784,14 @@ interface NavigationProjection {
 }
 let navigationProjectionNotes: Record<string, NoteSummary> | null = null;
 let navigationProjectionCache: NavigationProjection = {
-    counts: { all: 0, starred: 0, unfiled: 0, archived: 0, trash: 0 },
+    counts: { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 },
     folderCounts: new Map(),
 };
 function selectNavigationProjection(notes: Record<string, NoteSummary>): NavigationProjection {
     if (notes === navigationProjectionNotes)
         return navigationProjectionCache;
     navigationProjectionNotes = notes;
-    const counts: NavigationCounts = { all: 0, starred: 0, unfiled: 0, archived: 0, trash: 0 };
+    const counts: NavigationCounts = { all: 0, starred: 0, unfiled: 0, untagged: 0, archived: 0, trash: 0 };
     const folderCounts = new Map<string, number>();
     for (const note of Object.values(notes)) {
         if (note.deletedAt) {
@@ -2810,6 +2811,8 @@ function selectNavigationProjection(notes: Record<string, NoteSummary>): Navigat
         else {
             folderCounts.set(note.folderId, (folderCounts.get(note.folderId) ?? 0) + 1);
         }
+        if (!note.tags.length)
+            counts.untagged++;
     }
     const stableCounts = navigationCountsEqual(navigationProjectionCache.counts, counts)
         ? navigationProjectionCache.counts
@@ -2828,6 +2831,7 @@ function navigationCountsEqual(a: NavigationCounts, b: NavigationCounts): boolea
     return a.all === b.all &&
         a.starred === b.starred &&
         a.unfiled === b.unfiled &&
+        a.untagged === b.untagged &&
         a.archived === b.archived &&
         a.trash === b.trash;
 }
@@ -2857,6 +2861,8 @@ function matchesView(note: NoteSummary, view: ViewKind, folderId: string | null,
             return note.isStarred;
         case 'unfiled':
             return !note.folderId;
+        case 'untagged':
+            return !note.tags.length;
         case 'folder':
             return Boolean(note.folderId && (folderScope?.has(note.folderId) ?? note.folderId === folderId));
         case 'tag':

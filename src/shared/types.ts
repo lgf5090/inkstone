@@ -229,6 +229,7 @@ export type ViewKind =
   | 'recent'
   | 'starred'
   | 'unfiled'
+  | 'untagged'
   | 'archived'
   | 'trash'
   | 'folder'

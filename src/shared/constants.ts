@@ -62,7 +62,7 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
   full: '100%',
 }
 
-export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'archived', 'trash', 'folder', 'tag']
+export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
 
 export const DEFAULT_SETTINGS: UserSettings = {
   appearance: {

@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronsUpDown, CornerDownRight, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, CornerDownRight, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Tag, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, searchTagTree } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton, SectionLabel } from '../../components/primitives';
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay';
-import { useNotes } from '../../store/notes';
+import { useNavigationCounts, useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 import { ManageTagsModal } from './ManageTagsModal';
@@ -17,6 +17,7 @@ const COLLAPSED_ROW_LIMIT = 12;
 
 export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const tags = useNotes((s) => s.tags);
+    const counts = useNavigationCounts();
     const view = useUi((s) => s.view);
     const listVisible = useUi((s) => !s.listCollapsed && !s.searchList);
     const activeTag = useUi((s) => s.tag);
@@ -125,6 +126,16 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
       </>)}
 
       <div ref={listRef} role="tree" aria-label={t('navigation.tag')} className="mt-0.5 space-y-px">
+        {!searching && tags.length > 0 && (<button data-navigation-item type="button" aria-current={view === 'untagged' ? 'page' : undefined} onClick={() => {
+                    setCursor(-1);
+                    openView('untagged');
+                }} className={cn('flex h-11 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[12.5px] font-medium transition-colors duration-[var(--dur-fast)] md:h-[30px]', view === 'untagged'
+                    ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+            <Tag size={13} className="shrink-0 text-[var(--text-quaternary)]"/>
+            <span className="min-w-0 flex-1 truncate">{t('navigation.untagged')}</span>
+            <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">{counts.untagged || ''}</span>
+          </button>)}
         {draftParent !== null && <TagDraftRow leaf={draftParent} onFinish={finishCreate} onCancel={() => setDraftParent(null)}/>}
         {!tags.length && draftParent === null && <button type="button" onClick={() => startDraft('')} className="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]">
             <Plus size={13}/>{t('tags.create_first')}
