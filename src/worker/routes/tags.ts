@@ -43,7 +43,7 @@ tagsRoutes.post('/', async (c) => {
   const name = body.name.trim().replace(/^#+/, '')
   if (!name) throw ApiError.badRequest('Tag name cannot be empty')
   if (name.length > LIMITS.tagNameMaxLength) throw ApiError.badRequest('Tag name is too long')
-  if (/[\s#]/.test(name)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
+  if (!isUsableTagName(name)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
   const id = body.id ?? newId()
   if (body.id) {
@@ -112,18 +112,20 @@ tagsRoutes.patch('/:id', async (c) => {
     const next = body.name.trim().replace(/^#+/, '')
     if (!next) throw ApiError.badRequest('Tag name cannot be empty')
     if (next.length > LIMITS.tagNameMaxLength) throw ApiError.badRequest('Tag name is too long')
-    if (/[\s#]/.test(next)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
+    if (!isUsableTagName(next)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
     if (next !== tag.name) {
-      const descendants = await c.env.DB.prepare(
-        `SELECT COUNT(*) AS total FROM tags
-          WHERE user_id = ?1 AND name LIKE ?2 COLLATE NOCASE ESCAPE '\\'`,
-      ).bind(userId, likePattern(`${tag.name}/`)).first<{ total: number }>()
-      if ((descendants?.total ?? 0) > 0) {
-        // A parent rename that leaves `a/x` behind would orphan the whole subtree, so the
-        // family moves together. Merging into an existing `next` is still allowed: the batch
-        // copies onto the destination row rather than refusing.
-        const plan = await planTagFamily(c.env.DB, userId, { id, name: tag.name }, next)
+      // The family snapshot doubles as the descendant probe: the root is always a step (next
+      // differs from its name), so more than one step means a subtree has to move with it.
+      // A parent rename that left `a/x` behind would orphan the whole subtree.
+      const plan = await planTagFamily(c.env.DB, userId, { id, name: tag.name }, next)
+      if (plan.length > 1) {
+        const overflow = plan.find((step) => step.to.length > LIMITS.tagNameMaxLength)
+        if (overflow) {
+          throw ApiError.badRequest(`Renaming this tag would push "${overflow.to}" past ${LIMITS.tagNameMaxLength} characters`)
+        }
+        // Merging into an existing `next` is still allowed: the batch copies onto the
+        // destination row rather than refusing.
         const applied = await applyTagFamily(c.env, c.get('database').ftsEnabled, userId, plan, color)
         await broadcastCursor(c)
         scheduleFtsDrain(c)
@@ -293,14 +295,30 @@ tagsRoutes.post('/:id/move', async (c) => {
   if (isWithin(destination, tag.name)) throw ApiError.badRequest('A tag cannot be moved inside itself')
 
   const plan = await planTagFamily(c.env.DB, userId, { id, name: tag.name }, destination)
+  const destinations = plan.map((step) => step.to)
+  const familyIds = new Set(plan.map((step) => step.id))
+  const rowsByName = new Map<string, string[]>()
+  // One IN query per ~90 names instead of two round trips per step; D1 caps bound variables
+  // well below what a long family can produce, and node:sqlite does not complain.
+  for (let start = 0; start < destinations.length; start += 90) {
+    const chunk = destinations.slice(start, start + 90)
+    const { results } = await c.env.DB.prepare(
+      `SELECT id, name FROM tags WHERE user_id = ?1
+        AND name COLLATE NOCASE IN (${chunk.map((_name, index) => `?${index + 2}`).join(', ')})`,
+    ).bind(userId, ...chunk).all<{ id: string; name: string }>()
+    for (const row of results) {
+      const key = tagKey(row.name)
+      const bucket = rowsByName.get(key)
+      if (bucket) bucket.push(row.id)
+      else rowsByName.set(key, [row.id])
+    }
+  }
   for (const step of plan) {
     if (step.to.length > LIMITS.tagNameMaxLength) {
       throw ApiError.badRequest(`Moving this tag would push "${step.to}" past ${LIMITS.tagNameMaxLength} characters`)
     }
-    const clash = await c.env.DB.prepare(
-      `SELECT id FROM tags WHERE user_id = ?1 AND name = ?2 COLLATE NOCASE LIMIT 1`,
-    ).bind(userId, step.to).first<{ id: string }>()
-    if (clash && !plan.some((candidate) => candidate.id === clash.id)) {
+    const rows = rowsByName.get(tagKey(step.to))
+    if (rows?.some((rowId) => !familyIds.has(rowId))) {
       throw ApiError.conflict(`A tag named "${step.to}" already exists`)
     }
   }
@@ -399,7 +417,9 @@ export async function planTagFamily(
  *
  * Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose
  * rollback is a no-op, so a later member failing cannot undo an earlier queued rename. That
- * converges to a partially moved family with a duplicate tag, never to lost text.
+ * converges to a partially moved family with a duplicate tag, never to lost text. A family
+ * large enough to need several batches has the same exposure inside the row pass: each batch
+ * is its own transaction, so a failure in a later one leaves the earlier ones applied.
  */
 export async function applyTagFamily(
   env: AppBindings['Bindings'],
@@ -459,9 +479,17 @@ export async function applyTagFamily(
     ]
   })
 
+  // Six statements per member, so a family of fourteen already outgrows the batch ceiling this
+  // repo respects elsewhere (MAX_BATCH_STATEMENTS in routes/folders.ts). Each chunk is its own
+  // transaction, so a late failure leaves the earlier chunk applied; note bodies still roll back.
+  const MAX_BATCH_STATEMENTS = 80
   let outcomes: D1Result[]
   try {
-    outcomes = await env.DB.batch(statements)
+    outcomes = []
+    for (let start = 0; start < statements.length; start += MAX_BATCH_STATEMENTS) {
+      const chunk = await env.DB.batch(statements.slice(start, start + MAX_BATCH_STATEMENTS))
+      outcomes.push(...chunk)
+    }
   } catch (error) {
     try {
       for (const rewrite of [...rewrites].reverse()) await rewrite.rollback()

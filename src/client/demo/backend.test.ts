@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDemoBackend } from './backend'
 import type { ListNotesResponse, SyncResponse, Tag } from '@shared/types'
+import { LIMITS } from '@shared/constants'
 import { tagInScope } from '@shared/markdown-utils'
 
 let backend: ReturnType<typeof createDemoBackend>
@@ -151,5 +152,51 @@ describe('demo rename cascades the subtree like the worker', () => {
     expect(names).toContain('search')
     expect(names).not.toContain('se')
     expect(names).not.toContain('sortarch')
+  })
+})
+
+describe('demo refuses the names the worker refuses', () => {
+  async function tagNames(): Promise<string[]> {
+    const body = await (await call('GET', '/api/tags')).json() as { tags: Tag[] }
+    return body.tags.map((tag) => tag.name).sort()
+  }
+
+  async function seedFamily(): Promise<string> {
+    await backend.fetch(new Request('http://localhost/api/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-inkstone-client': '1' },
+      body: JSON.stringify({ content: ['---', 'title: refusal', 'tags: [pro, pro/deep, pro/deep/eu]', '---', ''].join('\n') }),
+    }))
+    const body = await (await call('GET', '/api/tags')).json() as { tags: Tag[] }
+    return body.tags.find((tag) => tag.name === 'pro')!.id
+  }
+
+  it('rejects a separator in a created or renamed name', async () => {
+    const root = await seedFamily()
+    expect((await call('POST', '/api/tags', { name: 'a\uFF0Cb' })).status).toBe(400)
+    expect((await call('PATCH', `/api/tags/${root}`, { name: 'a;b' })).status).toBe(400)
+    const names = await tagNames()
+    expect(names).not.toContain('a\uFF0Cb')
+    expect(names).not.toContain('a;b')
+    expect(names).toContain('pro')
+  })
+
+  it('refuses a rename or move whose cascade would outgrow the name cap', async () => {
+    const root = await seedFamily()
+    expect((await call('PATCH', `/api/tags/${root}`, { name: 'j'.repeat(LIMITS.tagNameMaxLength) })).status).toBe(400)
+    const moved = await call('POST', `/api/tags/${root}/move`, { parent: 'p'.repeat(LIMITS.tagNameMaxLength - 4) })
+    expect(moved.status).toBe(400)
+  })
+
+  it('splits a full-width separated pair in frontmatter', async () => {
+    const created = await backend.fetch(new Request('http://localhost/api/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-inkstone-client': '1' },
+      body: JSON.stringify({ content: ['---', 'title: fold probe', 'tags: [getting-started\uFF0CInkstone]', '---', ''].join('\n') }),
+    }))
+    const note = await created.json() as { id: string }
+    const loaded = await backend.fetch(new Request(`http://localhost/api/notes/${note.id}`))
+    const body = await loaded.json() as { tags: string[] }
+    expect(body.tags).toEqual(['getting-started', 'Inkstone'])
   })
 })

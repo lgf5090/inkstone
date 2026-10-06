@@ -445,20 +445,31 @@ export function tagInScope(tagName: string, scope: string): boolean {
 }
 
 export function notesCarryEveryTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
-  const wants = scopes.map(tagKey)
-  return wants.every((want) => tagLists.some((name) => keyInScope(tagKey(name), want)))
+  const wants = cachedKeys(scopes)
+  const tags = cachedKeys(tagLists)
+  return wants.every((want) => tags.some((tag) => keyInScope(tag, want)))
 }
 
 export function notesCarryAnyTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
-  const wants = scopes.map(tagKey)
-  return wants.some((want) => tagLists.some((name) => keyInScope(tagKey(name), want)))
+  const wants = cachedKeys(scopes)
+  const tags = cachedKeys(tagLists)
+  return wants.some((want) => tags.some((tag) => keyInScope(tag, want)))
+}
+
+function cachedKeys(names: readonly string[]): string[] {
+  const out: string[] = []
+  for (const name of names) {
+    const key = tagKey(name)
+    if (!out.includes(key)) out.push(key)
+  }
+  return out
 }
 
 export function extractTags(content: string): string[] {
   const frontMatter = parseFrontMatter(content)
   const out = new Map<string, string>()
   const add = (value: string) => {
-    const key = value.normalize('NFKC').toLocaleLowerCase()
+    const key = tagKey(value)
     if (!out.has(key)) out.set(key, value)
   }
   for (const tag of frontMatterTags(frontMatter.data)) {

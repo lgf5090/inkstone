@@ -854,4 +854,14 @@ describe('excluded tag filters', () => {
         expect(await visible()).toEqual(['fun', 'meeting', 'plain', 'work']);
     });
 
+    it('folds width and case variants onto one filter entry', async () => {
+        const wide = '\uFF37\uFF2F\uFF32\uFF2B';
+        useUi.getState().toggleTagExclusion(wide);
+        expect(useUi.getState().excludedTags).toEqual([wide]);
+        expect(await visible()).toEqual(['fun', 'plain']);
+        useUi.getState().toggleTagExclusion('work');
+        expect(useUi.getState().excludedTags).toEqual([]);
+        expect(await visible()).toEqual(['fun', 'meeting', 'plain', 'work']);
+    });
+
 });

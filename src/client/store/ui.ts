@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
 import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
+import { tagKey } from '@shared/markdown-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
 
 
@@ -276,6 +277,19 @@ function tagFilter(value: readonly unknown[]): string[] {
   return uniqueStrings(names, LIMITS.tagFilterMax)
 }
 
+// Tag identity is tagKey-folded everywhere else (facets, subtree matching, the worker's
+// `COLLATE NOCASE`), so a filter list has to compare names the same way: a width- or
+// case-variant would otherwise occupy two slots that match exactly the same notes.
+function hasTag(list: readonly string[], name: string): boolean {
+  const key = tagKey(name)
+  return list.some((item) => tagKey(item) === key)
+}
+
+function dropTag(list: readonly string[], name: string): string[] {
+  const key = tagKey(name)
+  return list.filter((item) => tagKey(item) !== key)
+}
+
 function isChoice(value: unknown, choices: readonly string[]): value is string {
   return typeof value === 'string' && choices.includes(value)
 }
@@ -472,11 +486,8 @@ export const useUi = create<UiState>((set, get) => ({
   toggleTagExclusion: (tag) => set((s) => {
     const name = tag.trim()
     if (!name) return {}
-    const wasExcluded = s.excludedTags.some((item) => item.toLowerCase() === name.toLowerCase())
-    const excludedTags = wasExcluded
-      ? s.excludedTags.filter((item) => item.toLowerCase() !== name.toLowerCase())
-      : tagFilter([...s.excludedTags, name])
-    const tags = tagFilter(s.tags.filter((item) => item.toLowerCase() !== name.toLowerCase()))
+    const excludedTags = hasTag(s.excludedTags, name) ? dropTag(s.excludedTags, name) : tagFilter([...s.excludedTags, name])
+    const tags = tagFilter(dropTag(s.tags, name))
     return { excludedTags, tags, view: tags.length ? 'tag' : s.view === 'tag' ? 'all' : s.view }
   }),
 
@@ -484,10 +495,7 @@ export const useUi = create<UiState>((set, get) => ({
     const name = tag.trim()
     if (!name) return {}
     if (!additive) return { view: 'tag', tags: [name], selectedIds: [] }
-    const removing = s.tags.some((item) => item.toLowerCase() === name.toLowerCase())
-    const tags = removing
-      ? s.tags.filter((item) => item.toLowerCase() !== name.toLowerCase())
-      : tagFilter([...s.tags, name])
+    const tags = hasTag(s.tags, name) ? dropTag(s.tags, name) : tagFilter([...s.tags, name])
     return { view: tags.length ? 'tag' : 'all', tags, selectedIds: [] }
   }),
 

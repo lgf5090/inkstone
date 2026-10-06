@@ -8,6 +8,7 @@ import {
   deriveTitle,
   extractAttachmentIds,
   extractWikiLinks,
+  isUsableTagName,
   normalizeLinkKey,
   notesCarryAnyTag,
   notesCarryEveryTag,
@@ -483,7 +484,7 @@ export function createDemoBackend(): DemoBackend {
     const existingById = requestedId ? listTags(state).find((tag) => tag.id === requestedId) : null
     if (existingById) return c.json(existingById)
     const name = typeof body.name === 'string' ? body.name.trim().replace(/^#+/, '') : ''
-    if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) {
+    if (!name || !isUsableTagName(name) || name.length > LIMITS.tagNameMaxLength) {
       return apiError(400, 'bad_request', 'Tag name is invalid')
     }
     const existing = listTags(state).find((tag) =>
@@ -510,6 +511,7 @@ export function createDemoBackend(): DemoBackend {
     }
     if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== current.name) {
       const requestedName = body.name.trim().replace(/^#/, '')
+      if (!isUsableTagName(requestedName)) return apiError(400, 'bad_request', 'Tag name is invalid')
       const existing = listTags(state).find((tag) => tag.id !== current.id
         && tag.name.localeCompare(requestedName, undefined, { sensitivity: 'base' }) === 0)
       const nextName = existing?.name ?? requestedName
@@ -523,6 +525,9 @@ export function createDemoBackend(): DemoBackend {
       const remapped = (name: string): string => name.toLocaleLowerCase() === current.name.toLocaleLowerCase()
         ? nextName
         : nextName + name.slice(sourcePrefix.length - 1)
+      if (family.some((member) => remapped(member.name).length > LIMITS.tagNameMaxLength)) {
+        return apiError(400, 'bad_request', 'Renaming this tag would make a descendant name too long')
+      }
       let renamed = 0
       for (const member of family) {
         const target = remapped(member.name)
@@ -561,7 +566,7 @@ export function createDemoBackend(): DemoBackend {
       return apiError(400, 'bad_request', 'parent must be a string or null')
     }
     const parent = body.parent === null ? '' : body.parent.trim().replace(/^#+/, '')
-    if (body.parent !== null && (!parent || /[\s#]/.test(parent))) {
+    if (body.parent !== null && (!parent || !isUsableTagName(parent))) {
       return apiError(400, 'bad_request', 'parent is not a valid tag path')
     }
     const leaf = current.name.split('/').filter(Boolean).at(-1) ?? current.name
@@ -583,6 +588,9 @@ export function createDemoBackend(): DemoBackend {
       .filter((tag) => !family.some((member) => member.id === tag.id))
       .map((tag) => tag.name.toLocaleLowerCase()))
     for (const member of family) {
+      if (remap(member.name).length > LIMITS.tagNameMaxLength) {
+        return apiError(400, 'bad_request', 'Moving this tag would make a descendant name too long')
+      }
       if (outsiders.has(remap(member.name).toLocaleLowerCase())) {
         return apiError(409, 'conflict', `A tag named "${remap(member.name)}" already exists`)
       }

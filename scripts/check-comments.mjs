@@ -417,6 +417,9 @@ const allowed = new Map([
     "// localStorage write the 220 ms debounce already coalesces, so serialization waits too.",
     "/** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */",
     "/** Tags hidden from every view, matched subtree-wide exactly like `tags`. */",
+    "// Tag identity is tagKey-folded everywhere else (facets, subtree matching, the worker's",
+    "// `COLLATE NOCASE`), so a filter list has to compare names the same way: a width- or",
+    "// case-variant would otherwise occupy two slots that match exactly the same notes.",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -746,11 +749,18 @@ const allowed = new Map([
   ["src/worker/routes/tags.ts", [
     "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
     "// the isolate before the first write happens.",
-    "// A parent rename that leaves `a/x` behind would orphan the whole subtree, so the",
-    "// family moves together. Merging into an existing `next` is still allowed: the batch",
-    "// copies onto the destination row rather than refusing.",
     "/**\n * The tag plus every descendant, deepest name first, each mapped onto `destination`. The `/` in\n * the LIKE pattern is load-bearing: without that boundary `a` would claim the unrelated sibling\n * `ab` and rewrite every `#ab` in the library. The family is snapshotted before anything is\n * written so each step only ever sees the exact name it was asked about.\n */",
-    "/**\n * Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source tag\n * row, so that row has to still exist. The derived pass then creates the destination rows from\n * the rewritten content, which is why the batch copies onto them instead of renaming in place\n * (an UPDATE would hit idx_tags_unique).\n *\n * Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose\n * rollback is a no-op, so a later member failing cannot undo an earlier queued rename. That\n * converges to a partially moved family with a duplicate tag, never to lost text.\n */",
+    "// The family snapshot doubles as the descendant probe: the root is always a step (next",
+    "// differs from its name), so more than one step means a subtree has to move with it.",
+    "// A parent rename that left `a/x` behind would orphan the whole subtree.",
+    "// Merging into an existing `next` is still allowed: the batch copies onto the",
+    "// destination row rather than refusing.",
+    "// One IN query per ~90 names instead of two round trips per step; D1 caps bound variables",
+    "// well below what a long family can produce, and node:sqlite does not complain.",
+    "/**\n * Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source tag\n * row, so that row has to still exist. The derived pass then creates the destination rows from\n * the rewritten content, which is why the batch copies onto them instead of renaming in place\n * (an UPDATE would hit idx_tags_unique).\n *\n * Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose\n * rollback is a no-op, so a later member failing cannot undo an earlier queued rename. That\n * converges to a partially moved family with a duplicate tag, never to lost text. A family\n * large enough to need several batches has the same exposure inside the row pass: each batch\n * is its own transaction, so a failure in a later one leaves the earlier ones applied.\n */",
+    "// Six statements per member, so a family of fourteen already outgrows the batch ceiling this",
+    "// repo respects elsewhere (MAX_BATCH_STATEMENTS in routes/folders.ts). Each chunk is its own",
+    "// transaction, so a late failure leaves the earlier chunk applied; note bodies still roll back.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",
@@ -881,6 +891,10 @@ const allowed = new Map([
     "// Every delta assertion therefore needs a change row behind it to stay on the delta branch.",
     "// Fill the first page past syncBatchSize with tag rows (cheap to serve) plus one note row, so",
     "// the assertion is about the paging rule rather than about loading five hundred bodies.",
+  ]],
+  ["tests/tag-move-route.test.ts", [
+    "// Six statements per family member, so fifteen of them are ninety. node:sqlite runs a batch",
+    "// of any size, so only counting the calls here can catch an unchunked one.",
   ]],
   ["tests/throttle-lock-decay.test.ts", [
     "// The per-slug global work budget from shareVerifyThrottleTargets: 60 attempts per ten",

@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { LIMITS } from '../src/shared/constants'
 import { extractTags } from '../src/shared/markdown-utils'
 import { errorResponse } from '../src/worker/lib/errors'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
@@ -171,6 +172,40 @@ describe('moving a tag between levels', () => {
     expect(extractTags(content('b'))).toEqual(['inbox/topic/deep'])
   })
 
+  it('splits a long family into batches no bigger than the ceiling used elsewhere', async () => {
+    // Six statements per family member, so fifteen of them are ninety. node:sqlite runs a batch
+    // of any size, so only counting the calls here can catch an unchunked one.
+    let deepest = 0
+    let total = 0
+    const inner = env.DB
+    env = {
+      DB: {
+        ...inner,
+        batch: async (statements: unknown[]) => {
+          deepest = Math.max(deepest, statements.length)
+          total += statements.length
+          return inner.batch(statements as never[])
+        },
+      } as unknown as D1Database,
+    }
+    let chain = 'topic'
+    const chainNames = [chain]
+    const root = tag(chain)
+    for (let level = 2; level <= 15; level++) {
+      chain = `${chain}/n${level}`
+      chainNames.push(chain)
+      tag(chain)
+    }
+    tag('inbox')
+
+    const response = await json<{ ok: true; moved: number }>(await move(root, 'inbox'))
+    expect(response.moved).toBe(15)
+    expect(total).toBe(15 * 6)
+    expect(deepest).toBeLessThanOrEqual(80)
+    expect(deepest).toBeGreaterThan(0)
+    expect(await names()).toEqual(['inbox', ...chainNames.map((name) => `inbox/${name}`)].sort())
+  })
+
   it('lifts a nested tag back to the top level', async () => {
     const nested = tag('work/meeting')
     tag('work')
@@ -232,11 +267,46 @@ describe('moving a tag between levels', () => {
     expect(after.n - before.n).toBe(4)
   })
 
+  it('refuses a case-variant of a name outside the family', async () => {
+    const root = tag('topic')
+    tag('topic/deep')
+    tag('Inbox')
+    tag('Inbox/Topic')
+    const response = await move(root, 'inbox')
+    expect(response.status).toBe(409)
+    expect(await names()).toEqual(['Inbox', 'Inbox/Topic', 'topic', 'topic/deep'])
+  })
+
+  it('refuses a move whose cascade would outgrow the name cap', async () => {
+    const root = tag('topic')
+    tag('topic/deep')
+    const response = await move(root, 'p'.repeat(LIMITS.tagNameMaxLength - 4))
+    expect(response.status).toBe(400)
+    expect(await names()).toEqual(['topic', 'topic/deep'])
+  })
+
   it('rejects a malformed parent', async () => {
     const leaf = tag('topic')
     expect((await move(leaf, 'a b')).status).toBe(400)
     expect((await call('POST', `/api/tags/${leaf}/move`, { parent: '' })).status).toBe(400)
     expect((await call('POST', `/api/tags/${leaf}/move`, {})).status).toBe(400)
     expect((await call('POST', '/api/tags/nope/move', { parent: 'x' })).status).toBe(404)
+  })
+})
+
+describe('refusing names the library cannot carry', () => {
+  it('stops a rename whose cascade would outgrow the name cap', async () => {
+    const root = tag('work')
+    tag('work/meeting')
+    const response = await call('PATCH', `/api/tags/${root}`, { name: 'j'.repeat(LIMITS.tagNameMaxLength) })
+    expect(response.status).toBe(400)
+    expect(await names()).toEqual(['work', 'work/meeting'])
+  })
+
+  it('rejects a separator in a created or renamed name', async () => {
+    const root = tag('work')
+    expect((await call('POST', '/api/tags', { name: 'a\uFF0Cb' })).status).toBe(400)
+    expect((await call('PATCH', `/api/tags/${root}`, { name: 'a;b' })).status).toBe(400)
+    expect(await names()).toEqual(['work'])
   })
 })
