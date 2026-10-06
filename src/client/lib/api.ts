@@ -9,6 +9,8 @@ import type {
   BackupTargetInput,
   BackupTargetPatchInput,
   Backlink,
+  CommunityTemplate,
+  CommunityTemplateInput,
   Folder,
   GraphResponse,
   ImportResult,
@@ -456,6 +458,16 @@ export const api = {
         return settings
       }),
     stats: () => request<Record<string, number>>('/api/settings/stats'),
+  },
+
+  communityTemplates: {
+    list: (before?: string) =>
+      request<{ templates: CommunityTemplate[]; hasMore: boolean; nextCursor: string | null }>(
+        `/api/templates/community${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+      ),
+    publish: (body: CommunityTemplateInput) =>
+      request<{ template: CommunityTemplate }>('/api/templates/community', { method: 'POST', body }),
+    remove: (id: string) => request<{ ok: true }>(`/api/templates/community/${id}`, { method: 'DELETE' }),
   },
 
   mcp: {

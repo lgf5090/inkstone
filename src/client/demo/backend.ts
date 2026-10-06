@@ -25,6 +25,7 @@ import type {
   BackupTargetConfig,
   BackupTargetInput,
   BackupTargetPatchInput,
+  CommunityTemplate,
   ExportAttachment,
   ExportBundle,
   Folder,
@@ -886,6 +887,60 @@ export function createDemoBackend(): DemoBackend {
   app.put('/api/settings', async (c) => {
     state.settings = mergeSettingsPatch(state.settings, await jsonBody(c.req.raw))
     return c.json(state.settings)
+  })
+  app.get('/api/templates/community', (c) => {
+    const limit = Math.min(
+      LIMITS.communityTemplatesPageSizeMax,
+      Math.max(1, Math.trunc(Number(c.req.query('limit')) || 50)),
+    )
+    const sorted = [...state.communityTemplates].sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? -1 : 1))
+    const page = sorted.slice(0, limit)
+    const last = page[page.length - 1]
+    return c.json({
+      templates: page,
+      hasMore: sorted.length > limit,
+      nextCursor: sorted.length > limit && last ? `${last.createdAt}_${last.id}` : null,
+    })
+  })
+  app.post('/api/templates/community', async (c) => {
+    const body = await jsonBody(c.req.raw)
+    if (typeof body.name !== 'string' || !body.name.trim() || typeof body.content !== 'string' || !body.content.trim())
+      return apiError(400, 'bad_request', 'name and content are required')
+    if (utf8ByteLength(body.content) > LIMITS.communityTemplateContentMaxLength)
+      return apiError(400, 'bad_request', `content must stay within ${LIMITS.communityTemplateContentMaxLength} bytes`)
+    const id = typeof body.id === 'string' ? body.id : newDemoId()
+    const existing = state.communityTemplates.find((item) => item.id === id)
+    if (existing && existing.authorId !== state.user.id)
+      return apiError(403, 'forbidden', 'Only the author can update a published template')
+    if (!existing && state.communityTemplates.length >= LIMITS.communityTemplatesMaxPerUser)
+      return apiError(403, 'forbidden', `This account has already published ${LIMITS.communityTemplatesMaxPerUser} templates`)
+    const tags = Array.isArray(body.tags)
+      ? body.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 8)
+      : []
+    const template: CommunityTemplate = {
+      id,
+      authorId: state.user.id,
+      authorName: state.user.name || 'Inkstone',
+      name: body.name.trim().slice(0, LIMITS.titleMaxLength),
+      description: typeof body.description === 'string' ? body.description.slice(0, 240) : '',
+      content: body.content,
+      tags: tags.map((tag) => tag.trim().slice(0, 30)).filter(Boolean),
+      category: typeof body.category === 'string' ? body.category.slice(0, 120) : '',
+      createdAt: existing?.createdAt ?? Date.now(),
+    }
+    const index = state.communityTemplates.findIndex((item) => item.id === id)
+    if (index >= 0) state.communityTemplates[index] = template
+    else state.communityTemplates.push(template)
+    return c.json({ template })
+  })
+  app.delete('/api/templates/community/:id', (c) => {
+    const id = c.req.param('id')
+    const existing = state.communityTemplates.find((item) => item.id === id)
+    if (!existing) return apiError(404, 'not_found', 'Community template not found')
+    if (existing.authorId !== state.user.id)
+      return apiError(403, 'forbidden', 'Only the author can unpublish a template')
+    state.communityTemplates = state.communityTemplates.filter((item) => item.id !== id)
+    return c.json({ ok: true as const })
   })
   app.get('/api/settings/stats', (c) => {
     const tags = listTags(state)

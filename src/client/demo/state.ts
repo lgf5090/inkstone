@@ -6,6 +6,7 @@ import type {
   Attachment,
   BackupRun,
   BackupTarget,
+  CommunityTemplate,
   Folder,
   Note,
   NoteSummary,
@@ -43,6 +44,7 @@ export interface DemoState {
   shares: Map<string, DemoShare>
   backupTargets: Map<string, BackupTarget>
   backupRuns: BackupRun[]
+  communityTemplates: CommunityTemplate[]
 }
 
 const seedId = (value: number) => `01j${String(value).padStart(23, '0')}`
@@ -101,6 +103,7 @@ export function createDemoState(): DemoState {
     shares: new Map([[welcomeShare.noteId, { info: welcomeShare, password: null }]]),
     backupTargets: new Map(),
     backupRuns: [],
+    communityTemplates: [],
   }
 }
 

@@ -353,6 +353,21 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_fts_index_queue_due
      ON fts_index_queue(user_id, created_at, note_id)`,
+  `CREATE TABLE IF NOT EXISTS community_templates (
+    id TEXT PRIMARY KEY,
+    author_id TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    category TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_community_templates_created
+     ON community_templates(created_at DESC, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_community_templates_author
+     ON community_templates(author_id)`,
 ]
 
 interface SchemaMigration {
@@ -636,9 +651,25 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 25,
-    statements: [`ALTER TABLE tags ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0`],
-    skipIfColumnExists: { table: 'tags', column: 'is_pinned' },
+    // The shared template directory: one row per published template, listed newest first.
+    version: 26,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS community_templates (
+         id TEXT PRIMARY KEY,
+         author_id TEXT NOT NULL,
+         author_name TEXT NOT NULL,
+         name TEXT NOT NULL,
+         description TEXT NOT NULL DEFAULT '',
+         content TEXT NOT NULL,
+         tags TEXT NOT NULL DEFAULT '[]',
+         category TEXT NOT NULL DEFAULT '',
+         created_at INTEGER NOT NULL
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_community_templates_created
+         ON community_templates(created_at DESC, id)`,
+      `CREATE INDEX IF NOT EXISTS idx_community_templates_author
+         ON community_templates(author_id)`,
+    ],
   },
 ]
 
@@ -690,6 +721,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at', 'attempts', 'next_retry_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
+  community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'created_at'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -723,6 +755,7 @@ const REQUIRED_TABLES = [
   'ai_index_queue',
   'fts_index_queue',
   'rewrite_queue',
+  'community_templates',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -774,6 +807,8 @@ const REQUIRED_INDEXES = [
   'idx_notes_user_pinned_created',
   'idx_notes_user_pinned_title',
   'idx_attachments_user_size',
+  'idx_community_templates_created',
+  'idx_community_templates_author',
 ] as const
 
 
