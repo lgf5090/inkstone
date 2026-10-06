@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 interface LineToken {
   type: 'code' | 'string' | 'comment' | 'regex'
@@ -319,7 +319,7 @@ export function formatCStyle(code: string, tabSize: number): string {
     const startsClose = /^[}\])]/.test(formatted);
     const lineIndent = startsClose ? Math.max(0, depth - 1) : depth;
 
-    result.push(`${indent.repeat(lineIndent)}${formatted}`);
+    result.push(`${padAt(indent, lineIndent)}${formatted}`);
     depth = Math.max(0, depth + counts.open - counts.close);
   }
 

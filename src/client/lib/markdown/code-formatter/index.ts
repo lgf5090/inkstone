@@ -99,6 +99,7 @@ export function formatCodeResult(code: string, language: string, options: Format
   }
 
   if (!formatted.trim() || formatted === code) return { ok: false, text: code, reason: 'unchanged' };
+  if (formatted.length > CODE_FORMAT_LIMIT_BYTES) return { ok: false, text: code, reason: 'too-large' };
   return { ok: true, text: formatted };
 }
 

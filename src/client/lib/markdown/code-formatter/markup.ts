@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 const VOID_TAGS = new Set([
   'area',
@@ -89,7 +89,7 @@ function tokenizeTags(text: string): string[] {
 function formatTokenStream(tokens: string[], indent: string, isHtml: boolean): string {
   const lines: string[] = [];
   const stack: string[] = [];
-  const pad = (level: number): string => indent.repeat(Math.max(0, level));
+  const pad = (level: number): string => padAt(indent, Math.max(0, level));
 
   for (const token of tokens) {
     if (token.startsWith('</')) {

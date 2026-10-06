@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 const DOCKER_INSTRUCTIONS = new Set([
   'FROM',
@@ -93,7 +93,7 @@ export function formatShell(code: string, tabSize: number): string {
     const isDedent = /^(elif\b|else\b|fi\b|done\b|esac\b|\}|;;)/.test(clean);
     const currentIndent = isDedent ? Math.max(0, depth - 1) : depth;
 
-    result.push(`${indent.repeat(currentIndent)}${trimmed}`);
+    result.push(`${padAt(indent, currentIndent)}${trimmed}`);
 
     const opens = /(?:^|[;&)]\s*)(then|do)$/.test(clean) || /\{\s*$/.test(clean) || /\bcase\b.*\bin\s*$/.test(clean);
     const closes = /^(fi\b|done\b|esac\b|\}|;;)/.test(clean);
@@ -130,12 +130,12 @@ export function formatLua(code: string, tabSize: number): string {
     const masked = maskQuoted(trimmed);
     const clean = masked.replace(/--(?!\[)[^\r\n]*/g, '').trim();
     if (!clean) {
-      result.push(`${indent.repeat(depth)}${trimmed}`);
+      result.push(`${padAt(indent, depth)}${trimmed}`);
       continue;
     }
 
     const isDedent = /^(end\b|until\b|else\b|elseif\b|[}\]])/.test(clean);
-    result.push(`${indent.repeat(isDedent ? Math.max(0, depth - 1) : depth)}${trimmed}`);
+    result.push(`${padAt(indent, isDedent ? Math.max(0, depth - 1) : depth)}${trimmed}`);
 
     const { opens, closes } = luaDelta(clean);
     depth = Math.max(0, depth + opens - closes);
@@ -170,12 +170,12 @@ export function formatRuby(code: string, tabSize: number): string {
     const masked = maskQuoted(trimmed);
     const clean = masked.replace(/#[^\r\n]*/g, '').trim();
     if (!clean) {
-      result.push(`${indent.repeat(depth)}${trimmed}`);
+      result.push(`${padAt(indent, depth)}${trimmed}`);
       continue;
     }
 
     const isDedent = /^(end\b|else\b|elsif\b|when\b|rescue\b|ensure\b|[}\]])/.test(clean);
-    result.push(`${indent.repeat(isDedent ? Math.max(0, depth - 1) : depth)}${trimmed}`);
+    result.push(`${padAt(indent, isDedent ? Math.max(0, depth - 1) : depth)}${trimmed}`);
 
     const { opens, closes } = rubyDelta(clean);
     depth = Math.max(0, depth + opens - closes);
@@ -198,7 +198,7 @@ export function formatNginx(code: string, tabSize: number): string {
 
     const masked = maskQuoted(trimmed);
     const startsWithClose = masked.startsWith('}');
-    result.push(`${indent.repeat(startsWithClose ? Math.max(0, depth - 1) : depth)}${trimmed}`);
+    result.push(`${padAt(indent, startsWithClose ? Math.max(0, depth - 1) : depth)}${trimmed}`);
 
     depth = Math.max(0, depth + countMatches(masked, /{/g) - countMatches(masked, /}/g));
   }

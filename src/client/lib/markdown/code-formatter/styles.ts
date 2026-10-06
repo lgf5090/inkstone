@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 const PH_HEAD = '__inkstone_css_';
 const PH_TAIL = '__';
@@ -85,10 +85,10 @@ export function formatStyles(code: string, tabSize: number): string {
 
     if (rule) {
       const selector = spaceBeforeBraces(`${rule[1]!.trimEnd()} {`);
-      result.push(`${indent.repeat(depth)}${restoreLiterals(selector, blocks)}`);
+      result.push(`${padAt(indent, depth)}${restoreLiterals(selector, blocks)}`);
       const body = spaceDeclarations(rule[2]!.trim(), rule[2]!.trim().endsWith(';'));
-      result.push(`${indent.repeat(depth + 1)}${restoreLiterals(body, blocks)}`);
-      result.push(`${indent.repeat(depth)}${restoreLiterals('}', blocks)}`);
+      result.push(`${padAt(indent, depth + 1)}${restoreLiterals(body, blocks)}`);
+      result.push(`${padAt(indent, depth)}${restoreLiterals('}', blocks)}`);
       continue;
     }
 
@@ -99,7 +99,7 @@ export function formatStyles(code: string, tabSize: number): string {
     processed = spaceBeforeBraces(processed);
 
     const currentIndent = processed.startsWith('}') ? Math.max(0, depth - 1) : depth;
-    result.push(`${indent.repeat(currentIndent)}${restoreLiterals(processed, blocks)}`);
+    result.push(`${padAt(indent, currentIndent)}${restoreLiterals(processed, blocks)}`);
     depth = Math.max(0, depth + braceDelta(processed));
   }
 

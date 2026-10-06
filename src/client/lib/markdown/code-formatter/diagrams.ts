@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 const MERMAID_HEADERS = new Set([
   'graph',
@@ -57,14 +57,14 @@ export function formatMermaid(code: string, tabSize: number): string {
     }
 
     if (trimmed.startsWith('%%')) {
-      result.push(`${indent.repeat(Math.max(0, depth))}${trimmed}`);
+      result.push(`${padAt(indent, Math.max(0, depth))}${trimmed}`);
       continue;
     }
 
     const isClose = MERMAID_BRANCH_CLOSE.test(trimmed);
     const isBranch = MERMAID_BRANCH.test(trimmed);
     const level = isClose || isBranch ? Math.max(0, depth - 1) : depth;
-    result.push(`${indent.repeat(level)}${trimmed}`);
+    result.push(`${padAt(indent, level)}${trimmed}`);
 
     const opens = isBranch || MERMAID_BLOCK_OPEN.test(trimmed) || /\{\s*$/.test(trimmed);
     if (isClose) depth = Math.max(0, depth - 1);

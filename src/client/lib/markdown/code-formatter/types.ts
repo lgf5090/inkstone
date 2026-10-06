@@ -155,3 +155,15 @@ export function clampIndent(tabSize: number): number {
 export function indentOf(tabSize: number): string {
   return ' '.repeat(clampIndent(tabSize))
 }
+
+/**
+ * How deep a formatter will indent. Nesting depth is the one number a note can grow without bound while
+ * its byte size stays small — a thousand `<div>` with nothing between them is eleven kilobytes — and an
+ * indent per level makes the output grow with the square of it. Real documents stop nesting long before
+ * this, so the cap is invisible on anything a person wrote and keeps one press from asking for megabytes.
+ */
+export const MAX_INDENT_LEVEL = 24
+
+export function padAt(indent: string, level: number): string {
+  return indent.repeat(Math.min(MAX_INDENT_LEVEL, Math.max(0, level)))
+}

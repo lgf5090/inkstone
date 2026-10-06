@@ -373,6 +373,23 @@ describe('formatCode - block languages and fallbacks', () => {
 });
 
 describe('formatCodeResult - reporting and guards', () => {
+  it('caps how deep indentation may go so a small body cannot become a huge one', () => {
+    const nested = '<div>'.repeat(1000) + 'x' + '</div>'.repeat(1000);
+    const result = formatCodeResult(nested, 'html', { tabSize: 2 });
+    expect(result.ok).toBe(true);
+    expect(result.text.length).toBeLessThan(nested.length * 12);
+    const deepest = Math.max(...result.text.split('\n').map((line) => line.length - line.trimStart().length));
+    expect(deepest).toBe(24 * 2);
+  });
+
+  it('declines a result that outgrew the ceiling even though the body fitted it', () => {
+    const wide = `{"a":${'['.repeat(9000)}1${']'.repeat(9000)}}`;
+    const result = formatCodeResult(wide, 'json', { tabSize: 2 });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('too-large');
+    expect(result.text).toBe(wide);
+  });
+
   it('reports an unchanged body rather than pretending it formatted', () => {
     const result = formatCodeResult('const a = 1', 'javascript', { tabSize: 2 });
     expect(result.ok).toBe(false);

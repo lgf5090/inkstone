@@ -939,6 +939,9 @@ const allowed = new Map([
   ["src/client/lib/markdown/code-formatter/markup.ts", [
     "/**\n * Placeholders come back out in one pass with a function replacer. A string replacement would read `$&` and\n * `$1` inside the restored text as patterns — a script body holding `\"$&\"` would be rewritten with a copy of\n * the placeholder — and a loop over the blocks would let a literal that *mentions* a later placeholder have\n * it substituted by that later pass.\n */",
   ]],
+  ["src/client/lib/markdown/code-formatter/types.ts", [
+    "/**\n * How deep a formatter will indent. Nesting depth is the one number a note can grow without bound while\n * its byte size stays small — a thousand `<div>` with nothing between them is eleven kilobytes — and an\n * indent per level makes the output grow with the square of it. Real documents stop nesting long before\n * this, so the cap is invisible on anything a person wrote and keeps one press from asking for megabytes.\n */",
+  ]],
   ["src/client/lib/markdown/colon-fence.ts", [
     "/**\n * The one reading of `:::` fences that both halves of the family have to agree on.\n *\n * The renderer scans markdown-it's line index while a settings toolbar scans the note's raw text, and\n * the two fail identically if each keeps its own copy of the rule: a line inside a ``` fence is text,\n * a `::: word` opens a container however the author spaced it, and a bare `::` separates columns only\n * when it is not inside a container that owns it. Every one of those judgements lives here and is\n * reached through a line reader, so a container can never be split one way on screen and another way\n * when a toolbar edits its header.\n */",
     "/** The slice of a markdown-it block state this module needs; kept structural so tests can fake it. */",

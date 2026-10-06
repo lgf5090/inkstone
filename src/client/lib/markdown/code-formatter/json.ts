@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 type TokenKind = 'open' | 'close' | 'comma' | 'colon' | 'value' | 'comment'
 
@@ -160,7 +160,7 @@ class JsonPrinter {
   }
 
   private pad(): string {
-    return this.indent.repeat(Math.max(0, this.stack.length));
+    return padAt(this.indent, this.stack.length);
   }
 
   private endLine(): void {

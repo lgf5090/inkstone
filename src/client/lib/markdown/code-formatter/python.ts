@@ -1,4 +1,4 @@
-import { indentOf } from './types';
+import { indentOf, padAt } from './types';
 
 interface PyToken {
   type: 'code' | 'string' | 'comment'
@@ -116,7 +116,7 @@ function formatWithExistingIndent(rawLines: string[], base: number, indent: stri
     }
     const origin = rawLine.search(/\S/);
     const level = origin > 0 ? Math.max(1, Math.round(origin / base)) : 0;
-    result.push(`${indent.repeat(level)}${formatLineContent(rawLine.trim())}`);
+    result.push(`${padAt(indent, level)}${formatLineContent(rawLine.trim())}`);
   }
 
   return result.join('\n');
@@ -142,7 +142,7 @@ function formatFlat(rawLines: string[], indent: string): string {
 
     const isElse = /^(elif\b|else:|except\b|finally:)/.test(trimmed);
     const lineIndent = isElse && blockStack.length > 0 ? blockStack[blockStack.length - 1]! : depth;
-    result.push(`${indent.repeat(lineIndent)}${formatLineContent(trimmed)}`);
+    result.push(`${padAt(indent, lineIndent)}${formatLineContent(trimmed)}`);
 
     const clean = formatLineContent(trimmed);
     if (clean.endsWith(':')) {
