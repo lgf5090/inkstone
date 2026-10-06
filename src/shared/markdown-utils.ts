@@ -671,8 +671,16 @@ function replaceTagInFrontMatter(
   if (next === null) document.delete(key)
   else document.set(key, next)
   const closing = header.at(-1) ?? '---'
-  const serialized = document.toString().replace(/\n$/, '')
+  const serialized = stringifyFrontMatter(document)
   return [header[0] ?? '---', ...(serialized ? serialized.split('\n') : []), closing]
+}
+
+/**
+ * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own
+ * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.
+ */
+function stringifyFrontMatter(document: FrontMatterDocument): string {
+  return document.toString({ flowCollectionPadding: false }).replace(/\n$/, '')
 }
 
 export type FrontMatterValue = string | number | boolean | string[]
@@ -724,7 +732,7 @@ function rewriteFrontMatter(
     || (isPlainRecord(remaining) && !Object.keys(remaining).length)) {
     return body.join('\n')
   }
-  const serialized = document.toString().replace(/\n$/, '')
+  const serialized = stringifyFrontMatter(document)
   if (!serialized.trim()) return body.join('\n')
   const opening = parsed.lineOffset ? lines[0] ?? '---' : '---'
   const closing = parsed.lineOffset ? lines[parsed.lineOffset - 1] ?? '---' : '---'

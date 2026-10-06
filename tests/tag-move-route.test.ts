@@ -76,7 +76,7 @@ describe('moving a tag between levels', () => {
   it('re-hangs a leaf under another tag and rewrites the note body', async () => {
     const meeting = tag('meeting')
     tag('work')
-    note('n1', '---\ntags: [meeting, work]\n---\n正文')
+    note('n1', '---\ntags: [meeting, work]\n---\n\u6b63\u6587')
     link('n1', meeting)
 
     const response = await json<{ ok: true; moved: number }>(await move(meeting, 'work'))

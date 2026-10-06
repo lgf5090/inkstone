@@ -58,6 +58,28 @@ describe('setFrontMatterValue', () => {
   })
 })
 
+describe('source fidelity', () => {
+  it('leaves a flow sequence the user wrote exactly as it was', () => {
+    const source = '---\ntags: [demo, ai]\n---\nbody'
+    expect(setFrontMatterValue(source, 'status', 'draft')).toBe(
+      '---\ntags: [demo, ai]\nstatus: draft\n---\nbody')
+  })
+
+  it('keeps a block sequence and its comments intact', () => {
+    const source = ['---', '# \u8bf4\u660e', 'aliases:', '  - One', '  - Two', '---', 'body'].join('\n')
+    const next = setFrontMatterValue(source, 'status', 'draft')
+    expect(next).toContain('# \u8bf4\u660e')
+    expect(next).toContain('aliases:\n  - One\n  - Two')
+  })
+
+  it('does not re-quote a plain scalar it did not touch', () => {
+    const source = '---\ntitle: hello world\ndate: 2026-01-02\n---\nbody'
+    const next = setFrontMatterValue(source, 'status', 'draft')
+    expect(next).toContain('title: hello world')
+    expect(next).toContain('date: 2026-01-02')
+  })
+})
+
 describe('deleteFrontMatterValue', () => {
   it('removes one key and leaves the rest readable', () => {
     const next = deleteFrontMatterValue(NOTE, 'tags')

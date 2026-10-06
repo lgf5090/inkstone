@@ -300,6 +300,7 @@ const allowed = new Map([
     "/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */",
     "/** The deduplication key `extractTags` uses: case- and width-insensitive. */",
     "/**\n * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.\n * Keep this in step with the notes list route, which spells the same rule in SQL.\n */",
+    "/**\n * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own\n * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
