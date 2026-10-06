@@ -332,6 +332,7 @@ const allowed = new Map([
   ]],
   ["src/client/lib/tag-tree.ts", [
     "/**\n * A parent that matches on its own keeps its whole subtree, so `work` still shows `work/meeting`;\n * a parent that only leads to a match is kept unhighlighted so the child stays reachable.\n */",
+    "/**\n * A tree row edits one segment, so committing it has to re-attach the parent path — sending the\n * bare segment would silently move the tag to the top level.\n */",
   ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
@@ -438,6 +439,10 @@ const allowed = new Map([
     "/**\n * The deduplication key `extractTags` uses: case- and width-insensitive. Listings call this once\n * per tag per keystroke, so the same handful of names are folded over and over; the bounded cache\n * follows the one in lib/fuzzy.ts.\n */",
     "/**\n * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own\n * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.\n */",
     "/**\n * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.\n * The notes list route spells the same rule in SQL, but `COLLATE NOCASE` only folds ASCII, so a\n * non-ASCII case variant can match here and not there. The offline shell is the stricter side.\n */",
+    "// Replace the sequence's items in place: `document.set` builds a fresh node that always",
+    "// stringifies as a block list, which would turn the user's `tags: [a, b]` into three lines.",
+    "// Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).",
+    "/**\n * A tag list can be separated by ASCII or by the full-width punctuation a Chinese keyboard\n * produces. YAML only splits a flow sequence on the ASCII comma, so `tags: [a\\uFF0Cb]` reaches us as\n * the single item `a\\uFF0Cb`; splitting here is what stops that becoming one bogus tag.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
@@ -727,18 +732,11 @@ const allowed = new Map([
   ["src/worker/routes/tags.ts", [
     "// Load and rewrite in small windows: a hub tag must not pin every candidate body in",
     "// the isolate before the first write happens.",
-    "// The whole family is snapshotted before anything moves, so each step below only ever sees",
-    "// the exact name it was asked about. Length-descending is just a stable, readable order for",
-    "// the change rows clients receive. The `/` in the LIKE pattern is load-bearing: without that",
-    "// boundary `a` would claim the unrelated sibling `ab` and rewrite every `#ab` in the library.",
-    "// Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source",
-    "// tag row, so that row has to still exist. It also means the derived pass has already created",
-    "// the destination rows, which is why the batch below copies onto them instead of renaming in",
-    "// place (an UPDATE would hit idx_tags_unique).",
-    "//",
-    "// Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose",
-    "// rollback is a no-op, so if a LATER member fails, an earlier queued rename can still land.",
-    "// That converges to a partially moved family with a duplicate tag, not to lost text.",
+    "// A parent rename that leaves `a/x` behind would orphan the whole subtree, so the",
+    "// family moves together. Merging into an existing `next` is still allowed: the batch",
+    "// copies onto the destination row rather than refusing.",
+    "/**\n * The tag plus every descendant, deepest name first, each mapped onto `destination`. The `/` in\n * the LIKE pattern is load-bearing: without that boundary `a` would claim the unrelated sibling\n * `ab` and rewrite every `#ab` in the library. The family is snapshotted before anything is\n * written so each step only ever sees the exact name it was asked about.\n */",
+    "/**\n * Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source tag\n * row, so that row has to still exist. The derived pass then creates the destination rows from\n * the rewritten content, which is why the batch copies onto them instead of renaming in place\n * (an UPDATE would hit idx_tags_unique).\n *\n * Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose\n * rollback is a no-op, so a later member failing cannot undo an earlier queued rename. That\n * converges to a partially moved family with a duplicate tag, never to lost text.\n */",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",

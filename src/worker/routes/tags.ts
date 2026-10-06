@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, replaceTagInContent, tagKey } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, isUsableTagName, replaceTagInContent, tagKey } from '@shared/markdown-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
@@ -115,6 +115,20 @@ tagsRoutes.patch('/:id', async (c) => {
     if (/[\s#]/.test(next)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
     if (next !== tag.name) {
+      const descendants = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS total FROM tags
+          WHERE user_id = ?1 AND name LIKE ?2 COLLATE NOCASE ESCAPE '\\'`,
+      ).bind(userId, likePattern(`${tag.name}/`)).first<{ total: number }>()
+      if ((descendants?.total ?? 0) > 0) {
+        // A parent rename that leaves `a/x` behind would orphan the whole subtree, so the
+        // family moves together. Merging into an existing `next` is still allowed: the batch
+        // copies onto the destination row rather than refusing.
+        const plan = await planTagFamily(c.env.DB, userId, { id, name: tag.name }, next)
+        const applied = await applyTagFamily(c.env, c.get('database').ftsEnabled, userId, plan, color)
+        await broadcastCursor(c)
+        scheduleFtsDrain(c)
+        return c.json({ ok: true as const, renamed: applied.rewritten, moved: applied.moved })
+      }
       const existing = await c.env.DB.prepare(
         `SELECT id, name FROM tags
           WHERE user_id = ?1 AND id <> ?2 AND name = ?3 COLLATE NOCASE
@@ -268,7 +282,7 @@ tagsRoutes.post('/:id/move', async (c) => {
   }
   const parent = body.parent === null ? '' : body.parent.trim().replace(/^#+/, '')
   if (body.parent !== null && !parent) throw ApiError.badRequest('parent cannot be empty')
-  if (/[\s#]/.test(parent)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
+  if (parent && !isUsableTagName(parent)) throw ApiError.badRequest('Tag names cannot contain spaces or #')
 
   const tag = await loadTag(c.env.DB, userId, id)
   if (!tag) throw ApiError.notFound('Tag not found')
@@ -278,114 +292,24 @@ tagsRoutes.post('/:id/move', async (c) => {
   if (destination === tag.name) return c.json({ ok: true as const, moved: 0 })
   if (isWithin(destination, tag.name)) throw ApiError.badRequest('A tag cannot be moved inside itself')
 
-  // The whole family is snapshotted before anything moves, so each step below only ever sees
-  // the exact name it was asked about. Length-descending is just a stable, readable order for
-  // the change rows clients receive. The `/` in the LIKE pattern is load-bearing: without that
-  // boundary `a` would claim the unrelated sibling `ab` and rewrite every `#ab` in the library.
-  const { results: family } = await c.env.DB.prepare(
-    `SELECT id, name FROM tags
-      WHERE user_id = ?1 AND (name = ?2 COLLATE NOCASE OR name LIKE ?3 COLLATE NOCASE ESCAPE '\\')
-      ORDER BY length(name) DESC, name COLLATE NOCASE`,
-  ).bind(userId, tag.name, likePattern(`${tag.name}/`)).all<{ id: string; name: string }>()
-
-  const familyIds = new Set(family.map((member) => member.id))
-  const plan: TagMoveStep[] = []
-  for (const member of family) {
-    const to = destination + member.name.slice(tag.name.length)
-    if (to === member.name) continue
-    if (to.length > LIMITS.tagNameMaxLength) {
-      throw ApiError.badRequest(`Moving this tag would push "${to}" past ${LIMITS.tagNameMaxLength} characters`)
+  const plan = await planTagFamily(c.env.DB, userId, { id, name: tag.name }, destination)
+  for (const step of plan) {
+    if (step.to.length > LIMITS.tagNameMaxLength) {
+      throw ApiError.badRequest(`Moving this tag would push "${step.to}" past ${LIMITS.tagNameMaxLength} characters`)
     }
     const clash = await c.env.DB.prepare(
       `SELECT id FROM tags WHERE user_id = ?1 AND name = ?2 COLLATE NOCASE LIMIT 1`,
-    ).bind(userId, to).first<{ id: string }>()
-    if (clash && !familyIds.has(clash.id)) throw ApiError.conflict(`A tag named "${to}" already exists`)
-    plan.push({ id: member.id, from: member.name, to })
+    ).bind(userId, step.to).first<{ id: string }>()
+    if (clash && !plan.some((candidate) => candidate.id === clash.id)) {
+      throw ApiError.conflict(`A tag named "${step.to}" already exists`)
+    }
   }
   if (!plan.length) return c.json({ ok: true as const, moved: 0 })
 
-  const ftsEnabled = c.get('database').ftsEnabled
-  const rewrites: TagRewriteResult[] = []
-  try {
-    for (const step of plan) {
-      rewrites.push(await rewriteTagInNotes(c.env, ftsEnabled, userId, step.id, step.from, step.to))
-    }
-  } catch (error) {
-    try {
-      for (const rewrite of rewrites.reverse()) await rewrite.rollback()
-    } catch {
-      throw ApiError.conflict('Tag move could not be rolled back safely; refresh and try again')
-    }
-    throw error
-  }
-
-  // Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source
-  // tag row, so that row has to still exist. It also means the derived pass has already created
-  // the destination rows, which is why the batch below copies onto them instead of renaming in
-  // place (an UPDATE would hit idx_tags_unique).
-  //
-  // Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose
-  // rollback is a no-op, so if a LATER member fails, an earlier queued rename can still land.
-  // That converges to a partially moved family with a duplicate tag, not to lost text.
-  const now = Date.now()
-  const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
-  const statements = plan.flatMap((step) => {
-    const targetId = newId()
-    const source = [step.id, userId, step.from] as const
-    return [
-      c.env.DB.prepare(
-        `INSERT INTO tags (id, user_id, name, color, is_manual, is_pinned, created_at)
-         SELECT ?4, ?2, ?5, source.color, 1, source.is_pinned, source.created_at
-           FROM tags source WHERE source.id = ?1 AND source.user_id = ?2 AND source.name = ?3
-         ON CONFLICT(user_id, name) DO UPDATE SET
-           color = COALESCE(tags.color, excluded.color),
-           is_manual = 1,
-           is_pinned = MAX(tags.is_pinned, excluded.is_pinned)`,
-      ).bind(...source, targetId, step.to),
-      c.env.DB.prepare(
-        `INSERT OR IGNORE INTO note_tags (note_id, tag_id)
-         SELECT nt.note_id, target.id
-           FROM note_tags nt JOIN tags target ON target.user_id = ?2 AND target.name = ?4
-          WHERE nt.tag_id = ?1 AND ${guard}`,
-      ).bind(...source, step.to),
-      c.env.DB.prepare(`DELETE FROM note_tags WHERE tag_id = ?1 AND ${guard}`).bind(...source),
-      c.env.DB.prepare(
-        `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?2, 'tag', target.id, 'upsert', ?4
-           FROM tags target WHERE target.user_id = ?2 AND target.name = ?5 AND ${guard}`,
-      ).bind(...source, now, step.to),
-      c.env.DB.prepare(
-        `INSERT INTO changes (user_id, entity, entity_id, op, at)
-         SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${guard}`,
-      ).bind(...source, now),
-      c.env.DB.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
-        .bind(...source),
-    ]
-  })
-
-  let outcomes: D1Result[]
-  try {
-    outcomes = await c.env.DB.batch(statements)
-  } catch (error) {
-    try {
-      for (const rewrite of [...rewrites].reverse()) await rewrite.rollback()
-    } catch {
-      throw ApiError.conflict('Tag move could not be rolled back safely; refresh and try again')
-    }
-    throw ApiError.conflict('The tag move was refused. Refresh and try again')
-  }
-  if (plan.some((_step, index) => !outcomes[index * 6 + 5]?.meta.changes)) {
-    try {
-      for (const rewrite of rewrites.reverse()) await rewrite.rollback()
-    } catch {
-      throw ApiError.conflict('Tag move could not be rolled back safely; refresh and try again')
-    }
-    throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
-  }
-
+  const applied = await applyTagFamily(c.env, c.get('database').ftsEnabled, userId, plan)
   await broadcastCursor(c)
   scheduleFtsDrain(c)
-  return c.json({ ok: true as const, moved: plan.length })
+  return c.json({ ok: true as const, moved: applied.moved })
 })
 
 tagsRoutes.delete('/:id', async (c) => {
@@ -435,6 +359,128 @@ function isWithin(name: string, ancestor: string): boolean {
   return lower === want || lower.startsWith(`${want}/`)
 }
 
+export interface TagFamilyStep {
+  id: string
+  from: string
+  to: string
+}
+
+/**
+ * The tag plus every descendant, deepest name first, each mapped onto `destination`. The `/` in
+ * the LIKE pattern is load-bearing: without that boundary `a` would claim the unrelated sibling
+ * `ab` and rewrite every `#ab` in the library. The family is snapshotted before anything is
+ * written so each step only ever sees the exact name it was asked about.
+ */
+export async function planTagFamily(
+  db: D1Database,
+  userId: string,
+  root: { id: string; name: string },
+  destination: string,
+): Promise<TagFamilyStep[]> {
+  const { results: family } = await db.prepare(
+    `SELECT id, name FROM tags
+      WHERE user_id = ?1 AND (name = ?2 COLLATE NOCASE OR name LIKE ?3 COLLATE NOCASE ESCAPE '\\')
+      ORDER BY length(name) DESC, name COLLATE NOCASE`,
+  ).bind(userId, root.name, likePattern(`${root.name}/`)).all<{ id: string; name: string }>()
+
+  const plan: TagFamilyStep[] = []
+  for (const member of family) {
+    const to = destination + member.name.slice(root.name.length)
+    if (to !== member.name) plan.push({ id: member.id, from: member.name, to })
+  }
+  return plan
+}
+
+/**
+ * Bodies first, rows second: rewriteTagInNotes finds its candidates by joining on the source tag
+ * row, so that row has to still exist. The derived pass then creates the destination rows from
+ * the rewritten content, which is why the batch copies onto them instead of renaming in place
+ * (an UPDATE would hit idx_tags_unique).
+ *
+ * Known gap: past INLINE_REWRITE_LIMIT a member's rewrite is handed to rewrite_queue whose
+ * rollback is a no-op, so a later member failing cannot undo an earlier queued rename. That
+ * converges to a partially moved family with a duplicate tag, never to lost text.
+ */
+export async function applyTagFamily(
+  env: AppBindings['Bindings'],
+  ftsEnabled: boolean,
+  userId: string,
+  plan: readonly TagFamilyStep[],
+  color?: string | null,
+): Promise<{ moved: number; rewritten: number }> {
+  const rewrites: TagRewriteResult[] = []
+  try {
+    for (const step of plan)
+      rewrites.push(await rewriteTagInNotes(env, ftsEnabled, userId, step.id, step.from, step.to))
+  } catch (error) {
+    try {
+      for (const rewrite of rewrites.reverse()) await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag rename could not be rolled back safely; refresh and try again')
+    }
+    throw error
+  }
+
+  const explicitColor = color === undefined ? 0 : 1
+  const now = Date.now()
+  const guard = `EXISTS (SELECT 1 FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3)`
+  const statements = plan.flatMap((step) => {
+    const source = [step.id, userId, step.from] as const
+    return [
+      env.DB.prepare(
+        `INSERT INTO tags (id, user_id, name, color, is_manual, is_pinned, created_at)
+         SELECT ?4, ?2, ?5,
+                CASE WHEN ?6 = 1 THEN ?7 ELSE source.color END,
+                1, source.is_pinned, source.created_at
+           FROM tags source WHERE source.id = ?1 AND source.user_id = ?2 AND source.name = ?3
+         ON CONFLICT(user_id, name) DO UPDATE SET
+           color = CASE WHEN ?6 = 1 THEN ?7 ELSE COALESCE(tags.color, excluded.color) END,
+           is_manual = 1,
+           is_pinned = MAX(tags.is_pinned, excluded.is_pinned)`,
+      ).bind(...source, newId(), step.to, explicitColor, color ?? null),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO note_tags (note_id, tag_id)
+         SELECT nt.note_id, target.id
+           FROM note_tags nt JOIN tags target ON target.user_id = ?2 AND target.name = ?4
+          WHERE nt.tag_id = ?1 AND ${guard}`,
+      ).bind(...source, step.to),
+      env.DB.prepare(`DELETE FROM note_tags WHERE tag_id = ?1 AND ${guard}`).bind(...source),
+      env.DB.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'tag', target.id, 'upsert', ?4
+           FROM tags target WHERE target.user_id = ?2 AND target.name = ?5 AND ${guard}`,
+      ).bind(...source, now, step.to),
+      env.DB.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?2, 'tag', ?1, 'delete', ?4 WHERE ${guard}`,
+      ).bind(...source, now),
+      env.DB.prepare(`DELETE FROM tags WHERE id = ?1 AND user_id = ?2 AND name = ?3`)
+        .bind(...source),
+    ]
+  })
+
+  let outcomes: D1Result[]
+  try {
+    outcomes = await env.DB.batch(statements)
+  } catch (error) {
+    try {
+      for (const rewrite of [...rewrites].reverse()) await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag rename could not be rolled back safely; refresh and try again')
+    }
+    throw ApiError.conflict('The tag rename was refused. Refresh and try again')
+  }
+  if (plan.some((_step, index) => !outcomes[index * 6 + 5]?.meta.changes)) {
+    try {
+      for (const rewrite of rewrites.reverse()) await rewrite.rollback()
+    } catch {
+      throw ApiError.conflict('Tag rename could not be rolled back safely; refresh and try again')
+    }
+    throw ApiError.conflict('The tag changed elsewhere. Refresh and try again')
+  }
+  return { moved: plan.length, rewritten: rewrites.reduce((sum, r) => sum + r.rewritten, 0) }
+}
+
 function likePattern(value: string): string {
   return `${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
 }
@@ -448,12 +494,6 @@ async function loadTag(
     tagSelectQuery('t.user_id = ?1 AND t.id = ?2'),
   ).bind(userId, id).first<TagRow>()
   return row ? toTag(row) : null
-}
-
-interface TagMoveStep {
-  id: string
-  from: string
-  to: string
 }
 
 interface TagRewriteResult {

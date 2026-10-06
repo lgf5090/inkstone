@@ -1,5 +1,5 @@
 /** Provides pure Markdown analysis shared by the browser and Worker runtimes. */
-import { parseDocument } from 'yaml'
+import { isSeq, parseDocument, Scalar } from 'yaml'
 import { truncateText } from './text-utils'
 
 
@@ -458,7 +458,7 @@ export function extractTags(content: string): string[] {
   }
   for (const tag of frontMatterTags(frontMatter.data)) {
     const normalized = tag.replace(/^#/, '').trim()
-    if (normalized && normalized.length <= 60 && !/^\d+$/.test(normalized)) add(normalized)
+    if (isUsableTagName(normalized) && normalized.length <= 60 && !/^\d+$/.test(normalized)) add(normalized)
     if (out.size >= 64) return sortTagNames(out.values())
   }
   for (const occurrence of bodyTagOccurrences(frontMatter.body)) {
@@ -468,14 +468,25 @@ export function extractTags(content: string): string[] {
   return sortTagNames(out.values())
 }
 
+/**
+ * A tag list can be separated by ASCII or by the full-width punctuation a Chinese keyboard
+ * produces. YAML only splits a flow sequence on the ASCII comma, so `tags: [a\uFF0Cb]` reaches us as
+ * the single item `a\uFF0Cb`; splitting here is what stops that becoming one bogus tag.
+ */
+export const TAG_LIST_SEPARATOR = /[,\uFF0C\u3001;\uFF1B\s]+/
+
+export function isUsableTagName(name: string): boolean {
+  return name.length > 0 && !/[\s#]/.test(name) && !/[,\uFF0C\u3001;\uFF1B]/.test(name)
+}
+
 function frontMatterTags(data: Record<string, unknown>): string[] {
   const value = data.tags ?? data.tag
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
-  if (typeof value !== 'string') return []
-  return value
-    .replace(/^\[|\]$/g, '')
-    .split(/[,\s]+/)
-    .filter(Boolean)
+  const raw = Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : typeof value === 'string'
+      ? [value.replace(/^\[|\]$/g, '')]
+      : []
+  return raw.flatMap((item) => item.split(TAG_LIST_SEPARATOR)).map((item) => item.trim()).filter(Boolean)
 }
 
 const WIKI_RE = /\[\[([^[\]|\n]{1,400})(?:\|([^[\]\n]{0,200}))?\]\]/g
@@ -685,6 +696,14 @@ function replaceTagInFrontMatter(
     return header
   }
   if (next === null) document.delete(key)
+  else if (Array.isArray(next)) {
+    // Replace the sequence's items in place: `document.set` builds a fresh node that always
+    // stringifies as a block list, which would turn the user's `tags: [a, b]` into three lines.
+    // Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).
+    const node = document.get(key, true)
+    if (isSeq(node)) node.items = next.map((item) => new Scalar(item))
+    else document.set(key, next)
+  }
   else document.set(key, next)
   const closing = header.at(-1) ?? '---'
   const serialized = stringifyFrontMatter(document)

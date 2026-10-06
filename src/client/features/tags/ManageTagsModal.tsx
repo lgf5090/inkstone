@@ -1,14 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight, Hash, Palette, Pin, Search, X } from 'lucide-react';
-import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import type { Tag } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
-import { buildTagTree, flattenTagTree } from '../../lib/tag-tree';
-import { Modal } from '../../components/overlay';
+import { buildTagTree, flattenTagTree, renameTagSegment } from '../../lib/tag-tree';
+import { Menu, Modal } from '../../components/overlay';
 import { useNotes } from '../../store/notes';
 import { t } from '../../lib/i18n';
 import { deleteTag, renameTag, setTagColor, setTagPinned } from './tagMutations';
+import { TagColorMenu } from './TagAppearanceMenus';
 
 export function ManageTagsModal({ open, onClose }: {
     open: boolean;
@@ -19,6 +19,7 @@ export function ManageTagsModal({ open, onClose }: {
     const [merging, setMerging] = useState<Tag | null>(null);
     const [renamingId, setRenamingId] = useState<string | null>(null);
     const [colorFor, setColorFor] = useState<string | null>(null);
+    const colorAnchor = useRef<HTMLSpanElement>(null);
     const rows = useMemo(() => {
         const tree = buildTagTree(tags);
         const expanded = new Set<string>();
@@ -55,12 +56,13 @@ export function ManageTagsModal({ open, onClose }: {
           <p className="px-1 text-[11px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: visible.filter((node) => !node.isVirtual).length })}</p>
           <div className="max-h-[52vh] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]">
             {!visible.length && <p className="px-3 py-6 text-center text-[12px] text-[var(--text-quaternary)]">{t('tags.no_match')}</p>}
-            {visible.map((node) => (<div key={node.fullPath} className="flex h-11 items-center gap-2 border-b border-[var(--border-subtle)] px-2 last:border-b-0" style={{ paddingLeft: 8 + node.depth * 13 }}>
+            {visible.map((node) => (<div key={node.fullPath} className="relative flex h-11 items-center gap-2 border-b border-[var(--border-subtle)] px-2 last:border-b-0" style={{ paddingLeft: 8 + node.depth * 13 }}>
+                {colorFor === node.tag.id && <span ref={colorAnchor} aria-hidden="true" className="absolute top-0 right-8 size-px"/>}
                 <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? 'var(--text-quaternary)' }}/>
                 {node.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
                 {renamingId === node.tag.id ? (<TagRenameInput initial={node.name} onCancel={() => setRenamingId(null)} onCommit={(value) => {
                             setRenamingId(null);
-                            void renameTag(node.tag, value);
+                            void renameTag(node.tag, renameTagSegment(node.fullPath, value));
                         }}/>) : (<button type="button" onClick={() => {
                             if (merging) {
                                 if (!node.isVirtual)
@@ -77,7 +79,10 @@ export function ManageTagsModal({ open, onClose }: {
                     <button type="button" aria-label={t('tags.pin')} aria-pressed={Boolean(node.tag.isPinned)} onClick={() => void setTagPinned(node.tag, !node.tag.isPinned)} className={cn('flex size-7 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]', node.tag.isPinned && 'text-[var(--accent)]')}>
                       <Pin size={12}/>
                     </button>
-                    <button type="button" aria-label={t('tags.color')} onClick={() => setColorFor(node.tag.id)} className="flex size-7 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]">
+                    <button type="button" aria-label={t('tags.color')} aria-expanded={colorFor === node.tag.id} onClick={(event) => {
+                        event.stopPropagation();
+                        setColorFor(colorFor === node.tag.id ? null : node.tag.id);
+                    }} className="flex size-7 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]">
                       <Palette size={12}/>
                     </button>
                     <button type="button" aria-label={t('tags.merge')} onClick={() => setMerging(node.tag)} className="flex size-7 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]">
@@ -92,22 +97,13 @@ export function ManageTagsModal({ open, onClose }: {
           {merging && <p className="px-1 text-[11px] text-[var(--text-quaternary)]">{t('tags.merge_hint')}</p>}
         </div>
       </Modal>
-      <Modal open={colorTag !== null} onClose={() => setColorFor(null)} title={t('tags.color')} width={340}>
-        <div className="flex flex-wrap items-center gap-2 p-4">
-          <button type="button" aria-label={t('tags.clear_color')} aria-pressed={!colorTag?.color} onClick={() => {
+      <Menu anchor={colorAnchor} open={colorTag !== null} onClose={() => setColorFor(null)} items={[{
+            id: 'color', label: t('tags.color'), submenu: (<TagColorMenu color={colorTag?.color} onSelectColor={(color) => {
                 if (colorTag)
-                    void setTagColor(colorTag, null);
+                    void setTagColor(colorTag, color);
                 setColorFor(null);
-            }} className={cn('flex size-9 items-center justify-center rounded-full border bg-[var(--bg-base)] text-[var(--text-quaternary)]', !colorTag?.color ? 'border-[var(--accent)] ring-2 ring-[var(--accent-ring)]' : 'border-[var(--border-default)]')}>
-            <Hash size={14}/>
-          </button>
-          {ORGANIZER_COLORS.map((color) => (<button key={color} type="button" aria-label={color} aria-pressed={colorTag?.color === color} onClick={() => {
-                    if (colorTag)
-                        void setTagColor(colorTag, color);
-                    setColorFor(null);
-                }} className={cn('size-9 rounded-full transition-transform hover:scale-105', colorTag?.color === color && 'ring-2 ring-[var(--accent-ring)] ring-offset-2 ring-offset-[var(--bg-surface)]')} style={{ backgroundColor: color }}/>))}
-        </div>
-      </Modal>
+            }}/>),
+        }]}/>
     </>);
 }
 function ManagedTagName({ name, query }: {

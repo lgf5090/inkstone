@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { extractTags } from '../src/shared/markdown-utils'
 import { errorResponse } from '../src/worker/lib/errors'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { tagsRoutes } from '../src/worker/routes/tags'
@@ -72,6 +73,67 @@ beforeEach(() => {
   app.route('/api/tags', tagsRoutes)
 })
 
+describe('renaming a parent carries its subtree', () => {
+  async function rename(id: string, name: string) {
+    return json<{ ok: true; renamed: number; moved?: number }>(
+      await call('PATCH', `/api/tags/${id}`, { name }))
+  }
+
+  let work: string
+  let meeting: string
+  let eu: string
+
+  beforeEach(() => {
+    work = tag('work')
+    meeting = tag('work/meeting')
+    eu = tag('work/meeting/eu')
+    note('a', '---\ntags: [work]\n---\n')
+    note('b', '---\ntags: [work/meeting]\n---\nbody #work/meeting tail')
+    note('c', '---\ntags: [work/meeting/eu]\n---\n')
+    link('a', work)
+    link('b', meeting)
+    link('c', eu)
+  })
+
+  it('renames every descendant, not just the row that was clicked', async () => {
+    const result = await rename(work, 'job')
+    expect(result.moved).toBe(3)
+    expect(await names()).toEqual(['job', 'job/meeting', 'job/meeting/eu'])
+    expect(content('a')).toContain('tags: [job]')
+    expect(content('b')).toContain('job/meeting')
+    expect(content('c')).toContain('job/meeting/eu')
+  })
+
+  it('leaves an unrelated prefix sibling alone', async () => {
+    const workflow = tag('workflow')
+    note('w', '---\ntags: [workflow]\n---\nsee #workflow')
+    link('w', workflow)
+    await rename(work, 'job')
+    expect(await names()).toContain('workflow')
+    expect(content('w')).toContain('#workflow')
+    expect(content('w')).not.toContain('#job')
+  })
+
+  it('a leaf rename takes the single-row path and does the literal thing asked', async () => {
+    const result = await rename(eu, 'emea')
+    expect(result.moved).toBeUndefined()
+    expect(await names()).toEqual(['emea', 'work', 'work/meeting'])
+    expect(content('c')).toContain('emea')
+  })
+
+  it('merges into a tag that already owns the target subtree name', async () => {
+    const existing = tag('job/meeting')
+    note('d', '---\ntags: [job/meeting]\n---\n')
+    link('d', existing)
+    const result = await rename(work, 'job')
+    expect(result.moved).toBe(3)
+    const listed = await json<{ tags: Tag[] }>(await call('GET', '/api/tags'))
+    const meetings = listed.tags.filter((tagged) => tagged.name === 'job/meeting')
+    expect(meetings).toHaveLength(1)
+    expect(meetings[0]!.count).toBe(2)
+  })
+})
+
 describe('moving a tag between levels', () => {
   it('re-hangs a leaf under another tag and rewrites the note body', async () => {
     const meeting = tag('meeting')
@@ -106,7 +168,7 @@ describe('moving a tag between levels', () => {
     expect(content('a')).toContain('inbox/topic')
     expect(content('b')).toContain('inbox/topic/deep')
     expect(content('c')).toContain('inbox/topic/deep/deeper')
-    expect(content('b')).not.toContain('topic/deep]')
+    expect(extractTags(content('b'))).toEqual(['inbox/topic/deep'])
   })
 
   it('lifts a nested tag back to the top level', async () => {
