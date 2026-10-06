@@ -584,3 +584,66 @@ describe('virtual folder filtering', () => {
         expect(await visibleFor(folder.id)).toEqual([note.id]);
     });
 });
+
+describe('virtual tree state survives folder refreshes', () => {
+    it('keeps virtual expansion and the virtual folder view after refreshFolders', async () => {
+        const list = vi.spyOn(api.folders, 'list').mockResolvedValue({ folders: [folder] });
+        useUi.setState({ expandedFolders: ['cal:2026', 'cal:2026:q4', folder.id], view: 'folder', folderId: 'cal:2026:q4', tag: null, searchList: false, listCollapsed: false });
+        await useNotes.getState().refreshFolders();
+        expect(useUi.getState().expandedFolders).toEqual(expect.arrayContaining(['cal:2026', 'cal:2026:q4', folder.id]));
+        expect(useUi.getState()).toMatchObject({ view: 'folder', folderId: 'cal:2026:q4' });
+        list.mockRestore();
+    });
+
+    it('still drops a deleted real folder from the expansion set', async () => {
+        const list = vi.spyOn(api.folders, 'list').mockResolvedValue({ folders: [folder] });
+        useUi.setState({ expandedFolders: ['gone-folder', 'todo:2026'], view: 'all', folderId: null });
+        await useNotes.getState().refreshFolders();
+        expect(useUi.getState().expandedFolders).toEqual(['todo:2026']);
+        list.mockRestore();
+    });
+
+    it('returns to all notes when a real folder view is deleted but keeps a virtual one', async () => {
+        const list = vi.spyOn(api.folders, 'list').mockResolvedValue({ folders: [] });
+        useUi.setState({ view: 'folder', folderId: folder.id, expandedFolders: [] });
+        await useNotes.getState().refreshFolders();
+        expect(useUi.getState().view).toBe('all');
+        useUi.setState({ view: 'folder', folderId: 'inbox' });
+        await useNotes.getState().refreshFolders();
+        expect(useUi.getState()).toMatchObject({ view: 'folder', folderId: 'inbox' });
+        list.mockRestore();
+    });
+});
+
+describe('virtual branch expand from a collapsed root', () => {
+    it('expanding a branch also opens the row itself so descendants appear', async () => {
+        setInboxFolderId(null);
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: false, inboxVisible: false, showEmptyPeriods: false });
+        const dated = { ...note, id: 'dated', title: 'Dated', folderId: null, createdAt: new Date(2026, 9, 6).getTime() };
+        useNotes.setState({ notes: { [dated.id]: dated } });
+        useUi.setState({ expandedFolders: [], view: 'all', folderId: null });
+        await act(() => root.render(createElement(Sidebar)));
+        const calendar = () => document.querySelector<HTMLElement>('[role="tree"][aria-label="' + t('sidebar.calendar_folder') + '"]')!;
+        const rowLabels = () => [...calendar().querySelectorAll<HTMLElement>('[data-tree-row]')].map((element) => element.textContent?.trim());
+        expect(rowLabels()).toEqual([t('sidebar.calendar_folder')]);
+        await act(() => {
+            byLabel(calendar(), t('sidebar.calendar_folder')).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        });
+        expect(document.querySelector('[role="menu"]')).toBeTruthy();
+        await click(byLabel(document.querySelector('[role="menu"]')!, t('sidebar.expand_branch')));
+        await act(() => new Promise((resolve) => setTimeout(resolve, 40)));
+        const opened = rowLabels();
+        expect(opened).toContain('2026');
+        expect(opened).toContain('Q4');
+        expect(opened).toContain('10');
+        expect(opened).toContain('ww41');
+        expect(useUi.getState().expandedFolders).toContain('cal');
+        await act(() => {
+            byLabel(calendar(), t('sidebar.calendar_folder')).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        });
+        await click(byLabel(document.querySelector('[role="menu"]')!, t('sidebar.collapse_branch')));
+        await act(() => new Promise((resolve) => setTimeout(resolve, 400)));
+        expect(rowLabels()).toEqual([t('sidebar.calendar_folder')]);
+        expect(useUi.getState().expandedFolders).not.toContain('cal');
+    });
+});

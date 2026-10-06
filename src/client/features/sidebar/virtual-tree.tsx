@@ -132,13 +132,13 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
             id: 'expand-all',
             label: t("sidebar.expand_branch"),
             disabled: allIds.length === 0,
-            onSelect: () => useUi.setState((state) => ({ expandedFolders: [...new Set([...state.expandedFolders, ...allIds])] })),
+            onSelect: () => useUi.setState((state) => ({ expandedFolders: [...new Set([...state.expandedFolders, node.id, ...allIds])] })),
         },
         {
             id: 'collapse-all',
             label: t("sidebar.collapse_branch"),
             disabled: allIds.length === 0,
-            onSelect: () => useUi.setState((state) => ({ expandedFolders: state.expandedFolders.filter((id) => !allIds.includes(id)) })),
+            onSelect: () => useUi.setState((state) => ({ expandedFolders: state.expandedFolders.filter((id) => id !== node.id && !allIds.includes(id)) })),
         },
         { id: 'open', label: t("sidebar.open_in_list"), icon: <Inbox size={13}/>, separatorBefore: true, onSelect: open },
     ];

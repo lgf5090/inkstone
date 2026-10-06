@@ -17,6 +17,7 @@ import {
     TODO_TREE,
     calendarPeriodMatchesNote,
     isTodoNoteForTags,
+    isVirtualFolderId,
     parseVirtualId,
     resolveTodoTag,
     splitTodoTags,
@@ -2709,11 +2710,12 @@ function normalizeFolder(folder: Folder): Folder {
 }
 function reconcileFolderUi(folders: Folder[]): void {
     const validIds = new Set(folders.map((folder) => folder.id));
+    const isRealOrVirtual = (id: string) => validIds.has(id) || isVirtualFolderId(id);
     const ui = useUi.getState();
-    const expandedFolders = ui.expandedFolders.filter((id) => validIds.has(id));
+    const expandedFolders = ui.expandedFolders.filter(isRealOrVirtual);
     if (expandedFolders.length !== ui.expandedFolders.length)
         useUi.setState({ expandedFolders });
-    if (ui.view === 'folder' && (!ui.folderId || !validIds.has(ui.folderId)))
+    if (ui.view === 'folder' && (!ui.folderId || !isVirtualFolderId(ui.folderId) && !validIds.has(ui.folderId)))
         ui.openView('all');
 }
 function tagEqual(a: Tag, b: Tag): boolean {
