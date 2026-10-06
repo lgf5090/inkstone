@@ -1748,6 +1748,7 @@ export const ZH_CN_MESSAGES = {
     "time.this_week": "本周",
     "time.today": "今天",
     "time.yesterday": "昨天",
+    "workspace.kanban_board": "看板",
       "workspace.reading_mode": "阅读模式",
   "workspace.live_preview": "即时渲染",
   "workspace.editing_mode": "编辑模式",

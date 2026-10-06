@@ -1747,6 +1747,7 @@ export const EN_US_MESSAGES = {
     "time.this_week": "This week",
     "time.today": "Today",
     "time.yesterday": "Yesterday",
+    "workspace.kanban_board": "Kanban board",
       "workspace.reading_mode": "Reading mode",
   "workspace.live_preview": "Live preview",
   "workspace.editing_mode": "Editing mode",

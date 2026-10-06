@@ -2,7 +2,8 @@ import type { EditorView } from '@codemirror/view'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { beforeAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
-import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertMathBlock, setHeading, toggleComment } from './commands'
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertKanban, insertMathBlock, setHeading, toggleComment } from './commands'
+import { parseKanbanBody } from '../lib/markdown/kanban/body'
 import { renderMarkdown } from '../lib/markdown/renderer'
 
 function runFenceCompletion(doc: string, cursor = doc.length) {
@@ -219,5 +220,50 @@ describe('completeColonFenceOnEnter', () => {
     const { doc } = runColonCompletion(':::details Notes')
     expect(doc).toBe(':::details Notes\n\n:::')
     expect(renderMarkdown(doc).html).toContain('<summary>Notes</summary>')
+  })
+})
+
+function runInsert(command: (target: { state: EditorState, dispatch: (v: unknown) => void }) => boolean, doc: string, selection?: { anchor: number, head: number }) {
+  const state = EditorState.create({
+    doc,
+    selection: selection ? EditorSelection.single(selection.anchor, selection.head) : EditorSelection.cursor(doc.length),
+  })
+  let next = state
+  const handled = command({ state, dispatch: (transaction) => { next = (transaction as { state: EditorState }).state } })
+  return { handled, doc: next.doc.toString() }
+}
+
+describe('insertKanban', () => {
+  it('wraps an empty caret in a fence the board parser reads as json', () => {
+    const { handled, doc } = runInsert(insertKanban, '# Plan\n')
+    expect(handled).toBe(true)
+    expect(doc.startsWith('# Plan\n')).toBe(true)
+
+    const body = doc.slice(doc.indexOf('```kanban') + '```kanban'.length, doc.lastIndexOf('```')).trim()
+    const parsed = parseKanbanBody(body)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.mode).toBe('json')
+    expect(parsed.data.columns.map((column) => column.id)).toContain('status')
+  })
+
+  // The command does not choose a format: a selection that already looks like a task list becomes an
+  // outline fence, and the fence itself decides — which is why this asserts through the parser.
+  it('wraps a selected outline instead of overwriting it', () => {
+    const source = '## To Do\n- [ ] Write tests'
+    const { doc } = runInsert(insertKanban, source, { anchor: 0, head: source.length })
+    expect(doc).toBe(`\`\`\`kanban\n${source}\n\`\`\`\n`)
+
+    const parsed = parseKanbanBody(source)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.mode).toBe('outline')
+    expect(parsed.data.items.length).toBeGreaterThan(0)
+  })
+
+  it('leaves text outside the new fence byte-identical', () => {
+    const { doc } = runInsert(insertKanban, 'before\n')
+    expect(doc.startsWith('before\n')).toBe(true)
+    expect((doc.match(/```/g) ?? []).length).toBe(2)
   })
 })

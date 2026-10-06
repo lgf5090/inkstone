@@ -146,6 +146,8 @@ const allowed = new Map([
   ["src/client/editor/commands.test.ts", [
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is",
     "// attached and focused; the shim keeps the completion path exercisable instead of untestable.",
+    "// The command does not choose a format: a selection that already looks like a task list becomes an",
+    "// outline fence, and the fence itself decides — which is why this asserts through the parser.",
   ]],
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
@@ -155,6 +157,7 @@ const allowed = new Map([
     "// autocompletion only activates for a transaction tagged `input.type` (see getUpdateType",
     "// in @codemirror/autocomplete), so the empty-pair insert that wants the note list has to",
     "// carry that tag: `input.format` inserts the text and leaves no popup behind.",
+    "/**\n * A board, in the format the selection already has: wrapping headings and list items yields an\n * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.\n * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the\n * body, so this command does not have to know.\n */",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
