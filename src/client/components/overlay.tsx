@@ -9,6 +9,13 @@ import { getVisibleViewport } from '../lib/viewport';
 
 
 const escStack: (() => void)[] = [];
+/**
+ * A field that gives Escape its own meaning — cancelling a rename should not be the gesture that
+ * closes the panel holding it. Such a field marks itself and the overlay layers stand aside.
+ */
+function ownsEscape(target: EventTarget | null): boolean {
+    return target instanceof Element && Boolean(target.closest('[data-owns-escape]'));
+}
 export function useEscape(active: boolean, onEscape: () => void): void {
     const callbackRef = useRef(onEscape);
     callbackRef.current = onEscape;
@@ -19,6 +26,8 @@ export function useEscape(active: boolean, onEscape: () => void): void {
         escStack.push(handler);
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape' || event.isComposing || event.repeat || event.defaultPrevented)
+                return;
+            if (ownsEscape(event.target))
                 return;
             const top = escStack[escStack.length - 1];
             if (top !== handler)
@@ -140,7 +149,7 @@ function isAvailableFocusTarget(element: HTMLElement): boolean {
     return !element.matches(':disabled') && !element.closest('[hidden], [aria-hidden="true"]');
 }
 
-export function Modal({ open, onClose, title, description, children, footer, width = 560, className, }: {
+export function Modal({ open, onClose, title, description, children, footer, width = 560, className, bodyClassName, variant = 'dialog', ariaLabel, }: {
     open: boolean;
     onClose: () => void;
     title?: ReactNode;
@@ -149,7 +158,12 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     footer?: ReactNode;
     width?: number;
     className?: string;
+    bodyClassName?: string;
+    /** 'fullscreen' drops the card's own box: the panel fills the viewport and scrolls its content. */
+    variant?: 'dialog' | 'fullscreen';
+    ariaLabel?: string;
 }) {
+    const fullscreen = variant === 'fullscreen';
     const panelRef = useRef<HTMLDivElement>(null);
     const titleId = useId();
     const descriptionId = useId();
@@ -163,7 +177,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
 
     <div className="app-viewport-fixed fixed z-[250] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8">
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : t("overlay.dialog")} tabIndex={-1} className={cn('anim-pop relative flex max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] w-full flex-col rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)]', 'bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] outline-none md:my-auto md:rounded-[var(--r-2xl)] md:border-b', className)} style={{ maxWidth: width }}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.dialog")} tabIndex={-1} className={cn('anim-pop relative flex max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] w-full flex-col rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)]', 'bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] outline-none md:my-auto md:rounded-[var(--r-2xl)] md:border-b', fullscreen && 'h-full max-h-none rounded-none border-0 md:my-0 md:h-full md:max-h-none md:rounded-none md:border-0', className)} style={{ maxWidth: fullscreen ? undefined : width }}>
         {(title || description) && (<div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-3 md:px-5">
             <div className="min-w-0">
               {title && (<h2 id={titleId} className="text-[15px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">
@@ -179,7 +193,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
               </IconButton>
             </Tooltip>
           </div>)}
-        <div className="min-h-0 overflow-y-auto px-4 pb-4 md:px-5 md:pb-5">{children}</div>
+        <div className={cn('min-h-0 overflow-y-auto px-4 pb-4 md:px-5 md:pb-5', fullscreen && 'flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-0', bodyClassName)}>{children}</div>
         {footer && (<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[var(--border-subtle)] px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] md:px-5 md:py-3">
             {footer}
           </div>)}
@@ -253,7 +267,7 @@ export function ConfirmHost() {
     </Modal>);
 }
 
-interface PromptOptions {
+export interface PromptOptions {
     title: string;
     description?: ReactNode;
     placeholder?: string;
@@ -369,7 +383,7 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), }: {
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -381,6 +395,8 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     width?: number;
     zIndex?: number;
     label?: string;
+    /** The id a caller already points its trigger's `aria-controls` at. */
+    panelId?: string;
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
     const submenuRef = useRef<HTMLDivElement>(null);
@@ -579,8 +595,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     }, [open, items, cursor, submenu, onClose]);
     if (!open)
         return null;
-    return (<>
-      {createPortal(<div ref={menuRef} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
+    return (<>{createPortal(<div ref={menuRef} {...(panelId ? { id: panelId } : {})} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
       {items.map((item, index) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
@@ -607,7 +622,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
                 {item.icon}
               </span>)}
             <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.checked && <span className="text-[var(--accent)]">✓</span>}
+            {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
             {item.submenu && <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>}
             {item.combo && <Kbd combo={item.combo}/>}
           </button>
@@ -765,7 +780,7 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect, preferred: TooltipSide)
         left: side === 'right' ? anchor.right + gap : anchor.left - gap - tooltip.width,
     };
 }
-export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = 190, }: {
+export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = 190, ariaLabel, }: {
     open: boolean;
     onClose: () => void;
     side?: 'left' | 'right';
@@ -773,6 +788,8 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
     children: ReactNode;
     title?: ReactNode;
     zIndex?: number;
+    /** Names the panel when it has no visible title; without one it would be the generic side panel. */
+    ariaLabel?: string;
 }) {
     const panelRef = useRef<HTMLElement>(null);
     const titleId = useId();
@@ -783,7 +800,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
         return null;
     return createPortal(<div className="app-viewport-fixed fixed" style={{ zIndex }}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
-      <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : t("overlay.side_panel")} tabIndex={-1} className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
+      <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.side_panel")} tabIndex={-1} data-surface="drawer" className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
             width: Math.min(width, window.innerWidth < 768 ? window.innerWidth : window.innerWidth - 32),
             animation: `ink-slide-in-${side} var(--dur-slow) var(--ease-out) both`,
         }}>
