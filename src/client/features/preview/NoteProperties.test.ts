@@ -6,11 +6,13 @@ import { t } from '../../lib/i18n';
 
 const editContent = vi.fn();
 const openView = vi.fn();
-let store: {
+interface Store {
   editContent: typeof editContent;
   openView: typeof openView;
+  contents: Record<string, string>;
   tags: Array<{ id: string; name: string; color: string | null; count: number; createdAt: number }>;
-};
+}
+let store: Store;
 
 vi.mock('../../store/notes', () => ({
   useNotes: (selector: (state: typeof store) => unknown) => selector(store),
@@ -39,7 +41,8 @@ let host: HTMLDivElement;
 let root: Root;
 
 function render(content: string, noteId: string | null = 'n1'): void {
-  act(() => root.render(createElement(NoteProperties, { noteId, content })));
+  store.contents = noteId ? { [noteId]: content } : {};
+  act(() => root.render(createElement(NoteProperties, { noteId })));
 }
 
 function pillButton(name: string): HTMLElement | undefined {
@@ -96,6 +99,7 @@ beforeEach(() => {
   store = {
     editContent,
     openView,
+    contents: {},
     tags: [{ id: 't-demo', name: 'demo', color: null, count: 2, createdAt: 1 }],
   };
   host = document.createElement('div');
@@ -198,6 +202,15 @@ describe('NoteProperties', () => {
     expect(host.textContent).not.toContain('Example');
   });
 
+  it('writes from the newest content it was given, not the one the row was opened with', () => {
+    render(SOURCE);
+    render(SOURCE.replace('body mentions #demo once', 'body mentions #demo once, then typed'));
+    click(removeButtonFor('ai'));
+    const { raw, data } = written();
+    expect(data.tags).toEqual(['demo']);
+    expect(raw).toContain('then typed');
+  })
+
   it('refuses to edit while the front matter is broken', () => {
     render(['---', 'title: [unclosed', '---', 'body'].join('\n'));
     expect(host.textContent).toContain(t('properties.invalid'));
@@ -207,9 +220,10 @@ describe('NoteProperties', () => {
   });
 
   it('offers no writes without an open note', () => {
-    render(SOURCE, null);
+    store.contents = { n1: SOURCE };
+    act(() => root.render(createElement(NoteProperties, { noteId: null })));
     expect(byLabel(t('properties.add'))).toBeNull();
-    click(host.querySelector('[role="switch"]'));
+    expect(host.querySelector('[role="switch"]')).toBeNull();
     expect(editContent).not.toHaveBeenCalled();
   });
 });

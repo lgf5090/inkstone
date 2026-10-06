@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, replaceTagInContent } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, replaceTagInContent, tagKey } from '@shared/markdown-utils'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
@@ -425,9 +425,9 @@ tagsRoutes.delete('/:id', async (c) => {
 })
 
 function isWithin(name: string, ancestor: string): boolean {
-  const lower = name.toLocaleLowerCase()
-  return lower === ancestor.toLocaleLowerCase()
-    || lower.startsWith(`${ancestor.toLocaleLowerCase()}/`)
+  const lower = tagKey(name)
+  const want = tagKey(ancestor)
+  return lower === want || lower.startsWith(`${want}/`)
 }
 
 function likePattern(value: string): string {

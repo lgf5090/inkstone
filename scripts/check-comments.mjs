@@ -90,6 +90,10 @@ const allowed = new Map([
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
   ]],
+  ["src/client/features/preview/NoteProperties.tsx", [
+    "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
+    "// cached copy here would silently overwrite whatever was typed in the last few frames.",
+  ]],
   ["src/client/features/preview/Outline.tsx", [
     "// One pass per layout change instead of one querySelector + one layout read per",
     "// heading per frame: 1428 headings used to cost ~43k DOM queries a second while scrolling.",
@@ -298,9 +302,9 @@ const allowed = new Map([
     "/**\n * Tab labels render as plain text inside their buttons, so a `[[wikilink]]` or `#tag` written\n * on an item line is not a link anywhere else either. Blanked in place: the offsets that\n * `replaceTagInContent` splices with have to stay valid.\n */",
     "/** Obsidian's `|600` / `|600x400` suffix: a size, never a label. */",
     "/** What a `[[target|alias]]` reads as in plain text: the alias, unless the alias is only a size. */",
-    "/** The deduplication key `extractTags` uses: case- and width-insensitive. */",
     "/**\n * A tag covers its whole subtree, so filtering or counting `work` also means `work/meeting`.\n * Keep this in step with the notes list route, which spells the same rule in SQL.\n */",
     "/**\n * `yaml` pads flow collections by default, so a round-trip would rewrite the user's own\n * `tags: [a, b]` into `tags: [ a, b ]` on every property edit.\n */",
+    "/**\n * The deduplication key `extractTags` uses: case- and width-insensitive. Listings call this once\n * per tag per keystroke, so the same handful of names are folded over and over; the bounded cache\n * follows the one in lib/fuzzy.ts.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

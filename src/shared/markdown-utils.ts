@@ -414,9 +414,25 @@ export function sortTagNames(tags: Iterable<string>): string[] {
 }
 
 
-/** The deduplication key `extractTags` uses: case- and width-insensitive. */
+/**
+ * The deduplication key `extractTags` uses: case- and width-insensitive. Listings call this once
+ * per tag per keystroke, so the same handful of names are folded over and over; the bounded cache
+ * follows the one in lib/fuzzy.ts.
+ */
+const TAG_KEY_CACHE_LIMIT = 20_000
+const tagKeyCache = new Map<string, string>()
+
 export function tagKey(name: string): string {
-  return name.normalize('NFKC').toLocaleLowerCase()
+  const hit = tagKeyCache.get(name)
+  if (hit !== undefined) return hit
+  const key = name.normalize('NFKC').toLocaleLowerCase()
+  if (tagKeyCache.size < TAG_KEY_CACHE_LIMIT) tagKeyCache.set(name, key)
+  return key
+}
+
+function keyInScope(tag: string, want: string): boolean {
+  return tag === want
+    || (tag.length > want.length && tag[want.length] === '/' && tag.startsWith(want))
 }
 
 /**
@@ -424,13 +440,12 @@ export function tagKey(name: string): string {
  * Keep this in step with the notes list route, which spells the same rule in SQL.
  */
 export function tagInScope(tagName: string, scope: string): boolean {
-  const tag = tagKey(tagName)
-  const want = tagKey(scope)
-  return tag === want || tag.startsWith(`${want}/`)
+  return keyInScope(tagKey(tagName), tagKey(scope))
 }
 
 export function notesCarryEveryTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
-  return scopes.every((scope) => tagLists.some((name) => tagInScope(name, scope)))
+  const wants = scopes.map(tagKey)
+  return wants.every((want) => tagLists.some((name) => keyInScope(tagKey(name), want)))
 }
 
 export function extractTags(content: string): string[] {

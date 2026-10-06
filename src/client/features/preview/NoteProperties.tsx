@@ -8,12 +8,14 @@ import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 
-export function NoteProperties({ noteId, content }: {
+export function NoteProperties({ noteId }: {
     noteId: string | null;
-    content: string;
 }) {
     const [collapsed, setCollapsed] = useState(false);
     const [adding, setAdding] = useState(false);
+    // Read the live buffer rather than taking the rendered text as a prop: a debounced or
+    // cached copy here would silently overwrite whatever was typed in the last few frames.
+    const content = useNotes((s) => (noteId ? s.contents[noteId] ?? '' : ''));
     const parsed = parseFrontMatter(content);
     const editContent = useNotes((s) => s.editContent);
     const entries = Object.entries(parsed.data);

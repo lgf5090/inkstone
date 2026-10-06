@@ -392,7 +392,7 @@ export const Preview = memo(function Preview({
       data-preview-scroller
       onScroll={(event) => onScroll?.(event.currentTarget)}
     >
-      <NoteProperties noteId={sourceNoteId ?? null} content={debounced}/>
+      <NoteProperties noteId={sourceNoteId ?? null}/>
       <div
         ref={hostRef}
         onClick={onClick}
