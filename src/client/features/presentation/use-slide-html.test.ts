@@ -104,7 +104,7 @@ afterEach(() => {
 
 describe('useSlideHtml — the settings a page was prepared under', () => {
   it('prepares the page again when the account turns its diagrams off mid-show', async () => {
-    // The enhancement chain reads `math` / `mermaid` / `externalImages` out of the account's own
+    // The enhancement chain reads `math` / `mermaid` / `chart` out of the account's own
     // settings, and the canvas's diagram pass honours them too, so a page prepared for one set of them
     // is not the page the room is asking for after the presenter turns one off. It used to be left
     // alone forever: the cache is keyed without them, so the entry the flip pointed at was already

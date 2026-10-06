@@ -376,14 +376,14 @@ describe('thumbDrawOf — what a card says about its own source', () => {
 // browser scenario queries, so it has to say the state even when the state is "nothing drawn yet".
 describe('data-slide-thumb-draw — what a card lets a reader query', () => {
   it('carries the answer on the card a reader can query', () => {
-    const view = { thumb: thumbMetrics(160, 1280, 720), designWidth: 1280, designHeight: 720, externalImages: false, proseFont: 'serif' as never }
+    const view = { thumb: thumbMetrics(160, 1280, 720), designWidth: 1280, designHeight: 720, proseFont: 'serif' as never }
     const ref = { current: null as HTMLSpanElement | null }
     const { container } = renderElement(createElement(SlideThumb, { thumbRef: ref, near: true, html: '<p>page</p>', layout: undefined, drawn: 'uncaptured', active: false, view }))
     expect(container.querySelector('[data-slide-thumb-draw]')?.getAttribute('data-slide-thumb-draw')).toBe('uncaptured')
   })
 
   it('says nothing about a card that drew nothing', () => {
-    const view = { thumb: thumbMetrics(160, 1280, 720), designWidth: 1280, designHeight: 720, externalImages: false, proseFont: 'serif' as never }
+    const view = { thumb: thumbMetrics(160, 1280, 720), designWidth: 1280, designHeight: 720, proseFont: 'serif' as never }
     const ref = { current: null as HTMLSpanElement | null }
     const { container } = renderElement(createElement(SlideThumb, { thumbRef: ref, near: false, html: '', layout: undefined, drawn: 'plain', active: false, view }))
     expect(container.querySelector('[data-slide-thumb-draw]'), 'a far-off card has no markup to account for').toBeNull()

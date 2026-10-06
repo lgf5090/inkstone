@@ -26,7 +26,7 @@ vi.mock('../../lib/markdown/enhance', async (importOriginal) => {
   return {
     ...actual,
     renderPendingMermaid: () => (diagram.failMermaid ? Promise.reject(new Error('mermaid refused the page')) : Promise.resolve()),
-    renderChartJs: () => diagram.hold ?? Promise.resolve(),
+    renderPendingCharts: () => diagram.hold ?? Promise.resolve(),
   }
 })
 
