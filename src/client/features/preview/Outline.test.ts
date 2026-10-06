@@ -436,3 +436,108 @@ describe('Outline note switching', () => {
         expect(outlineHeadingsFor('n1')).toEqual([]);
     });
 });
+
+const MENU_DOC = '# Alpha\n\nbody a\n\n## Beta\n\nbody b\n';
+/** Line numbers must agree with MENU_DOC or a section edit lands on a blank line. */
+const MENU_HEADINGS: Heading[] = [
+    { level: 1, text: 'Alpha', slug: 'alpha', line: 0 },
+    { level: 2, text: 'Beta', slug: 'beta', line: 4 },
+];
+
+describe('Outline row menu', () => {
+    async function openMenu(container: HTMLElement, slug: string): Promise<void> {
+        const button = container.querySelector<HTMLButtonElement>(`button[data-slug="${slug}"]`)!;
+        await act(async () => {
+            button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+        });
+    }
+
+    function menuItem(root: ParentNode, label: string): HTMLElement | undefined {
+        return [...root.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes(label));
+    }
+
+    it('offers rename and the copy variants on a right click', async () => {
+        const { container, unmount } = renderOutline(MENU_HEADINGS, vi.fn(), { content: MENU_DOC, onContentChange: vi.fn() });
+        await openMenu(container, 'alpha');
+        const labels = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '');
+        expect(labels.some((l) => l.includes('outline.rename'))).toBe(true);
+        expect(labels.filter((l) => l.includes('outline.copy')).length).toBe(5);
+        expect(labels.some((l) => l.includes('outline.delete_section'))).toBe(true);
+        unmount();
+    });
+
+    it('hides the editing entries when the body is not supplied', async () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        await openMenu(container, 'alpha');
+        const labels = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '');
+        expect(labels.some((l) => l.includes('outline.rename'))).toBe(false);
+        expect(labels.some((l) => l.includes('outline.delete_section'))).toBe(false);
+        expect(labels.some((l) => l.includes('outline.copy_heading'))).toBe(true);
+        unmount();
+    });
+
+    it('rewrites the heading line through onContentChange when demoting one level', async () => {
+        const onContentChange = vi.fn();
+        const { container, unmount } = renderOutline(MENU_HEADINGS, vi.fn(), { content: MENU_DOC, onContentChange });
+        await openMenu(container, 'beta');
+        await click(menuItem(document, 'outline.demote_level')!);
+        expect(onContentChange).toHaveBeenCalledTimes(1);
+        expect(onContentChange.mock.calls[0][0]).toBe('# Alpha\n\nbody a\n\n### Beta\n\nbody b\n');
+        unmount();
+    });
+
+    it('rewrites the whole section for the recursive variant', async () => {
+        const onContentChange = vi.fn();
+        const { container, unmount } = renderOutline(MENU_HEADINGS, vi.fn(), { content: MENU_DOC, onContentChange });
+        await openMenu(container, 'alpha');
+        await click(menuItem(document, 'outline.promote_level_recursively')!);
+        // Alpha cannot promote past level 1, so only Beta moves.
+        expect(onContentChange.mock.calls[0][0]).toBe('# Alpha\n\nbody a\n\n# Beta\n\nbody b\n');
+        unmount();
+    });
+
+    it('commits a rename from Enter and not from blur afterwards', async () => {
+        const onContentChange = vi.fn();
+        const { container, unmount } = renderOutline(MENU_HEADINGS, vi.fn(), { content: MENU_DOC, onContentChange });
+        const beta = container.querySelector<HTMLButtonElement>('button[data-slug="beta"]')!;
+        await act(async () => { beta.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+        const input = container.querySelector<HTMLInputElement>('input[aria-label="outline.rename"]');
+        expect(input).not.toBeNull();
+        input!.value = 'Renamed';
+        await act(async () => {
+            input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        });
+        expect(onContentChange).toHaveBeenCalledTimes(1);
+        expect(onContentChange.mock.calls[0][0]).toContain('## Renamed');
+        unmount();
+    });
+
+    it('cancels a rename on Escape without touching the body', async () => {
+        const onContentChange = vi.fn();
+        const { container, unmount } = renderOutline(MENU_HEADINGS, vi.fn(), { content: MENU_DOC, onContentChange });
+        await act(async () => {
+            container.querySelector<HTMLButtonElement>('button[data-slug="beta"]')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        });
+        const input = container.querySelector<HTMLInputElement>('input[aria-label="outline.rename"]')!;
+        input.value = 'Changed';
+        await act(async () => {
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        });
+        expect(onContentChange).not.toHaveBeenCalled();
+        expect(container.querySelector('input[aria-label="outline.rename"]')).toBeNull();
+        unmount();
+    });
+
+    it('copies the heading with its section to the clipboard', async () => {
+        const written: string[] = [];
+        const previous = navigator.clipboard;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { written.push(text); } } });
+        const { container, unmount } = renderOutline(MENU_HEADINGS, vi.fn(), { content: MENU_DOC, onContentChange: vi.fn() });
+        await openMenu(container, 'alpha');
+        await click(menuItem(document, 'outline.copy_with_content')!);
+        // Alpha is the only level-1 heading, so its section runs to the end of the document.
+        expect(written).toEqual([MENU_DOC]);
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: previous });
+        unmount();
+    });
+});

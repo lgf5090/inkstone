@@ -8,6 +8,10 @@ import {
     Heading5,
     Heading6,
     ChevronRight,
+    Copy,
+    Pencil,
+    Trash2,
+    ChevronsUpDown,
     Search,
     X,
     Asterisk,
@@ -15,7 +19,16 @@ import {
 } from 'lucide-react';
 import type { Heading } from '../../lib/markdown/renderer';
 import { cn } from '../../lib/cn';
-import { Tooltip } from '../../components/overlay';
+import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
+import {
+    changeHeadingLevel,
+    changeSectionLevels,
+    deleteSection,
+    descendantIndices,
+    renameHeading,
+    sectionRange,
+    siblingIndices,
+} from './outline-sections';
 import { t } from '../../lib/i18n';
 import {
     activeHeadingIndex,
@@ -195,7 +208,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -206,6 +219,9 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     /** Slug chosen from the editor cursor; wins over the preview-scroll reading. */
     activeOverride?: string | null;
     keepSearch?: boolean;
+    /** Raw note body; the row menu edits it through the pure section helpers. */
+    content?: string;
+    onContentChange?: (next: string) => void;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -307,6 +323,63 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     const parents = useMemo(() => parentSlugs(tree), [tree]);
     const allCollapsed = parents.length > 0 && parents.every((slug) => collapsed.has(slug));
 
+    const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
+    const toast = useUi((state) => state.toast);
+    const lines = useMemo(() => (content === undefined ? [] : content.split('\n')), [content]);
+    const editable = content !== undefined && Boolean(onContentChange) && lines.length > 0;
+    const applyLines = (next: string[]) => {
+        onContentChange?.(next.join('\n'));
+    };
+    const copyText = (text: string) => {
+        if (!text) return;
+        void navigator.clipboard.writeText(text);
+        toast({ title: t('outline.copied'), tone: 'success' });
+    };
+    const headingLines = (indices: number[]) => indices.map((i) => lines[headings[i]!.line] ?? '').join('\n');
+    const buildMenu = (node: OutlineNode): MenuItem[] => {
+        const index = node.index;
+        const range = sectionRange(headings, index, lines.length);
+        const descendants = descendantIndices(headings, index);
+        const items: MenuItem[] = [];
+        if (searching) return items;
+        if (editable) items.push({ id: 'rename', label: t('outline.rename'), icon: <Pencil size={13}/>, onSelect: () => setRenamingIndex(index) });
+        items.push({ id: 'copy', label: t('outline.copy_heading'), icon: <Copy size={13}/>, onSelect: () => copyText(node.heading.text) });
+        items.push({ id: 'copy-line', label: t('outline.copy_heading_line'), icon: <Copy size={13}/>, onSelect: () => copyText(lines[range.start] ?? '') });
+        if (node.hasChildren) {
+            items.push({ id: 'copy-children', label: t('outline.copy_with_children'), icon: <Copy size={13}/>, onSelect: () => copyText(headingLines([index, ...descendants])) });
+            items.push({ id: 'copy-content', label: t('outline.copy_with_content'), icon: <Copy size={13}/>, onSelect: () => copyText(lines.slice(range.start, range.end).join('\n')) });
+        }
+        items.push({ id: 'copy-siblings', label: t('outline.copy_with_siblings'), icon: <Copy size={13}/>, onSelect: () => copyText(headingLines(siblingIndices(headings, index))) });
+        if (editable) {
+            items.push({ id: 'sep-level', label: '', separatorBefore: true });
+            items.push({ id: 'level-promote', label: t('outline.promote_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => applyLines(changeHeadingLevel(lines, node.heading, node.heading.level - 1)) });
+            items.push({ id: 'level-demote', label: t('outline.demote_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => applyLines(changeHeadingLevel(lines, node.heading, node.heading.level + 1)) });
+            if (node.hasChildren) {
+                items.push({ id: 'level-promote-rec', label: t('outline.promote_level_recursively'), icon: <ChevronsUpDown size={13}/>, onSelect: () => applyLines(changeSectionLevels(lines, headings, index, -1)) });
+                items.push({ id: 'level-demote-rec', label: t('outline.demote_level_recursively'), icon: <ChevronsUpDown size={13}/>, onSelect: () => applyLines(changeSectionLevels(lines, headings, index, 1)) });
+            }
+            items.push({ id: 'delete', label: t('outline.delete_section'), icon: <Trash2 size={13}/>, separatorBefore: true, onSelect: () => void deleteSectionWithConfirm(index) });
+        }
+        return items;
+    };
+    const deleteSectionWithConfirm = async (index: number) => {
+        const nested = descendantIndices(headings, index).length;
+        const ok = await confirm({
+            title: t('outline.delete_heading', { title: headings[index]!.text || t('preview.untitled') }),
+            description: nested ? t('outline.delete_nested', { count: nested }) : t('outline.delete_no_nested'),
+            confirmLabel: t('common.delete'),
+            tone: 'danger',
+        });
+        if (ok) applyLines(deleteSection(lines, headings, index));
+    };
+    const commitRename = (index: number, title: string) => {
+        const heading = headings[index]!;
+        setRenamingIndex(null);
+        const trimmed = title.trim();
+        if (!trimmed || trimmed === heading.text) return;
+        applyLines(renameHeading(lines, heading, trimmed));
+    };
+
     if (headings.length === 0)
         return null;
 
@@ -341,38 +414,72 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </div>)}
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
-        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect}/>))}
+        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
     </nav>);
 }
 
-function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect }: {
+function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename }: {
     node: OutlineNode;
     isLocated: boolean;
     isCollapsed: boolean;
     onToggle: (slug: string) => void;
     onSelect: (heading: Heading) => void;
+    buildMenu: (node: OutlineNode) => MenuItem[];
+    menuEnabled: boolean;
+    canRename: boolean;
+    renaming: boolean;
+    onStartRename: () => void;
+    onCommitRename: (index: number, title: string) => void;
+    onCancelRename: () => void;
 }) {
     const { heading, tier, hasChildren } = node;
     const typography = getHeadingTypography(heading.level, isLocated);
     const HeadingIcon = getHeadingIcon(heading.level);
     const label = heading.text || t('preview.untitled');
-    return (<li className={outlineMarginTop(node)} data-heading-level={heading.level}>
+    const menu = useContextMenu();
+    // Guards the blur that follows an Enter commit, which would otherwise rename twice.
+    const committedRef = useRef(false);
+    const items = menu.point ? buildMenu(node) : [];
+    return (<li className={outlineMarginTop(node)} data-heading-level={heading.level} onContextMenu={(event) => {
+            if (!menuEnabled) return;
+            menu.onContextMenu(event);
+        }}>
       <div className="flex items-center" style={{ paddingLeft: OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP }}>
         {hasChildren ? (<button type="button" aria-expanded={!isCollapsed} aria-label={isCollapsed ? t('outline.expand_heading', { title: label }) : t('outline.collapse_heading', { title: label })} onClick={() => onToggle(heading.slug)} className="flex h-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" style={{ width: CHEVRON_SLOT }}>
               <ChevronRight size={10} className={cn('transition-transform duration-[var(--dur-fast)]', !isCollapsed && 'rotate-90')}/>
             </button>) : (<span aria-hidden="true" className="shrink-0" style={{ width: CHEVRON_SLOT }}/>) }
-        <Tooltip label={label} side="left">
-          <button type="button" data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
+        {renaming ? (<input aria-label={t('outline.rename')} autoFocus defaultValue={heading.text} onFocus={() => {
+                committedRef.current = false;
+            }} onBlur={(event) => {
+                if (committedRef.current) return;
+                committedRef.current = true;
+                onCommitRename(node.index, event.currentTarget.value);
+            }} onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    committedRef.current = true;
+                    onCommitRename(node.index, event.currentTarget.value);
+                    return;
+                }
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    committedRef.current = true;
+                    onCancelRename();
+                }
+            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side="left">            <button type="button" data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
-            {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}
-            <HeadingIcon size={typography.iconSize} aria-hidden="true" className={cn('shrink-0 transition-opacity duration-[var(--dur-fast)]', typography.iconColor, !isLocated && 'group-hover:text-[var(--text-secondary)] group-hover:opacity-100')}/>
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-          </button>
-        </Tooltip>
+              {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}
+              <HeadingIcon size={typography.iconSize} aria-hidden="true" className={cn('shrink-0 transition-opacity duration-[var(--dur-fast)]', typography.iconColor, !isLocated && 'group-hover:text-[var(--text-secondary)] group-hover:opacity-100')}/>
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+            </button>
+          </Tooltip>)}
       </div>
+      {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items}/>}
     </li>);
 }
 

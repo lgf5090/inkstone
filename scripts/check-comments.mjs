@@ -177,6 +177,9 @@ const allowed = new Map([
     "/** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */",
     "/* re-render without a new command */",
     "// Only \"Detail 1.1.1\" carries the substring; its two ancestors stay drawn as the path to it.",
+    "/** Line numbers must agree with MENU_DOC or a section edit lands on a blank line. */",
+    "// Alpha cannot promote past level 1, so only Beta moves.",
+    "// Alpha is the only level-1 heading, so its section runs to the end of the document.",
   ]],
   ["src/client/features/preview/Outline.tsx", [
     "/**\n * Expansion survives typing: the set is keyed by heading slug and only shed when those headings\n * stop being parents, so adding a heading elsewhere never reflows what the reader folded away.\n */",
@@ -185,6 +188,8 @@ const allowed = new Map([
     "/** Slug chosen from the editor cursor; wins over the preview-scroll reading. */",
     "// Seeded with the command already in the store so remounting never replays a stale request.",
     "// A shallower document would otherwise need dead presses before anything moves.",
+    "/** Raw note body; the row menu edits it through the pure section helpers. */",
+    "// Guards the blur that follows an Enter commit, which would otherwise rename twice.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -391,6 +396,25 @@ const allowed = new Map([
   ]],
   ["src/client/features/preview/outline-registry.ts", [
     "/** Only the active note's outline is exportable; a stale snapshot must never reach the clipboard. */",
+  ]],
+  ["src/client/features/preview/outline-sections.test.ts", [
+    "/**\n * Code fences deliberately hold `#` and `## ` lines, so an implementation that scans text with a\n * regex instead of the parsed heading list is caught by the very first level-change assertion.\n */",
+    "// Gamma is nested under Beta, so Beta's section runs past it to the next level-2 heading.",
+    "// Echo is level 1, so a level-2 section moved inside it needs no re-levelling.",
+    "// Normalising the leading hashes means any lost, duplicated or altered body line fails",
+    "// here, while a legitimate re-levelling still passes.",
+  ]],
+  ["src/client/features/preview/outline-sections.ts", [
+    "/** Zero-based line of the heading itself. */",
+    "/** Exclusive end: the first line after this heading's section. */",
+    "/**\n * A section runs from its heading down to the next heading that is no deeper than it, so nested\n * headings belong to the outer section. `end` is exclusive and clamps to the document's last line.\n */",
+    "/** Indices of every heading nested inside the given one, deepest reach included. */",
+    "/** Indices sharing the same parent and level, always including the heading itself. */",
+    "/**\n * Shifts every heading inside the range by `delta`. Lines are matched against the parsed heading\n * list rather than a `#` regex, so a shell comment inside a fenced block is never touched.\n */",
+    "/** Single-line level change for the heading itself, leaving its section alone. */",
+    "/** Replaces one heading's title text, keeping its `#` prefix and trailing whitespace intact. */",
+    "/** Drops the heading and everything down to (but excluding) the next section of its own level. */",
+    "/**\n * Relocates a whole section and re-levels it to fit its new parent. Deleting first would shift the\n * target, so both ranges are measured against the untouched document and reassembly walks it once.\n */",
   ]],
   ["src/client/features/preview/outline-tree.test.ts", [
     "// One and Two match; Alpha is drawn only because a child of it matched.",
