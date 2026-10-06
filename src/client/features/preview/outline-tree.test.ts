@@ -12,6 +12,8 @@ import {
     pruneCollapsed,
     readingProgress,
     stringifyOutline,
+    truncateHeading,
+    ancestorIndices,
 } from './outline-tree';
 
 function heading(level: number, text: string, slug = text.toLowerCase().replace(/\s+/g, '-')): Heading {
@@ -218,5 +220,56 @@ describe('stringifyOutline', () => {
     it('keeps raw heading text untouched', () => {
         const tree = buildOutlineTree([heading(1, 'Uses `code` and **bold**')]);
         expect(stringifyOutline(tree, { numbering: false, indent: '' })).toBe('Uses `code` and **bold**');
+    });
+});
+
+describe('truncateHeading', () => {
+    it('leaves text alone when no limit is set', () => {
+        expect(truncateHeading('A reasonably long heading', 0)).toBe('A reasonably long heading');
+    });
+
+    it('leaves text at or under the limit untouched', () => {
+        expect(truncateHeading('Twelve chars', 12)).toBe('Twelve chars');
+    });
+
+    it('ellipsises past the limit without exceeding it', () => {
+        const out = truncateHeading('abcdefghijklmnop', 10);
+        expect(out).toBe('abcdefghi…');
+        expect(out.length).toBe(10);
+    });
+
+    it('never returns an empty string for a tiny limit', () => {
+        expect(truncateHeading('abcdef', 1)).toBe('…');
+    });
+
+    it('trims a word-break tail before the ellipsis', () => {
+        expect(truncateHeading('short tail here', 11)).toBe('short tail…');
+    });
+});
+
+describe('ancestorIndices', () => {
+    it('walks the parent chain nearest first', () => {
+        const tree = buildOutlineTree([heading(1, 'A'), heading(2, 'B'), heading(3, 'C')]);
+        expect(ancestorIndices(tree, 2)).toEqual([1, 0]);
+    });
+
+    it('is empty for a root row', () => {
+        const tree = buildOutlineTree([heading(1, 'A'), heading(2, 'B')]);
+        expect(ancestorIndices(tree, 0)).toEqual([]);
+    });
+
+    it('skips a tier when the document jumps levels', () => {
+        const tree = buildOutlineTree([heading(1, 'A'), heading(4, 'B')]);
+        expect(ancestorIndices(tree, 1)).toEqual([0]);
+    });
+
+    it('is empty for an out-of-range index', () => {
+        expect(ancestorIndices(buildOutlineTree([heading(1, 'A')]), 42)).toEqual([]);
+    });
+
+    it('terminates on a cycle rather than looping forever', () => {
+        const tree = buildOutlineTree([heading(1, 'A'), heading(2, 'B')]);
+        tree[0]!.parentIndex = 1;
+        expect(ancestorIndices(tree, 1).length).toBeLessThanOrEqual(tree.length);
     });
 });

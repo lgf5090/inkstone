@@ -153,6 +153,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const outlineShowProgress = previewSettings.outlineShowProgress;
     const outlineKeepSearch = previewSettings.outlineKeepSearch;
     const outlineDragEdits = previewSettings.outlineDragEdits;
+    const outlineAutoExpand = previewSettings.outlineAutoExpand;
+    const outlineTooltipSide = previewSettings.outlineTooltipSide;
+    const outlineTruncateLength = previewSettings.outlineTruncateLength;
     const outlineLocateByCursor = previewSettings.outlineLocateByCursor;
     const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover';
     const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && !outlineIsFloating;
@@ -548,10 +551,10 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
         {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
             <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
-            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits}/>)}
+            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength}/>)}
           </div>)}
-        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits}/>}
-        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} containerRef={containerRef}/>)}
+        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength}/>}
+        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} containerRef={containerRef}/>)}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}

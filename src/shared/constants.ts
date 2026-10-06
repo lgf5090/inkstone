@@ -106,6 +106,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlineMode: 'sidebar',
     outlineDefaultLevel: 6,
     outlineShowProgress: true,
+    outlineAutoExpand: 'off',
+    outlineTooltipSide: 'left',
+    outlineTruncateLength: 0,
     outlineDragEdits: false,
     outlineKeepSearch: false,
     outlineLocateByCursor: false,
@@ -165,6 +168,8 @@ const EDITOR_FONTS = ['mono', 'sans'] as const
 const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
 const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
 const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover'] as const
+const OUTLINE_AUTO_EXPANDS = ['off', 'ancestors'] as const
+const OUTLINE_TOOLTIP_SIDES = ['left', 'right'] as const
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
 
@@ -244,6 +249,9 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.outlineShowProgress = booleanValue(preview.outlineShowProgress, base.preview.outlineShowProgress)
   base.preview.outlineKeepSearch = booleanValue(preview.outlineKeepSearch, base.preview.outlineKeepSearch)
   base.preview.outlineDragEdits = booleanValue(preview.outlineDragEdits, base.preview.outlineDragEdits)
+  base.preview.outlineAutoExpand = enumValue(preview.outlineAutoExpand, OUTLINE_AUTO_EXPANDS, base.preview.outlineAutoExpand)
+  base.preview.outlineTooltipSide = enumValue(preview.outlineTooltipSide, OUTLINE_TOOLTIP_SIDES, base.preview.outlineTooltipSide)
+  base.preview.outlineTruncateLength = integerInRange(preview.outlineTruncateLength, 0, 120, base.preview.outlineTruncateLength)
   base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)

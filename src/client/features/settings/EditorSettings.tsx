@@ -1,7 +1,7 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
-import type { OutlineModeName } from '@shared/types';
+import type { OutlineAutoExpandName, OutlineModeName } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -96,6 +96,24 @@ export function EditorSettings() {
 
         {preview.showToc && <SettingRow title={t("settings.outline_show_progress")}>
           <Switch checked={preview.outlineShowProgress} onChange={(outlineShowProgress) => void update({ preview: { outlineShowProgress } })} label={t("settings.outline_show_progress")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_auto_expand")} description={t("settings.outline_auto_expand_description")}>
+          <Segmented<OutlineAutoExpandName> label={t("settings.outline_auto_expand")} value={preview.outlineAutoExpand} onChange={(outlineAutoExpand) => void update({ preview: { outlineAutoExpand } })} options={[
+            { value: 'off', label: t("settings.outline_auto_expand_off") },
+            { value: 'ancestors', label: t("settings.outline_auto_expand_ancestors") },
+        ]}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_tooltip_side")}>
+          <Segmented<'left' | 'right'> label={t("settings.outline_tooltip_side")} value={preview.outlineTooltipSide} onChange={(outlineTooltipSide) => void update({ preview: { outlineTooltipSide } })} options={[
+            { value: 'left', label: t("settings.outline_tooltip_left") },
+            { value: 'right', label: t("settings.outline_tooltip_right") },
+        ]}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_truncate_length")} description={t("settings.outline_truncate_length_description")}>
+          <Slider label={t("settings.outline_truncate_length")} className="w-[200px]" value={preview.outlineTruncateLength} min={0} max={120} step={5} onChange={(outlineTruncateLength) => void update({ preview: { outlineTruncateLength } })}/>
         </SettingRow>}
 
         {preview.showToc && <SettingRow title={t("settings.outline_drag_edits")} description={t("settings.outline_drag_edits_description")}>

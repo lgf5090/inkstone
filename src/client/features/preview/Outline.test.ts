@@ -616,3 +616,59 @@ describe('Outline drag to move', () => {
         unmount();
     });
 });
+
+describe('Outline reading preferences', () => {
+    const NESTED: Heading[] = [
+        { level: 1, text: 'Alpha', slug: 'alpha', line: 0 },
+        { level: 2, text: 'Beta', slug: 'beta', line: 2 },
+        { level: 3, text: 'Gamma', slug: 'gamma', line: 4 },
+    ];
+
+    it('truncates the row text to the limit plus one ellipsis', () => {
+        const { container, unmount } = renderOutline([{ level: 1, text: 'A very long heading indeed', slug: 'long', line: 0 }], vi.fn(), { truncateLength: 10 });
+        expect(container.querySelector('button[data-slug="long"]')!.textContent).toBe('A very lo…');
+        unmount();
+    });
+
+    it('leaves the row text whole when truncation is off', () => {
+        const { container, unmount } = renderOutline([{ level: 1, text: 'A very long heading indeed', slug: 'long', line: 0 }]);
+        expect(container.querySelector('button[data-slug="long"]')!.textContent).toBe('A very long heading indeed');
+        unmount();
+    });
+
+    it('does not auto-expand ancestors by default', async () => {
+        const { container, unmount } = renderOutline(NESTED, vi.fn(), { defaultLevel: 1 });
+        expect(slugs(container)).toEqual(['alpha']);
+        await act(async () => { useUi.setState({ outlineCommand: { action: 'expand-all', seq: 9001 } }); });
+        await act(async () => { useUi.setState({ outlineCommand: { action: 'collapse-all', seq: 9002 } }); });
+        expect(slugs(container)).toEqual(['alpha']);
+        unmount();
+    });
+
+    it('reveals the ancestors of a newly active heading when auto-expand is on', async () => {
+        // Only the active heading changes here: no expand command is sent, so a missing
+        // auto-expand rule leaves the tree folded and this test red.
+        const { container, unmount, rerender } = renderOutline(NESTED, vi.fn(), { defaultLevel: 1, autoExpand: 'ancestors' });
+        expect(slugs(container)).toEqual(['alpha']);
+        rerender(createElement(Outline, { headings: NESTED, onSelect: vi.fn(), noteId: 'n1', defaultLevel: 1, autoExpand: 'ancestors', activeOverride: 'gamma' }));
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        unmount();
+    });
+
+    it('keeps a sibling branch folded while auto-expanding', async () => {
+        // Opening Alpha must reveal both its children, but Delta stays folded so Epsilon
+        // stays hidden: only the ancestors of the active row are pulled open.
+        const FIVE: Heading[] = [
+            { level: 1, text: 'Alpha', slug: 'alpha', line: 0 },
+            { level: 2, text: 'Beta', slug: 'beta', line: 2 },
+            { level: 3, text: 'Gamma', slug: 'gamma', line: 4 },
+            { level: 2, text: 'Delta', slug: 'delta', line: 6 },
+            { level: 3, text: 'Epsilon', slug: 'epsilon', line: 8 },
+        ];
+        const { container, unmount, rerender } = renderOutline(FIVE, vi.fn(), { defaultLevel: 1, autoExpand: 'ancestors' });
+        expect(slugs(container)).toEqual(['alpha']);
+        rerender(createElement(Outline, { headings: FIVE, onSelect: vi.fn(), noteId: 'n1', defaultLevel: 1, autoExpand: 'ancestors', activeOverride: 'gamma' }));
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma', 'delta']);
+        unmount();
+    });
+});

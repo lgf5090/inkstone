@@ -34,7 +34,7 @@ interface DragVisual {
     edgeY: SnappedEdge;
 }
 
-export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, containerRef, }: {
+export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, containerRef, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -46,6 +46,9 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     content?: string;
     onContentChange?: (next: string) => void;
     dragEdits: boolean;
+    autoExpand: 'off' | 'ancestors';
+    tooltipSide: 'left' | 'right';
+    truncateLength: number;
     containerRef: RefObject<HTMLElement | null>;
 }) {
     const stored = useUi((state) => state.outlineFloatingPosition);
@@ -152,7 +155,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
         </Tooltip>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} className="h-full max-h-full w-full py-2 pr-2"/>
+        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} autoExpand={autoExpand} tooltipSide={tooltipSide} truncateLength={truncateLength} className="h-full max-h-full w-full py-2 pr-2"/>
       </div>
       {drag?.edgeX && <span aria-hidden="true" className={cnGuide('vertical', drag.edgeX)}/>}
       {drag?.edgeY && <span aria-hidden="true" className={cnGuide('horizontal', drag.edgeY)}/>}

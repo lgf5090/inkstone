@@ -35,6 +35,7 @@ import {
 import { t } from '../../lib/i18n';
 import {
     activeHeadingIndex,
+    ancestorIndices,
     buildOutlineTree,
     clamp,
     collapsedToLevel,
@@ -43,6 +44,7 @@ import {
     parentSlugs,
     pruneCollapsed,
     readingProgress,
+    truncateHeading,
     type OutlineNode,
 } from './outline-tree';
 import { publishOutlineHeadings } from './outline-registry';
@@ -211,7 +213,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -227,6 +229,9 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     onContentChange?: (next: string) => void;
     /** Off by default: dragging rewrites the note body. */
     dragEdits?: boolean;
+    autoExpand?: 'off' | 'ancestors';
+    tooltipSide?: 'left' | 'right';
+    truncateLength?: number;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -313,6 +318,23 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         while (parent >= 0 && hidden[parent] === true) parent = tree[parent]!.parentIndex;
         return parent >= 0 ? tree[parent]!.heading.slug : active;
     }, [active, tree, hidden]);
+
+    // Reveals only the branch being read; sibling branches keep whatever state the reader left them in.
+    useEffect(() => {
+        if (autoExpand !== 'ancestors' || !active || searching)
+            return;
+        const index = tree.findIndex((node) => node.heading.slug === active);
+        if (index < 0)
+            return;
+        const ancestors = ancestorIndices(tree, index).filter((parent) => collapsed.has(tree[parent]!.heading.slug));
+        if (ancestors.length === 0)
+            return;
+        setCollapsed((current) => {
+            const next = new Set(current);
+            for (const parent of ancestors) next.delete(tree[parent]!.heading.slug);
+            return next;
+        });
+    }, [autoExpand, active, tree, searching, collapsed, setCollapsed]);
 
     useEffect(() => {
         if (!locatedSlug || searching) return;
@@ -435,18 +457,20 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </div>)}
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
-        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
+        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
     </nav>);
 }
 
-function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
+function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
     node: OutlineNode;
     isLocated: boolean;
     isCollapsed: boolean;
     onToggle: (slug: string) => void;
     onSelect: (heading: Heading) => void;
+    tooltipSide: 'left' | 'right';
+    truncateLength: number;
     buildMenu: (node: OutlineNode) => MenuItem[];
     menuEnabled: boolean;
     canRename: boolean;
@@ -466,6 +490,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMen
     const typography = getHeadingTypography(heading.level, isLocated);
     const HeadingIcon = getHeadingIcon(heading.level);
     const label = heading.text || t('preview.untitled');
+    const shown = truncateHeading(label, truncateLength);
     const menu = useContextMenu();
     // Guards the blur that follows an Enter commit, which would otherwise rename twice.
     const committedRef = useRef(false);
@@ -516,12 +541,12 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMen
                     committedRef.current = true;
                     onCancelRename();
                 }
-            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side="left">            <button type="button" data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
+            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
               {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}
               <HeadingIcon size={typography.iconSize} aria-hidden="true" className={cn('shrink-0 transition-opacity duration-[var(--dur-fast)]', typography.iconColor, !isLocated && 'group-hover:text-[var(--text-secondary)] group-hover:opacity-100')}/>
-              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="min-w-0 flex-1 truncate">{shown}</span>
             </button>
           </Tooltip>)}
       </div>

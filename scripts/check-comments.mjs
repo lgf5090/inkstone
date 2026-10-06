@@ -182,6 +182,10 @@ const allowed = new Map([
     "// Alpha is the only level-1 heading, so its section runs to the end of the document.",
     "/** jsdom has no layout, so the band is chosen by stubbing the row rect and the pointer Y. */",
     "// clientY 5 of a 30px row is the top band, so Two lands ahead of One and re-levels to One's rank.",
+    "// Only the active heading changes here: no expand command is sent, so a missing",
+    "// auto-expand rule leaves the tree folded and this test red.",
+    "// Opening Alpha must reveal both its children, but Delta stays folded so Epsilon",
+    "// stays hidden: only the ancestors of the active row are pulled open.",
   ]],
   ["src/client/features/preview/Outline.tsx", [
     "/**\n * Expansion survives typing: the set is keyed by heading slug and only shed when those headings\n * stop being parents, so adding a heading elsewhere never reflows what the reader folded away.\n */",
@@ -193,6 +197,7 @@ const allowed = new Map([
     "/** Raw note body; the row menu edits it through the pure section helpers. */",
     "// Guards the blur that follows an Enter commit, which would otherwise rename twice.",
     "/** Off by default: dragging rewrites the note body. */",
+    "// Reveals only the branch being read; sibling branches keep whatever state the reader left them in.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -432,6 +437,8 @@ const allowed = new Map([
     "/** A document that fits its viewport has nothing left to read, so it counts as finished. */",
     "/** Leading indent per visual tier, matched to what the panel draws. */",
     "/**\n * Flattens the outline to clipboard text. Tiers come from the rendered tree rather than the raw\n * `#` count, so a document that jumps H1 → H3 exports two levels, the same shape the reader sees.\n */",
+    "/** Ellipsises heading text for the row; `max` of 0 means \"never shorten\", matching the setting. */",
+    "/** Parent chain of `index`, nearest ancestor first. Empty for a root row or a bad index. */",
   ]],
   ["src/client/features/preview/panel-source.ts", [
     "/**\n * The source edits behind a layout block's settings toolbar.\n *\n * A block keeps its whole configuration on one header line, so most edits are a rewrite of that line\n * with the content below left byte-identical. Changing the column count is the one edit that also has\n * to touch the body: the number of columns a note holds is the number of `::` separators it carries,\n * and a header that disagrees with its own body is a block the reader cannot fix by looking at it.\n */",

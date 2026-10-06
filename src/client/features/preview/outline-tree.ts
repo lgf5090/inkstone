@@ -108,6 +108,24 @@ export function clamp(value: number, minimum: number, maximum: number): number {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
 
+/** Ellipsises heading text for the row; `max` of 0 means "never shorten", matching the setting. */
+export function truncateHeading(text: string, max: number): string {
+    if (max <= 0 || text.length <= max) return text;
+    if (max === 1) return '…';
+    return `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** Parent chain of `index`, nearest ancestor first. Empty for a root row or a bad index. */
+export function ancestorIndices(tree: OutlineNode[], index: number): number[] {
+    const chain: number[] = [];
+    let parent = tree[index]?.parentIndex ?? -1;
+    while (parent >= 0 && chain.length < tree.length) {
+        chain.push(parent);
+        parent = tree[parent]?.parentIndex ?? -1;
+    }
+    return chain;
+}
+
 export interface OutlineExportOptions {
     numbering: boolean;
     /** Leading indent per visual tier, matched to what the panel draws. */
