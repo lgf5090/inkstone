@@ -2,6 +2,9 @@ import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange
 import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
 import { markdownToMindmapOutline } from '../lib/markdown/mindmap/outline';
+import { interpolateNewNoteTemplate } from '@shared/note-template-render';
+import { useSession } from '../store/session';
+import { useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
 
 
@@ -503,6 +506,35 @@ export const insertFrontMatter: StateCommand = ({ state, dispatch }) => {
 export const insertTable: StateCommand = (target) => {
     const template = [t("editor.column_1_column_2_column_3"), '| --- | --- | --- |', '|  |  |  |', ''].join('\n');
     return insertPrefixedBlock(template, 2)(target);
+};
+/**
+ * Insert the configured new-note template at each caret.
+ *
+ * This interpolates only: the note already exists, so merging its front matter
+ * tags would fight the properties the author wrote. `{{folder}}` and `{{tags}}`
+ * are filled from the note being edited, and `{{cursor}}` lands the caret
+ * inside the inserted text.
+ */
+export const insertNoteTemplate: StateCommand = ({ state, dispatch }) => {
+    const template = useSession.getState().settings.notes?.newNoteTemplate ?? '';
+    if (!template.trim())
+        return false;
+    const notes = useNotes.getState();
+    const summary = useUi.getState().activeNoteId ? notes.notes[useUi.getState().activeNoteId!] : null;
+    const folder = summary?.folderId ? notes.folders.find((item) => item.id === summary.folderId) : null;
+    const rendered = interpolateNewNoteTemplate(template, {
+        title: summary?.title || t('common.new_note'),
+        folder: folder?.name ?? '',
+        tags: (summary?.tags ?? []).join(', '),
+    });
+    if (!rendered.content)
+        return false;
+    const changes = state.changeByRange((range) => ({
+        changes: { from: range.from, to: range.to, insert: rendered.content },
+        range: EditorSelection.cursor(range.from + (rendered.cursor ?? rendered.content.length)),
+    }));
+    dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
+    return true;
 };
 export const insertCodeBlock: StateCommand = ({ state, dispatch }) => {
     const changes = state.changeByRange((range) => {

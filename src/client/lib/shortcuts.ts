@@ -5,6 +5,7 @@ export const APP_SHORTCUTS = {
   search: 'mod+shift+f',
   graph: 'mod+shift+g',
   newNote: IS_MAC ? 'mod+alt+shift+n' : 'mod+alt+n',
+  templates: 'mod+shift+n',
   settings: 'mod+,',
   toggleList: IS_MAC ? 'mod+alt+shift+b' : 'mod+alt+b',
   cycleLayout: 'mod+\\',

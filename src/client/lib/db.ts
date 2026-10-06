@@ -1,7 +1,7 @@
 import { clear as clearStore, createStore, del, get, getMany, set, setMany, update } from 'idb-keyval'
 import * as idbKeyval from 'idb-keyval'
 import type { UseStore } from 'idb-keyval'
-import type { Folder, Note, NoteSummary, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
+import type { Folder, Note, NoteSummary, NoteTemplate, NoteTemplateCategory, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
 import { CLIENT_DATABASE_NAME } from './runtime'
 
 const optionalIdbExport = (name: string): unknown => Object.prototype.hasOwnProperty.call(idbKeyval, name)
@@ -20,6 +20,7 @@ const KEY = {
   content: (id: string) => `note:${id}`,
   outbox: 'outbox',
   outboxReplayLease: 'outboxReplayLease',
+  templateLibrary: 'templateLibrary',
   userId: 'userId',
   session: 'session',
 } as const
@@ -68,6 +69,13 @@ export interface CachedNoteContent {
   contentDirty?: boolean
 }
 
+/** The whole client-side template library, persisted as one per-account record. */
+export interface TemplateLibraryData {
+  categories: NoteTemplateCategory[]
+  templates: NoteTemplate[]
+  seedVersion: number
+}
+
 function normalizeOutbox(value: unknown): OutboxItem[] {
   if (!Array.isArray(value)) return []
   return value.filter((item): item is OutboxItem => {
@@ -108,7 +116,8 @@ function userScopedKey(key: string, userId = activeUserId): string {
 
 function isLegacyDataKey(key: unknown): key is string {
   return key === KEY.notes || key === KEY.folders || key === KEY.tags || key === KEY.cursor ||
-    key === KEY.outbox || key === KEY.outboxReplayLease || (typeof key === 'string' && key.startsWith('note:'))
+    key === KEY.outbox || key === KEY.outboxReplayLease || key === KEY.templateLibrary ||
+    (typeof key === 'string' && key.startsWith('note:'))
 }
 
 async function migrateLegacyData(userId: string): Promise<void> {
@@ -286,6 +295,27 @@ export const localDb = {
       ? setMany(entries.map(([id, value]) => [userScopedKey(KEY.content(id)), value] as [string, CachedNoteContent]), store).catch(() => {})
       : Promise.resolve(),
   dropContent: (id: string) => del(userScopedKey(KEY.content(id)), store).catch(() => {}),
+
+  /**
+   * Reads the per-account template library, dropping any stored entry that no
+   * longer matches the shape. A corrupt record degrades to an unseeded library
+   * rather than throwing the gallery into an error state.
+   */
+  async loadTemplateLibrary(): Promise<TemplateLibraryData | null> {
+    const value = await safeGet<unknown>(userScopedKey(KEY.templateLibrary))
+    if (!isRecord(value)) return null
+    const categories = Array.isArray(value.categories)
+      ? value.categories.filter(isNoteTemplateCategory)
+      : []
+    const templates = Array.isArray(value.templates)
+      ? value.templates.filter(isNoteTemplate)
+      : []
+    const seedVersion = isFiniteNumber(value.seedVersion) ? value.seedVersion : 0
+    return { categories, templates, seedVersion }
+  },
+
+  saveTemplateLibrary: (data: TemplateLibraryData) =>
+    safeSet(userScopedKey(KEY.templateLibrary), data),
 
   getOutbox: async (): Promise<OutboxItem[]> => normalizeOutbox(await safeGet<unknown>(userScopedKey(KEY.outbox))),
 
@@ -514,6 +544,31 @@ function isSiteInfo(value: unknown): value is SiteInfo {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isNoteTemplateCategory(value: unknown): value is NoteTemplateCategory {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.builtin === 'boolean' &&
+    isFiniteNumber(value.position) &&
+    isFiniteNumber(value.createdAt)
+}
+
+function isNoteTemplate(value: unknown): value is NoteTemplate {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string' &&
+    isNullableString(value.categoryId) &&
+    typeof value.name === 'string' &&
+    typeof value.description === 'string' &&
+    typeof value.content === 'string' &&
+    typeof value.builtin === 'boolean' &&
+    typeof value.isPinned === 'boolean' &&
+    typeof value.isStarred === 'boolean' &&
+    Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === 'string') &&
+    (value.position === undefined || isFiniteNumber(value.position)) &&
+    isFiniteNumber(value.createdAt) &&
+    isFiniteNumber(value.updatedAt)
 }
 
 function isNullableString(value: unknown): value is string | null {

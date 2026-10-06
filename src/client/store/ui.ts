@@ -14,6 +14,7 @@ export type PanelName =
   | 'shortcuts'
   | 'graph'
   | 'folders'
+  | 'templates'
   | 'versions'
   | 'share'
   | 'info'
