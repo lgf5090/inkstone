@@ -107,7 +107,7 @@ const LANGUAGES = [
     'c', 'cpp', 'csharp', 'php', 'ruby', 'sql', 'bash', 'shell', 'powershell', 'json', 'yaml',
     'toml', 'xml', 'html', 'css', 'scss', 'markdown', 'diff', 'dockerfile', 'nginx', 'mermaid',
 ];
-const CONTAINER_DIRECTIVES = ['details', 'tabs', 'tab-item', '{tab-set}', '{tab-item}'];
+const CONTAINER_DIRECTIVES = ['details', 'tabs', 'tab-item', 'timeline', '{tab-set}', '{tab-item}'];
 const CONTAINER_LINE_RE = /^(:{3,})[ \t]*([a-zA-Z{}_-]*)$/;
 
 export function containerDirectiveSource(context: CompletionContext): CompletionResult | null {
