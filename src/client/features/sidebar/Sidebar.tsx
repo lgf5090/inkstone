@@ -141,6 +141,7 @@ function SidebarAccount({ rail = false }: {
             id: 'graph',
             label: t("common.graph"),
             icon: <Waypoints size={13}/>,
+            combo: APP_SHORTCUTS.graph,
             onSelect: () => openPanel('graph'),
         },
         {

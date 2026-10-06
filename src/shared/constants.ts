@@ -41,6 +41,15 @@ export const LIMITS = {
   changeLogKept: 5000,
   syncBatchSize: 500,
   searchLimit: 50,
+  graphNodeLimitMin: 50,
+  graphNodeLimitMax: 600,
+  graphNodeLimitDefault: 350,
+  graphDepthMin: 1,
+  graphDepthMax: 3,
+  graphDepthDefault: 1,
+  graphTagsMax: 20,
+  graphExcludedMax: 200,
+  graphColorGroupMax: 5,
 
   ftsContentChars: 200_000,
 } as const

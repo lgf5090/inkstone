@@ -65,6 +65,7 @@ interface UiState {
   panel: PanelName | null
   outlineOpen: boolean
   backlinksOpen: boolean
+  localGraphOpen: boolean
   toasts: ToastItem[]
   lightbox: { src: string; alt: string } | null
 
@@ -102,6 +103,7 @@ interface UiState {
   togglePanel: (panel: PanelName) => void
   toggleOutline: () => void
   toggleBacklinks: () => void
+  toggleLocalGraph: () => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
   toast: (input: Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }) => string
@@ -316,6 +318,7 @@ export const useUi = create<UiState>((set, get) => ({
   panel: null,
   outlineOpen: false,
   backlinksOpen: false,
+  localGraphOpen: false,
   toasts: [],
   lightbox: null,
   mobilePane: 'list',
@@ -487,6 +490,7 @@ export const useUi = create<UiState>((set, get) => ({
   togglePanel: (panel) => set((s) => ({ panel: s.panel === panel ? null : panel })),
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
   toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
+  toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
   showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
 

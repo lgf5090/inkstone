@@ -262,6 +262,15 @@ function useGlobalHotkeys(): void {
                 handler: () => ui().openSearchList(),
             },
             {
+                id: 'graph',
+                combo: APP_SHORTCUTS.graph,
+                description: () => t("common.graph"),
+                group: () => t("shell.global"),
+                allowInInput: true,
+                allowInOverlay: true,
+                handler: () => ui().togglePanel('graph'),
+            },
+            {
                 id: 'settings',
                 combo: APP_SHORTCUTS.settings,
                 description: () => t("common.open_settings"),
