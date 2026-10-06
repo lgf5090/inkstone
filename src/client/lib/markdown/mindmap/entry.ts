@@ -34,7 +34,7 @@ export interface MindmapBlockEntry {
     vendor: MindmapVendor | null
     handle: MindmapHandle | null
     container: HTMLElement | null
-    /** Watches the inline container so a pane resize re-fits the drawing. */
+    /** Watches the inline container: to re-fit a drawn map, or to catch the first real box. */
     observer: ReturnType<typeof watchMindmapContainer>
     ref: MindmapFenceRef | null
     write: MindmapWriter | null
@@ -46,4 +46,6 @@ export interface MindmapBlockEntry {
     timer: number | null
     /** The instance currently being built for this block, shared by concurrent passes. */
     pending: Promise<void> | null
+    /** Set while the block is kept out of the layout: its first drawing waits for a real box. */
+    awaitingBox: boolean
 }
