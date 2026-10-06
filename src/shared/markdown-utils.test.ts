@@ -71,6 +71,13 @@ describe('container markers in plain text', () => {
     expect(countText(TAB_NOTE).words).toBe(4)
   })
 
+  it('never reads a layout block’s configuration as a title', () => {
+    expect(deriveTitle('::: cols center\nthe real first line')).toBe('the real first line')
+    expect(deriveTitle('::: justify\nthe real first line')).toBe('the real first line')
+    expect(deriveExcerpt('::: cols 1fr 2fr\n# Heading\nbody')).toBe('body')
+    expect(toPlainText('::: cols\n- a: b').trim()).toBe('a: b')
+  })
+
   it('leaves ordinary colons and lists untouched', () => {
     expect(toPlainText('::: not a directive\n- a: b').trim()).toBe('not a directive\na: b')
     expect(toPlainText('time:: 12:00')).toContain('time:: 12:00')

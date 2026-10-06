@@ -10,6 +10,11 @@ import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
 import { getLocale, t, type MessageKey } from '../i18n';
 import { parseEmbedSize, splitAltSize } from './attachments';
+import { blockLine, colonFenceMark, findColonFenceEnd, scanRenderBody, type ColonLineSource } from './colon-fence';
+import { effectiveTabsPosition, isVerticalTabsPosition, matchPanelHeader, parseTabsOptions } from './panel-options';
+import type { TabsOptions } from './panel-options';
+import { findColonTabSegments, renderAlignContainer, renderColsContainer } from './panels';
+import type { TabSegment } from './panels';
 import { encodeDataValue } from './data-attr';
 import { parseFenceInfo } from './fence-info';
 import { readCodeOptions } from './code-options';
@@ -113,18 +118,22 @@ md.renderer.rules.front_matter = (tokens, index, _options, env) => {
         .join('');
     return `<details class="frontmatter-properties" data-line="0"><summary>${escapeHtml(t("markdown.properties"))}</summary><dl>${rows}</dl></details>`;
 };
-const COLON_CONTAINER_OPEN = /^(:{3,})[ \t]*(details|tabs|timeline)\b(?:[ \t]+(.*))?$/;
-const COLON_CONTAINER_BODY = /^[ \t]*(?:\{(?:tab-set|tab-item)\}|(?:details|tabs|tab-item|timeline)\b)/;
+const COLON_CONTAINER_OPEN = /^(:{3,})[ \t]*(details|tabs|t|timeline)\b(?:[ \t]+(.*))?$/;
+const COLON_DIRECTIVE_TABS = /^(:{3,})[ \t]*\{(tab-set)\}[ \t]*(.*)$/;
 const TAB_ITEM_OPEN = /^(:{3,})(?:\{tab-item\}|[ \t]*tab-item)(?:[ \t]+(.*?))?[ \t]*$/;
+const AT_TAB = /^@tab(?:(?::active|\+))?[ \t]+(.+?)[ \t]*$/;
 const TIMELINE_NODE_MARK = /^::(?!:)[ \t]*(.*)$/;
-const INTERRUPTS_CONTAINER_CHAIN = { alt: ['paragraph', 'blockquote', 'list'] };
+const INTERRUPTS_CONTAINER_CHAIN = { alt: ['paragraph', 'reference', 'blockquote', 'list'] };
 md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, silent) => {
     const source = blockLine(state, startLine);
     const legacyMatch = COLON_CONTAINER_OPEN.exec(source);
-    const directiveMatch = /^(:{3,})\{(tab-set)\}[ \t]*(.*)$/.exec(source);
-    if (!legacyMatch && !directiveMatch)
+    const directiveMatch = COLON_DIRECTIVE_TABS.exec(source);
+    // The panel header is tested last: `::: tabs` is a tab set, not a layout block, and the two
+    // vocabularies must never disagree about which one a line opens.
+    const panel = legacyMatch || directiveMatch ? null : matchPanelHeader(source);
+    if (!legacyMatch && !directiveMatch && !panel)
         return false;
-    const markerLength = (legacyMatch?.[1] ?? directiveMatch![1]!).length;
+    const markerLength = legacyMatch?.[1].length ?? directiveMatch?.[1].length ?? panel!.markerLength;
     const fenceEnd = findColonFenceEnd(state, startLine + 1, endLine, markerLength);
     // Like an unclosed ``` fence, an unclosed container claims the rest of its own context
     // instead of throwing the author's text away.
@@ -132,8 +141,14 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
     const nextLine = fenceEnd < 0 ? endLine : fenceEnd + 1;
     if (silent)
         return true;
-    const kind = legacyMatch?.[2] ?? directiveMatch![2]!;
-    if (kind === 'timeline') {
+    const kind = legacyMatch?.[2] ?? directiveMatch?.[2];
+    if (panel) {
+        if (panel.kind === 'align')
+            renderAlignContainer(state, startLine, end, nextLine, panel.align);
+        else
+            renderColsContainer(state, startLine, end, nextLine, panel.cols);
+    }
+    else if (kind === 'timeline') {
         renderTimelineContainer(state, startLine, end, nextLine, legacyMatch?.[3] ?? '');
     }
     else if (kind === 'details') {
@@ -151,35 +166,39 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
         state.push('details_close', 'details', -1).block = true;
     }
     else {
-        const tabs = findTabSegments(state, startLine + 1, end);
-        if (!tabs.length) {
-            // A tab set without any tab-item still holds the author's content, so render
-            // the body as ordinary blocks instead of consuming it.
-            state.md.block.tokenize(state, startLine + 1, end);
-            state.line = nextLine;
-            return true;
-        }
-        const env = renderEnv(state.env);
-        const id = `${env.docId}-tabs-${++env.tabSequence}`;
-        const selectedIndex = Math.max(0, tabs.findIndex((tab) => tab.selected));
-        const openToken = state.push('tabs_open', 'div', 1);
-        openToken.block = true;
-        openToken.map = [startLine, nextLine];
-        openToken.meta = { id, titles: tabs.map((tab) => tab.title), selectedIndex };
-        tabs.forEach((tab, tabIndex) => {
-            const panelOpen = state.push('tab_panel_open', 'section', 1);
-            panelOpen.block = true;
-            panelOpen.meta = { id, tabIndex, selected: tabIndex === selectedIndex };
-            state.md.block.tokenize(state, tab.start, tab.end);
-            const panelClose = state.push('tab_panel_close', 'section', -1);
-            panelClose.block = true;
-            panelClose.meta = { id, tabIndex };
-        });
-        state.push('tabs_close', 'div', -1).block = true;
+        const rawInfo = (legacyMatch?.[3] ?? directiveMatch?.[3] ?? '').trim();
+        renderTabsContainer(state, startLine, end, nextLine, rawInfo);
     }
     state.line = nextLine;
     return true;
 }, INTERRUPTS_CONTAINER_CHAIN);
+function renderTabsContainer(state: StateBlock, startLine: number, end: number, nextLine: number, rawInfo: string): void {
+    const tabs = findTabSegments(state, startLine + 1, end);
+    if (!tabs.length) {
+        // A tab set without any tab-item still holds the author's content, so render
+        // the body as ordinary blocks instead of consuming it.
+        state.md.block.tokenize(state, startLine + 1, end);
+        state.line = nextLine;
+        return;
+    }
+    const env = renderEnv(state.env);
+    const id = `${env.docId}-tabs-${++env.tabSequence}`;
+    const selectedIndex = Math.max(0, tabs.findIndex((tab) => tab.selected));
+    const openToken = state.push('tabs_open', 'div', 1);
+    openToken.block = true;
+    openToken.map = [startLine, nextLine];
+    openToken.meta = { id, titles: tabs.map((tab) => tab.title), selectedIndex, options: parseTabsOptions(rawInfo) };
+    tabs.forEach((tab, tabIndex) => {
+        const panelOpen = state.push('tab_panel_open', 'section', 1);
+        panelOpen.block = true;
+        panelOpen.meta = { id, tabIndex, selected: tabIndex === selectedIndex };
+        state.md.block.tokenize(state, tab.start, tab.end);
+        const panelClose = state.push('tab_panel_close', 'section', -1);
+        panelClose.block = true;
+        panelClose.meta = { id, tabIndex };
+    });
+    state.push('tabs_close', 'div', -1).block = true;
+}
 md.renderer.rules.details_open = (tokens, index) => {
     const sourceLine = tokens[index]!.map?.[0];
     const open = Boolean((tokens[index]!.meta as {
@@ -191,17 +210,28 @@ md.renderer.rules.details_summary = (tokens, index, _options, env) => `<summary>
 md.renderer.rules.details_close = () => '</details>';
 md.renderer.rules.tabs_open = (tokens, index) => {
     const sourceLine = tokens[index]!.map?.[0];
-    const { id, titles, selectedIndex } = tokens[index]!.meta as {
+    const { id, titles, selectedIndex, options } = tokens[index]!.meta as {
         id: string;
         titles: string[];
         selectedIndex: number;
+        options?: TabsOptions;
     };
+    const opt = options ?? { style: 'horizontal' as const, variant: 'default' as const, align: 'start' as const };
     const buttons = titles
         .map((title, tabIndex) => `<button type="button" role="tab" id="${id}-tab-${tabIndex}" aria-controls="${id}-panel-${tabIndex}" aria-selected="${tabIndex === selectedIndex ? 'true' : 'false'}" tabindex="${tabIndex === selectedIndex ? '0' : '-1'}" data-tab-button="${tabIndex}">${escapeHtml(title)}</button>`)
         .join('');
-    return `<div class="markdown-tabs" data-tabs${sourceLine === undefined ? '' : ` data-line="${sourceLine}"`}><div class="tab-list" role="tablist" aria-label="${escapeAttr(t("common.tabs"))}">${buttons}</div>`;
+    const position = effectiveTabsPosition(opt);
+    const styleAttr = isVerticalTabsPosition(position) ? ' data-tabs-style="vertical"' : '';
+    const variantAttr = opt.variant !== 'default' ? ` data-tabs-variant="${escapeAttr(opt.variant)}"` : '';
+    const alignAttr = opt.align !== 'start' ? ` data-tabs-align="${escapeAttr(opt.align)}"` : '';
+    const positionAttr = opt.position ? ` data-tabs-position="${escapeAttr(opt.position)}"` : '';
+    const syncAttr = opt.sync ? ` data-tabs-sync="${escapeAttr(opt.sync)}"` : '';
+    // The outer element is the containment context: a container query on the node that establishes its
+    // own containment measures the *ancestor*, so the strip has to collapse inside a narrow split pane
+    // from one level up.
+    return `<div class="markdown-tabs-outer"><div class="markdown-tabs" data-tabs${styleAttr}${variantAttr}${alignAttr}${positionAttr}${syncAttr}${sourceLine === undefined ? '' : ` data-line="${sourceLine}"`}><div class="tab-list" role="tablist" aria-label="${escapeAttr(t("common.tabs"))}">${buttons}</div>`;
 };
-md.renderer.rules.tabs_close = () => '</div>';
+md.renderer.rules.tabs_close = () => '</div></div>';
 md.renderer.rules.tab_panel_open = (tokens, index) => {
     const { id, tabIndex, selected } = tokens[index]!.meta as {
         id: string;
@@ -211,6 +241,35 @@ md.renderer.rules.tab_panel_open = (tokens, index) => {
     return `<section class="tab-panel" role="tabpanel" id="${id}-panel-${tabIndex}" aria-labelledby="${id}-tab-${tabIndex}" data-tab-panel="${tabIndex}"${selected ? '' : ' hidden'}>`;
 };
 md.renderer.rules.tab_panel_close = () => '</section>';
+md.renderer.rules.panel_align_open = (tokens, index) => {
+    const sourceLine = tokens[index]!.map?.[0];
+    const { align } = tokens[index]!.meta as {
+        align: string;
+    };
+    return `<div class="markdown-align" data-align="${escapeAttr(align)}"${sourceLine === undefined ? '' : ` data-line="${sourceLine}"`}>`;
+};
+md.renderer.rules.panel_align_close = () => '</div>';
+md.renderer.rules.panel_cols_open = (tokens, index) => {
+    const sourceLine = tokens[index]!.map?.[0];
+    const { options, count, tracks } = tokens[index]!.meta as {
+        options: { gap: string; divider: boolean; align: string | null };
+        count: number;
+        tracks: string | null;
+    };
+    const attrs = [
+        ` data-cols="${count}"`,
+        options.gap === 'normal' ? '' : ` data-cols-gap="${escapeAttr(options.gap)}"`,
+        options.divider ? ' data-cols-divider="true"' : '',
+        options.align ? ` data-cols-align="${escapeAttr(options.align)}"` : '',
+        tracks ? ` data-cols-tracks="${escapeAttr(tracks)}"` : '',
+    ].join('');
+    return `<div class="markdown-cols"${attrs}${sourceLine === undefined ? '' : ` data-line="${sourceLine}"`}>`;
+};
+md.renderer.rules.panel_cols_close = () => '</div>';
+md.renderer.rules.panel_col_open = (tokens, index) => `<div class="markdown-col" data-col="${(tokens[index]!.meta as {
+    index: number;
+}).index}">`;
+md.renderer.rules.panel_col_close = () => '</div>';
 const TIMELINE_STATUS_KEYS: Record<TimelineStatus, MessageKey> = {
     todo: 'markdown.todo',
     doing: 'markdown.timeline_doing',
@@ -1010,60 +1069,33 @@ function formatScalar(value: unknown): string {
         return value.toISOString();
     return String(value);
 }
-function blockLine(state: {
-    src: string;
-    bMarks: number[];
-    tShift: number[];
-    eMarks: number[];
-}, line: number): string {
-    const from = state.bMarks[line]! + state.tShift[line]!;
-    return state.src.slice(from, state.eMarks[line]!);
-}
-function findTabSegments(state: {
-    src: string;
-    bMarks: number[];
-    tShift: number[];
-    eMarks: number[];
-}, start: number, end: number): Array<{
-    title: string;
-    start: number;
-    end: number;
-    selected: boolean;
-}> {
+function findTabSegments(state: ColonLineSource, start: number, end: number): TabSegment[] {
     const directiveTabs = findDirectiveTabSegments(state, start, end);
     if (directiveTabs.length)
         return directiveTabs;
     const markers: Array<{
         line: number;
         title: string;
+        selected: boolean;
     }> = [];
-    let fence: {
-        char: string;
-        length: number;
-    } | null = null;
-    for (let line = start; line < end; line++) {
-        const text = blockLine(state, line);
-        const fenceMatch = /^(`{3,}|~{3,})/.exec(text);
-        if (fenceMatch) {
-            const marker = fenceMatch[1]!;
-            if (!fence)
-                fence = { char: marker[0]!, length: marker.length };
-            else if (marker[0] === fence.char && marker.length >= fence.length)
-                fence = null;
+    for (const entry of scanRenderBody(state, start, end)) {
+        if (entry.depth > 0 || entry.fence)
             continue;
-        }
-        if (fence)
-            continue;
-        const tab = /^@tab[ \t]+(.+?)[ \t]*$/.exec(text);
+        const tab = AT_TAB.exec(entry.text);
         if (tab)
-            markers.push({ line, title: stripBracketTitle(tab[1]!) || t("common.tabs") });
+            markers.push({ line: entry.line, title: stripBracketTitle(tab[1]!) || t("common.tabs"), selected: /^@tab(?::active|\+)(?:[ \t]|$)/.test(entry.text) });
     }
-    return markers.map((marker, index) => ({
-        title: marker.title,
-        start: marker.line + 1,
-        end: markers[index + 1]?.line ?? end,
-        selected: false,
-    }));
+    if (markers.length) {
+        return markers.map((marker, index) => ({
+            title: marker.title,
+            start: marker.line + 1,
+            end: markers[index + 1]?.line ?? end,
+            selected: marker.selected,
+        }));
+    }
+    // The `::` spelling is the last reader, so a note that mixes it with `@tab` keeps the markers
+    // the author wrote rather than gaining a panel for every line that merely begins with two colons.
+    return findColonTabSegments(state, start, end).map((tab) => ({ ...tab, title: stripBracketTitle(tab.title) || t("common.tabs") }));
 }
 function findDirectiveTabSegments(state: {
     src: string;
@@ -1107,60 +1139,6 @@ function findDirectiveTabSegments(state: {
         line = close + 1;
     }
     return tabs;
-}
-function colonFenceMark(text: string): { length: number; opens: boolean } | null {
-    const run = /^:{3,}/.exec(text);
-    if (!run)
-        return null;
-    const rest = text.slice(run[0].length);
-    if (!rest.trim())
-        return { length: run[0]!.length, opens: false };
-    // A recognised directive opens a container; an unknown `::: name` still has to hold its
-    // own closer, or a directive the renderer does not know would steal its parent's close.
-    if (COLON_CONTAINER_BODY.test(rest) || /^[ \t]*[A-Za-z][-\w]{0,31}/.test(rest))
-        return { length: run[0]!.length, opens: true };
-    return null;
-}
-function findColonFenceEnd(state: {
-    src: string;
-    bMarks: number[];
-    tShift: number[];
-    eMarks: number[];
-}, start: number, end: number, markerLength: number): number {
-    const open: number[] = [markerLength];
-    let fence: { char: string; length: number } | null = null;
-    for (let line = start; line < end; line++) {
-        const text = blockLine(state, line);
-        const codeFence = /^(`{3,}|~{3,})/.exec(text);
-        if (codeFence) {
-            const marker = codeFence[1]!;
-            if (!fence)
-                fence = { char: marker[0]!, length: marker.length };
-            else if (marker[0] === fence.char && marker.length >= fence.length)
-                fence = null;
-            continue;
-        }
-        if (fence)
-            continue;
-        const mark = colonFenceMark(text);
-        if (!mark)
-            continue;
-        if (mark.opens) {
-            open.push(mark.length);
-            continue;
-        }
-        // One closer line closes the innermost container it can serve, so a `:::` inside a
-        // `::::` set ends that inner block instead of truncating its parent.
-        for (let depth = open.length - 1; depth >= 0; depth--) {
-            if (open[depth]! > mark.length)
-                continue;
-            open.length = depth;
-            if (!open.length)
-                return line;
-            break;
-        }
-    }
-    return -1;
 }
 function stripBracketTitle(value: string): string {
     const trimmed = value.trim();

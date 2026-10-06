@@ -304,36 +304,372 @@
 .ink-prose .callout-content { padding: 0 0.78em 0.62em; }
 .ink-prose .callout-content > :last-child { margin-bottom: 0; }
 
-.ink-prose .markdown-tabs {
+.ink-prose .markdown-tabs-outer {
   margin: 0.95em 0;
+  container-type: inline-size;
+}
+.ink-prose .markdown-tabs {
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-md);
   background: var(--bg-base);
-  overflow: hidden;
+  position: relative;
+}
+.ink-prose .markdown-tabs-header-wrap {
+  display: contents;
+}
+.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap {
+  display: block;
+  position: relative;
+  flex: 0 0 100%;
 }
 .ink-prose .tab-list {
   display: flex;
-  gap: 2px;
+  gap: var(--sp-0-5);
   overflow-x: auto;
   padding: 5px 6px 0;
   border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--r-md) var(--r-md) 0 0;
   background: var(--bg-inset);
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical']):not([data-tabs-position='bottom']) > .tab-list {
+  padding-inline-end: 130px;
 }
 .ink-prose [role='tab'] {
   flex: none;
   padding: 0.42em 0.72em 0.5em;
+  border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: var(--text-tertiary);
   font-size: 0.9em;
+  font-family: inherit;
   cursor: pointer;
+  background: transparent;
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
+.ink-prose [role='tab']:hover { color: var(--text-secondary); }
 .ink-prose [role='tab'][aria-selected='true'] {
   border-bottom-color: var(--accent);
   color: var(--text-primary);
   font-weight: 600;
 }
-.ink-prose .tab-panel { padding: 0.8em 0.9em 0.15em; }
+.ink-prose .tab-panel { padding: 0.8em 0.9em 0.15em; min-width: 0; }
 .ink-prose .tab-panel[hidden] { display: none; }
+
+/* A strip on a side edge reads as a column of labels, and the panel takes whatever is left. */
+.ink-prose .markdown-tabs[data-tabs-style='vertical'] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'] .tab-list {
+  flex-direction: column;
+  border-bottom: none;
+  border-inline-end: 1px solid var(--border-subtle);
+  border-radius: var(--r-md) 0 0 var(--r-md);
+  padding: var(--sp-1-5) var(--sp-1);
+  min-width: 130px;
+  max-width: 200px;
+  gap: var(--sp-0-5);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-inset);
+  flex-shrink: 0;
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'] [role='tab'] {
+  text-align: start;
+  border-bottom: none;
+  border-inline-start: 3px solid transparent;
+  padding: 0.45em 0.7em;
+  border-radius: var(--r-sm);
+  width: 100%;
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'] [role='tab'][aria-selected='true'] {
+  border-inline-start-color: var(--accent);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'] .tab-panel {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-x: auto;
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-position='right'] .tab-list {
+  border-inline-end: none;
+  border-inline-start: 1px solid var(--border-subtle);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  order: 1;
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-position='right'] .tab-panel { order: 0; }
+.ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-position='right'] [role='tab'] {
+  border-inline-start: none;
+  border-inline-end: 3px solid transparent;
+}
+.ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-position='right'] [role='tab'][aria-selected='true'] {
+  border-inline-end-color: var(--accent);
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] {
+  display: flex;
+  flex-direction: column;
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] .tab-list {
+  order: 1;
+  border-bottom: none;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  padding: 0 6px 5px;
+  padding-inline-end: 132px;
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] .tab-panel { order: 0; }
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] [role='tab'] {
+  border-bottom: none;
+  border-top: 2px solid transparent;
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] [role='tab'][aria-selected='true'] {
+  border-top-color: var(--accent);
+}
+
+.ink-prose .markdown-tabs[data-tabs-variant='pills'] .tab-list {
+  padding: var(--sp-1);
+  gap: var(--sp-1);
+  align-items: center;
+  border-bottom: none;
+}
+.ink-prose .markdown-tabs[data-tabs-variant='pills'] [role='tab'] {
+  border: none;
+  border-radius: var(--r-full);
+  padding: 0.3em 0.8em;
+  font-size: 0.86em;
+}
+.ink-prose .markdown-tabs[data-tabs-variant='pills'] [role='tab'][aria-selected='true'] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-inline-start: none;
+  border-top: none;
+}
+.ink-prose .markdown-tabs[data-tabs-variant='cards'] .tab-list {
+  padding-top: var(--sp-1);
+  padding-inline: var(--sp-1);
+  gap: var(--sp-0-5);
+}
+.ink-prose .markdown-tabs[data-tabs-variant='cards'] [role='tab'] {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  margin-bottom: -1px;
+}
+.ink-prose .markdown-tabs[data-tabs-variant='cards'] [role='tab'][aria-selected='true'] {
+  background: var(--bg-base);
+  border-color: var(--border-subtle);
+  border-bottom-color: var(--bg-base);
+  color: var(--text-primary);
+}
+.ink-prose .markdown-tabs[data-tabs-variant='minimal'] {
+  border: none;
+  background: transparent;
+}
+.ink-prose .markdown-tabs[data-tabs-variant='minimal'] .tab-list {
+  background: transparent;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+.ink-prose .markdown-tabs[data-tabs-variant='minimal'] .tab-panel { padding-inline: 0; }
+
+.ink-prose .markdown-tabs[data-tabs-align='center'] .tab-list { justify-content: center; }
+.ink-prose .markdown-tabs[data-tabs-align='end'] .tab-list { justify-content: flex-end; }
+.ink-prose .markdown-tabs[data-tabs-align='stretch'] [role='tab'] {
+  flex: 1 1 0;
+  text-align: center;
+}
+
+/* The toolbar floats over the empty right hand end of the strip, which reserves the room for it. */
+.ink-prose .markdown-tabs > .markdown-tabs-header-wrap > .block-tools {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  padding: 2px 4px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--bg-inset) 86%, transparent);
+  border: 1px solid var(--border-subtle);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+  z-index: 2;
+}
+.ink-prose .markdown-tabs:hover > .markdown-tabs-header-wrap > .block-tools,
+.ink-prose .markdown-tabs:focus-within > .markdown-tabs-header-wrap > .block-tools,
+.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap > .block-tools,
+.ink-prose .markdown-tabs.is-layout-open > .markdown-tabs-header-wrap > .block-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ink-prose .markdown-tabs[data-tabs-position='right'] > .markdown-tabs-header-wrap > .block-tools {
+  right: auto;
+  left: 6px;
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] > .markdown-tabs-header-wrap > .block-tools {
+  top: auto;
+  bottom: 5px;
+}
+/* `[data-tabs]` is here for weight, not selection: the edge-positioned rules below each carry an
+   extra attribute selector, and without it a block sitting on the bottom edge would keep its toolbar
+   pinned to the bottom of the box — on top of the settings panel's last row. */
+.ink-prose .markdown-tabs[data-tabs].is-settings-open > .markdown-tabs-header-wrap > .block-tools {
+  top: 5px;
+  bottom: auto;
+  right: 6px;
+  left: auto;
+}
+.ink-prose .markdown-tabs > .markdown-tabs-header-wrap > .block-popover {
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 3;
+}
+.ink-prose .markdown-tabs[data-tabs-position='right'] > .markdown-tabs-header-wrap > .block-popover {
+  right: auto;
+  left: 0;
+}
+.ink-prose .markdown-tabs:not([data-tabs-style='vertical'])[data-tabs-position='bottom'] > .markdown-tabs-header-wrap > .block-popover {
+  top: auto;
+  bottom: calc(100% + 5px);
+}
+.ink-prose .markdown-tabs[data-tabs].is-settings-open > .markdown-tabs-header-wrap > .block-popover {
+  top: calc(100% + 5px);
+  bottom: auto;
+}
+.ink-prose .block-tool-btn.is-layout-trigger[aria-expanded='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+/* 5px offset + a 30px-tall toolbar, plus air: anything less and the strip's first row starts under it. */
+.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap > .block-settings { padding-top: 38px; }
+.ink-prose .block-opt-btn.is-danger { color: var(--danger); }
+.ink-prose .block-opt-btn.is-danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.ink-prose .block-opt-btn:disabled,
+.ink-prose .block-icon-opt:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* A side strip has no room to stay beside the panels once the surface is that narrow. */
+@container (max-width: 480px) {
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'] { flex-direction: column; }
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'] .tab-list {
+    flex-direction: row;
+    border-inline-end: none;
+    border-inline-start: none;
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: var(--r-md) var(--r-md) 0 0;
+    min-width: unset;
+    max-width: 100%;
+    padding: 5px 6px 0;
+    padding-inline-end: 132px;
+    order: 0;
+  }
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'] [role='tab'] {
+    border-inline-start: none;
+    border-inline-end: none;
+    border-bottom: 2px solid transparent;
+    width: auto;
+  }
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'] [role='tab'][aria-selected='true'] {
+    border-bottom-color: var(--accent);
+    background: transparent;
+  }
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-variant='pills'] [role='tab'] { border-bottom: none; }
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'] .tab-panel {
+    flex: 0 0 auto;
+    overflow-x: visible;
+  }
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-position='right'] .tab-list,
+  .ink-prose .markdown-tabs[data-tabs-style='vertical'][data-tabs-position='right'] .tab-panel { order: 0; }
+  .ink-prose .markdown-tabs[data-tabs-position='right'] > .markdown-tabs-header-wrap > .block-tools,
+  .ink-prose .markdown-tabs[data-tabs-position='right'] > .markdown-tabs-header-wrap > .block-popover {
+    left: auto;
+    right: 6px;
+  }
+}
+
+.ink-prose .markdown-align { margin: 0.9em 0; }
+.ink-prose .markdown-align > :first-child { margin-top: 0; }
+.ink-prose .markdown-align > :last-child { margin-bottom: 0; }
+.ink-prose .markdown-align[data-align='left'] { text-align: left; }
+.ink-prose .markdown-align[data-align='center'] { text-align: center; }
+.ink-prose .markdown-align[data-align='right'] { text-align: right; }
+.ink-prose .markdown-align[data-align='justify'] { text-align: justify; }
+/* Justify needs the line to be free to break anywhere; a long unbreakable run would stretch instead. */
+.ink-prose .markdown-align[data-align='justify'] :is(p, li) { overflow-wrap: anywhere; }
+
+.ink-prose .markdown-cols {
+  margin: 0.95em 0;
+  display: grid;
+  align-items: start;
+  gap: var(--sp-3-5);
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
+}
+.ink-prose .markdown-cols[data-cols='1'] { grid-template-columns: var(--panel-cols-tracks, minmax(0, 1fr)); }
+.ink-prose .markdown-cols[data-cols='2'] { grid-template-columns: var(--panel-cols-tracks, repeat(2, minmax(0, 1fr))); }
+.ink-prose .markdown-cols[data-cols='3'] { grid-template-columns: var(--panel-cols-tracks, repeat(3, minmax(0, 1fr))); }
+.ink-prose .markdown-cols[data-cols='4'] { grid-template-columns: var(--panel-cols-tracks, repeat(4, minmax(0, 1fr))); }
+.ink-prose .markdown-cols[data-cols='5'] { grid-template-columns: var(--panel-cols-tracks, repeat(5, minmax(0, 1fr))); }
+.ink-prose .markdown-cols[data-cols='6'] { grid-template-columns: var(--panel-cols-tracks, repeat(6, minmax(0, 1fr))); }
+.ink-prose .markdown-cols[data-cols-gap='narrow'] { gap: var(--sp-1-5); }
+.ink-prose .markdown-cols[data-cols-gap='wide'] { gap: var(--sp-6); }
+.ink-prose .markdown-col { min-width: 0; }
+.ink-prose .markdown-col > :first-child { margin-top: 0; }
+.ink-prose .markdown-col > :last-child { margin-bottom: 0; }
+.ink-prose .markdown-cols[data-cols-divider] > .markdown-col + .markdown-col {
+  border-inline-start: 1px solid var(--border-subtle);
+  padding-inline-start: calc(var(--sp-3-5) / 2);
+  margin-inline-start: calc(var(--sp-3-5) / -2);
+}
+.ink-prose .markdown-cols[data-cols-align='left'] .markdown-col { text-align: left; }
+.ink-prose .markdown-cols[data-cols-align='center'] .markdown-col { text-align: center; }
+.ink-prose .markdown-cols[data-cols-align='right'] .markdown-col { text-align: right; }
+.ink-prose .markdown-cols[data-cols-align='justify'] .markdown-col { text-align: justify; }
+.ink-prose .markdown-cols[data-cols-align='justify'] .markdown-col :is(p, li) { overflow-wrap: anywhere; }
+
+@container (max-width: 560px) {
+  .ink-prose .markdown-col { grid-column: 1 / -1; }
+  .ink-prose .markdown-cols[data-cols-divider] > .markdown-col + .markdown-col {
+    border-inline-start: 0;
+    border-top: 1px solid var(--border-subtle);
+    margin-inline-start: 0;
+    padding-inline-start: 0;
+    padding-top: calc(var(--sp-3-5) / 2);
+  }
+}
+
+.ink-prose .block-head {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+.ink-prose .block-head-title {
+  font-family: var(--font-ui);
+  font-size: var(--text-10-5);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.ink-prose .block-head > .block-tools { margin-inline-start: 0; }
+.ink-prose .block-settings-value {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.ink-prose .panel-block:last-child > .markdown-align,
+.ink-prose .panel-block:last-child > .markdown-cols { margin-bottom: 0; }
+.ink-prose .panel-block > .block-head,
+.ink-prose .panel-block > .block-settings { margin-bottom: 0; }
 
 
 .ink-prose .markdown-timeline-block { margin: 1em 0; }

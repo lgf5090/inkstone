@@ -1,4 +1,5 @@
 import { t } from '../../lib/i18n'
+import type { TabScope } from './markdown-tabs'
 
 /**
  * The surface's toast. `action` is what carries an undo for the toolbar presses that rewrite the
@@ -112,6 +113,11 @@ export function blockActionSource(ctx: BlockActionContext): { noteId: string; so
  */
 export interface BlockToolbarOptions {
   chart: boolean
+  /**
+   * Whose note the surface is drawing, for the families that remember a choice between visits. A
+   * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.
+   */
+  tabScope?: TabScope
 }
 
 export interface BlockToolbarModule {
