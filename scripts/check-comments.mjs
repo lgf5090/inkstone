@@ -175,6 +175,9 @@ const allowed = new Map([
     "/**\n * The shared prologue of a toolbar action: the note to edit and the committed text to edit it\n * against, or null when there is nothing to write. Writing while the preview still shows an older\n * document would move the fence the block was drawn from, and the patch would land somewhere else.\n */",
     "/**\n   * Builds a panel the first time it is asked for. A note can hold hundreds of code blocks and the\n   * preview is rebuilt on every typing pause, so the panel a reader never opens must cost nothing.\n   */",
   ]],
+  ["src/client/features/preview/card-content-chart.test.ts", [
+    "/**\n * A note card renders a few lines of another note and deliberately draws neither diagrams nor charts,\n * but it only runs the enhancer at all when it spots something that needs it. A chart fence becomes a\n * `div.chart-block`, which is none of `pre code` / `[data-math]` / `[data-mermaid]`, so a note whose\n * only rich content is a chart skipped the pass and the card showed \"Rendering chart…\" forever — a\n * loading state nothing would ever resolve.\n */",
+  ]],
   ["src/client/features/preview/card-content.ts", [
     "// A card is a few lines of context, not a reading surface: a chart block left in its loading",
     "// state would say \"Rendering chart…\" forever, because nothing ever draws it here. Declining",
