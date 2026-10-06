@@ -156,6 +156,7 @@ async function confirmFamilyMerge(tags: readonly { name: string }[], source: str
       title: t('tags.merge_confirm_value0_value1', { value0: source, value1: conflicts[0]!.into }),
       description: t('tags.merge_description'),
       confirmLabel: t('tags.merge'),
+      tone: 'danger',
     })
   }
   const [first] = conflicts
@@ -167,6 +168,7 @@ async function confirmFamilyMerge(tags: readonly { name: string }[], source: str
       value2: conflicts.length,
     }) + t('tags.family_merge_example_value0_value1', { value0: first!.from, value1: first!.into }),
     confirmLabel: t('tags.merge'),
+    tone: 'danger',
   })
 }
 

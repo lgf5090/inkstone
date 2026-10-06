@@ -89,6 +89,7 @@ describe('renaming a row into an existing tag', () => {
         });
         expect(confirmSpy).toHaveBeenCalled();
         expect(String(confirmSpy.mock.calls[0]?.[0]?.title)).toContain('Inkstone');
+        expect(confirmSpy.mock.calls[0]?.[0]?.tone).toBe('danger');
         expect(api.tags.patch).toHaveBeenCalledWith('t-getting_started', { name: 'Inkstone' });
     });
 });

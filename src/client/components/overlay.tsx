@@ -239,11 +239,12 @@ export function ConfirmHost() {
         setCurrent(next);
     }, []);
     const options = current?.options;
+    const danger = options?.tone === 'danger';
     return (<Modal open={Boolean(current)} onClose={() => finish(current, false)} title={options?.title} description={options?.description} width={440} footer={<>
-          <Button variant="ghost" onClick={() => finish(current, false)}>
+          <Button variant="ghost" onClick={() => finish(current, false)} data-autofocus={danger ? true : undefined}>
             {options?.cancelLabel ?? t("common.cancel")}
           </Button>
-          <Button variant={options?.tone === 'danger' ? 'danger' : 'primary'} onClick={() => finish(current, true)} data-autofocus>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={() => finish(current, true)} data-autofocus={danger ? undefined : true}>
             {options?.confirmLabel ?? t("overlay.confirm")}
           </Button>
         </>}>
