@@ -444,6 +444,15 @@ export function tagInScope(tagName: string, scope: string): boolean {
   return keyInScope(tagKey(tagName), tagKey(scope))
 }
 
+/**
+ * Whether two spellings name the same tag. `localeCompare(…, { sensitivity: 'base' })` looks
+ * like the same question but also folds German expansions (`ß`/`ss`) and accent equivalences
+ * the server's `COLLATE NOCASE` never folds, so it predicts a merge that will not happen.
+ */
+export function tagNamesEqual(left: string, right: string): boolean {
+  return tagKey(left) === tagKey(right)
+}
+
 export function notesCarryEveryTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
   const wants = cachedKeys(scopes)
   const tags = cachedKeys(tagLists)

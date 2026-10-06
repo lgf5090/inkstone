@@ -1210,6 +1210,7 @@ export const EN_US_MESSAGES = {
     "tags.merge": "Merge tags",
     "tags.move_failed": "Could not move the tag",
     "tags.moved_value0": "Tag moved to #{value0}",
+    "tags.move_to_value0": "Move to #{value0}",
     "tags.manage": "Manage tags",
     "tags.merge_confirm_value0_value1": "Merge \"{value0}\" into \"{value1}\"?",
     "tags.merge_description": "The two tags will become one, and related note bodies and metadata will use the existing tag name.",

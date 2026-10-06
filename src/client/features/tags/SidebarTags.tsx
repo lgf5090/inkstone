@@ -202,7 +202,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, renameTagSegment(node.fullPath, value));
-                }} onCancelRename={() => setRenamingId(null)} onSelectColor={(color) => void setTagColor(node.tag, color)} excluded={excludedTags.includes(node.fullPath)} onExclude={() => toggleTagExclusion(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} onDragStart={(event) => {
+                }} onCancelRename={() => setRenamingId(null)} onSelectColor={(color) => void setTagColor(node.tag, color)} excluded={excludedTags.includes(node.fullPath)} onExclude={() => toggleTagExclusion(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath && dragPath ? tagMoveTarget(tags.find((item) => item.name === dragPath) ?? null, node.fullPath) : null} onDragStart={(event) => {
                     if (node.isVirtual) return;
                     event.dataTransfer.setData(TAG_MIME, node.fullPath);
                     event.dataTransfer.effectAllowed = 'move';
@@ -305,7 +305,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
     </div>);
 }
-function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onSelectColor, excluded, onExclude, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
+function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onSelectColor, excluded, onExclude, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, dropHint, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
     node: TagTreeNode;
     searching: boolean;
     query: string;
@@ -327,6 +327,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     onManage: () => void;
     dragging: boolean;
     dropTarget: boolean;
+    dropHint: string | null;
     onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
     onDragEnd: () => void;
     onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -404,6 +405,9 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
             </IconButton>
           </Tooltip>
         </>)}
+      {dropHint && (<span className="pointer-events-none absolute top-1/2 right-1 max-w-[72%] -translate-y-1/2 truncate rounded-[var(--r-sm)] bg-[var(--accent)] px-1.5 py-0.5 text-[10.5px] text-[var(--accent-contrast)]">
+            {t('tags.move_to_value0', { value0: dropHint })}
+          </span>)}
       <Menu anchor={rowRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);

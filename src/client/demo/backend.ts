@@ -13,6 +13,7 @@ import {
   notesCarryAnyTag,
   notesCarryEveryTag,
   replaceTagInContent,
+  tagNamesEqual,
   wikiNoteTarget,
 } from '@shared/markdown-utils'
 import type {
@@ -487,8 +488,7 @@ export function createDemoBackend(): DemoBackend {
     if (!name || !isUsableTagName(name) || name.length > LIMITS.tagNameMaxLength) {
       return apiError(400, 'bad_request', 'Tag name is invalid')
     }
-    const existing = listTags(state).find((tag) =>
-      tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0)
+    const existing = listTags(state).find((tag) => tagNamesEqual(tag.name, name))
     if (existing) return apiError(409, 'conflict', 'A tag with this name already exists')
     const id = requestedId ?? newDemoId()
     state.tagIds.set(name, id)
@@ -512,8 +512,7 @@ export function createDemoBackend(): DemoBackend {
     if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== current.name) {
       const requestedName = body.name.trim().replace(/^#/, '')
       if (!isUsableTagName(requestedName)) return apiError(400, 'bad_request', 'Tag name is invalid')
-      const existing = listTags(state).find((tag) => tag.id !== current.id
-        && tag.name.localeCompare(requestedName, undefined, { sensitivity: 'base' }) === 0)
+      const existing = listTags(state).find((tag) => tag.id !== current.id && tagNamesEqual(tag.name, requestedName))
       const nextName = existing?.name ?? requestedName
       // Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would
       // orphan the whole branch. Deepest first so each pass only sees its own exact name.

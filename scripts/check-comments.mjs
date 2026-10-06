@@ -460,6 +460,7 @@ const allowed = new Map([
     "// stringifies as a block list, which would turn the user's `tags: [a, b]` into three lines.",
     "// Assigning `flow` on the new node is ignored by yaml, and so is createNode({ type: 'flow' }).",
     "/**\n * A tag list can be separated by ASCII or by the full-width punctuation a Chinese keyboard\n * produces. YAML only splits a flow sequence on the ASCII comma, so `tags: [a\\uFF0Cb]` reaches us as\n * the single item `a\\uFF0Cb`; splitting here is what stops that becoming one bogus tag.\n */",
+    "/**\n * Whether two spellings name the same tag. `localeCompare(…, { sensitivity: 'base' })` looks\n * like the same question but also folds German expansions (`ß`/`ss`) and accent equivalences\n * the server's `COLLATE NOCASE` never folds, so it predicts a merge that will not happen.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

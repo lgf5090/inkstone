@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, replaceTagInContent, toPlainText } from './markdown-utils'
+import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, replaceTagInContent, tagNamesEqual, toPlainText } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -103,6 +103,21 @@ describe('tag list separators', () => {
     for (const name of tagsOf('[one two, three#four, five]'))
       expect(isUsableTagName(name)).toBe(true)
     expect(tagsOf('[one two, three#four, five]')).toEqual(['five', 'one', 'two'])
+  })
+})
+
+
+describe('tagNamesEqual', () => {
+  it('folds the same things the tag key folds', () => {
+    expect(tagNamesEqual('work', 'WORK')).toBe(true)
+    expect(tagNamesEqual('work', '\uFF37\uFF2F\uFF32\uFF2B')).toBe(true)
+    expect(tagNamesEqual('A/b', 'a/B')).toBe(true)
+  })
+
+  it('does not fold what the server does not fold', () => {
+    expect(tagNamesEqual('stra\u00DFe', 'STRASSE')).toBe(false)
+    expect(tagNamesEqual('caf\u00E9', 'CAFE')).toBe(false)
+    expect(tagNamesEqual('a', 'a/b')).toBe(false)
   })
 })
 

@@ -188,6 +188,15 @@ describe('demo refuses the names the worker refuses', () => {
     expect(moved.status).toBe(400)
   })
 
+  it('keeps two spellings the server keeps apart', async () => {
+    expect((await call('POST', '/api/tags', { name: 'stra\u00DFe' })).status).toBe(201)
+    expect((await call('POST', '/api/tags', { name: 'STRASSE' })).status).toBe(201)
+    expect((await call('POST', '/api/tags', { name: 'strasse' })).status).toBe(409)
+    const names = await tagNames()
+    expect(names).toContain('stra\u00DFe')
+    expect(names).toContain('STRASSE')
+  })
+
   it('splits a full-width separated pair in frontmatter', async () => {
     const created = await backend.fetch(new Request('http://localhost/api/notes', {
       method: 'POST',

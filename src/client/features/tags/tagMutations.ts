@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { isUsableTagName, replaceTagInContent, sortTagNames, tagKey } from '@shared/markdown-utils'
+import { isUsableTagName, replaceTagInContent, sortTagNames, tagKey, tagNamesEqual } from '@shared/markdown-utils'
 import type { NoteSummary, Tag } from '@shared/types'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -29,8 +29,7 @@ export function createTag(value: string): string | null {
     useUi.getState().toast({ title: t('tags.invalid_name'), tone: 'danger' })
     return null
   }
-  const existing = useNotes.getState().tags.find((tag) =>
-    tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0)
+  const existing = useNotes.getState().tags.find((tag) => tagNamesEqual(tag.name, name))
   if (existing) return existing.id
 
   const id = newTagId()
@@ -63,8 +62,7 @@ export async function renameTag(tag: Tag, value: string): Promise<void> {
   }
   if (next === tag.name) return
   const tags = useNotes.getState().tags
-  const target = tags.find((candidate) => candidate.id !== tag.id
-    && candidate.name.localeCompare(next, undefined, { sensitivity: 'base' }) === 0)
+  const target = tags.find((candidate) => candidate.id !== tag.id && tagNamesEqual(candidate.name, next))
   if (target) {
     const merge = await confirm({
       title: t('tags.merge_confirm_value0_value1', { value0: tag.name, value1: target.name }),
@@ -343,8 +341,7 @@ function withRefreshWarning(description: string, refreshed: boolean): string {
 function optimisticRenameTags(tags: Tag[], sourceId: string, destination: string): Tag[] {
   const source = tags.find((tag) => tag.id === sourceId)
   if (!source) return tags
-  const target = tags.find((tag) => tag.id !== sourceId
-    && tag.name.localeCompare(destination, undefined, { sensitivity: 'base' }) === 0)
+  const target = tags.find((tag) => tag.id !== sourceId && tagNamesEqual(tag.name, destination))
   if (!target) return tags.map((tag) => tag.id === sourceId ? { ...tag, name: destination } : tag)
   return tags
     .filter((tag) => tag.id !== sourceId)
