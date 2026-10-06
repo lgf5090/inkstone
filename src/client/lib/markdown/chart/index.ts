@@ -9,6 +9,7 @@ export {
 } from './body';
 export {
     ChartConfigError,
+    CHART_SLICE_KINDS,
     CHART_TABLE_KINDS,
     chartConfigToTable,
     tableToChartConfig,

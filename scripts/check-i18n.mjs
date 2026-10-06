@@ -68,6 +68,17 @@ const allowedHanFragments = new Map([
         '\u7ec4\u4e00',
         '\u7ec4\u4e8c',
     ]],
+    // Slice-chart fixtures: the value column word appears in two tables, and the gate's allowance
+    // replaces one occurrence per listed fragment, so it is named twice rather than widened.
+    [path.resolve('src/client/lib/markdown/enhance-chart.test.ts'), [
+        '\u6570\u503c',
+        '\u6570\u503c',
+        '\u7532',
+        '\u4e59',
+        '\u4e19',
+        '\u4e00',
+        '\u4e8c',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.

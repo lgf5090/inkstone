@@ -21,6 +21,8 @@ const allowed = new Map([
     "// The demo data that exercises that vocabulary: the same column words plus two group labels, each",
     "// written once so the first-occurrence replacement below covers the whole file.",
     "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n */",
+    "// Slice-chart fixtures: the value column word appears in two tables, and the gate's allowance",
+    "// replaces one occurrence per listed fragment, so it is named twice rather than widened.",
   ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
@@ -394,6 +396,7 @@ const allowed = new Map([
     "// config carrying it still has a table home.",
     "/** What one shape decides; `chartConfigToTable` adds the styling count on the way out. */",
     "/** A pie's value column has no place in a config, so the name a hand-written table gave it is dropped. */",
+    "/**\n * The kinds whose categories are their rows rather than their series — one dataset, one slice per row.\n * Shared with the drawing layer because a palette applied per dataset would paint every slice the same\n * colour, and a chart that cannot tell its slices apart is not a chart.\n */",
   ]],
   ["src/client/lib/markdown/chart/convert.test.ts", [
     "// `in` answers through the prototype chain, so it is the own property and the prototype itself",
@@ -465,6 +468,7 @@ const allowed = new Map([
   ["src/client/lib/markdown/enhance-chart.test.ts", [
     "// The catalog is not loaded under test, so t() answers with the key: this pins which message the",
     "// block chose. The KB figure it carries is pinned where the error is built, in chart/convert.",
+    "// The border is left to the library so the arcs keep a hairline between them.",
   ]],
   ["src/client/lib/markdown/enhance.test.ts", [
     "// The second pass used to swap the shared config for its own, which re-allowed the",
@@ -485,7 +489,6 @@ const allowed = new Map([
     "// body not being readable — and the engine's own sentence about it is one the note's language has.",
     "/** Built from nodes rather than a markup string: the failing body is the author's own text and goes in\n * verbatim, so it must never be re-parsed as HTML on its way back out. */",
     "// Re-applies the app's axis colors under the user's own ticks/grid objects.",
-    "/**\n * Colours the series the note left uncoloured. chart.js's own default palette is a rainbow nobody chose\n * for this page, so an unstyled dataset takes the accent ramp instead — but a note that named its own\n * colours keeps them, because that is a statement about the data, not an omission.\n */",
     "// The size is handed in below, so the library must not measure the box again — and it has to",
     "// lose the note's own `responsive`, because a responsive chart re-measures a transform-scaled or",
     "// un-laid-out container and draws at the wrong size.",
@@ -512,6 +515,7 @@ const allowed = new Map([
     "// The chart library is only ever reached from the draw pass, so declining here means the chunk is",
     "// never fetched — which is the whole point of the switch, and why it is decided before anything asks",
     "// for a picture.",
+    "/**\n * Colours the series the note left uncoloured. chart.js's own default palette is a rainbow nobody chose\n * for this page, so an unstyled dataset takes the accent ramp instead — but a note that named its own\n * colours keeps them, because that is a statement about the data, not an omission.\n *\n * A slice chart is the exception that inverts the rule: it has *one* dataset whose categories are the\n * rows, so a colour per dataset paints every slice identically and a pie of 35/20/15 becomes a disc.\n * There the palette is handed over one entry per slice, which is what chart.js reads for arc fills.\n * `borderColor` is deliberately left alone there, so the arcs keep the library's own hairline between\n * them — matching the border to the fill would weld the slices into one shape again.\n */",
   ]],
   ["src/client/lib/markdown/fence-edit.test.ts", [
     "// The renderer stamps the block with markdown-it's de-indented content, so a write that compared",

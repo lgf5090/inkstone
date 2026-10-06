@@ -31,7 +31,14 @@ export type ChartTableLoss = 'not-a-config' | 'unknown-kind' | 'lossy' | 'series
  */
 export type ChartTableConversion = { ok: true, table: ChartTable, dropped: number } | { ok: false, reason: ChartTableLoss };
 
-const SLICE_KINDS: readonly string[] = ['pie', 'doughnut', 'polarArea'];
+/**
+ * The kinds whose categories are their rows rather than their series — one dataset, one slice per row.
+ * Shared with the drawing layer because a palette applied per dataset would paint every slice the same
+ * colour, and a chart that cannot tell its slices apart is not a chart.
+ */
+export const CHART_SLICE_KINDS: readonly string[] = ['pie', 'doughnut', 'polarArea'];
+
+const SLICE_KINDS = CHART_SLICE_KINDS;
 
 /**
  * The kind a written name means, in the spelling this family hands to the engine.

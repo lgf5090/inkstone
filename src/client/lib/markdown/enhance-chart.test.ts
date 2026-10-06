@@ -131,6 +131,40 @@ describe('drawing a chart block', () => {
         expect(options.color).toBeTruthy();
     });
 
+    it('gives every slice its own colour, since a one-series pie cannot be read otherwise', async () => {
+        const host = chartHost(`\`\`\`chart style=table\n| :pie: | 数值 |\n| --- | --- |\n| 甲 | 35 |\n| 乙 | 20 |\n| 丙 | 15 |\n\`\`\`\n`);
+        await renderPendingCharts(host, false);
+        const datasets = (built[0]!.config.data as { datasets: Record<string, unknown>[] }).datasets;
+        const fills = datasets[0]!.backgroundColor as string[];
+        expect(Array.isArray(fills)).toBe(true);
+        expect(fills).toHaveLength(3);
+        for (const fill of fills)
+            expect(fill).toMatch(/^#[0-9a-f]{6}$/);
+        expect(new Set(fills).size).toBe(3);
+        // The border is left to the library so the arcs keep a hairline between them.
+        expect(datasets[0]!.borderColor).toBeUndefined();
+    });
+
+    it('keeps a pie whose author named the slices, and cycles past ten of them', async () => {
+        const named = '{"type":"doughnut","data":{"labels":["a","b"],"datasets":[{"data":[1,2],"backgroundColor":["#000000","#ffffff"]}]}}';
+        await renderPendingCharts(chartHost(`\`\`\`chart\n${named}\n\`\`\`\n`), false);
+        expect(built[0]!.config.data).toMatchObject({ datasets: [{ backgroundColor: ['#000000', '#ffffff'] }] });
+        const many = Array.from({ length: 13 }, (_, i) => `| n${i} | ${i + 1} |`).join('\n');
+        await renderPendingCharts(chartHost(`\`\`\`chart style=table\n| :polarArea: | 数值 |\n| --- | --- |\n${many}\n\`\`\`\n`), false);
+        const fills = (built[1]!.config.data as { datasets: { backgroundColor: string[] }[] }).datasets[0].backgroundColor;
+        expect(fills).toHaveLength(13);
+        expect(new Set(fills.slice(0, 10)).size).toBe(10);
+    });
+
+    it('still colours an axis chart per series, not per point', async () => {
+        const host = chartHost(`\`\`\`chart style=table\n| :bar: | A | B |\n| --- | --- | --- |\n| 一 | 1 | 2 |\n| 二 | 3 | 4 |\n\`\`\`\n`);
+        await renderPendingCharts(host, false);
+        const datasets = (built[0]!.config.data as { datasets: Record<string, unknown>[] }).datasets;
+        expect(typeof datasets[0]!.backgroundColor).toBe('string');
+        expect(typeof datasets[1]!.backgroundColor).toBe('string');
+        expect(datasets[0]!.backgroundColor).not.toBe(datasets[1]!.backgroundColor);
+    });
+
 describe('a laid-out container', () => {
     let restore: () => void;
 

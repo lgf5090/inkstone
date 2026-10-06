@@ -7,6 +7,7 @@ import {
     ChartBodyTooLargeError,
     ChartConfigError,
     ChartTableError,
+    CHART_SLICE_KINDS,
     CHART_TABLE_MESSAGES,
     chartPalette,
     chartPaletteKey,
@@ -618,15 +619,28 @@ function themedScales(userScales: Record<string, unknown>, textColor: string, gr
  * Colours the series the note left uncoloured. chart.js's own default palette is a rainbow nobody chose
  * for this page, so an unstyled dataset takes the accent ramp instead — but a note that named its own
  * colours keeps them, because that is a statement about the data, not an omission.
+ *
+ * A slice chart is the exception that inverts the rule: it has *one* dataset whose categories are the
+ * rows, so a colour per dataset paints every slice identically and a pie of 35/20/15 becomes a disc.
+ * There the palette is handed over one entry per slice, which is what chart.js reads for arc fills.
+ * `borderColor` is deliberately left alone there, so the arcs keep the library's own hairline between
+ * them — matching the border to the fill would weld the slices into one shape again.
  */
-function themedDatasets(datasets: unknown, palette: string[]): unknown {
+function themedDatasets(datasets: unknown, palette: string[], type: string): unknown {
     if (!Array.isArray(datasets))
         return datasets;
+    const sliced = CHART_SLICE_KINDS.includes(type);
     return datasets.map((raw, index) => {
         if (!isRecord(raw))
             return raw;
-        const colour = palette[index % palette.length];
         const next: Record<string, unknown> = { ...raw };
+        if (sliced) {
+            if (next.backgroundColor === undefined)
+                next.backgroundColor = Array.from({ length: Math.max(Array.isArray(raw.data) ? raw.data.length : 1, 1) },
+                    (_, point) => palette[point % palette.length]);
+            return next;
+        }
+        const colour = palette[index % palette.length];
         if (next.backgroundColor === undefined)
             next.backgroundColor = colour;
         if (next.borderColor === undefined)
@@ -672,7 +686,7 @@ function buildChartConfig(config: Record<string, unknown>, dark: boolean, instan
         options.animation = false;
     const next: Record<string, unknown> = { ...config, options };
     if (data)
-        next.data = { ...data, datasets: themedDatasets(data.datasets, palette) };
+        next.data = { ...data, datasets: themedDatasets(data.datasets, palette, String(config.type ?? '')) };
     return next;
 }
 
