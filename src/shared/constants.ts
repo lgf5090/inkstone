@@ -106,6 +106,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlineMode: 'sidebar',
     outlineDefaultLevel: 6,
     outlineShowProgress: true,
+    outlineDragEdits: false,
     outlineKeepSearch: false,
     outlineLocateByCursor: false,
     math: true,
@@ -242,6 +243,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.outlineDefaultLevel = integerInRange(preview.outlineDefaultLevel, 1, 6, base.preview.outlineDefaultLevel)
   base.preview.outlineShowProgress = booleanValue(preview.outlineShowProgress, base.preview.outlineShowProgress)
   base.preview.outlineKeepSearch = booleanValue(preview.outlineKeepSearch, base.preview.outlineKeepSearch)
+  base.preview.outlineDragEdits = booleanValue(preview.outlineDragEdits, base.preview.outlineDragEdits)
   base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)

@@ -107,6 +107,18 @@ export function deleteSection(lines: string[], headings: Heading[], index: numbe
 export type DropPosition = 'before' | 'after' | 'inside';
 
 /**
+ * Splits the hovered row vertically: the top and bottom bands drop alongside it, the middle band
+ * makes the dragged heading a child. The bands are wide enough that a row cannot be ambiguous.
+ */
+export function dropPositionFor(clientY: number, top: number, height: number): DropPosition {
+    if (height <= 0) return 'inside';
+    const offset = (clientY - top) / height;
+    if (offset < 0.34) return 'before';
+    if (offset > 0.66) return 'after';
+    return 'inside';
+}
+
+/**
  * Relocates a whole section and re-levels it to fit its new parent. Deleting first would shift the
  * target, so both ranges are measured against the untouched document and reassembly walks it once.
  */

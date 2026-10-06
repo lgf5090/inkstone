@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent, type RefObject } from 'react';
 import {
     ListTree,
     Heading1,
@@ -28,6 +28,9 @@ import {
     renameHeading,
     sectionRange,
     siblingIndices,
+    moveSection,
+    dropPositionFor,
+    type DropPosition,
 } from './outline-sections';
 import { t } from '../../lib/i18n';
 import {
@@ -208,7 +211,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -222,6 +225,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     /** Raw note body; the row menu edits it through the pure section helpers. */
     content?: string;
     onContentChange?: (next: string) => void;
+    /** Off by default: dragging rewrites the note body. */
+    dragEdits?: boolean;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -380,6 +385,22 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         applyLines(renameHeading(lines, heading, trimmed));
     };
 
+    const [dragFrom, setDragFrom] = useState<number | null>(null);
+    const [dropAt, setDropAt] = useState<{ index: number; position: DropPosition } | null>(null);
+    const canDrag = dragEdits && editable;
+    const finishDrop = (to: number, position: DropPosition) => {
+        const from = dragFrom;
+        setDragFrom(null);
+        setDropAt(null);
+        if (from === null || from === to) return;
+        const next = moveSection(lines, headings, from, to, position);
+        if (next === null) {
+            toast({ title: t('outline.cannot_move_inside'), tone: 'warning' });
+            return;
+        }
+        applyLines(next);
+    };
+
     if (headings.length === 0)
         return null;
 
@@ -414,13 +435,13 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </div>)}
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
-        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)}/>))}
+        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
     </nav>);
 }
 
-function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename }: {
+function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
     node: OutlineNode;
     isLocated: boolean;
     isCollapsed: boolean;
@@ -429,6 +450,13 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMen
     buildMenu: (node: OutlineNode) => MenuItem[];
     menuEnabled: boolean;
     canRename: boolean;
+    canDrag: boolean;
+    dragging: boolean;
+    dropHint: DropPosition | null;
+    onDragStartRow: () => void;
+    onDragEndRow: () => void;
+    onDragOverRow: (index: number, position: DropPosition) => void;
+    onDropRow: (index: number, position: DropPosition) => void;
     renaming: boolean;
     onStartRename: () => void;
     onCommitRename: (index: number, title: string) => void;
@@ -442,10 +470,28 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, buildMen
     // Guards the blur that follows an Enter commit, which would otherwise rename twice.
     const committedRef = useRef(false);
     const items = menu.point ? buildMenu(node) : [];
-    return (<li className={outlineMarginTop(node)} data-heading-level={heading.level} onContextMenu={(event) => {
+    const beginDrag = (event: ReactDragEvent<HTMLLIElement>) => {
+        if (!canDrag) return;
+        event.dataTransfer?.setData('text/plain', heading.text);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+        onDragStartRow();
+    };
+    return (<li className={cn('relative', outlineMarginTop(node), dragging && 'opacity-45')} data-heading-level={heading.level} draggable={canDrag} onDragStart={beginDrag} onDragEnd={onDragEndRow} onDragOver={(event) => {
+            if (!canDrag) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+            const rect = event.currentTarget.getBoundingClientRect();
+            onDragOverRow(node.index, dropPositionFor(event.clientY, rect.top, rect.height));
+        }} onDrop={(event) => {
+            if (!canDrag) return;
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            onDropRow(node.index, dropPositionFor(event.clientY, rect.top, rect.height));
+        }} onContextMenu={(event) => {
             if (!menuEnabled) return;
             menu.onContextMenu(event);
         }}>
+      {dropHint && (<span aria-hidden="true" data-drop-hint={dropHint} className={cn('pointer-events-none absolute left-0 right-0 z-10 bg-[var(--accent)]', dropHint === 'inside' ? 'inset-y-0 rounded-[var(--r-sm)] opacity-20' : dropHint === 'before' ? 'top-0 h-0.5' : 'bottom-0 h-0.5')}/>)}
       <div className="flex items-center" style={{ paddingLeft: OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP }}>
         {hasChildren ? (<button type="button" aria-expanded={!isCollapsed} aria-label={isCollapsed ? t('outline.expand_heading', { title: label }) : t('outline.collapse_heading', { title: label })} onClick={() => onToggle(heading.slug)} className="flex h-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" style={{ width: CHEVRON_SLOT }}>
               <ChevronRight size={10} className={cn('transition-transform duration-[var(--dur-fast)]', !isCollapsed && 'rotate-90')}/>

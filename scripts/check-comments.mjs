@@ -180,6 +180,8 @@ const allowed = new Map([
     "/** Line numbers must agree with MENU_DOC or a section edit lands on a blank line. */",
     "// Alpha cannot promote past level 1, so only Beta moves.",
     "// Alpha is the only level-1 heading, so its section runs to the end of the document.",
+    "/** jsdom has no layout, so the band is chosen by stubbing the row rect and the pointer Y. */",
+    "// clientY 5 of a 30px row is the top band, so Two lands ahead of One and re-levels to One's rank.",
   ]],
   ["src/client/features/preview/Outline.tsx", [
     "/**\n * Expansion survives typing: the set is keyed by heading slug and only shed when those headings\n * stop being parents, so adding a heading elsewhere never reflows what the reader folded away.\n */",
@@ -190,6 +192,7 @@ const allowed = new Map([
     "// A shallower document would otherwise need dead presses before anything moves.",
     "/** Raw note body; the row menu edits it through the pure section helpers. */",
     "// Guards the blur that follows an Enter commit, which would otherwise rename twice.",
+    "/** Off by default: dragging rewrites the note body. */",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -415,6 +418,7 @@ const allowed = new Map([
     "/** Replaces one heading's title text, keeping its `#` prefix and trailing whitespace intact. */",
     "/** Drops the heading and everything down to (but excluding) the next section of its own level. */",
     "/**\n * Relocates a whole section and re-levels it to fit its new parent. Deleting first would shift the\n * target, so both ranges are measured against the untouched document and reassembly walks it once.\n */",
+    "/**\n * Splits the hovered row vertically: the top and bottom bands drop alongside it, the middle band\n * makes the dragged heading a child. The bands are wide enough that a row cannot be ambiguous.\n */",
   ]],
   ["src/client/features/preview/outline-tree.test.ts", [
     "// One and Two match; Alpha is drawn only because a child of it matched.",

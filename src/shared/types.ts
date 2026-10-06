@@ -126,6 +126,7 @@ export interface PreviewSettings {
   outlineMode: OutlineModeName
   outlineDefaultLevel: number
   outlineShowProgress: boolean
+  outlineDragEdits: boolean
   outlineKeepSearch: boolean
   outlineLocateByCursor: boolean
   math: boolean

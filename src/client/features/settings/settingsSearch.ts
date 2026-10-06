@@ -48,6 +48,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.outline_display_mode', detailKey: 'settings.outline_display_mode_desc', termKeys: ['settings.outline_sidebar', 'settings.outline_floating_always', 'settings.outline_floating_hover'] },
   { section: 'editor', titleKey: 'settings.outline_default_level', detailKey: 'settings.outline_default_level_description' },
   { section: 'editor', titleKey: 'settings.outline_show_progress' },
+  { section: 'editor', titleKey: 'settings.outline_drag_edits', detailKey: 'settings.outline_drag_edits_description' },
   { section: 'editor', titleKey: 'settings.outline_keep_search', detailKey: 'settings.outline_keep_search_description' },
   { section: 'editor', titleKey: 'settings.outline_locate_by_cursor', detailKey: 'settings.outline_locate_by_cursor_description' },
   { section: 'editor', titleKey: 'settings.link_hover_preview', detailKey: 'settings.link_hover_preview_description' },

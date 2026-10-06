@@ -541,3 +541,78 @@ describe('Outline row menu', () => {
         unmount();
     });
 });
+
+describe('Outline drag to move', () => {
+    const DRAG_DOC = '# One\n\nbody one\n\n## Two\n\nbody two\n';
+    const DRAG_HEADINGS: Heading[] = [
+        { level: 1, text: 'One', slug: 'one', line: 0 },
+        { level: 2, text: 'Two', slug: 'two', line: 4 },
+    ];
+
+    /** jsdom has no layout, so the band is chosen by stubbing the row rect and the pointer Y. */
+    async function dragOnto(container: HTMLElement, fromSlug: string, toSlug: string, clientY = 15): Promise<void> {
+        const from = container.querySelector<HTMLLIElement>(`button[data-slug="${fromSlug}"]`)!.closest('li')!;
+        const to = container.querySelector<HTMLLIElement>(`button[data-slug="${toSlug}"]`)!.closest('li')!;
+        const previous = window.HTMLElement.prototype.getBoundingClientRect;
+        window.HTMLElement.prototype.getBoundingClientRect = () => ({ top: 0, height: 30 } as DOMRect);
+        try {
+            await act(async () => { from.dispatchEvent(new Event('dragstart', { bubbles: true })); });
+            await act(async () => { to.dispatchEvent(new MouseEvent('dragover', { bubbles: true, cancelable: true, clientY })); });
+            await act(async () => { to.dispatchEvent(new MouseEvent('drop', { bubbles: true, cancelable: true, clientY })); });
+        }
+        finally {
+            window.HTMLElement.prototype.getBoundingClientRect = previous;
+        }
+    }
+
+    it('marks rows draggable only when the setting is on', () => {
+        const off = renderOutline(DRAG_HEADINGS, vi.fn(), { content: DRAG_DOC, onContentChange: vi.fn() });
+        expect(off.container.querySelector('button[data-slug="one"]')!.closest('li')!.draggable).toBe(false);
+        off.unmount();
+        const on = renderOutline(DRAG_HEADINGS, vi.fn(), { content: DRAG_DOC, onContentChange: vi.fn(), dragEdits: true });
+        expect(on.container.querySelector('button[data-slug="one"]')!.closest('li')!.draggable).toBe(true);
+        on.unmount();
+    });
+
+    it('rewrites the body through moveSection on drop', async () => {
+        const onContentChange = vi.fn();
+        const { container, unmount } = renderOutline(DRAG_HEADINGS, vi.fn(), { content: DRAG_DOC, onContentChange, dragEdits: true });
+        await dragOnto(container, 'two', 'one', 5);
+        expect(onContentChange).toHaveBeenCalledTimes(1);
+        // clientY 5 of a 30px row is the top band, so Two lands ahead of One and re-levels to One's rank.
+        expect(onContentChange.mock.calls[0][0]).toBe('# Two\n\nbody two\n\n# One\n\nbody one\n');
+        unmount();
+    });
+
+    it('shows a drop hint on the hovered row and clears it on dragend', async () => {
+        const { container, unmount } = renderOutline(DRAG_HEADINGS, vi.fn(), { content: DRAG_DOC, onContentChange: vi.fn(), dragEdits: true });
+        const from = container.querySelector('button[data-slug="two"]')!.closest('li')!;
+        const to = container.querySelector('button[data-slug="one"]')!.closest('li')!;
+        await act(async () => { from.dispatchEvent(new Event('dragstart', { bubbles: true })); });
+        await act(async () => { to.dispatchEvent(new Event('dragover', { bubbles: true, cancelable: true })); });
+        expect(to.querySelector('[data-drop-hint]')).not.toBeNull();
+        await act(async () => { from.dispatchEvent(new Event('dragend', { bubbles: true })); });
+        expect(container.querySelector('[data-drop-hint]')).toBeNull();
+        unmount();
+    });
+
+    it('ignores a drop back onto the row being dragged', async () => {
+        const onContentChange = vi.fn();
+        const { container, unmount } = renderOutline(DRAG_HEADINGS, vi.fn(), { content: DRAG_DOC, onContentChange, dragEdits: true });
+        await dragOnto(container, 'one', 'one');
+        expect(onContentChange).not.toHaveBeenCalled();
+        unmount();
+    });
+
+    it('refuses to move a parent inside its own section without touching the body', async () => {
+        const onContentChange = vi.fn();
+        const nested: Heading[] = [
+            { level: 1, text: 'One', slug: 'one', line: 0 },
+            { level: 2, text: 'Two', slug: 'two', line: 2 },
+        ];
+        const { container, unmount } = renderOutline(nested, vi.fn(), { content: '# One\n\n## Two\n', onContentChange, dragEdits: true });
+        await dragOnto(container, 'one', 'two');
+        expect(onContentChange).not.toHaveBeenCalled();
+        unmount();
+    });
+});

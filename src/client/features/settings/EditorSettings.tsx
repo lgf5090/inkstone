@@ -98,6 +98,10 @@ export function EditorSettings() {
           <Switch checked={preview.outlineShowProgress} onChange={(outlineShowProgress) => void update({ preview: { outlineShowProgress } })} label={t("settings.outline_show_progress")}/>
         </SettingRow>}
 
+        {preview.showToc && <SettingRow title={t("settings.outline_drag_edits")} description={t("settings.outline_drag_edits_description")}>
+          <Switch checked={preview.outlineDragEdits} onChange={(outlineDragEdits) => void update({ preview: { outlineDragEdits } })} label={t("settings.outline_drag_edits")}/>
+        </SettingRow>}
+
         {preview.showToc && <SettingRow title={t("settings.outline_keep_search")} description={t("settings.outline_keep_search_description")}>
           <Switch checked={preview.outlineKeepSearch} onChange={(outlineKeepSearch) => void update({ preview: { outlineKeepSearch } })} label={t("settings.outline_keep_search")}/>
         </SettingRow>}

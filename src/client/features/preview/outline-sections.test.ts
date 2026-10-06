@@ -4,6 +4,7 @@ import {
     changeHeadingLevel,
     changeSectionLevels,
     deleteSection,
+    dropPositionFor,
     moveSection,
     renameHeading,
     sectionRange,
@@ -256,8 +257,7 @@ describe('moveSection', () => {
         }
     });
 
-    it('keeps the document parseable after every move', () => {
-        for (let from = 0; from < HEADINGS.length; from++) {
+    it('keeps the document parseable after every move', () => {        for (let from = 0; from < HEADINGS.length; from++) {
             for (let to = 0; to < HEADINGS.length; to++) {
                 const next = moveSection(DOC, HEADINGS, from, to, 'inside');
                 if (!next) continue;
@@ -266,5 +266,29 @@ describe('moveSection', () => {
                 expect(reparsed.every((h) => h.level >= 1 && h.level <= 6)).toBe(true);
             }
         }
+    });
+});
+
+describe('dropPositionFor', () => {
+    it('splits a row into before / inside / after bands', () => {
+        expect(dropPositionFor(5, 0, 30)).toBe('before');
+        expect(dropPositionFor(15, 0, 30)).toBe('inside');
+        expect(dropPositionFor(28, 0, 30)).toBe('after');
+    });
+
+    it('uses the band edges rather than the midpoint', () => {
+        expect(dropPositionFor(9, 0, 30)).toBe('before');
+        expect(dropPositionFor(11, 0, 30)).toBe('inside');
+        expect(dropPositionFor(19, 0, 30)).toBe('inside');
+        expect(dropPositionFor(21, 0, 30)).toBe('after');
+    });
+
+    it('offsets the bands when the row does not start at zero', () => {
+        expect(dropPositionFor(105, 100, 30)).toBe('before');
+        expect(dropPositionFor(128, 100, 30)).toBe('after');
+    });
+
+    it('falls back to inside for a row with no height', () => {
+        expect(dropPositionFor(0, 0, 0)).toBe('inside');
     });
 });
