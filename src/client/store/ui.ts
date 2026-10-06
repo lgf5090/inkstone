@@ -41,6 +41,8 @@ interface UiState {
 
   navDrawerOpen: boolean
   splitRatio: number | null
+  /** A 0…1 ratio of the travel space, so resizing the window keeps the panel where the reader put it. */
+  outlineFloatingPosition: { x: number; y: number } | null
   workspaceSplitRatio: number | null
   workspacePrimaryNoteId: string | null
   workspaceSecondaryNoteId: string | null
@@ -82,7 +84,7 @@ interface UiState {
   fontScale: number
 
 
-  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio'>>) => void
+  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
   setWorkspacePaneLayout: (pane: WorkspacePane, layout: EditorLayout) => void
   setWorkspaceNote: (pane: WorkspacePane, id: string | null, activate?: boolean, revealOnMobile?: boolean) => void
   activateWorkspacePane: (pane: WorkspacePane) => void
@@ -129,6 +131,7 @@ export const DEFAULT_LAYOUT = {
   navWidth: PANEL_WIDTHS.navigation.min,
   listWidth: PANEL_WIDTHS.noteList.min,
   splitRatio: null as number | null,
+  outlineFloatingPosition: null as { x: number; y: number } | null,
 } as const
 
 const DEFAULTS = {
@@ -163,6 +166,7 @@ const PERSISTED_KEYS = [
   'listWidth',
   'navCollapsed',
   'splitRatio',
+  'outlineFloatingPosition',
   'workspaceSplitRatio',
   'workspacePrimaryNoteId',
   'workspaceSecondaryNoteId',
@@ -201,6 +205,7 @@ function loadPersisted(): Partial<UiState> {
     }
     if (typeof value.navCollapsed === 'boolean') out.navCollapsed = value.navCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)
+    if (isRatioPoint(value.outlineFloatingPosition)) out.outlineFloatingPosition = value.outlineFloatingPosition
     if (isFiniteNumber(value.workspaceSplitRatio)) {
       out.workspaceSplitRatio = clamp(value.workspaceSplitRatio, 0.2, 0.8)
     }
@@ -269,6 +274,12 @@ function loadPersisted(): Partial<UiState> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isRatioPoint(value: unknown): value is { x: number; y: number } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const point = value as Record<string, unknown>
+  return isFiniteNumber(point.x) && isFiniteNumber(point.y)
 }
 
 function tagFilter(value: readonly unknown[]): string[] {

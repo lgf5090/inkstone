@@ -104,6 +104,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     syncScroll: true,
     showToc: true,
     outlineMode: 'sidebar',
+    outlineDefaultLevel: 6,
+    outlineShowProgress: true,
     math: true,
     mermaid: true,
     chart: true,
@@ -235,6 +237,8 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
   base.preview.showToc = booleanValue(preview.showToc, base.preview.showToc)
   base.preview.outlineMode = enumValue(preview.outlineMode, OUTLINE_MODES, base.preview.outlineMode)
+  base.preview.outlineDefaultLevel = integerInRange(preview.outlineDefaultLevel, 1, 6, base.preview.outlineDefaultLevel)
+  base.preview.outlineShowProgress = booleanValue(preview.outlineShowProgress, base.preview.outlineShowProgress)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)
   base.preview.chart = booleanValue(preview.chart, base.preview.chart)

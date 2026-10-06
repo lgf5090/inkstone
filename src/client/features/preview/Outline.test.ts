@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react';
 import { createElement } from 'react';
 import { installTestGlobals, renderElement } from '../../lib/test-render';
 import { Outline, getHeadingTypography, getHeadingIcon } from './Outline';
@@ -14,16 +15,24 @@ const FOUR_LEVEL_HEADINGS: Heading[] = [
     { level: 4, text: 'Note A', slug: 'note-a', line: 15 },
 ];
 
-const MIN_LEVEL_HEADINGS: Heading[] = [
-    { level: 2, text: 'Topic 1', slug: 'topic-1', line: 1 },
+const SKIPPED_LEVEL_HEADINGS: Heading[] = [
+    { level: 1, text: 'Topic 1', slug: 'topic-1', line: 1 },
     { level: 3, text: 'Subtopic 1', slug: 'subtopic-1', line: 5 },
 ];
 
-const H1_HEADINGS: Heading[] = [
-    { level: 1, text: 'First Chapter', slug: 'first-chapter', line: 1 },
-    { level: 2, text: 'Section', slug: 'section', line: 5 },
-    { level: 1, text: 'Second Chapter', slug: 'second-chapter', line: 10 },
+const BRANCH_HEADINGS: Heading[] = [
+    { level: 1, text: 'Alpha', slug: 'alpha', line: 1 },
+    { level: 2, text: 'Beta', slug: 'beta', line: 5 },
+    { level: 2, text: 'Gamma', slug: 'gamma', line: 9 },
 ];
+
+/** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */
+const KEY = {
+    search: 'outline.toggle_search',
+    regex: 'outline.regex',
+    matchCount: 'outline.match_count',
+    noMatches: 'outline.no_matches',
+};
 
 function expectTypography(level: number, isActive: boolean, expected: {
     fontSize?: string;
@@ -40,16 +49,63 @@ function expectTypography(level: number, isActive: boolean, expected: {
     if (expected.iconColor) expect(actual.iconColor).toContain(expected.iconColor);
 }
 
-function renderOutline(headings: Heading[], onSelect = vi.fn()) {
-    return renderElement(createElement(Outline, { headings, onSelect }));
+function renderOutline(headings: Heading[], onSelect = vi.fn(), props: Record<string, unknown> = {}) {
+    return renderElement(createElement(Outline, { headings, onSelect, noteId: 'n1', ...props }));
 }
 
-function expectHeadingButton(button: HTMLButtonElement, level: string, fontSize: string, fontWeight: string, paddingLeft: string): void {
-    expect(button.getAttribute('data-heading-level')).toBe(level);
-    expect(button.classList.contains(fontSize)).toBe(true);
-    expect(button.classList.contains(fontWeight)).toBe(true);
-    expect(button.style.paddingLeft).toBe(paddingLeft);
+async function click(element: HTMLElement): Promise<void> {
+    await act(async () => { element.click(); });
 }
+
+function rowButtons(container: HTMLElement): HTMLButtonElement[] {
+    return [...container.querySelectorAll<HTMLButtonElement>('li[data-heading-level] button[data-slug]')];
+}
+
+function slugs(container: HTMLElement): string[] {
+    return rowButtons(container).map((button) => button.getAttribute('data-slug') ?? '');
+}
+
+function indentOf(button: HTMLButtonElement): string {
+    const row = button.closest('div[style*="padding-left"]') as HTMLElement | null;
+    return row?.style.paddingLeft ?? '';
+}
+
+function chevronFor(container: HTMLElement, slug: string): HTMLButtonElement {
+    const button = container.querySelector<HTMLButtonElement>(`button[data-slug="${slug}"]`);
+    const row = button?.closest('div[style*="padding-left"]') as HTMLElement | null;
+    const chevron = row?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+    if (!chevron) throw new Error(`no chevron rendered for ${slug}`);
+    return chevron;
+}
+
+function hasChevron(container: HTMLElement, slug: string): boolean {
+    const button = container.querySelector<HTMLButtonElement>(`button[data-slug="${slug}"]`);
+    const row = button?.closest('div[style*="padding-left"]') as HTMLElement | null;
+    return Boolean(row?.querySelector('button[aria-expanded]'));
+}
+
+function levelButtons(container: HTMLElement): HTMLButtonElement[] {
+    return [...container.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')];
+}
+
+async function openSearch(container: HTMLElement): Promise<HTMLInputElement> {
+    await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.search}"]`)!);
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]');
+    if (!input) throw new Error('search input did not open');
+    return input;
+}
+
+async function type(input: HTMLInputElement, value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+}
+
+beforeEach(() => {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+});
 
 describe('Outline heading typography and icon mapping', () => {
     it('maps levels to corresponding Lucide heading icons', () => {
@@ -82,51 +138,181 @@ describe('Outline heading typography and icon mapping', () => {
     });
 });
 
-describe('Outline component', () => {
+describe('Outline rendering', () => {
     it('returns null when headings array is empty', () => {
         const { container, unmount } = renderOutline([]);
         expect(container.firstChild).toBeNull();
         unmount();
     });
 
-    it('renders headings with corresponding level attributes, icons, sizes and weights', () => {
-        const handleSelect = vi.fn();
-        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, handleSelect);
-
-        const buttons = container.querySelectorAll<HTMLButtonElement>('button[data-heading-level]');
-        expect(buttons.length).toBe(4);
-        expect(container.querySelectorAll<SVGElement>('button[data-heading-level] svg').length).toBe(4);
-
-        expectHeadingButton(buttons[0], '1', 'text-[length:var(--text-13)]', 'font-semibold', '8px');
-        expectHeadingButton(buttons[1], '2', 'text-[length:var(--text-12)]', 'font-medium', '18px');
-        expectHeadingButton(buttons[2], '3', 'text-[length:var(--text-11-5)]', 'font-normal', '28px');
-        expectHeadingButton(buttons[3], '4', 'text-[length:var(--text-11)]', 'font-normal', '38px');
-
-        buttons[1].click();
-        expect(handleSelect).toHaveBeenCalledWith(FOUR_LEVEL_HEADINGS[1]);
-
+    it('renders one row per heading carrying its level, icon and typography', () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        const rows = [...container.querySelectorAll('li[data-heading-level]')];
+        expect(rows.map((row) => row.getAttribute('data-heading-level'))).toEqual(['1', '2', '3', '4']);
+        expect(container.querySelectorAll('li[data-heading-level] button[data-slug] svg').length).toBe(4);
+        const buttons = rowButtons(container);
+        expect(buttons[0]!.classList.contains('text-[length:var(--text-13)]')).toBe(true);
+        expect(buttons[1]!.classList.contains('text-[length:var(--text-12)]')).toBe(true);
+        expect(buttons[3]!.classList.contains('text-[length:var(--text-11)]')).toBe(true);
         unmount();
     });
 
-    it('aligns indentation when minLevel > 1', () => {
-        const { container, unmount } = renderOutline(MIN_LEVEL_HEADINGS);
+    it('indents by visual tier, so a skipped level only steps in once', () => {
+        const { container, unmount } = renderOutline(SKIPPED_LEVEL_HEADINGS);
+        const buttons = rowButtons(container);
+        expect(indentOf(buttons[0]!)).toBe('8px');
+        expect(indentOf(buttons[1]!)).toBe('18px');
+        unmount();
+    });
 
-        const buttons = container.querySelectorAll<HTMLButtonElement>('button[data-heading-level]');
-        expect(buttons.length).toBe(2);
-        expect(buttons[0].style.paddingLeft).toBe('8px');
-        expect(buttons[1].style.paddingLeft).toBe('18px');
+    it('indents a four-level chain one step per tier', () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        expect(rowButtons(container).map(indentOf)).toEqual(['8px', '18px', '28px', '38px']);
+        unmount();
+    });
 
+    it('gives a chevron only to rows that actually have children', () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        expect(hasChevron(container, 'alpha')).toBe(true);
+        expect(hasChevron(container, 'beta')).toBe(false);
+        expect(hasChevron(container, 'gamma')).toBe(false);
+        unmount();
+    });
+
+    it('jumps to the heading whose row was clicked', async () => {
+        const onSelect = vi.fn();
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, onSelect);
+        await click(rowButtons(container)[1]!);
+        expect(onSelect).toHaveBeenCalledWith(FOUR_LEVEL_HEADINGS[1]);
         unmount();
     });
 
     it('adds margin-top on subsequent H1 headings for section separation', () => {
-        const { container, unmount } = renderOutline(H1_HEADINGS);
+        const { container, unmount } = renderOutline([
+            { level: 1, text: 'First', slug: 'first', line: 1 },
+            { level: 2, text: 'Sub', slug: 'sub', line: 2 },
+            { level: 1, text: 'Second', slug: 'second', line: 3 },
+        ]);
+        const rows = container.querySelectorAll('li[data-heading-level]');
+        expect(rows[0]!.classList.contains('mt-1.5')).toBe(false);
+        expect(rows[2]!.classList.contains('mt-1.5')).toBe(true);
+        unmount();
+    });
+});
 
-        const listItems = container.querySelectorAll('li');
-        expect(listItems.length).toBe(3);
-        expect(listItems[0].classList.contains('mt-1.5')).toBe(false);
-        expect(listItems[2].classList.contains('mt-1.5')).toBe(true);
+describe('Outline collapsing', () => {
+    it('hides a subtree when its parent chevron is clicked', async () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        await click(chevronFor(container, 'alpha'));
+        expect(slugs(container)).toEqual(['alpha']);
+        unmount();
+    });
 
+    it('reveals the subtree again on a second click', async () => {
+        const { container, unmount } = renderOutline(BRANCH_HEADINGS);
+        await click(chevronFor(container, 'alpha'));
+        expect(slugs(container)).toEqual(['alpha']);
+        await click(chevronFor(container, 'alpha'));
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        unmount();
+    });
+
+    it('opens only the top level when defaultLevel is 1', () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, vi.fn(), { defaultLevel: 1 });
+        expect(slugs(container)).toEqual(['chapter-1']);
+        unmount();
+    });
+
+    it('opens everything when defaultLevel is left at its widest', () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS, vi.fn(), { defaultLevel: 6 });
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1', 'note-a']);
+        unmount();
+    });
+
+    it('collapses to a chosen level from the toolbar', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        const toolbar = levelButtons(container);
+        expect(toolbar.length).toBe(4);
+        await click(toolbar[1]!);
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1']);
+        expect(levelButtons(container)[1]!.getAttribute('aria-pressed')).toBe('true');
+        unmount();
+    });
+
+    it('keeps expansion across an unrelated heading being added', async () => {
+        const { container, unmount, rerender } = renderOutline(BRANCH_HEADINGS);
+        await click(chevronFor(container, 'alpha'));
+        expect(slugs(container)).toEqual(['alpha']);
+        rerender(createElement(Outline, {
+            headings: [...BRANCH_HEADINGS, { level: 2, text: 'Delta', slug: 'delta', line: 12 }],
+            onSelect: vi.fn(),
+            noteId: 'n1',
+        }));
+        expect(slugs(container)).toEqual(['alpha']);
+        unmount();
+    });
+
+    it('resets expansion when a different note is shown', async () => {
+        const { container, unmount, rerender } = renderOutline(BRANCH_HEADINGS);
+        await click(chevronFor(container, 'alpha'));
+        expect(slugs(container)).toEqual(['alpha']);
+        rerender(createElement(Outline, { headings: BRANCH_HEADINGS, onSelect: vi.fn(), noteId: 'n2', defaultLevel: 6 }));
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'gamma']);
+        unmount();
+    });
+});
+
+describe('Outline filtering', () => {
+    it('shows only matches and the ancestors leading to them', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        await type(await openSearch(container), 'note a');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1', 'note-a']);
+        unmount();
+    });
+
+    it('drops branches that hold no match', async () => {
+        const { container, unmount } = renderOutline([
+            { level: 1, text: 'Keep', slug: 'keep', line: 1 },
+            { level: 2, text: 'Keeper', slug: 'keeper', line: 2 },
+            { level: 1, text: 'Drop', slug: 'drop', line: 3 },
+        ]);
+        await type(await openSearch(container), 'keep');
+        expect(slugs(container)).toEqual(['keep', 'keeper']);
+        unmount();
+    });
+
+    it('reports a match count separate from the rows drawn', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        await type(await openSearch(container), 'detail');
+        expect(container.textContent).toContain(KEY.matchCount);
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1']);
+        unmount();
+    });
+
+    it('says so when nothing matches', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        await type(await openSearch(container), 'zzzz');
+        expect(container.textContent).toContain(KEY.noMatches);
+        expect(rowButtons(container).length).toBe(0);
+        unmount();
+    });
+
+    it('matches a regular expression when the regex switch is on', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        const input = await openSearch(container);
+        await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.regex}"]`)!);
+        await type(input, '^chapter');
+        expect(slugs(container)).toEqual(['chapter-1']);
+        unmount();
+    });
+
+    it('keeps every row visible while the expression is still unparseable', async () => {
+        const { container, unmount } = renderOutline(FOUR_LEVEL_HEADINGS);
+        const input = await openSearch(container);
+        await click(container.querySelector<HTMLButtonElement>(`button[aria-label="${KEY.regex}"]`)!);
+        await type(input, '^chapter(');
+        expect(slugs(container)).toEqual(['chapter-1', 'section-1-1', 'detail-1-1-1', 'note-a']);
         unmount();
     });
 });

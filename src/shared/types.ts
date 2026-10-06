@@ -124,6 +124,8 @@ export interface PreviewSettings {
   syncScroll: boolean
   showToc: boolean
   outlineMode: OutlineModeName
+  outlineDefaultLevel: number
+  outlineShowProgress: boolean
   math: boolean
   mermaid: boolean
   chart: boolean

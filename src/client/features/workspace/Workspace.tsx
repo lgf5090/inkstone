@@ -20,6 +20,7 @@ import { optimizeImageFile } from '../../lib/image';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { Preview } from '../preview/Preview';
 import { Outline } from '../preview/Outline';
+import { FloatingOutline } from '../preview/FloatingOutline';
 import { revealPreviewTarget } from '../preview/markdown-tabs';
 import { SplitResizer } from '../shell/Resizer';
 import { EditorToolbar } from './EditorToolbar';
@@ -147,6 +148,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const showPreview = layout !== 'live';
     const showSplit = layout === 'split';
     const outlineMode = previewSettings.outlineMode;
+    const outlineDefaultLevel = previewSettings.outlineDefaultLevel;
+    const outlineShowProgress = previewSettings.outlineShowProgress;
     const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover';
     const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && !outlineIsFloating;
     const outlineFloatingVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && outlineIsFloating
@@ -527,19 +530,10 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
         {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
             <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
-            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef}/>)}
-            {outlineFloatingVisible && (<div className="pointer-events-none absolute top-0 right-0 z-10 h-full">
-              <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] py-5 pr-3 shadow-lg" style={{ width: OUTLINE_WIDTH }}>
-                <Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} className="w-full"/>
-              </div>
-            </div>)}
+            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress}/>)}
           </div>)}
-        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading}/>}
-        {!showPreview && outlineFloatingVisible && (<div className="pointer-events-none absolute top-0 right-0 z-10 h-full">
-          <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] py-5 pr-3 shadow-lg" style={{ width: OUTLINE_WIDTH }}>
-            <Outline headings={headings} onSelect={jumpToHeading} className="w-full"/>
-          </div>
-        </div>)}
+        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress}/>}
+        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} containerRef={containerRef}/>)}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}
@@ -549,7 +543,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       <Menu anchor={moreButtonRef} open={moreMenuOpen} onClose={() => setMoreMenuOpen(false)} items={grouped ? groupedItems : mobileItems} align="end" width={220}/>
       {isMobile && (<Drawer open={mobileOutlineOpen} onClose={() => setMobileOutlineOpen(false)} side="right" width={320} title={t("common.outline")}>
-          <Outline headings={headings} scrollerRef={previewScrollerRef} className="max-h-none w-full self-stretch py-3" onSelect={(heading) => {
+          <Outline headings={headings} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} className="max-h-none w-full self-stretch py-3" onSelect={(heading) => {
                 jumpToHeading(heading);
                 setMobileOutlineOpen(false);
             }}/>

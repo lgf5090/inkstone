@@ -173,6 +173,14 @@ const allowed = new Map([
     "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
     "// cached copy here would silently overwrite whatever was typed in the last few frames.",
   ]],
+  ["src/client/features/preview/Outline.test.ts", [
+    "/** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */",
+  ]],
+  ["src/client/features/preview/Outline.tsx", [
+    "/**\n * Expansion survives typing: the set is keyed by heading slug and only shed when those headings\n * stop being parents, so adding a heading elsewhere never reflows what the reader folded away.\n */",
+    "// A scroll tick lands here every frame; quantising the ring to whole percent and",
+    "// bailing when neither field moved keeps a long outline from re-rendering per frame.",
+  ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
     "// reference plugin does; a plain click still just filters.",
@@ -372,6 +380,20 @@ const allowed = new Map([
     "// memoized rather than rebuilt per render.",
     "// The menu is what says the button is expanded, and the markup it sits on is re-rendered",
     "// from the note, so the state is asserted here rather than left to the renderer.",
+  ]],
+  ["src/client/features/preview/outline-float.ts", [
+    "/** A pane too narrow to move the panel keeps the saved ratio on that axis rather than discarding where it was parked. */",
+  ]],
+  ["src/client/features/preview/outline-tree.test.ts", [
+    "// One and Two match; Alpha is drawn only because a child of it matched.",
+  ]],
+  ["src/client/features/preview/outline-tree.ts", [
+    "/**\n * Assigns each heading the parent implied by the headings around it, so a document that jumps\n * from `#` straight to `###` still indents by one step rather than two.\n */",
+    "/**\n * Collapse every parent sitting at `level` or deeper, which leaves levels 1…level-1 open.\n * Asking for a level past the deepest heading collapses nothing, so the tree stays fully open.\n */",
+    "/** Drops slugs that no longer name a collapsible row, so the set cannot grow without bound. */",
+    "/**\n * Turns a query into a predicate. An unparseable regex matches everything, which keeps the panel\n * readable while the pattern is half-typed instead of blanking the outline.\n */",
+    "/** Every match plus the ancestors that lead to it. */",
+    "/** A document that fits its viewport has nothing left to read, so it counts as finished. */",
   ]],
   ["src/client/features/preview/panel-source.ts", [
     "/**\n * The source edits behind a layout block's settings toolbar.\n *\n * A block keeps its whole configuration on one header line, so most edits are a rewrite of that line\n * with the content below left byte-identical. Changing the column count is the one edit that also has\n * to touch the body: the number of columns a note holds is the number of `::` separators it carries,\n * and a header that disagrees with its own body is a block the reader cannot fix by looking at it.\n */",
@@ -1312,6 +1334,7 @@ const allowed = new Map([
     "// case-variant would otherwise occupy two slots that match exactly the same notes.",
     "// The list search box holds this string and forwards it to /api/search verbatim, so an",
     "// expression written from a tag menu is the same grammar a person can type by hand.",
+    "/** A 0…1 ratio of the travel space, so resizing the window keeps the panel where the reader put it. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",

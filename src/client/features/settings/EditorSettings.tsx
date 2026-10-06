@@ -90,6 +90,14 @@ export function EditorSettings() {
         ]}/>
         </SettingRow>}
 
+        {preview.showToc && <SettingRow title={t("settings.outline_default_level")} description={t("settings.outline_default_level_description")}>
+          <Slider label={t("settings.outline_default_level")} className="w-[200px]" value={preview.outlineDefaultLevel} min={1} max={6} step={1} onChange={(outlineDefaultLevel) => void update({ preview: { outlineDefaultLevel } })}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_show_progress")}>
+          <Switch checked={preview.outlineShowProgress} onChange={(outlineShowProgress) => void update({ preview: { outlineShowProgress } })} label={t("settings.outline_show_progress")}/>
+        </SettingRow>}
+
         <SettingRow title={t("settings.link_hover_preview")} description={t("settings.link_hover_preview_description")}>
           <Switch checked={preview.linkHover} onChange={(linkHover) => void update({ preview: { linkHover } })} label={t("settings.link_hover_preview")}/>
         </SettingRow>

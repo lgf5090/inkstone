@@ -1,0 +1,85 @@
+export interface PanelBounds {
+    minLeft: number;
+    minTop: number;
+    maxLeft: number;
+    maxTop: number;
+}
+
+export interface PanelPoint {
+    left: number;
+    top: number;
+}
+
+export interface PanelRatio {
+    x: number;
+    y: number;
+}
+
+export const FLOAT_MARGIN = 8;
+export const SNAP_DISTANCE = 12;
+export const PANEL_MAX_HEIGHT = 420;
+export const OUTLINE_FLOAT_WIDTH = 208;
+
+export const DEFAULT_RATIO: PanelRatio = { x: 1, y: 0 };
+
+function clamp(value: number, minimum: number, maximum: number): number {
+    return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+export function panelHeight(containerHeight: number): number {
+    return Math.max(0, Math.min(PANEL_MAX_HEIGHT, containerHeight - FLOAT_MARGIN * 2));
+}
+
+export function panelBounds(containerWidth: number, containerHeight: number, panelWidth: number, height: number): PanelBounds {
+    const minLeft = FLOAT_MARGIN;
+    const minTop = FLOAT_MARGIN;
+    return {
+        minLeft,
+        minTop,
+        maxLeft: Math.max(minLeft, containerWidth - panelWidth - FLOAT_MARGIN),
+        maxTop: Math.max(minTop, containerHeight - height - FLOAT_MARGIN),
+    };
+}
+
+export function clampToBounds(point: PanelPoint, bounds: PanelBounds): PanelPoint {
+    return {
+        left: clamp(point.left, bounds.minLeft, bounds.maxLeft),
+        top: clamp(point.top, bounds.minTop, bounds.maxTop),
+    };
+}
+
+/** A pane too narrow to move the panel keeps the saved ratio on that axis rather than discarding where it was parked. */
+export function resolvePosition(ratio: PanelRatio, bounds: PanelBounds): PanelPoint {
+    return {
+        left: bounds.minLeft + clamp(ratio.x, 0, 1) * (bounds.maxLeft - bounds.minLeft),
+        top: bounds.minTop + clamp(ratio.y, 0, 1) * (bounds.maxTop - bounds.minTop),
+    };
+}
+
+export function toRatio(point: PanelPoint, bounds: PanelBounds, fallback: PanelRatio): PanelRatio {
+    const constrained = clampToBounds(point, bounds);
+    return {
+        x: bounds.maxLeft === bounds.minLeft ? clamp(fallback.x, 0, 1) : (constrained.left - bounds.minLeft) / (bounds.maxLeft - bounds.minLeft),
+        y: bounds.maxTop === bounds.minTop ? clamp(fallback.y, 0, 1) : (constrained.top - bounds.minTop) / (bounds.maxTop - bounds.minTop),
+    };
+}
+
+export type SnappedEdge = 'min' | 'max' | null;
+
+export function snapToBounds(point: PanelPoint, bounds: PanelBounds): { position: PanelPoint; edgeX: SnappedEdge; edgeY: SnappedEdge } {
+    const constrained = clampToBounds(point, bounds);
+    const axis = (value: number, minimum: number, maximum: number) => {
+        if (value - minimum <= SNAP_DISTANCE) return { value: minimum, edge: 'min' as SnappedEdge };
+        if (maximum - value <= SNAP_DISTANCE) return { value: maximum, edge: 'max' as SnappedEdge };
+        return { value, edge: null as SnappedEdge };
+    };
+    const x = axis(constrained.left, bounds.minLeft, bounds.maxLeft);
+    const y = axis(constrained.top, bounds.minTop, bounds.maxTop);
+    return { position: { left: x.value, top: y.value }, edgeX: x.edge, edgeY: y.edge };
+}
+
+export const DRAG_THRESHOLD = 6;
+
+export function passedThreshold(deltaX: number, deltaY: number, threshold = DRAG_THRESHOLD): boolean {
+    return Math.hypot(deltaX, deltaY) >= threshold;
+}
