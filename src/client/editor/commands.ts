@@ -1,4 +1,3 @@
-import { startCompletion } from '@codemirror/autocomplete';
 import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange, type StateCommand } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
@@ -51,23 +50,13 @@ export function toggleWrap(open: string, close = open, options: { suggestWhenOpe
                     : EditorSelection.cursor(from + open.length),
             };
         });
-        dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.format' }));
-        // Typing the markers opens the note list through activateOnTyping, but the toolbar had no
-        // way to ask for it: an inserted `[[]]` left the caret in an empty pair with no popup.
-        // The toolbar button still holds focus at this point and autocompletion runs with
-        // closeOnBlur, so the view has to be focused first or the popup is dismissed at once.
-        if (options.suggestWhenOpeningEmpty && openedEmpty && view) {
-            const target = view;
-            // The dropdown that held the button is still closing and reclaims focus after this
-            // command returns, so the popup has to be started one task later or it is dismissed
-            // straight away by closeOnBlur.
-            setTimeout(() => {
-                if (!document.contains(target.dom))
-                    return;
-                target.focus();
-                startCompletion(target);
-            }, 0);
-        }
+        // autocompletion only activates for a transaction tagged `input.type` (see getUpdateType
+        // in @codemirror/autocomplete), so the empty-pair insert that wants the note list has to
+        // carry that tag: `input.format` inserts the text and leaves no popup behind.
+        const suggest = options.suggestWhenOpeningEmpty && openedEmpty;
+        dispatch(state.update(changes, { scrollIntoView: true, userEvent: suggest ? 'input.type' : 'input.format' }));
+        if (suggest && view)
+            view.focus();
         return true;
     };
 }

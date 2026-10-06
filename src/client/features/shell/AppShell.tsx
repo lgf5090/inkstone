@@ -20,6 +20,7 @@ import { MobileAccount } from './MobileAccount';
 import { Resizer, SplitResizer } from './Resizer';
 import { t } from "../../lib/i18n";
 import { SettingsPanel } from '../settings/SettingsPanel';
+import { PinnedWindowsLayer } from '../preview/pinned-windows-layer';
 import { scheduleSettingsWarmup } from '../settings/sections';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
 const importCommandPalette = () => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette }));
@@ -223,6 +224,7 @@ function OverlayHost() {
       {role === 'owner' && updateDialogOpen && (<Suspense fallback={null}>
         <UpdateDialog />
       </Suspense>)}
+      <PinnedWindowsLayer />
     </>);
 }
 
