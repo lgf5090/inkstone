@@ -1,10 +1,12 @@
 import { toggleCodeBlockCollapse } from '../../lib/markdown/enhance'
 import { groupTabButtons, selectMarkdownTab } from './markdown-tabs'
+import { applyChartSourceStates, chartSourceStates } from './chart-block-toolbar'
 
 export interface PreviewInteractionState {
   codeBlocks: Map<string, boolean>
   details: Map<string, boolean>
   tabs: Map<string, string>
+  chartSources: Map<string, boolean>
 }
 
 export function capturePreviewInteractionState(root: HTMLElement | null): PreviewInteractionState {
@@ -12,6 +14,7 @@ export function capturePreviewInteractionState(root: HTMLElement | null): Previe
     codeBlocks: new Map(),
     details: new Map(),
     tabs: new Map(),
+    chartSources: chartSourceStates(root),
   }
   if (!root) return state
 
@@ -48,6 +51,7 @@ export function restorePreviewInteractionState(
       .find((candidate) => candidate.dataset.tabButton === selected)
     if (button) selectMarkdownTab(button)
   })
+  applyChartSourceStates(root, state.chartSources)
 }
 
 function keyedElements(root: HTMLElement, selector: string): Array<[string, HTMLElement]> {

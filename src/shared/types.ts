@@ -126,6 +126,7 @@ export interface PreviewSettings {
   outlineMode: OutlineModeName
   math: boolean
   mermaid: boolean
+  chart: boolean
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
   linkHover: boolean

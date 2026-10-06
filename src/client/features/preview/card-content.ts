@@ -189,10 +189,15 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
     const rendered = renderMarkdown(truncatedContent, { hideFrontMatter: true })
     const staging = document.createElement('div')
     staging.innerHTML = rendered.html
-    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]')) {
+    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]')) {
       await enhancePreview(staging, {
         math: args.previewMath,
         mermaid: false,
+        // A card is a few lines of context, not a reading surface: a chart block left in its loading
+        // state would say "Rendering chart…" forever, because nothing ever draws it here. Declining
+        // outright shows the body instead, which is what the card can honestly offer — and the guard
+        // above has to name `[data-chart]` too, or this call is skipped for exactly the notes that need it.
+        chart: false,
         dark: args.dark,
         codeBlockCollapseLines: 0,
       })

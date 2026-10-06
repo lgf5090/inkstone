@@ -128,6 +128,19 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
   return Boolean(moduleId && CORE_LAZY_MODULES.some((suffix) => moduleId.endsWith(suffix)))
 }
 
+/**
+ * The generated service worker splits the bundle three ways: the shell it must have to boot
+ * (`CORE_URLS`), everything it may serve offline (`ALL_OFFLINE_URLS`), and the subset of the latter it
+ * downloads ahead of time (`WARMUP_URLS`). `ON_DEMAND_PATTERN` is what keeps the third set small — the
+ * diagram engines (mermaid's per-shape chunks, cytoscape behind the graph, the CodeMirror language
+ * bundles) are named there because they are hundreds of kilobytes each and most accounts never open one,
+ * so warming them would spend everyone's bandwidth for a few people's benefit. The cost of being on that
+ * list is that the first offline visit to a note using one of them shows its source instead of the
+ * picture, until it has been opened online once.
+ *
+ * `auto-` is chart.js's chunk, named after the `chart.js/auto` entry the dynamic import asks for; it is
+ * the only built asset whose name begins that way.
+ */
 function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: string[]): string {
 	return `const BUILD_ID = ${JSON.stringify(buildId)}
 	const SHELL_CACHE = ${JSON.stringify(`inkstone-shell-${buildId}`)}
@@ -136,7 +149,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	const ALL_OFFLINE_URLS = ${JSON.stringify(allUrls)}
 	const OPTIONAL_URLS = ALL_OFFLINE_URLS.filter((url) => !CORE_URLS.includes(url))
 	const OPTIONAL_URL_SET = new Set(OPTIONAL_URLS)
-	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5)/i
+	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5|auto-)/i
 	const WARMUP_URLS = OPTIONAL_URLS.filter((url) => !ON_DEMAND_PATTERN.test(url))
 	const WARMUP_TOTAL = CORE_URLS.length + WARMUP_URLS.length
 	const CACHE_META_URL = '/.inkstone-cache-meta'

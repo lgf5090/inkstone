@@ -90,3 +90,28 @@ describe('line helpers', () => {
     expect(normalizeEol('a\\nb')).toBe('a\\nb')
   })
 })
+
+describe('a fence indented inside a list item or blockquote', () => {
+  // markdown-it de-indents a fence's content by the fence's own run of spaces before handing it to the
+  // renderer, so the block's recorded body has no leading spaces. Reading the raw lines instead made the
+  // two disagree for every indented fence, and the write declined against a note it was looking at.
+  it('reads the body de-indented, the way the renderer received it', () => {
+    expect(fenceAt('  ~~~md-example\n  x\n  ~~~', 0, MD)?.body).toBe('x')
+    expect(fenceAt('   ~~~md-example\n   a\n   b\n   ~~~', 0, MD)?.body).toBe('a\nb')
+  })
+
+  it('writes the body back at the fence indentation, so the block stays inside its list', () => {
+    expect(applyFencePatchAtSource('  ~~~md-example\n  x\n  ~~~\n', { line: 0, body: 'x' }, { body: 'a\nb' }, MD))
+      .toBe('  ~~~md-example\n  a\n  b\n  ~~~\n')
+  })
+
+  it('keeps blank body lines blank rather than padding them with the indent', () => {
+    expect(applyFencePatchAtSource('  ~~~md-example\n  x\n  ~~~\n', { line: 0, body: 'x' }, { body: 'a\n\nb' }, MD))
+      .toBe('  ~~~md-example\n  a\n\n  b\n  ~~~\n')
+  })
+
+  it('does not widen for a body line that only starts with a fence run, since it cannot close one', () => {
+    expect(applyFencePatchAtSource('~~~md-example\nx\n~~~\n', { line: 0, body: 'x' }, { body: '~~~inner' }, MD))
+      .toBe('~~~md-example\n~~~inner\n~~~\n')
+  })
+})
