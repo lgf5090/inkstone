@@ -41,7 +41,7 @@ class RenderedBlock extends WidgetType {
         const prepare = async () => {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
-            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, dark, codeBlockCollapseLines: 0 });
+            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, mindmap: 'snapshot', dark, codeBlockCollapseLines: 0 });
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
             if (alive && settings.chart) await renderPendingCharts(host, dark);
             if (alive) view.requestMeasure();

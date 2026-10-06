@@ -139,7 +139,7 @@ function isAvailableFocusTarget(element: HTMLElement): boolean {
     return !element.matches(':disabled') && !element.closest('[hidden], [aria-hidden="true"]');
 }
 
-export function Modal({ open, onClose, title, description, children, footer, width = 560, className, }: {
+export function Modal({ open, onClose, title, description, children, footer, width = 560, className, bodyClassName, variant = 'dialog', ariaLabel, }: {
     open: boolean;
     onClose: () => void;
     title?: ReactNode;
@@ -148,7 +148,13 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     footer?: ReactNode;
     width?: number;
     className?: string;
+    bodyClassName?: string;
+    /** `fullscreen` fills the viewport and hands the body to a single surface (e.g. a mind map). */
+    variant?: 'dialog' | 'fullscreen';
+    /** Accessible name for a surface that renders its own heading instead of using `title`. */
+    ariaLabel?: string;
 }) {
+    const fullscreen = variant === 'fullscreen';
     const panelRef = useRef<HTMLDivElement>(null);
     const titleId = useId();
     const descriptionId = useId();
@@ -160,9 +166,11 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     return createPortal(
 
 
-    <div className="app-viewport-fixed fixed z-[250] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8">
+    <div className={cn('app-viewport-fixed fixed z-[250] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8', fullscreen && 'md:overflow-hidden md:p-0')}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : t("overlay.dialog")} tabIndex={-1} className={cn('anim-pop relative flex max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] w-full flex-col rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)]', 'bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] outline-none md:my-auto md:rounded-[var(--r-2xl)] md:border-b', className)} style={{ maxWidth: width }}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : (ariaLabel ?? t("overlay.dialog"))} tabIndex={-1} className={cn('anim-pop relative flex w-full flex-col outline-none', fullscreen
+        ? 'h-[100dvh] max-h-none border-0 md:h-[100dvh] md:my-0 md:rounded-none'
+        : 'max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] md:my-auto md:rounded-[var(--r-2xl)] md:border-b', className)} style={fullscreen ? undefined : { maxWidth: width }}>
         {(title || description) && (<div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-3 md:px-5">
             <div className="min-w-0">
               {title && (<h2 id={titleId} className="text-[15px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">
@@ -178,7 +186,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
               </IconButton>
             </Tooltip>
           </div>)}
-        <div className="min-h-0 overflow-y-auto px-4 pb-4 md:px-5 md:pb-5">{children}</div>
+        <div className={cn('min-h-0 overflow-y-auto px-4 pb-4 md:px-5 md:pb-5', fullscreen && 'flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-0', bodyClassName)}>{children}</div>
         {footer && (<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[var(--border-subtle)] px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] md:px-5 md:py-3">
             {footer}
           </div>)}

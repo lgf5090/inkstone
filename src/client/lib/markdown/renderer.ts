@@ -23,6 +23,8 @@ import { isTimelineDateTime, parseTimelineItem, splitTimelineInfo } from './time
 import type { TimelineItem, TimelineOptions, TimelineStatus } from './timeline-options';
 import { readFenceStyle } from './chart/style';
 import { CHART_LANGUAGES } from './chart/body';
+import { detectMindmapMode, MINDMAP_LANGUAGES } from './mindmap/body';
+import { MINDMAP_THEME_ATTR, readFenceAnnotation } from './mindmap/theme';
 export interface Heading {
     level: number;
     text: string;
@@ -48,6 +50,8 @@ interface RenderEnvironment {
     taskNonce: string;
     tabSequence: number;
     exampleSequence: number;
+    /** Counts the mind map blocks in this document, so each one can name itself. */
+    mindmapSequence: number;
     docId: string;
     hideFrontMatter?: boolean;
 }
@@ -618,6 +622,7 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         childEnv.taskNonce = parentEnv.taskNonce;
         childEnv.tabSequence = parentEnv.tabSequence;
         childEnv.exampleSequence = parentEnv.exampleSequence;
+        childEnv.mindmapSequence = parentEnv.mindmapSequence;
         childEnv.docId = `${parentEnv.docId}-example-${exampleId}`;
         const preview = md.render(stripObsidianComments(token.content), childEnv).replace(/ data-line="\d+"/g, '');
         parentEnv.hasMath ||= childEnv.hasMath;
@@ -625,6 +630,7 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         parentEnv.hasEmbeds ||= childEnv.hasEmbeds;
         parentEnv.tabSequence = childEnv.tabSequence;
         parentEnv.exampleSequence = Math.max(parentEnv.exampleSequence, childEnv.exampleSequence);
+        parentEnv.mindmapSequence = Math.max(parentEnv.mindmapSequence, childEnv.mindmapSequence);
         const title = info.title || t("markdown.markdown_example");
         const titleId = `${parentEnv.docId}-markdown-example-${exampleId}`;
         return [
@@ -657,6 +663,8 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         const style = readFenceStyle(token.info);
         return `<div class="chart-block loading"${line}${style === null ? '' : ` data-chart-style="${escapeAttr(style)}"`} data-chart="${escapeAttr(encodeDataValue(token.content))}" aria-busy="true">${escapeHtml(t("markdown.rendering_chart"))}</div>`;
     }
+    if ((MINDMAP_LANGUAGES as readonly string[]).includes(info.language))
+        return renderMindmapBlock(token, line, rendererEnv);
     const title = info.title || info.language || t("markdown.code");
     const code = readCodeOptions(token.info);
     const optionAttrs = [
@@ -678,6 +686,24 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         `</div>`,
     ].join('');
 };
+/**
+ * The ```mindmap placeholder. Only the block and its drawing area are emitted here: the head a reader
+ * acts on — the format switch, the source panel, the palette, fit and full screen — is built by the
+ * preview's toolbar layer, so a share page, an embedded note and an exported document carry no buttons
+ * that could not work there. The body rides along encoded for the same reason a chart's does, and the
+ * index numbers the blocks within this document so the mount pass can tell two maps of the same body
+ * apart.
+ */
+function renderMindmapBlock(token: Token, line: string, rendererEnv: unknown): string {
+    const env = renderEnv(rendererEnv);
+    const index = env.mindmapSequence++;
+    const annotation = readFenceAnnotation(token.info);
+    return [
+        `<div class="mindmap-block loading"${line} data-mindmap="${escapeAttr(encodeDataValue(token.content))}" data-mindmap-mode="${detectMindmapMode(token.content)}" data-mindmap-index="${index}"${annotation === null ? '' : ` ${MINDMAP_THEME_ATTR}="${escapeAttr(annotation)}"`} aria-busy="true">`,
+        `<div class="mindmap-block-placeholder" data-mindmap-placeholder>${escapeHtml(t("preview.mindmap_loading"))}</div>`,
+        `</div>`,
+    ].join('');
+}
 md.renderer.rules.table_open = (tokens, index) => {
     const line = tokens[index]!.map ? ` data-line="${tokens[index]!.map![0]}"` : '';
     return `<div class="table-wrap"${line}><table>`;
@@ -780,6 +806,11 @@ export const PURIFY_CONFIG = {
         'data-js-example-output',
         'data-markdown-example',
         'data-markdown-example-id',
+        'data-mindmap',
+        'data-mindmap-mode',
+        'data-mindmap-index',
+        'data-mindmap-theme',
+        'data-mindmap-placeholder',
         'target',
         'loading',
         'decoding',
@@ -976,6 +1007,7 @@ function emptyEnvironment(): RenderEnvironment {
         taskNonce: nonce,
         tabSequence: 0,
         exampleSequence: 0,
+        mindmapSequence: 0,
         docId: `ink-${nonce}`,
     };
 }

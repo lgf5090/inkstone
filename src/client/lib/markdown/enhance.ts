@@ -4,6 +4,9 @@ import { decodeDataValue } from './data-attr';
 import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from './example-split';
 import { MAX_PANEL_COLUMNS, isTrackValue } from './panel-options';
 import { t, type MessageKey } from "../i18n";
+import { getLocale } from "../i18n";
+import { renderStaticMindmaps } from './mindmap/static';
+import { showMindmapSourceAll } from './mindmap/view';
 import { highlightWithPrism } from './prism';
 import {
     ChartBodyTooLargeError,
@@ -924,6 +927,14 @@ export interface EnhanceOptions {
     math: boolean;
     mermaid: boolean;
     chart: boolean;
+    /**
+     * How this surface treats ```mindmap blocks. `live` means the caller mounts a writable map itself
+     * from the committed markup, so this pass must leave the placeholder alone; `snapshot` draws a
+     * picture in its place, for a surface that cannot host an instance; `source` shows the fence body,
+     * for a surface that has no room for either. Required rather than optional because a caller that
+     * forgets it would silently leave a block sitting in its loading state forever.
+     */
+    mindmap: 'live' | 'snapshot' | 'source';
     dark: boolean;
     codeBlockCollapseLines?: number;
 }
@@ -942,11 +953,21 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     // for a picture.
     if (!options.chart)
         showChartSource(root);
+    // A block that is neither mounted live nor drawn here would keep saying "Rendering mind map…"
+    // forever, because nothing else on this surface ever touches it.
+    if (options.mindmap === 'source')
+        showMindmapSourceAll(root);
     if (!options.math)
         showMathSource(root);
     await Promise.allSettled([
         highlightCodeBlocks(root),
         options.math ? renderMath(root) : Promise.resolve(),
+        // The snapshot is drawn from an offscreen instance and exported, so it is the one mind map
+        // path that reaches the library from this pass. A surface that serializes the markup
+        // afterwards (an export) has to wait for it.
+        options.mindmap === 'snapshot'
+            ? renderStaticMindmaps(root, { dark: options.dark, locale: getLocale() })
+            : Promise.resolve(),
     ]);
     configureCodeBlockCollapsing(root, options.codeBlockCollapseLines ?? 24);
     applyExampleSplits(root);

@@ -21,6 +21,8 @@ declare module 'markdown-it-mark' {
 
 declare module 'katex/dist/katex.min.css'
 
+declare module 'mind-elixir/style.css'
+
 declare module 'prismjs/components/prism-core' {
   import Prism from 'prismjs'
   export default Prism
