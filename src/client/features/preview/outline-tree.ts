@@ -115,6 +115,18 @@ export function truncateHeading(text: string, max: number): string {
     return `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
+const ATX_OPEN = /^ {0,3}#{1,6}(?:[ \t]+|$)/;
+
+/**
+ * The inline markdown behind an ATX heading line, or `null` when the line is not one.
+ * Setext titles and a missing body both return `null`, so the row keeps the parsed plain text.
+ */
+export function rawHeadingLabel(line: string | undefined): string | null {
+    if (line === undefined || !ATX_OPEN.test(line)) return null;
+    const opened = line.replace(ATX_OPEN, '');
+    return opened.replace(/(?:[ \t]|^)#+[ \t]*$/, '').trim();
+}
+
 /** Parent chain of `index`, nearest ancestor first. Empty for a root row or a bad index. */
 export function ancestorIndices(tree: OutlineNode[], index: number): number[] {
     const chain: number[] = [];

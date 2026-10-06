@@ -1145,6 +1145,8 @@ export const ZH_CN_MESSAGES = {
     "settings.outline_tooltip_right": "大纲右侧",
     "settings.outline_truncate_length": "标题文字截断长度",
     "settings.outline_truncate_length_description": "设为 0 表示不截断，标题按需换行显示",
+    "settings.outline_markdown_labels": "大纲标题按 Markdown 渲染",
+    "settings.outline_markdown_labels_description": "按标题原文显示粗体、斜体与行内代码；链接和图片仍显示为纯文字。",
     "settings.outline_drag_edits": "允许拖动大纲行移动标题",
     "settings.outline_drag_edits_description": "会连同整节一起移动并重算层级，将修改笔记正文。",
     "settings.outline_keep_search": "切换笔记时保留标题筛选",

@@ -109,6 +109,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlineAutoExpand: 'off',
     outlineTooltipSide: 'left',
     outlineTruncateLength: 0,
+    outlineMarkdownLabels: false,
     outlineDragEdits: false,
     outlineKeepSearch: false,
     outlineLocateByCursor: false,
@@ -252,6 +253,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.outlineAutoExpand = enumValue(preview.outlineAutoExpand, OUTLINE_AUTO_EXPANDS, base.preview.outlineAutoExpand)
   base.preview.outlineTooltipSide = enumValue(preview.outlineTooltipSide, OUTLINE_TOOLTIP_SIDES, base.preview.outlineTooltipSide)
   base.preview.outlineTruncateLength = integerInRange(preview.outlineTruncateLength, 0, 120, base.preview.outlineTruncateLength)
+  base.preview.outlineMarkdownLabels = booleanValue(preview.outlineMarkdownLabels, base.preview.outlineMarkdownLabels)
   base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)

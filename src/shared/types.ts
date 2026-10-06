@@ -130,6 +130,7 @@ export interface PreviewSettings {
   outlineAutoExpand: OutlineAutoExpandName
   outlineTooltipSide: 'left' | 'right'
   outlineTruncateLength: number
+  outlineMarkdownLabels: boolean
   outlineDragEdits: boolean
   outlineKeepSearch: boolean
   outlineLocateByCursor: boolean

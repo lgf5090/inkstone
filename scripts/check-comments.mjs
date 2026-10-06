@@ -198,6 +198,10 @@ const allowed = new Map([
     "// Guards the blur that follows an Enter commit, which would otherwise rename twice.",
     "/** Off by default: dragging rewrites the note body. */",
     "// Reveals only the branch being read; sibling branches keep whatever state the reader left them in.",
+    "/** Renders each heading's own inline markdown, read back from its source line. */",
+    "/** The heading's own source line, so the label can be re-rendered as markdown. */",
+    "// Truncation cuts the markdown source before it is rendered, never the markup after.",
+    "// A math or embed-only heading sanitises down to bare tags; the plain label is the better row.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -439,6 +443,7 @@ const allowed = new Map([
     "/**\n * Flattens the outline to clipboard text. Tiers come from the rendered tree rather than the raw\n * `#` count, so a document that jumps H1 → H3 exports two levels, the same shape the reader sees.\n */",
     "/** Ellipsises heading text for the row; `max` of 0 means \"never shorten\", matching the setting. */",
     "/** Parent chain of `index`, nearest ancestor first. Empty for a root row or a bad index. */",
+    "/**\n * The inline markdown behind an ATX heading line, or `null` when the line is not one.\n * Setext titles and a missing body both return `null`, so the row keeps the parsed plain text.\n */",
   ]],
   ["src/client/features/preview/panel-source.ts", [
     "/**\n * The source edits behind a layout block's settings toolbar.\n *\n * A block keeps its whole configuration on one header line, so most edits are a rewrite of that line\n * with the content below left byte-identical. Changing the column count is the one edit that also has\n * to touch the body: the number of columns a note holds is the number of `::` separators it carries,\n * and a header that disagrees with its own body is a block the reader cannot fix by looking at it.\n */",
@@ -1281,6 +1286,7 @@ const allowed = new Map([
     "// from one level up.",
     "// The `::` spelling is the last reader, so a note that mixes it with `@tab` keeps the markers",
     "// the author wrote rather than gaining a panel for every line that merely begins with two colons.",
+    "/**\n * Renders one heading's inline markdown for the outline.\n *\n * The label sits inside a `<button>`, so links, images and every attribute are dropped rather than\n * nested: DOMPurify unwrites a forbidden tag and keeps its text, which is the reading the row wants.\n */",
   ]],
   ["src/client/lib/markdown/timeline-options.ts", [
     "/**\n * An unrecognised bracket group is left where it is, so `[2024] Annual report` keeps its year rather\n * than spending it on a status the author never wrote.\n */",

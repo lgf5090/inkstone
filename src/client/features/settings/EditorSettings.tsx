@@ -116,6 +116,10 @@ export function EditorSettings() {
           <Slider label={t("settings.outline_truncate_length")} className="w-[200px]" value={preview.outlineTruncateLength} min={0} max={120} step={5} onChange={(outlineTruncateLength) => void update({ preview: { outlineTruncateLength } })}/>
         </SettingRow>}
 
+        {preview.showToc && <SettingRow title={t("settings.outline_markdown_labels")} description={t("settings.outline_markdown_labels_description")}>
+          <Switch checked={preview.outlineMarkdownLabels} onChange={(outlineMarkdownLabels) => void update({ preview: { outlineMarkdownLabels } })} label={t("settings.outline_markdown_labels")}/>
+        </SettingRow>}
+
         {preview.showToc && <SettingRow title={t("settings.outline_drag_edits")} description={t("settings.outline_drag_edits_description")}>
           <Switch checked={preview.outlineDragEdits} onChange={(outlineDragEdits) => void update({ preview: { outlineDragEdits } })} label={t("settings.outline_drag_edits")}/>
         </SettingRow>}

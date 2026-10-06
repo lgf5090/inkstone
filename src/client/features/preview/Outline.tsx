@@ -18,6 +18,7 @@ import {
     type LucideProps,
 } from 'lucide-react';
 import type { Heading } from '../../lib/markdown/renderer';
+import { renderOutlineLabel } from '../../lib/markdown/renderer';
 import { cn } from '../../lib/cn';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import {
@@ -43,6 +44,7 @@ import {
     filterTree,
     parentSlugs,
     pruneCollapsed,
+    rawHeadingLabel,
     readingProgress,
     truncateHeading,
     type OutlineNode,
@@ -213,7 +215,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -232,6 +234,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     autoExpand?: 'off' | 'ancestors';
     tooltipSide?: 'left' | 'right';
     truncateLength?: number;
+    /** Renders each heading's own inline markdown, read back from its source line. */
+    markdownLabels?: boolean;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -457,13 +461,13 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </div>)}
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
-        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
+        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
     </nav>);
 }
 
-function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
+function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, markdownLabels, sourceLine, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
     node: OutlineNode;
     isLocated: boolean;
     isCollapsed: boolean;
@@ -471,6 +475,9 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
     onSelect: (heading: Heading) => void;
     tooltipSide: 'left' | 'right';
     truncateLength: number;
+    markdownLabels: boolean;
+    /** The heading's own source line, so the label can be re-rendered as markdown. */
+    sourceLine?: string;
     buildMenu: (node: OutlineNode) => MenuItem[];
     menuEnabled: boolean;
     canRename: boolean;
@@ -491,6 +498,15 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
     const HeadingIcon = getHeadingIcon(heading.level);
     const label = heading.text || t('preview.untitled');
     const shown = truncateHeading(label, truncateLength);
+    const markup = useMemo(() => {
+        if (!markdownLabels) return '';
+        const raw = rawHeadingLabel(sourceLine);
+        if (raw === null) return '';
+        // Truncation cuts the markdown source before it is rendered, never the markup after.
+        const rendered = renderOutlineLabel(truncateHeading(raw, truncateLength));
+        // A math or embed-only heading sanitises down to bare tags; the plain label is the better row.
+        return rendered.replace(/<[^>]*>/g, '').trim() ? rendered : '';
+    }, [markdownLabels, sourceLine, truncateLength]);
     const menu = useContextMenu();
     // Guards the blur that follows an Enter commit, which would otherwise rename twice.
     const committedRef = useRef(false);
@@ -546,7 +562,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
               {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}
               <HeadingIcon size={typography.iconSize} aria-hidden="true" className={cn('shrink-0 transition-opacity duration-[var(--dur-fast)]', typography.iconColor, !isLocated && 'group-hover:text-[var(--text-secondary)] group-hover:opacity-100')}/>
-              <span className="min-w-0 flex-1 truncate">{shown}</span>
+              {markup ? (<span className="min-w-0 flex-1 truncate" data-outline-markup="true" dangerouslySetInnerHTML={{ __html: markup }}/>) : (<span className="min-w-0 flex-1 truncate">{shown}</span>)}
             </button>
           </Tooltip>)}
       </div>

@@ -13,6 +13,7 @@ import {
     readingProgress,
     stringifyOutline,
     truncateHeading,
+    rawHeadingLabel,
     ancestorIndices,
 } from './outline-tree';
 
@@ -271,5 +272,41 @@ describe('ancestorIndices', () => {
         const tree = buildOutlineTree([heading(1, 'A'), heading(2, 'B')]);
         tree[0]!.parentIndex = 1;
         expect(ancestorIndices(tree, 1).length).toBeLessThanOrEqual(tree.length);
+    });
+});
+
+describe('rawHeadingLabel', () => {
+    it('drops the opening hashes and keeps the markdown intact', () => {
+        expect(rawHeadingLabel('## Using `npm run dev`')).toBe('Using `npm run dev`');
+    });
+
+    it('drops a closing hash sequence', () => {
+        expect(rawHeadingLabel('# Title ##  ')).toBe('Title');
+    });
+
+    it('keeps a trailing hash that is not a closing sequence', () => {
+        expect(rawHeadingLabel('# Issue #123#')).toBe('Issue #123#');
+    });
+
+    it('accepts up to three leading spaces', () => {
+        expect(rawHeadingLabel('   ### Deep')).toBe('Deep');
+    });
+
+    it('rejects an indented code line', () => {
+        expect(rawHeadingLabel('    # not a heading')).toBeNull();
+    });
+
+    it('rejects seven hashes and a missing line', () => {
+        expect(rawHeadingLabel('####### Seven')).toBeNull();
+        expect(rawHeadingLabel(undefined)).toBeNull();
+    });
+
+    it('returns nothing for an empty heading', () => {
+        expect(rawHeadingLabel('###')).toBe('');
+        expect(rawHeadingLabel('##   ')).toBe('');
+    });
+
+    it('leaves a setext source line to the caller', () => {
+        expect(rawHeadingLabel('Just a title')).toBeNull();
     });
 });

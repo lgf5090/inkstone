@@ -1144,6 +1144,8 @@ export const EN_US_MESSAGES = {
     "settings.outline_tooltip_right": "Right of the outline",
     "settings.outline_truncate_length": "Truncate heading text after",
     "settings.outline_truncate_length_description": "Set to 0 to let a heading wrap over as many lines as it needs",
+    "settings.outline_markdown_labels": "Render heading markdown in the outline",
+    "settings.outline_markdown_labels_description": "Applies the bold, italic and code styling written in the heading itself. Links and images stay plain text.",
     "settings.outline_drag_edits": "Drag outline rows to move headings",
     "settings.outline_drag_edits_description": "Moves the heading with its whole section and re-levels it. This edits the note body.",
     "settings.outline_keep_search": "Keep the heading filter between notes",

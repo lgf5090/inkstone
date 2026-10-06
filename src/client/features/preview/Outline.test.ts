@@ -672,3 +672,51 @@ describe('Outline reading preferences', () => {
         unmount();
     });
 });
+
+describe('Outline markdown labels', () => {
+    const MD_HEADINGS: Heading[] = [
+        { level: 1, text: 'Bold Ship', slug: 'ship', line: 0 },
+        { level: 2, text: 'Plain', slug: 'plain', line: 4 },
+    ];
+    const MD_BODY = '# **Bold** Ship\n\nbody\n\n## Plain\n';
+
+    function labelSpan(container: HTMLElement, slug: string): HTMLElement {
+        return container.querySelector<HTMLButtonElement>(`button[data-slug="${slug}"]`)!.querySelector('span:last-child')!;
+    }
+
+    it('renders the emphasis written in the heading line', () => {
+        const { container, unmount } = renderOutline(MD_HEADINGS, vi.fn(), { content: MD_BODY, markdownLabels: true });
+        expect(labelSpan(container, 'ship').getAttribute('data-outline-markup')).toBe('true');
+        expect(labelSpan(container, 'ship').innerHTML).toBe('<strong>Bold</strong> Ship');
+        unmount();
+    });
+
+    it('stays on the parsed plain text while the preference is off', () => {
+        const { container, unmount } = renderOutline(MD_HEADINGS, vi.fn(), { content: MD_BODY });
+        expect(container.querySelector('[data-outline-markup]')).toBeNull();
+        expect(labelSpan(container, 'ship').textContent).toBe('Bold Ship');
+        unmount();
+    });
+
+    it('falls back to plain text for a heading the source line cannot supply', () => {
+        const { container, unmount } = renderOutline(MD_HEADINGS, vi.fn(), { content: 'Just a title\n----------\n', markdownLabels: true });
+        expect(container.querySelector('[data-outline-markup]')).toBeNull();
+        expect(labelSpan(container, 'ship').textContent).toBe('Bold Ship');
+        unmount();
+    });
+
+    it('truncates the markdown source rather than the rendered markup', () => {
+        const { container, unmount } = renderOutline(MD_HEADINGS, vi.fn(), { content: MD_BODY, markdownLabels: true, truncateLength: 8 });
+        const span = labelSpan(container, 'ship');
+        expect(span.textContent).not.toContain('Ship');
+        expect(span.innerHTML).not.toContain('<strong>');
+        unmount();
+    });
+
+    it('keeps the untitled label when markdown renders away to nothing', () => {
+        const { container, unmount } = renderOutline([{ level: 1, text: '', slug: 'math', line: 0 }], vi.fn(), { content: '# $x^2$', markdownLabels: true });
+        expect(container.querySelector('[data-outline-markup]')).toBeNull();
+        expect(labelSpan(container, 'math').textContent).toBe('preview.untitled');
+        unmount();
+    });
+});

@@ -858,6 +858,24 @@ export interface MarkdownBlock {
     html: string;
 }
 
+const OUTLINE_LABEL_CONFIG = {
+    ALLOWED_TAGS: ['strong', 'b', 'em', 'i', 's', 'del', 'code', 'kbd', 'samp', 'mark', 'sub', 'sup', 'u', 'span'],
+    ALLOWED_ATTR: [] as string[],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+};
+
+/**
+ * Renders one heading's inline markdown for the outline.
+ *
+ * The label sits inside a `<button>`, so links, images and every attribute are dropped rather than
+ * nested: DOMPurify unwrites a forbidden tag and keeps its text, which is the reading the row wants.
+ */
+export function renderOutlineLabel(source: string): string {
+    const env = emptyEnvironment();
+    return DOMPurify.sanitize(md.renderInline(stripObsidianComments(source), env), OUTLINE_LABEL_CONFIG);
+}
+
 /** Parse once with the full document environment so reference links retain their targets. */
 export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[]; headings: Heading[] } {
     const env = emptyEnvironment();
