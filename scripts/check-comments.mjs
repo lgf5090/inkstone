@@ -917,6 +917,8 @@ const allowed = new Map([
     "/* The toolbar floats over the empty right hand end of the strip, which reserves the room for it. */",
     "/* A side strip has no room to stay beside the panels once the surface is that narrow. */",
     "/* Justify needs the line to be free to break anywhere; a long unbreakable run would stretch instead. */",
+    "/* `[data-tabs]` is here for weight, not selection: the edge-positioned rules below each carry an\n   extra attribute selector, and without it a block sitting on the bottom edge would keep its toolbar\n   pinned to the bottom of the box — on top of the settings panel's last row. */",
+    "/* 5px offset + a 30px-tall toolbar, plus air: anything less and the strip's first row starts under it. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

@@ -512,7 +512,10 @@
   top: auto;
   bottom: 5px;
 }
-.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap > .block-tools {
+/* `[data-tabs]` is here for weight, not selection: the edge-positioned rules below each carry an
+   extra attribute selector, and without it a block sitting on the bottom edge would keep its toolbar
+   pinned to the bottom of the box — on top of the settings panel's last row. */
+.ink-prose .markdown-tabs[data-tabs].is-settings-open > .markdown-tabs-header-wrap > .block-tools {
   top: 5px;
   bottom: auto;
   right: 6px;
@@ -531,7 +534,7 @@
   top: auto;
   bottom: calc(100% + 5px);
 }
-.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap > .block-popover {
+.ink-prose .markdown-tabs[data-tabs].is-settings-open > .markdown-tabs-header-wrap > .block-popover {
   top: calc(100% + 5px);
   bottom: auto;
 }
@@ -539,7 +542,8 @@
   color: var(--accent);
   background: var(--accent-soft);
 }
-.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap > .block-settings { padding-top: 32px; }
+/* 5px offset + a 30px-tall toolbar, plus air: anything less and the strip's first row starts under it. */
+.ink-prose .markdown-tabs.is-settings-open > .markdown-tabs-header-wrap > .block-settings { padding-top: 38px; }
 .ink-prose .block-opt-btn.is-danger { color: var(--danger); }
 .ink-prose .block-opt-btn.is-danger:hover {
   border-color: var(--danger);
