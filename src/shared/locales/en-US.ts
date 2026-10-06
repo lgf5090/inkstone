@@ -529,6 +529,7 @@ export const EN_US_MESSAGES = {
     "overlay.dialog": "Dialog",
     "overlay.menu": "Menu",
     "overlay.side_panel": "Side panel",
+    "overlay.submenu": "Submenu",
     "preview.chart_title": "Chart",
     "preview.chart_show_source": "Source",
     "preview.chart_format_table": "Table",

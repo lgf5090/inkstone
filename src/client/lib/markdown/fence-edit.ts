@@ -19,6 +19,12 @@ export interface FencePatch {
     info?: string
 }
 
+export interface SplitContent {
+    lines: string[]
+    eol: string
+    trailingNewline: boolean
+}
+
 interface FenceOpening {
     indent: string
     marker: string
@@ -32,7 +38,15 @@ interface FenceLocation {
     opening: FenceOpening
 }
 
-export function splitLines(content: string): { lines: string[], eol: string, trailingNewline: boolean } {
+/** The block's line span: the opening fence through its closing line. */
+export interface FenceRange {
+    /** 0-based line of the opening fence. */
+    start: number
+    /** 0-based line one past the block. */
+    end: number
+}
+
+export function splitLines(content: string): SplitContent {
     const eol = content.includes('\r\n') ? '\r\n' : '\n'
     const trailingNewline = /\r?\n$/.test(content)
     const lines = content.split(/\r?\n/)
@@ -145,6 +159,14 @@ function locateFence(lines: string[], target: FenceTarget, languages: readonly s
     return moved.length === 1 ? matchAt(moved[0]!) : null
 }
 
+export function fenceRange(content: string, target: FenceTarget, languages: readonly string[]): FenceRange | null {
+    const { lines } = splitLines(content)
+    const at = locateFence(lines, target, languages)
+    if (!at)
+        return null
+    return { start: at.line, end: at.closing === -1 ? lines.length : at.closing + 1 }
+}
+
 /**
  * The fence the renderer drew at `line`, read straight from the note: the opening line is a fence of
  * one of `languages` and the body runs to its closing line. Callers whose markup is known to match this
@@ -181,4 +203,14 @@ export function applyFencePatchAtSource(
         ? [...lines.slice(0, at.line), ...replaced]
         : [...lines.slice(0, at.line), ...replaced, ...lines.slice(at.closing + 1)]
     return joinLines(next, eol, trailingNewline)
+}
+
+/** The body-only case of {@link applyFencePatchAtSource}, for a block's own writes. */
+export function applyBodyAtFence(
+    content: string,
+    target: FenceTarget,
+    nextBody: string,
+    languages: readonly string[],
+): string | null {
+    return applyFencePatchAtSource(content, target, { body: nextBody }, languages)
 }

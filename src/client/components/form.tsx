@@ -16,7 +16,9 @@ import { Check } from 'lucide-react'
 import { cn } from '../lib/cn'
 import { Tooltip } from './overlay'
 
-const FIELD_BASE = cn(
+/** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing
+ * `Input`, because form already imports overlay and a component cycle would resolve at render. */
+export const FIELD_BASE = cn(
   'w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)]',
   'px-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)]',
   'transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

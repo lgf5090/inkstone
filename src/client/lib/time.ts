@@ -78,6 +78,29 @@ function dateTimeFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeForma
 }
 
 
+/** A day as reader-facing text: `Sep 3`, gaining the year when the date is not in this one. */
+export function formatDate(ts: number, now = new Date()): string {
+  if (!Number.isFinite(ts) || !ts) return ''
+  const date = new Date(ts)
+  if (Number.isNaN(date.getTime())) return ''
+  const parts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  if (date.getFullYear() !== now.getFullYear()) parts.year = 'numeric'
+  return dateTimeFormat(parts).format(date)
+}
+
+/**
+ * A stored day key as reader-facing text. Rich-media blocks persist `YYYY-MM-DD` because that is
+ * what round-trips into a note body, so every surface that prints one goes through here instead of
+ * showing the key.
+ */
+export function formatDateKey(key: string, now = new Date()): string {
+  if (!key) return ''
+  const date = parseDateKey(key)
+  if (Number.isNaN(date.getTime())) return key
+  return formatDate(date.getTime(), now) || key
+}
+
+
 export function shortTime(ts: number, now = Date.now()): string {
   if (!Number.isFinite(ts) || !ts) return ''
   const date = new Date(ts)

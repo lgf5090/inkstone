@@ -530,6 +530,7 @@ export const ZH_CN_MESSAGES = {
     "overlay.dialog": "对话框",
     "overlay.menu": "菜单",
     "overlay.side_panel": "侧边面板",
+    "overlay.submenu": "子菜单",
     "preview.chart_title": "图表",
     "preview.chart_show_source": "源代码",
     "preview.chart_format_table": "表格",
