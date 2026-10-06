@@ -166,6 +166,7 @@ const ACTIONS: Record<string, CodeAction> = {
     onEdit(next)
     toast({
       title: t('preview.code_format_done'),
+      tone: 'success',
       duration: 5000,
       action: { label: t('common.undo'), run: () => onEdit(content) },
     })

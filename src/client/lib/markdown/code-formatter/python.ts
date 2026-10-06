@@ -114,7 +114,8 @@ function formatWithExistingIndent(rawLines: string[], base: number, indent: stri
       result.push(rawLine);
       continue;
     }
-    const level = Math.max(1, Math.round(rawLine.search(/\S/) / base));
+    const origin = rawLine.search(/\S/);
+    const level = origin > 0 ? Math.max(1, Math.round(origin / base)) : 0;
     result.push(`${indent.repeat(level)}${formatLineContent(rawLine.trim())}`);
   }
 

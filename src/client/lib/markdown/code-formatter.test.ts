@@ -225,6 +225,11 @@ describe('formatCode - tsx and systems code', () => {
 });
 
 describe('formatCode - python and shell scripts', () => {
+  it('keeps a top-level line at column zero when a later line is indented', () => {
+    const code = 'def f(a,b):\n  return a+b';
+    expect(formatCode(code, 'python')).toBe('def f(a, b):\n  return a+b');
+  });
+
   it('formats Python code with indentation and operator spacing', () => {
     const code = 'def calculate(a,b):\nif a>b:\nreturn a\nelse:\nreturn b';
     expect(formatCode(code, 'python')).toBe('def calculate(a, b):\n  if a > b:\n    return a\n  else:\n    return b');
