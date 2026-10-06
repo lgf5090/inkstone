@@ -47,12 +47,14 @@ export function toggleBlockOverlay(spec: BlockOverlaySpec, block: HTMLElement, o
 export function dismissBlockOverlays(spec: BlockOverlaySpec, target: HTMLElement): void {
   const scope = target.closest<HTMLElement>('.ink-prose')
   if (!scope) return
-  const panelSelectors = Object.values(spec.panels).join(',')
+  const own = [...Object.values(spec.panels), ...Object.values(spec.triggers)].join(',')
   scope.querySelectorAll<HTMLElement>(spec.block).forEach((block) => {
     if (!openBlockOverlay(spec, block)) return
-    const inside = target.closest(spec.block) === block
-      && Boolean(panelSelectors) && Boolean(target.closest(panelSelectors))
-    if (!inside) setBlockOverlay(spec, block, null)
+    // A press on the block's own trigger is left for `handle` to act on: closing it here would let the
+    // toggle find the overlay shut and open it again, so the button that ought to shut a panel would
+    // appear to do nothing at all.
+    const leftToHandle = target.closest(spec.block) === block && Boolean(own) && Boolean(target.closest(own))
+    if (!leftToHandle) setBlockOverlay(spec, block, null)
   })
 }
 
@@ -87,8 +89,17 @@ export function blockActionSource(ctx: BlockActionContext): { noteId: string; so
   return { noteId, source: ctx.committedSourceRef.current }
 }
 
+/**
+ * The account settings that change what a block's toolbar is allowed to offer. A module reads them from
+ * here instead of from a caller that knows them, because the preview hands every family the same pass
+ * and only the surface holding the note knows which blocks are actually drawn.
+ */
+export interface BlockToolbarOptions {
+  chart: boolean
+}
+
 export interface BlockToolbarModule {
-  enhance: (root: HTMLElement) => void
+  enhance: (root: HTMLElement, options: BlockToolbarOptions) => void
   dismiss: (target: HTMLElement) => void
   close: (target: HTMLElement) => HTMLButtonElement | null
   handle: (event: { preventDefault: () => void }, target: HTMLElement, ctx: BlockActionContext) => boolean

@@ -1,8 +1,9 @@
 /**
- * The toolbar a rendered chart carries: the format its body is written in, the source behind the
- * picture, and an image export. The format control is the only block tool in the preview that writes to
- * the note, so the write lives here rather than in the drawing layer — and it refuses rather than
- * approximates, because a rewrite that quietly changed what a chart means is worse than no rewrite.
+ * The toolbar a rendered chart carries, as one block family in the preview's toolbar registry: the
+ * format its body is written in, the source behind the picture, and an image export. The format control
+ * is the one press that writes to the note, so that write lives here rather than in the drawing layer —
+ * and it refuses rather than approximates, because a rewrite that quietly changed what a chart means is
+ * worse than no rewrite.
  */
 import { decodeDataValue } from '../../lib/markdown/data-attr';
 import {
@@ -16,15 +17,28 @@ import {
 } from '../../lib/markdown/chart';
 import { downloadBlob } from '../../lib/export-note';
 import { t, type MessageKey } from '../../lib/i18n';
+import {
+    blockActionSource,
+    closeBlockOverlayFromEvent,
+    dismissBlockOverlays,
+    openBlockOverlay,
+    setBlockOverlay,
+    toggleBlockOverlay,
+    type BlockActionContext,
+    type BlockOverlaySpec,
+    type BlockToast,
+    type BlockToolbarModule,
+    type BlockToolbarOptions,
+} from './block-overlay';
 
-export interface ChartBlockActionApi {
-    /** The note's current text, which the block's recorded line is resolved against. */
-    content: string
-    /** False while the preview and the note disagree, which is when a write would clobber a keystroke. */
-    canWrite: boolean
-    onEdit: (next: string) => void
-    toast: (message: { title: string, tone?: 'success' | 'warning' | 'danger' }) => void
-}
+const WRAPPER = '.chart-block-wrap';
+
+const OVERLAY_SPEC: BlockOverlaySpec = {
+    block: WRAPPER,
+    panels: { source: '[data-chart-source]' },
+    triggers: { source: '[data-chart-action="toggle-source"]' },
+    openClasses: { source: 'is-block-source-open' },
+};
 
 /** Why a body will not write the other way, in the words the author needs to act on. */
 const CONVERT_MESSAGES: Record<ChartConvertFailure, MessageKey> = {
@@ -55,7 +69,7 @@ const ICONS = {
     export: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
 };
 
-function toolButton(action: string, label: string, content: string, pressed?: boolean, variant = ''): HTMLButtonElement {
+function toolButton(action: string, label: string, content: string, expanded?: boolean, variant = ''): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `chart-tool-btn${variant}`;
@@ -64,8 +78,8 @@ function toolButton(action: string, label: string, content: string, pressed?: bo
     button.setAttribute('aria-label', label);
     // A toggle has to state the position it is in *before* it is first pressed, or a screen reader
     // announces a control whose state nobody can hear.
-    if (pressed !== undefined)
-        button.setAttribute('aria-pressed', String(pressed));
+    if (expanded !== undefined)
+        button.setAttribute('aria-expanded', String(expanded));
     if (variant === '--text')
         button.textContent = content;
     else
@@ -122,39 +136,21 @@ function buildSourcePanel(block: HTMLElement): HTMLElement {
  * Wraps every chart block under a root in its head and source panel. Runs on the staged copy, so the
  * head is part of the markup the preview diffs against and a re-render cannot lose it.
  *
- * `drawn` is false when the account has charts switched off: the block is showing its own body, so it
+ * `chart` is false when the account has charts switched off: the block is showing its own body, so it
  * gets the format toggle only.
  */
-export function enhanceChartBlockToolbars(root: HTMLElement, { drawn = true }: { drawn?: boolean } = {}): void {
+export function enhanceChartBlockToolbars(root: HTMLElement, { chart }: BlockToolbarOptions): void {
     root.querySelectorAll<HTMLElement>('[data-chart]').forEach((block) => {
         if (block.closest('.note-embed-body') || block.parentElement?.classList.contains('chart-block-wrap'))
             return;
         const wrapper = document.createElement('div');
         wrapper.className = 'chart-block-wrap';
         block.replaceWith(wrapper);
-        wrapper.append(buildHead(block, drawn));
-        if (drawn)
+        wrapper.append(buildHead(block, chart));
+        if (chart)
             wrapper.append(buildSourcePanel(block));
         wrapper.append(block);
     });
-}
-
-function sourcePanelOf(block: HTMLElement): HTMLElement | null {
-    return block.parentElement?.querySelector<HTMLElement>('[data-chart-source]') ?? null;
-}
-
-function triggerOf(block: HTMLElement, action: string): HTMLElement | null {
-    return block.parentElement?.querySelector<HTMLElement>(`[data-chart-action="${action}"]`) ?? null;
-}
-
-export function toggleChartSource(block: HTMLElement): void {
-    const panel = sourcePanelOf(block);
-    const trigger = triggerOf(block, 'toggle-source');
-    if (!panel || !trigger)
-        return;
-    const open = panel.hasAttribute('hidden');
-    panel.toggleAttribute('hidden', !open);
-    trigger.setAttribute('aria-pressed', String(open));
 }
 
 /**
@@ -163,32 +159,27 @@ export function toggleChartSource(block: HTMLElement): void {
  */
 export function chartSourceStates(root: HTMLElement | null): Map<string, boolean> {
     const states = new Map<string, boolean>();
-    root?.querySelectorAll<HTMLElement>('.chart-block-wrap').forEach((wrapper, index) => {
-        const panel = wrapper.querySelector<HTMLElement>('[data-chart-source]');
-        if (!panel)
+    root?.querySelectorAll<HTMLElement>(WRAPPER).forEach((wrapper, index) => {
+        if (!wrapper.querySelector('[data-chart-source]'))
             return;
         const key = wrapper.querySelector<HTMLElement>('[data-chart]')?.dataset.line ?? String(index);
-        states.set(key, !panel.hasAttribute('hidden'));
+        states.set(key, openBlockOverlay(OVERLAY_SPEC, wrapper) === 'source');
     });
     return states;
 }
 
 export function applyChartSourceStates(root: HTMLElement, states: Map<string, boolean>): void {
-    root.querySelectorAll<HTMLElement>('.chart-block-wrap').forEach((wrapper, index) => {
-        const block = wrapper.querySelector<HTMLElement>('[data-chart]');
+    root.querySelectorAll<HTMLElement>(WRAPPER).forEach((wrapper, index) => {
         const panel = wrapper.querySelector<HTMLElement>('[data-chart-source]');
-        const trigger = wrapper.querySelector<HTMLElement>('[data-chart-action="toggle-source"]');
-        if (!block || !panel || !trigger)
+        const line = wrapper.querySelector<HTMLElement>('[data-chart]')?.dataset.line ?? String(index);
+        const open = states.get(line);
+        if (open === undefined || !panel)
             return;
-        const open = states.get(block.dataset.line ?? String(index));
-        if (open === undefined || open === !panel.hasAttribute('hidden'))
-            return;
-        panel.toggleAttribute('hidden', !open);
-        trigger.setAttribute('aria-pressed', String(open));
+        setBlockOverlay(OVERLAY_SPEC, wrapper, open ? 'source' : null);
     });
 }
 
-function exportPng(block: HTMLElement, toast: ChartBlockActionApi['toast']): void {
+function exportPng(block: HTMLElement, toast: BlockToast): void {
     const canvas = block.querySelector<HTMLCanvasElement>('canvas');
     if (!canvas) {
         toast({ title: t("preview.chart_export_empty"), tone: 'warning' });
@@ -203,7 +194,7 @@ function exportPng(block: HTMLElement, toast: ChartBlockActionApi['toast']): voi
     }, 'image/png');
 }
 
-function declined(toast: ChartBlockActionApi['toast'], messageKey: MessageKey, params?: Record<string, string | number>): boolean {
+function declined(toast: BlockToast, messageKey: MessageKey, params?: Record<string, string | number>): boolean {
     toast({ title: params === undefined ? t(messageKey) : t(messageKey, params), tone: 'warning' });
     return true;
 }
@@ -218,49 +209,68 @@ function lineOf(block: HTMLElement): number {
  * that is what the fence is looked up by: when the note no longer holds it, nothing is written, in either
  * direction of the mistake.
  */
-export function convertChartFence(line: number, api: ChartBlockActionApi): boolean {
+export function convertChartFence(
+    line: number,
+    source: string,
+    onEdit: (next: string) => void,
+    toast: BlockToast,
+): boolean {
     if (!Number.isInteger(line) || line < 0)
-        return declined(api.toast, 'preview.chart_edit_unavailable');
-    if (!api.canWrite)
-        return declined(api.toast, 'preview.the_preview_is_updating_try_again_in_a_moment');
-    const fence = chartFenceAt(api.content, line);
+        return declined(toast, 'preview.chart_edit_unavailable');
+    const fence = chartFenceAt(source, line);
     if (!fence)
-        return declined(api.toast, 'preview.chart_block_moved');
+        return declined(toast, 'preview.chart_block_moved');
     const target = otherStyle(detectChartMode(fence.body));
     const converted = convertChartBody(fence.body);
     if (!converted.ok) {
         // The size refusal names the ceiling it hit, because the author's next question is what to cut.
         if (converted.reason === 'too-large')
-            return declined(api.toast, CONVERT_MESSAGES[converted.reason], { limit: CHART_BODY_LIMIT_BYTES / 1024 });
-        return declined(api.toast, CONVERT_MESSAGES[converted.reason]);
+            return declined(toast, CONVERT_MESSAGES[converted.reason], { limit: CHART_BODY_LIMIT_BYTES / 1024 });
+        return declined(toast, CONVERT_MESSAGES[converted.reason]);
     }
-    const next = applyChartFencePatch(api.content, fence, { body: converted.body, style: target });
+    const next = applyChartFencePatch(source, fence, { body: converted.body, style: target });
     if (next === null)
-        return declined(api.toast, 'preview.chart_block_moved');
-    api.onEdit(next);
+        return declined(toast, 'preview.chart_block_moved');
+    onEdit(next);
     // A rewrite that leaves styling behind has changed what the block looks like, even though nothing
     // about the data moved and the accent now paints the series. Say it, rather than let the author find out.
     if (converted.dropped > 0)
-        api.toast({ title: t("markdown.chart_convert_styled_dropped", { count: converted.dropped }), tone: 'warning' });
+        toast({ title: t("markdown.chart_convert_styled_dropped", { count: converted.dropped }), tone: 'warning' });
     return true;
 }
 
-/** Returns false when the click belonged to no chart tool, so the caller can keep walking its branches. */
-export function handleChartBlockAction(target: HTMLElement, api: ChartBlockActionApi): boolean {
-    const button = target.closest<HTMLElement>('[data-chart-action]');
-    if (!button)
-        return false;
-    const block = button.closest<HTMLElement>('.chart-block-wrap')?.querySelector<HTMLElement>('[data-chart]');
-    if (!block)
+/**
+ * One press of a chart's own tools. Only the format toggle reaches the note, so only it waits for the
+ * preview to settle: a reader who is mid-keystroke can still want the body in front of them, or a picture
+ * of the chart that is already on the screen.
+ */
+export function executeChartBlockAction(button: HTMLElement, ctx: BlockActionContext): boolean {
+    const wrapper = button.closest<HTMLElement>(WRAPPER);
+    const block = wrapper?.querySelector<HTMLElement>('[data-chart]');
+    if (!wrapper || !block)
         return true;
     const action = button.dataset.chartAction;
     if (action === 'toggle-source')
-        toggleChartSource(block);
+        toggleBlockOverlay(OVERLAY_SPEC, wrapper, 'source');
     else if (action === 'export-image')
-        exportPng(block, api.toast);
-    else if (action === 'convert-format')
-        convertChartFence(lineOf(block), api);
-    else
-        return true;
+        exportPng(block, ctx.api.toast);
+    else if (action === 'convert-format') {
+        const editable = blockActionSource(ctx);
+        if (editable)
+            convertChartFence(lineOf(block), editable.source, (next) => ctx.api.editContent(editable.noteId, next), ctx.api.toast);
+    }
     return true;
 }
+
+export const chartToolbar: BlockToolbarModule = {
+    enhance: enhanceChartBlockToolbars,
+    dismiss: (target) => dismissBlockOverlays(OVERLAY_SPEC, target),
+    close: (target) => closeBlockOverlayFromEvent(OVERLAY_SPEC, target),
+    handle: (event, target, ctx) => {
+        const button = target.closest<HTMLElement>('[data-chart-action]');
+        if (!button)
+            return false;
+        event.preventDefault();
+        return executeChartBlockAction(button, ctx);
+    },
+};

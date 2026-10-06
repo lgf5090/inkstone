@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { enhanceChartBlockToolbars, handleChartBlockAction } from './chart-block-toolbar';
+import {
+    applyChartSourceStates,
+    chartSourceStates,
+    chartToolbar,
+    enhanceChartBlockToolbars,
+} from './chart-block-toolbar';
+import type { BlockActionContext } from './block-overlay';
+
+const press = (button: HTMLElement, ctx: BlockActionContext) => chartToolbar.handle({ preventDefault: () => {} }, button, ctx);
 import { renderMarkdown } from '../../lib/markdown/renderer';
 import { patchChildren } from './Preview';
 import { encodeDataValue } from '../../lib/markdown/data-attr';
@@ -15,15 +23,26 @@ function noteWith(body: string, info = 'chart'): string {
 function blockIn(note: string): { host: HTMLElement, block: HTMLElement } {
     const host = document.createElement('div');
     host.innerHTML = renderMarkdown(note).html;
-    enhanceChartBlockToolbars(host);
+    enhanceChartBlockToolbars(host, { chart: true });
     const block = host.querySelector<HTMLElement>('[data-chart]')!;
     return { host, block };
 }
 
-function api(note: string, canWrite = true) {
+function api(note: string, writable = true) {
     const onEdit = vi.fn();
     const toast = vi.fn();
-    return { onEdit, toast, api: { content: note, canWrite, onEdit, toast } };
+    return {
+        onEdit,
+        toast,
+        api: {
+            // The preview resolves a block's line against the text it was built from, so the two are the
+            // same note until a keystroke lands that the rendered surface has not caught up with.
+            content: writable ? note : `${note}\n# typed while the preview was behind\n`,
+            sourceNoteId: 'n1',
+            committedSourceRef: { current: note },
+            api: { editContent: (_noteId: string, next: string) => onEdit(next), toast },
+        } satisfies BlockActionContext,
+    };
 }
 
 function convertButton(block: HTMLElement): HTMLElement {
@@ -46,7 +65,7 @@ describe('the head a chart block is given', () => {
 
     it('wraps the block once, and keeps the block itself addressable', () => {
         const { host, block } = blockIn(noteWith(CONFIG_BODY));
-        enhanceChartBlockToolbars(host);
+        enhanceChartBlockToolbars(host, { chart: true });
         expect(host.querySelectorAll('.chart-block-wrap')).toHaveLength(1);
         expect(block.parentElement).toBe(host.querySelector('.chart-block-wrap'));
         expect(block.parentElement!.previousElementSibling).toBeNull();
@@ -55,7 +74,7 @@ describe('the head a chart block is given', () => {
     it('leaves a chart inside an embedded note alone', () => {
         const host = document.createElement('div');
         host.innerHTML = `<div class="note-embed-body">${renderMarkdown(noteWith(CONFIG_BODY)).html}</div>`;
-        enhanceChartBlockToolbars(host);
+        enhanceChartBlockToolbars(host, { chart: true });
         expect(host.querySelectorAll('.chart-block-wrap')).toHaveLength(0);
     });
 });
@@ -65,15 +84,19 @@ describe('the source panel', () => {
         const { host } = blockIn(noteWith(TABLE_BODY, 'chart style=table'));
         const button = host.querySelector<HTMLElement>('[data-chart-action="toggle-source"]')!;
         const panel = host.querySelector<HTMLElement>('[data-chart-source]')!;
+        const wrap = host.querySelector<HTMLElement>('.chart-block-wrap')!;
         expect(panel.hasAttribute('hidden')).toBe(true);
-        expect(button.getAttribute('aria-pressed')).toBe('false');
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(wrap.classList.contains('is-block-source-open')).toBe(false);
         expect(panel.textContent).toBe(`${TABLE_BODY}\n`);
-        handleChartBlockAction(button, api('').api);
+        press(button, api('').api);
         expect(panel.hasAttribute('hidden')).toBe(false);
-        expect(button.getAttribute('aria-pressed')).toBe('true');
-        handleChartBlockAction(button, api('').api);
+        expect(button.getAttribute('aria-expanded')).toBe('true');
+        expect(wrap.classList.contains('is-block-source-open')).toBe(true);
+        press(button, api('').api);
         expect(panel.hasAttribute('hidden')).toBe(true);
-        expect(button.getAttribute('aria-pressed')).toBe('false');
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(wrap.classList.contains('is-block-source-open')).toBe(false);
     });
 });
 
@@ -82,7 +105,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(TABLE_BODY, 'chart style=table');
         const { block } = blockIn(note);
         const { api: a, onEdit, toast } = api(note);
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(toast).not.toHaveBeenCalled();
         expect(onEdit).toHaveBeenCalledTimes(1);
         const next = onEdit.mock.calls[0][0] as string;
@@ -99,7 +122,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(CONFIG_BODY);
         const { block } = blockIn(note);
         const { api: a, onEdit } = api(note);
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(onEdit).toHaveBeenCalledTimes(1);
         const next = onEdit.mock.calls[0][0] as string;
         // The keyword cell re-serializes its configuration, so the compact spelling is what a toggle writes.
@@ -111,7 +134,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(styled);
         const { block } = blockIn(note);
         const { api: a, onEdit, toast } = api(note);
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(onEdit).toHaveBeenCalledTimes(1);
         expect(toast).toHaveBeenCalledTimes(1);
         expect(toast.mock.calls[0][0]).toMatchObject({ tone: 'warning' });
@@ -123,7 +146,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(twoAxes);
         const { block } = blockIn(note);
         const { api: a, onEdit, toast } = api(note);
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(onEdit).not.toHaveBeenCalled();
         expect(toast.mock.calls[0][0].title).toBe(t('markdown.chart_convert_series_layout'));
     });
@@ -132,7 +155,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(TABLE_BODY, 'chart style=table');
         const { block } = blockIn(note);
         const { api: a, onEdit, toast } = api(note, false);
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(onEdit).not.toHaveBeenCalled();
         expect(toast.mock.calls[0][0].title).toBe(t('preview.the_preview_is_updating_try_again_in_a_moment'));
     });
@@ -141,7 +164,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(TABLE_BODY, 'chart style=table');
         const { block } = blockIn(note);
         const { api: a, onEdit, toast } = api('```js\nconst replaced = 1\n```\n');
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(onEdit).not.toHaveBeenCalled();
         expect(toast.mock.calls[0][0].title).toBe(t('preview.chart_block_moved'));
     });
@@ -150,7 +173,7 @@ describe('writing the note back from the toolbar', () => {
         const note = noteWith(TABLE_BODY, 'chart style=table');
         const { block } = blockIn(note);
         const { api: a, onEdit, toast } = api(`intro\n\n${note}`);
-        handleChartBlockAction(convertButton(block), a);
+        press(convertButton(block), a);
         expect(onEdit).not.toHaveBeenCalled();
         expect(toast.mock.calls[0][0].title).toBe(t('preview.chart_block_moved'));
     });
@@ -160,7 +183,7 @@ describe('exporting a chart as an image', () => {
     it('warns rather than downloading a picture that was never drawn', () => {
         const { block } = blockIn(noteWith(CONFIG_BODY));
         const { api: a, toast } = api('');
-        handleChartBlockAction(block.parentElement!.querySelector('[data-chart-action="export-image"]') as HTMLElement, a);
+        press(block.parentElement!.querySelector('[data-chart-action="export-image"]') as HTMLElement, a);
         expect(toast.mock.calls[0][0].title).toBe(t('preview.chart_export_empty'));
     });
 
@@ -173,7 +196,7 @@ describe('exporting a chart as an image', () => {
         const createObjectURL = vi.fn(() => 'blob:stub');
         const revokeObjectURL = vi.fn();
         vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
-        handleChartBlockAction(host.querySelector('[data-chart-action="export-image"]') as HTMLElement, api('').api);
+        press(host.querySelector('[data-chart-action="export-image"]') as HTMLElement, api('').api);
         expect(toBlob).toHaveBeenCalledOnce();
         expect(createObjectURL).toHaveBeenCalledOnce();
         vi.unstubAllGlobals();
@@ -185,7 +208,7 @@ describe('exporting a chart as an image', () => {
         canvas.toBlob = (cb: (blob: Blob | null) => void) => cb(null);
         block.append(canvas);
         const { api: a, toast } = api('');
-        handleChartBlockAction(block.parentElement!.querySelector('[data-chart-action="export-image"]') as HTMLElement, a);
+        press(block.parentElement!.querySelector('[data-chart-action="export-image"]') as HTMLElement, a);
         expect(toast.mock.calls[0][0].title).toBe(t('preview.chart_export_failed'));
     });
 });
@@ -193,7 +216,7 @@ describe('exporting a chart as an image', () => {
 describe('the block an unrelated click belongs to', () => {
     it('answers false so the preview can keep walking its own branches', () => {
         const { host } = blockIn(noteWith(CONFIG_BODY));
-        expect(handleChartBlockAction(host.querySelector('.chart-block-title')!, api('').api)).toBe(false);
+        expect(press(host.querySelector('.chart-block-title')!, api('').api)).toBe(false);
     });
 
     it('ignores a tool whose block is no longer in the wrapper', () => {
@@ -201,7 +224,7 @@ describe('the block an unrelated click belongs to', () => {
         const button = host.querySelector<HTMLElement>('[data-chart-action="toggle-source"]')!;
         block.remove();
         const { onEdit, toast } = api('');
-        expect(handleChartBlockAction(button, { content: '', canWrite: true, onEdit, toast })).toBe(true);
+        expect(press(button, api('').api)).toBe(true);
         expect(onEdit).not.toHaveBeenCalled();
         expect(toast).not.toHaveBeenCalled();
     });
@@ -211,7 +234,7 @@ describe('a body that arrived through the markup rather than a fence', () => {
     it('reads the format off the encoded body even when the note states none', () => {
         const host = document.createElement('div');
         host.innerHTML = `<div class="chart-block" data-line="0" data-chart="${encodeDataValue(TABLE_BODY)}"></div>`;
-        enhanceChartBlockToolbars(host);
+        enhanceChartBlockToolbars(host, { chart: true });
         const button = host.querySelector<HTMLElement>('[data-chart-action="convert-format"]')!;
         expect(button.textContent).toBe(t('preview.chart_format_json'));
     });
@@ -223,7 +246,7 @@ describe('the live chart subtree across a preview re-render', () => {
     function staged(note: string): HTMLElement {
         const host = document.createElement('div');
         host.innerHTML = renderMarkdown(note).html;
-        enhanceChartBlockToolbars(host);
+        enhanceChartBlockToolbars(host, { chart: true });
         return host;
     }
 
@@ -285,6 +308,33 @@ describe('the live chart subtree across a preview re-render', () => {
     // The note text is identical whether the renderer switch is on or off, so the class is the only thing
     // that says the block must stop being a canvas. Preserving the drawn subtree here left an off switch
     // with the chart still on screen — which no unit test of the switch itself could see.
+    // The panel a reader opened lives on the live host, while the markup the next swap diffs against is
+    // built fresh and shut. Restoring the state onto the staged copy is what keeps all three of the class,
+    // the attribute and the aria state in step — a copy that agreed on the body but not on the open panel
+    // would snap it shut under the reader.
+    it('keeps an open source panel open across the swap', () => {
+        const note = `${FENCE}chart style=table\n${TABLE_BODY}\n${FENCE}\n`;
+        const live = drawn(note);
+        const toggle = live.querySelector<HTMLElement>('[data-chart-action="toggle-source"]')!;
+        press(toggle, api(note).api);
+        expect(live.querySelector('.chart-block-wrap')!.classList.contains('is-block-source-open')).toBe(true);
+        const staging = staged(note);
+        applyChartSourceStates(staging, chartSourceStates(live));
+        patchChildren(live, staging);
+        expect(live.querySelector('.chart-block-wrap')!.classList.contains('is-block-source-open')).toBe(true);
+        expect(live.querySelector('[data-chart-source]')!.hasAttribute('hidden')).toBe(false);
+        expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('leaves a panel shut when the state map says it was shut', () => {
+        const note = `${FENCE}chart style=table\n${TABLE_BODY}\n${FENCE}\n`;
+        const live = drawn(note);
+        const staging = staged(note);
+        applyChartSourceStates(staging, chartSourceStates(live));
+        expect(staging.querySelector('.chart-block-wrap')!.classList.contains('is-block-source-open')).toBe(false);
+        expect(staging.querySelector('[data-chart-source]')!.hasAttribute('hidden')).toBe(true);
+    });
+
     it('replaces a drawn chart with the source view when the renderer switch goes off', () => {
         const note = `${FENCE}chart style=table\n${TABLE_BODY}\n${FENCE}\n`;
         const live = drawn(note);
@@ -304,7 +354,7 @@ describe('the head a chart block is given when charts are switched off', () => {
     function offHead(note: string): HTMLElement {
         const host = document.createElement('div');
         host.innerHTML = renderMarkdown(note).html;
-        enhanceChartBlockToolbars(host, { drawn: false });
+        enhanceChartBlockToolbars(host, { chart: false });
         return host;
     }
 
@@ -324,7 +374,7 @@ describe('the head a chart block is given when charts are switched off', () => {
         const note = `${'`'.repeat(3)}chart style=table\n${TABLE_BODY}\n${'`'.repeat(3)}\n`;
         const host = offHead(note);
         const { api: a, onEdit, toast } = api(note);
-        handleChartBlockAction(host.querySelector('[data-chart-action="convert-format"]') as HTMLElement, a);
+        press(host.querySelector('[data-chart-action="convert-format"]') as HTMLElement, a);
         expect(toast).not.toHaveBeenCalled();
         expect(onEdit.mock.calls[0][0] as string).toContain('```chart style=json');
     });
@@ -332,7 +382,7 @@ describe('the head a chart block is given when charts are switched off', () => {
     it('brings all three tools back when it is drawn', () => {
         const host = document.createElement('div');
         host.innerHTML = renderMarkdown(`${'`'.repeat(3)}chart\n${CONFIG_BODY}\n${'`'.repeat(3)}\n`).html;
-        enhanceChartBlockToolbars(host, { drawn: true });
+        enhanceChartBlockToolbars(host, { chart: true });
         expect([...host.querySelectorAll('[data-chart-action]')]).toHaveLength(3);
         expect(host.querySelector('[data-chart-source]')).not.toBeNull();
     });
