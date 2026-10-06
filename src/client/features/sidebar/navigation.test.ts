@@ -490,7 +490,7 @@ describe('built-in logical folders', () => {
     it('renders calendar, todo and inbox above the real folders', async () => {
         saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true });
         await act(() => root.render(createElement(Sidebar)));
-        expect(treeRows().slice(0, 3)).toEqual([t('sidebar.calendar_folder'), t('sidebar.todo_folder'), t('sidebar.inbox_folder')]);
+        expect(treeRows().slice(0, 3)).toEqual([t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]);
         expect(treeRows()).toContain(folder.name);
     });
 
@@ -498,7 +498,7 @@ describe('built-in logical folders', () => {
         saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true });
         const scope = await openHeaderMenu();
         const labels = [...scope.querySelectorAll<HTMLButtonElement>('button')].map((element) => element.textContent?.replace(/✓$/,'').trim());
-        expect(labels.slice(-3)).toEqual([t('sidebar.calendar_folder'), t('sidebar.todo_folder'), t('sidebar.inbox_folder')]);
+        expect(labels.slice(-3)).toEqual([t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]);
         await click(byLabel(scope, t('sidebar.calendar_folder')));
         expect(loadCalendarPrefs().calendarVisible).toBe(false);
         await act(() => root.render(createElement(Sidebar)));
@@ -645,5 +645,44 @@ describe('virtual branch expand from a collapsed root', () => {
         await act(() => new Promise((resolve) => setTimeout(resolve, 400)));
         expect(rowLabels()).toEqual([t('sidebar.calendar_folder')]);
         expect(useUi.getState().expandedFolders).not.toContain('cal');
+    });
+});
+
+describe('built-in row labels', () => {
+    it('substitutes the todo tag into the hint and keeps every built-in key translated', () => {
+        const hint = t('sidebar.todo_hint_value0', { value0: 'Chores' });
+        expect(hint).toContain('Chores');
+        expect(hint).not.toContain('{value0}');
+        for (const key of ['sidebar.todo_folder', 'sidebar.calendar_folder', 'sidebar.inbox_folder', 'sidebar.calendar_hint', 'sidebar.expand_branch', 'sidebar.collapse_branch', 'sidebar.open_in_list', 'sidebar.show_empty_periods', 'sidebar.hide_empty_periods', 'sidebar.todo_default_tag', 'settings.todo_tag', 'settings.todo_tag_hint'] as const) {
+            const text = t(key);
+            expect(text, key).not.toBe(key);
+            expect(text, key).not.toContain('{value0}');
+        }
+    });
+});
+
+describe('built-in row alignment', () => {
+    it('indents the three built-in rows like a top-level folder and wraps each in a treeitem', async () => {
+        saveCalendarPrefs({ calendarVisible: true, todoVisible: true, inboxVisible: true, showEmptyPeriods: false });
+        useNotes.setState({ folders: [folder], notes: { [note.id]: note } });
+        useUi.setState({ expandedFolders: [], view: 'all', folderId: null });
+        await act(() => root.render(createElement(Sidebar)));
+        const rowFor = (label: string) => {
+            const row = [...document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-row]')]
+                .find((element) => element.textContent?.trim() === label);
+            if (!row)
+                throw new Error(`missing row ${label}`);
+            return row;
+        };
+        const indentOf = (label: string) => {
+            const item = rowFor(label).closest('[role="treeitem"]');
+            expect(item, `${label} needs a treeitem ancestor`).toBeTruthy();
+            return (item!.firstElementChild as HTMLElement).style.paddingLeft;
+        };
+        const expected = indentOf(folder.name);
+        expect(expected).toBe('6px');
+        for (const label of [t('sidebar.todo_folder'), t('sidebar.calendar_folder'), t('sidebar.inbox_folder')]) {
+            expect(indentOf(label), label).toBe(expected);
+        }
     });
 });

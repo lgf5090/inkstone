@@ -427,13 +427,13 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         { id: 'expand-all', label: allExpanded ? t("folders.collapse_all") : t("folders.expand_all"), icon: allExpanded ? <ChevronsDownUp size={13}/> : <ChevronsUpDown size={13}/>, disabled: parentFolderIds.length === 0, onSelect: toggleAllExpanded },
         { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: tree.length < 2, onSelect: () => sortSiblings(tree) },
         {
-            id: 'show-calendar',
-            label: t("sidebar.calendar_folder"),
-            checked: calendarVisible,
+            id: 'show-todo',
+            label: t("sidebar.todo_folder"),
+            checked: todoVisible,
             separatorBefore: true,
-            onSelect: () => saveCalendarPrefs({ calendarVisible: !calendarVisible }),
+            onSelect: () => saveCalendarPrefs({ todoVisible: !todoVisible }),
         },
-        { id: 'show-todo', label: t("sidebar.todo_folder"), checked: todoVisible, onSelect: () => saveCalendarPrefs({ todoVisible: !todoVisible }) },
+        { id: 'show-calendar', label: t("sidebar.calendar_folder"), checked: calendarVisible, onSelect: () => saveCalendarPrefs({ calendarVisible: !calendarVisible }) },
         { id: 'show-inbox', label: t("sidebar.inbox_folder"), checked: inboxVisible, onSelect: () => saveCalendarPrefs({ inboxVisible: !inboxVisible }) },
     ];
     return (<>
@@ -494,8 +494,8 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
 
       {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
           <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
-        <CalendarTree />
         <TodoTree />
+        <CalendarTree />
         <InboxTree />
         <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
           {tree.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}

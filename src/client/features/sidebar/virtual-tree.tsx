@@ -12,10 +12,12 @@ import {
     buildVirtualTreeCached,
     resolveTodoTag,
     splitTodoTags,
+    treeRowIndent,
     virtualAncestorIds,
     virtualPathSegments,
     virtualPeriodKeyRange,
     virtualTreeRootLabel,
+    virtualTreeRowIndent,
     type CalendarNode,
     type VirtualTreeNamespace,
 } from '../../lib/calendar-tree';
@@ -174,7 +176,7 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
             menu.onContextMenu(event);
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: 6 + (node.depth + 1) * 13 }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', node.count === 0 && !isRoot && 'opacity-60')} style={{ paddingLeft: virtualTreeRowIndent(node.depth) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={!hasChildren} aria-hidden={!hasChildren || undefined} tabIndex={hasChildren ? undefined : -1} data-tree-toggle onClick={(event) => {
                 event.stopPropagation();
@@ -241,12 +243,13 @@ export function InboxTree() {
         { id: 'open', label: t("sidebar.open_in_list"), separatorBefore: true, onSelect: open },
     ];
     return (<div role="tree" aria-label={t("sidebar.inbox_folder")} className="mt-0.5 space-y-px" onDragOver={VIRTUAL_DRAG_BLOCK} onDrop={VIRTUAL_DRAG_BLOCK}>
+      <div role="treeitem" aria-level={1} aria-expanded={unfiled.length > 0 ? expanded : undefined}>
       <div ref={anchor} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: 19 }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeRowIndent(0) }}>
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
           <button type="button" disabled={unfiled.length === 0} aria-hidden={unfiled.length === 0 || undefined} tabIndex={unfiled.length ? undefined : -1} data-tree-toggle onClick={(event) => {
                 event.stopPropagation();
@@ -279,6 +282,7 @@ export function InboxTree() {
       {expanded && unfiled.length > 0 && (<div role="group" className="min-h-0 space-y-px overflow-hidden">
         {unfiled.map((note) => <ExplorerNote key={note.id} note={note} depth={1} canOpenToSide={false}/>)}
       </div>)}
+      </div>
       <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);
