@@ -76,6 +76,35 @@ export function EditorSettings() {
         <SettingRow title={t("settings.show_outline_by_default")}>
           <Switch checked={preview.showToc} onChange={(showToc) => void update({ preview: { showToc } })} label={t("settings.show_outline_by_default")}/>
         </SettingRow>
+
+        <SettingRow title={t("settings.link_hover_preview")} description={t("settings.link_hover_preview_description")}>
+          <Switch checked={preview.linkHover} onChange={(linkHover) => void update({ preview: { linkHover } })} label={t("settings.link_hover_preview")}/>
+        </SettingRow>
+
+        {preview.linkHover && <SettingRow title={t("settings.link_hover_delay")}>
+          <Slider label={t("settings.link_hover_delay")} className="w-[200px]" value={preview.linkHoverDelayMs} min={150} max={1000} step={50} onChange={(linkHoverDelayMs) => void update({ preview: { linkHoverDelayMs } })} suffix="ms"/>
+        </SettingRow>}
+
+        {preview.linkHover && <SettingRow title={t("settings.link_preview_length")}>
+          <Slider label={t("settings.link_preview_length")} className="w-[200px]" value={preview.linkPreviewLength} min={300} max={8000} step={100} onChange={(linkPreviewLength) => void update({ preview: { linkPreviewLength } })} suffix={t("settings.characters")}/>
+        </SettingRow>}
+
+        <SettingRow title={t("settings.floating_window_size")} description={t("settings.floating_window_size_description")}>
+          <Segmented<'small' | 'medium' | 'large' | 'custom'> label={t("settings.floating_window_size")} value={preview.pinnedWindowSize} onChange={(pinnedWindowSize) => void update({ preview: { pinnedWindowSize } })} options={[
+            { value: 'small', label: t("settings.floating_window_small") },
+            { value: 'medium', label: t("settings.floating_window_medium") },
+            { value: 'large', label: t("settings.floating_window_large") },
+            { value: 'custom', label: t("settings.floating_window_custom") },
+        ]}/>
+        </SettingRow>
+
+        {preview.pinnedWindowSize === 'custom' && <SettingRow title={t("settings.floating_window_width")}>
+          <Slider label={t("settings.floating_window_width")} className="w-[200px]" value={preview.pinnedWindowWidth} min={260} max={1200} step={20} onChange={(pinnedWindowWidth) => void update({ preview: { pinnedWindowWidth } })} suffix="px"/>
+        </SettingRow>}
+
+        {preview.pinnedWindowSize === 'custom' && <SettingRow title={t("settings.floating_window_height")}>
+          <Slider label={t("settings.floating_window_height")} className="w-[200px]" value={preview.pinnedWindowHeight} min={140} max={2000} step={20} onChange={(pinnedWindowHeight) => void update({ preview: { pinnedWindowHeight } })} suffix="px"/>
+        </SettingRow>}
       </section>
 
       <section>

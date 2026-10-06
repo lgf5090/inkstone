@@ -32,6 +32,8 @@ import { capturePreviewInteractionState, restorePreviewInteractionState } from '
 import { closeBlockToolbarOverlay, enhanceBlockToolbars, handleBlockToolbarClick } from './block-actions'
 import type { BlockActionContext } from './block-overlay'
 import { NoteProperties } from './NoteProperties'
+import { WikiLinkHoverCard } from './wiki-link-hover-card'
+import { useLinkHoverHost } from './link-hover-host'
 import { preferredScrollBehavior } from '../../lib/motion'
 
 export interface PreviewProps {
@@ -73,6 +75,7 @@ export const Preview = memo(function Preview({
   const fallbackTitle = useNotes((s) => (activeNoteId ? s.notes[activeNoteId]?.title ?? '' : ''))
   const sourceNoteId = noteId ?? activeNoteId
   const currentTitle = noteTitle ?? fallbackTitle
+  const { hover, handlePin, onMouseLeave, onFocus, onBlur } = useLinkHoverHost(sourceNoteId ?? null)
 
 
   const debounced = useDebounced(content, 90)
@@ -176,6 +179,7 @@ export const Preview = memo(function Preview({
         const host = hostRef.current
         const snapshot = scroller && host ? capturePreviewViewport(scroller, host) : null
         committedHtmlRef.current = nextHtml
+        hover.hideNow()
         if (host) {
           if (!host.hasChildNodes()) {
             host.replaceChildren(...staging.cloneNode(true).childNodes)
@@ -417,10 +421,26 @@ export const Preview = memo(function Preview({
         ref={hostRef}
         onClick={onClick}
         onKeyDown={onKeyDown}
+        onMouseMove={hover.handleMouseMove}
+        onMouseLeave={onMouseLeave}
+        onFocus={onFocus}
+        onBlur={onBlur}
         data-font={appearance.proseFont}
         data-preview-content
         className="ink-prose"
       />
+      {hover.card && (
+        <WikiLinkHoverCard
+          card={hover.card}
+          path={hover.card.noteId ? [hover.card.noteId] : []}
+          depth={1}
+          dark={theme === 'dark'}
+          onClose={hover.hideNow}
+          onEnter={hover.clearPendingHide}
+          onLeave={hover.armHide}
+          onPin={handlePin}
+        />
+      )}
     </div>
   )
 })

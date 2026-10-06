@@ -14,3 +14,4 @@ export function initialLoginCredentials(demo = IS_DEMO_MODE): { username: string
 export const CLIENT_DATABASE_NAME = IS_DEMO_MODE ? 'inkstone-demo' : 'inkstone'
 export const UI_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.ui' : 'inkstone.ui'
 export const LOCALE_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone-demo-locale' : 'inkstone-locale'
+export const PINNED_WINDOWS_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.pinnedWindows' : 'inkstone.pinnedWindows'

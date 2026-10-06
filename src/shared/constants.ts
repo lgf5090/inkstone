@@ -107,6 +107,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
     mermaid: true,
     codeBlockCollapse: true,
     codeBlockCollapseLines: 24,
+    linkHover: true,
+    linkHoverDelayMs: 320,
+    linkPreviewLength: 4000,
+    pinnedWindowSize: 'medium',
+    pinnedWindowWidth: 460,
+    pinnedWindowHeight: 520,
   },
   backup: {
     schedule: 'sixHourly',
@@ -122,6 +128,16 @@ export const DEFAULT_SETTINGS: UserSettings = {
 }
 
 export const TODO_TAG_LIST_MAX = 8
+
+export const PINNED_WINDOW_PRESETS: Record<'small' | 'medium' | 'large', { width: number, height: number }> = {
+  small: { width: 340, height: 380 },
+  medium: { width: 460, height: 520 },
+  large: { width: 620, height: 680 },
+}
+export const PINNED_WINDOW_WIDTH_RANGE = [260, 1200] as const
+export const PINNED_WINDOW_HEIGHT_RANGE = [140, 2000] as const
+export const LINK_HOVER_DELAY_RANGE = [150, 1000] as const
+export const LINK_PREVIEW_LENGTH_RANGE = [300, 8000] as const
 
 export const BACKUP_INTERVALS: Record<string, number> = {
   off: 0,
@@ -140,6 +156,7 @@ const PROSE_FONTS = ['sans', 'serif'] as const
 const PROSE_WIDTHS = ['narrow', 'normal', 'wide', 'full'] as const
 const EDITOR_FONTS = ['mono', 'sans'] as const
 const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
+const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
 
@@ -222,6 +239,32 @@ export function mergeSettings(partial: unknown): UserSettings {
     8,
     100,
     base.preview.codeBlockCollapseLines,
+  )
+  base.preview.linkHover = booleanValue(preview.linkHover, base.preview.linkHover)
+  base.preview.linkHoverDelayMs = integerInRange(
+    preview.linkHoverDelayMs,
+    LINK_HOVER_DELAY_RANGE[0],
+    LINK_HOVER_DELAY_RANGE[1],
+    base.preview.linkHoverDelayMs,
+  )
+  base.preview.linkPreviewLength = integerInRange(
+    preview.linkPreviewLength,
+    LINK_PREVIEW_LENGTH_RANGE[0],
+    LINK_PREVIEW_LENGTH_RANGE[1],
+    base.preview.linkPreviewLength,
+  )
+  base.preview.pinnedWindowSize = enumValue(preview.pinnedWindowSize, PINNED_WINDOW_SIZES, base.preview.pinnedWindowSize)
+  base.preview.pinnedWindowWidth = integerInRange(
+    preview.pinnedWindowWidth,
+    PINNED_WINDOW_WIDTH_RANGE[0],
+    PINNED_WINDOW_WIDTH_RANGE[1],
+    base.preview.pinnedWindowWidth,
+  )
+  base.preview.pinnedWindowHeight = integerInRange(
+    preview.pinnedWindowHeight,
+    PINNED_WINDOW_HEIGHT_RANGE[0],
+    PINNED_WINDOW_HEIGHT_RANGE[1],
+    base.preview.pinnedWindowHeight,
   )
 
   base.backup.schedule = enumValue(
