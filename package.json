@@ -54,6 +54,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "agents": "0.20.1",
     "aws4fetch": "^1.0.20",
+    "chart.js": "^4.5.1",
     "client-zip": "2.5.0",
     "clsx": "^2.1.1",
     "dompurify": "3.4.16",

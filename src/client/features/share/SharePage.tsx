@@ -6,7 +6,7 @@ import { api, ApiError } from '../../lib/api';
 import { fullTime } from '../../lib/time';
 import { readingMinutes, countText } from '@shared/markdown-utils';
 import { renderMarkdown } from '../../lib/markdown/renderer';
-import { enhancePreview, renderPendingMermaid, resetMermaidNode, toggleCodeBlockCollapse } from '../../lib/markdown/enhance';
+import { destroyChartInstances, enhancePreview, renderPendingCharts, renderPendingMermaid, resetMermaidNode, toggleCodeBlockCollapse } from '../../lib/markdown/enhance';
 import { Avatar, Button, Logo } from '../../components/primitives';
 import { Input } from '../../components/form';
 import { LoadingBlock } from '../../components/feedback';
@@ -106,6 +106,9 @@ export function SharePage({ slug }: {
             if (!isCurrent())
                 return;
             await renderPendingMermaid(host, dark, { isCurrent });
+            if (!isCurrent())
+                return;
+            await renderPendingCharts(host, dark);
         })();
         return () => {
             cancelled = true;
@@ -116,6 +119,7 @@ export function SharePage({ slug }: {
         for (const timer of copyResetTimersRef.current.values())
             window.clearTimeout(timer);
         copyResetTimersRef.current.clear();
+        destroyChartInstances(hostRef.current);
     }, []);
     const onContentClick = (event: React.MouseEvent) => {
         const target = event.target as HTMLElement;

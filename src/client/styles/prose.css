@@ -393,7 +393,7 @@
 .ink-prose .markdown-example-preview-body > :last-child {
   margin-bottom: 0;
 }
-.ink-prose .markdown-example-preview-body :is(.callout, .markdown-tabs, .markdown-details, .code-block, .mermaid-block),
+.ink-prose .markdown-example-preview-body :is(.callout, .markdown-tabs, .markdown-details, .code-block, .mermaid-block, .chart-block-wrap),
 .ink-prose .markdown-example-preview-body > :is(figure, details) {
   margin-block: 0;
 }
@@ -988,6 +988,139 @@
 }
 
 
+.ink-prose .chart-block-wrap {
+  margin: 1em 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+.ink-prose .chart-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 7px 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in oklab, var(--bg-inset) 60%, var(--bg-base));
+}
+.ink-prose .chart-block-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ink-prose .chart-block-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.ink-prose .chart-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.ink-prose .chart-tool-btn--text {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ink-prose .chart-tool-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ink-prose .chart-tool-btn[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.ink-prose .chart-block-source {
+  max-height: 260px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+}
+.ink-prose .chart-block-source[hidden] {
+  display: none;
+}
+.ink-prose .chart-block-source > code {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
+  white-space: pre;
+}
+.ink-prose .chart-block {
+  min-height: 300px;
+  padding: 14px;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.ink-prose .chart-canvas-holder {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  /* The canvas is sized from this box, so it has to carry a height of its own rather than collapse to
+     the canvas's intrinsic one — otherwise a re-measure would read back the size it just wrote. */
+  height: 272px;
+}
+.ink-prose .chart-canvas {
+  max-width: 100%;
+}
+.ink-prose .chart-block.loading {
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.ink-prose .chart-block.loading::before {
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border: 1.5px solid color-mix(in oklab, var(--text-tertiary) 32%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  content: '';
+  animation: mermaid-spin 0.8s linear infinite;
+}
+.ink-prose .chart-block.has-error {
+  min-height: 0;
+  justify-content: flex-start;
+}
+.ink-prose .chart-error {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  color: var(--danger);
+  font-size: 12px;
+}
+.ink-prose .chart-error-message {
+  overflow-wrap: anywhere;
+}
+.ink-prose .chart-error code {
+  overflow-x: auto;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
+  white-space: pre-wrap;
+}
+
+
 .ink-hit {
   background: var(--accent-soft);
   color: var(--text-primary);
@@ -1005,10 +1138,12 @@
     color: #000;
   }
   .ink-prose .code-copy,
+  .ink-prose .chart-block-tools,
   .ink-prose .heading-anchor {
     display: none;
   }
   .ink-prose .code-block,
+  .ink-prose .chart-block-wrap,
   .ink-prose .table-wrap,
   .ink-prose .markdown-example {
     break-inside: avoid;

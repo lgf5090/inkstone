@@ -2,7 +2,7 @@ import { StateEffect, StateField, type EditorState, type Extension, type Range }
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import { parseWikiTarget, renderMarkdownBlocks, type Heading, type MarkdownBlock } from '../lib/markdown/renderer';
-import { enhancePreview, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
+import { enhancePreview, renderPendingCharts, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
 import { resolveNoteEmbeds } from '../lib/markdown/embeds';
 import { useSession } from '../store/session';
 import { t } from '../lib/i18n';
@@ -43,6 +43,7 @@ class RenderedBlock extends WidgetType {
             if (!alive) return;
             await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, dark, codeBlockCollapseLines: 0 });
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
+            if (alive) await renderPendingCharts(host, dark);
             if (alive) view.requestMeasure();
         };
         void prepare().catch(() => { if (alive) view.requestMeasure(); });

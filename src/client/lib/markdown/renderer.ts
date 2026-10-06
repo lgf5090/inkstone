@@ -10,6 +10,8 @@ import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
 import { getLocale, t } from '../i18n';
 import { parseEmbedSize, splitAltSize } from './attachments';
 import { encodeDataValue } from './data-attr';
+import { readFenceStyle } from './chart/style';
+import { CHART_LANGUAGES } from './chart/body';
 export interface Heading {
     level: number;
     text: string;
@@ -518,6 +520,13 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         renderEnv(rendererEnv).hasMermaid = true;
         return `<div class="mermaid-block loading"${line} data-mermaid="${escapeAttr(encodeDataValue(token.content))}" aria-busy="true">${escapeHtml(t("markdown.rendering_diagram"))}</div>`;
     }
+    if ((CHART_LANGUAGES as readonly string[]).includes(info.language)) {
+        // The body rides along encoded because a chart table's own pipes and braces would otherwise be
+        // read back out of markup the sanitizer has already rewritten. `data-line` is how the block finds
+        // the fence again when the toolbar writes the note.
+        const style = readFenceStyle(token.info);
+        return `<div class="chart-block loading"${line}${style === null ? '' : ` data-chart-style="${escapeAttr(style)}"`} data-chart="${escapeAttr(encodeDataValue(token.content))}" aria-busy="true">${escapeHtml(t("markdown.rendering_chart"))}</div>`;
+    }
     const title = info.title || info.language || t("markdown.code");
     return [
         `<div class="code-block"${line} data-lang="${escapeAttr(info.language)}" data-code-start="${info.startLine}"${info.lineNumbers ? ' data-line-numbers="true"' : ''}${info.highlightedLines.length ? ` data-highlight-lines="${info.highlightedLines.join(',')}"` : ''}>`,
@@ -602,6 +611,8 @@ export const PURIFY_CONFIG = {
         'data-line',
         'data-math',
         'data-mermaid',
+        'data-chart',
+        'data-chart-style',
         'data-wikilink',
         'data-embed-target',
         'data-block-ref',
