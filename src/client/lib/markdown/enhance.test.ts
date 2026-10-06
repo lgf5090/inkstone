@@ -85,7 +85,7 @@ describe('katex output', () => {
     node.dataset.math = '\\alpha'
     root.append(node)
     document.body.append(root)
-    await enhancePreview(root, { math: true, mermaid: false, chart: false, dark: false })
+    await enhancePreview(root, { math: true, mermaid: false, chart: false, mindmap: 'source', dark: false })
     expect(node.innerHTML).toContain('katex')
     expect(node.innerHTML).not.toContain('onerror')
     expect(node.innerHTML).not.toContain('alert(')

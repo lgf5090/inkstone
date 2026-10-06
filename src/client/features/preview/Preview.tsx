@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -33,6 +34,9 @@ import { moveMarkdownTabFocus, revealPreviewTarget, selectMarkdownTab } from './
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
 import { closeBlockToolbarOverlay, enhanceBlockToolbars, handleBlockToolbarClick } from './block-actions'
 import type { BlockActionContext } from './block-overlay'
+import { MindmapFullscreen } from './mindmap-fullscreen'
+import { MindmapThemeMenu } from './mindmap-theme-menu'
+import { useMindmapBlocks } from './use-mindmap-blocks'
 import { NoteProperties } from './NoteProperties'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 import { useLinkHoverHost } from './link-hover-host'
@@ -103,6 +107,15 @@ export const Preview = memo(function Preview({
     }
   }, [])
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? 'dark')
+  // One scope per preview instance: two panes showing the same note must not claim each other's map.
+  const instanceScope = useId()
+  const mindmap = useMindmapBlocks({
+    scope: `preview${instanceScope}`,
+    noteId: sourceNoteId ?? null,
+    hostRef,
+    epoch: mermaidEpoch,
+    dark: theme === 'dark',
+  })
 
   useEffect(() => {
     onHeadings?.(rendered.headings)
@@ -180,6 +193,10 @@ export const Preview = memo(function Preview({
         math: preview.math,
         mermaid: preview.mermaid,
         chart: preview.chart,
+        // The map itself is mounted from the committed markup by `useMindmapBlocks`, so this pass has
+        // to leave the placeholder standing: a snapshot drawn here would be swapped in over the live
+        // canvas by the next diff, and the registry would then re-parent into a block holding an image.
+        mindmap: 'live',
         dark: theme === 'dark',
         codeBlockCollapseLines: preview.codeBlockCollapse
           ? preview.codeBlockCollapseLines
@@ -257,6 +274,7 @@ export const Preview = memo(function Preview({
     sourceNoteId,
     committedSourceRef,
     api: { editContent, toast },
+    mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
   })
 
   const onClick = (event: React.MouseEvent) => {
@@ -479,6 +497,12 @@ export const Preview = memo(function Preview({
         className="ink-prose"
       />
       <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
+      {mindmap.fullscreen && (
+        <MindmapFullscreen session={mindmap.fullscreen.session} onClose={mindmap.closeFullscreen}/>
+      )}
+      {mindmap.themeMenu && (
+        <MindmapThemeMenu state={mindmap.themeMenu} onClose={mindmap.closeThemeMenu}/>
+      )}
       {hover.card && (
         <WikiLinkHoverCard
           card={hover.card}
@@ -704,6 +728,21 @@ export function patchDom(dest: Node, src: Node): void {
         // canvas. Preserving it there left an off switch with a chart still drawn on screen.
         // The line is still re-stamped: a format toggle changes how many lines a block above occupies,
         // which moves this one, and the line is what the toolbar resolves its write against.
+        if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
+        return
+      }
+    }
+
+    // A live map is an instance whose element the registry re-parents into this block's placeholder,
+    // and none of that is in `innerHTML`. Re-syncing the subtree from the staged copy would put the
+    // loading text back over a map that did not change, and the registry would then find its own
+    // container detached from the document on the next keystroke. The palette annotation is compared
+    // beside the body for the same reason a chart's stated format is: which palette a map draws with
+    // is not written anywhere inside its body text.
+    if (destEl.hasAttribute('data-mindmap') && srcEl.hasAttribute('data-mindmap')) {
+      if (destEl.getAttribute('data-mindmap') === srcEl.getAttribute('data-mindmap') &&
+        destEl.getAttribute('data-mindmap-theme') === srcEl.getAttribute('data-mindmap-theme') &&
+        destEl.classList.contains('is-ready')) {
         if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return
       }
