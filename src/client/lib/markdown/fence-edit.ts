@@ -46,7 +46,7 @@ export interface FenceRange {
     end: number
 }
 
-export function splitLines(content: string): { lines: string[], eol: string, trailingNewline: boolean } {
+export function splitLines(content: string): SplitContent {
     const eol = content.includes('\r\n') ? '\r\n' : '\n'
     const trailingNewline = /\r?\n$/.test(content)
     const lines = content.split(/\r?\n/)
@@ -160,6 +160,18 @@ function locateFence(lines: string[], target: FenceTarget, languages: readonly s
 }
 
 /**
+ * Where the fence is now, as a line span, or null when it no longer holds the body the block was drawn
+ * from. An editor caller maps these to character positions to replace the block in one transaction.
+ */
+export function fenceRange(content: string, target: FenceTarget, languages: readonly string[]): FenceRange | null {
+    const { lines } = splitLines(content)
+    const at = locateFence(lines, target, languages)
+    if (!at)
+        return null
+    return { start: at.line, end: at.closing === -1 ? lines.length : at.closing + 1 }
+}
+
+/**
  * The fence the renderer drew at `line`, read straight from the note: the opening line is a fence of
  * one of `languages` and the body runs to its closing line. Callers whose markup is known to match this
  * text (the preview only writes while the rendered document and the note agree) use it instead of
@@ -211,18 +223,6 @@ export function applyBodyAtFence(
 export function fenceInfoAt(content: string, target: FenceTarget, languages: readonly string[]): string | null {
     const { lines } = splitLines(content)
     return locateFence(lines, target, languages)?.opening.info ?? null
-}
-
-/**
- * Where the fence is now, as a line span, or null when it no longer holds the body the block was drawn
- * from. An editor caller maps these to character positions to replace the block in one transaction.
- */
-export function fenceRange(content: string, target: FenceTarget, languages: readonly string[]): FenceRange | null {
-    const { lines } = splitLines(content)
-    const at = locateFence(lines, target, languages)
-    if (!at)
-        return null
-    return { start: at.line, end: at.closing === -1 ? lines.length : at.closing + 1 }
 }
 
 /** The lines a text block contributes; an empty text contributes none. */

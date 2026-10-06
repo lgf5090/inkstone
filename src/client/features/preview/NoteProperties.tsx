@@ -76,7 +76,7 @@ function PropertyRow({ propertyKey, value, readOnly, onValue, onRename, onDelete
             </button>)}
       </div>
       <div className="flex min-w-0 max-w-[62%] flex-1 items-center justify-end gap-1">
-        {kind === 'other' ? (<span className="min-w-0 truncate text-right text-[12px] text-[var(--text-tertiary)]">{formatScalar(value)}</span>) : kind === 'boolean' ? (<button type="button" role="switch" aria-checked={Boolean(value)} disabled={readOnly} onClick={() => onValue(!value)} className={cn('relative h-4 w-8 shrink-0 rounded-full transition-colors', value ? 'bg-[var(--accent)]' : 'bg-[var(--bg-inset)] ring-1 ring-[var(--border-default)]')}>
+        {kind === 'other' ? (<span className="min-w-0 truncate text-right text-[12px] text-[var(--text-tertiary)]">{formatScalar(value)}</span>) : kind === 'boolean' ? (<button type="button" role="switch" aria-label={propertyKey} aria-checked={Boolean(value)} disabled={readOnly} onClick={() => onValue(!value)} className={cn('relative h-4 w-8 shrink-0 rounded-full transition-colors', value ? 'bg-[var(--accent)]' : 'bg-[var(--bg-inset)] ring-1 ring-[var(--border-default)]')}>
               <span className={cn('absolute top-0.5 size-3 rounded-full bg-white shadow transition-all', value ? 'left-4' : 'left-0.5')}/>
             </button>) : kind === 'tags' || kind === 'array' ? (<TagValues names={names} asTags={kind === 'tags'} readOnly={readOnly} onRemove={onTagRemove} onAdd={(name) => onValue([...names, name])}/>) : editing ? (<InlineInput aria-label={propertyKey} initial={formatScalar(value)} onCommit={(text) => {
                 setEditing(false);

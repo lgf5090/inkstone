@@ -351,6 +351,18 @@ export const insertMermaid: StateCommand = (target) => insertWrappedBlock(
 )(target);
 
 /**
+ * A board, in the format the selection already has: wrapping headings and list items yields an
+ * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.
+ * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the
+ * body, so this command does not have to know.
+ */
+export const insertKanban: StateCommand = (target) => insertWrappedBlock(
+    '```kanban',
+    '```',
+    '{\n  "title": "Kanban",\n  "columns": [\n    {\n      "id": "status",\n      "name": "Status",\n      "type": "select",\n      "options": [\n        { "id": "todo", "label": "To Do", "color": "gray" },\n        { "id": "in_progress", "label": "In Progress", "color": "blue" },\n        { "id": "done", "label": "Done", "color": "green" }\n      ]\n    }\n  ],\n  "items": []\n}',
+)(target);
+
+/**
  * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole
  * note. All of it is one transaction, so one undo takes the fence back — the same contract every
  * other insertion here has. Returns false when the text holds no headings and no lists, which is not

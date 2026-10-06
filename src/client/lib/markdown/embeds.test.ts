@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Attachment } from '@shared/types'
+import { useNotes } from '../../store/notes'
 
 const ATT: Attachment = {
   id: 'a'.repeat(26),
@@ -64,5 +65,50 @@ describe('attachment embeds', () => {
     const host = await resolve('![[Some Note]]', [ATT])
     expect(byName).not.toHaveBeenCalled()
     expect(host.querySelector('.note-embed')!.className).toContain('error')
+  })
+})
+
+function board(title: string, card: string): string {
+  return `## ${title}\n\n\`\`\`kanban\n${JSON.stringify({
+    title,
+    columns: [{ id: 'status', name: 'Status', type: 'select', options: [{ id: 'todo', label: 'To Do', color: 'gray' }] }],
+    items: [{ id: 'i', title: card, properties: { status: 'todo' } }],
+  })}\n\`\`\`\n`
+}
+
+describe('note embeds hand over their own fence bodies', () => {
+  afterEach(() => {
+    document.body.replaceChildren()
+    useNotes.setState({ notes: {}, contents: {} })
+  })
+
+  async function embedHost(parent: string, child: string): Promise<HTMLElement> {
+    useNotes.setState({
+      notes: { child: { id: 'child', title: 'Child Note', excerpt: '', folderId: null, tags: [], isPinned: false, isStarred: false, isArchived: false, wordCount: 0, charCount: 0, rev: 1, position: 0, createdAt: 0, updatedAt: 0, deletedAt: null } },
+      contents: { child },
+    })
+    const { renderMarkdown } = await import('./renderer')
+    const { resolveNoteEmbeds } = await import('./embeds')
+    const { renderStaticKanbans } = await import('./kanban/static')
+    const { registerFenceBodies } = await import('./fence-bodies')
+    const rendered = renderMarkdown(parent)
+    const host = document.createElement('div')
+    host.innerHTML = rendered.html
+    registerFenceBodies(host, rendered.fences)
+    document.body.append(host)
+    await resolveNoteEmbeds(host, { currentContent: parent, currentTitle: 'Parent Note' })
+    renderStaticKanbans(host)
+    return host
+  }
+
+  it('draws a board inside an embed from the note it came from', async () => {
+    const parent = `${board('Parent board', 'Parent Card')}\n![[Child Note]]\n`
+    const host = await embedHost(parent, `${board('Child board', 'Child Card')}\n`)
+    const drawn = host.querySelector<HTMLElement>('.note-embed-body .kanban-snapshot')
+    expect(drawn, 'the embedded board never drew').not.toBeNull()
+    expect(drawn!.textContent).toContain('Child Card')
+    expect(drawn!.textContent, 'the embed read the host numbering instead of its own').not.toContain('Parent Card')
+    const own = [...host.querySelectorAll<HTMLElement>('.kanban-snapshot')].find((node) => !node.closest('.note-embed-body'))
+    expect(own?.textContent).toContain('Parent Card')
   })
 })

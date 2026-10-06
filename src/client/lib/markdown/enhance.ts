@@ -2,6 +2,10 @@ import DOMPurify from 'dompurify';
 import { PURIFY_CONFIG } from './renderer';
 import { decodeDataValue } from './data-attr';
 import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from './example-split';
+// The two kanban entry points come from their own modules, not from `./kanban`: the index re-exports
+// the React board, and a surface that only draws a still must not pull 24k lines of UI into its chunk.
+import { renderStaticKanbans } from './kanban/static';
+import { showKanbanSourceAll } from './kanban/view';
 import { MAX_PANEL_COLUMNS, isTrackValue } from './panel-options';
 import { t, type MessageKey } from "../i18n";
 import { getLocale } from "../i18n";
@@ -928,6 +932,13 @@ export interface EnhanceOptions {
     mermaid: boolean;
     chart: boolean;
     /**
+     * How this surface treats ```kanban blocks. A board is a React root that needs a host to live in,
+     * so 'live' means "someone else mounts it" and enhance touches nothing; 'snapshot' draws the still
+     * that a serialized or printed surface can carry; 'source' leaves the fence's own text, which is
+     * what a surface that can do neither must show rather than a placeholder that never resolves.
+     */
+    kanban: 'live' | 'snapshot' | 'source';
+    /**
      * How this surface treats ```mindmap blocks. `live` means the caller mounts a writable map itself
      * from the committed markup, so this pass must leave the placeholder alone; `snapshot` draws a
      * picture in its place, for a surface that cannot host an instance; `source` shows the fence body,
@@ -939,6 +950,10 @@ export interface EnhanceOptions {
     codeBlockCollapseLines?: number;
 }
 export async function enhancePreview(root: HTMLElement, options: EnhanceOptions): Promise<void> {
+    if (options.kanban === 'snapshot')
+        renderStaticKanbans(root, 'list');
+    else if (options.kanban === 'source')
+        showKanbanSourceAll(root);
     if (options.mermaid) {
         hydrateCachedMermaid(root, options.dark);
         const hasPendingDiagram = [...root.querySelectorAll<HTMLElement>('[data-mermaid]')].some((node) => node.dataset.rendered !== currentSignature(node, options.dark));

@@ -16,7 +16,9 @@ import { Check } from 'lucide-react'
 import { cn } from '../lib/cn'
 import { Tooltip } from './overlay'
 
-const FIELD_BASE = cn(
+/** The box every text field in a dialog wears; `overlay`'s prompt reads it rather than importing
+ * `Input`, because form already imports overlay and a component cycle would resolve at render. */
+export const FIELD_BASE = cn(
   'w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)]',
   'px-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)]',
   'transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
@@ -283,6 +285,7 @@ export function Slider({
   'aria-labelledby': ariaLabelledBy,
   'aria-describedby': ariaDescribedBy,
   'aria-required': ariaRequired,
+  immediate = false,
 }: {
   value: number
   min: number
@@ -296,11 +299,20 @@ export function Slider({
   'aria-labelledby'?: string
   'aria-describedby'?: string
   'aria-required'?: boolean
+  /**
+   * Hand every step straight to the caller instead of coalescing to one write per frame. For a caller
+   * that batches on its own — the gantt's progress bar holds a draft and commits one undo step on
+   * release — the coalescing would swallow the last value, because its own commit runs in the same
+   * event, before the frame that would have delivered it.
+   */
+  immediate?: boolean
 }) {
   const [draft, setDraft] = useState<number | null>(null)
   const pending = useRef(value)
   const frame = useRef(0)
-  const shown = draft ?? value
+  // An immediate slider has no draft of its own: the caller's `value` is the only answer, and a local
+  // copy would go stale the moment the caller batches and settles on something else.
+  const shown = immediate ? value : draft ?? value
   const range = max - min
   const rawPct = range > 0 && Number.isFinite(shown) ? ((shown - min) / range) * 100 : 0
   const pct = Math.min(100, Math.max(0, rawPct))
@@ -328,6 +340,10 @@ export function Slider({
         value={shown}
         onChange={(e) => {
           const next = Number(e.target.value)
+          if (immediate) {
+            onChange(next)
+            return
+          }
           pending.current = next
           setDraft(next)
           if (frame.current) return

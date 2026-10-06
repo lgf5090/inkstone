@@ -1,13 +1,21 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type SetStateAction, } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, X } from 'lucide-react';
+import { Check, ChevronRight, X } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { Button, IconButton, Kbd } from './primitives';
+import { FIELD_BASE } from './form';
 import { t } from "../lib/i18n";
 import { getVisibleViewport } from '../lib/viewport';
 
 
 const escStack: (() => void)[] = [];
+/**
+ * A field that gives Escape its own meaning — cancelling a rename should not be the gesture that
+ * closes the panel holding it. Such a field marks itself and the overlay layers stand aside.
+ */
+function ownsEscape(target: EventTarget | null): boolean {
+    return target instanceof Element && Boolean(target.closest('[data-owns-escape]'));
+}
 export function useEscape(active: boolean, onEscape: () => void): void {
     const callbackRef = useRef(onEscape);
     callbackRef.current = onEscape;
@@ -18,6 +26,8 @@ export function useEscape(active: boolean, onEscape: () => void): void {
         escStack.push(handler);
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape' || event.isComposing || event.repeat || event.defaultPrevented)
+                return;
+            if (ownsEscape(event.target))
                 return;
             const top = escStack[escStack.length - 1];
             if (top !== handler)
@@ -260,6 +270,100 @@ export function ConfirmHost() {
     </Modal>);
 }
 
+export interface PromptOptions {
+    title: string;
+    description?: ReactNode;
+    placeholder?: string;
+    defaultValue?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+}
+interface PromptRequest {
+    options: PromptOptions;
+    resolve: (value: string | null) => void;
+}
+let enqueuePrompt: ((request: PromptRequest) => void) | null = null;
+
+export function prompt(options: PromptOptions): Promise<string | null> {
+    // Same contract as `confirm`: with no host mounted there is no dialog to show, and falling back
+    // to `window.prompt` would reintroduce a native prompt.
+    if (!enqueuePrompt)
+        return Promise.resolve(null);
+    return new Promise((resolve) => {
+        enqueuePrompt?.({ options, resolve });
+    });
+}
+
+export function PromptHost() {
+    const [current, setCurrent] = useState<PromptRequest | null>(null);
+    const currentRef = useRef<PromptRequest | null>(null);
+    const queueRef = useRef<PromptRequest[]>([]);
+    useEffect(() => {
+        enqueuePrompt = (request) => {
+            if (currentRef.current) {
+                queueRef.current.push(request);
+                return;
+            }
+            currentRef.current = request;
+            setCurrent(request);
+        };
+        return () => {
+            enqueuePrompt = null;
+            currentRef.current?.resolve(null);
+            for (const request of queueRef.current)
+                request.resolve(null);
+            currentRef.current = null;
+            queueRef.current = [];
+        };
+    }, []);
+    const finish = useCallback((request: PromptRequest | null, value: string | null) => {
+        if (!request || currentRef.current !== request)
+            return;
+        request.resolve(value);
+        const next = queueRef.current.shift() ?? null;
+        currentRef.current = next;
+        setCurrent(next);
+    }, []);
+    // Keyed on the request, so a second prompt in the queue cannot inherit the text typed for the
+    // first one — the dialog's own state is what holds it.
+    return current ? <PromptDialog request={current} finish={finish}/> : null;
+}
+
+function PromptDialog({ request, finish }: { request: PromptRequest; finish: (request: PromptRequest | null, value: string | null) => void }) {
+    const [value, setValue] = useState(request.options.defaultValue ?? '');
+    useEffect(() => {
+        setValue(request.options.defaultValue ?? '');
+    }, [request]);
+    const submit = value.trim();
+    return (<Modal open onClose={() => finish(request, null)} title={request.options.title} description={request.options.description} width={420} footer={<>
+          <Button variant="ghost" onClick={() => finish(request, null)}>
+            {request.options.cancelLabel ?? t("common.cancel")}
+          </Button>
+          <Button variant="primary" disabled={!submit} onClick={() => finish(request, submit)}>
+            {request.options.confirmLabel ?? t("overlay.confirm")}
+          </Button>
+        </>}>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (submit)
+            finish(request, submit);
+    }} className="mt-[var(--sp-2)]">
+        <input data-autofocus type="text" className={`${FIELD_BASE} h-9`} value={value} placeholder={request.options.placeholder} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
+        // Enter has to be cancelled before it commits: committing opens the next dialog in the
+        // queue, and the browser runs this keydown's default action after the handler returns.
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            if (submit)
+                finish(request, submit);
+            return;
+        }
+        if (event.key === 'Escape')
+            finish(request, null);
+    }}/>
+      </form>
+    </Modal>);
+}
+
 export interface MenuSubmenuContext {
     closeMenu: () => void;
 }
@@ -282,7 +386,7 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), }: {
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -294,6 +398,8 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     width?: number;
     zIndex?: number;
     label?: string;
+    /** The id a caller already points its trigger's `aria-controls` at. */
+    panelId?: string;
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
     const submenuRef = useRef<HTMLDivElement>(null);
@@ -492,8 +598,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     }, [open, items, cursor, submenu, onClose]);
     if (!open)
         return null;
-    return (<>
-      {createPortal(<div ref={menuRef} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
+    return (<>{createPortal(<div ref={menuRef} {...(panelId ? { id: panelId } : {})} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
       {items.map((item, index) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
@@ -520,7 +625,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
                 {item.icon}
               </span>)}
             <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.checked && <span className="text-[var(--accent)]">✓</span>}
+            {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
             {item.submenu && <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>}
             {item.combo && <Kbd combo={item.combo}/>}
           </button>
@@ -678,7 +783,7 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect, preferred: TooltipSide)
         left: side === 'right' ? anchor.right + gap : anchor.left - gap - tooltip.width,
     };
 }
-export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = 190, }: {
+export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = 190, ariaLabel, }: {
     open: boolean;
     onClose: () => void;
     side?: 'left' | 'right';
@@ -686,6 +791,8 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
     children: ReactNode;
     title?: ReactNode;
     zIndex?: number;
+    /** Names the panel when it has no visible title; without one it would be the generic side panel. */
+    ariaLabel?: string;
 }) {
     const panelRef = useRef<HTMLElement>(null);
     const titleId = useId();
@@ -696,7 +803,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
         return null;
     return createPortal(<div className="app-viewport-fixed fixed" style={{ zIndex }}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
-      <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : t("overlay.side_panel")} tabIndex={-1} className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
+      <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.side_panel")} tabIndex={-1} data-surface="drawer" className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
             width: Math.min(width, window.innerWidth < 768 ? window.innerWidth : window.innerWidth - 32),
             animation: `ink-slide-in-${side} var(--dur-slow) var(--ease-out) both`,
         }}>
@@ -711,4 +818,259 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </aside>
     </div>, document.body);
+}
+
+/** The gap a nested panel leaves beside the row that opened it. */
+const NESTED_GAP = 2;
+/** What a panel keeps clear of the viewport's edges. */
+const NESTED_MARGIN = 8;
+/** A row that opens a panel steps into it on these keys, rather than only opening it. */
+const STEP_IN_KEYS = ['Enter', ' ', 'ArrowRight'];
+/** The keys that move the focus along one list, and the ends they jump to. */
+const STEP_KEYS: Record<string, 1 | -1 | 'first' | 'last'> = {
+    ArrowDown: 1,
+    ArrowUp: -1,
+    Home: 'first',
+    End: 'last',
+};
+
+interface OpenRow {
+    id: string;
+    focus: boolean;
+}
+
+/**
+ * A submenu written as data rather than as markup, so a caller that already has a `MenuItem[]` —
+ * the board's overflow menu, its batch bar — hands the same list to `Menu` at any depth.
+ */
+export function submenuFor(items: MenuItem[], width = 180) {
+    return ({ closeMenu }: { closeMenu: () => void }) => (<SubmenuList items={items} closeMenu={closeMenu} width={width}/>);
+}
+
+/**
+ * The content of a submenu — and of the panel a row inside it opens: one component renders both, so
+ * a menu nests as deep as its items do.
+ *
+ * A nested panel is placed beside its row but stays inside this list's own DOM subtree.
+ * `position: fixed` is what gets it clear of the list's scroll box; being a descendant is what keeps
+ * the `Menu` that owns this submenu from reading a press inside it as a press outside — that
+ * mousedown lands before the row's own click, so a portaled panel would dismiss the menu with the
+ * row's action never run.
+ */
+export function SubmenuList({ items, closeMenu, width = 180, label = t('overlay.submenu'), }: {
+    items: MenuItem[];
+    closeMenu: () => void;
+    width?: number;
+    /** The panel's accessible name; a nested panel is named after the row that opened it. */
+    label?: string;
+}) {
+    const [openRow, setOpenRow] = useState<OpenRow | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+    return (<div ref={listRef} role="menu" aria-label={label} style={{ width }} onScroll={() => setOpenRow(null)} onClick={(event) => event.stopPropagation()} className="max-h-[380px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none">
+      {items.map((item) => (<SubmenuRow key={item.id} item={item} openRow={openRow} setOpenRow={setOpenRow} closeMenu={closeMenu} listRef={listRef}/>))}
+    </div>);
+}
+
+/** The rows of one list in DOM order — never those of a panel nested inside it. */
+function rowsOf(list: HTMLElement | null): HTMLButtonElement[] {
+    if (!list)
+        return [];
+    const rows: HTMLButtonElement[] = [];
+    for (const child of list.children) {
+        const row = child.querySelector<HTMLButtonElement>('[data-submenu-row]');
+        // A panel's own rows are one level deeper: they belong to the panel, not to this list.
+        if (row && row.parentElement === child)
+            rows.push(row);
+    }
+    return rows;
+}
+
+/**
+ * Where a key takes the focus inside one list: the neighbouring enabled row, wrapping at the ends,
+ * or the first or last of them.
+ */
+function stepFocus(list: HTMLElement | null, from: HTMLElement, step: 1 | -1 | 'first' | 'last'): void {
+    const rows = rowsOf(list).filter((row) => !row.disabled);
+    if (rows.length === 0)
+        return;
+    const index = rows.indexOf(from as HTMLButtonElement);
+    if (step === 'first' || (step === 1 && index < 0)) {
+        rows[0]?.focus({ preventScroll: true });
+        return;
+    }
+    if (step === 'last' || (step === -1 && index < 0)) {
+        rows[rows.length - 1]?.focus({ preventScroll: true });
+        return;
+    }
+    rows[(index + step + rows.length) % rows.length]?.focus({ preventScroll: true });
+}
+
+/** What the keys do on one row: step into a panel, move along the list, or step back out of it. */
+function rowKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, row: {
+    item: MenuItem;
+    list: HTMLElement | null;
+    openPanel: (focus: boolean) => void;
+    leavePanel: (() => void) | null;
+}): void {
+    const { item, list, openPanel, leavePanel } = row;
+    if (item.submenu && STEP_IN_KEYS.includes(event.key)) {
+        event.preventDefault();
+        openPanel(true);
+        return;
+    }
+    const step = STEP_KEYS[event.key];
+    if (step) {
+        event.preventDefault();
+        stepFocus(list, event.currentTarget, step);
+        return;
+    }
+    if (event.key === 'ArrowLeft' && leavePanel) {
+        event.preventDefault();
+        leavePanel();
+    }
+}
+
+/** Closes a row's panel and hands the focus back to the row that opened it. */
+function closeRowPanel(list: HTMLElement | null, id: string, setOpenRow: Dispatch<SetStateAction<OpenRow | null>>): void {
+    setOpenRow(null);
+    list?.querySelector<HTMLElement>(`[data-submenu-row="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+}
+
+function rowElementOf(list: HTMLElement | null, id: string): HTMLElement | null {
+    return list?.querySelector<HTMLElement>(`[data-submenu-row="${CSS.escape(id)}"]`) ?? null;
+}
+
+/**
+ * Where a panel goes: beside the row that opened it, flipped to the other side and clamped when the
+ * near edge of the viewport is closer than the panel is wide.
+ */
+function panelPosition(rowElement: HTMLElement, panel: HTMLElement): { top: number, left: number } {
+    const rect = rowElement.getBoundingClientRect();
+    const viewport = getVisibleViewport();
+    let left = rect.right - NESTED_GAP;
+    if (left + panel.offsetWidth > viewport.right - NESTED_MARGIN)
+        left = Math.max(viewport.left + NESTED_MARGIN, rect.left - panel.offsetWidth + NESTED_GAP);
+    let top = rect.top - NESTED_GAP * 2;
+    if (top + panel.offsetHeight > viewport.bottom - NESTED_MARGIN)
+        top = Math.max(viewport.top + NESTED_MARGIN, viewport.bottom - panel.offsetHeight - NESTED_MARGIN);
+    const origin = containingBlockOrigin(panel);
+    return { top: top - origin.y, left: left - origin.x };
+}
+
+/**
+ * Where a `fixed` box inside `element` is placed from: the viewport, unless an ancestor establishes
+ * a containing block of its own — and the menu's own pop-in animation does. `anim-pop` fills
+ * forwards, so the transform it settles on is the identity matrix rather than `none`, which still
+ * counts; a panel that read the row's box as viewport coordinates was then drawn a whole submenu
+ * down and to the right of it, off screen.
+ *
+ * A blurred ancestor would join this list, but the blur budget guard keeps that property out of the
+ * app entirely, so there is nothing here to test for.
+ */
+function containingBlockOrigin(element: HTMLElement): { x: number, y: number } {
+    for (let node = element.parentElement; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        const isContainingBlock = style.transform !== 'none' || style.perspective !== 'none' || style.filter !== 'none' || style.willChange.includes('transform');
+        if (!isContainingBlock)
+            continue;
+        const rect = node.getBoundingClientRect();
+        // The block such a box is placed in is the ancestor's padding box, which starts inside its border.
+        return { x: rect.left + node.clientLeft, y: rect.top + node.clientTop };
+    }
+    return { x: 0, y: 0 };
+}
+
+/** The way out of the panel a list sits in, told to the rows rather than walked off the DOM. */
+const ClosePanelContext = createContext<(() => void) | null>(null);
+
+function SubmenuRow({ item, openRow, setOpenRow, closeMenu, listRef }: {
+    item: MenuItem;
+    openRow: OpenRow | null;
+    setOpenRow: Dispatch<SetStateAction<OpenRow | null>>;
+    closeMenu: () => void;
+    listRef: RefObject<HTMLDivElement | null>;
+}) {
+    const open = openRow?.id === item.id;
+    const closePanel = useContext(ClosePanelContext);
+    const panelId = useId();
+    return (<div>
+      {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
+      <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? open : undefined} {...(open && item.submenu ? { 'aria-controls': panelId } : {})} data-submenu-row={item.id} disabled={item.disabled} onMouseEnter={() => setOpenRow(item.submenu ? { id: item.id, focus: false } : null)} onKeyDown={(event) => rowKeyDown(event, {
+        item,
+        list: listRef.current,
+        openPanel: (focus) => setOpenRow(item.submenu ? { id: item.id, focus } : null),
+        leavePanel: closePanel,
+      })} onClick={() => {
+        if (item.submenu) {
+            setOpenRow({ id: item.id, focus: false });
+            return;
+        }
+        item.onSelect?.();
+        closeMenu();
+      }} className={cn('flex h-[30px] w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[12.5px] transition-colors duration-[80ms] disabled:pointer-events-none disabled:opacity-40', 'hover:bg-[var(--bg-hover)]', item.tone === 'danger' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]')}>
+        {item.icon && <span className="flex size-4 shrink-0 items-center justify-center opacity-85">{item.icon}</span>}
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        {item.checked && <Check size={13} className="shrink-0 text-[var(--accent)]"/>}
+        {item.submenu && <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>}
+      </button>
+      {open && item.submenu && (<NestedPanel id={panelId} listRef={listRef} row={openRow!} label={item.label} onClose={() => closeRowPanel(listRef.current, item.id, setOpenRow)}>
+          {typeof item.submenu === 'function' ? item.submenu({ closeMenu }) : item.submenu}
+        </NestedPanel>)}
+    </div>);
+}
+
+/**
+ * One level further in. It is a DOM child of the list it belongs to (see `SubmenuList`), so its box
+ * is read from `fixed` coordinates taken off the row's own — shifted back into whatever block
+ * `fixed` really resolves against — and its content is whatever the row's `submenu` renders, a
+ * `SubmenuList` of its own when the items nest again.
+ */
+function NestedPanel({ id, listRef, row, label, children, onClose }: {
+    id: string;
+    listRef: RefObject<HTMLDivElement | null>;
+    row: OpenRow;
+    label: string;
+    children: ReactNode;
+    onClose: () => void;
+}) {
+    const panelRef = useRef<HTMLDivElement>(null);
+    const [position, setPosition] = useState<{ top: number, left: number } | null>(null);
+    // useEscape runs the top of its stack and nothing else, so the panel takes Escape before the
+    // menu that owns it does and the levels close one at a time.
+    useEscape(true, onClose);
+
+    const measure = useCallback(() => {
+        const rowElement = rowElementOf(listRef.current, row.id);
+        const panel = panelRef.current;
+        if (!rowElement || !panel)
+            return;
+        setPosition(panelPosition(rowElement, panel));
+    }, [listRef, row.id]);
+
+    useLayoutEffect(() => {
+        measure();
+    }, [measure]);
+
+    // Re-measured while open: the panel hangs off its row's box, so anything that moves that box —
+    // the window resizing, the page scrolling under it — would otherwise leave it behind.
+    useEffect(() => {
+        window.addEventListener('resize', measure);
+        window.addEventListener('scroll', measure, true);
+        return () => {
+            window.removeEventListener('resize', measure);
+            window.removeEventListener('scroll', measure, true);
+        };
+    }, [measure]);
+
+    // Only a keyboard opening steps in: the pointer is already where it wants to be, and taking the
+    // focus out of the list under it would be a surprise.
+    useEffect(() => {
+        if (!row.focus)
+            return;
+        panelRef.current?.querySelector<HTMLElement>('button:not([disabled]), input, [href]')?.focus({ preventScroll: true });
+    }, [row.focus, row.id]);
+
+    return (<div ref={panelRef} id={id} role="menu" aria-label={label} style={{ top: position?.top ?? 0, left: position?.left ?? 0 }} className={cn('anim-pop fixed outline-none', !position && 'invisible')} onClick={(event) => event.stopPropagation()}>
+      <ClosePanelContext.Provider value={onClose}>{children}</ClosePanelContext.Provider>
+    </div>);
 }
