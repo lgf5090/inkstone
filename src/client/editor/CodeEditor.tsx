@@ -19,6 +19,7 @@ import { livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
+import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
 import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
@@ -49,6 +50,9 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
 }
 export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
+    const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
+    const tagMenuRef = useRef<(request: TagMenuRequest | null) => void>(() => {});
+    tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
     const cbRef = useRef({ onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle });
@@ -132,6 +136,14 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             EditorView.domEventHandlers({
                 scroll(_event, view) {
                     cbRef.current.onScroll?.(view);
+                },
+                contextmenu(event) {
+                    const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY);
+                    if (!request)
+                        return false;
+                    event.preventDefault();
+                    tagMenuRef.current(request);
+                    return true;
                 },
             }),
             linkHoverExtension(),
@@ -221,6 +233,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     }, [settings.focusMode]);
     return (<>
       <div ref={hostRef} className={cn('ink-editor', className)} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter}/>
+      <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
       {hover.card && (<WikiLinkHoverCard card={hover.card} path={hover.card.noteId ? [hover.card.noteId] : []} depth={1} dark={dark} onClose={hover.hideNow} onEnter={hover.clearPendingHide} onLeave={hover.armHide} onPin={handlePin}/>)}
     </>);
 }

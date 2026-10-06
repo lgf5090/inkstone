@@ -94,6 +94,14 @@ const allowed = new Map([
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
   ]],
+  ["src/client/editor/decorations.ts", [
+    "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
+    "// and the hover and context-menu paths both identify a hashtag by that datum.",
+  ]],
+  ["src/client/editor/link-hover-plugin.ts", [
+    "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
+    "// its own; without this the sidebar and preview hover but the editor does not.",
+  ]],
   ["src/client/editor/live-preview.ts", [
     "// Preserve the source line under the pointer, including rows inside tables/lists.",
     "/** Decorations change presentation only; all editing, undo, search and saving use Markdown. */",

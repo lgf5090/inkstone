@@ -3,7 +3,8 @@ import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { decodeDataValue, encodeDataValue } from '../lib/markdown/data-attr'
 
 const WIKI_TEXT_RE = /^\[\[([\s\S]+)\]\]$/
-const HOVER_SELECTOR = '.cm-md-wikilink, [data-wikilink]'
+const TAG_TEXT_RE = /^#([\p{L}\p{N}_\-/·]{1,60})$/u
+const HOVER_SELECTOR = '.cm-md-wikilink, [data-wikilink], .cm-md-tag, [data-tag]'
 
 interface LinkHoverCallbacks {
   propose: (link: HTMLElement | null, options?: { immediate?: boolean }) => void
@@ -87,8 +88,14 @@ class LinkHoverPlugin {
     if (mark) {
       if (mark === this.lastProposed) return
       const raw = wikiRawOf(mark)
-      if (raw == null) return
-      mark.dataset.wikilink = encodeDataValue(raw)
+      if (raw != null) mark.dataset.wikilink = encodeDataValue(raw)
+      else {
+        const tag = tagRawOf(mark)
+        // The caret path reads whichever datum the mark just got, so a hashtag has to carry
+        // its own; without this the sidebar and preview hover but the editor does not.
+        if (tag == null) return
+        mark.dataset.tag = encodeDataValue(tag)
+      }
       this.lastProposed = mark
       callback?.propose(mark, { immediate: this.hovered == null })
     } else if (this.lastProposed !== null) {
@@ -102,6 +109,13 @@ function wikiRawOf(mark: HTMLElement): string | null {
   const encoded = mark.dataset.wikilink
   if (encoded !== undefined) return decodeDataValue(encoded) || null
   const match = WIKI_TEXT_RE.exec(mark.textContent ?? '')
+  return match ? match[1]!.trim() : null
+}
+
+function tagRawOf(mark: HTMLElement): string | null {
+  const encoded = mark.dataset.tag
+  if (encoded !== undefined) return decodeDataValue(encoded) || null
+  const match = TAG_TEXT_RE.exec((mark.textContent ?? '').trim())
   return match ? match[1]!.trim() : null
 }
 

@@ -143,6 +143,28 @@ describe('caret proposal from link hover plugin', () => {
   })
 })
 
+describe('hashtag proposals from the editor', () => {
+  it('proposes the tag under the pointer', async () => {
+    const { view, proposals, container } = mountEditor('Status #work/deep done')
+    const mark = container.querySelector<HTMLElement>('.cm-md-tag')!
+    mark.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 40, clientY: 8 }))
+    await waitForMeasure()
+    expect(proposals.at(-1), 'the hashtag mark itself').toBe(mark)
+    expect(mark.dataset.tag).toBe(encodeDataValue('work/deep'))
+    view.destroy()
+    container.remove()
+  })
+
+  it('proposes the tag the caret sits inside', async () => {
+    const { view, proposals, container } = mountEditor('Status #work/deep done')
+    view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('work') + 2 } })
+    await waitForMeasure()
+    expect(proposals.at(-1)!.dataset.tag).toBe(encodeDataValue('work/deep'))
+    view.destroy()
+    container.remove()
+  })
+})
+
 describe('mouse hover behavior of link hover plugin', () => {
   it('does not re-propose when the mouse hovers the same mark the caret is in', async () => {
     const { view, proposals, container } = mountEditor()
