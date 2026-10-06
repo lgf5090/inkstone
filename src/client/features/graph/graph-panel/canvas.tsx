@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, type RefObject } from 'react'
 import type { GraphResponse } from '@shared/types'
 import { t } from '../../../lib/i18n'
+import { usePinnedWindows } from '../../../store/pinned-windows'
 import type { GraphPreferences } from '../../../lib/graph-settings'
 import {
   GRAPH_DPR_MAX,
@@ -389,7 +390,10 @@ export function GraphCanvas({
   const openNode = useCallback((node: CanvasNode) => {
     if (node.kind === 'tag') callbacksRef.current.onFilterByTag?.(node.title)
     else if (node.kind === 'unresolved') callbacksRef.current.onCreateNote(node.title)
-    else callbacksRef.current.onOpenNote(node.id)
+    else {
+      if (usePinnedWindows.getState().focusPinnedByNote(node.id)) return
+      callbacksRef.current.onOpenNote(node.id)
+    }
   }, [])
 
   const contextNode = useCallback((clientX: number, clientY: number) => {

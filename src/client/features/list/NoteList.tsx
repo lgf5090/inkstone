@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { groupLabel, parseDateKey } from '../../lib/time';
@@ -18,6 +18,7 @@ import { createContextualNote, useNotes, useVisibleNotes } from '../../store/not
 import { folderPathLabel } from '../../lib/folders';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
+import { openNoteFloatingWindow } from './note-floating-window';
 import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
@@ -575,7 +576,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
         }} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
-        }} className={cn('motion-note-row group relative cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow,transform] duration-[var(--dur-fast)] md:pr-10', density === 'compact' ? 'py-[7px]' : 'py-2.5', selectionHighlighted
+        }} className={cn('motion-note-row group relative cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow,transform] duration-[var(--dur-fast)] md:pr-[68px]', density === 'compact' ? 'py-[7px]' : 'py-2.5', selectionHighlighted
             ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40'
             : active
                 ? 'border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'
@@ -618,14 +619,24 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
               </div>)}
           </div>
         </div>
-        {breakpoint === 'desktop' && (<Tooltip label={t("notes.open_to_side")} side="left">
-            <IconButton label={t("notes.open_to_side")} size="sm" active={openInSecondary} onClick={(event) => {
+        {breakpoint === 'desktop' && (<div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Tooltip label={t("notes.open_to_side")} side="left">
+              <IconButton label={t("notes.open_to_side")} size="sm" active={openInSecondary} onClick={(event) => {
                   event.stopPropagation();
                   void openNote(note.id, { pane: 'secondary' });
-              }} className="absolute top-1.5 right-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" >
-              <Columns2 size={14}/>
-            </IconButton>
-          </Tooltip>)}
+              }}>
+                <Columns2 size={14}/>
+              </IconButton>
+            </Tooltip>
+            <Tooltip label={t("notes.open_in_floating_window")} side="left">
+              <IconButton label={t("notes.open_in_floating_window")} size="sm" onClick={(event) => {
+                  event.stopPropagation();
+                  openNoteFloatingWindow(note, event.currentTarget.closest('[data-note-id]')?.getBoundingClientRect() ?? null);
+              }}>
+                <PictureInPicture2 size={14}/>
+              </IconButton>
+            </Tooltip>
+          </div>)}
         {breakpoint === 'mobile' && (<Tooltip label={t("common.more_actions")} side="left">
             <IconButton ref={menuButtonRef} label={t("common.more_actions")} size="sm" onClick={(event) => {
                   event.stopPropagation();
