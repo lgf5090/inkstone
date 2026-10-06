@@ -14,7 +14,7 @@ const preservesOnDemandBoundary = (id: string) => {
   const path = normalizeModuleId(id)
   // Keep optional preview renderers and their language modules behind dynamic-import boundaries.
   return (
-    /\/node_modules\/(?:mermaid|@mermaid-js\/[^/]+|cytoscape|cytoscape-cose-bilkent|elkjs|dagre-d3-es|d3-[^/]+)\//.test(
+    /\/node_modules\/(?:mermaid|@mermaid-js\/[^/]+|cytoscape|cytoscape-cose-bilkent|elkjs|dagre-d3-es|d3-[^/]+|mind-elixir)\//.test(
       path,
     ) ||
     /\/node_modules\/@lezer\/(?!common\/|highlight\/|lr\/|markdown\/)/.test(path) ||

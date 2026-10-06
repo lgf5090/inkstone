@@ -194,7 +194,7 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
     // the still has to register the set first — otherwise every board on a card reads as an empty
     // fence and renders the error state instead of the cards the note holds.
     registerFenceBodies(staging, rendered.fences)
-    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]') || staging.querySelector('[data-kanban]')) {
+    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]') || staging.querySelector('[data-kanban]') || staging.querySelector('[data-mindmap]')) {
       await enhancePreview(staging, {
         math: args.previewMath,
         mermaid: false,
@@ -207,6 +207,9 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
         // "Loading kanban…" inside the card, and it renders as the still rather than the live root
         // because a card has no host that could hold one.
         kanban: 'snapshot',
+        // Same reasoning for a map: a card has no room for a canvas and no instance to mount, so the
+        // fence body is what it can show.
+        mindmap: 'source',
         dark: args.dark,
         codeBlockCollapseLines: 0,
       })

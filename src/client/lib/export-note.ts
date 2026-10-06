@@ -1,5 +1,5 @@
 import { renderMarkdown } from './markdown/renderer'
-import { bakeChartsToImages, renderMath, renderPendingCharts, renderPendingMermaid } from './markdown/enhance'
+import { applyPanelColumnTracks, bakeChartsToImages, renderMath, renderPendingCharts, renderPendingMermaid } from './markdown/enhance'
 import { resolveNoteEmbeds } from './markdown/embeds'
 import { registerFenceBodies } from './markdown/fence-bodies'
 import { renderStaticKanbans } from './markdown/kanban/static'
@@ -17,6 +17,39 @@ const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5
 // so it keeps the pinned CDN copy; the print frame cannot load it and inlines instead.
 const CDN_MATH_STYLESHEET = `<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">`
 const INLINE_MATH_STYLESHEET = `<style>${katexPrintCss}</style>`
+
+/**
+ * The `:::` layout blocks, drawn for a document with no stylesheet of its own.
+ *
+ * An export loses the prose sheet it was read against, so a column block that is not given its grid
+ * here silently becomes a stack — the author's layout survives in the source and nowhere on the page.
+ */
+export const LAYOUT_PRINT_STYLES = `
+.markdown-align { margin: 0.9em 0; }
+.markdown-align > :first-child { margin-top: 0; }
+.markdown-align > :last-child { margin-bottom: 0; }
+.markdown-align[data-align="left"] { text-align: left; }
+.markdown-align[data-align="center"] { text-align: center; }
+.markdown-align[data-align="right"] { text-align: right; }
+.markdown-align[data-align="justify"] { text-align: justify; }
+.markdown-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; margin: 0.95em 0; }
+.markdown-cols[data-cols="1"] { grid-template-columns: var(--panel-cols-tracks, minmax(0, 1fr)); }
+.markdown-cols[data-cols="2"] { grid-template-columns: var(--panel-cols-tracks, repeat(2, minmax(0, 1fr))); }
+.markdown-cols[data-cols="3"] { grid-template-columns: var(--panel-cols-tracks, repeat(3, minmax(0, 1fr))); }
+.markdown-cols[data-cols="4"] { grid-template-columns: var(--panel-cols-tracks, repeat(4, minmax(0, 1fr))); }
+.markdown-cols[data-cols="5"] { grid-template-columns: var(--panel-cols-tracks, repeat(5, minmax(0, 1fr))); }
+.markdown-cols[data-cols="6"] { grid-template-columns: var(--panel-cols-tracks, repeat(6, minmax(0, 1fr))); }
+.markdown-cols[data-cols-gap="narrow"] { gap: 6px; }
+.markdown-cols[data-cols-gap="wide"] { gap: 24px; }
+.markdown-col { min-width: 0; }
+.markdown-col > :first-child { margin-top: 0; }
+.markdown-col > :last-child { margin-bottom: 0; }
+.markdown-cols[data-cols-align="left"] .markdown-col { text-align: left; }
+.markdown-cols[data-cols-align="center"] .markdown-col { text-align: center; }
+.markdown-cols[data-cols-align="right"] .markdown-col { text-align: right; }
+.markdown-cols[data-cols-align="justify"] .markdown-col { text-align: justify; }
+.markdown-cols[data-cols-divider] > .markdown-col + .markdown-col { border-left: 1px solid #e5e7eb; padding-left: 8px; margin-left: -8px; }
+`
 
 export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob)
@@ -107,6 +140,9 @@ async function prepareExportBody(note: { title: string; content: string }): Prom
   // is drawn as a still here the way the preview pane draws one for a card and a share page.
   renderStaticKanbans(doc.body)
   expandHiddenBlocks(doc.body)
+  // Column widths reach CSS as a custom property rather than an attribute, and the export path runs
+  // no enhancer, so the one hand the header's `1fr 2fr` has to be given to the stylesheet here.
+  applyPanelColumnTracks(doc.body)
   stripInertControls(doc.body)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
 }
@@ -230,6 +266,7 @@ summary { font-weight: 600; }
 details[open] summary { margin-bottom: 0.4em; }
 .tab-panel { margin: 0.9em 0; }
 .tab-panel-label { margin: 0 0 0.4em; font-weight: 600; color: #4b5563; break-after: avoid; }
+${LAYOUT_PRINT_STYLES}
 .callout { border-left: 4px solid #6b7280; border-radius: 6px; padding: 0.65em 1em; margin: 0.9em 0; background: #f9fafb; }
 .callout[data-callout="warning"], .callout[data-callout="question"] { border-color: #d97706; }
 .callout[data-callout="danger"], .callout[data-callout="failure"] { border-color: #dc2626; }
@@ -238,6 +275,27 @@ details[open] summary { margin-bottom: 0.4em; }
 .callout-title { font-weight: 600; margin-bottom: 0.25em; }
 .callout-content > :first-child { margin-top: 0; }
 .callout-content > :last-child { margin-bottom: 0; }
+.markdown-timeline-block { margin: 1.2em 0; }
+.markdown-timeline-caption { margin-bottom: 0.4em; font-weight: 600; }
+.markdown-timeline-intro { margin-bottom: 0.6em; }
+.markdown-timeline { margin: 0; padding: 0; list-style: none; counter-reset: markdown-timeline; }
+.markdown-timeline-item { position: relative; padding: 0 0 0.9em 1.5em; border-left: 1px solid #d1d5db; break-inside: avoid; }
+.markdown-timeline-item:last-child { padding-bottom: 0; border-left-color: transparent; }
+.markdown-timeline-node { position: absolute; left: -5px; top: 0.34em; width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%; border: 1px solid #9ca3af; background: #fff; }
+.markdown-timeline-item[data-status="done"] .markdown-timeline-node { background: #16a34a; border-color: #16a34a; }
+.markdown-timeline-item[data-status="doing"] .markdown-timeline-node { background: #d97706; border-color: #d97706; }
+.markdown-timeline-item[data-status="error"] .markdown-timeline-node { background: #dc2626; border-color: #dc2626; }
+.markdown-timeline-item[data-status="milestone"] .markdown-timeline-node { background: #2563eb; border-color: #2563eb; border-radius: 2px; transform: rotate(45deg); }
+.markdown-timeline-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1em 0.5em; }
+.markdown-timeline-time { font-size: 0.82em; color: #4b5563; font-variant-numeric: tabular-nums; }
+.markdown-timeline-title { font-weight: 600; }
+.markdown-timeline-status { font-size: 0.72em; color: #4b5563; border: 1px solid #e5e7eb; border-radius: 999px; padding: 0 0.4em; }
+.markdown-timeline-body > :last-child { margin-bottom: 0; }
+.markdown-timeline-block[data-timeline-status="off"] .markdown-timeline-status { display: none; }
+.markdown-timeline-block[data-timeline-dense="true"] .markdown-timeline-item { padding-bottom: 0.45em; }
+.markdown-timeline-block[data-timeline-marker="number"] .markdown-timeline-item { counter-increment: markdown-timeline; }
+.markdown-timeline-block[data-timeline-marker="number"] .markdown-timeline-node { left: calc(-0.85em - 1px); width: 1.7em; height: 1.7em; border-radius: 50%; border-color: #9ca3af; background: #fff; color: #4b5563; font-size: 11px; line-height: 1.7; text-align: center; transform: none; }
+.markdown-timeline-block[data-timeline-marker="number"] .markdown-timeline-node::before { content: counter(markdown-timeline); }
 .note-embed { display: block; margin: 0.9em 0; overflow: hidden; border: 1px solid #e5e7eb; border-left: 3px solid #6b7280; border-radius: 8px; background: #f9fafb; }
 .note-embed-head { display: block; padding: 0.42em 0.75em; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-size: 0.86em; font-weight: 600; }
 .note-embed-body { display: block; padding: 0.7em 0.8em 0.05em; }

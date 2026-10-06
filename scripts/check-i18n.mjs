@@ -79,6 +79,15 @@ const allowedHanFragments = new Map([
         '\u4e00',
         '\u4e8c',
     ]],
+    // The timeline fixture is the reference project's own demo text, copied verbatim so the
+    // space-free `:::timeline` spelling and the Han titles are exercised as authors write them.
+    [path.resolve('src/client/lib/markdown/timeline.test.ts'), [
+        '\u53d1\u5c55\u5386\u7a0b',
+        '\u53d1\u5c55\u5386\u7a0b',
+        '\u9879\u76ee\u5f00\u6e90',
+        '\u9879\u76ee\u5f00\u6e90',
+        '\u6b63\u5f0f\u5f00\u6e90',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.

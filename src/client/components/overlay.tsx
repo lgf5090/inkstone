@@ -159,8 +159,9 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     width?: number;
     className?: string;
     bodyClassName?: string;
-    /** 'fullscreen' drops the card's own box: the panel fills the viewport and scrolls its content. */
+    /** `fullscreen` fills the viewport and hands the body to a single surface (e.g. a mind map). */
     variant?: 'dialog' | 'fullscreen';
+    /** Accessible name for a surface that renders its own heading instead of using `title`. */
     ariaLabel?: string;
 }) {
     const fullscreen = variant === 'fullscreen';
@@ -175,9 +176,11 @@ export function Modal({ open, onClose, title, description, children, footer, wid
     return createPortal(
 
 
-    <div className="app-viewport-fixed fixed z-[250] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8">
+    <div className={cn('app-viewport-fixed fixed z-[250] flex items-end justify-center overflow-hidden md:items-start md:overflow-y-auto md:p-8', fullscreen && 'md:overflow-hidden md:p-0')}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.dialog")} tabIndex={-1} className={cn('anim-pop relative flex max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] w-full flex-col rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)]', 'bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] outline-none md:my-auto md:rounded-[var(--r-2xl)] md:border-b', fullscreen && 'h-full max-h-none rounded-none border-0 md:my-0 md:h-full md:max-h-none md:rounded-none md:border-0', className)} style={{ maxWidth: fullscreen ? undefined : width }}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-describedby={description ? descriptionId : undefined} aria-label={title ? undefined : (ariaLabel ?? t("overlay.dialog"))} tabIndex={-1} className={cn('anim-pop relative flex w-full flex-col outline-none', fullscreen
+        ? 'h-[100dvh] max-h-none border-0 md:h-[100dvh] md:my-0 md:rounded-none'
+        : 'max-h-[calc(var(--app-viewport-height,100dvh)-env(safe-area-inset-top))] rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)] md:my-auto md:rounded-[var(--r-2xl)] md:border-b', className)} style={fullscreen ? undefined : { maxWidth: width }}>
         {(title || description) && (<div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-3 md:px-5">
             <div className="min-w-0">
               {title && (<h2 id={titleId} className="text-[15px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">

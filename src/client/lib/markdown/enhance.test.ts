@@ -85,12 +85,33 @@ describe('katex output', () => {
     node.dataset.math = '\\alpha'
     root.append(node)
     document.body.append(root)
-    await enhancePreview(root, { math: true, mermaid: false, chart: false,
- kanban: 'source',
- dark: false })
+    await enhancePreview(root, { math: true, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', dark: false })
     expect(node.innerHTML).toContain('katex')
     expect(node.innerHTML).not.toContain('onerror')
     expect(node.innerHTML).not.toContain('alert(')
     expect(node.innerHTML).toContain('color:red')
+  })
+})
+
+describe('handing a column block its track sizes', () => {
+  async function grid(attribute: string | null): Promise<string> {
+    const { applyPanelColumnTracks } = await import('./enhance')
+    const root = document.createElement('div')
+    root.innerHTML = `<div class="markdown-cols"${attribute ? ` data-cols-tracks="${attribute}"` : ''}></div>`
+    applyPanelColumnTracks(root)
+    return root.firstElementChild!.getAttribute('style') ?? ''
+  }
+
+  it('turns the header’s fractions into the custom property CSS cannot read', async () => {
+    expect(await grid('1fr 2fr')).toContain('--panel-cols-tracks: 1fr 2fr')
+    expect(await grid('50% 50%')).toContain('--panel-cols-tracks: 50% 50%')
+  })
+
+  it('refuses anything that would leave the attribute as a CSS declaration', async () => {
+    expect(await grid('expression(alert(1))')).toBe('')
+    expect(await grid('1fr; position: fixed')).toBe('')
+    expect(await grid('1fr')).toBe('')
+    expect(await grid('1fr 2fr 3fr 4fr 5fr 6fr 7fr')).toBe('')
+    expect(await grid(null)).toBe('')
   })
 })

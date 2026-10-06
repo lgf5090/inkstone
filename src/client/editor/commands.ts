@@ -1,6 +1,8 @@
 import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange, type StateCommand } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
+import { markdownToMindmapOutline } from '../lib/markdown/mindmap/outline';
+import { useUi } from '../store/ui';
 
 
 export function toggleWrap(open: string, close = open, options: { suggestWhenOpeningEmpty?: boolean } = {}): StateCommand {
@@ -360,6 +362,36 @@ export const insertKanban: StateCommand = (target) => insertWrappedBlock(
     '{\n  "title": "Kanban",\n  "columns": [\n    {\n      "id": "status",\n      "name": "Status",\n      "type": "select",\n      "options": [\n        { "id": "todo", "label": "To Do", "color": "gray" },\n        { "id": "in_progress", "label": "In Progress", "color": "blue" },\n        { "id": "done", "label": "Done", "color": "green" }\n      ]\n    }\n  ],\n  "items": []\n}',
 )(target);
 
+/**
+ * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole
+ * note. All of it is one transaction, so one undo takes the fence back — the same contract every
+ * other insertion here has. Returns false when the text holds no headings and no lists, which is not
+ * something the command can report on its own; {@link generateMindmapFromOutline} does.
+ */
+export const insertMindmapFromOutline: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const source = range.empty ? state.doc.toString() : state.sliceDoc(range.from, range.to);
+    const outline = markdownToMindmapOutline(source);
+    if (outline === null)
+        return false;
+    const insert = `\`\`\`mindmap\n${outline}\n\`\`\`\n`;
+    dispatch(state.update({
+        changes: { from: range.from, to: range.to, insert },
+        selection: EditorSelection.cursor(range.from + insert.length),
+        scrollIntoView: true,
+        userEvent: 'input.insert',
+    }));
+    return true;
+};
+
+/** The menu-level action: says so when there was no outline to draw, instead of looking like a dead item. */
+export function generateMindmapFromOutline(view: EditorView): boolean {
+    if (insertMindmapFromOutline(view))
+        return true;
+    useUi.getState().toast({ title: t('workspace.mindmap_from_outline_empty'), tone: 'warning' });
+    return false;
+}
+
 export const insertMathBlock: StateCommand = ({ state, dispatch }) => {
     const changes = state.changeByRange((range) => {
         const selected = state.sliceDoc(range.from, range.to);
@@ -419,6 +451,47 @@ export const insertTabs: StateCommand = ({ state, dispatch }) => {
     }));
     return true;
 };
+
+/**
+ * A column block arrives as two columns, because the `::` that divides them is the one part of the
+ * syntax a reader cannot guess from the header.
+ */
+export const insertColumns: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const selected = state.sliceDoc(range.from, range.to);
+    const first = selected || t("editor.column_1");
+    const insert = `::: cols\n${first}\n::\n${t("editor.column_2")}\n:::\n`;
+    const cursor = range.from + '::: cols\n'.length;
+    dispatch(state.update({
+        changes: { from: range.from, to: range.to, insert },
+        selection: EditorSelection.range(cursor, cursor + first.length),
+        scrollIntoView: true,
+        userEvent: 'input.insert',
+    }));
+    return true;
+};
+
+export const insertTimeline: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const selected = state.sliceDoc(range.from, range.to);
+    const placeholder = t('editor.timeline_node');
+    const bodies = selected.trim() ? selected.split('\n').map((line) => line.trim()).filter(Boolean) : [];
+    const nodes = (bodies.length ? bodies : [placeholder, placeholder])
+        .map((line, index) => `${index === 0 ? ':: [done] ' : ':: '}${line}`);
+    const insert = `::: timeline\n${nodes.join('\n')}\n:::\n`;
+    const start = range.from + '::: timeline\n:: [done] '.length;
+    dispatch(state.update({
+        changes: { from: range.from, to: range.to, insert },
+        selection: EditorSelection.range(start, start + (bodies[0] ?? placeholder).length),
+        scrollIntoView: true,
+        userEvent: 'input.insert',
+    }));
+    return true;
+};
+
+export function insertAlign(align: 'left' | 'center' | 'right' | 'justify'): StateCommand {
+    return insertWrappedBlock(`::: ${align}`, ':::', '', `::: ${align}`.length + 1);
+}
 
 export const insertFrontMatter: StateCommand = ({ state, dispatch }) => {
     const source = state.doc.toString();
@@ -551,7 +624,7 @@ export const completeCodeFenceOnEnter: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
-const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set)\}?(?![\w-])[ \t]*(.*)$/;
+const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set|timeline|cols|left|center|right|justify)\}?(?![\w-])[ \t]*(.*)$/;
 const COLON_CLOSER_RE = /^[ \t]{0,3}(:{3,})[ \t]*$/;
 
 export const completeColonFenceOnEnter: StateCommand = ({ state, dispatch }) => {

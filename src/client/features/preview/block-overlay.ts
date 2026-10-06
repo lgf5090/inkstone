@@ -1,6 +1,17 @@
 import { t } from '../../lib/i18n'
+import type { TabScope } from './markdown-tabs'
 
-export type BlockToast = (opts: { title: string; tone?: 'default' | 'success' | 'warning' | 'danger' }) => void
+/**
+ * The surface's toast. `action` is what carries an undo for the toolbar presses that rewrite the
+ * note — a format conversion has no editor keystroke behind it, so the offer has to travel with the
+ * message that says it happened.
+ */
+export type BlockToast = (opts: {
+  title: string
+  tone?: 'default' | 'success' | 'warning' | 'danger'
+  action?: { label: string; run: () => void }
+  duration?: number
+}) => void
 
 export interface BlockOverlaySpec {
   block: string
@@ -72,6 +83,12 @@ export interface BlockActionContext {
   sourceNoteId: string | null
   committedSourceRef: { current: string }
   api: { editContent: (noteId: string, next: string) => void; toast: BlockToast }
+  /**
+   * The two mind map head buttons whose panel is React state rather than prose markup, because the
+   * block they sit in is re-rendered wholesale from the note and would drop it. Only the surface that
+   * holds the note has that state, so the toolbar asks for it through here.
+   */
+  mindmap?: { fullscreen: (node: HTMLElement) => void; themeMenu: (node: HTMLElement) => void }
 }
 
 /**
@@ -96,6 +113,11 @@ export function blockActionSource(ctx: BlockActionContext): { noteId: string; so
  */
 export interface BlockToolbarOptions {
   chart: boolean
+  /**
+   * Whose note the surface is drawing, for the families that remember a choice between visits. A
+   * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.
+   */
+  tabScope?: TabScope
 }
 
 export interface BlockToolbarModule {

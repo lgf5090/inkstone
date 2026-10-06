@@ -3,6 +3,7 @@ import type { EditorView } from '@codemirror/view';
 import { normalizeLinkKey } from '@shared/markdown-utils';
 import { truncateText } from '@shared/text-utils';
 import { fuzzyMatch } from '../lib/fuzzy';
+import { LAYOUT_CONTAINER_WORDS } from '../lib/markdown/panel-options';
 import { t } from "../lib/i18n";
 export interface CompletionSources {
     notes: () => {
@@ -107,7 +108,7 @@ const LANGUAGES = [
     'c', 'cpp', 'csharp', 'php', 'ruby', 'sql', 'bash', 'shell', 'powershell', 'json', 'yaml',
     'toml', 'xml', 'html', 'css', 'scss', 'markdown', 'diff', 'dockerfile', 'nginx', 'mermaid',
 ];
-const CONTAINER_DIRECTIVES = ['details', 'tabs', 'tab-item', '{tab-set}', '{tab-item}'];
+const CONTAINER_DIRECTIVES = ['details', 'tabs', 'tab-item', 'timeline', '{tab-set}', '{tab-item}', ...LAYOUT_CONTAINER_WORDS];
 const CONTAINER_LINE_RE = /^(:{3,})[ \t]*([a-zA-Z{}_-]*)$/;
 
 export function containerDirectiveSource(context: CompletionContext): CompletionResult | null {

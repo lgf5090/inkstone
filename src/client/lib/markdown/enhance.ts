@@ -6,7 +6,11 @@ import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from '
 // the React board, and a surface that only draws a still must not pull 24k lines of UI into its chunk.
 import { renderStaticKanbans } from './kanban/static';
 import { showKanbanSourceAll } from './kanban/view';
+import { MAX_PANEL_COLUMNS, isTrackValue } from './panel-options';
 import { t, type MessageKey } from "../i18n";
+import { getLocale } from "../i18n";
+import { renderStaticMindmaps } from './mindmap/static';
+import { showMindmapSourceAll } from './mindmap/view';
 import { highlightWithPrism } from './prism';
 import {
     ChartBodyTooLargeError,
@@ -128,6 +132,28 @@ export function applyExampleSplits(root: HTMLElement): void {
             const reversed = grid.dataset.exampleLayout === 'rl';
             grid.style.setProperty('--ex-cols', exampleSplitTracks(reversed ? [ratio[1], ratio[0]] : ratio));
         }
+    });
+}
+
+/**
+ * Column track sizes are the one thing a header states that CSS cannot read out of an attribute:
+ * `attr()` does not work for grid tracks, and the prose whitelist strips inline styles from rendered
+ * markup. So the header writes a `data-cols-tracks` value and this runs after sanitization to hand it
+ * to the stylesheet as a custom property — the same route the example split takes for its ratio.
+ *
+ * The value is re-checked here rather than trusted from the renderer, because this is the one place it
+ * becomes a CSS declaration.
+ */
+export function applyPanelColumnTracks(root: HTMLElement): void {
+    root.querySelectorAll<HTMLElement>('.markdown-cols[data-cols-tracks]').forEach((grid) => {
+        const tracks = (grid.dataset.colsTracks ?? '').trim().split(/\s+/);
+        // Re-checked rather than trusted from the renderer: one track describes no grid, and a list
+        // longer than the stylesheet draws tracks for would leave columns without one.
+        if (tracks.length < 2 || tracks.length > MAX_PANEL_COLUMNS)
+            return;
+        if (!tracks.every((track) => isTrackValue(track)))
+            return;
+        grid.style.setProperty('--panel-cols-tracks', tracks.join(' '));
     });
 }
 
@@ -912,6 +938,14 @@ export interface EnhanceOptions {
      * what a surface that can do neither must show rather than a placeholder that never resolves.
      */
     kanban: 'live' | 'snapshot' | 'source';
+    /**
+     * How this surface treats ```mindmap blocks. `live` means the caller mounts a writable map itself
+     * from the committed markup, so this pass must leave the placeholder alone; `snapshot` draws a
+     * picture in its place, for a surface that cannot host an instance; `source` shows the fence body,
+     * for a surface that has no room for either. Required rather than optional because a caller that
+     * forgets it would silently leave a block sitting in its loading state forever.
+     */
+    mindmap: 'live' | 'snapshot' | 'source';
     dark: boolean;
     codeBlockCollapseLines?: number;
 }
@@ -934,14 +968,25 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     // for a picture.
     if (!options.chart)
         showChartSource(root);
+    // A block that is neither mounted live nor drawn here would keep saying "Rendering mind map…"
+    // forever, because nothing else on this surface ever touches it.
+    if (options.mindmap === 'source')
+        showMindmapSourceAll(root);
     if (!options.math)
         showMathSource(root);
     await Promise.allSettled([
         highlightCodeBlocks(root),
         options.math ? renderMath(root) : Promise.resolve(),
+        // The snapshot is drawn from an offscreen instance and exported, so it is the one mind map
+        // path that reaches the library from this pass. A surface that serializes the markup
+        // afterwards (an export) has to wait for it.
+        options.mindmap === 'snapshot'
+            ? renderStaticMindmaps(root, { dark: options.dark, locale: getLocale() })
+            : Promise.resolve(),
     ]);
     configureCodeBlockCollapsing(root, options.codeBlockCollapseLines ?? 24);
     applyExampleSplits(root);
+    applyPanelColumnTracks(root);
 }
 export function invalidateMermaidTheme(root: HTMLElement | null): void {
     root?.querySelectorAll<HTMLElement>('[data-mermaid]').forEach((node) => {
