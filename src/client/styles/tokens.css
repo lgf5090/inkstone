@@ -23,14 +23,19 @@
   --r-full: 999px;
 
   --sp-0-5: 2px;
+  --sp-0-75: 3px;
   --sp-1: 4px;
   --sp-1-5: 6px;
   --sp-2: 8px;
+  --sp-2-25: 9px;
   --sp-2-5: 10px;
   --sp-3: 12px;
   --sp-3-5: 14px;
+  --sp-4: 16px;
   --sp-5: 20px;
   --sp-6: 24px;
+  --sp-12: 48px;
+  --sp-16: 64px;
 
   --text-6: 6px;
   --text-8-5: 8.5px;
@@ -42,6 +47,11 @@
   --text-11-5: 11.5px;
   --text-12: 12px;
   --text-13: 13px;
+  --text-14: 14px;
+  --text-18: 18px;
+
+  /* The leading every dense UI stack shares, so a card and its column header agree. */
+  --ui-line: 1.55;
 
   --z-hover-card: 270;
 
@@ -250,6 +260,7 @@
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 7%, transparent);
   --accent-ring: color-mix(in oklab, var(--accent) 34%, transparent);
+  --shadow-ring: 0 0 0 2px var(--accent-ring);
   --accent-muted: color-mix(in oklab, var(--accent) 62%, var(--text-tertiary));
   --list-marker: var(--accent-muted);
 }

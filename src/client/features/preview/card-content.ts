@@ -189,7 +189,7 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
     const rendered = renderMarkdown(truncatedContent, { hideFrontMatter: true })
     const staging = document.createElement('div')
     staging.innerHTML = rendered.html
-    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]')) {
+    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]') || staging.querySelector('[data-kanban]')) {
       await enhancePreview(staging, {
         math: args.previewMath,
         mermaid: false,
@@ -198,6 +198,10 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
         // outright shows the body instead, which is what the card can honestly offer — and the guard
         // above has to name `[data-chart]` too, or this call is skipped for exactly the notes that need it.
         chart: false,
+        // Same trap one feature later: a board has to be named in the guard above or it sits at
+        // "Loading kanban…" inside the card, and it renders as the still rather than the live root
+        // because a card has no host that could hold one.
+        kanban: 'snapshot',
         dark: args.dark,
         codeBlockCollapseLines: 0,
       })

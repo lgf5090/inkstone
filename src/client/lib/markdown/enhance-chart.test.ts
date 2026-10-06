@@ -342,7 +342,9 @@ describe('tearing charts down', () => {
 describe('the chart renderer switch', () => {
     it('shows the body as text and never reaches the drawing pass when off', async () => {
         const host = chartHost(`\`\`\`chart\n${CONFIG}\n\`\`\`\n`);
-        await enhancePreview(host, { math: false, mermaid: false, chart: false, dark: false });
+        await enhancePreview(host, { math: false, mermaid: false, chart: false,
+ kanban: 'source',
+ dark: false });
         const node = block(host);
         expect(node.classList.contains('chart-source')).toBe(true);
         expect(node.querySelector('canvas')).toBeNull();
@@ -355,7 +357,9 @@ describe('the chart renderer switch', () => {
     it('draws again when the switch goes back on, with no stale marker in the way', async () => {
         const source = `\`\`\`chart\n${CONFIG}\n\`\`\`\n`;
         const host = chartHost(source);
-        await enhancePreview(host, { math: false, mermaid: false, chart: false, dark: false });
+        await enhancePreview(host, { math: false, mermaid: false, chart: false,
+ kanban: 'source',
+ dark: false });
         const drawn = chartHost(source);
         await renderPendingCharts(drawn, false);
         expect(built).toHaveLength(1);
@@ -366,7 +370,9 @@ describe('the chart renderer switch', () => {
         const host = chartHost(`\`\`\`chart\n${CONFIG}\n\`\`\`\n`);
         await renderPendingCharts(host, false);
         expect(built).toHaveLength(1);
-        await enhancePreview(host, { math: false, mermaid: false, chart: false, dark: false });
+        await enhancePreview(host, { math: false, mermaid: false, chart: false,
+ kanban: 'source',
+ dark: false });
         expect(built[0]!.instance.destroyed).toBe(true);
         expect(FakeResizeObserver.instances[0]!.disconnects).toBe(1);
         expect(block(host).querySelector('canvas')).toBeNull();

@@ -104,7 +104,7 @@ export function SharePage({ slug }: {
         void (async () => {
             // A shared page is read by visitors who have no settings of their own; the author's choice to
             // hide diagrams is theirs, not a property of the note, so a shared note always draws.
-            await enhancePreview(host, { math: true, mermaid: true, chart: true, dark, codeBlockCollapseLines: 24 });
+            await enhancePreview(host, { math: true, mermaid: true, chart: true, kanban: 'snapshot', dark, codeBlockCollapseLines: 24 });
             if (!isCurrent())
                 return;
             await renderPendingMermaid(host, dark, { isCurrent });
