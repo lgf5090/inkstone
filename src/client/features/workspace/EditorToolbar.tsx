@@ -4,7 +4,7 @@ import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { insertAdvancedCodeBlock, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertMermaid, insertTable, insertTabs, insertTag, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { insertAdvancedCodeBlock, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertMermaid, insertRunnableJsBlock, insertTable, insertTabs, insertTag, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 
@@ -66,6 +66,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
     const codeItems: MenuItem[] = [
         { id: 'code', label: t('workspace.code_block'), onSelect: run(insertCodeBlock) },
         { id: 'advanced-code', label: t('workspace.enhanced_code_block'), onSelect: run(insertAdvancedCodeBlock) },
+        { id: 'js-example', label: t('workspace.runnable_js_block'), onSelect: run(insertRunnableJsBlock) },
         { id: 'mermaid', label: t('workspace.mermaid_diagram'), onSelect: run(insertMermaid), separatorBefore: true },
     ];
     const mathItems: MenuItem[] = [

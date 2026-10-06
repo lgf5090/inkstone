@@ -39,7 +39,9 @@
   --text-10: 10px;
   --text-10-5: 10.5px;
   --text-11: 11px;
+  --text-11-5: 11.5px;
   --text-12: 12px;
+  --text-13: 13px;
 
   --z-hover-card: 270;
 
@@ -82,7 +84,7 @@
 }
 
 
-:root[data-theme='dark'] {
+:root[data-theme='dark'], [data-code-theme='dark'] {
   color-scheme: dark;
 
   --bg-sunken: #131110;
@@ -141,7 +143,7 @@
 }
 
 
-:root[data-theme='light'] {
+:root[data-theme='light'], [data-code-theme='light'] {
   color-scheme: light;
 
   --bg-sunken: #f1efe9;

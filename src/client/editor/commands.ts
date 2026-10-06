@@ -460,6 +460,24 @@ export const insertAdvancedCodeBlock: StateCommand = ({ state, dispatch }) => {
     dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
     return true;
 };
+export const insertRunnableJsBlock: StateCommand = ({ state, dispatch }) => {
+    const changes = state.changeByRange((range) => {
+        const selected = state.sliceDoc(range.from, range.to);
+        const fence = '~'.repeat(Math.max(4, longestCharacterRun(selected, '~') + 1));
+        const defaultCode = 'console.log("Hello, Inkstone!");';
+        const code = selected || defaultCode;
+        const info = `javascript-example title="${t('workspace.runnable_javascript_code')}"`;
+        const insert = `${fence}${info}\n${code}\n${fence}\n`;
+        return {
+            changes: { from: range.from, to: range.to, insert },
+            range: selected
+                ? EditorSelection.range(range.from + fence.length + info.length + 1, range.from + fence.length + info.length + 1 + selected.length)
+                : EditorSelection.range(range.from + fence.length + info.length + 1, range.from + fence.length + info.length + 1 + defaultCode.length),
+        };
+    });
+    dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
+    return true;
+};
 export const insertHorizontalRule: StateCommand = (target) => insertPrefixedBlock('---\n\n', 5)(target);
 
 function insertWrappedBlock(open: string, close: string, fallback: string, emptyCursorOffset?: number): StateCommand {

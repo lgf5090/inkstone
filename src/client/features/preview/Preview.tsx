@@ -17,7 +17,9 @@ import { resolveNoteEmbeds } from '../../lib/markdown/embeds'
 import { t, useLocale } from '../../lib/i18n'
 import { slugifyHeading } from '@shared/markdown-utils'
 import {
+  destroyChartInstances,
   enhancePreview,
+  renderPendingCharts,
   renderPendingMermaid,
   resetMermaidNode,
   toggleCodeBlockCollapse,
@@ -29,6 +31,8 @@ import { useSession } from '../../store/session'
 import { previewSourceAnchors } from './preview-anchors'
 import { moveMarkdownTabFocus, revealPreviewTarget, selectMarkdownTab } from './markdown-tabs'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
+import { closeBlockToolbarOverlay, enhanceBlockToolbars, handleBlockToolbarClick } from './block-actions'
+import type { BlockActionContext } from './block-overlay'
 import { NoteProperties } from './NoteProperties'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 import { useLinkHoverHost } from './link-hover-host'
@@ -120,6 +124,9 @@ export const Preview = memo(function Preview({
       wikiScrollCleanupRef.current()
       for (const timer of copyResetTimersRef.current.values()) window.clearTimeout(timer)
       copyResetTimersRef.current.clear()
+      // A chart is an instance plus a ResizeObserver, and neither is reachable from the note once this
+      // host is thrown away, so nothing else would ever run their teardown.
+      destroyChartInstances(hostRef.current)
     },
     [],
   )
@@ -145,6 +152,14 @@ export const Preview = memo(function Preview({
     })
   }, [onRendered, scrollerRef, preview.mermaid, theme])
 
+  // Charts draw on the live host rather than in the staged copy: a canvas is pixels and an instance, and
+  // neither survives the serialization and cloning the swap does.
+  const startChartRender = useCallback(() => {
+    const host = hostRef.current
+    if (!host || !preview.chart) return
+    void renderPendingCharts(host, theme === 'dark')
+  }, [preview.chart, theme])
+
 
   useEffect(() => {
     const revision = ++preparationRef.current
@@ -164,11 +179,15 @@ export const Preview = memo(function Preview({
       await enhancePreview(staging, {
         math: preview.math,
         mermaid: preview.mermaid,
+        chart: preview.chart,
         dark: theme === 'dark',
         codeBlockCollapseLines: preview.codeBlockCollapse
           ? preview.codeBlockCollapseLines
           : 0,
       })
+      // Every block head is built here rather than on the live host so it is part of the markup the
+      // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
+      enhanceBlockToolbars(staging, { chart: preview.chart })
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
@@ -210,6 +229,7 @@ export const Preview = memo(function Preview({
     scrollerRef,
     preview.math,
     preview.mermaid,
+    preview.chart,
     preview.codeBlockCollapse,
     preview.codeBlockCollapseLines,
     theme,
@@ -225,9 +245,24 @@ export const Preview = memo(function Preview({
     }
   }, [mermaidEpoch, preview.mermaid, startMermaidRender])
 
+  useEffect(() => {
+    if (!mermaidEpoch) return
+    const timer = window.setTimeout(startChartRender, 60)
+    return () => window.clearTimeout(timer)
+  }, [mermaidEpoch, startChartRender])
+
+
+  const blockActionContext = (): BlockActionContext => ({
+    content,
+    sourceNoteId,
+    committedSourceRef,
+    api: { editContent, toast },
+  })
 
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
+
+    if (handleBlockToolbarClick(event, target, blockActionContext())) return
 
     const mermaidRetry = target.closest<HTMLElement>('[data-mermaid-retry]')
     if (mermaidRetry) {
@@ -385,6 +420,14 @@ export const Preview = memo(function Preview({
   }
 
   const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      const trigger = closeBlockToolbarOverlay(event.target as HTMLElement)
+      if (trigger) {
+        event.preventDefault()
+        trigger.focus()
+        return
+      }
+    }
     const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]')
     if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
@@ -642,6 +685,26 @@ export function patchDom(dest: Node, src: Node): void {
 
     if (destEl.hasAttribute('data-mermaid') && srcEl.hasAttribute('data-mermaid')) {
       if (destEl.getAttribute('data-mermaid') === srcEl.getAttribute('data-mermaid') && destEl.dataset.rendered) {
+        return
+      }
+    }
+
+    // A drawn chart is a canvas plus a live instance, and neither is in innerHTML, so re-syncing this
+    // subtree from the staging copy would put the placeholder text back over a chart that did not change.
+    // The stated format is compared beside the body: which reader draws a chart is not written anywhere
+    // in its body text, so a note that only moved `style=` has to look changed here.
+    if (destEl.hasAttribute('data-chart') && srcEl.hasAttribute('data-chart')) {
+      if (destEl.getAttribute('data-chart') === srcEl.getAttribute('data-chart') &&
+        destEl.getAttribute('data-chart-style') === srcEl.getAttribute('data-chart-style') &&
+        destEl.dataset.rendered &&
+        !srcEl.classList.contains('chart-source')) {
+        // The body did not change, so the picture still stands. Except when the staged copy is showing
+        // its source instead: that is the renderer switch having been turned off, and the note text is
+        // identical either way, so the class is the only thing that says the block must stop being a
+        // canvas. Preserving it there left an off switch with a chart still drawn on screen.
+        // The line is still re-stamped: a format toggle changes how many lines a block above occupies,
+        // which moves this one, and the line is what the toolbar resolves its write against.
+        if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return
       }
     }

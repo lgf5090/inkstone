@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { configureCodeBlockCollapsing, decorateCodeBlock } from './enhance'
+import { applyExampleSplits, configureCodeBlockCollapsing, decorateCodeBlock } from './enhance'
 
 function tree(html: string): HTMLElement {
   const root = document.createElement('div')
@@ -164,5 +164,78 @@ describe('code block decoration', () => {
     expect(root.querySelector('button.code-collapse')).toBeNull()
     expect(root.querySelector<HTMLElement>('.code-block')!.className).toBe('code-block')
     expect(root.querySelector('pre')!.getAttribute('style') ?? '').not.toContain('max-height')
+  })
+
+  it('lets the fence overrule the account setting, both ways', () => {
+    const cases: Array<[string, boolean, string?]> = [
+      ['', true, '8'],
+      ['0', false],
+      ['8', true, '8'],
+      ['9', true, '9'],
+      ['12', false],
+      ['40', false],
+      ['nonsense', true, '8'],
+      [' 10 ', true, '10'],
+      ['-1', true, '8'],
+    ]
+    for (const [written, collapsed, threshold] of cases) {
+      const attribute = written === '' ? '' : ` data-code-collapse-at="${written}"`
+      const root = tree(codeBlock(MANY_LINES, `class="code-block" data-line="4"${attribute}`))
+      const block = root.querySelector<HTMLElement>('.code-block')!
+      decorateCodeBlock(block)
+      configureCodeBlockCollapsing(root, 8)
+      expect(block.classList.contains('is-code-collapsed'), `collapse="${written}"`).toBe(collapsed)
+      expect(block.dataset.codeCollapseLines, `collapse="${written}"`).toBe(threshold)
+    }
+  })
+
+  it('keeps a per-block fold when the account setting is off entirely', () => {
+    const root = tree(codeBlock(MANY_LINES, 'class="code-block" data-line="4" data-code-collapse-at="9"'))
+    decorateCodeBlock(root.querySelector<HTMLElement>('.code-block')!)
+    configureCodeBlockCollapsing(root, 0)
+    const block = root.querySelector<HTMLElement>('.code-block')!
+    expect(block.classList.contains('is-code-collapsed')).toBe(true)
+    expect(block.dataset.codeCollapseLines).toBe('9')
+  })
+})
+
+describe('example split tracks', () => {
+  it('divides a column split as tracks and a row split as ceilings', () => {
+    const root = tree([
+      '<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="3:7"></div>',
+      '<div class="markdown-example-grid" data-example-layout="rl" data-example-ratio="2:8"></div>',
+      '<div class="markdown-example-grid" data-example-layout="tb" data-example-ratio="99:1"></div>',
+      '<div class="markdown-example-grid" data-example-layout="bt" data-example-ratio="6:4"></div>',
+      '<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="0:7"></div>',
+      '<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="3-7"></div>',
+      '<div class="markdown-example-grid" data-example-layout="lr"></div>',
+    ].join(''))
+    const grids = [...root.querySelectorAll<HTMLElement>('.markdown-example-grid')]
+    applyExampleSplits(root)
+    expect(grids[0]!.style.getPropertyValue('--ex-cols')).toBe('3fr 7fr')
+    expect(grids[0]!.style.getPropertyValue('--ex-a')).toBe('')
+    expect(grids[1]!.style.getPropertyValue('--ex-cols')).toBe('8fr 2fr')
+    expect(grids[2]!.style.getPropertyValue('--ex-a')).toBe('99')
+    expect(grids[2]!.style.getPropertyValue('--ex-b')).toBe('1')
+    expect(grids[2]!.style.getPropertyValue('--ex-cols')).toBe('')
+    expect(grids[3]!.style.getPropertyValue('--ex-a')).toBe('6')
+    expect(grids[3]!.style.getPropertyValue('--ex-b')).toBe('4')
+    for (const grid of grids.slice(4))
+      expect(grid.hasAttribute('style'), grid.outerHTML).toBe(false)
+  })
+
+  it('clears the stale axis when a block switches between a row and a column split', () => {
+    const root = tree('<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="3:7"></div>')
+    const grid = root.querySelector<HTMLElement>('.markdown-example-grid')!
+    applyExampleSplits(root)
+    grid.dataset.exampleLayout = 'tb'
+    applyExampleSplits(root)
+    expect(grid.style.getPropertyValue('--ex-cols')).toBe('')
+    expect(grid.style.getPropertyValue('--ex-a')).toBe('3')
+    grid.dataset.exampleLayout = 'rl'
+    applyExampleSplits(root)
+    expect(grid.style.getPropertyValue('--ex-a')).toBe('')
+    expect(grid.style.getPropertyValue('--ex-b')).toBe('')
+    expect(grid.style.getPropertyValue('--ex-cols')).toBe('7fr 3fr')
   })
 })

@@ -1,5 +1,5 @@
 import { renderMarkdown } from './markdown/renderer'
-import { renderMath, renderPendingMermaid } from './markdown/enhance'
+import { bakeChartsToImages, renderMath, renderPendingCharts, renderPendingMermaid } from './markdown/enhance'
 import { resolveNoteEmbeds } from './markdown/embeds'
 // Inlined so the print frame carries its own math styles: the frame inherits this
 // document's CSP (`style-src 'self' 'unsafe-inline'`, `font-src 'self' data:`), which
@@ -16,8 +16,7 @@ const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5
 const CDN_MATH_STYLESHEET = `<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">`
 const INLINE_MATH_STYLESHEET = `<style>${katexPrintCss}</style>`
 
-export function downloadTextFile(filename: string, text: string, mime: string): void {
-  const blob = new Blob([text], { type: mime })
+export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -26,6 +25,10 @@ export function downloadTextFile(filename: string, text: string, mime: string): 
   anchor.click()
   anchor.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export function downloadTextFile(filename: string, text: string, mime: string): void {
+  downloadBlob(filename, new Blob([text], { type: mime }))
 }
 
 export function exportNoteAsMarkdown(note: { title: string; content: string }): void {
@@ -95,6 +98,8 @@ async function prepareExportBody(note: { title: string; content: string }): Prom
   // `false` because the exported page is always the light scheme.
   await renderMath(doc)
   await renderPendingMermaid(doc, false)
+  await renderPendingCharts(doc.body, false, { instant: true })
+  bakeChartsToImages(doc.body)
   expandHiddenBlocks(doc.body)
   stripInertControls(doc.body)
   return { body: doc.body.innerHTML, hasMath: rendered.hasMath }
