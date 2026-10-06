@@ -13,6 +13,7 @@ import { Input } from '../../components/form';
 import { LoadingBlock } from '../../components/feedback';
 import { Tooltip } from '../../components/overlay';
 import { useUi } from '../../store/ui';
+import { AudienceView } from '../presentation/audience-view';
 import { moveMarkdownTabFocus, selectMarkdownTab } from '../preview/markdown-tabs';
 import { t, useLocale } from "../../lib/i18n";
 
@@ -28,6 +29,9 @@ export function SharePage({ slug }: {
     const [dark, setDark] = useState(() => document.documentElement.dataset.theme === 'dark');
     const toast = useUi((s) => s.toast);
     const hostRef = useRef<HTMLDivElement>(null);
+    // `?present=<token>` is the seat the speaker handed out. It is read once rather than followed:
+    // this document has no router, and a show that started mid-read is a different show.
+    const [presentToken] = useState(() => new URLSearchParams(window.location.search).get('present'));
     const requestRef = useRef<AbortController | null>(null);
     const enhancementRevisionRef = useRef(0);
     const copyResetTimersRef = useRef(new Map<HTMLElement, number>());
@@ -210,7 +214,9 @@ export function SharePage({ slug }: {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[860px] px-4 pb-[calc(64px+env(safe-area-inset-bottom))] md:px-5 md:pb-24">
+      <main className={presentToken
+        ? 'flex h-dvh min-h-0 max-w-none flex-col px-[var(--sp-2)] pb-[calc(var(--sp-2)+env(safe-area-inset-bottom))] md:px-[var(--sp-4)] md:pb-[var(--sp-4)]'
+        : "mx-auto max-w-[860px] px-4 pb-[calc(64px+env(safe-area-inset-bottom))] md:px-5 md:pb-24"}>
         {loading && !needPassword ? (<div className="pt-24">
             <LoadingBlock label={t("share.opening")}/>
           </div>) : needPassword ? (<div className="anim-rise mx-auto max-w-[340px] pt-[16vh] text-center">
@@ -230,7 +236,7 @@ export function SharePage({ slug }: {
           </div>) : error ? (<div className="mx-auto max-w-[380px] pt-[18vh] text-center">
             <h1 className="text-[16px] font-semibold text-[var(--text-primary)]">{t("share.content_unavailable")}</h1>
             <p role="alert" className="mt-2 text-[13px] leading-relaxed text-[var(--text-tertiary)]">{error}</p>
-          </div>) : note ? (<article className="pt-7 md:pt-10">
+          </div>) : presentToken && note ? (<AudienceView slug={slug} token={presentToken} source={note.content}/>) : note ? (<article className="pt-7 md:pt-10">
             <header className="mb-6 md:mb-8">
               <h1 className="text-[26px] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[30px]">
                 {note.title || t("common.untitled_note")}
