@@ -529,14 +529,14 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
             {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef}/>)}
             {outlineFloatingVisible && (<div className="pointer-events-none absolute top-0 right-0 z-10 h-full">
-              <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 py-5 pr-3 shadow-lg backdrop-blur-sm" style={{ width: OUTLINE_WIDTH }}>
+              <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] py-5 pr-3 shadow-lg" style={{ width: OUTLINE_WIDTH }}>
                 <Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} className="w-full"/>
               </div>
             </div>)}
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading}/>}
         {!showPreview && outlineFloatingVisible && (<div className="pointer-events-none absolute top-0 right-0 z-10 h-full">
-          <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 py-5 pr-3 shadow-lg backdrop-blur-sm" style={{ width: OUTLINE_WIDTH }}>
+          <div className="pointer-events-auto h-full overflow-y-auto rounded-l-lg border-l border-t border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] py-5 pr-3 shadow-lg" style={{ width: OUTLINE_WIDTH }}>
             <Outline headings={headings} onSelect={jumpToHeading} className="w-full"/>
           </div>
         </div>)}
