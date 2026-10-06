@@ -19,6 +19,12 @@ export interface FencePatch {
     info?: string
 }
 
+export interface SplitContent {
+    lines: string[]
+    eol: string
+    trailingNewline: boolean
+}
+
 interface FenceOpening {
     indent: string
     marker: string
@@ -30,6 +36,14 @@ interface FenceLocation {
     line: number
     closing: number
     opening: FenceOpening
+}
+
+/** The block's line span: the opening fence through its closing line. */
+export interface FenceRange {
+    /** 0-based line of the opening fence. */
+    start: number
+    /** 0-based line one past the block. */
+    end: number
 }
 
 export function splitLines(content: string): { lines: string[], eol: string, trailingNewline: boolean } {
@@ -180,5 +194,71 @@ export function applyFencePatchAtSource(
     const next = at.closing === -1
         ? [...lines.slice(0, at.line), ...replaced]
         : [...lines.slice(0, at.line), ...replaced, ...lines.slice(at.closing + 1)]
+    return joinLines(next, eol, trailingNewline)
+}
+
+/** The body-only case of {@link applyFencePatchAtSource}, for a block's own writes. */
+export function applyBodyAtFence(
+    content: string,
+    target: FenceTarget,
+    nextBody: string,
+    languages: readonly string[],
+): string | null {
+    return applyFencePatchAtSource(content, target, { body: nextBody }, languages)
+}
+
+/** The info string on the opening fence, as written, or null when the fence no longer holds the body. */
+export function fenceInfoAt(content: string, target: FenceTarget, languages: readonly string[]): string | null {
+    const { lines } = splitLines(content)
+    return locateFence(lines, target, languages)?.opening.info ?? null
+}
+
+/**
+ * Where the fence is now, as a line span, or null when it no longer holds the body the block was drawn
+ * from. An editor caller maps these to character positions to replace the block in one transaction.
+ */
+export function fenceRange(content: string, target: FenceTarget, languages: readonly string[]): FenceRange | null {
+    const { lines } = splitLines(content)
+    const at = locateFence(lines, target, languages)
+    if (!at)
+        return null
+    return { start: at.line, end: at.closing === -1 ? lines.length : at.closing + 1 }
+}
+
+/** The lines a text block contributes; an empty text contributes none. */
+function textLines(text: string): string[] {
+    const body = normalizeEol(text).replace(/\n+$/, '')
+    return body.length > 0 ? body.split('\n') : []
+}
+
+/** Rewrites the whole block as plain text: the fence, its body and its closing line all go. */
+export function replaceFenceWithText(
+    content: string,
+    target: FenceTarget,
+    text: string,
+    languages: readonly string[],
+): string | null {
+    const { lines, eol, trailingNewline } = splitLines(content)
+    const at = locateFence(lines, target, languages)
+    if (!at)
+        return null
+    const end = at.closing === -1 ? lines.length : at.closing + 1
+    const next = [...lines.slice(0, at.line), ...textLines(text), ...lines.slice(end)]
+    return joinLines(next, eol, trailingNewline)
+}
+
+/** Inserts text on its own lines right after the block, leaving the fence alone. */
+export function insertTextAfterFence(
+    content: string,
+    target: FenceTarget,
+    text: string,
+    languages: readonly string[],
+): string | null {
+    const { lines, eol, trailingNewline } = splitLines(content)
+    const at = locateFence(lines, target, languages)
+    if (!at)
+        return null
+    const end = at.closing === -1 ? lines.length : at.closing + 1
+    const next = [...lines.slice(0, end), ...textLines(text), ...lines.slice(end)]
     return joinLines(next, eol, trailingNewline)
 }
