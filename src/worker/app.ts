@@ -28,6 +28,9 @@ export function createApp() {
   app.onError((err, c) => errorResponse(c, err))
   app.use('*', async (c, next) => {
     await next()
+    // A 1xx handshake response carries the socket, and Hono rebuilds the Response to
+    // mutate its headers — which the Response constructor rejects below 200.
+    if (c.res.status < 200) return
     const devDocument = import.meta.env?.DEV === true
       && (c.res.headers.get('content-type') ?? '').includes('text/html')
     for (const [name, value] of Object.entries(securityHeaders(c.req.url, { allowDevInlineScripts: devDocument }))) {
