@@ -80,9 +80,15 @@ const decoratedLineCounts = new WeakMap<HTMLElement, number>();
 
 /**
  * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's
- * tracks are handed to CSS as a custom property instead: one variable for the axis the layout uses
- * and none for the other, so a block that switched between a row split and a column split cannot
- * keep reading the stale one.
+ * tracks are handed to CSS as custom properties instead. A column split can be a real track list —
+ * the prose column has a definite width, so `45fr 55fr` divides exactly what it says.
+ *
+ * A row split cannot. The block's height is whatever its two panels' content needs, so dividing
+ * that sum proportionally always inflates the shorter panel: a five-line source beside a thirty-line
+ * output at 6:4 measured 800px of empty panel. Rows therefore get the ratio as a ceiling on each
+ * panel (`--ex-a` / `--ex-b`), which shrinks a generous pane into its own scrollbox and never adds
+ * a pixel of blank. One axis is written and the other cleared, so a block that switches between a
+ * row split and a column split cannot keep reading the stale one.
  */
 export function applyExampleSplits(root: HTMLElement): void {
     root.querySelectorAll<HTMLElement>('.markdown-example-grid[data-example-layout]').forEach((grid) => {
@@ -91,8 +97,19 @@ export function applyExampleSplits(root: HTMLElement): void {
             return;
         grid.style.removeProperty('--ex-cols');
         grid.style.removeProperty('--ex-rows');
-        const axis = isVerticalExampleLayout(grid.dataset.exampleLayout ?? '') ? '--ex-rows' : '--ex-cols';
-        grid.style.setProperty(axis, exampleSplitTracks(ratio));
+        grid.style.removeProperty('--ex-a');
+        grid.style.removeProperty('--ex-b');
+        if (isVerticalExampleLayout(grid.dataset.exampleLayout ?? '')) {
+            grid.style.setProperty('--ex-a', String(ratio[0]));
+            grid.style.setProperty('--ex-b', String(ratio[1]));
+        }
+        else {
+            // `rl` moves the first panel to the right with `order`, and grid auto-placement follows
+            // that order, so the track list has to be reversed to keep the ratio naming the two
+            // panels of the pair rather than the left and right halves of the block.
+            const reversed = grid.dataset.exampleLayout === 'rl';
+            grid.style.setProperty('--ex-cols', exampleSplitTracks(reversed ? [ratio[1], ratio[0]] : ratio));
+        }
     });
 }
 

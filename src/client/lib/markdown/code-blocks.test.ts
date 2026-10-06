@@ -200,11 +200,12 @@ describe('code block decoration', () => {
 })
 
 describe('example split tracks', () => {
-  it('hands the ratio to CSS on the axis the layout uses, and only that one', () => {
+  it('divides a column split as tracks and a row split as ceilings', () => {
     const root = tree([
       '<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="3:7"></div>',
-      '<div class="markdown-example-grid" data-example-layout="bt" data-example-ratio="2:8"></div>',
+      '<div class="markdown-example-grid" data-example-layout="rl" data-example-ratio="2:8"></div>',
       '<div class="markdown-example-grid" data-example-layout="tb" data-example-ratio="99:1"></div>',
+      '<div class="markdown-example-grid" data-example-layout="bt" data-example-ratio="6:4"></div>',
       '<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="0:7"></div>',
       '<div class="markdown-example-grid" data-example-layout="lr" data-example-ratio="3-7"></div>',
       '<div class="markdown-example-grid" data-example-layout="lr"></div>',
@@ -212,11 +213,14 @@ describe('example split tracks', () => {
     const grids = [...root.querySelectorAll<HTMLElement>('.markdown-example-grid')]
     applyExampleSplits(root)
     expect(grids[0]!.style.getPropertyValue('--ex-cols')).toBe('3fr 7fr')
-    expect(grids[0]!.style.getPropertyValue('--ex-rows')).toBe('')
-    expect(grids[1]!.style.getPropertyValue('--ex-rows')).toBe('2fr 8fr')
-    expect(grids[1]!.style.getPropertyValue('--ex-cols')).toBe('')
-    expect(grids[2]!.style.getPropertyValue('--ex-rows')).toBe('99fr 1fr')
-    for (const grid of grids.slice(3))
+    expect(grids[0]!.style.getPropertyValue('--ex-a')).toBe('')
+    expect(grids[1]!.style.getPropertyValue('--ex-cols')).toBe('8fr 2fr')
+    expect(grids[2]!.style.getPropertyValue('--ex-a')).toBe('99')
+    expect(grids[2]!.style.getPropertyValue('--ex-b')).toBe('1')
+    expect(grids[2]!.style.getPropertyValue('--ex-cols')).toBe('')
+    expect(grids[3]!.style.getPropertyValue('--ex-a')).toBe('6')
+    expect(grids[3]!.style.getPropertyValue('--ex-b')).toBe('4')
+    for (const grid of grids.slice(4))
       expect(grid.hasAttribute('style'), grid.outerHTML).toBe(false)
   })
 
@@ -227,6 +231,11 @@ describe('example split tracks', () => {
     grid.dataset.exampleLayout = 'tb'
     applyExampleSplits(root)
     expect(grid.style.getPropertyValue('--ex-cols')).toBe('')
-    expect(grid.style.getPropertyValue('--ex-rows')).toBe('3fr 7fr')
+    expect(grid.style.getPropertyValue('--ex-a')).toBe('3')
+    grid.dataset.exampleLayout = 'rl'
+    applyExampleSplits(root)
+    expect(grid.style.getPropertyValue('--ex-a')).toBe('')
+    expect(grid.style.getPropertyValue('--ex-b')).toBe('')
+    expect(grid.style.getPropertyValue('--ex-cols')).toBe('7fr 3fr')
   })
 })

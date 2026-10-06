@@ -305,8 +305,11 @@ const allowed = new Map([
     "// Layered on the shared config so its forbidden tag and attribute lists keep applying.",
     "// style is the only exception: mermaid paints SVG with inline styles and CSS blocks,",
     "// and DOMPurify sanitises the declarations themselves.",
-    "/**\n * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's\n * tracks are handed to CSS as a custom property instead: one variable for the axis the layout uses\n * and none for the other, so a block that switched between a row split and a column split cannot\n * keep reading the stale one.\n */",
     "/**\n * How many lines this block folds beyond: its own `collapse=` when it wrote one (0 meaning it never\n * folds), otherwise the preview's setting. A block states its own preference because the note is\n * what a reader shares, while the setting is only this account's default.\n */",
+    "/**\n * The split ratio is a runtime number and the prose whitelist strips inline styles, so the grid's\n * tracks are handed to CSS as custom properties instead. A column split can be a real track list —\n * the prose column has a definite width, so `45fr 55fr` divides exactly what it says.\n *\n * A row split cannot. The block's height is whatever its two panels' content needs, so dividing\n * that sum proportionally always inflates the shorter panel: a five-line source beside a thirty-line\n * output at 6:4 measured 800px of empty panel. Rows therefore get the ratio as a ceiling on each\n * panel (`--ex-a` / `--ex-b`), which shrinks a generous pane into its own scrollbox and never adds\n * a pixel of blank. One axis is written and the other cleared, so a block that switches between a\n * row split and a column split cannot keep reading the stale one.\n */",
+    "// `rl` moves the first panel to the right with `order`, and grid auto-placement follows",
+    "// that order, so the track list has to be reversed to keep the ratio naming the two",
+    "// panels of the pair rather than the left and right halves of the block.",
   ]],
   ["src/client/lib/markdown/renderer.ts", [
     "/** Builds the sanitized Markdown rendering pipeline and its Inkstone-specific syntax extensions. */",
@@ -421,6 +424,9 @@ const allowed = new Map([
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
+  ]],
+  ["src/client/styles/prose.css", [
+    "/* A row split has no definite height to divide, so the ratio caps each panel rather than\n     sizing its track: a generous pane scrolls into its share, a short one costs nothing. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

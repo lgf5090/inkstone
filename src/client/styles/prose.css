@@ -376,6 +376,7 @@
   content: '';
 }
 .ink-prose .markdown-example-grid {
+  --ex-budget: min(70vh, 720px);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1px;
@@ -445,10 +446,20 @@
   .ink-prose .markdown-example-grid[data-example-layout='rl'] {
     grid-template-columns: var(--ex-cols, 45fr 55fr);
   }
+  /* A row split has no definite height to divide, so the ratio caps each panel rather than
+     sizing its track: a generous pane scrolls into its share, a short one costs nothing. */
   .ink-prose .markdown-example-grid[data-example-layout='tb'],
   .ink-prose .markdown-example-grid[data-example-layout='bt'] {
-    grid-template-rows: var(--ex-rows, 45fr 55fr);
-    min-height: 240px;
+    grid-template-rows: auto auto;
+  }
+  .ink-prose .markdown-example-grid:is([data-example-layout='tb'], [data-example-layout='bt']) > * {
+    overflow: auto;
+  }
+  .ink-prose .markdown-example-grid:is([data-example-layout='tb'], [data-example-layout='bt']) > :first-child {
+    max-height: calc(var(--ex-budget) * var(--ex-a, 45) / (var(--ex-a, 45) + var(--ex-b, 55)));
+  }
+  .ink-prose .markdown-example-grid:is([data-example-layout='tb'], [data-example-layout='bt']) > :last-child {
+    max-height: calc(var(--ex-budget) * var(--ex-b, 45) / (var(--ex-a, 45) + var(--ex-b, 55)));
   }
   .ink-prose .markdown-example-grid[data-example-layout='rl'] > :first-child,
   .ink-prose .markdown-example-grid[data-example-layout='bt'] > :first-child {
