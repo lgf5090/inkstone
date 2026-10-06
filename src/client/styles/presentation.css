@@ -1,0 +1,63 @@
+.ink-slide {
+  --prose-size: var(--slide-prose-size);
+  --prose-line: var(--slide-line-height);
+  --code-size: var(--slide-code-size);
+}
+
+.ink-slide .ink-prose {
+  max-width: none;
+  padding-block: 0;
+}
+
+.ink-slide .ink-prose > :first-child {
+  margin-top: 0;
+}
+
+.ink-slide .ink-prose .chartjs-block {
+  margin: 0.5em 0;
+}
+
+.ink-slide .ink-prose .chartjs-container {
+  max-width: none;
+  max-height: none;
+  height: var(--slide-chart-height);
+}
+
+.ink-slide .ink-prose .mermaid-block,
+.ink-slide .ink-prose .table-wrap,
+.ink-slide .ink-prose .code-block {
+  max-width: none;
+}
+
+.ink-slide .ink-slide-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.ink-slide .ink-slide-split {
+  column-count: 2;
+  column-gap: var(--sp-6);
+  column-fill: balance;
+}
+
+.ink-slide .ink-slide-split > * {
+  break-inside: avoid;
+}
+
+.ink-slide-thumb .chartjs-block.loading::before,
+.ink-slide-thumb .mermaid-block.loading::before {
+  display: none;
+}
+
+.ink-prose .chartjs-still {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ink-slide-thumb .ink-prose {
+  pointer-events: none;
+}
