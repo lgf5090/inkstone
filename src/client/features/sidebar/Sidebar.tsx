@@ -18,6 +18,7 @@ import { createTag, deleteTag, renameTag, setTagColor } from '../tags/tagMutatio
 import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
+import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
 export function Sidebar({ collapsed = false, onCollapse, }: {
     collapsed?: boolean;
@@ -45,6 +46,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
       <div className="shrink-0 px-2 pt-2"><SearchButton /></div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-4">
+        <SidebarCalendar />
         <div className="space-y-px">
           <ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>
           <ViewItem icon={<Clock size={14}/>} label={t("navigation.recently_edited")} view="recent" active={view === 'recent'} onSelect={openView}/>
