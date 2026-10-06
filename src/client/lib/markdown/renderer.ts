@@ -10,6 +10,9 @@ import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
 import { getLocale, t } from '../i18n';
 import { parseEmbedSize, splitAltSize } from './attachments';
 import { encodeDataValue } from './data-attr';
+import { parseFenceInfo } from './fence-info';
+import { readCodeOptions } from './code-options';
+import { EXAMPLE_SPLIT_DEFAULTS, exampleRatioLabel, parseExampleSplit, type ExampleFamily } from './example-split';
 export interface Heading {
     level: number;
     text: string;
@@ -44,13 +47,6 @@ export interface WikiTarget {
     heading: string | null;
     blockId: string | null;
     alias: string | null;
-}
-export interface FenceInfo {
-    language: string;
-    title: string;
-    lineNumbers: boolean;
-    startLine: number;
-    highlightedLines: number[];
 }
 const md = new MarkdownIt({
     html: true,
@@ -477,6 +473,43 @@ md.core.ruler.after('trusted_task_placeholders', 'block_note_embeds', (state) =>
     }
     return true;
 });
+function exampleSplitAttrs(family: ExampleFamily, info: string): string {
+    const split = parseExampleSplit(info, EXAMPLE_SPLIT_DEFAULTS[family]);
+    return ` data-example-layout="${escapeAttr(split.layout)}" data-example-ratio="${escapeAttr(exampleRatioLabel(split.ratio))}"`;
+}
+
+/**
+ * The runnable block. Its controls are deliberately absent: the markup is what a share page or an
+ * export draws, and only the editing preview injects the switch and the run button (see
+ * `features/preview/js-runner`). An output panel with nothing in it is the honest state elsewhere.
+ */
+function renderJavaScriptExample(title: string, line: string, info: string, body: string): string {
+    return [
+        `<section class="markdown-example js-example-block" data-example-family="js"${line}>`,
+        `<div class="markdown-example-head js-example-head">`,
+        `<span class="markdown-example-title js-example-title">`,
+        `<span class="js-example-badge">JS</span>`,
+        `<span>${escapeHtml(title)}</span>`,
+        `</span>`,
+        `</div>`,
+        `<div class="markdown-example-grid js-example-grid"${exampleSplitAttrs('js', info)}>`,
+        `<section class="markdown-example-source js-example-source" aria-label="JavaScript">`,
+        `<div class="code-block markdown-example-code has-line-numbers" data-lang="javascript" data-code-start="1" data-line-numbers="true">`,
+        `<button class="code-copy markdown-example-copy" data-copy type="button" aria-label="${escapeAttr(t("markdown.copy_code"))}">${escapeHtml(t("common.copy"))}</button>`,
+        `<pre><code class="language-javascript">${escapeHtml(body)}</code></pre>`,
+        `</div>`,
+        `</section>`,
+        `<section class="markdown-example-preview js-example-output" aria-label="${escapeAttr(t("workspace.execution_result"))}">`,
+        `<div class="js-example-output-head">`,
+        `<span class="js-example-output-title">${escapeHtml(t("workspace.execution_result"))}</span>`,
+        `<span class="js-example-output-status"></span>`,
+        `</div>`,
+        `<div class="js-example-output-body" data-js-example-output></div>`,
+        `</section>`,
+        `</div>`,
+        `</section>`,
+    ].join('');
+}
 md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
     const token = tokens[index]!;
     const info = parseFenceInfo(token.info);
@@ -498,9 +531,9 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         const title = info.title || t("markdown.markdown_example");
         const titleId = `${parentEnv.docId}-markdown-example-${exampleId}`;
         return [
-            `<section class="markdown-example"${line} aria-labelledby="${titleId}">`,
+            `<section class="markdown-example" data-example-family="md"${line} aria-labelledby="${titleId}">`,
             `<div class="markdown-example-head"><span class="markdown-example-title" id="${titleId}">${escapeHtml(title)}</span></div>`,
-            `<div class="markdown-example-grid">`,
+            `<div class="markdown-example-grid"${exampleSplitAttrs('md', token.info)}>`,
             `<section class="markdown-example-preview" aria-label="${escapeAttr(t("common.preview"))}" data-markdown-example-id="${exampleId}" data-markdown-example="${escapeAttr(encodeDataValue(token.content))}">`,
             `<div class="markdown-example-preview-body">${preview}</div>`,
             `</section>`,
@@ -514,13 +547,24 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
             `</section>`,
         ].join('');
     }
+    if (info.language === 'javascript-example' || info.language === 'js-example')
+        return renderJavaScriptExample(info.title || t("workspace.runnable_javascript_code"), line, token.info, token.content);
     if (info.language === 'mermaid') {
         renderEnv(rendererEnv).hasMermaid = true;
         return `<div class="mermaid-block loading"${line} data-mermaid="${escapeAttr(encodeDataValue(token.content))}" aria-busy="true">${escapeHtml(t("markdown.rendering_diagram"))}</div>`;
     }
     const title = info.title || info.language || t("markdown.code");
+    const code = readCodeOptions(token.info);
+    const optionAttrs = [
+        info.lineNumbers ? ' data-line-numbers="true"' : '',
+        info.highlightedLines.length ? ` data-highlight-lines="${info.highlightedLines.join(',')}"` : '',
+        code.title ? ` data-code-title="${escapeAttr(code.title)}"` : '',
+        code.wrap ? ' data-code-wrap="true"' : '',
+        code.collapse === null ? '' : ` data-code-collapse-at="${code.collapse}"`,
+        code.theme === 'auto' ? '' : ` data-code-theme="${code.theme}"`,
+    ].join('');
     return [
-        `<div class="code-block"${line} data-lang="${escapeAttr(info.language)}" data-code-start="${info.startLine}"${info.lineNumbers ? ' data-line-numbers="true"' : ''}${info.highlightedLines.length ? ` data-highlight-lines="${info.highlightedLines.join(',')}"` : ''}>`,
+        `<div class="code-block${info.lineNumbers ? ' has-line-numbers' : ''}"${line} data-lang="${escapeAttr(info.language)}" data-code-start="${info.startLine}"${optionAttrs}>`,
         `<div class="code-block-head">`,
         `<span class="code-title">${escapeHtml(title)}</span>`,
         info.title && info.language ? `<span class="code-lang">${escapeHtml(info.language)}</span>` : '',
@@ -617,8 +661,16 @@ export const PURIFY_CONFIG = {
         'data-tab-panel',
         'data-callout',
         'data-code-start',
+        'data-code-title',
+        'data-code-wrap',
+        'data-code-collapse-at',
+        'data-code-theme',
         'data-line-numbers',
         'data-highlight-lines',
+        'data-example-family',
+        'data-example-layout',
+        'data-example-ratio',
+        'data-js-example-output',
         'data-markdown-example',
         'data-markdown-example-id',
         'target',
@@ -804,60 +856,6 @@ export function parseWikiTarget(source: string): WikiTarget {
         }
     }
     return { raw: rawTarget, noteTitle, heading, blockId, alias };
-}
-export function parseFenceInfo(source: string): FenceInfo {
-    let rest = source.trim();
-    let language = '';
-    let title = '';
-    let lineNumbers = false;
-    let startLine = 1;
-    const highlighted = new Set<number>();
-    const leadingCodeOptions = /^\{([^{}]+)\}/.exec(rest);
-    if (leadingCodeOptions && !/^\d[\d,\s-]*$/.test(leadingCodeOptions[1]!.trim())) {
-        const classes = [...leadingCodeOptions[1]!.matchAll(/(?:^|\s)\.([A-Za-z][\w-]{0,63})/g)]
-            .map((match) => match[1]!);
-        language = classes.find((className) => !isReservedCodeClass(className))?.toLowerCase() ?? '';
-        lineNumbers = classes.some(isReservedCodeClass);
-        title = codeMetadataValue(leadingCodeOptions[1]!, 'title') ?? '';
-        const startAttribute = codeMetadataValue(leadingCodeOptions[1]!, 'start', 'startfrom');
-        if (startAttribute && /^\d+$/.test(startAttribute))
-            startLine = clamp(Number(startAttribute), 1, 100000);
-        const highlightAttribute = codeMetadataValue(leadingCodeOptions[1]!, 'hl_lines', 'highlight');
-        if (highlightAttribute)
-            parseLineSpec(highlightAttribute).forEach((line) => highlighted.add(line));
-        rest = rest.slice(leadingCodeOptions[0].length).trim();
-    }
-    if (!language) {
-        const lang = /^([^\s{]+)/.exec(rest);
-        if (lang) {
-            language = lang[1]!.toLowerCase();
-            rest = rest.slice(lang[0].length).trim();
-        }
-    }
-    const titleMatch = /(?:^|\s)title=(?:"([^"]*)"|'([^']*)'|([^\s]+))/.exec(rest);
-    if (titleMatch)
-        title = titleMatch[1] ?? titleMatch[2] ?? titleMatch[3] ?? '';
-    const bracketTitle = /(?:^|\s)\[([^\]\n]+)\]/.exec(rest);
-    if (!title && bracketTitle)
-        title = bracketTitle[1]!.trim();
-    lineNumbers = lineNumbers || /(?:^|\s)(?:line-numbers|linenos|numberLines)(?=\s|$)/.test(rest);
-    const start = /(?:^|\s)(?:start|startFrom)=(?:"(\d+)"|'(\d+)'|(\d+))/.exec(rest);
-    if (start)
-        startLine = clamp(Number(start[1] ?? start[2] ?? start[3]), 1, 100000);
-    const highlight = /(?:^|\s)\{(\d[\d,\s-]*)\}/.exec(rest);
-    if (highlight)
-        parseLineSpec(highlight[1]!).forEach((line) => highlighted.add(line));
-    const highlightNamed = /(?:^|\s)(?:hl_lines|highlight)=(?:"([^"]*)"|'([^']*)'|([^\s]+))/.exec(rest);
-    if (highlightNamed) {
-        parseLineSpec(highlightNamed[1] ?? highlightNamed[2] ?? highlightNamed[3] ?? '').forEach((line) => highlighted.add(line));
-    }
-    return {
-        language,
-        title,
-        lineNumbers,
-        startLine,
-        highlightedLines: [...highlighted].sort((a, b) => a - b),
-    };
 }
 function emptyEnvironment(): RenderEnvironment {
     const nonce = createNonce();
@@ -1192,43 +1190,12 @@ function appendTokenClass(token: Token, className: string): void {
         current.push(className);
     token.attrSet('class', current.join(' '));
 }
-function parseLineSpec(source: string): number[] {
-    const lines = new Set<number>();
-    for (const part of source.split(/[ ,]+/).filter(Boolean).slice(0, 200)) {
-        const range = /^(\d+)-(\d+)$/.exec(part);
-        if (range) {
-            const from = clamp(Number(range[1]), 1, 100000);
-            const to = clamp(Number(range[2]), from, Math.min(100000, from + 1000));
-            for (let line = from; line <= to; line++)
-                lines.add(line);
-        }
-        else if (/^\d+$/.test(part)) {
-            lines.add(clamp(Number(part), 1, 100000));
-        }
-    }
-    return [...lines];
-}
-function isReservedCodeClass(value: string): boolean {
-    return ['numberlines', 'line-numbers', 'linenos'].includes(value.toLowerCase());
-}
-function codeMetadataValue(source: string, ...names: string[]): string | null {
-    const wanted = new Set(names.map((name) => name.toLowerCase()));
-    const pattern = /(?:^|\s)([A-Za-z][\w-]*)=(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
-    for (const match of source.matchAll(pattern)) {
-        if (wanted.has(match[1]!.toLowerCase()))
-            return (match[2] ?? match[3] ?? match[4] ?? '').slice(0, 512);
-    }
-    return null;
-}
 function localizeFrontMatterError(error: string): string {
     if (error === 'Front Matter exceeds the 64 KiB safety limit')
         return t("markdown.front_matter_exceeds_the_64_kib_safety_limit");
     if (error === 'Front Matter root must be a YAML mapping')
         return t("markdown.the_front_matter_root_must_be_a_yaml_mapping");
     return getLocale() === 'zh-CN' ? t("markdown.invalid_yaml_check_indentation_quotes_and_duplicate_keys") : error;
-}
-function clamp(value: number, min: number, max: number): number {
-    return Math.min(max, Math.max(min, Number.isFinite(value) ? Math.trunc(value) : min));
 }
 function plainInline(token: Token): string {
     if (token.type !== 'inline' || !token.children)
@@ -1239,13 +1206,13 @@ function plainInline(token: Token): string {
         .join('')
         .trim();
 }
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
     return text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 }
-function escapeAttr(text: string): string {
+export function escapeAttr(text: string): string {
     return escapeHtml(text).replace(/'/g, '&#39;').replace(/\n/g, '&#10;');
 }

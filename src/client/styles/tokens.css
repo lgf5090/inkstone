@@ -81,7 +81,7 @@
 }
 
 
-:root[data-theme='dark'] {
+:root[data-theme='dark'], [data-code-theme='dark'] {
   color-scheme: dark;
 
   --bg-sunken: #131110;
@@ -140,7 +140,7 @@
 }
 
 
-:root[data-theme='light'] {
+:root[data-theme='light'], [data-code-theme='light'] {
   color-scheme: light;
 
   --bg-sunken: #f1efe9;
