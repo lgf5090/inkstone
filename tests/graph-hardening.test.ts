@@ -87,6 +87,19 @@ describe('graph storage and route hardening', () => {
     expect(companion).toMatch(/className="h-6[^"]*md:h-6"/)
   })
 
+  it('binds the graph panel through one shared chord on every surface', () => {
+    const shell = read('../src/client/features/shell/AppShell.tsx')
+    const entry = /id: 'graph',([\s\S]*?)handler: \(\) => ui\(\)\.togglePanel\('graph'\)/.exec(shell)?.[1] ?? ''
+    expect(entry).toContain('APP_SHORTCUTS.graph')
+    expect(entry).toContain('allowInInput: true')
+    expect(entry).toContain('allowInOverlay: true')
+    const surfaces = ['../src/client/features/sidebar/Sidebar.tsx', '../src/client/features/command/CommandPalette.tsx']
+      .map((path) => read(path))
+      .join('\n')
+    expect(surfaces).not.toMatch(/['"]mod\+shift\+g['"]/)
+    expect(surfaces.match(/combo: APP_SHORTCUTS\.graph/g)).toHaveLength(2)
+  })
+
   it('graph controls come from the shared form primitives', () => {
     const panel = graphSources()
     expect(panel).toContain("from '../../../components/form'")

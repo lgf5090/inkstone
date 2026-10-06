@@ -202,6 +202,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 kind: 'command',
                 label: t("command.open_graph"),
                 icon: <Waypoints size={14}/>,
+                combo: APP_SHORTCUTS.graph,
                 group: t("common.interface"),
                 run: () => openPanel('graph'),
             },

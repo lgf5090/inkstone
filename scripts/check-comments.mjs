@@ -610,6 +610,9 @@ const allowed = new Map([
     "// tenant phrase filter runs inside the inverted index, not as an UNINDEXED",
     "// post-scan.",
   ]],
+  ["tests/graph-hardening.test.ts", [
+    "// The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.",
+  ]],
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",
     "// to lock out anybody who mistyped their username by filling that shared bucket.",
