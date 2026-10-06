@@ -98,6 +98,20 @@ notesRoutes.get('/', async (c) => {
   // Several `tag` params combine with AND, and each one also matches its whole subtree so the
   // rolled-up count in the sidebar and the result set agree. Both halves have to stay in step
   // with tagInScope(), which spells the same rule in TypeScript for the offline shell.
+  const excludedScopes = [...new Set(new URL(c.req.url).searchParams.getAll('excludeTag'))]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, LIMITS.tagFilterMax)
+  for (const scope of excludedScopes) {
+    binds.push(scope.trim(), likePattern(`${scope.trim()}/`))
+    const nameBind = binds.length - 1
+    const prefixBind = binds.length
+    where += ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
+                   WHERE nt.note_id = n.id AND t.user_id = n.user_id
+                     AND (t.name = ?${nameBind} COLLATE NOCASE
+                       OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`
+  }
+
   if (view === 'tag') {
     const tags = [...new Set(new URL(c.req.url).searchParams.getAll('tag'))]
       .map((value) => value.trim())

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDemoBackend } from './backend'
-import type { SyncResponse, Tag } from '@shared/types'
+import type { ListNotesResponse, SyncResponse, Tag } from '@shared/types'
+import { tagInScope } from '@shared/markdown-utils'
 
 let backend: ReturnType<typeof createDemoBackend>
 
@@ -58,5 +59,39 @@ describe('demo sync facets stay consistent with what they carry', () => {
     const counts = new Map(after.tags.map((tag: Tag) => [tag.name, tag.count]))
     expect(counts.has(shared.name)).toBe(false)
     for (const note of after.notes) expect(note.tags).not.toContain(shared.name)
+  })
+})
+
+describe('demo tag filters match the worker', () => {
+  async function listNotes(query: string) {
+    const response = await backend.fetch(new Request(`http://localhost/api/notes?${query}`))
+    const body = await response.json() as ListNotesResponse
+    return body.notes.map((note) => note.id).sort()
+  }
+
+  it('excludes a whole subtree and keeps prefix siblings', async () => {
+    const first = await listNotes('view=all')
+    expect(first.length).toBeGreaterThan(0)
+    const all = await backend.fetch(new Request('http://localhost/api/tags'))
+    const tags = (await all.json() as { tags: Tag[] }).tags
+    const hub = tags.find((item) => item.count > 0)!
+    const withoutHub = await listNotes(`view=all&excludeTag=${encodeURIComponent(hub.name)}`)
+    expect(withoutHub.length).toBeLessThan(first.length)
+    expect(withoutHub).not.toHaveLength(0)
+  })
+
+  it('combines an included tag with an excluded one', async () => {
+    const all = await backend.fetch(new Request('http://localhost/api/tags'))
+    const tags = (await all.json() as { tags: Tag[] }).tags
+    const kept = tags.find((item) => !item.name.includes('/'))!
+    const dropped = tags.find((item) => item.name.includes('/'))
+    if (!dropped) return
+    const query = `view=tag&tag=${encodeURIComponent(kept.name)}&excludeTag=${encodeURIComponent(dropped.name)}`
+    const result = await listNotes(query)
+    for (const id of result) {
+      const note = await backend.fetch(new Request(`http://localhost/api/notes/${id}`))
+      const body = await note.json() as { tags: string[] }
+      expect(body.tags.some((name) => tagInScope(name, dropped.name))).toBe(false)
+    }
   })
 })

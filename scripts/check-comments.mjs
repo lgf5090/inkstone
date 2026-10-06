@@ -330,9 +330,14 @@ const allowed = new Map([
     "// the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and",
     "// re-ran a full pull. One reclaim per minute still takes over after the leader closes.",
   ]],
+  ["src/client/lib/tag-tree.test.ts", [
+    "// The level a row belongs to is its parent's children, so \"toggle this level\" has to",
+    "// return only the branches at that level that can actually be expanded.",
+  ]],
   ["src/client/lib/tag-tree.ts", [
     "/**\n * A parent that matches on its own keeps its whole subtree, so `work` still shows `work/meeting`;\n * a parent that only leads to a match is kept unhighlighted so the child stays reachable.\n */",
     "/**\n * A tree row edits one segment, so committing it has to re-attach the parent path — sending the\n * bare segment would silently move the tag to the top level.\n */",
+    "/**\n * Paths of the siblings sharing `fullPath`'s parent that themselves have children — the rows a\n * \"toggle this level\" action has to touch.\n */",
   ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
@@ -403,6 +408,7 @@ const allowed = new Map([
     "// persisted (toasts, selection). Serializing 22 keys per keystroke cost more than the",
     "// localStorage write the 220 ms debounce already coalesces, so serialization waits too.",
     "/** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */",
+    "/** Tags hidden from every view, matched subtree-wide exactly like `tags`. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",

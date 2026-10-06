@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Tag } from '@shared/types'
-import { buildTagTree, collectParentPaths, flattenTagTree, searchTagTree } from './tag-tree'
+import { buildTagTree, collectParentPaths, flattenTagTree, searchTagTree, siblingParentPaths } from './tag-tree'
 
 function tag(name: string, count: number, isPinned = false): Tag {
   return { id: `id-${name}`, name, color: null, isPinned, count, createdAt: 1 }
@@ -65,6 +65,39 @@ describe('flattenTagTree', () => {
 
   it('reports only paths that actually have children', () => {
     expect(collectParentPaths(tree)).toEqual(['a', 'a/b'])
+  })
+})
+
+describe('siblingParentPaths', () => {
+  // The level a row belongs to is its parent's children, so "toggle this level" has to
+  // return only the branches at that level that can actually be expanded.
+  const tree = buildTagTree([
+    { id: 'a', name: 'a/one', color: null, count: 1, createdAt: 1 },
+    { id: 'b', name: 'a/two/x', color: null, count: 1, createdAt: 1 },
+    { id: 'c', name: 'a/three', color: null, count: 1, createdAt: 1 },
+    { id: 'd', name: 'z/one', color: null, count: 1, createdAt: 1 },
+  ])
+  const sorted = (paths: readonly string[]) => [...paths].sort()
+
+  it('returns the expandable branches sharing the row parent', () => {
+    expect(sorted(siblingParentPaths(tree, 'a/one'))).toEqual(['a/two'])
+    expect(sorted(siblingParentPaths(tree, 'a/three'))).toEqual(['a/two'])
+    expect(siblingParentPaths(tree, 'a/two')).toEqual([])
+  })
+
+  it('excludes the row itself from its own level', () => {
+    const wider = buildTagTree([
+      { id: 'p', name: 'p/q', color: null, count: 1, createdAt: 1 },
+      { id: 'r', name: 'p/r/s', color: null, count: 1, createdAt: 1 },
+    ])
+    expect(siblingParentPaths(wider, 'p/q')).toEqual(['p/r'])
+    expect(siblingParentPaths(wider, 'p/r/s')).toEqual([])
+  })
+
+  it('treats the roots as one level and an unknown parent as having none', () => {
+    expect(siblingParentPaths(tree, 'a')).toEqual(['z'])
+    expect(siblingParentPaths(tree, 'z')).toEqual(['a'])
+    expect(siblingParentPaths(tree, 'nowhere/deep')).toEqual([])
   })
 })
 

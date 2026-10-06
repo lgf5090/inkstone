@@ -151,6 +151,28 @@ function keepAll(node: TagTreeNode): TagTreeNode {
  * A tree row edits one segment, so committing it has to re-attach the parent path — sending the
  * bare segment would silently move the tag to the top level.
  */
+/**
+ * Paths of the siblings sharing `fullPath`'s parent that themselves have children — the rows a
+ * "toggle this level" action has to touch.
+ */
+export function siblingParentPaths(nodes: readonly TagTreeNode[], fullPath: string): string[] {
+  const cut = fullPath.lastIndexOf(TAG_PATH_SEPARATOR)
+  const parent = cut < 0 ? '' : fullPath.slice(0, cut)
+  const siblings = (parent ? findNode(nodes, parent)?.children : nodes) ?? []
+  return siblings
+    .filter((node) => node.children.length && node.fullPath !== fullPath)
+    .map((node) => node.fullPath)
+}
+
+function findNode(nodes: readonly TagTreeNode[], fullPath: string): TagTreeNode | null {
+  for (const node of nodes) {
+    if (node.fullPath === fullPath) return node
+    const nested = findNode(node.children, fullPath)
+    if (nested) return nested
+  }
+  return null
+}
+
 export function renameTagSegment(fullPath: string, nextSegment: string): string {
   const leaf = nextSegment.trim().replace(/^#+/, '').replace(/^\/+/, '')
   const cut = fullPath.lastIndexOf(TAG_PATH_SEPARATOR)

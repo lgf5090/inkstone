@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronsUpDown, CornerDownRight, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Tag, Trash2, X } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, CornerDownRight, EyeOff, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Search, Settings2, Tag, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
-import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree } from '../../lib/tag-tree';
+import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton, SectionLabel } from '../../components/primitives';
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay';
@@ -25,6 +25,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     const activeTags = useUi((s) => s.tags);
     const openView = useUi((s) => s.openView);
     const toggleTagFilter = useUi((s) => s.toggleTagFilter);
+    const toggleTagExclusion = useUi((s) => s.toggleTagExclusion);
+    const excludedTags = useUi((s) => s.excludedTags);
     const [query, setQuery] = useState('');
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
     const [listOpen, setListOpen] = useState(false);
@@ -174,7 +176,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, renameTagSegment(node.fullPath, value));
-                }} onCancelRename={() => setRenamingId(null)} onSelectColor={(color) => void setTagColor(node.tag, color)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} onDragStart={(event) => {
+                }} onCancelRename={() => setRenamingId(null)} onSelectColor={(color) => void setTagColor(node.tag, color)} excluded={excludedTags.includes(node.fullPath)} onExclude={() => toggleTagExclusion(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} onDragStart={(event) => {
                     if (node.isVirtual) return;
                     event.dataTransfer.setData(TAG_MIME, node.fullPath);
                     event.dataTransfer.effectAllowed = 'move';
@@ -200,13 +202,20 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     const source = tags.find((item) => item.name === name);
                     if (source) void moveTag(source, node.fullPath);
                 }}/>))}
-        {activeTags.length > 1 && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
-            <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>
+        {(activeTags.length > 1 || excludedTags.length > 0) && (<div className="flex flex-wrap items-center gap-1 pt-1 text-[11px]">
+            {activeTags.length > 1 && <span className="shrink-0 text-[var(--text-quaternary)]">{t('tags.matching_all', { value0: activeTags.length })}</span>}
             {activeTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagFilter(name, true)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
                 <span className="truncate">#{name}</span>
                 <X size={9} className="shrink-0"/>
               </button>))}
-            <button type="button" onClick={() => openView('all')} className="px-1 text-[var(--accent)] hover:underline">{t('common.clear')}</button>
+            {excludedTags.map((name) => (<button key={name} type="button" onClick={() => toggleTagExclusion(name)} className="flex max-w-[10rem] items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 text-[var(--text-secondary)] line-through decoration-[var(--danger)]">
+                <span className="truncate">#{name}</span>
+                <X size={9} className="shrink-0 no-underline"/>
+              </button>))}
+            <button type="button" onClick={() => {
+                    openView('all');
+                    for (const name of excludedTags) toggleTagExclusion(name);
+                }} className="px-1 text-[var(--accent)] hover:underline">{t('common.clear')}</button>
           </div>)}
         {!searching && flattened.length > COLLAPSED_ROW_LIMIT && (<button type="button" onClick={() => setListOpen((value) => !value)} className="h-10 w-full rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[26px]">
             {listOpen ? t('common.collapse') : t('sidebar.show_all_value0_tags', { value0: flattened.length })}
@@ -270,7 +279,7 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
     </div>);
 }
-function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onSelectColor, onCreateChild, onManage, dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
+function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, onSelectColor, excluded, onExclude, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
     node: TagTreeNode;
     searching: boolean;
     query: string;
@@ -284,6 +293,10 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
     onFinishRename: (value: string) => void;
     onCancelRename: () => void;
     onSelectColor: (color: string | null) => void;
+    excluded: boolean;
+    onExclude: () => void;
+    onToggleLevel: (paths: readonly string[], open: boolean) => void;
+    levelSiblings: readonly string[];
     onCreateChild: (path: string) => void;
     onManage: () => void;
     dragging: boolean;
@@ -306,9 +319,14 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
         onFinishRename(value);
     };
     const menuItems: MenuItem[] = node.isVirtual
-        ? [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle }]
+        ? levelSiblings.length
+            ? [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle },
+               { id: 'level', label: t('tags.expand_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => onToggleLevel(levelSiblings, true) },
+               { id: 'level-collapse', label: t('tags.collapse_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => onToggleLevel(levelSiblings, false) }]
+            : [{ id: 'expand', label: expanded ? t('tags.collapse_children') : t('tags.expand_children'), icon: <ChevronRight size={13}/>, onSelect: onToggle }]
         : [
             { id: 'pin', label: node.tag.isPinned ? t('tags.unpin') : t('tags.pin'), icon: <Pin size={13}/>, onSelect: () => void setTagPinned(node.tag, !node.tag.isPinned) },
+            { id: 'exclude', label: excluded ? t('tags.stop_excluding') : t('tags.exclude'), icon: <EyeOff size={13}/>, onSelect: onExclude },
             { id: 'rename', label: t('tags.rename'), icon: <Pencil size={13}/>, onSelect: onStartRename },
             { id: 'child', label: t('tags.new_child'), icon: <CornerDownRight size={13}/>, onSelect: () => onCreateChild(node.fullPath) },
             { id: 'color', label: t('tags.color'), icon: <Palette size={13}/>, submenu: ({ closeMenu }) => (<TagColorMenu color={node.tag.color} onSelectColor={(color) => {
@@ -332,6 +350,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
           </button>) : <span className="size-6 shrink-0 md:size-5"/>}
       <Hash size={13} className="shrink-0" style={{ color: node.tag.color ?? (active ? 'var(--accent)' : 'var(--text-quaternary)') }}/>
       {node.tag.isPinned && <Pin size={10} className="shrink-0 text-[var(--text-quaternary)]"/>}
+      {excluded && <span aria-hidden="true" className="shrink-0 text-[11px] text-[var(--danger)]">−</span>}
       {renaming ? (<input aria-label={t('tags.rename')} autoFocus defaultValue={node.name} onFocus={() => {
             finishedRef.current = false;
         }} onBlur={(event) => finishRename(event.currentTarget.value)} onKeyDown={(event) => {

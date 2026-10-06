@@ -802,3 +802,56 @@ describe('unfiled view', () => {
         expect([...inbox.querySelectorAll('[data-tree-note-id]')].map((element) => element.getAttribute('data-tree-note-id'))).toEqual(['loose']);
     });
 });
+
+describe('excluded tag filters', () => {
+    const tagged = (id: string, tags: string[]): NoteSummary => ({ ...note, id, title: id, tags });
+
+    function VisibleProbe({ onRender }: { onRender: (ids: string[]) => void }) {
+        onRender(useVisibleNotes().map((item) => item.id));
+        return null;
+    }
+
+    async function visible(): Promise<string[]> {
+        let ids: string[] = [];
+        await act(() => root.render(createElement(VisibleProbe, { onRender: (next) => { ids = next; } })));
+        return ids.sort();
+    }
+
+    beforeEach(() => {
+        useNotes.setState({
+            notes: {
+                plain: tagged('plain', []),
+                work: tagged('work', ['work']),
+                meeting: tagged('meeting', ['work/meeting']),
+                fun: tagged('fun', ['fun']),
+            },
+            folders: [],
+        });
+        useUi.setState({ ...originalUi, view: 'all', folderId: null, tags: [], excludedTags: [] });
+    });
+
+    it('hides the whole subtree of an excluded tag', async () => {
+        expect(await visible()).toEqual(['fun', 'meeting', 'plain', 'work']);
+        useUi.getState().toggleTagExclusion('work');
+        expect(await visible()).toEqual(['fun', 'plain']);
+    });
+
+    it('applies on top of a positive tag filter', async () => {
+        useUi.getState().openView('tag', { tag: 'work' });
+        expect(await visible()).toEqual(['meeting', 'work']);
+        useUi.getState().toggleTagExclusion('work/meeting');
+        expect(await visible()).toEqual(['work']);
+    });
+
+    it('toggling twice restores the list, and excluding a selected tag drops it from the selection', async () => {
+        useUi.getState().openView('tag', { tag: 'work' });
+        useUi.getState().toggleTagExclusion('work');
+        expect(useUi.getState().tags).toEqual([]);
+        expect(useUi.getState().view).toBe('all');
+        expect(await visible()).toEqual(['fun', 'plain']);
+        useUi.getState().toggleTagExclusion('work');
+        expect(useUi.getState().excludedTags).toEqual([]);
+        expect(await visible()).toEqual(['fun', 'meeting', 'plain', 'work']);
+    });
+
+});

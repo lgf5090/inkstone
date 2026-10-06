@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, replaceTagInContent, toPlainText } from './markdown-utils'
+import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, replaceTagInContent, toPlainText } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -78,6 +78,41 @@ describe('container markers in plain text', () => {
 
   it('ignores container-looking lines inside code fences', () => {
     expect(toPlainText('```\n:::: tabs\n```').trim()).toBe('')
+  })
+})
+
+describe('tag list separators', () => {
+  const tagsOf = (tags: string) => extractTags(['---', `tags: ${tags}`, '---', 'body'].join('\n'))
+
+  it('splits a flow sequence written with a full-width comma', () => {
+    expect(tagsOf('[getting-started, Inkstone]')).toEqual(['getting-started', 'Inkstone'])
+  })
+
+  it('splits the punctuation a CJK keyboard produces', () => {
+    expect(tagsOf('[\u7532\u3001\u4e59]')).toEqual(['\u7532', '\u4e59'])
+    expect(tagsOf('[a\uff1bb]')).toEqual(['a', 'b'])
+    expect(tagsOf('getting-started\uff0cInkstone')).toEqual(['getting-started', 'Inkstone'])
+  })
+
+  it('keeps a well formed list exactly as written', () => {
+    expect(tagsOf('[a, b/c]')).toEqual(['a', 'b/c'])
+    expect(tagsOf('\n  - a\n  - b/c')).toEqual(['a', 'b/c'])
+  })
+
+  it('never yields a name the tag API would reject', () => {
+    for (const name of tagsOf('[one two, three#four, five]'))
+      expect(isUsableTagName(name)).toBe(true)
+    expect(tagsOf('[one two, three#four, five]')).toEqual(['five', 'one', 'two'])
+  })
+})
+
+describe('isUsableTagName', () => {
+  it.each(['a', 'a/b', '\u6807\u7b7e', '\u2162'])('accepts %s', (name) => {
+    expect(isUsableTagName(name)).toBe(true)
+  })
+
+  it.each(['', 'a b', 'a#b', 'a,b', 'a\uff0cb', 'a\u3001b', 'a;b', 'a\uff1bb'])('rejects %s', (name) => {
+    expect(isUsableTagName(name)).toBe(false)
   })
 })
 

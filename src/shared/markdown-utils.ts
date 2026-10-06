@@ -449,6 +449,11 @@ export function notesCarryEveryTag(tagLists: readonly string[], scopes: readonly
   return wants.every((want) => tagLists.some((name) => keyInScope(tagKey(name), want)))
 }
 
+export function notesCarryAnyTag(tagLists: readonly string[], scopes: readonly string[]): boolean {
+  const wants = scopes.map(tagKey)
+  return wants.some((want) => tagLists.some((name) => keyInScope(tagKey(name), want)))
+}
+
 export function extractTags(content: string): string[] {
   const frontMatter = parseFrontMatter(content)
   const out = new Map<string, string>()

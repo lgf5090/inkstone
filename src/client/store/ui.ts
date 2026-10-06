@@ -51,6 +51,8 @@ interface UiState {
   folderId: string | null
   /** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */
   tags: string[]
+  /** Tags hidden from every view, matched subtree-wide exactly like `tags`. */
+  excludedTags: string[]
   dateFilter: DateRangeFilter | null
   calendarJump: { year: number; month: number; nonce: number } | null
   sort: SortKey
@@ -92,6 +94,7 @@ interface UiState {
   setMobilePane: (pane: UiState['mobilePane']) => void
   openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null; tags?: readonly string[] }) => void
   toggleTagFilter: (tag: string, additive: boolean) => void
+  toggleTagExclusion: (tag: string) => void
   setDateFilter: (value: DateRangeFilter | null) => void
   requestCalendarJump: (year: number, month: number) => void
   setSort: (sort: SortKey, order?: SortOrder) => void
@@ -132,6 +135,7 @@ const DEFAULTS = {
   view: 'all' as ViewKind,
   folderId: null,
   tags: [] as string[],
+  excludedTags: [] as string[],
   dateFilter: null as DateRangeFilter | null,
   calendarJump: null as { year: number; month: number; nonce: number } | null,
   sort: 'updated' as SortKey,
@@ -164,6 +168,7 @@ const PERSISTED_KEYS = [
   'view',
   'folderId',
   'tags',
+  'excludedTags',
   'sort',
   'order',
   'density',
@@ -202,6 +207,9 @@ function loadPersisted(): Partial<UiState> {
     }
     if (Array.isArray(value.tags)) {
       out.tags = tagFilter(value.tags)
+    }
+    if (Array.isArray(value.excludedTags)) {
+      out.excludedTags = tagFilter(value.excludedTags)
     }
     if (isChoice(value.sort, ['updated', 'created', 'title'])) out.sort = value.sort as SortKey
     if (isChoice(value.order, ['asc', 'desc'])) out.order = value.order as SortOrder
@@ -460,6 +468,17 @@ export const useUi = create<UiState>((set, get) => ({
       navDrawerOpen: false,
     })
   },
+
+  toggleTagExclusion: (tag) => set((s) => {
+    const name = tag.trim()
+    if (!name) return {}
+    const wasExcluded = s.excludedTags.some((item) => item.toLowerCase() === name.toLowerCase())
+    const excludedTags = wasExcluded
+      ? s.excludedTags.filter((item) => item.toLowerCase() !== name.toLowerCase())
+      : tagFilter([...s.excludedTags, name])
+    const tags = tagFilter(s.tags.filter((item) => item.toLowerCase() !== name.toLowerCase()))
+    return { excludedTags, tags, view: tags.length ? 'tag' : s.view === 'tag' ? 'all' : s.view }
+  }),
 
   toggleTagFilter: (tag, additive) => set((s) => {
     const name = tag.trim()

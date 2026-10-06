@@ -9,6 +9,7 @@ import {
   extractAttachmentIds,
   extractWikiLinks,
   normalizeLinkKey,
+  notesCarryAnyTag,
   notesCarryEveryTag,
   replaceTagInContent,
   wikiNoteTarget,
@@ -157,6 +158,12 @@ export function createDemoBackend(): DemoBackend {
         const scopes = c.req.queries('tag') ?? []
         notes = notes.filter((note) => notesCarryEveryTag(note.tags, scopes))
       }
+      const excluded = [...new Set(c.req.queries('excludeTag') ?? [])]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .slice(0, LIMITS.tagFilterMax)
+      if (excluded.length)
+        notes = notes.filter((note) => !notesCarryAnyTag(note.tags, excluded))
       if (view === 'untagged') notes = notes.filter((note) => note.tags.length === 0)
       if (view === 'all' || view === 'recent') notes = notes.filter((note) => !note.isArchived)
     }

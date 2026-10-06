@@ -163,6 +163,39 @@ describe('the SQL filter and the shared TypeScript rule agree', () => {
   })
 })
 
+describe('excluding a tag hides it from every view', () => {
+  beforeEach(() => {
+    tag('t-work', 'work')
+    tag('t-meet', 'work/meeting')
+    tag('t-fun', 'fun')
+    for (const id of ['plain', 'work-only', 'nested-only', 'fun-only'])
+      note(id)
+    link('work-only', 't-work')
+    link('nested-only', 't-meet')
+    link('fun-only', 't-fun')
+  })
+
+  it('drops the excluded subtree from the all view', async () => {
+    expect(ids(await list('view=all&excludeTag=work'))).toEqual(['fun-only', 'plain'])
+    expect(ids(await list('view=all&excludeTag=work/meeting'))).toEqual(['fun-only', 'plain', 'work-only'])
+  })
+
+  it('combines with a positive tag filter', async () => {
+    expect(ids(await list('view=tag&tag=work&excludeTag=work/meeting'))).toEqual(['work-only'])
+  })
+
+  it('still respects the case-insensitive subtree rule', async () => {
+    expect(ids(await list('view=all&excludeTag=WORK'))).toEqual(['fun-only', 'plain'])
+  })
+
+  it('does not exclude an unrelated prefix sibling', async () => {
+    tag('t-why', 'workflow')
+    note('workflow-only')
+    link('workflow-only', 't-why')
+    expect(ids(await list('view=all&excludeTag=work'))).toContain('workflow-only')
+  })
+})
+
 describe('the untagged view', () => {
   beforeEach(() => {
     tag('t-work', 'work')

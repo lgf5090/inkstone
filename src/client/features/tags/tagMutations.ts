@@ -1,5 +1,5 @@
 import { LIMITS } from '@shared/constants'
-import { replaceTagInContent, sortTagNames, tagKey } from '@shared/markdown-utils'
+import { isUsableTagName, replaceTagInContent, sortTagNames, tagKey } from '@shared/markdown-utils'
 import type { NoteSummary, Tag } from '@shared/types'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
@@ -19,7 +19,7 @@ const tagColorWrites = new Map<string, TagColorWrite>()
 
 export function normalizeTagName(value: string): string | null {
   const name = value.trim().replace(/^#+/, '')
-  if (!name || /[\s#]/.test(name) || name.length > LIMITS.tagNameMaxLength) return null
+  if (!isUsableTagName(name) || name.length > LIMITS.tagNameMaxLength) return null
   return name
 }
 
