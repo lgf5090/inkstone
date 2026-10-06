@@ -152,3 +152,83 @@ describe('graph tenant isolation', () => {
     expect(await titles({ includeUnresolved: false })).not.toContain('Ghost')
   })
 })
+
+function countingD1(sqlite: DatabaseSync): { db: D1Database; maxBinds: () => number } {
+  const inner = makeD1(sqlite)
+  let max = 0
+  return {
+    db: {
+      ...inner,
+      prepare(sql: string) {
+        const prepared = inner.prepare(sql)
+        const wrapped = {
+          ...prepared,
+          bind(...values: unknown[]) {
+            max = Math.max(max, values.length)
+            prepared.bind(...values)
+            return wrapped
+          },
+        }
+        return wrapped
+      },
+    } as D1Database,
+    maxBinds: () => max,
+  }
+}
+
+describe('graph statement width', () => {
+  // D1 refuses a statement holding more than 100 bound variables, and node:sqlite does not,
+  // so the only defence is a test that counts the bindings a page of notes produces.
+  it('keeps every graph statement under D1 bound-variable ceiling', async () => {
+    const fixture = new DatabaseSync(':memory:')
+    fixture.exec(SCHEMA_STATEMENTS.join(';'))
+    const counted = countingD1(fixture)
+    const total = 120
+    for (let index = 0; index < total; index++) {
+      const id = `note-${String(index).padStart(3, '0')}`
+      fixture.prepare(
+        `INSERT INTO notes (id, user_id, folder_id, title, title_key, content, excerpt, rev,
+           word_count, char_count, is_pinned, is_starred, is_archived, position, content_hash,
+           created_at, updated_at, deleted_at)
+         VALUES (?, ?, NULL, ?, ?, 'body', 'body', 1, 0, 0, 0, 0, 0, 0, '', 1, 1, NULL)`,
+      ).run(id, MINE, id, id)
+      if (index > 0) {
+        const from = `note-${String(index - 1).padStart(3, '0')}`
+        fixture.prepare(
+          'INSERT INTO links (source_note_id, target_key, target_title, target_note_id, user_id) VALUES (?, ?, ?, ?, ?)',
+        ).run(from, id, id, id, MINE)
+      }
+    }
+    const body = await buildUserGraph(counted.db, {
+      userId: MINE, mode: 'global', centerId: null, depth: 1, limit: 350, query: '',
+      folderId: '', tags: [], tagsMatch: 'any', includeOrphans: true,
+      includeUnresolved: true, showTagNodes: false, excluded: [], direction: 'both',
+    })
+    expect(body.nodes.length).toBe(total)
+    expect(body.edges.length).toBe(total - 1)
+    expect(counted.maxBinds()).toBeLessThan(100)
+  })
+
+  it('still finds an edge whose two ends land in different chunks', async () => {
+    const fixture = new DatabaseSync(':memory:')
+    fixture.exec(SCHEMA_STATEMENTS.join(';'))
+    for (let index = 0; index < 90; index++) {
+      const id = `note-${String(index).padStart(3, '0')}`
+      fixture.prepare(
+        `INSERT INTO notes (id, user_id, folder_id, title, title_key, content, excerpt, rev,
+           word_count, char_count, is_pinned, is_starred, is_archived, position, content_hash,
+           created_at, updated_at, deleted_at)
+         VALUES (?, ?, NULL, ?, ?, 'body', 'body', 1, 0, 0, 0, 0, 0, 0, '', 1, 1, NULL)`,
+      ).run(id, MINE, id, id)
+    }
+    fixture.prepare(
+      'INSERT INTO links (source_note_id, target_key, target_title, target_note_id, user_id) VALUES (?, ?, ?, ?, ?)',
+    ).run('note-000', 'note-089', 'note-089', 'note-089', MINE)
+    const body = await buildUserGraph(makeD1(fixture), {
+      userId: MINE, mode: 'global', centerId: null, depth: 1, limit: 350, query: '',
+      folderId: '', tags: [], tagsMatch: 'any', includeOrphans: true,
+      includeUnresolved: false, showTagNodes: false, excluded: [], direction: 'both',
+    })
+    expect(body.edges).toEqual([{ source: 'note-000', target: 'note-089' }])
+  })
+})

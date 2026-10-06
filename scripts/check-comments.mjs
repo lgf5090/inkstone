@@ -737,6 +737,10 @@ const allowed = new Map([
   ["tests/graph-hardening.test.ts", [
     "// The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.",
   ]],
+  ["tests/graph-route-filters.test.ts", [
+    "// D1 refuses a statement holding more than 100 bound variables, and node:sqlite does not,",
+    "// so the only defence is a test that counts the bindings a page of notes produces.",
+  ]],
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",
     "// to lock out anybody who mistyped their username by filling that shared bucket.",

@@ -18,6 +18,7 @@ import { requireAuth } from '../middleware/auth'
 export const searchRoutes = new Hono<AppBindings>()
 
 const GRAPH_EDGE_CANDIDATE_LIMIT = 10_000
+const GRAPH_NOTE_ID_CHUNK = 40
 
 
 export interface ParsedQuery {
@@ -445,6 +446,54 @@ export function localNeighborhoodSql(direction: GraphLinkDirection): string {
     ), nearby AS (SELECT id, MIN(depth) AS depth FROM neighborhood GROUP BY id)`
 }
 
+type GraphLinkRow = {
+  source_note_id: string
+  target_note_id: string | null
+  target_key: string
+  target_title: string
+}
+
+type GraphTagRow = { note_id: string; name: string; color: string | null }
+
+async function loadGraphLinkAndTagRows(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+): Promise<{ links: GraphLinkRow[]; tags: GraphTagRow[]; truncated: boolean }> {
+  const statements: D1PreparedStatement[] = []
+  for (let offset = 0; offset < ids.length; offset += GRAPH_NOTE_ID_CHUNK) {
+    const chunk = ids.slice(offset, offset + GRAPH_NOTE_ID_CHUNK)
+    const placeholders = chunk.map(() => '?').join(',')
+    statements.push(
+      db.prepare(
+        `SELECT source_note_id, target_note_id, target_key, target_title FROM links
+         WHERE user_id = ? AND source_note_id IN (${placeholders})
+         ORDER BY source_note_id ASC, target_key ASC LIMIT ?`,
+      ).bind(userId, ...chunk, GRAPH_EDGE_CANDIDATE_LIMIT + 1),
+      db.prepare(
+        `SELECT nt.note_id, t.name, t.color FROM note_tags nt
+         JOIN tags t ON t.id = nt.tag_id AND t.user_id = ?
+         WHERE nt.note_id IN (${placeholders}) ORDER BY t.name COLLATE NOCASE ASC`,
+      ).bind(userId, ...chunk),
+    )
+  }
+  const batch = await db.batch(statements)
+  const links: GraphLinkRow[] = []
+  const tags: GraphTagRow[] = []
+  let truncated = false
+  for (let index = 0; index < batch.length; index += 2) {
+    const linkRows = ((batch[index] as D1Result<GraphLinkRow> | undefined)?.results ?? [])
+    const tagRows = ((batch[index + 1] as D1Result<GraphTagRow> | undefined)?.results ?? [])
+    if (linkRows.length > GRAPH_EDGE_CANDIDATE_LIMIT) truncated = true
+    links.push(...linkRows)
+    tags.push(...tagRows)
+  }
+  links.sort((left, right) => (left.source_note_id === right.source_note_id
+    ? (left.target_key < right.target_key ? -1 : left.target_key > right.target_key ? 1 : 0)
+    : (left.source_note_id < right.source_note_id ? -1 : 1)))
+  return { links, tags, truncated }
+}
+
 export async function buildUserGraph(db: D1Database, params: GraphParams): Promise<GraphResponse> {
   const { userId, mode, centerId, depth, limit, query, folderId, tags, tagsMatch } = params
   const { includeOrphans, includeUnresolved, showTagNodes, excluded, direction } = params
@@ -586,28 +635,15 @@ export async function buildUserGraph(db: D1Database, params: GraphParams): Promi
   const unresolved = new Map<string, { title: string; sources: Set<string> }>()
   const tagsByNote = new Map<string, Array<{ name: string; color: string | null }>>()
   if (ids.length) {
-    const placeholders = ids.map(() => '?').join(',')
-    const [linkResult, tagResult] = await Promise.all([
-      db.prepare(
-        `SELECT source_note_id, target_note_id, target_key, target_title FROM links
-         WHERE user_id = ? AND source_note_id IN (${placeholders})
-           AND (target_note_id IN (${placeholders})${includeUnresolved ? ' OR target_note_id IS NULL' : ''})
-         ORDER BY source_note_id ASC, target_key ASC LIMIT ?`,
-      ).bind(userId, ...ids, ...ids, GRAPH_EDGE_CANDIDATE_LIMIT + 1).all<{
-        source_note_id: string
-        target_note_id: string | null
-        target_key: string
-        target_title: string
-      }>(),
-      db.prepare(
-        `SELECT nt.note_id, t.name, t.color FROM note_tags nt
-         JOIN tags t ON t.id = nt.tag_id AND t.user_id = ?
-         WHERE nt.note_id IN (${placeholders}) ORDER BY t.name COLLATE NOCASE ASC`,
-      ).bind(userId, ...ids).all<{ note_id: string; name: string; color: string | null }>(),
-    ])
-    if (linkResult.results.length > GRAPH_EDGE_CANDIDATE_LIMIT) truncated = true
+    const pageIds = new Set(ids)
+    const loaded = await loadGraphLinkAndTagRows(db, userId, ids)
+    if (loaded.truncated) truncated = true
+    const candidates = loaded.links.filter((link) => (link.target_note_id === null
+      ? includeUnresolved
+      : pageIds.has(link.target_note_id)))
+    if (candidates.length > GRAPH_EDGE_CANDIDATE_LIMIT) truncated = true
     const seen = new Set<string>()
-    for (const link of linkResult.results.slice(0, GRAPH_EDGE_CANDIDATE_LIMIT)) {
+    for (const link of candidates.slice(0, GRAPH_EDGE_CANDIDATE_LIMIT)) {
       if (link.target_note_id === null) {
         if (!includeUnresolved || unresolved.size >= 50 && !unresolved.has(link.target_key)) continue
         const current = unresolved.get(link.target_key) ?? {
@@ -624,7 +660,7 @@ export async function buildUserGraph(db: D1Database, params: GraphParams): Promi
       seen.add(key)
       edges.push({ source: link.source_note_id, target: link.target_note_id })
     }
-    for (const item of tagResult.results) {
+    for (const item of loaded.tags) {
       const values = tagsByNote.get(item.note_id) ?? []
       values.push({ name: item.name, color: item.color })
       tagsByNote.set(item.note_id, values)
