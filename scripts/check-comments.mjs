@@ -23,6 +23,8 @@ const allowed = new Map([
     "// Slice-chart fixtures: the value column word appears in two tables, and the gate's allowance",
     "// replaces one occurrence per listed fragment, so it is named twice rather than widened.",
     "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n */",
+    "// The timeline fixture is the reference project's own demo text, copied verbatim so the",
+    "// space-free `:::timeline` spelling and the Han titles are exercised as authors write them.",
   ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
@@ -644,6 +646,11 @@ const allowed = new Map([
     "// The body rides along encoded because a chart table's own pipes and braces would otherwise be",
     "// read back out of markup the sanitizer has already rewritten. `data-line` is how the block finds",
     "// the fence again when the toolbar writes the note.",
+    "/**\n * The `::` lines that open a node, ignoring the ones inside a code fence or a nested `:::` block.\n * `colonFenceMark` decides what counts as a container line here too, so this scan and the one that\n * found the block's own end can never disagree about where a `:::` starts a level.\n */",
+    "/**\n * A node is written as a stack of short lines that each mean something on their own, so the soft\n * breaks of its own paragraphs are raised to hard breaks. Only the paragraphs sitting directly in\n * the node are touched: a list, quote or table the author put there keeps the app-wide line rules.\n */",
+  ]],
+  ["src/client/lib/markdown/timeline-options.ts", [
+    "/**\n * An unrecognised bracket group is left where it is, so `[2024] Annual report` keeps its year rather\n * than spending it on a status the author never wrote.\n */",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",

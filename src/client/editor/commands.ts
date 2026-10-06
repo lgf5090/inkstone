@@ -408,6 +408,24 @@ export const insertTabs: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
+export const insertTimeline: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const selected = state.sliceDoc(range.from, range.to);
+    const placeholder = t('editor.timeline_node');
+    const bodies = selected.trim() ? selected.split('\n').map((line) => line.trim()).filter(Boolean) : [];
+    const nodes = (bodies.length ? bodies : [placeholder, placeholder])
+        .map((line, index) => `${index === 0 ? ':: [done] ' : ':: '}${line}`);
+    const insert = `::: timeline\n${nodes.join('\n')}\n:::\n`;
+    const start = range.from + '::: timeline\n:: [done] '.length;
+    dispatch(state.update({
+        changes: { from: range.from, to: range.to, insert },
+        selection: EditorSelection.range(start, start + (bodies[0] ?? placeholder).length),
+        scrollIntoView: true,
+        userEvent: 'input.insert',
+    }));
+    return true;
+};
+
 export const insertFrontMatter: StateCommand = ({ state, dispatch }) => {
     const source = state.doc.toString();
     if (/^---[ \t]*\r?\n/.test(source)) {
@@ -539,7 +557,7 @@ export const completeCodeFenceOnEnter: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
-const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set)\}?(?![\w-])[ \t]*(.*)$/;
+const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set|timeline)\}?(?![\w-])[ \t]*(.*)$/;
 const COLON_CLOSER_RE = /^[ \t]{0,3}(:{3,})[ \t]*$/;
 
 export const completeColonFenceOnEnter: StateCommand = ({ state, dispatch }) => {
