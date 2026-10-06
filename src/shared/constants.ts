@@ -158,6 +158,7 @@ const PROSE_WIDTHS = ['narrow', 'normal', 'wide', 'full'] as const
 const EDITOR_FONTS = ['mono', 'sans'] as const
 const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
 const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
+const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover'] as const
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
 
@@ -232,6 +233,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
   base.preview.showToc = booleanValue(preview.showToc, base.preview.showToc)
+  base.preview.outlineMode = enumValue(preview.outlineMode, OUTLINE_MODES, base.preview.outlineMode)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)
   base.preview.codeBlockCollapse = booleanValue(preview.codeBlockCollapse, base.preview.codeBlockCollapse)

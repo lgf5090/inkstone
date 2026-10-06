@@ -625,6 +625,7 @@ md.core.ruler.push('source_lines', (state) => {
 });
 md.core.ruler.push('collect_headings', (state) => {
     const env = renderEnv(state.env);
+    if (state.tokens.length <= 1) return true;
     env.headings = [];
     for (let index = 0; index < state.tokens.length; index++) {
         const token = state.tokens[index]!;
