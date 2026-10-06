@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import { PURIFY_CONFIG } from './renderer';
 import { decodeDataValue } from './data-attr';
 import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from './example-split';
+import { MAX_PANEL_COLUMNS, isTrackValue } from './panel-options';
 import { t, type MessageKey } from "../i18n";
 import { highlightWithPrism } from './prism';
 import {
@@ -124,6 +125,28 @@ export function applyExampleSplits(root: HTMLElement): void {
             const reversed = grid.dataset.exampleLayout === 'rl';
             grid.style.setProperty('--ex-cols', exampleSplitTracks(reversed ? [ratio[1], ratio[0]] : ratio));
         }
+    });
+}
+
+/**
+ * Column track sizes are the one thing a header states that CSS cannot read out of an attribute:
+ * `attr()` does not work for grid tracks, and the prose whitelist strips inline styles from rendered
+ * markup. So the header writes a `data-cols-tracks` value and this runs after sanitization to hand it
+ * to the stylesheet as a custom property — the same route the example split takes for its ratio.
+ *
+ * The value is re-checked here rather than trusted from the renderer, because this is the one place it
+ * becomes a CSS declaration.
+ */
+export function applyPanelColumnTracks(root: HTMLElement): void {
+    root.querySelectorAll<HTMLElement>('.markdown-cols[data-cols-tracks]').forEach((grid) => {
+        const tracks = (grid.dataset.colsTracks ?? '').trim().split(/\s+/);
+        // Re-checked rather than trusted from the renderer: one track describes no grid, and a list
+        // longer than the stylesheet draws tracks for would leave columns without one.
+        if (tracks.length < 2 || tracks.length > MAX_PANEL_COLUMNS)
+            return;
+        if (!tracks.every((track) => isTrackValue(track)))
+            return;
+        grid.style.setProperty('--panel-cols-tracks', tracks.join(' '));
     });
 }
 
@@ -927,6 +950,7 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     ]);
     configureCodeBlockCollapsing(root, options.codeBlockCollapseLines ?? 24);
     applyExampleSplits(root);
+    applyPanelColumnTracks(root);
 }
 export function invalidateMermaidTheme(root: HTMLElement | null): void {
     root?.querySelectorAll<HTMLElement>('[data-mermaid]').forEach((node) => {
