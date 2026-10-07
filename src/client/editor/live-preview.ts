@@ -2,6 +2,7 @@ import { Facet, StateEffect, StateField, type EditorState, type Extension, type 
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import { parseWikiTarget, renderMarkdownBlocks, type Heading, type MarkdownBlock } from '../lib/markdown/renderer';
+import { subscribeEmojiUnicode } from '../lib/emoji-unicode';
 import { registerFenceBodies, type FenceBodies } from '../lib/markdown/fence-bodies';
 import { enhancePreview, renderPendingCharts, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
 import { resolveNoteEmbeds } from '../lib/markdown/embeds';
@@ -210,11 +211,15 @@ function decorate(state: EditorState, live: LiveState, title: string): Decoratio
     return Decoration.set(ranges, true);
 }
 
+function emojiOptions(): { emojiShortcodes: boolean } {
+    return { emojiShortcodes: useSession.getState().settings.preview.emojiShortcodes };
+}
+
 /** Decorations change presentation only; all editing, undo, search and saving use Markdown. */
 export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle: () => string = () => ''): Extension {
     const field = StateField.define<LiveState>({
         create(state) {
-            const result = renderMarkdownBlocks(state.doc.toString());
+            const result = renderMarkdownBlocks(state.doc.toString(), emojiOptions());
             const value: LiveState = { ...result, decorations: Decoration.none, focused: false, revision: 0 };
             value.decorations = decorate(state, value, getTitle());
             return value;
@@ -235,7 +240,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
                     html: delta ? block.html.replace(/(data-(?:task-)?line=")(\d+)(")/g, (_, before, line, after) => `${before}${Number(line) + delta}${after}`) : block.html,
                     endLine: tr.state.doc.lineAt(tr.changes.mapPos(to, -1)).number }];
             }) : value.blocks;
-            const next = { ...value, blocks: mapped, ...(refreshed ? renderMarkdownBlocks(tr.state.doc.toString()) : {}),
+            const next = { ...value, blocks: mapped, ...(refreshed ? renderMarkdownBlocks(tr.state.doc.toString(), emojiOptions()) : {}),
                 focused: focused ? focused.value : value.focused, revision: value.revision + (refreshed?.value ? 1 : 0) };
             next.decorations = decorate(tr.state, next, getTitle());
             return next;
@@ -247,6 +252,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
         parseTimer = 0;
         observer: MutationObserver;
         unsubscribe: () => void;
+        unsubscribeEmoji: () => void;
         constructor(readonly view: EditorView) {
             const refreshView = () => {
                 window.clearTimeout(this.timer);
@@ -254,8 +260,10 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
             };
             this.observer = new MutationObserver(refreshView);
             this.observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'lang'] });
+            this.unsubscribeEmoji = subscribeEmojiUnicode(refreshView);
             this.unsubscribe = useSession.subscribe((state, previous) => {
-                if (state.settings.preview.math !== previous.settings.preview.math
+                if (state.settings.preview.emojiShortcodes !== previous.settings.preview.emojiShortcodes
+                    || state.settings.preview.math !== previous.settings.preview.math
                     || state.settings.preview.mermaid !== previous.settings.preview.mermaid
                     || state.settings.preview.chart !== previous.settings.preview.chart
                     || state.settings.appearance.proseFont !== previous.settings.appearance.proseFont) refreshView();
@@ -270,7 +278,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
             const headings = update.state.field(field).headings;
             queueMicrotask(() => { if (this.view.state.field(field, false)) onHeadings(headings); });
         }
-        destroy() { clearTimeout(this.timer); clearTimeout(this.parseTimer); this.observer.disconnect(); this.unsubscribe(); }
+        destroy() { clearTimeout(this.timer); clearTimeout(this.parseTimer); this.observer.disconnect(); this.unsubscribe(); this.unsubscribeEmoji(); }
     }), EditorView.domEventHandlers({
         focus(_event, view) { view.dispatch({ effects: focusChanged.of(true) }); },
         blur(_event, view) { view.dispatch({ effects: focusChanged.of(false) }); },

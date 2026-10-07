@@ -14,6 +14,7 @@ import { truncateText } from '@shared/text-utils'
 import { useDebounced } from '../../lib/hooks'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { parseWikiTarget, renderMarkdown, type Heading } from '../../lib/markdown/renderer'
+import { useEmojiUnicodeVersion } from '../../lib/emoji-unicode'
 import { resolveNoteEmbeds } from '../../lib/markdown/embeds'
 import { t, useLocale } from '../../lib/i18n'
 import { slugifyHeading } from '@shared/markdown-utils'
@@ -105,7 +106,8 @@ export const Preview = memo(function Preview({
 
 
   const debounced = useDebounced(content, 90)
-  const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true }), [debounced, locale])
+  const emojiVersion = useEmojiUnicodeVersion()
+  const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true, emojiShortcodes: preview.emojiShortcodes }), [debounced, locale, preview.emojiShortcodes, emojiVersion])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''
   const committedHtmlRef = useRef('')
   const committedSourceRef = useRef(debounced)

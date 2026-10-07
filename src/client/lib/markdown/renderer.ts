@@ -29,6 +29,7 @@ import { readFenceStyle } from './chart/style';
 import { CHART_LANGUAGES } from './chart/body';
 import { detectMindmapMode, MINDMAP_LANGUAGES } from './mindmap/body';
 import { MINDMAP_THEME_ATTR, readFenceAnnotation } from './mindmap/theme';
+import { emojiCharForCode, emojiUnicodeIsLoaded, requestEmojiUnicode } from '../emoji-unicode';
 export interface Heading {
     level: number;
     text: string;
@@ -65,6 +66,7 @@ interface RenderEnvironment {
     mindmapSequence: number;
     docId: string;
     hideFrontMatter?: boolean;
+    emojiShortcodes: boolean;
     fences: FenceBodies;
 }
 export interface WikiTarget {
@@ -375,6 +377,7 @@ const WIKI_RE = /^\[\[([^\[\]\n]{1,400})\]\]/;
 const EMBED_RE = /^!\[\[([^\[\]\n]{1,400})\]\]/;
 const BLOCK_REF_RE = /^\(\(([A-Za-z0-9][A-Za-z0-9_-]{0,63})\)\)/;
 const TAG_RE = /^#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/u;
+const EMOJI_CODE_RE = /^:([A-Za-z0-9_+-]{2,30}):/;
 md.inline.ruler.before('image', 'note_embed', (state, silent) => {
     if (!state.src.startsWith('![[', state.pos))
         return false;
@@ -429,6 +432,37 @@ md.inline.ruler.before('text', 'inline_tag', (state, silent) => {
     if (!silent) {
         const token = state.push('inline_tag', 'span', 0);
         token.content = match[1]!;
+    }
+    state.pos += match[0].length;
+    return true;
+});
+md.inline.ruler.before('text', 'emoji_shortcode', (state, silent) => {
+    if (state.src[state.pos] !== ':')
+        return false;
+    if (!renderEnv(state.env).emojiShortcodes)
+        return false;
+    const source = state.src;
+    // A code is a word, so it starts where a word does: after a space, a bracket, or another code.
+    // That is what keeps `12:30:00` and `1:100:1` a clock and a ratio, and a colon inside a `:::`
+    // run belongs to the container syntax rather than to anybody's name.
+    if (source[state.pos - 1] === ':' && source[state.pos - 2] === ':')
+        return false;
+    if (/[\p{L}\p{N}_]/u.test(source[state.pos - 1] ?? ''))
+        return false;
+    const match = EMOJI_CODE_RE.exec(source.slice(state.pos));
+    if (!match)
+        return false;
+    const glyph = emojiCharForCode(match[1]!);
+    if (!glyph) {
+        // The set is a lazy chunk, so a document that speaks in codes is the request for it. The
+        // answer this parse gives is the literal text; the version signal re-renders once it lands.
+        if (!emojiUnicodeIsLoaded())
+            requestEmojiUnicode();
+        return false;
+    }
+    if (!silent) {
+        const token = state.push('text', '', 0);
+        token.content = glyph;
     }
     state.pos += match[0].length;
     return true;
@@ -917,8 +951,9 @@ export function renderOutlineLabel(source: string): string {
 }
 
 /** Parse once with the full document environment so reference links retain their targets. */
-export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[]; headings: Heading[]; fences: FenceBodies } {
+export function renderMarkdownBlocks(source: string, options?: { emojiShortcodes?: boolean }): { blocks: MarkdownBlock[]; headings: Heading[]; fences: FenceBodies } {
     const env = emptyEnvironment();
+    env.emojiShortcodes = options?.emojiShortcodes ?? true;
     const tokens = md.parse(stripObsidianComments(source), env);
     const groups: Array<{ startLine: number; endLine: number; raw: string }> = [];
     let tail = '';
@@ -957,9 +992,10 @@ export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[];
     return { blocks, headings: env.headings, fences: env.fences };
 }
 
-export function renderMarkdown(source: string, options?: { hideFrontMatter?: boolean }): RenderResult {
+export function renderMarkdown(source: string, options?: { hideFrontMatter?: boolean, emojiShortcodes?: boolean }): RenderResult {
     const env = emptyEnvironment();
     env.hideFrontMatter = options?.hideFrontMatter === true;
+    env.emojiShortcodes = options?.emojiShortcodes ?? true;
     const raw = md.render(stripObsidianComments(source), env);
     const sanitized = DOMPurify.sanitize(raw, PURIFY_CONFIG);
     const html = materializeTrustedTasks(sanitized, env.taskNonce);
@@ -1068,6 +1104,7 @@ function emptyEnvironment(): RenderEnvironment {
         exampleSequence: 0,
         mindmapSequence: 0,
         docId: `ink-${nonce}`,
+        emojiShortcodes: true,
         fences: createFenceBodies(),
     };
 }

@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -15,6 +15,7 @@ import { folderPathLabel, openFolderView } from '../../lib/folders';
 import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
 import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
+import { openEmojiPicker } from '../../store/emoji-picker';
 import { t, useLocale } from "../../lib/i18n";
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -133,6 +134,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 icon: <FolderPlus size={14}/>,
                 group: t("command.commands"),
                 run: () => void createFolder(),
+            },
+            {
+                id: 'cmd-emoji',
+                kind: 'command',
+                label: t("command.open_emoji_picker"),
+                icon: <Smile size={14}/>,
+                combo: APP_SHORTCUTS.emoji,
+                group: t("command.commands"),
+                run: () => openEmojiPicker(),
             },
             ...(activeNote
                 ? [

@@ -317,6 +317,7 @@ const allowed = new Map([
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
+    "/**\n * `:smi` → the emoji it names. The colon has to be the start of a word, so `https:` and `data:`\n * and the `:::` a container opens with stay out of the way, and the set is a lazy chunk, so the\n * first keystroke that wants it gets the list a moment later rather than nothing.\n */",
   ]],
   ["src/client/editor/decorations.ts", [
     "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
@@ -339,6 +340,9 @@ const allowed = new Map([
     "/** The context menu's single Insert row: every block the editor can write, one level deeper. */",
     "// The dropdown is for producing something new. Formatting the block the cursor is already in is an",
     "// action on an existing block, so it stays on the toolbar's own button and out of this list.",
+  ]],
+  ["src/client/editor/emoji-completion.test.ts", [
+    "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
   ]],
   ["src/client/editor/link-hover-plugin.ts", [
     "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
@@ -384,6 +388,22 @@ const allowed = new Map([
   ["src/client/features/command/palette-perf.test.ts", [
     "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
     "/** React synthesises onMouseEnter from native mouseover, so a raw mouseenter never reaches it. */",
+  ]],
+  ["src/client/features/emoji/EmojiPicker.test.ts", [
+    "/** huō-jiàn, rocket: the Han word the set carries for it. */",
+  ]],
+  ["src/client/features/emoji/EmojiPickerHost.test.ts", [
+    "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
+  ]],
+  ["src/client/features/emoji/EmojiPickerHost.tsx", [
+    "// The centred sheet hands focus back to whatever had it when it opened, so the write has to",
+    "// land after that cleanup or the editor would lose the cursor it was just given.",
+  ]],
+  ["src/client/features/emoji/insert-emoji.test.ts", [
+    "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
+  ]],
+  ["src/client/features/emoji/insert-emoji.ts", [
+    "/**\n * Where a picked emoji goes: the editor on screen, and the clipboard when there is no editor to\n * write into (a note opened read-only, a phone in the preview tab). Silently dropping the pick is\n * the one answer that is never right.\n */",
   ]],
   ["src/client/features/graph/graph-panel/scene-search.test.ts", [
     "/**\n * The graph's own filter box, read through the matcher the panel shares with every other listing: a\n * reader who types the first letters of a Chinese note title has to land on that note, and the hit\n * count the panel prints is derived from exactly this set.\n */",
@@ -2976,6 +2996,8 @@ const allowed = new Map([
     "// A vault whose titles are all latin has no reading left to find, and the table that would",
     "// supply one is a tenth of a megabyte. The first query that really needs a reading asks for",
     "// the chunk anyway, so this is only a head start for the sessions that will use it.",
+    "// The editor is where the pick lands, so the key has to reach past the caret. An open overlay",
+    "// already owns Escape and the tab order, so it does not also have to own this one.",
   ]],
   ["src/client/features/sidebar/ExplorerNote.tsx", [
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
@@ -3402,6 +3424,32 @@ const allowed = new Map([
   ["src/client/lib/emoji-glyph.ts", [
     "/**\n * Whether a glyph survives the icon column: the store truncates at eight UTF-16 units, and a\n * zero-width-joiner sequence cut in that range renders as two half pictures. This lives apart from\n * the catalogue itself so the preferences module can ask it without pulling the search code, and\n * with it the fuzzy matcher, onto the boot path.\n */",
   ]],
+  ["src/client/lib/emoji-prefs.ts", [
+    "// No emoji is spelled with a letter — the regional indicators and the keycaps are symbols — so",
+    "// a word that wandered into the key is refused rather than drawn as a tile.",
+  ]],
+  ["src/client/lib/emoji-unicode-data.ts", [
+    "/**\n * The Unicode 15 emoji set: every glyph the picker can offer, with the words that find it.\n *\n * Generated once from `@emoji-mart/data` 1.2.1 (`sets/15/native.json`, MIT (c) Missive, which\n * derives it from the Unicode CLDR and emojilib), with the Han keywords merged in from this\n * repo's own curated icon catalog. Do not hand-edit: `keywords` holds only ASCII search words,\n * never the code, the aliases or the glyphs themselves.\n */",
+  ]],
+  ["src/client/lib/emoji-unicode.test.ts", [
+    "/** kai-xin, the Han keyword the set carries for the grinning face. */",
+    "/** ai-xin, for the red heart. */",
+    "// One word fits the face, the other only fits the rocket, so the phrase is nobody's answer.",
+  ]],
+  ["src/client/lib/emoji-unicode.ts", [
+    "/** Slot 0 keeps the glyph as drawn; 1-5 are the Fitzpatrick light-to-dark modifiers. */",
+    "/** The open hand drawn in one tone slot — the control every tone picker shows for that slot. */",
+    "/** Below this a hit is only the letters of a long name happening to fall in order. */",
+    "/** Start the download if it has not started. Resolves once the set can be searched. */",
+    "/** Ask for the set without waiting: the answer given now is the one without it. */",
+    "/** Re-render hook for React surfaces that memoise on the set being present. */",
+    "/** The same signal for a surface that is not React, such as a CodeMirror view plugin. */",
+    "/** The character a `:code:` stands for, or undefined when the set is not here or the word is not one. */",
+    "/** Which entry a drawn glyph belongs to, tone included, so a recent row can name itself. */",
+    "/**\n * A phrase either names the emoji on its own (`smiling eyes` is a substring of one name) or every\n * word has to be true of it, which is what `red heart` and `happy face` mean. A phrase where one\n * word fits and another does not is nobody's answer, so it scores nothing rather than half a list.\n */",
+    "// One attempt per session, and a failed one still counts as attempted: a document that speaks in",
+    "// codes asks on every parse, and re-firing a request that just failed would turn that into a storm.",
+  ]],
   ["src/client/lib/export-note.ts", [
     "// Pinned so an exported document cannot silently load a different stylesheet: the hash",
     "// is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.",
@@ -3620,6 +3668,9 @@ const allowed = new Map([
     "// The embed's own fence bodies come from its own render, and a board or a chart inside it is",
     "// keyed by that render's numbering. Registering the set on the body means the walk up from a",
     "// block in here finds this set before the one the host carrying the embed registered.",
+  ]],
+  ["src/client/lib/markdown/emoji-shortcodes.test.ts", [
+    "// A `:::` run that opens nothing is still a `:::` run, and its colons are not a code's colons.",
   ]],
   ["src/client/lib/markdown/enhance-chart.test.ts", [
     "// The border is left to the library so the arcs keep a hairline between them.",
@@ -6355,6 +6406,11 @@ const allowed = new Map([
     "// No board name here: it lives in the fence body, which this markup would have to parse a",
     "// second time to read. The registry, which has the parsed body, names the head instead.",
     "/**\n * Renders one heading's inline markdown for the outline.\n *\n * The label sits inside a `<button>`, so links, images and every attribute are dropped rather than\n * nested: DOMPurify unwrites a forbidden tag and keeps its text, which is the reading the row wants.\n */",
+    "// A code is a word, so it starts where a word does: after a space, a bracket, or another code.",
+    "// The set is a lazy chunk, so a document that speaks in codes is the request for it. The",
+    "// answer this parse gives is the literal text; the version signal re-renders once it lands.",
+    "// That is what keeps `12:30:00` and `1:100:1` a clock and a ratio, and a colon inside a `:::`",
+    "// run belongs to the container syntax rather than to anybody's name.",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",
@@ -6505,6 +6561,9 @@ const allowed = new Map([
     "// has a short day. The machine this repo is developed on is Asia/Shanghai, where no day is",
     "// short any more, so a fixed `+86_400_000` upper bound passes there and fails here.",
     "// Chile drops 00:00-01:00 on 2026-09-06, making that day 23 hours long.",
+  ]],
+  ["src/client/store/emoji-picker.ts", [
+    "/** The control the panel hangs from. Null asks for the centred sheet instead. */",
   ]],
   ["src/client/store/new-note.ts", [
     "/** Fresh-note construction: template expansion, caret hand-off, and title sync. */",
@@ -6793,6 +6852,8 @@ const allowed = new Map([
     "/** Free-form labels shown in the gallery and used as a filter. */",
     "/** Manual sort position within the category; falls back to recency when absent. */",
     "/** How many other accounts added this template to their own library. */",
+    "/** 0 draws the glyph as the set ships it; 1-5 are the Fitzpatrick modifiers, light to dark. */",
+    "/** What picking an emoji writes: the glyph itself, or the `:code:` that stands for it. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",

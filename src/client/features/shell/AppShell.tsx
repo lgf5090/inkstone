@@ -16,6 +16,7 @@ import { createContextualNote, useNotes } from '../../store/notes';
 import { usePresentation } from '../../store/presentation';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
+import { openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { Sidebar } from '../sidebar/Sidebar';
 import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
@@ -36,6 +37,7 @@ const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ defau
 const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) => ({ default: m.VersionsPanel })));
 const Lightbox = lazy(() => import('../preview/Lightbox').then((m) => ({ default: m.Lightbox })));
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
+const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
 export function AppShell() {
     const breakpoint = useBreakpoint();
     const role = useSession((s) => s.user?.role);
@@ -228,6 +230,7 @@ function WorkspaceFallback() {
 function OverlayHost() {
     const userId = useSession((s) => s.user?.id);
     const panel = useUi((s) => s.panel);
+    const emojiOpen = useEmojiPicker((s) => s.open);
     const closePanel = useUi((s) => s.closePanel);
     const lightbox = useUi((s) => s.lightbox);
     const role = useSession((s) => s.user?.role);
@@ -243,6 +246,7 @@ function OverlayHost() {
         {panel === 'share' && <SharePanel onClose={closePanel}/>}
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
         {lightbox && <Lightbox />}
+        {emojiOpen && <EmojiPickerHost />}
       </Suspense>
       {role === 'owner' && updateDialogOpen && (<Suspense fallback={null}>
         <UpdateDialog />
@@ -390,6 +394,16 @@ export const GLOBAL_HOTKEYS: Hotkey[] = [
         allowInInput: true,
         enabled: hasNote,
         handler: () => ui().toggleOutline(),
+    },
+    {
+        id: 'emoji',
+        combo: APP_SHORTCUTS.emoji,
+        description: () => t("command.open_emoji_picker"),
+        group: () => t("common.edit"),
+        // The editor is where the pick lands, so the key has to reach past the caret. An open overlay
+        // already owns Escape and the tab order, so it does not also have to own this one.
+        allowInInput: true,
+        handler: () => openEmojiPicker(),
     },
 ];
 

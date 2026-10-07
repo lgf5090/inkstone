@@ -135,7 +135,7 @@ const allowedHanFragments = new Map([
  * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these
  * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen

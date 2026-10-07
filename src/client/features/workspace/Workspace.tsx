@@ -637,7 +637,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         </div>
       </header>
 
-      {editorSettings.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => pickWithFileInput('image')}/>)}
+      {editorSettings.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} showEmoji={editorSettings.emojiToolbarButton} onPickImage={() => pickWithFileInput('image')}/>)}
 
       <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
