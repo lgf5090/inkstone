@@ -1,9 +1,10 @@
-import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, List, Maximize2, Network, Pencil, Plus, Sigma, Trash2 } from 'lucide-react'
+import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, List, Maximize2, Network, Pencil, Plus, Sigma, SquarePen, Trash2 } from 'lucide-react'
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { findNoteByTitle } from '../../../store/notes'
 import { updateTaskAtSourceLine } from '../../../editor/commands'
 import { formatMenuItems } from '../../../editor/editorMenus'
+import { editLinkFromMenu } from '../../links/use-link-editor'
 import { joinLines, splitLines } from '../../../lib/markdown/fence-edit'
 import { containerRangeInText, isSafeExternalUrl, setHeadingLevelInText, taskToBulletInText } from './line-edits'
 import type { MenuCtx } from './types'
@@ -24,6 +25,38 @@ function jumpItem(ctx: MenuCtx, line: number, separatorBefore = true): MenuItem 
 
 function copyItem(ctx: MenuCtx, id: string, label: string, text: string, separatorBefore = false): MenuItem {
   return { id, label, icon: <Copy size={14} />, separatorBefore, onSelect: () => ctx.onCopyText(text) }
+}
+
+/**
+ * The row that hands the link to the inline editor. Both halves of the menu's state are passed through
+ * because only the caller knows which side raised it, and the editor needs a character span either way.
+ */
+function editLinkItem(ctx: MenuCtx): MenuItem | null {
+  if (!ctx.noteId) return null
+  const fromSource = ctx.editorView !== null && ctx.editor !== null
+  const fromPreview = ctx.preview !== null && ctx.preview.line !== undefined
+  if (!fromSource && !fromPreview) return null
+  return {
+    id: 'edit-link',
+    label: t('contextmenu.link_edit'),
+    icon: <SquarePen size={14} />,
+    onSelect: () => {
+      const opened = editLinkFromMenu({
+        noteId: ctx.noteId,
+        content: ctx.content,
+        editorPos: fromSource ? ctx.editor!.pos : null,
+        previewLine: fromPreview ? ctx.preview!.line! : null,
+        previewElement: fromPreview ? ctx.preview!.target : null,
+        view: ctx.editorView,
+      })
+      if (!opened) ctx.onToast({ title: t('contextmenu.link_edit_failed'), tone: 'warning' })
+    },
+  }
+}
+
+function withEditRow(items: MenuItem[], ctx: MenuCtx): MenuItem[] {
+  const edit = editLinkItem(ctx)
+  return edit ? [edit, ...items] : items
 }
 
 /** Delete a whole line of the note, its newline included, from either side. */
@@ -135,7 +168,7 @@ export function buildImageItems(ctx: MenuCtx): MenuItem[] | null {
     copyItem(ctx, 'copy-image-url', t('contextmenu.copy_link'), src),
   ]
   if (!isSourceMenu(ctx) && ctx.preview?.line !== undefined) items.push(jumpItem(ctx, ctx.preview.line))
-  return items
+  return withEditRow(items, ctx)
 }
 
 export function buildLinkItems(ctx: MenuCtx): MenuItem[] | null {
@@ -168,7 +201,7 @@ export function buildLinkItems(ctx: MenuCtx): MenuItem[] | null {
     })
   }
   if (!isSourceMenu(ctx) && ctx.preview?.line !== undefined) items.push(jumpItem(ctx, ctx.preview.line))
-  return items
+  return withEditRow(items, ctx)
 }
 
 export function buildWikiLinkItems(ctx: MenuCtx): MenuItem[] | null {
@@ -213,7 +246,7 @@ export function buildWikiLinkItems(ctx: MenuCtx): MenuItem[] | null {
       },
     })
   }
-  return items
+  return withEditRow(items, ctx)
 }
 
 export function buildEmbedItems(ctx: MenuCtx): MenuItem[] | null {
@@ -235,7 +268,7 @@ export function buildEmbedItems(ctx: MenuCtx): MenuItem[] | null {
     copyItem(ctx, 'copy-embed-target', t('contextmenu.copy_title'), embed.target, true),
   ]
   if (!isSourceMenu(ctx) && ctx.preview?.line !== undefined) items.push(jumpItem(ctx, ctx.preview.line))
-  return items
+  return withEditRow(items, ctx)
 }
 
 export function buildMathItems(ctx: MenuCtx): MenuItem[] | null {

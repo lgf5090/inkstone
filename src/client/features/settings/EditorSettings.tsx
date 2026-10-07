@@ -4,7 +4,8 @@ import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
 import { clearRecentEmojis, RECENT_EMOJI_LIMIT, useEmojiPreferences } from '../../lib/emoji-prefs';
 import { EMOJI_TONE_LABEL_KEYS, EMOJI_TONE_SLOTS, emojiToneHand } from '../../lib/emoji-unicode';
-import type { CodeFormatKeywordCase, EmojiInsertFormat, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, SkinTone } from '@shared/types';
+import { LINK_EDITOR_ALIAS_SEPARATOR_MAX } from '@shared/constants';
+import type { CodeFormatKeywordCase, EmojiInsertFormat, LinkEditorAliasMode, LinkEditorModifier, LinkEditorTrigger, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, SkinTone } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -53,6 +54,74 @@ export function EditorSettings() {
         <SettingRow title={t("settings.focus_mode")} description={t("settings.fade_content_outside_the_current_paragraph")}>
           <Switch checked={editor.focusMode} onChange={(focusMode) => void update({ editor: { focusMode } })} label={t("settings.focus_mode")}/>
         </SettingRow>
+      </section>
+
+      <section>
+        <h3 data-setting-title={t("settings.link_editor_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.link_editor_group")}</h3>
+
+        <SettingRow title={t("settings.link_editor")} description={t("settings.link_editor_description")}>
+          <Switch checked={editor.linkEditor} onChange={(linkEditor) => void update({ editor: { linkEditor } })} label={t("settings.link_editor")}/>
+        </SettingRow>
+
+        {editor.linkEditor && <>
+            <SettingRow title={t("settings.link_editor_trigger")} description={t("settings.link_editor_trigger_description")}>
+              <Segmented<LinkEditorTrigger> label={t("settings.link_editor_trigger")} value={editor.linkEditorTrigger} onChange={(linkEditorTrigger) => void update({ editor: { linkEditorTrigger } })} options={[
+                { value: 'click', label: t("settings.link_editor_trigger_click") },
+                { value: 'double-click', label: t("settings.link_editor_trigger_double_click") },
+              ]}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.link_editor_modifier")} description={t("settings.link_editor_modifier_description")}>
+              <Segmented<LinkEditorModifier> label={t("settings.link_editor_modifier")} value={editor.linkEditorModifier} onChange={(linkEditorModifier) => void update({ editor: { linkEditorModifier } })} options={[
+                { value: 'none', label: t("settings.link_editor_modifier_none") },
+                { value: 'ctrl', label: t("settings.link_editor_modifier_ctrl") },
+                { value: 'alt', label: t("settings.link_editor_modifier_alt") },
+                { value: 'shift', label: t("settings.link_editor_modifier_shift") },
+              ]}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.link_editor_suggest")} description={t("settings.link_editor_suggest_description")}>
+              <Switch checked={editor.linkEditorSuggest} onChange={(linkEditorSuggest) => void update({ editor: { linkEditorSuggest } })} label={t("settings.link_editor_suggest")}/>
+            </SettingRow>
+
+            {editor.linkEditorSuggest && <>
+                <SettingRow title={t("settings.link_editor_sync_alias")} description={t("settings.link_editor_sync_alias_description")}>
+                  <Switch checked={editor.linkEditorSyncAlias} onChange={(linkEditorSyncAlias) => void update({ editor: { linkEditorSyncAlias } })} label={t("settings.link_editor_sync_alias")}/>
+                </SettingRow>
+
+                {editor.linkEditorSyncAlias && <SettingRow title={t("settings.link_editor_alias_mode")}>
+                  <Segmented<LinkEditorAliasMode> label={t("settings.link_editor_alias_mode")} value={editor.linkEditorAliasMode} onChange={(linkEditorAliasMode) => void update({ editor: { linkEditorAliasMode } })} options={[
+                    { value: 'heading', label: t("settings.link_editor_alias_heading") },
+                    { value: 'note-then-heading', label: t("settings.link_editor_alias_note_then_heading") },
+                    { value: 'heading-then-note', label: t("settings.link_editor_alias_heading_then_note") },
+                  ]}/>
+                </SettingRow>}
+
+                {editor.linkEditorSyncAlias && <SettingRow title={t("settings.link_editor_alias_separator")} description={t("settings.link_editor_alias_separator_description")}>
+                  <Input aria-label={t("settings.link_editor_alias_separator")} value={editor.linkEditorAliasSeparator} onChange={(event) => void update({ editor: { linkEditorAliasSeparator: event.target.value.slice(0, LINK_EDITOR_ALIAS_SEPARATOR_MAX) } })} className="w-[120px]"/>
+                </SettingRow>}
+
+                <SettingRow title={t("settings.link_editor_quick_select")} description={t("settings.link_editor_quick_select_description")}>
+                  <Switch checked={editor.linkEditorQuickSelect} onChange={(linkEditorQuickSelect) => void update({ editor: { linkEditorQuickSelect } })} label={t("settings.link_editor_quick_select")}/>
+                </SettingRow>
+              </>}
+
+            <SettingRow title={t("settings.link_editor_validate")} description={t("settings.link_editor_validate_description")}>
+              <Switch checked={editor.linkEditorValidate} onChange={(linkEditorValidate) => void update({ editor: { linkEditorValidate } })} label={t("settings.link_editor_validate")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.link_editor_keeps_text")} description={t("settings.link_editor_keeps_text_description")}>
+              <Switch checked={editor.linkEditorKeepsText} onChange={(linkEditorKeepsText) => void update({ editor: { linkEditorKeepsText } })} label={t("settings.link_editor_keeps_text")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.link_editor_embed_toggle")} description={t("settings.link_editor_embed_toggle_description")}>
+              <Switch checked={editor.linkEditorEmbedToggle} onChange={(linkEditorEmbedToggle) => void update({ editor: { linkEditorEmbedToggle } })} label={t("settings.link_editor_embed_toggle")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.link_editor_pad_new")} description={t("settings.link_editor_pad_new_description")}>
+              <Switch checked={editor.linkEditorPadNew} onChange={(linkEditorPadNew) => void update({ editor: { linkEditorPadNew } })} label={t("settings.link_editor_pad_new")}/>
+            </SettingRow>
+          </>}
       </section>
 
       <section>

@@ -17,6 +17,7 @@ import { usePresentation } from '../../store/presentation';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
+import { useLinkEditor } from '../links/store';
 import { Sidebar } from '../sidebar/Sidebar';
 import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
@@ -38,6 +39,7 @@ const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) =
 const Lightbox = lazy(() => import('../preview/Lightbox').then((m) => ({ default: m.Lightbox })));
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
+const LinkEditorPopover = lazy(() => import('../links/LinkEditorPopover').then((m) => ({ default: m.LinkEditorPopover })));
 export function AppShell() {
     const breakpoint = useBreakpoint();
     const role = useSession((s) => s.user?.role);
@@ -231,6 +233,7 @@ function OverlayHost() {
     const userId = useSession((s) => s.user?.id);
     const panel = useUi((s) => s.panel);
     const emojiOpen = useEmojiPicker((s) => s.open);
+    const linkEditOpen = useLinkEditor((s) => s.request !== null);
     const closePanel = useUi((s) => s.closePanel);
     const lightbox = useUi((s) => s.lightbox);
     const role = useSession((s) => s.user?.role);
@@ -247,6 +250,7 @@ function OverlayHost() {
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
         {lightbox && <Lightbox />}
         {emojiOpen && <EmojiPickerHost />}
+        {linkEditOpen && <LinkEditorPopover />}
       </Suspense>
       {role === 'owner' && updateDialogOpen && (<Suspense fallback={null}>
         <UpdateDialog />
