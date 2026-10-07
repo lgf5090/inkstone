@@ -367,6 +367,20 @@ export const insertKanban: StateCommand = (target) => insertWrappedBlock(
 )(target);
 
 /**
+ * A chart, in the format an author can edit in place: the first cell names the type, the header row is
+ * the x axis, and each row is one series. The block's own toolbar converts it to JSON when the full
+ * option set is needed, so this command does not settle that choice — it only starts somewhere the
+ * chart parser reads back as a chart. Nothing is styled on purpose: a chart with no colours of its own
+ * is painted from the note's accent and repaints when the accent or the theme changes, while a starter
+ * that wrote its own would freeze that choice into the note.
+ */
+export const insertChart: StateCommand = (target) => insertWrappedBlock(
+    '```chart style=table',
+    '```',
+    '| :bar: | Jan | Feb | Mar |\n| --- | --- | --- | --- |\n| Series A | 12 | 19 | 15 |',
+)(target);
+
+/**
  * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole
  * note. All of it is one transaction, so one undo takes the fence back — the same contract every
  * other insertion here has. Returns false when the text holds no headings and no lists, which is not

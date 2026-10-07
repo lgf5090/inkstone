@@ -1893,6 +1893,7 @@ export const EN_US_MESSAGES = {
     "workspace.block_reference": "Block reference",
     "workspace.callout": "Callout",
     "workspace.characters": " characters",
+    "workspace.chart_block": "Chart.js chart",
     "workspace.close_right_note": "Close right note",
     "workspace.choose_a_note_or_write_a_new_one": "Choose a note, or write a new one",
     "workspace.code_block": "Code block",
