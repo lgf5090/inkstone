@@ -1959,7 +1959,7 @@ export const ZH_CN_MESSAGES = {
     "sidebar.calendar_week_view": "周",
     "sidebar.calendar_year_grid_aria": "年历：{value0}",
     "sidebar.calendar_year_month_value0": "{value0} · {value1} 篇笔记",
-    "sidebar.calendar_year_range_hint_value0": "已选 {value0}，点击另一个月完成范围选择（Esc 取消）",
+    "sidebar.calendar_year_range_hint_value0": "已选 {value0}，在另一个月上再点一次或按空格完成范围选择（Esc 取消）",
     "sidebar.calendar_year_view": "年",
     "sidebar.calendar_year_weekday_value0": "按 {value0} 第一个{value1}所在周过滤",
     "sidebar.diary_tag": "日记",

@@ -1959,7 +1959,7 @@ export const EN_US_MESSAGES = {
     "sidebar.calendar_week_view": "Weeks",
     "sidebar.calendar_year_grid_aria": "Year grid: {value0}",
     "sidebar.calendar_year_month_value0": "{value0} · {value1} notes",
-    "sidebar.calendar_year_range_hint_value0": "Selected {value0} — click another month to complete the range (Esc to cancel)",
+    "sidebar.calendar_year_range_hint_value0": "Selected {value0} — click or press Space on another month to complete the range (Esc to cancel)",
     "sidebar.calendar_year_view": "Year",
     "sidebar.calendar_year_weekday_value0": "Filter the week of the first {value1} in {value0}",
     "sidebar.diary_tag": "diary",

@@ -214,19 +214,24 @@ describe('year view heat tiles', () => {
 })
 
 describe('year view keyboard and weekday behavior', () => {
-  it('walks the focused card\'s weekday columns with arrows and returns to the card', () => {
+  it('walks the weekday columns once the strip has focus, and returns to the card', () => {
     const { container, unmount } = renderCalendar()
     act(() => { viewToggle(container)[2]!.click(); })
-    const september = container.querySelector('[data-month="8"]') as HTMLElement
-    september.focus()
-    act(() => { september.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); })
-    expect(document.activeElement?.getAttribute('data-weekday')).toBe('0')
-    act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); })
-    act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); })
+    const first = container.querySelector('[data-month-card="8"] [data-weekday="0"]') as HTMLButtonElement
+    expect(first.getAttribute('tabindex')).toBe('0')
+    expect(container.querySelector('[data-month-card="3"] [data-weekday="0"]')!.getAttribute('tabindex')).toBe('-1')
+    const card = container.querySelector('[data-month="8"]') as HTMLElement
+    act(() => { card.focus(); card.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })); })
+    expect(document.activeElement?.getAttribute('data-month')).toBe('7')
+    const april = container.querySelector('[data-month-card="3"] [data-weekday="0"]') as HTMLButtonElement
+    april.focus()
+    key(april, 'ArrowRight')
+    expect(document.activeElement?.getAttribute('data-weekday')).toBe('1')
+    key(document.activeElement!, 'ArrowRight')
     expect(document.activeElement?.getAttribute('data-weekday')).toBe('2')
-    expect(document.activeElement?.closest('[data-month-card]')?.getAttribute('data-month-card')).toBe('8')
-    act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })); })
-    expect(document.activeElement?.getAttribute('data-month')).toBe('8')
+    expect(document.activeElement?.closest('[data-month-card]')?.getAttribute('data-month-card')).toBe('3')
+    key(document.activeElement!, 'ArrowDown')
+    expect(document.activeElement?.getAttribute('data-month')).toBe('3')
     unmount()
   })
 
@@ -318,8 +323,10 @@ describe('internal jump flash', () => {
       expect(captured).toHaveLength(1)
       expect(captured[0]!.duration).toBe(1100)
       act(() => { viewToggle(container)[1]!.click(); })
+      // Switching the view is not a jump: the flash belongs to the nonce, not to the mount.
+      expect(captured).toHaveLength(1)
       act(() => { (container.querySelector('[aria-label*="sidebar.calendar_expand_week"]') as HTMLButtonElement).click(); })
-      expect(captured.length).toBeGreaterThan(2)
+      expect(captured).toHaveLength(2)
       unmount()
     }
     finally {
@@ -494,5 +501,252 @@ describe('week panel note lists', () => {
     finally {
       vi.useRealTimers()
     }
+  })
+})
+
+interface Spy {
+  ranges: string[][]
+  cursors: { year: number; month: number }[]
+  clicks: string[]
+  selects: string[]
+}
+
+function spy(): Spy {
+  return { ranges: [], cursors: [], clicks: [], selects: [] }
+}
+
+function interactive(props: Spy, overrides: Partial<ActivityCalendarProps> = {}) {
+  let setView = (_view: 'month' | 'weeks' | 'year') => {}
+  function Harness() {
+    const [view, change] = useState<'month' | 'weeks' | 'year'>(overrides.view ?? 'month')
+    const [cursor, setCursor] = useState(overrides.cursor ?? { year: 2026, month: 8 })
+    setView = change
+    return createElement('div', { style: { width: 260 } }, createElement(ActivityCalendar, calendarProps({
+      ...overrides,
+      view,
+      cursor,
+      onViewChange: (next) => { setView(next); overrides.onViewChange?.(next) },
+      onRangeSelect: (start, end) => { props.ranges.push([start, end]) },
+      onCursorChange: (next) => { props.cursors.push(next); setCursor(next) },
+      onDayClick: (key) => { props.clicks.push(key) },
+      onDaySelect: (key) => { props.selects.push(key) },
+    })))
+  }
+  const rendered = renderElement(createElement(Harness))
+  return { ...rendered, setView: (next: 'month' | 'weeks' | 'year') => act(() => { setView(next) }) }
+}
+
+const key = (element: Element, name: string, init: KeyboardEventInit = {}) => act(() => {
+  element.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, ...init }))
+})
+const pointer = (element: Element, type: string, init: MouseEventInit = {}) => act(() => {
+  element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...init }))
+})
+// React synthesizes onMouseEnter from a mouseover whose relatedTarget sits outside the element;
+// a relatedTarget inside the grid is the pointer moving between two cells, which only the
+// bubbling mouseover sees.
+const hover = (element: Element, from: Element = document.body) => pointer(element, 'mouseover', { relatedTarget: from })
+
+describe('year view card traversal', () => {
+  it('walks from card to card with the left and right arrows', () => {
+    const { container, unmount } = renderCalendar()
+    act(() => { viewToggle(container)[2]!.click(); })
+    const october = container.querySelector('[data-month="9"]') as HTMLElement
+    october.focus()
+    key(october, 'ArrowRight')
+    expect(document.activeElement?.getAttribute('data-month')).toBe('10')
+    key(document.activeElement!, 'ArrowRight')
+    expect(document.activeElement?.getAttribute('data-month')).toBe('11')
+    key(document.activeElement!, 'ArrowRight')
+    expect(document.activeElement?.getAttribute('data-month')).toBe('11')
+    key(document.activeElement!, 'ArrowLeft')
+    expect(document.activeElement?.getAttribute('data-month')).toBe('10')
+    unmount()
+  })
+
+  it('leaves the focused card’s weekday strip in the tab order', () => {
+    const { container, unmount } = renderCalendar()
+    act(() => { viewToggle(container)[2]!.click(); })
+    const focused = container.querySelector('[data-month][tabIndex="0"]')?.closest('[data-month-card]')
+    expect(focused).not.toBeNull()
+    for (const button of focused!.querySelectorAll('[data-weekday]')) expect(button.getAttribute('tabindex')).toBe('0')
+    const other = container.querySelector('[data-month-card="2"]')!
+    for (const button of other.querySelectorAll('[data-weekday]')) expect(button.getAttribute('tabindex')).toBe('-1')
+    unmount()
+  })
+})
+
+describe('the drag state machine', () => {
+  it('ignores a drag that starts on anything but the primary button', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props)
+    const from = container.querySelector('[data-day-key="2026-09-10"]')!
+    pointer(from, 'mousedown', { button: 1 })
+    hover(container.querySelector('[data-day-key="2026-09-12"]')!, container.querySelector('[data-day-key="2026-09-10"]')!)
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })) })
+    expect(props.ranges).toEqual([])
+    unmount()
+  })
+
+  it('drops a pending drag when the window loses focus', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props)
+    pointer(container.querySelector('[data-day-key="2026-09-10"]')!, 'mousedown', { button: 0 })
+    hover(container.querySelector('[data-day-key="2026-09-20"]')!, container.querySelector('[data-day-key="2026-09-10"]')!)
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    hover(container.querySelector('[data-day-key="2026-09-25"]')!, container.querySelector('[data-day-key="2026-09-20"]')!)
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })) })
+    expect(props.ranges).toEqual([])
+    unmount()
+  })
+
+  it('still commits a plain primary-button drag', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props)
+    pointer(container.querySelector('[data-day-key="2026-09-10"]')!, 'mousedown', { button: 0 })
+    hover(container.querySelector('[data-day-key="2026-09-12"]')!, container.querySelector('[data-day-key="2026-09-10"]')!)
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })) })
+    expect(props.ranges).toEqual([['2026-09-10', '2026-09-12']])
+    unmount()
+  })
+})
+
+describe('neighbouring-month cells', () => {
+  it('stay out of a drag', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props)
+    pointer(container.querySelector('[data-day-key="2026-09-30"]')!, 'mousedown', { button: 0 })
+    hover(container.querySelector('[data-day-key="2026-10-01"]')!, container.querySelector('[data-day-key="2026-09-30"]')!)
+    act(() => { window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })) })
+    expect(props.ranges).toEqual([])
+    unmount()
+  })
+
+  it('are marked as gap days and move the cursor to their own month when clicked', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props)
+    const gap = container.querySelector('[data-day-key="2026-10-01"]') as HTMLElement
+    expect(gap.getAttribute('data-day-gap')).toBe('')
+    pointer(gap, 'click')
+    expect(props.clicks).toEqual(['2026-10-01'])
+    expect(props.cursors).toContainEqual({ year: 2026, month: 9 })
+    unmount()
+  })
+})
+
+describe('the flash belongs to the jump, not the view', () => {
+  it('does not replay when only the view changes', () => {
+    const { captured, restore } = captureAnimations()
+    try {
+      const props = spy()
+      const { container, unmount, setView } = interactive(props, { jumpFlash: 1 })
+      expect(captured).toHaveLength(1)
+      setView('weeks')
+      // The switch has to be observable, or "no new animation" proves nothing.
+      expect(container.querySelector('[data-day-key]')).toBeNull()
+      expect(container.querySelector('[aria-label*="sidebar.calendar_expand_week"]')).not.toBeNull()
+      expect(captured).toHaveLength(1)
+      setView('month')
+      expect(container.querySelector('[data-day-key]')).not.toBeNull()
+      expect(captured).toHaveLength(1)
+      unmount()
+    }
+    finally {
+      restore()
+    }
+  })
+})
+
+describe('escape and the week expansions', () => {
+  const expandedWeekButtons = (container: HTMLElement) => [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded="true"]')]
+
+  it('forgets the week expansions once that view is gone', () => {
+    const props = spy()
+    const { container, setView, unmount } = interactive(props, { view: 'weeks' })
+    expect(expandedWeekButtons(container)).toHaveLength(0)
+    act(() => { container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')?.click() })
+    expect(expandedWeekButtons(container).length).toBeGreaterThan(0)
+    setView('month')
+    setView('weeks')
+    expect(expandedWeekButtons(container)).toHaveLength(0)
+    unmount()
+  })
+
+  it('closes one rung per press and only claims the key when it did', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props, {
+      view: 'weeks',
+      counts: new Map([['2026-09-02', 1]]),
+      notesByDay: new Map([['2026-09-02', [{ id: 'n1', title: 'Note 1', updatedAt: new Date(2026, 8, 2, 12).getTime() }]]]),
+    })
+    const weeks = [...container.querySelectorAll<HTMLButtonElement>('[aria-label*="sidebar.calendar_expand_week"]')]
+    act(() => { weeks[weeks.length - 1]!.click() })
+    act(() => { container.querySelector<HTMLButtonElement>('[aria-label*="sidebar.calendar_expand_day"]')!.click() })
+    act(() => { container.querySelector<HTMLButtonElement>('[aria-label*="sidebar.calendar_week_notes"]')!.click() })
+    const press = () => {
+      const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      act(() => { container.querySelector('button')!.dispatchEvent(event) })
+      return event.defaultPrevented
+    }
+    expect(press()).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>('[aria-label*="sidebar.calendar_expand_day"]')!.getAttribute('aria-expanded')).toBe('false')
+    expect(press()).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>('[aria-label*="sidebar.calendar_week_notes"]')!.getAttribute('aria-expanded')).toBe('false')
+    expect(press()).toBe(true)
+    expect([...container.querySelectorAll('button[aria-expanded="true"]')]).toHaveLength(0)
+    expect(press()).toBe(false)
+    unmount()
+  })
+
+  it('does not swallow Escape when it had nothing left to close', () => {
+    const props = spy()
+    const { container, setView, unmount } = interactive(props, { view: 'weeks' })
+    act(() => { container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')?.click() })
+    setView('month')
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { container.querySelector('button')!.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(false)
+    unmount()
+  })
+})
+
+describe('the year range by keyboard', () => {
+  it('anchors on the first Space and commits on the second', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props, { view: 'year' })
+    const april = container.querySelector('[data-month="3"]') as HTMLElement
+    april.focus()
+    key(april, ' ')
+    expect(container.textContent).toContain('sidebar.calendar_year_range_hint_value0')
+    const july = container.querySelector('[data-month="6"]') as HTMLElement
+    july.focus()
+    key(july, ' ')
+    expect(props.ranges).toEqual([['2026-04-01', '2026-07-31']])
+    expect(container.textContent).not.toContain('sidebar.calendar_year_range_hint_value0')
+    unmount()
+  })
+})
+
+describe('focus after a jump', () => {
+  it('lands on the day it jumped to instead of the body', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props, {
+      view: 'weeks',
+      counts: new Map([['2026-09-02', 1]]),
+      notesByDay: new Map([['2026-09-02', [{ id: 'n1', title: 'Note 1', updatedAt: new Date(2026, 8, 2, 12).getTime() }]]]),
+    })
+    const weeks = [...container.querySelectorAll<HTMLButtonElement>('[aria-label*="sidebar.calendar_expand_week"]')]
+    expect(weeks.length).toBeGreaterThan(0)
+    act(() => { weeks[weeks.length - 1]!.click() })
+    // The jump row lives inside the "this week's notes" block, which C-05 now unmounts
+    // while closed, so the case has to open it the way a reader would.
+    act(() => { (container.querySelector('[aria-label*="sidebar.calendar_week_notes"]') as HTMLButtonElement).click() })
+    const jump = container.querySelector<HTMLButtonElement>('[aria-label*="sidebar.calendar_jump_to_day"]')
+    expect(jump).not.toBeNull()
+    act(() => { jump!.click() })
+    const target = document.activeElement?.getAttribute('data-day-key')
+    expect(target).toBe('2026-09-02')
+    expect(props.selects).toContain('2026-09-02')
+    unmount()
   })
 })
