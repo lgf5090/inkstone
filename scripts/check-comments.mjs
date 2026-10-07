@@ -291,6 +291,9 @@ const allowed = new Map([
     "// The actions are read off a ref because the listener lives on `window` while the page moves.",
     "// Whether this page is still being told to somebody, in the one place a viewer can read it. Held as a",
     "// function because the five states have to be named the same way wherever a viewer is standing.",
+    "// A follower's page arrives already drawn: the beat that moves them on to the next page is not",
+    "// a moment they chose to watch a chart grow, and a chart that replays its entrance on every",
+    "// beat would be re-replaying it while the speaker is still talking over the last one.",
   ]],
   ["src/client/features/presentation/deck-export.test.ts", [
     "/**\n * Which export a press asks for, and what the show therefore holds.\n *\n * Both exports read the same pages, so the kind has to be part of what is held: holding the pages alone\n * would mount the printed deck and the handout at the same time and print two sheets for one press.\n * The handout adds the second half of that contract — a sheet the speaker reads has to carry the\n * notes, and the notes are indexed by slide, not by printed page (N-32).\n */",
@@ -871,6 +874,10 @@ const allowed = new Map([
     "// One write per frame whatever the pointer did in between: a trackpad reports an event per",
     "// hardware tick, and a dot that reads them all ends up in the same place anyway.",
   ]],
+  ["src/client/features/presentation/presentation-settings.test.ts", [
+    "// Three switches the account owns over what a show looks like. Each is asserted where it is felt,",
+    "// because a setting nothing reads still renders a perfectly good toggle.",
+  ]],
   ["src/client/features/presentation/presentation-stage.tsx", [
     "/** How far into this page the show has walked (N-31); the projector is the only surface that has one. */",
     "/** How many reveals this page holds — zero when it arrives all at once. */",
@@ -891,6 +898,7 @@ const allowed = new Map([
     "// which of the two it is, inside the dialog where a reader already is. It is not change-tracked the",
     "// way the cover announcement is: a live region stays quiet about what was already there when it",
     "// mounted, so opening on a good page says nothing and the first page that fails is the one that speaks.",
+    "/** Charts arrive already drawn when the account turned their animation off. */",
   ]],
   ["src/client/features/presentation/presentation-state.test.ts", [
     "// N-21: the bar under the show has to count the pages the deck measures, not the slides the author",
@@ -1987,6 +1995,10 @@ const allowed = new Map([
     "// Clamping waits for a known plan: an edit mid-talk re-splits the deck, and a clamp",
     "// against the \"one page\" a missing plan implies would bounce the presenter to the top",
     "// of the slide on every unrelated write.",
+    "/** Whether charts on the projector arrive already drawn, per the account's own setting. */",
+    "// The account says whether a show should start with the list beside it; the room says whether",
+    "// there is anywhere to put it. Either answer being 'no' closes it, and neither is a reason to",
+    "// tell the presenter their setting is wrong — the toggle stays live for this show.",
   ]],
   ["src/client/features/presentation/use-presented-note.ts", [
     "// Followed edits land on the projector, but a re-split per keystroke would remount",
@@ -5792,6 +5804,9 @@ const allowed = new Map([
     "/** Draw each tag as its own node, linking the notes that carry it. Sent as `1`. */",
     "/** Notes the reader took out of the graph. Sent comma-separated, like `tags`. */",
     "/** Which side of a link a local graph walks. Only meaningful with `mode: 'local'`. */",
+    "/** Whether a show opens with the slide list already beside it. The room still\n   * decides the ceiling: a phone never gets one it has no space for. */",
+    "/** Whether a chart plays its entrance on the projector, or arrives drawn. */",
+    "/** Whether the controls and the list fade out while the presenter is idle. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
