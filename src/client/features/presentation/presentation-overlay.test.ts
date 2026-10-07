@@ -403,7 +403,10 @@ describe('PresentationOverlay — the show in a phone window', () => {
     act(() => {
       document.querySelector<HTMLElement>('[data-presentation-overflow]')?.click()
     })
-    const rows = [...document.querySelectorAll('[role="menu"] button')].map((row) => row.textContent?.trim() ?? '')
+    const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(t('workspace.presentation_modes')))
+    if (!group) throw new Error('the door has no presentation-modes row')
+    act(() => { group.click() })
+    const rows = [...document.querySelectorAll('[role="group"] [role="menuitem"], [role="group"] [role="menuitemcheckbox"]')].map((row) => row.textContent?.trim() ?? '')
     for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
       expect(rows.some((row) => row.includes(label)), label).toBe(true)
     }

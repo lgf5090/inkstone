@@ -272,8 +272,8 @@ describe('PresentationControls — a deck that plays by itself', () => {
     // capsule was handed — the same route the handout row takes.
     renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()), onExportHtml })))
     act(() => { door()?.click() })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_html')))
-    if (!row) throw new Error('the door has no standalone-export row')
+    const row = openExportRows().find((item) => item.textContent?.includes(t('workspace.presentation_export_html')))
+    if (!row) throw new Error('the export group has no standalone-export row')
     act(() => { row.click() })
     expect(onExportHtml).toHaveBeenCalledTimes(1)
   })
@@ -373,7 +373,17 @@ describe('PresentationControls — the key a control answers to', () => {
 // Rows are `menuitem` or `menuitemcheckbox` depending on whether the row carries a mark, so the door is
 // read by what it holds rather than by which of the two roles a row happens to claim.
 const door = () => document.querySelector<HTMLElement>('[data-presentation-overflow]')
-const rows = () => [...document.querySelectorAll('[role="menu"] button')].map((row) => row.textContent?.trim() ?? '')
+// The exports and the four screen modes live behind one door row each now (PR-M1), so a test that
+// wants one of them opens the group first and reads the nested panel — `[role="group"]` named after
+// the row that opened it.
+function openDoorGroup(label: string): HTMLElement[] {
+  const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(label))
+  if (!group) throw new Error(`the door has no ${label} row`)
+  act(() => { group.click() })
+  return [...document.querySelectorAll<HTMLElement>(`[role="group"][aria-label="${label}"] [role="menuitem"], [role="group"][aria-label="${label}"] [role="menuitemcheckbox"]`)]
+}
+const openExportRows = () => openDoorGroup(t('workspace.export'))
+const openModeRows = () => openDoorGroup(t('workspace.presentation_modes'))
 
 describe('PresentationControls at phone width', () => {
   it('keeps the turn and the way out, and folds the rest behind one door', () => {
@@ -396,9 +406,32 @@ describe('PresentationControls at phone width', () => {
     act(() => {
       door()?.click()
     })
+    const modes = openModeRows()
     for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
-      expect(rows().some((row) => row.includes(label)), label).toBe(true)
+      expect(modes.some((row) => row.textContent?.includes(label)), label).toBe(true)
     }
+    expect(modes).toHaveLength(4)
+  })
+
+  it('keeps the door short enough that everything on it can be reached', () => {
+    renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
+    act(() => {
+      door()?.click()
+    })
+    const top = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"]')]
+    expect(top.length).toBeLessThanOrEqual(9)
+    for (const label of [t('workspace.presentation_modes'), t('workspace.export')]) {
+      expect(top.some((row) => row.textContent?.includes(label)), label).toBe(true)
+    }
+  })
+
+  it('says on the group row that one of the modes it holds is on', () => {
+    renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems({ ...menuOptions(), laser: true }) })))
+    act(() => {
+      door()?.click()
+    })
+    const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(t('workspace.presentation_modes')))
+    expect(group?.getAttribute('aria-checked'), 'a door that hides an active mode reads as nothing is on').toBe('true')
   })
 
 })
@@ -411,8 +444,8 @@ describe('PresentationControls — what the door hands over', () => {
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_laser')))
-    if (!row) throw new Error('the door has no laser row to press')
+    const row = openModeRows().find((item) => item.textContent?.includes(t('workspace.presentation_laser')))
+    if (!row) throw new Error('the modes group has no laser row to press')
     act(() => {
       row.click()
     })
@@ -426,12 +459,25 @@ describe('PresentationControls — what the door hands over', () => {
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_handout')))
-    if (!row) throw new Error('the door has no handout row')
+    const row = openExportRows().find((item) => item.textContent?.includes(t('workspace.presentation_export_handout')))
+    if (!row) throw new Error('the export group has no handout row')
     act(() => {
       row.click()
     })
     expect(onExportHandout).toHaveBeenCalledTimes(1)
+  })
+
+  it('folds the four exports into one row, so the door fits the phone it is on', () => {
+    renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
+    act(() => {
+      door()?.click()
+    })
+    const top = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"]')]
+    expect(top.some((row) => row.textContent?.includes(t('workspace.export'))), 'the door lists the exports one row at a time').toBe(true)
+    for (const label of [t('workspace.presentation_export'), t('workspace.presentation_export_handout'), t('workspace.presentation_export_html'), t('workspace.presentation_export_images')]) {
+      expect(top.some((row) => row.textContent?.includes(label)), `the door still shows ${label} on its own`).toBe(false)
+    }
+    expect(openExportRows()).toHaveLength(4)
   })
 
 })
@@ -443,21 +489,21 @@ describe('PresentationControls — the door and the exports', () => {
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_images')))
-    if (!row) throw new Error('the door has no image-export row')
+    const row = openExportRows().find((item) => item.textContent?.includes(t('workspace.presentation_export_images')))
+    if (!row) throw new Error('the export group has no image-export row')
     act(() => {
       row.click()
     })
     expect(onExportImages).toHaveBeenCalledTimes(1)
   })
 
-  it('lets an export that is still running say so behind the door too', () => {
+  it('lets an export that is still running say so on the row the presenter can see', () => {
     renderElement(createElement(PresentationControls, chromeProps({ compact: true, exporting: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_images')))
-    expect(row?.querySelector('[data-export-spinner]'), 'the row that is working shows nothing').toBeTruthy()
+    const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(t('workspace.export')))
+    expect(group?.querySelector('[data-export-spinner]'), 'the working export is hidden behind a row with no mark').toBeTruthy()
   })
 
   it('paints the door inside the projector it belongs to, not beside it', () => {

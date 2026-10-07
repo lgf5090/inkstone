@@ -2,9 +2,9 @@ import { useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Code, Download, EllipsisVertical, FileText, Images, LayoutGrid, Maximize, Minimize, PanelLeftClose, PanelLeftOpen, Presentation, Radio, Snowflake, Users, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { IS_DEMO_MODE } from '../../lib/runtime'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { IconButton, Spinner } from '../../components/primitives'
-import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
+import { Menu, submenuFor, Tooltip, type MenuItem } from '../../components/overlay'
 import { Z_INDEX } from '../../lib/z-index'
 import { presentationKeyCombo } from './presentation-keys'
 import { hasBackwardMove, hasForwardMove } from './presentation-state'
@@ -98,7 +98,7 @@ export function PresentationControls({ slideIndex, slideCount, subPage, pageCoun
         <SlideStepper slideIndex={slideIndex} slideCount={slideCount} subPage={subPage} pageCount={pageCount} step={step} steps={steps} onPrev={onPrev} onNext={onNext} />
         <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
         {compact
-          ? <ViewDoor items={[...overflowItems, ...exportMenuItems({ onExport, onExportImages, onExportHandout, onExportHtml })]} exporting={exporting} />
+          ? <ViewDoor items={doorItems(overflowItems, exportGroupItem({ onExport, onExportImages, onExportHandout, onExportHtml, exporting }))} exporting={exporting} />
           : <>
             <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
             <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
@@ -240,6 +240,62 @@ function ViewDoor({ items, exporting }: { items: MenuItem[]; exporting: boolean 
       <Menu anchor={buttonRef} open={open} onClose={() => setOpen(false)} items={rows} align='end' width={DOOR_WIDTH} container={container} zIndex={Z_INDEX.menu + 1} label={t('common.more_actions')} />
     </>
   )
+}
+
+/**
+ * The door's own shape: the four screen modes and the four exports each collapse into one row.
+ *
+ * Fifteen rows measured 653px of content in the 419px panel a 420×860 phone gives a door, which left
+ * the last row cut in half with nothing on screen saying there was more — and everything below the
+ * fold unreachable (PR-M1). Nine rows fit. The group rows carry a mark when one of their children is
+ * on, because a door that cannot show that the screen is blacked out has traded one problem for a
+ * worse one, and the wide bar keeps every row on top level where there is room for them.
+ */
+const DOOR_GROUPS: Array<{ id: string; label: MessageKey; ids: string[] }> = [
+  { id: 'modes', label: 'workspace.presentation_modes', ids: ['laser', 'spotlight', 'blackout', 'whiteout'] },
+]
+
+function doorItems(overflow: MenuItem[], exportRow: MenuItem): MenuItem[] {
+  const out: MenuItem[] = []
+  const taken = new Set<string>()
+  for (const item of overflow) {
+    const group = DOOR_GROUPS.find((g) => g.ids.includes(item.id))
+    if (!group) {
+      out.push(item)
+      continue
+    }
+    if (taken.has(group.id)) continue
+    taken.add(group.id)
+    const children = overflow.filter((row) => group.ids.includes(row.id))
+    out.push({
+      id: group.id,
+      label: t(group.label),
+      icon: children[0]?.icon,
+      separatorBefore: item.separatorBefore,
+      checked: children.some((row) => row.checked),
+      submenu: submenuFor(children, DOOR_WIDTH),
+    })
+  }
+  out.push(exportRow)
+  return out
+}
+
+/**
+ * The door's one export row.
+ *
+ * Four export rows at the tail of a fifteen-row list measured 653px of content in a 419px panel on a
+ * 420×860 phone, which left the last row cut in half and every export below the fold with nothing on
+ * screen saying there was more (PR-M1). Folded into a submenu the door is twelve rows, and the group
+ * row is where the working state shows — a spinner on a row nobody can reach is not feedback.
+ */
+function exportGroupItem({ onExport, onExportImages, onExportHandout, onExportHtml, exporting }: { onExport: () => void; onExportImages: () => void; onExportHandout: () => void; onExportHtml: () => void; exporting: boolean }): MenuItem {
+  return {
+    id: 'export',
+    label: t('workspace.export'),
+    icon: exporting ? <span data-export-spinner aria-hidden='true'><Spinner size={14} /></span> : <Download size={14} />,
+    separatorBefore: true,
+    submenu: submenuFor(exportMenuItems({ onExport, onExportImages, onExportHandout, onExportHtml }), DOOR_WIDTH),
+  }
 }
 
 // The exports the wide bar draws as buttons; on a phone they walk through the door with the rest, and

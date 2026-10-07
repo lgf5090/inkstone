@@ -2349,6 +2349,7 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_connected": "已连接",
     "workspace.presentation_disconnected": "等待放映连接...",
     "workspace.presentation_end_of_deck": "演说已至末页",
+    "workspace.presentation_modes": "呈现模式",
     "workspace.presentation_laser": "虚拟激光笔",
     "workspace.presentation_spotlight": "聚光灯",
     "workspace.presentation_blackout": "黑屏模式",

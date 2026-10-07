@@ -685,6 +685,9 @@ const allowed = new Map([
     "// stage behind — so the first tap a presenter makes where the controls are turns the page instead of",
     "// bringing them back. jsdom does no hit testing, so what is pinned here is the shape the fix needs to",
     "// have: a target that is not faded, sized to the bar's own rectangle, standing between the two.",
+    "// The exports and the four screen modes live behind one door row each now (PR-M1), so a test that",
+    "// wants one of them opens the group first and reads the nested panel — `[role=\"group\"]` named after",
+    "// the row that opened it.",
   ]],
   ["src/client/features/presentation/presentation-controls.tsx", [
     "/** How far an export that paints its own off-screen sheet has got. The sheet reports it; the show is\n * the only surface that can be seen reporting it, so the shape lives with the pill that says so. */",
@@ -734,6 +737,8 @@ const allowed = new Map([
     "// rectangle and never fades, so the gesture that brings the controls back is only that. It takes",
     "// no space of its own: the bar is its only child and paints exactly over it.",
     "// Same gesture, revealed control: the press is spent on bringing the bar back.",
+    "/**\n * The door's own shape: the four screen modes and the four exports each collapse into one row.\n *\n * Fifteen rows measured 653px of content in the 419px panel a 420×860 phone gives a door, which left\n * the last row cut in half with nothing on screen saying there was more — and everything below the\n * fold unreachable (PR-M1). Nine rows fit. The group rows carry a mark when one of their children is\n * on, because a door that cannot show that the screen is blacked out has traded one problem for a\n * worse one, and the wide bar keeps every row on top level where there is room for them.\n */",
+    "/**\n * The door's one export row.\n *\n * Four export rows at the tail of a fifteen-row list measured 653px of content in a 419px panel on a\n * 420×860 phone, which left the last row cut in half and every export below the fold with nothing on\n * screen saying there was more (PR-M1). Folded into a submenu the door is twelve rows, and the group\n * row is where the working state shows — a spinner on a row nobody can reach is not feedback.\n */",
   ]],
   ["src/client/features/presentation/presentation-deck-index.test.ts", [
     "// The slide level of the show's position, at the level a presenter feels it: the deck under the show",
@@ -1233,6 +1238,9 @@ const allowed = new Map([
     "// has walked. Hiding stays on `visibility` for the same reason off-page blocks do: a chart.js diagram",
     "// that was only hidden keeps its canvas, so revealing the next block never re-renders the last one.",
     "// The step counts reveals, so step 0 shows the block the page opens on and nothing after it.",
+    "// PR-M10: the projector should arrive on a new page the way the exported file does. The page element",
+    "// is reused from turn to turn, so this is the only place that can tell \"a new page\" from \"the same",
+    "// page re-rendered\" — and a stylesheet cannot tell it at all.",
   ]],
   ["src/client/features/presentation/slide-canvas.tsx", [
     "/**\n   * How far into this page the show has walked (N-31). Absent means the whole page is on screen,\n   * which is what every surface except the projector draws: a thumbnail, a printed page and the\n   * overview grid all show the slide as finished, not as paused mid-sentence.\n   */",
@@ -1307,6 +1315,12 @@ const allowed = new Map([
     "// back out of the host, and a canvas that skipped this draws an empty fence. The registration is a",
     "// plain write, so unlike the reference's bento fallback it never changes what the page measures and",
     "// has no reason to bump a re-measure.",
+    "// The exported file fades each page in over `--dur-base`; the projector now arrives the same way",
+    "// (PR-M10). It is driven from here rather than from a stylesheet because the page element is reused",
+    "// from turn to turn — React swaps its children — so a CSS animation would run once on mount and",
+    "// never again, which is exactly what the first version of this did.",
+    "// The token is the whole input: it names the slide, the page of it, and the reveal within that",
+    "// page, which is what \"a new page arrived\" means to the projector.",
   ]],
   ["src/client/features/presentation/slide-html.ts", [
     "/**\n * A slide's prepared markup with the fence bodies it was rendered from (P-01).\n *\n * The two travel together because a serialized slide is re-enhanced downstream: the printed deck\n * runs the snapshot renderers over the pages it is handed, and a `kanban` block there reads its\n * board back out of the set, not out of its own attributes. Markup cached without its bodies prints\n * those blocks as empty fences.\n */",
