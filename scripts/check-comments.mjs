@@ -6383,6 +6383,16 @@ const allowed = new Map([
     "// Corrupt or missing stored prefs fall back to the default below.",
     "// Quota or private-mode writes can throw; the pref stays authoritative in memory.",
   ]],
+  ["src/client/store/date-filter.test.ts", [
+    "// C-08. The predicate used to build a `YYYY-MM-DD` string from every note's",
+    "// `updatedAt` on every list recompute, so a 20k vault paid one Date, one string and",
+    "// two string compares per row per commit. Comparing instants instead is only safe if",
+    "// the window's own edges are calendar-correct: the end has to be the start of the",
+    "// day AFTER `range.end`, because a fixed +86400000 loses the 23:00–24:00 hour on any",
+    "// day the reader's zone makes 23 hours long.",
+    "// The two Sundays a northern-hemisphere zone changes offset on: one 23-hour day",
+    "// and one 25-hour day, at the hours a note is actually written.",
+  ]],
   ["src/client/store/new-note.ts", [
     "/** Fresh-note construction: template expansion, caret hand-off, and title sync. */",
     "/** True when the template had no front matter for `tags` to be merged into. */",
@@ -6458,6 +6468,10 @@ const allowed = new Map([
     "// matter is where a tag page expects them.",
     "/** Caret offset for an explicitly supplied `content`, so a template can point it. */",
     "/** Where the caller wants the note, when it knows better than the open view. */",
+    "// The window is resolved to two instants once per recompute rather than to a day key",
+    "// per note: the old predicate built a Date and a `YYYY-MM-DD` string for every row.",
+    "// The upper bound is the start of the day AFTER `end`, so a 23-hour DST day cannot",
+    "// shave the closing hour off the range the way a fixed day length would.",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",

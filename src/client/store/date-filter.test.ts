@@ -89,3 +89,78 @@ describe('the list honours the calendar day filter', () => {
     expect(useUi.getState().dateFilter).toBeNull()
   })
 })
+
+// C-08. The predicate used to build a `YYYY-MM-DD` string from every note's
+// `updatedAt` on every list recompute, so a 20k vault paid one Date, one string and
+// two string compares per row per commit. Comparing instants instead is only safe if
+// the window's own edges are calendar-correct: the end has to be the start of the
+// day AFTER `range.end`, because a fixed +86400000 loses the 23:00–24:00 hour on any
+// day the reader's zone makes 23 hours long.
+describe('the day filter compares instants, not day keys', () => {
+  const originalNotes = useNotes.getState()
+  const originalUi = useUi.getState()
+  let rendered: RenderedElement
+
+  const edgeStamps = [
+    new Date(2026, 9, 4, 0, 0, 0, 0).getTime(),
+    new Date(2026, 9, 4, 23, 59, 59, 999).getTime(),
+    new Date(2026, 9, 5, 0, 0, 0, 0).getTime(),
+    new Date(2026, 9, 5, 12, 0, 0, 0).getTime(),
+    new Date(2026, 9, 5, 23, 30, 0, 0).getTime(),
+    new Date(2026, 9, 5, 23, 59, 59, 999).getTime(),
+    new Date(2026, 9, 6, 0, 0, 0, 0).getTime(),
+    new Date(2026, 9, 6, 0, 0, 0, 1).getTime(),
+    // The two Sundays a northern-hemisphere zone changes offset on: one 23-hour day
+    // and one 25-hour day, at the hours a note is actually written.
+    new Date(2026, 2, 29, 1, 30, 0, 0).getTime(),
+    new Date(2026, 2, 29, 2, 30, 0, 0).getTime(),
+    new Date(2026, 9, 25, 2, 30, 0, 0).getTime(),
+    new Date(2026, 9, 25, 3, 30, 0, 0).getTime(),
+  ]
+
+  const EDGE_NOTES = Object.fromEntries(edgeStamps.map((at, i) => [`e${i}`, summary(`e${i}`, at)]))
+
+  const byDayKey = (at: number, start: string, end: string) => {
+    const key = dateKey(new Date(at))
+    return key >= start && key <= end
+  }
+
+  beforeEach(() => {
+    useNotes.setState({ ...originalNotes, notes: EDGE_NOTES, folders: [], tags: [] })
+    useUi.setState({ ...originalUi, view: 'all', folderId: null, tags: [], dateFilter: null })
+    rendered = renderElement(createElement(VisibleProbe))
+  })
+
+  afterEach(() => {
+    rendered.unmount()
+    useNotes.setState(originalNotes, true)
+    useUi.setState(originalUi, true)
+  })
+
+  it('keeps the last minute of the closing day, which a fixed day-length window drops', () => {
+    expect(apply({ start: '2026-10-05', end: '2026-10-05' })).toEqual(['e2', 'e3', 'e4', 'e5'])
+  })
+
+  it('cuts exactly at midnight on both sides of a single-day window', () => {
+    const single = apply({ start: '2026-10-05', end: '2026-10-05' })
+    expect(single).not.toContain('e1')
+    expect(single).not.toContain('e6')
+    expect(single).not.toContain('e7')
+  })
+
+  it('answers the same set as the day-key predicate across every edge and both DST Sundays', () => {
+    for (const [start, end] of [
+      ['2026-10-04', '2026-10-04'],
+      ['2026-10-04', '2026-10-05'],
+      ['2026-10-05', '2026-10-05'],
+      ['2026-10-05', '2026-10-06'],
+      ['2026-10-06', '2026-10-06'],
+      ['2026-03-29', '2026-03-29'],
+      ['2026-10-25', '2026-10-25'],
+      ['2026-03-01', '2026-12-31'],
+    ]) {
+      const expected = edgeStamps.filter((at) => byDayKey(at, start, end)).map((at) => `e${edgeStamps.indexOf(at)}`)
+      expect(apply({ start, end })).toEqual(expected.sort())
+    }
+  })
+})
