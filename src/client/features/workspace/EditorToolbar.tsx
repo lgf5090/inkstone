@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Strikethrough, Table } from 'lucide-react';
+import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Sparkles, Strikethrough, Table } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -126,6 +126,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
       {menuButton('note', <FileText size={14}/>)}
       <Divider />
       {menuButton('code', <Braces size={14}/>, { label: t('workspace.code_block'), onClick: run(insertCodeBlock) })}
+      <ToolButton label={t('command.format_code_block')} combo={editorCombo('format-code')} onClick={run(formatCodeBlock)}><Sparkles size={14}/></ToolButton>
       <ToolButton label={t('workspace.table')} onClick={run(insertTable)}><Table size={14}/></ToolButton>
       {menuButton('math', <Sigma size={14}/>)}
       {menuButton('block', <Blocks size={14}/>)}

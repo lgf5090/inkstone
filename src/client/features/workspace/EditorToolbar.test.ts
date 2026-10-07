@@ -73,6 +73,18 @@ describe('editor toolbar interactions', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 
+  it('formats the code block under the cursor from a toolbar button, not only from the insert menu', async () => {
+    let state = EditorState.create({ doc: '```ts\nconst a=1\n```', selection: EditorSelection.cursor(8) })
+    await act(() => root.render(createElement(EditorToolbar, {
+      onPickImage: vi.fn(),
+      runCommand: (command) => command({ state, dispatch: (transaction: { state: EditorState }) => { state = transaction.state } } as never),
+    })))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    const format = toolbarButton(t('command.format_code_block'))
+    await act(() => format.click())
+    expect(state.doc.toString()).toBe('```ts\nconst a = 1\n```')
+  })
+
   it('lets keyboard users choose a block formula without losing their selected text', async () => {
     let state = EditorState.create({ doc: 'x^2', selection: EditorSelection.range(0, 3) })
     await act(() => root.render(createElement(EditorToolbar, {
