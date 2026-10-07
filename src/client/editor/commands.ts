@@ -348,37 +348,16 @@ export const insertFootnote: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
-export const insertMermaid: StateCommand = (target) => insertWrappedBlock(
-    '```mermaid',
-    '```',
-    'flowchart LR\n  A --> B',
-)(target);
-
 /**
- * A board, in the format the selection already has: wrapping headings and list items yields an
- * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.
- * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the
- * body, so this command does not have to know.
+ * The one insertion behind every diagram submenu entry: `opening` is the fence's own first line —
+ * ```kanban, or ```chart style=table when the format has to be stated — and `body` is the template's
+ * text. A selection is wrapped rather than replaced, so nothing the author wrote is thrown away, and
+ * which format the block turns out to be stays the fence's own business: every one of these readers
+ * (`detectKanbanMode`, `detectChartMode`, `detectMindmapMode`) works it back out of the body.
  */
-export const insertKanban: StateCommand = (target) => insertWrappedBlock(
-    '```kanban',
-    '```',
-    '{\n  "title": "Kanban",\n  "columns": [\n    {\n      "id": "status",\n      "name": "Status",\n      "type": "select",\n      "options": [\n        { "id": "todo", "label": "To Do", "color": "gray" },\n        { "id": "in_progress", "label": "In Progress", "color": "blue" },\n        { "id": "done", "label": "Done", "color": "green" }\n      ]\n    }\n  ],\n  "items": []\n}',
-)(target);
-
-/**
- * A chart, in the format an author can edit in place: the first cell names the type, the header row is
- * the x axis, and each row is one series. The block's own toolbar converts it to JSON when the full
- * option set is needed, so this command does not settle that choice — it only starts somewhere the
- * chart parser reads back as a chart. Nothing is styled on purpose: a chart with no colours of its own
- * is painted from the note's accent and repaints when the accent or the theme changes, while a starter
- * that wrote its own would freeze that choice into the note.
- */
-export const insertChart: StateCommand = (target) => insertWrappedBlock(
-    '```chart style=table',
-    '```',
-    '| :bar: | Jan | Feb | Mar |\n| --- | --- | --- | --- |\n| Series A | 12 | 19 | 15 |',
-)(target);
+export function insertDiagramCode(opening: string, body: string): StateCommand {
+    return insertWrappedBlock(opening, '```', body);
+}
 
 /**
  * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole

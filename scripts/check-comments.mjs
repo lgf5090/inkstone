@@ -180,6 +180,8 @@ const allowed = new Map([
     "// The starter writes no styling of its own, so the note's accent paints the chart and repaints it when",
     "// the theme changes. A keyword cell's JSON lands in `options` rather than on the dataset, which is why",
     "// the byte-identical round trip alone would not notice a colour written there — the absence is asserted.",
+    "// The toolbar's diagram entries are the same command over a different template, so the behaviour these",
+    "// cases pin belongs to `insertDiagramCode` and the bodies come from the template list.",
   ]],
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
@@ -192,13 +194,12 @@ const allowed = new Map([
     "/**\n * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole\n * note. All of it is one transaction, so one undo takes the fence back — the same contract every\n * other insertion here has. Returns false when the text holds no headings and no lists, which is not\n * something the command can report on its own; {@link generateMindmapFromOutline} does.\n */",
     "/** The menu-level action: says so when there was no outline to draw, instead of looking like a dead item. */",
     "/**\n * A column block arrives as two columns, because the `::` that divides them is the one part of the\n * syntax a reader cannot guess from the header.\n */",
-    "/**\n * A board, in the format the selection already has: wrapping headings and list items yields an\n * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.\n * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the\n * body, so this command does not have to know.\n */",
     "/**\n * Rewrite the body of the fence the cursor sits in, leaving the fence lines and the rest of the note\n * byte-identical. One transaction, so one press of undo is one format. The press says so when the cursor\n * was not on a block: a menu item and a key binding that both do nothing look exactly like a dead control.\n */",
     "// The body was read back without the fence's own run of spaces, so it goes back with them re-added:",
     "// a block inside a list item has to stay inside it.",
     "// The range runs up to the start of the closing fence, so it ends in a line break the new body has to",
     "// hand back — otherwise the last line of the block swallows the ``` that closed it.",
-    "/**\n * A chart, in the format an author can edit in place: the first cell names the type, the header row is\n * the x axis, and each row is one series. The block's own toolbar converts it to JSON when the full\n * option set is needed, so this command does not settle that choice — it only starts somewhere the\n * chart parser reads back as a chart. Nothing is styled on purpose: a chart with no colours of its own\n * is painted from the note's accent and repaints when the accent or the theme changes, while a starter\n * that wrote its own would freeze that choice into the note.\n */",
+    "/**\n * The one insertion behind every diagram submenu entry: `opening` is the fence's own first line —\n * ```kanban, or ```chart style=table when the format has to be stated — and `body` is the template's\n * text. A selection is wrapped rather than replaced, so nothing the author wrote is thrown away, and\n * which format the block turns out to be stays the fence's own business: every one of these readers\n * (`detectKanbanMode`, `detectChartMode`, `detectMindmapMode`) works it back out of the body.\n */",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
@@ -206,6 +207,18 @@ const allowed = new Map([
   ["src/client/editor/decorations.ts", [
     "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
     "// and the hover and context-menu paths both identify a hashtag by that datum.",
+  ]],
+  ["src/client/editor/diagram-templates.test.ts", [
+    "// A slice chart's value-column name has nowhere to live in its config, so the table → JSON → table",
+    "// round trip cannot carry it back; every other kind comes home byte for byte.",
+  ]],
+  ["src/client/editor/diagram-templates.ts", [
+    "/**\n * The starter bodies behind the editor toolbar's diagram submenus, as data: one row per entry, each\n * carrying the label it is offered under and the text written into the new fence.\n *\n * Every body here has to be something the block's own reader accepts, so the lists are asserted against\n * those readers in `diagram-templates.test.ts` rather than trusted — a template that inserts a fence the\n * block then reports as broken is worse than no template at all.\n */",
+    "/**\n * The chart bodies are tables rather than Chart.js options, because a table is what an author edits in\n * place: the first cell names the type, the header row is the x axis, and every row is one series. The\n * block's own toolbar converts any of them to JSON when the full option set is needed. None carries a\n * colour on purpose — a chart with no colours of its own is painted from the note's accent and repaints\n * when the accent or the theme changes.\n */",
+    "// A slice chart is one row per slice, not one column per slice: the categories live in the first",
+    "// column and the second header cell names the value column.",
+    "// The keyword cell doubles as the point-name column, and a size column is what turns the scatter",
+    "// into bubbles — which is the type this entry is named for.",
   ]],
   ["src/client/editor/link-hover-plugin.ts", [
     "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
@@ -746,6 +759,15 @@ const allowed = new Map([
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
     "// fresh payload arrives.",
+  ]],
+  ["src/client/features/workspace/EditorToolbar.test.ts", [
+    "/** A row of whichever menu or submenu is currently open — a submenu is portalled, so it is not under the toolbar. */",
+    "// The two boards differ only in the body they start from, and which one a fence is stays the fence's",
+    "// own business — so the pair is worth pinning: an outline board and a JSON board are different notes.",
+  ]],
+  ["src/client/features/workspace/EditorToolbar.tsx", [
+    "// One submenu per diagram family, built from the template list itself: adding a chart type or a",
+    "// mermaid diagram is a row in `diagram-templates`, and nothing here has to know about it.",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
