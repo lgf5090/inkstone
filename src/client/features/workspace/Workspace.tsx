@@ -313,12 +313,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             });
         }
     };
-    // The show lives in its own chunk, so the key that opens one is the first thing that asks for
-    // the deck splitter. Awaiting here also means a note deleted between the click and the chunk
-    // landing is caught by the same 'nothing to present' answer the command palette gets.
-    const startPresentation = useCallback(() => {
+    // Not a `useCallback`: this sits below the "no note selected" early return above, so a hook here
+    // would be called on some renders and skipped on others, and React aborts the tree over that.
+    // The row lists below are rebuilt every render anyway, so a stable identity bought nothing here.
+    // The show lives in its own chunk, so this call is the first thing that asks for the deck splitter.
+    const startPresentation = () => {
         void import('../presentation').then((module) => module.startPresentationFromNote(note.id));
-    }, [note.id]);
+    };
     const exportMenuItems: MenuItem[] = [
         { id: 'md', label: t("workspace.export_markdown"), icon: <FileText size={13}/>, onSelect: () => void exportNote('md') },
         { id: 'html', label: t("workspace.export_html"), icon: <FileCode size={13}/>, onSelect: () => void exportNote('html') },
