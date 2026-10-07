@@ -178,7 +178,7 @@ describe('parseTemplateLibraryExport', () => {
 
   it('treats an appearance it cannot recognise as nothing', () => {
     const oddColour = parseTemplateLibraryExport(exportJson({
-      categories: [{ id: 'cat-1', name: 'One', builtin: false, position: 0, createdAt: 1, icon: '🎯', color: '#123456' }],
+      categories: [{ id: 'cat-1', name: 'One', builtin: false, position: 0, createdAt: 1, icon: '🎯', color: 'crimson' }],
     }))
     expect(oddColour.data?.categories[0]).toMatchObject({ icon: '🎯', color: null })
     const hugeIcon = parseTemplateLibraryExport(exportJson({

@@ -123,6 +123,7 @@ const allowedHanFragments = new Map([
     [path.resolve('src/client/lib/emoji-catalog.test.ts'), [
         // Icon search has to answer in the language the user types it in, so the probe words are Han.
         '\u6587\u4ef6\u5939',
+        '\u6587\u4ef6\u5939',
         'plane \u98de\u673a',
         '\u7ea2 \u70b9',
     ]],

@@ -8,7 +8,7 @@ import { initI18n, t } from '../../lib/i18n';
 import { installTestGlobals } from '../../lib/test-render';
 import { api } from '../../lib/api';
 import { getInboxFolderId, loadFolderPrefs, saveFolderPrefs, setInboxFolderId } from '../../lib/folder-prefs';
-import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog';
+import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog-data';
 import { loadCalendarPrefs, saveCalendarPrefs } from '../../lib/calendar-prefs';
 import { NOTE_DRAG_TYPE } from '../../lib/note-drag';
 import { useNotes, useVisibleNotes } from '../../store/notes';
@@ -395,12 +395,8 @@ describe('folder row menu', () => {
             t('folders.icon'),
             t('folders.set_as_inbox'),
             t('folders.move_to'),
-            t('sidebar.move_earlier'),
-            t('sidebar.move_later'),
-            t('sidebar.move_out_one_level'),
-            t('folders.sort_by_name'),
-            t('folders.export_zip'),
-            t('folders.manage_folders'),
+            t('folders.group_arrange'),
+            t('folders.group_archive'),
             t('sidebar.delete_folder'),
         ]);
     });
@@ -419,6 +415,34 @@ describe('folder row menu', () => {
         expect(flyout(t('folders.color'))).toBeNull();
     });
 
+    it('binds a custom hex colour through the palette flyout', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.color')));
+        const panel = flyout(t('folders.color'));
+        expect(pressedTiles(panel)).toHaveLength(ORGANIZER_COLORS.length + 1);
+        const field = panel.querySelector<HTMLInputElement>('input[type="text"]')!;
+        await type(field, '#1A2B3C');
+        await act(() => {
+            field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        });
+        expect(patchFolder).toHaveBeenCalledExactlyOnceWith(folder.id, { color: '#1a2b3c' });
+    });
+
+    it('refuses a hex that is not a plain colour', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.color')));
+        const panel = flyout(t('folders.color'));
+        const field = panel.querySelector<HTMLInputElement>('input[type="text"]')!;
+        await type(field, 'red; color:blue');
+        await act(() => {
+            field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        });
+        expect(patchFolder).not.toHaveBeenCalled();
+    });
     it('shows the whole catalog in the icon flyout', async () => {
         const patchFolder = vi.fn(() => true);
         useNotes.setState({ patchFolder });
@@ -508,15 +532,33 @@ describe('folder row menu', () => {
         it('walks the tree level by level and moves into a nested folder', async () => {
             const { panel, patchFolder } = await openMoveMenu(1);
             expect(rowsAt(panel, 0).map((element) => element.dataset.moveId)).toEqual(['', 'a']);
-            expect(rowNamed(panel, t('folders.top_level')).disabled).toBe(true);
-            expect(rowNamed(panel, t('folders.top_level')).textContent).toContain(t('folders.current_location'));
+            expect(rowNamed(panel, t('folders.move_unfiled')).disabled).toBe(true);
+            expect(rowNamed(panel, t('folders.move_unfiled')).textContent).toContain(t('folders.current_location'));
             await act(() => rowNamed(panel, 'Beta', 1).focus());
             expect(rowsAt(panel, 2).map((element) => element.dataset.moveId)).toEqual(['c']);
             await click(rowNamed(panel, 'Gamma', 2));
             expect(patchFolder).toHaveBeenCalledExactlyOnceWith('d', { parentId: 'c', beforeId: null });
         });
 
-        it('hides the moved folder and everything below it from the destinations', async () => {
+        it('paints the move flyout as an opaque panel', async () => {
+        await openMoveMenu(1);
+        const panel = flyout(t('folders.move_to'));
+        expect(panel.className).not.toContain('bg-');
+        expect(panel.firstElementChild?.className).toContain('bg-[var(--bg-overlay)]');
+    });
+    it('keeps the shortcut row out of the level anchoring', async () => {
+        setInboxFolderId('a');
+        const { panel } = await openMoveMenu(1);
+        const rows = [...panel.querySelectorAll<HTMLElement>(`[data-move-row][data-move-id="a"]`)];
+        expect(rows).toHaveLength(2);
+        expect(rows[0].hasAttribute('data-move-shortcut')).toBe(true);
+        expect(rows[1].hasAttribute('data-move-shortcut')).toBe(false);
+        await act(() => rows[1].focus());
+        const nested = document.querySelector<HTMLElement>(`[role="group"][aria-label="Alpha"]`);
+        expect(nested).toBeTruthy();
+        expect(nested?.querySelector('[data-move-row]')?.textContent).toContain('Beta');
+    });
+    it('hides the moved folder and everything below it from the destinations', async () => {
             const { panel } = await openMoveMenu(0);
             expect(rowsAt(panel, 0).map((element) => element.dataset.moveId)).toEqual(['', 'd']);
             expect(panel.textContent).not.toContain('Beta');
@@ -548,6 +590,78 @@ describe('folder row menu', () => {
         expect(drawer?.textContent).toContain(t('folders.top_level'));
     });
 
+    it('lists the arranging actions inside the arrange group', async () => {
+        useNotes.setState({ folders: [folder, { ...folder, id: 'second', name: 'Second', position: 1 }], notes: {} });
+        await act(() => root.render(createElement(Sidebar)));
+        const scope = document.querySelector('[role="menu"]') ?? await (async () => {
+            await click(byLabel(container.querySelector('[data-folder-drop-target]')!, t('common.more_actions')));
+            return document.querySelector('[role="menu"]')!;
+        })();
+        await click(byLabel(scope, t('folders.group_arrange')));
+        const group = flyout(t('folders.group_arrange'));
+        expect(labels(group)).toEqual([
+            t('sidebar.move_earlier'),
+            t('sidebar.move_later'),
+            t('sidebar.move_out_one_level'),
+            t('folders.sort_by_name'),
+        ]);
+        expect(byLabel(group, t('sidebar.move_earlier')).disabled).toBe(true);
+        expect(byLabel(group, t('sidebar.move_later')).disabled).toBe(false);
+        await click(byLabel(group, t('sidebar.move_later')));
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+    });
+
+    it('moves the folder one slot later from the arranging group', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ folders: [folder, { ...folder, id: 'second', name: 'Second', position: 1 }], notes: {}, patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.group_arrange')));
+        await click(byLabel(flyout(t('folders.group_arrange')), t('sidebar.move_later')));
+        expect(patchFolder).toHaveBeenCalledExactlyOnceWith(folder.id, { parentId: null, beforeId: null });
+    });
+
+    it('opens the folders panel from the archive group', async () => {
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.group_archive')));
+        const group = flyout(t('folders.group_archive'));
+        expect(labels(group)).toEqual([t('folders.export_zip'), t('folders.manage_folders')]);
+        await click(byLabel(group, t('folders.manage_folders')));
+        expect(useUi.getState().panel).toBe('folders');
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+    });
+
+    it('walks the arranging group with the arrow keys', async () => {
+        useNotes.setState({ folders: [folder, { ...folder, id: 'second', name: 'Second', position: 1 }], notes: {} });
+        await act(() => root.render(createElement(Sidebar)));
+        await click(byLabel(container.querySelector('[data-folder-drop-target]')!, t('common.more_actions')));
+        const scope = document.querySelector('[role="menu"]')!;
+        await click(byLabel(scope, t('folders.group_arrange')));
+        const group = flyout(t('folders.group_arrange'));
+        expect(document.activeElement).toBe(byLabel(group, t('sidebar.move_later')));
+        await act(() => {
+            document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        });
+        expect(document.activeElement).toBe(byLabel(group, t('folders.sort_by_name')));
+        await act(() => {
+            document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+        });
+        expect(document.activeElement).toBe(byLabel(group, t('sidebar.move_later')));
+    });
+
+    it('offers the inbox folder as a shortcut at the top of the move flyout', async () => {
+        const patchFolder = vi.fn(() => true);
+        const deep = [folder, { ...folder, id: 'kid', name: 'Kid', parentId: 'second', position: 0, createdAt: 3, updatedAt: 3 }, { ...folder, id: 'second', name: 'Second', position: 1 }];
+        useNotes.setState({ folders: deep, notes: {}, patchFolder });
+        setInboxFolderId('second');
+        await act(() => root.render(createElement(Sidebar)));
+        await click(byLabel(container.querySelectorAll('[data-folder-drop-target]')[0], t('common.more_actions')));
+        await click(byLabel(document.querySelector('[role="menu"]')!, t('folders.move_to')));
+        const panel = flyout(t('folders.move_to'));
+        const shortcut = t('folders.move_inbox_value0', { value0: 'Second' });
+        expect(panel.textContent).toContain(shortcut);
+        await click(byLabel(panel, shortcut));
+        expect(patchFolder).toHaveBeenCalledExactlyOnceWith(folder.id, { parentId: 'second', beforeId: null });
+    });
     it('marks the inbox folder and flips the menu label', async () => {
         const scope = await openFolderMenu();
         await click(byLabel(scope, t('folders.set_as_inbox')));
@@ -602,7 +716,8 @@ describe('folder row menu', () => {
         const patchFolder = vi.fn((_id: string, _patch: { beforeId?: string | null }) => true);
         useNotes.setState({ folders: [beta, alpha], notes: {}, patchFolder });
         const scope = await openFolderMenu();
-        await click(byLabel(scope, t('folders.sort_by_name')));
+        await click(byLabel(scope, t('folders.group_arrange')));
+        await click(byLabel(flyout(t('folders.group_arrange')), t('folders.sort_by_name')));
         expect(patchFolder.mock.calls.map(([id]) => id)).toEqual([alpha.id, beta.id]);
         expect(patchFolder).toHaveBeenLastCalledWith(beta.id, { beforeId: null });
     });

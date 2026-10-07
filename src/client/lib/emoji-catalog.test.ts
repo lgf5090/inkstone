@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ICON_MAX_CODE_UNITS, EMOJI_ICON_CATEGORIES, isUsableIconGlyph, searchEmoji } from './emoji-catalog';
+import { ICON_MAX_CODE_UNITS, isUsableIconGlyph, searchEmojiIn } from './emoji-catalog-core';
+import { pinyinKeysOf, preloadPinyin } from './pinyin';
+import { loadEmojiCatalog } from './emoji-catalog';
+import { EMOJI_ICON_CATEGORIES, EMOJI_ICON_ENTRIES } from './emoji-catalog-data';
+
+const searchEmoji = (query: string, limit?: number) => searchEmojiIn(EMOJI_ICON_ENTRIES, query, limit);
 
 const ALL = EMOJI_ICON_CATEGORIES.flatMap((category) => category.entries.map((entry) => ({ ...entry, category: category.id })));
 
@@ -78,6 +83,20 @@ describe('emoji icon catalog', () => {
         expect(searchEmoji('a').length).toBeLessThanOrEqual(60);
     });
 
+    it('loads the whole library on demand and hands back the same module', async () => {
+        const first = await loadEmojiCatalog();
+        const second = await loadEmojiCatalog();
+        expect(second).toBe(first);
+        expect(first.EMOJI_ICON_CATEGORIES).toBe(EMOJI_ICON_CATEGORIES);
+        expect(first.EMOJI_ICON_ENTRIES).toHaveLength(515);
+    });
+    it('answers a pinyin query once the dictionary has landed', async () => {
+        await preloadPinyin();
+        const reading = pinyinKeysOf('文件夹');
+        expect(reading, 'the dictionary should read a two-character label').not.toBeNull();
+        expect(searchEmoji(reading!.initials).some((entry) => entry.char === '📁')).toBe(true);
+        expect(searchEmoji(reading!.full).some((entry) => entry.char === '📁')).toBe(true);
+    });
     it('rejects glyphs the store would truncate', () => {
         expect(isUsableIconGlyph(String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467))).toBe(false);
         expect(isUsableIconGlyph('👨‍👩‍👧')).toBe(false);

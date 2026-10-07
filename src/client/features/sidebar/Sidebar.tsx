@@ -1,12 +1,12 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
 import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primitives';
 import { commitOnEnter } from '../../components/form';
-import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
+import { Menu, MenuSubmenuList, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
@@ -619,16 +619,38 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                 closeMenu();
             }}/>) },
         { id: 'inbox', label: isInbox ? t("folders.unset_inbox") : t("folders.set_as_inbox"), icon: <Inbox size={13}/>, onSelect: () => onToggleInbox(node) },
-        { id: 'move-to', label: t("folders.move_to"), icon: <FolderInput size={13}/>, separatorBefore: true, ...(mobile ? { onSelect: () => onChooseParent(node.id) } : { submenu: ({ closeMenu }) => (<FolderMoveMenu tree={rootTree} subject={node} currentParentId={node.parentId} excludedIds={folderMoveExclusions(folders, node.id)} onSelect={(parentId) => {
+        { id: 'move-to', label: t("folders.move_to"), icon: <FolderInput size={13}/>, separatorBefore: true, ...(mobile ? { onSelect: () => onChooseParent(node.id) } : { submenu: ({ closeMenu }) => (<FolderMoveMenu tree={rootTree} subject={node} currentParentId={node.parentId} excludedIds={folderMoveExclusions(folders, node.id)} inboxFolderId={inboxFolderId} onSelect={(parentId) => {
                     void onMove(node.id, parentId, null);
                     closeMenu();
                 }}/>) }) },
-        { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, onSelect: moveEarlier },
-        { id: 'move-later', label: t("sidebar.move_later"), icon: <ArrowDown size={13}/>, disabled: index === siblings.length - 1, onSelect: moveLater },
-        { id: 'move-out', label: t("sidebar.move_out_one_level"), icon: <CornerUpLeft size={13}/>, disabled: !parentNode, onSelect: moveOut },
-        { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: siblings.length < 2, onSelect: () => onSortSiblings(siblings) },
-        { id: 'export-zip', label: t("folders.export_zip"), icon: <Download size={13}/>, separatorBefore: true, onSelect: () => onExportZip(node) },
-        { id: 'manage', label: t("folders.manage_folders"), icon: <Settings2 size={13}/>, onSelect: () => useUi.getState().openPanel('folders') },
+        { id: 'arrange', label: t("folders.group_arrange"), icon: <ArrowUpDown size={13}/>, separatorBefore: true, submenu: ({ closeMenu }) => (<MenuSubmenuList label={t("folders.group_arrange")} items={[
+                { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, onSelect: () => {
+                    moveEarlier();
+                    closeMenu();
+                } },
+                { id: 'move-later', label: t("sidebar.move_later"), icon: <ArrowDown size={13}/>, disabled: index === siblings.length - 1, onSelect: () => {
+                    moveLater();
+                    closeMenu();
+                } },
+                { id: 'move-out', label: t("sidebar.move_out_one_level"), icon: <CornerUpLeft size={13}/>, disabled: !parentNode, onSelect: () => {
+                    moveOut();
+                    closeMenu();
+                } },
+                { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: siblings.length < 2, separatorBefore: true, onSelect: () => {
+                    onSortSiblings(siblings);
+                    closeMenu();
+                } },
+            ]}/>) },
+        { id: 'archive', label: t("folders.group_archive"), icon: <Archive size={13}/>, submenu: ({ closeMenu }) => (<MenuSubmenuList label={t("folders.group_archive")} items={[
+                { id: 'export-zip', label: t("folders.export_zip"), icon: <Download size={13}/>, onSelect: () => {
+                    onExportZip(node);
+                    closeMenu();
+                } },
+                { id: 'manage', label: t("folders.manage_folders"), icon: <Settings2 size={13}/>, onSelect: () => {
+                    useUi.getState().openPanel('folders');
+                    closeMenu();
+                } },
+            ]}/>) },
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
     const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
