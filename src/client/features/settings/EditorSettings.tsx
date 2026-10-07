@@ -124,6 +124,10 @@ export function EditorSettings() {
           <Switch checked={preview.codeFormatButton} onChange={(codeFormatButton) => void update({ preview: { codeFormatButton } })} label={t("settings.code_format_button")}/>
         </SettingRow>
 
+        <SettingRow title={t("settings.table_bubble_menu")} description={t("settings.table_bubble_menu_description")}>
+          <Switch checked={preview.tableBubbleMenu} onChange={(tableBubbleMenu) => void update({ preview: { tableBubbleMenu } })} label={t("settings.table_bubble_menu")}/>
+        </SettingRow>
+
         <SettingRow title={t("settings.show_outline_by_default")}>
           <Switch checked={preview.showToc} onChange={(showToc) => void update({ preview: { showToc } })} label={t("settings.show_outline_by_default")}/>
         </SettingRow>

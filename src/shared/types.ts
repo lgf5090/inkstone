@@ -164,6 +164,7 @@ export interface PreviewSettings {
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
   codeFormatButton: boolean
+  tableBubbleMenu: boolean
   linkHover: boolean
   linkHoverDelayMs: number
   linkPreviewLength: number

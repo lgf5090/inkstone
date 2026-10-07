@@ -275,9 +275,64 @@ export function setColumnAlignment(table: ParsedTable, colIndex: number, align: 
   return { ...table, alignments }
 }
 
+/**
+ * Make a cell's text safe to drop between two pipes. A pipe the author already escaped is left
+ * alone: escaping it a second time would end the cell early, because `splitTableRow` reads `\\` as
+ * a literal backslash and the `|` after it as a separator.
+ */
+export function escapeTableCell(text: string): string {
+  let out = ''
+  let escaped = false
+  for (const char of text) {
+    if (escaped) {
+      out += char
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      out += char
+      escaped = true
+      continue
+    }
+    out += char === '|' ? '\\|' : char
+  }
+  return out
+}
+
+/** {@link escapeTableCell} reversed, for showing a parsed cell to a person rather than to a parser. */
+export function unescapeTableCell(source: string): string {
+  let out = ''
+  let escaped = false
+  for (const char of source) {
+    if (escaped) {
+      out += char === '|' ? '|' : `\\${char}`
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+    out += char
+  }
+  return out
+}
+
+const BR_TAG = /<br\s*\/?>/gi
+
+/** A cell as it reads in the box: escapes undone, and the line breaks the author wrote as real lines. */
+export function cellDisplayText(source: string): string {
+  return unescapeTableCell(source).replace(BR_TAG, '\n')
+}
+
+/** The other half of {@link cellDisplayText}: a line the box wrapped becomes a break again. */
+export function cellSourceText(display: string): string {
+  return escapeTableCell(display.replace(/\r\n?/g, '\n')).replace(/\n/g, '<br>')
+}
+
 export function updateTableCell(table: ParsedTable, rowIndex: number, colIndex: number, newContent: string): ParsedTable {
   if (colIndex < 0 || colIndex >= table.columnCount) return table
-  const safe = newContent.replace(/\|/g, '\\|')
+  const safe = cellSourceText(newContent)
   if (rowIndex === -1) {
     const headerRow = [...table.headerRow]
     headerRow[colIndex] = safe
@@ -302,6 +357,48 @@ export function clearTableRow(table: ParsedTable, rowIndex: number): ParsedTable
   if (rowIndex === -1) return { ...table, headerRow: empty }
   if (rowIndex < 0 || rowIndex >= table.rows.length) return table
   return { ...table, rows: table.rows.map((row, rIdx) => (rIdx === rowIndex ? empty : row)) }
+}
+
+export function clearTableColumn(table: ParsedTable, colIndex: number): ParsedTable {
+  if (colIndex < 0 || colIndex >= table.columnCount) return table
+  return {
+    ...table,
+    headerRow: table.headerRow.map((cell, idx) => (idx === colIndex ? '' : cell)),
+    rows: table.rows.map((row) => row.map((cell, idx) => (idx === colIndex ? '' : cell))),
+  }
+}
+
+function moved<T>(cells: T[], from: number, to: number): T[] {
+  const next = [...cells]
+  const [taken] = next.splice(from, 1)
+  next.splice(Math.max(0, Math.min(to, next.length)), 0, taken!)
+  return next
+}
+
+/**
+ * Reorder a body row. `to` is where the row should end up, counted in the list it is being taken out
+ * of — so moving row 1 to `0` and moving row 0 to `1` are the two directions of one swap, and a drop
+ * onto the row's own slot returns the table unchanged.
+ */
+export function moveTableRow(table: ParsedTable, from: number, to: number): ParsedTable {
+  if (from < 0 || from >= table.rows.length) return table
+  if (from === to) return table
+  return { ...table, rows: moved(table.rows, from, to), cursorRowIndex: Math.max(0, Math.min(to, table.rows.length - 1)) }
+}
+
+/** Reorder a column, header, delimiter alignment and all. */
+export function moveTableColumn(table: ParsedTable, from: number, to: number): ParsedTable {
+  if (from < 0 || from >= table.columnCount) return table
+  if (from === to) return table
+  const perm = moved(Array.from({ length: table.columnCount }, (_, i) => i), from, to)
+  const pick = <T, >(cells: T[]) => perm.map((source) => cells[source] ?? ('' as unknown as T))
+  return {
+    ...table,
+    headerRow: pick(table.headerRow),
+    alignments: pick(table.alignments),
+    rows: table.rows.map(pick),
+    cursorColIndex: Math.max(0, Math.min(to, table.columnCount - 1)),
+  }
 }
 
 /**

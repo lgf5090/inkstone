@@ -781,6 +781,31 @@ md.renderer.rules.table_open = (tokens, index) => {
     return `<div class="table-wrap"${line}><table>`;
 };
 md.renderer.rules.table_close = () => '</table></div>';
+const CELL_ALIGNMENTS = new Set(['left', 'center', 'right']);
+/**
+ * Turn a table cell's alignment into a class.
+ *
+ * markdown-it writes the alignment an author asked for as `style="text-align:…"`, and `style` is on
+ * the sanitizer's forbid list on purpose — a note can hold anything, so no inline declaration from
+ * note text reaches the page. Without this swap the `:-:` of a delimiter row was parsed, honored by
+ * the tokenizer and then thrown away, so every aligned column rendered flush-left. A class costs
+ * nothing to allow and is styled by the prose sheet beside the table rules.
+ */
+for (const rule of ['th_open', 'td_open'] as const) {
+    const fallback = md.renderer.rules[rule];
+    md.renderer.rules[rule] = (tokens, index, options, env, self) => {
+        const token = tokens[index]!;
+        const declared = /^text-align:(\w+)$/.exec(token.attrGet('style') ?? '')?.[1] ?? '';
+        if (!CELL_ALIGNMENTS.has(declared))
+            return fallback ? fallback(tokens, index, options, env, self) : self.renderToken(tokens, index, options);
+        const declaredAttrs = token.attrs!;
+        token.attrs = declaredAttrs.filter(([name]) => name !== 'style');
+        token.attrJoin('class', `markdown-cell-${declared}`);
+        const html = self.renderToken(tokens, index, options);
+        token.attrs = declaredAttrs;
+        return html;
+    };
+}
 const defaultImage = md.renderer.rules.image;
 md.renderer.rules.image = (tokens, index, options, env, self) => {
     const token = tokens[index]!;

@@ -1525,6 +1525,17 @@
 .ink-prose tbody tr:last-child td {
   border-bottom: none;
 }
+/* The alignment a delimiter row asked for. markdown-it spells it as an inline style, which the
+   sanitizer refuses for any note text, so the renderer hands it over as a class instead. */
+.ink-prose .markdown-cell-left {
+  text-align: left;
+}
+.ink-prose .markdown-cell-center {
+  text-align: center;
+}
+.ink-prose .markdown-cell-right {
+  text-align: right;
+}
 .ink-prose tbody tr {
   transition: background-color var(--dur-fast) var(--ease-out);
 }
