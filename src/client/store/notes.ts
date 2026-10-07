@@ -2783,13 +2783,18 @@ export function createContextualNote(input?: {
     title?: string;
     content?: string;
     open?: boolean;
+    tags?: string[];
+    /** Caret offset for an explicitly supplied `content`, so a template can point it. */
+    cursor?: number | null;
+    /** Where the caller wants the note, when it knows better than the open view. */
+    folderId?: string;
 }): Promise<string | null> {
     const ui = useUi.getState();
     const inboxFolderId = getInboxFolderId();
     const inbox = inboxFolderId && (useNotes.getState().folders ?? []).some((folder) => folder.id === inboxFolderId)
         ? inboxFolderId
         : null;
-    const folderId = ui.view === 'folder' ? ui.folderId : inbox;
+    const folderId = input?.folderId ?? (ui.view === 'folder' ? ui.folderId : inbox);
     if (ui.view === 'trash' || ui.view === 'archived') {
         ui.openView('all');
         return useNotes.getState().createNote({
