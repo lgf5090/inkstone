@@ -118,7 +118,28 @@ export interface EditorSettings {
   emojiToolbarButton: boolean
   emojiInsertFormat: EmojiInsertFormat
   emojiSkinTone: SkinTone
+  linkEditor: boolean
+  linkEditorTrigger: LinkEditorTrigger
+  linkEditorModifier: LinkEditorModifier
+  linkEditorSuggest: boolean
+  linkEditorValidate: boolean
+  linkEditorSyncAlias: boolean
+  linkEditorAliasMode: LinkEditorAliasMode
+  linkEditorAliasSeparator: string
+  linkEditorKeepsText: boolean
+  linkEditorEmbedToggle: boolean
+  linkEditorPadNew: boolean
+  linkEditorQuickSelect: boolean
 }
+
+/** Which gesture opens the inline link editor over a link. */
+export type LinkEditorTrigger = 'click' | 'double-click'
+
+/** The key that has to be held for that gesture to open the editor. */
+export type LinkEditorModifier = 'none' | 'ctrl' | 'alt' | 'shift'
+
+/** How a picked heading names itself in the display-text field. */
+export type LinkEditorAliasMode = 'heading' | 'note-then-heading' | 'heading-then-note'
 
 export type CodeFormatKeywordCase = 'upper' | 'lower' | 'keep'
 

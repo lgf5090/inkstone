@@ -28,6 +28,18 @@ export const liveBlockContextMenu = Facet.define<LiveBlockContextMenu, LiveBlock
     combine: (handlers) => handlers[0] ?? null,
 });
 
+/**
+ * What a rendered block calls when the reader clicks or double-clicks a link inside it. The block owns
+ * its own click handling — it folds the source back only for the caret, and it swallows event
+ * forwarding — so the link editor has to be offered the gesture here rather than listening on the
+ * editor's DOM. Returning true means the gesture was taken and the block should leave the caret alone.
+ */
+export type LiveLinkGesture = (event: MouseEvent, view: EditorView, target: HTMLElement, kind: 'click' | 'dblclick') => boolean;
+
+export const liveLinkGesture = Facet.define<LiveLinkGesture, LiveLinkGesture | null>({
+    combine: (handlers) => handlers[0] ?? null,
+});
+
 class RenderedBlock extends WidgetType {
     constructor(readonly block: MarkdownBlock, readonly source: string, readonly revision: number, readonly title: string, readonly fences: FenceBodies) { super(); }
     eq(other: RenderedBlock) {
@@ -108,6 +120,8 @@ class RenderedBlock extends WidgetType {
                 return;
             }
             if ((event.metaKey || event.ctrlKey) && target.closest('a[href]')) return;
+            const gesture = view.state.facet(liveLinkGesture);
+            if (gesture?.(event, view, target, 'click')) return;
             event.preventDefault();
             // Preserve the source line under the pointer, including rows inside tables/lists.
             const mapped = target.closest<HTMLElement>('[data-line]');
@@ -118,6 +132,11 @@ class RenderedBlock extends WidgetType {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
             if (pos !== null && pos >= line.from && pos <= view.state.doc.line(Math.min(this.block.endLine, view.state.doc.lines)).to)
                 view.dispatch({ selection: { anchor: pos }, userEvent: 'select.pointer' });
+        });
+        host.addEventListener('dblclick', (event) => {
+            const target = event.target as HTMLElement;
+            const gesture = view.state.facet(liveLinkGesture);
+            gesture?.(event, view, target, 'dblclick');
         });
         host.addEventListener('keydown', (event) => {
             const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]');

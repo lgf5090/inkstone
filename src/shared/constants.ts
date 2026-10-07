@@ -1,4 +1,4 @@
-import type { AccentName, CodeFormatKeywordCase, EmojiInsertFormat, SkinTone, UserSettings, ViewKind } from './types'
+import type { AccentName, CodeFormatKeywordCase, EmojiInsertFormat, LinkEditorAliasMode, LinkEditorModifier, LinkEditorTrigger, SkinTone, UserSettings, ViewKind } from './types'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
@@ -136,6 +136,18 @@ export const DEFAULT_SETTINGS: UserSettings = {
     emojiToolbarButton: true,
     emojiInsertFormat: 'native',
     emojiSkinTone: 0,
+    linkEditor: true,
+    linkEditorTrigger: 'click',
+    linkEditorModifier: 'none',
+    linkEditorSuggest: true,
+    linkEditorValidate: true,
+    linkEditorSyncAlias: true,
+    linkEditorAliasMode: 'heading',
+    linkEditorAliasSeparator: ' › ',
+    linkEditorKeepsText: true,
+    linkEditorEmbedToggle: true,
+    linkEditorPadNew: true,
+    linkEditorQuickSelect: false,
   },
   preview: {
     layout: 'live',
@@ -202,6 +214,7 @@ export const PINNED_WINDOW_PRESETS: Record<'small' | 'medium' | 'large', { width
 export const PINNED_WINDOW_WIDTH_RANGE = [260, 1200] as const
 export const PINNED_WINDOW_HEIGHT_RANGE = [140, 2000] as const
 export const LINK_HOVER_DELAY_RANGE = [150, 1000] as const
+export const LINK_EDITOR_ALIAS_SEPARATOR_MAX = 12
 export const LINK_PREVIEW_LENGTH_RANGE = [300, 8000] as const
 
 export const BACKUP_INTERVALS: Record<string, number> = {
@@ -228,6 +241,9 @@ const OUTLINE_TEXT_DIRECTIONS = ['system', 'text'] as const
 const OUTLINE_TOOLTIP_SIDES = ['left', 'right'] as const
 const CODE_FORMAT_KEYWORD_CASES: CodeFormatKeywordCase[] = ['upper', 'lower', 'keep']
 const EMOJI_INSERT_FORMATS: EmojiInsertFormat[] = ['native', 'shortcode']
+const LINK_EDITOR_TRIGGERS: LinkEditorTrigger[] = ['click', 'double-click']
+const LINK_EDITOR_MODIFIERS: LinkEditorModifier[] = ['none', 'ctrl', 'alt', 'shift']
+const LINK_EDITOR_ALIAS_MODES: LinkEditorAliasMode[] = ['heading', 'note-then-heading', 'heading-then-note']
 export const EMOJI_SKIN_TONE_MAX = 5
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -321,6 +337,32 @@ export function mergeSettings(partial: unknown): UserSettings {
     EMOJI_SKIN_TONE_MAX,
     base.editor.emojiSkinTone,
   ) as SkinTone
+  base.editor.linkEditor = booleanValue(editor.linkEditor, base.editor.linkEditor)
+  base.editor.linkEditorTrigger = enumValue(
+    editor.linkEditorTrigger,
+    LINK_EDITOR_TRIGGERS,
+    base.editor.linkEditorTrigger,
+  )
+  base.editor.linkEditorModifier = enumValue(
+    editor.linkEditorModifier,
+    LINK_EDITOR_MODIFIERS,
+    base.editor.linkEditorModifier,
+  )
+  base.editor.linkEditorSuggest = booleanValue(editor.linkEditorSuggest, base.editor.linkEditorSuggest)
+  base.editor.linkEditorValidate = booleanValue(editor.linkEditorValidate, base.editor.linkEditorValidate)
+  base.editor.linkEditorSyncAlias = booleanValue(editor.linkEditorSyncAlias, base.editor.linkEditorSyncAlias)
+  base.editor.linkEditorAliasMode = enumValue(
+    editor.linkEditorAliasMode,
+    LINK_EDITOR_ALIAS_MODES,
+    base.editor.linkEditorAliasMode,
+  )
+  base.editor.linkEditorAliasSeparator = typeof editor.linkEditorAliasSeparator === 'string'
+    ? editor.linkEditorAliasSeparator.slice(0, LINK_EDITOR_ALIAS_SEPARATOR_MAX)
+    : base.editor.linkEditorAliasSeparator
+  base.editor.linkEditorKeepsText = booleanValue(editor.linkEditorKeepsText, base.editor.linkEditorKeepsText)
+  base.editor.linkEditorEmbedToggle = booleanValue(editor.linkEditorEmbedToggle, base.editor.linkEditorEmbedToggle)
+  base.editor.linkEditorPadNew = booleanValue(editor.linkEditorPadNew, base.editor.linkEditorPadNew)
+  base.editor.linkEditorQuickSelect = booleanValue(editor.linkEditorQuickSelect, base.editor.linkEditorQuickSelect)
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)

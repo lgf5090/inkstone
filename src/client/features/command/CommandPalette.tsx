@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -16,6 +16,8 @@ import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
 import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
 import { openEmojiPicker } from '../../store/emoji-picker';
+import { getActiveEditorView } from '../../editor/commands';
+import { openLinkAtCursor } from '../links/use-link-editor';
 import { t, useLocale } from "../../lib/i18n";
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -146,6 +148,18 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
             },
             ...(activeNote
                 ? [
+                    {
+                        id: 'cmd-edit-link',
+                        kind: 'command' as const,
+                        label: t("command.edit_or_insert_link"),
+                        icon: <SquarePen size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => {
+                            const view = getActiveEditorView();
+                            if (!view || !openLinkAtCursor(view))
+                                toast({ title: t("command.no_editor_to_edit"), tone: 'warning' });
+                        },
+                    },
                     {
                         id: 'cmd-presentation-mode',
                         kind: 'command' as const,
