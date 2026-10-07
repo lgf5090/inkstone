@@ -210,6 +210,26 @@ describe('PresenterWindow — timer interactions', () => {
   })
 })
 
+// PR-L4: the accent is the one colour on this bar that means “look, something is off”. A clock that
+// is simply running wore it, so every presenter view opened looking like the talk had overrun.
+describe('the elapsed clock’s colour', () => {
+  const clockIn = (container: HTMLElement) => container.querySelector('[data-presenter-clock]')
+
+  it('stays out of the alarm colour while the talk is running', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const clock = clockIn(container)
+    expect(clock?.className).not.toContain('--accent')
+    expect(clock?.className).toContain('--text-primary')
+  })
+
+  it('goes to the accent only once the timer is paused', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const pause = [...container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === t('workspace.presentation_timer_pause'))
+    act(() => { pause?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(clockIn(container)?.className).toContain('--accent')
+  })
+})
+
 describe('usePresenterTimer — pause logic', () => {
   it('correctly pauses without jumping ahead upon resumption', () => {
     vi.useFakeTimers()

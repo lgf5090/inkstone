@@ -133,7 +133,16 @@ function PresenterHeaderTimer({
   return (
     <div className='flex items-center gap-[var(--sp-4)]'>
       <div className='flex items-center gap-[var(--sp-2)]'>
-        <span data-presenter-clock className='tabular font-mono text-[length:var(--text-16)] font-semibold text-[var(--accent)]'>
+        {/* The accent is the one colour on this bar that means "look, something is off": a running
+            clock is the normal state of a talk and painting it in it reads as overtime (PR-L4).
+            It goes loud only when the timer is paused, and quiet once the show is over. */}
+        <span
+          data-presenter-clock
+          className={cn(
+            'tabular font-mono text-[length:var(--text-16)] font-semibold',
+            frozen ? 'text-[var(--text-tertiary)]' : timer.isPaused ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]',
+          )}
+        >
           {formatElapsed(timer.elapsedSeconds)}
         </span>
         <Tooltip label={timer.isPaused ? t('workspace.presentation_timer_resume') : t('workspace.presentation_timer_pause')}>

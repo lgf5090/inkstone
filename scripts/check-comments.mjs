@@ -1105,6 +1105,8 @@ const allowed = new Map([
     "// N-31: the console is the speaker's preview of the next press, and on a page that arrives block by",
     "// block the next press is a block. Two panes, one plan, and the digits the projector prints — this is",
     "// the surface where a step that stopped travelling would first be visible.",
+    "// PR-L4: the accent is the one colour on this bar that means “look, something is off”. A clock that",
+    "// is simply running wore it, so every presenter view opened looking like the talk had overrun.",
   ]],
   ["src/client/features/presentation/presenter-view/presenter-window.tsx", [
     "// The console reads the show's own position: the same derivation, so the number the speaker sees is the",
@@ -1113,6 +1115,7 @@ const allowed = new Map([
     "// saw stays on screen as a record, and so does the time it took (L-6).",
     "// Nothing to pause or reset on a show that is over: the numbers are a record, and",
     "// `togglePause` would count the silence since the room left as if the talk were running.",
+    "/* The accent is the one colour on this bar that means \"look, something is off\": a running\n            clock is the normal state of a talk and painting it in it reads as overtime (PR-L4).\n            It goes loud only when the timer is paused, and quiet once the show is over. */",
   ]],
   ["src/client/features/presentation/presenter-view/use-presenter-broadcast.test.ts", [
     "// What the show puts on the channel is the author's private notes and the deck's source, so the",
