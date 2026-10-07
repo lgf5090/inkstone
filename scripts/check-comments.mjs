@@ -2914,6 +2914,18 @@ const allowed = new Map([
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
   ]],
+  ["src/client/features/sidebar/sidebar-calendar.test.ts", [
+    "// Collapsing the block hides the heatmap but used to leave the whole-vault",
+    "// projection attached to the notes map, so typing kept paying for a picture",
+    "// nobody was looking at. Counting `updatedAt` reads is how this says \"no scan\"",
+    "// without a wall-clock budget; the expanded arm above keeps the case honest by",
+    "// proving the same commit does read the vault when the block is open.",
+  ]],
+  ["src/client/features/sidebar/sidebar-calendar.tsx", [
+    "// The whole-vault projection, the diary lookup and every click handler live here so",
+    "// that collapsing the block unmounts the derivation with it, and so an unrelated",
+    "// sidebar re-render cannot re-run the header's formatting.",
+  ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
     "// user was looking at. Replay the path change against the open set as the tags arrive.",
