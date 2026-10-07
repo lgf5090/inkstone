@@ -6,7 +6,7 @@ import { PRESENTATION_HOTKEYS } from '../presentation';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useBreakpoint } from '../../lib/hooks';
 import { useSyncEngine } from '../../lib/sync';
-import { preloadPinyin } from '../../lib/pinyin';
+import { preloadPinyin, textNeedsReading } from '../../lib/pinyin';
 import { Drawer } from '../../components/overlay';
 import { IconButton } from '../../components/primitives';
 import { InlineErrorBoundary } from '../../components/ErrorBoundary';
@@ -56,9 +56,6 @@ export function AppShell() {
       // `fallback={null}` reads as the shortcut being ignored.
       const warm = () => {
         void importCommandPalette();
-        // The reading table behind Chinese first-letter search is a chunk of its own; asking for
-        // it here means the session's first search box already has it.
-        void preloadPinyin();
       };
       if (typeof window.requestIdleCallback === 'function') {
         const handle = window.requestIdleCallback(warm, { timeout: 3_000 });
@@ -72,6 +69,22 @@ export function AppShell() {
     useGlobalHotkeys();
     const hydrated = useNotes((s) => s.hydrated);
     const loading = useNotes((s) => s.loading);
+    useEffect(() => {
+        if (!hydrated || loading)
+            return;
+        // A vault whose titles are all latin has no reading left to find, and the table that would
+        // supply one is a tenth of a megabyte. The first query that really needs a reading asks for
+        // the chunk anyway, so this is only a head start for the sessions that will use it.
+        if (!Object.values(useNotes.getState().notes).some((note) => textNeedsReading(note.title)))
+            return;
+        const warm = () => { void preloadPinyin(); };
+        if (typeof window.requestIdleCallback === 'function') {
+            const handle = window.requestIdleCallback(warm, { timeout: 3_000 });
+            return () => window.cancelIdleCallback(handle);
+        }
+        const timer = window.setTimeout(warm, 1_200);
+        return () => window.clearTimeout(timer);
+    }, [hydrated, loading]);
     const openNote = useNotes((s) => s.openNote);
     const deepLinkHandled = useRef(false);
     useEffect(() => {

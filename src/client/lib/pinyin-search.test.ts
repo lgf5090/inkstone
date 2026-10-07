@@ -1,8 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { act, createElement, type ReactNode } from 'react'
 import { fuzzyFilter, fuzzyMatch, matchesQuery, splitByRanges } from './fuzzy'
-import { pinyinKeysOf, preloadPinyin } from './pinyin'
+import { derivePinyinKeys, pinyinKeysCached, pinyinKeysOf, preloadPinyin, textNeedsReading, warmPinyinKeys } from './pinyin'
 import { renderElement } from './test-render'
+
+function sleepTick(): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, 0) })
+}
 
 /**
  * The labels a Chinese interface actually uses, written as escapes so the locale gate still owns
@@ -151,6 +155,23 @@ describe('the module-level matchers agree with each other', () => {
   })
 })
 
+describe('which labels are worth a reading', () => {
+  it('takes the Chinese short ones and refuses the rest', () => {
+    expect(textNeedsReading(SELECT_ALL)).toBe(true)
+    expect(textNeedsReading('PDF \u5bfc\u51fa')).toBe(true)
+    expect(textNeedsReading('Insert board')).toBe(false)
+    expect(textNeedsReading('')).toBe(false)
+    expect(textNeedsReading(`${SELECT_ALL}\n${BODY_TEXT.repeat(60)}`)).toBe(false)
+    expect(textNeedsReading('x'.repeat(201))).toBe(false)
+  })
+
+  it('agrees with the key cache about what it will derive', () => {
+    for (const label of [SELECT_ALL, 'PDF \u5bfc\u51fa', 'Insert board', '', 'x'.repeat(201)]) {
+      expect(pinyinKeysOf(label) !== null, label).toBe(textNeedsReading(label))
+    }
+  })
+})
+
 describe('a search that runs before the dictionary lands', () => {
   it('loses only the reading, not the literal or the crawl', async () => {
     vi.resetModules()
@@ -165,6 +186,43 @@ describe('a search that runs before the dictionary lands', () => {
     await pinyin.preloadPinyin()
     expect(pinyin.pinyinIsLoaded()).toBe(true)
     expect(fuzzy.matchesQuery(SELECT_ALL, 'qx')).toBe(true)
+  })
+
+  it('is itself the intent signal: a Chinese label with no dictionary asks for the chunk', async () => {
+    vi.resetModules()
+    const pinyin = await import('./pinyin')
+    const fuzzy = await import('./fuzzy')
+    expect(pinyin.pinyinIsLoaded()).toBe(false)
+    expect(fuzzy.matchesQuery(SELECT_ALL, 'qx')).toBe(false)
+    // The request is not awaited \u2014 the listing gets the literal answer now and the reading when the
+    // chunk arrives, which is what the version subscription is for.
+    await vi.waitFor(() => expect(pinyin.pinyinIsLoaded()).toBe(true))
+    expect(fuzzy.matchesQuery(SELECT_ALL, 'qx')).toBe(true)
+  })
+
+  it('asks for nothing when no label has a reading left to find', async () => {
+    vi.resetModules()
+    const pinyin = await import('./pinyin')
+    const fuzzy = await import('./fuzzy')
+    expect(fuzzy.matchesQuery('Insert board', 'ib')).toBe(true)
+    expect(fuzzy.matchesQuery('Insert board', 'qx')).toBe(false)
+    await sleepTick()
+    expect(pinyin.pinyinIsLoaded()).toBe(false)
+  })
+
+  it('does not fetch the dictionary just because a listing subscribed to the version', async () => {
+    vi.resetModules()
+    const pinyin = await import('./pinyin')
+    const seen: number[] = []
+    function Listing(): ReactNode {
+      seen.push(pinyin.usePinyinVersion())
+      return null
+    }
+    const view = renderElement(createElement(Listing))
+    await sleepTick()
+    expect(pinyin.pinyinIsLoaded()).toBe(false)
+    expect(seen).toEqual([0])
+    view.unmount()
   })
 
   it('re-renders a subscribed listing when the dictionary arrives', async () => {
@@ -184,5 +242,45 @@ describe('a search that runs before the dictionary lands', () => {
     expect(seen[seen.length - 1]).toBeGreaterThan(0)
 
     view.unmount()
+  })
+})
+
+describe('warming the readings at idle', () => {
+  it('derives a bounded number of labels per call and reports where it stopped', () => {
+    const salt = Math.random().toString(36).slice(2)
+    const labels = Array.from({ length: 5 }, (_, i) => `${SELECT_ALL} ${salt}-${i}`)
+    for (const label of labels) expect(pinyinKeysCached(label)).toBe(false)
+    const after = derivePinyinKeys(labels, 0, 2)
+    expect(after).toBe(2)
+    expect(pinyinKeysCached(labels[0]!)).toBe(true)
+    expect(pinyinKeysCached(labels[2]!)).toBe(false)
+    expect(derivePinyinKeys(labels, after, 10)).toBe(labels.length)
+    expect(pinyinKeysCached(labels[4]!)).toBe(true)
+  })
+
+  it('steps over labels with no reading to find without spending the budget', () => {
+    const salt = Math.random().toString(36).slice(2)
+    const han = `${INSERT} ${salt}`
+    const labels = ['Alpha', 'Beta', han, '']
+    expect(derivePinyinKeys(labels, 0, 1)).toBe(3)
+    expect(pinyinKeysCached(han)).toBe(true)
+  })
+
+  it('spreads the walk over idle ticks and stops when cancelled', async () => {
+    vi.useFakeTimers()
+    try {
+      const labels = Array.from({ length: 900 }, (_, i) => `${PRESENT_MODE} ${i}`)
+      const cancel = warmPinyinKeys(labels, 200)
+      await vi.advanceTimersByTimeAsync(600)
+      const midway = labels.filter(pinyinKeysCached).length
+      expect(midway).toBeGreaterThan(0)
+      expect(midway).toBeLessThan(labels.length)
+      cancel()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(labels.filter(pinyinKeysCached).length).toBe(midway)
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 })
