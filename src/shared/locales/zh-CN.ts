@@ -2207,7 +2207,7 @@ export const ZH_CN_MESSAGES = {
     "settings.property_options": "快捷选项",
     "settings.property_options_desc": "为属性准备一组点击可选的值。",
     "settings.list_add": "添加名称",
-    "settings.list_empty": "暂无反项",
+    "settings.list_empty": "暂无",
     "settings.rule_add": "添加规则",
     "settings.rule_property": "属性名",
     "settings.rule_remove": "删除这条规则",

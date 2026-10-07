@@ -1,55 +1,35 @@
 import { useMemo } from 'react';
-import { parseFrontMatter } from '@shared/markdown-utils';
-import { DEFAULT_PROPERTY_NAMES, readNoteDecorations } from '@shared/property-decorations';
-import type { DecorationDefaults, NoteDecorations, NotePropertyNames } from '@shared/property-decorations';
-import { resolveProperties } from '@shared/property-style';
-import type { PropertyStyleSettings, ResolvedProperty } from '@shared/property-style';
-import type { PropertySettings } from '@shared/types';
+import { parseFrontMatter, tagKey } from '@shared/markdown-utils';
+import { readNoteDecorations } from '@shared/property-decorations';
+import type { NoteDecorations, NotePropertyNames } from '@shared/property-decorations';
+import { decorationDefaultsOf, decorationNamesOf, resolveProperties, styleSettingsOf } from '@shared/property-style';
+import type { ResolvedProperty } from '@shared/property-style';
+import type { PropertySettings, Tag } from '@shared/types';
+import type { PropertyRenderOptions } from './markdown/renderer';
 import { useSession } from '../store/session';
-import { getLocale, useLocaleRepaint } from './i18n';
 import { useNotes } from '../store/notes';
-import { tagKey } from '@shared/markdown-utils';
+import { getLocale, useLocaleRepaint } from './i18n';
 
-export function styleSettingsOf(properties: PropertySettings): PropertyStyleSettings {
+export { decorationDefaultsOf, decorationNamesOf, styleSettingsOf };
+
+export function buildPropertyRenderOptions(properties: PropertySettings, tags: readonly Tag[]): PropertyRenderOptions {
+    const colors = new Map(tags.map(tag => [tagKey(tag.name), tag.color]));
     return {
-        enabled: properties.enabled,
-        colors: properties.colors,
-        hidden: properties.hidden,
-        hiddenWhenEmpty: properties.hiddenWhenEmpty,
-        hideAllEmpty: properties.hideAllEmpty,
-        customDateFormats: properties.useCustomDateFormats,
-        dateFormat: properties.dateFormat,
-        dateTimeFormat: properties.dateTimeFormat,
-        relativeDateColors: properties.relativeDateColors,
-        dateColors: {
-            past: properties.datePastColor,
-            present: properties.datePresentColor,
-            future: properties.dateFutureColor,
+        style: styleSettingsOf(properties),
+        names: decorationNamesOf(properties),
+        defaults: decorationDefaultsOf(properties),
+        revealHidden: properties.revealHidden,
+        iconInline: properties.iconInline,
+        iconSize: properties.iconSize,
+        bannerHeight: properties.bannerHeight,
+        bannerFade: properties.bannerFade,
+        coverWidths: {
+            width1: properties.coverWidth,
+            width2: properties.coverWidth2,
+            width3: properties.coverWidth3,
         },
-        progress: properties.progress,
-        formats: properties.formats,
-        selectOptions: properties.selectOptions,
-    };
-}
-
-export function decorationNamesOf(properties: PropertySettings): NotePropertyNames {
-    if (!properties.enabled)
-        return { ...DEFAULT_PROPERTY_NAMES, banner: '', icon: '', cover: [] };
-    return {
-        banner: properties.bannerProperty,
-        icon: properties.iconProperty,
-        cover: properties.coverProperties.filter(Boolean),
-        coverShape: properties.coverShapeProperty,
-        coverPosition: properties.coverPositionProperty,
-        bannerPosition: properties.bannerPositionProperty,
-    };
-}
-
-export function decorationDefaultsOf(properties: PropertySettings): DecorationDefaults {
-    return {
-        coverShape: properties.coverShape,
-        coverPosition: properties.coverPosition,
-        bannerPosition: properties.bannerPosition,
+        locale: getLocale(),
+        tagColorOf: colors.size ? (name: string) => colors.get(tagKey(name)) ?? null : undefined,
     };
 }
 

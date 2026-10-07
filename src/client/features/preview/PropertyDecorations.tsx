@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Crop, ImageOff, ImageIcon, LayoutGrid, Palette, Pencil, Smile } from 'lucide-react';
 import type { MenuItem } from '../../components/overlay';
 import { Menu, Tooltip, prompt } from '../../components/overlay';
-import { COVER_POSITIONS, COVER_SHAPES } from '@shared/property-decorations';
+import { COVER_POSITIONS, COVER_SHAPES, coverWidthFor as sharedCoverWidthFor } from '@shared/property-decorations';
 import type { NoteBannerDecoration, NoteCoverDecoration, NoteIconDecoration } from '@shared/property-decorations';
 import type { PropertySettings } from '@shared/types';
 import { t, type MessageKey } from '../../lib/i18n';
@@ -37,11 +37,11 @@ export function positionLabel(position: string): string {
 }
 
 export function coverWidthFor(settings: PropertySettings, shape: string): number {
-    if (shape === 'initial-2' || shape === 'square' || shape === 'circle')
-        return settings.coverWidth2;
-    if (shape === 'initial-3' || shape === 'horizontal-cover' || shape === 'horizontal-contain')
-        return settings.coverWidth3;
-    return settings.coverWidth;
+    return sharedCoverWidthFor({
+        width1: settings.coverWidth,
+        width2: settings.coverWidth2,
+        width3: settings.coverWidth3,
+    }, shape);
 }
 
 export interface DecorationActions {

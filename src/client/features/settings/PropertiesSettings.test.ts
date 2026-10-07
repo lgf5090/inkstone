@@ -60,12 +60,10 @@ async function type(field: HTMLInputElement, value: string): Promise<void> {
     });
 }
 
-function latest(): Partial<PropertyKeys> {
+function latest(): Partial<UserSettings['properties']> {
     const call = updateSettings.mock.calls.at(-1)![0] as { properties?: Record<string, unknown> };
     return call?.properties ?? {};
 }
-
-type PropertyKeys = keyof UserSettings['properties'];
 
 beforeAll(async () => {
     await initI18n();

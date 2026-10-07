@@ -3789,6 +3789,7 @@ const allowed = new Map([
     "// the React board, and a surface that only draws a still must not pull 24k lines of UI into its chunk.",
     "/**\n     * How this surface treats ```kanban blocks. A board is a React root that needs a host to live in,\n     * so 'live' means \"someone else mounts it\" and enhance touches nothing; 'snapshot' draws the still\n     * that a serialized or printed surface can carry; 'source' leaves the fence's own text, which is\n     * what a surface that can do neither must show rather than a placeholder that never resolves.\n     */",
     "/**\n     * Which still `snapshot` draws. The list is what a card and a share page can carry in the room they\n     * have; a surface that is read from across a room — a projector — owes the reader which column a\n     * card sits in, because that is part of what the card says. Only read when `kanban` is 'snapshot',\n     * so the channel answer stays the one `tests/kanban-render-channel.test.ts` checks.\n     */",
+    "/**\n * The prose whitelist strips inline styles, so the geometry a reader configured arrives as data\n * attributes and is painted here. An export keeps the stylesheet defaults instead.\n */",
   ]],
   ["src/client/lib/markdown/external-images.ts", [
     "/**\n * The one answer to \"does this URL leave this origin?\" that the board reads for a cover, an\n * attachment preview and an attachment link.\n *\n * A note can be shared, so a file served by whoever wrote it is a different trust case from one this\n * app stored: an attachment link wearing `download` would navigate the app's own tab away rather than\n * save the file, and a preview of it is a fetch to somewhere the reader never chose.\n */",
@@ -6753,6 +6754,9 @@ const allowed = new Map([
   ]],
   ["src/client/styles/presentation.css", [
     "/* The printed page is the design canvas, and every sheet stamps these with its own numbers on\n   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a\n   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide\n   one, and so the token gate can see a definition for a name the sheet writes from a template. */",
+  ]],
+  ["src/client/styles/properties.css", [
+    "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
   ]],
   ["src/client/styles/prose.css", [
     "/* A row split has no definite height to divide, so the ratio caps each panel rather than\n     sizing its track: a generous pane scrolls into its share, a short one costs nothing. */",

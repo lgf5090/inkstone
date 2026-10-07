@@ -37,6 +37,45 @@ function directElementChild(parent: HTMLElement, tagName: string): HTMLElement |
     return null;
 }
 
+const GEOMETRY_MAX = 4000;
+
+function geometryPx(raw: string | undefined, fallback: number): number {
+    const parsed = Number((raw ?? '').trim());
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return fallback;
+    return Math.min(GEOMETRY_MAX, Math.round(parsed));
+}
+
+function geometryPercent(raw: string | undefined): number {
+    const parsed = Number((raw ?? '').trim().replace('%', ''));
+    if (!Number.isFinite(parsed))
+        return 0;
+    return Math.min(100, Math.max(0, Math.round(parsed)));
+}
+
+/**
+ * The prose whitelist strips inline styles, so the geometry a reader configured arrives as data
+ * attributes and is painted here. An export keeps the stylesheet defaults instead.
+ */
+export function applyPropertyGeometry(root: HTMLElement): void {
+    root.querySelectorAll<HTMLElement>('[data-pp-cover-width]').forEach((node) => {
+        node.style.setProperty('--pp-cover-width', `${geometryPx(node.dataset.ppCoverWidth, 200)}px`);
+    });
+    root.querySelectorAll<HTMLElement>('[data-pp-banner-height]').forEach((node) => {
+        node.style.height = `${geometryPx(node.dataset.ppBannerHeight, 150)}px`;
+        const position = node.dataset.ppBannerPosition;
+        const image = node.querySelector<HTMLElement>('.pp-banner-image');
+        if (position !== undefined && image)
+            image.style.objectPosition = `center ${geometryPercent(position)}%`;
+    });
+    root.querySelectorAll<HTMLElement>('[data-pp-icon-size]').forEach((node) => {
+        node.style.setProperty('--pp-icon-size', `${geometryPx(node.dataset.ppIconSize, 64)}px`);
+    });
+    root.querySelectorAll<HTMLElement>('[data-pp-percent]').forEach((node) => {
+        node.style.setProperty('--pp-percent', `${geometryPercent(node.dataset.ppPercent)}%`);
+    });
+}
+
 export function decorateCodeBlock(block: HTMLElement): void {
     const pre = block.querySelector<HTMLElement>('pre');
     const code = pre?.querySelector<HTMLElement>('code');
@@ -957,6 +996,7 @@ export interface EnhanceOptions {
     codeBlockCollapseLines?: number;
 }
 export async function enhancePreview(root: HTMLElement, options: EnhanceOptions): Promise<void> {
+    applyPropertyGeometry(root);
     if (options.kanban === 'snapshot')
         renderStaticKanbans(root, options.kanbanShape ?? 'list');
     else if (options.kanban === 'source')

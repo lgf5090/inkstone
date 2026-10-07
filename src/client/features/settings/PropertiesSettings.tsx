@@ -44,7 +44,7 @@ export function PropertiesSettings() {
           <NameList names={properties.coverProperties} limit={8} onChange={next => patch({ coverProperties: next })} label={t("settings.cover_properties")}/>
         </SettingRow>
         <SettingRow title={t("settings.decoration_aux_names")} description={t("settings.decoration_aux_names_desc")}>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full max-w-full flex-wrap items-center gap-2 md:w-[288px]">
             <Input aria-label={t("settings.cover_shape_property")} value={properties.coverShapeProperty} onChange={event => patch({ coverShapeProperty: event.target.value })} className="w-32 font-mono"/>
             <Input aria-label={t("settings.cover_position_property")} value={properties.coverPositionProperty} onChange={event => patch({ coverPositionProperty: event.target.value })} className="w-32 font-mono"/>
             <Input aria-label={t("settings.banner_position_property")} value={properties.bannerPositionProperty} onChange={event => patch({ bannerPositionProperty: event.target.value })} className="w-32 font-mono"/>
@@ -225,7 +225,7 @@ function NameList({ names, limit, onChange, label }: {
         if (name)
             onChange(withName(names, name, true).slice(0, limit));
     };
-    return (<div role="group" aria-label={label} className="flex max-w-full flex-wrap items-center justify-end gap-1">
+    return (<div role="group" aria-label={label} className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 md:w-80">
         {names.map(name => (<span key={name} className="flex max-w-full items-center rounded-[var(--r-sm)] bg-[var(--bg-inset)] py-0.5 pl-1.5 text-[11.5px] text-[var(--text-primary)]">
             <span className="truncate font-mono">{name}</span>
             <button type="button" aria-label={`${name} · ${t('common.remove')}`} onClick={() => onChange(withName(names, name, false))} className="flex size-5 items-center justify-center text-[var(--text-quaternary)] hover:text-[var(--danger)]">

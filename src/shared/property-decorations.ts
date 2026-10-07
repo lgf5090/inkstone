@@ -159,6 +159,21 @@ export function parsePropertyIcon(raw: unknown): PropertyIconValue | null {
   return { kind: 'glyph', text: chars.slice(0, MAX_ICON_TEXT_LENGTH).join('') }
 }
 
+export interface CoverWidths {
+  width1: number
+  width2: number
+  width3: number
+}
+
+
+export function coverWidthFor(widths: CoverWidths, shape: CoverShape | string): number {
+  if (shape === 'initial-2' || shape === 'square' || shape === 'circle')
+    return widths.width2
+  if (shape === 'initial-3' || shape === 'horizontal-cover' || shape === 'horizontal-contain')
+    return widths.width3
+  return widths.width1
+}
+
 export interface NoteCoverDecoration {
   property: string
   image: PropertyImageValue

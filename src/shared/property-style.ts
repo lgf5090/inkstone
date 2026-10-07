@@ -1,3 +1,5 @@
+import { DEFAULT_PROPERTY_NAMES } from './property-decorations'
+import type { DecorationDefaults, NotePropertyNames } from './property-decorations'
 import { formatPropertyValue } from './property-template-helpers'
 import { formatDateStamp } from './property-formats'
 import { dateShapeOf, isPropertyEmpty, parsePropertyValueDate, propertyValueKind, propertyValuesOf, relativeDateOf } from './property-values'
@@ -92,6 +94,80 @@ export const DEFAULT_PILL_ALPHA = '2b';
 
 export function settingKey(name: string): string {
   return name.trim().toLocaleLowerCase()
+}
+
+
+export function styleSettingsOf(properties: {
+  enabled: boolean
+  colors: PropertyStyleSettings['colors']
+  hidden: readonly string[]
+  hiddenWhenEmpty: readonly string[]
+  hideAllEmpty: boolean
+  useCustomDateFormats: boolean
+  dateFormat: string
+  dateTimeFormat: string
+  relativeDateColors: boolean
+  datePastColor: string | null
+  datePresentColor: string | null
+  dateFutureColor: string | null
+  progress: PropertyStyleSettings['progress']
+  formats: PropertyStyleSettings['formats']
+  selectOptions: PropertyStyleSettings['selectOptions']
+}): PropertyStyleSettings {
+  return {
+    enabled: properties.enabled,
+    colors: properties.colors,
+    hidden: properties.hidden,
+    hiddenWhenEmpty: properties.hiddenWhenEmpty,
+    hideAllEmpty: properties.hideAllEmpty,
+    customDateFormats: properties.useCustomDateFormats,
+    dateFormat: properties.dateFormat,
+    dateTimeFormat: properties.dateTimeFormat,
+    relativeDateColors: properties.relativeDateColors,
+    dateColors: {
+      past: properties.datePastColor,
+      present: properties.datePresentColor,
+      future: properties.dateFutureColor,
+    },
+    progress: properties.progress,
+    formats: properties.formats,
+    selectOptions: properties.selectOptions,
+  };
+}
+
+
+export function decorationNamesOf(properties: {
+  enabled: boolean
+  bannerProperty: string
+  iconProperty: string
+  coverProperties: readonly string[]
+  coverShapeProperty: string
+  coverPositionProperty: string
+  bannerPositionProperty: string
+}): NotePropertyNames {
+  if (!properties.enabled)
+    return { ...DEFAULT_PROPERTY_NAMES, banner: '', icon: '', cover: [] };
+  return {
+    banner: properties.bannerProperty,
+    icon: properties.iconProperty,
+    cover: properties.coverProperties.filter(Boolean),
+    coverShape: properties.coverShapeProperty,
+    coverPosition: properties.coverPositionProperty,
+    bannerPosition: properties.bannerPositionProperty,
+  };
+}
+
+
+export function decorationDefaultsOf(properties: {
+  coverShape: DecorationDefaults['coverShape']
+  coverPosition: DecorationDefaults['coverPosition']
+  bannerPosition: number
+}): DecorationDefaults {
+  return {
+    coverShape: properties.coverShape,
+    coverPosition: properties.coverPosition,
+    bannerPosition: properties.bannerPosition,
+  };
 }
 
 

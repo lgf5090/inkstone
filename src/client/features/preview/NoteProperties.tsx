@@ -125,9 +125,9 @@ export function NoteProperties({ noteId, onLightbox }: {
                 <span className="truncate">{t('markdown.properties')}</span>
                 <span className="shrink-0 tabular text-[var(--text-quaternary)]">{shown.filter(row => !row.hidden).length}</span>
               </button>
-              {hiddenCount > 0 && (<button type="button" onClick={() => handlers.patch({ revealHidden: !settings.revealHidden })} aria-pressed={settings.revealHidden} className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
+              {hiddenCount > 0 && (<button type="button" onClick={() => handlers.patch({ revealHidden: !settings.revealHidden })} aria-pressed={settings.revealHidden} className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
                   {settings.revealHidden ? <Eye size={12}/> : <EyeOff size={12}/>}
-                  <span>{t('properties.hidden_count', { value0: hiddenCount })}</span>
+                  <span className="truncate">{t('properties.hidden_count', { value0: hiddenCount })}</span>
                 </button>)}
               {!collapsed && !readOnly && settings.enabled && (<Tooltip label={t('properties.decorate')} side="left">
                   <button ref={decorateRef} type="button" aria-label={t('properties.decorate')} aria-expanded={decorateOpen} onClick={() => setDecorateOpen(value => !value)} className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
