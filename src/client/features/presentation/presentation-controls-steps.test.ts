@@ -39,6 +39,7 @@ function props(overrides: Partial<PresentationControlsProps>): PresentationContr
     onToggleFullscreen: vi.fn(),
     onOpenPresenter: vi.fn(),
     audienceFollowing: false,
+    audienceViewers: 0,
     onToggleAudience: vi.fn(),
     onExport: vi.fn(),
     onExportImages: vi.fn(),

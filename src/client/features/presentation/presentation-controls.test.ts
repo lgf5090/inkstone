@@ -3,7 +3,7 @@ import { initI18n, t, type MessageKey } from '../../lib/i18n'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { installTestGlobals, renderElement } from '../../lib/test-render'
 import { menuOptions } from './presentation-menu-options.test-helpers'
-import { DeckExportProgress, PresentationControls, SlideProgress, type PresentationControlsProps } from './presentation-controls'
+import { DeckExportProgress, PresentationControls, PresentationExitConfirm, SlideProgress, type PresentationControlsProps } from './presentation-controls'
 import { buildPresentationOverflowItems } from './presentation-context-menu'
 
 installTestGlobals()
@@ -41,6 +41,7 @@ describe('PresentationControls', () => {
     onToggleFullscreen: vi.fn(),
     onOpenPresenter: vi.fn(),
     audienceFollowing: false,
+    audienceViewers: 0,
     onToggleAudience: vi.fn(),
     exporting: false,
     onExport: vi.fn(),
@@ -166,6 +167,7 @@ function chromeProps(overrides: Partial<PresentationControlsProps> = {}): Presen
     onToggleFullscreen: vi.fn(),
     onOpenPresenter: vi.fn(),
     audienceFollowing: false,
+    audienceViewers: 0,
     onToggleAudience: vi.fn(),
     onExport: vi.fn(),
     onExportImages: vi.fn(),
@@ -272,8 +274,8 @@ describe('PresentationControls — a deck that plays by itself', () => {
     // capsule was handed — the same route the handout row takes.
     renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()), onExportHtml })))
     act(() => { door()?.click() })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_html')))
-    if (!row) throw new Error('the door has no standalone-export row')
+    const row = openExportRows().find((item) => item.textContent?.includes(t('workspace.presentation_export_html')))
+    if (!row) throw new Error('the export group has no standalone-export row')
     act(() => { row.click() })
     expect(onExportHtml).toHaveBeenCalledTimes(1)
   })
@@ -373,7 +375,17 @@ describe('PresentationControls — the key a control answers to', () => {
 // Rows are `menuitem` or `menuitemcheckbox` depending on whether the row carries a mark, so the door is
 // read by what it holds rather than by which of the two roles a row happens to claim.
 const door = () => document.querySelector<HTMLElement>('[data-presentation-overflow]')
-const rows = () => [...document.querySelectorAll('[role="menu"] button')].map((row) => row.textContent?.trim() ?? '')
+// The exports and the four screen modes live behind one door row each now (PR-M1), so a test that
+// wants one of them opens the group first and reads the nested panel — `[role="group"]` named after
+// the row that opened it.
+function openDoorGroup(label: string): HTMLElement[] {
+  const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(label))
+  if (!group) throw new Error(`the door has no ${label} row`)
+  act(() => { group.click() })
+  return [...document.querySelectorAll<HTMLElement>(`[role="group"][aria-label="${label}"] [role="menuitem"], [role="group"][aria-label="${label}"] [role="menuitemcheckbox"]`)]
+}
+const openExportRows = () => openDoorGroup(t('workspace.export'))
+const openModeRows = () => openDoorGroup(t('workspace.presentation_modes'))
 
 describe('PresentationControls at phone width', () => {
   it('keeps the turn and the way out, and folds the rest behind one door', () => {
@@ -391,14 +403,37 @@ describe('PresentationControls at phone width', () => {
     expect(container.querySelector(`[aria-label="${t('workspace.presentation_show_overview')}"]`)).toBeTruthy()
   })
 
-  it('hands a thumb the four tools no key on this screen can reach', () => {
+  it('hands a thumb the tools no key on this screen can reach', () => {
     renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
     act(() => {
       door()?.click()
     })
-    for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
-      expect(rows().some((row) => row.includes(label)), label).toBe(true)
+    const modes = openModeRows()
+    for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_ink'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
+      expect(modes.some((row) => row.textContent?.includes(label)), label).toBe(true)
     }
+    expect(modes).toHaveLength(5)
+  })
+
+  it('keeps the door short enough that everything on it can be reached', () => {
+    renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
+    act(() => {
+      door()?.click()
+    })
+    const top = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"]')]
+    expect(top.length).toBeLessThanOrEqual(9)
+    for (const label of [t('workspace.presentation_modes'), t('workspace.export')]) {
+      expect(top.some((row) => row.textContent?.includes(label)), label).toBe(true)
+    }
+  })
+
+  it('says on the group row that one of the modes it holds is on', () => {
+    renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems({ ...menuOptions(), laser: true }) })))
+    act(() => {
+      door()?.click()
+    })
+    const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(t('workspace.presentation_modes')))
+    expect(group?.getAttribute('aria-checked'), 'a door that hides an active mode reads as nothing is on').toBe('true')
   })
 
 })
@@ -411,8 +446,8 @@ describe('PresentationControls — what the door hands over', () => {
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_laser')))
-    if (!row) throw new Error('the door has no laser row to press')
+    const row = openModeRows().find((item) => item.textContent?.includes(t('workspace.presentation_laser')))
+    if (!row) throw new Error('the modes group has no laser row to press')
     act(() => {
       row.click()
     })
@@ -426,12 +461,25 @@ describe('PresentationControls — what the door hands over', () => {
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_handout')))
-    if (!row) throw new Error('the door has no handout row')
+    const row = openExportRows().find((item) => item.textContent?.includes(t('workspace.presentation_export_handout')))
+    if (!row) throw new Error('the export group has no handout row')
     act(() => {
       row.click()
     })
     expect(onExportHandout).toHaveBeenCalledTimes(1)
+  })
+
+  it('folds the four exports into one row, so the door fits the phone it is on', () => {
+    renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
+    act(() => {
+      door()?.click()
+    })
+    const top = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"]')]
+    expect(top.some((row) => row.textContent?.includes(t('workspace.export'))), 'the door lists the exports one row at a time').toBe(true)
+    for (const label of [t('workspace.presentation_export'), t('workspace.presentation_export_handout'), t('workspace.presentation_export_html'), t('workspace.presentation_export_images')]) {
+      expect(top.some((row) => row.textContent?.includes(label)), `the door still shows ${label} on its own`).toBe(false)
+    }
+    expect(openExportRows()).toHaveLength(4)
   })
 
 })
@@ -443,21 +491,21 @@ describe('PresentationControls — the door and the exports', () => {
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_images')))
-    if (!row) throw new Error('the door has no image-export row')
+    const row = openExportRows().find((item) => item.textContent?.includes(t('workspace.presentation_export_images')))
+    if (!row) throw new Error('the export group has no image-export row')
     act(() => {
       row.click()
     })
     expect(onExportImages).toHaveBeenCalledTimes(1)
   })
 
-  it('lets an export that is still running say so behind the door too', () => {
+  it('lets an export that is still running say so on the row the presenter can see', () => {
     renderElement(createElement(PresentationControls, chromeProps({ compact: true, exporting: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
     act(() => {
       door()?.click()
     })
-    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] button')].find((item) => item.textContent?.includes(t('workspace.presentation_export_images')))
-    expect(row?.querySelector('[data-export-spinner]'), 'the row that is working shows nothing').toBeTruthy()
+    const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(t('workspace.export')))
+    expect(group?.querySelector('[data-export-spinner]'), 'the working export is hidden behind a row with no mark').toBeTruthy()
   })
 
   it('paints the door inside the projector it belongs to, not beside it', () => {
@@ -475,3 +523,143 @@ describe('PresentationControls — the door and the exports', () => {
   })
 })
 
+// PR-H1: a faded bar is `inert` *and* `invisible`, and the browser's hit test walks past both to the
+// stage behind — so the first tap a presenter makes where the controls are turns the page instead of
+// bringing them back. jsdom does no hit testing, so what is pinned here is the shape the fix needs to
+// have: a target that is not faded, sized to the bar's own rectangle, standing between the two.
+describe('PresentationControls — the first tap on a faded bar', () => {
+  it('stands a hit target where the faded bar is', () => {
+    const { container } = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true })))
+    const guard = container.querySelector('[data-presentation-chrome-guard]')
+    const bar = container.querySelector('[data-presentation-chrome]')
+    expect(guard, 'nothing covers the bar’s rectangle while it is faded').toBeTruthy()
+    expect(bar?.hasAttribute('inert'), 'the bar itself stays out of the tab order').toBe(true)
+    expect(guard?.hasAttribute('inert')).toBe(false)
+    expect(guard?.contains(bar ?? null)).toBe(true)
+  })
+
+  it('takes none of the fade itself', () => {
+    const { container } = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true })))
+    const guard = container.querySelector('[data-presentation-chrome-guard]')
+    const bar = container.querySelector('[data-presentation-chrome]')
+    expect(guard?.className).not.toMatch(/invisible|opacity-0|pointer-events-none/)
+    expect(bar?.className).toMatch(/invisible/)
+  })
+
+  it('still hands a press to the control once the bar is up', () => {
+    const onNext = vi.fn()
+    const { container } = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+    const bar = container.querySelector('[data-presentation-chrome]')
+    expect(bar?.hasAttribute('inert')).toBe(false)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+    expect(onNext).toHaveBeenCalledTimes(1)
+  })
+
+  it('spends the waking gesture on waking, not on the control that appeared under it', () => {
+    const onNext = vi.fn()
+    const view = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true, onNext })))
+    const guard = view.container.querySelector<HTMLElement>('[data-presentation-chrome-guard]')
+    if (!guard) throw new Error('no guard to press')
+    act(() => { guard.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })) })
+    view.rerender(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+    act(() => {
+      view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+    })
+    expect(onNext, 'the tap that only brought the bar back pressed a button too').not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it('pays the debt once: the press right behind the waking one is not also swallowed', () => {
+    const onNext = vi.fn()
+    const view = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true, onNext })))
+    const guard = view.container.querySelector<HTMLElement>('[data-presentation-chrome-guard]')
+    if (!guard) throw new Error('no guard to press')
+    act(() => { guard.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })) })
+    view.rerender(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+    const next = () => view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)
+    act(() => { next()?.click() })
+    expect(onNext, 'the waking gesture pressed the button').not.toHaveBeenCalled()
+    act(() => { next()?.click() })
+    expect(onNext, 'a thumb that taps again at once is not still being refused').toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+
+  it('forgets that debt for the next press, which is a real one', () => {
+    vi.useFakeTimers()
+    try {
+      const onNext = vi.fn()
+      const view = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true, onNext })))
+      const guard = view.container.querySelector<HTMLElement>('[data-presentation-chrome-guard]')
+      if (!guard) throw new Error('no guard to press')
+      act(() => { guard.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })) })
+      view.rerender(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+      act(() => {
+        view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+      })
+      expect(onNext).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(900)
+      act(() => {
+        view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+      })
+      expect(onNext).toHaveBeenCalledTimes(1)
+      view.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+
+describe('PresentationExitConfirm — the question a show with an audience asks', () => {
+  const press = (el: HTMLElement | null | undefined) => {
+    if (!el) throw new Error('the confirm is missing a button')
+    act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+  }
+  const answer = (dialog: Element | null | undefined, label: string) =>
+    [...(dialog?.querySelectorAll('button') ?? [])].find((item) => item.textContent?.trim() === label)
+
+  it('is not in the tree until the show is asked to leave', () => {
+    const view = renderElement(createElement(PresentationExitConfirm, { open: false, onConfirm: vi.fn(), onCancel: vi.fn() }))
+    expect(view.container.querySelector('[data-presentation-exit-confirm]')).toBeNull()
+    view.unmount()
+  })
+
+  it('names the question and offers both answers', () => {
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm: vi.fn(), onCancel: vi.fn() }))
+    const dialog = view.container.querySelector<HTMLElement>('[data-presentation-exit-confirm]')
+    expect(dialog?.getAttribute('role')).toBe('alertdialog')
+    expect(dialog?.getAttribute('aria-label')).toBe(t('workspace.presentation_exit_audience'))
+    const buttons = [...(dialog?.querySelectorAll('button') ?? [])]
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual([t('common.cancel'), t('workspace.presentation_exit')])
+    expect(dialog?.contains(document.activeElement)).toBe(true)
+    view.unmount()
+  })
+
+  // The safe answer takes the focus, so the key that opens the question cannot end the talk on the way
+  // through — the same rule the app's own confirm layer follows for anything destructive.
+  it('puts the focus on the answer that keeps the show', () => {
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm: vi.fn(), onCancel: vi.fn() }))
+    expect(document.activeElement?.textContent?.trim()).toBe(t('common.cancel'))
+    view.unmount()
+  })
+
+  it('ends the show only on the answer that says so', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm, onCancel }))
+    press(answer(view.container.querySelector('[data-presentation-exit-confirm]'), t('workspace.presentation_exit')))
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    expect(onCancel).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it('keeps the show on the answer that says stay', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm, onCancel }))
+    press(answer(view.container.querySelector('[data-presentation-exit-confirm]'), t('common.cancel')))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(onConfirm).not.toHaveBeenCalled()
+    view.unmount()
+  })
+})

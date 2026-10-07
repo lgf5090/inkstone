@@ -14,7 +14,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
-import { SHARE_PRESENCE_TTL_MS } from '../src/shared/share-presence'
+import { SHARE_PRESENCE_AUDIENCE_WINDOW_MS, SHARE_PRESENCE_TTL_MS } from '../src/shared/share-presence'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { AppBindings } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -263,7 +263,7 @@ describe('writing the position', () => {
 describe('the owner asking whether a show is running', () => {
   it('says no, then says where the talk is without repeating the token', async () => {
     const before = await (await call(`/api/share/${NOTE}/present`, {})).json()
-    expect(before).toEqual({ running: false })
+    expect(before).toEqual({ running: false, viewers: 0 })
     const { token } = await start()
     await call(`/api/share/${NOTE}/present`, {
       method: 'POST',
@@ -274,5 +274,80 @@ describe('the owner asking whether a show is running', () => {
     expect(after.running).toBe(true)
     expect(after.presence).toMatchObject({ slide: 2 })
     expect(JSON.stringify(after)).not.toContain(token)
+  })
+
+  // PR-L5: the expiry index exists, so something has to answer for it. A browser that was closed
+  // mid-talk never sends the stop press, and the row it leaves behind answers nothing — every read
+  // filters on `expires_at` — so it is only ever debris. Asking "am I on air?" is the moment the
+  // owner's own debris gets cleared, on the indexed column, bounded to that owner.
+  it('takes the owner’s finished shows out of the table while asking', async () => {
+    await start()
+    sqlite.prepare('UPDATE share_presence SET expires_at = 1 WHERE user_id = ?').run(USER)
+    const answer = await (await call(`/api/share/${NOTE}/present`, {})).json()
+    expect(answer).toEqual({ running: false, viewers: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM share_presence').get()).toMatchObject({ n: 0 })
+  })
+
+  it('leaves a show that is still on air alone while asking', async () => {
+    await start()
+    await call(`/api/share/${NOTE}/present`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ slide: 1, page: 0, step: 0 }),
+    })
+    const answer = await (await call(`/api/share/${NOTE}/present`, {})).json()
+    expect(answer.running).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM share_presence').get()).toMatchObject({ n: 1 })
+  })
+})
+
+// PR-M7: the presenter is told how many browsers have been reading the show. The number is read out of
+// the read budget the public route already spends, so these cases vary only the address a read came
+// from, how old it is, and which show it was aimed at.
+describe('the audience number the presenter is told', () => {
+  function beatFrom(token: string, ip: string): Promise<Response> {
+    const request = new Request(`https://inkstone.test/api/public/${SLUG}/present`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'CF-Connecting-IP': ip },
+      body: JSON.stringify({ token }),
+    })
+    // An address is only trusted behind the edge, so the harness has to say the request came through it.
+    Object.defineProperty(request, 'cf', { value: { clientIp: ip } })
+    return app().fetch(request, { DB: db } as never)
+  }
+
+  async function status(): Promise<{ running: boolean, viewers: number }> {
+    return await (await call(`/api/share/${NOTE}/present`, {})).json()
+  }
+
+  it('counts browsers that looked in, not the beats they sent', async () => {
+    const { token } = await start()
+    await beatFrom(token, '203.0.113.1')
+    await beatFrom(token, '203.0.113.1')
+    await beatFrom(token, '203.0.113.2')
+    expect((await status()).viewers).toBe(2)
+  })
+
+  it('rides back on the page turn the presenter already made', async () => {
+    const { token } = await start()
+    await beatFrom(token, '203.0.113.7')
+    const published = await (await call(`/api/share/${NOTE}/present`, json({ slide: 1, page: 0, step: 0 }))).json()
+    expect(published.viewers).toBe(1)
+  })
+
+  it('stops counting a browser once its last read is older than the window', async () => {
+    const { token } = await start()
+    await beatFrom(token, '203.0.113.9')
+    expect((await status()).viewers).toBe(1)
+    sqlite.prepare('UPDATE login_attempts SET last_fail_at = ?').run(Date.now() - SHARE_PRESENCE_AUDIENCE_WINDOW_MS - 1000)
+    expect((await status()).viewers).toBe(0)
+  })
+
+  it('leaves another show’s room out of the count', async () => {
+    const { token } = await start()
+    sqlite.prepare(`INSERT INTO login_attempts (key, fails, last_fail_at, locked_until) VALUES (?, 3, ?, NULL)`)
+      .run('share-present:view:zzzzzzzzzzzzzzzzzzzz:ip:198.51.100.4', Date.now())
+    await beatFrom(token, '203.0.113.20')
+    expect((await status()).viewers).toBe(1)
   })
 })

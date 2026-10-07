@@ -91,7 +91,14 @@ const slideHtmlCache = new Map<string, SlideMarkup>()
 // through `reserveSlideCache` below, because a cap under the deck's page count makes the measuring
 // pass evict the pages it has already prepared while it prepares the ones it has not.
 const SLIDE_HTML_CACHE_FLOOR = 60
+// Two ceilings, because page count is not the quantity that costs: a text slide's prepared markup is
+// ~0.7 KB and a diagram slide carries its whole inline `<svg>`, so 600 pages of boards is not 600
+// pages of paragraphs. The page cap stops one enormous note from raising the entry limit without
+// bound; the byte cap is what actually decides when the oldest page has to go.
+const SLIDE_HTML_CACHE_PAGE_CAP = 600
+const SLIDE_HTML_CACHE_BYTE_CAP = 24 * 1024 * 1024
 let slideHtmlCacheLimit = SLIDE_HTML_CACHE_FLOOR
+let slideHtmlCacheBytes = 0
 const slideHtmlListeners = new Set<() => void>()
 
 const slidePlanCache = new Map<string, SlidePlan>()
@@ -101,19 +108,37 @@ const SLIDE_PLAN_CACHE_FLOOR = 120
 let slidePlanCacheLimit = SLIDE_PLAN_CACHE_FLOOR
 
 /**
- * Let the caches hold one entry per page of the deck the show is presenting. Without this a deck
- * longer than the floor evicts its own beginning mid-pass: the rail and the projector then re-render
- * what was just thrown away, so the same page is prepared twice and the pass never reads as done.
- * A deck shorter than the floor leaves the floors alone, and the next show shrinks the ceiling back
- * down rather than inheriting the widest deck of the evening.
+ * Let the caches hold one entry per page of the deck the show is presenting, up to a ceiling: a deck
+ * longer than the cap evicts its own beginning, which is the cost of holding a talk's whole markup
+ * for a note nobody could read out loud in one sitting. The next show shrinks the ceiling back down
+ * rather than inheriting the widest deck of the evening.
  */
 export function reserveSlideCache(pages: number): void {
-  slideHtmlCacheLimit = Math.max(SLIDE_HTML_CACHE_FLOOR, pages)
+  slideHtmlCacheLimit = Math.min(Math.max(SLIDE_HTML_CACHE_FLOOR, pages), SLIDE_HTML_CACHE_PAGE_CAP)
   slidePlanCacheLimit = Math.max(SLIDE_PLAN_CACHE_FLOOR, pages)
+}
+
+/**
+ * Give back everything the prepared pages cost. A show that has ended is not going to draw those
+ * pages again, and the markup of a diagram slide is the whole inline picture — held until the next
+ * show evicts it, which may never come.
+ */
+export function releaseSlideCache(): void {
+  slideHtmlCache.clear()
+  slideHtmlCacheBytes = 0
+  slidePlanCache.clear()
+  slideHtmlCacheLimit = SLIDE_HTML_CACHE_FLOOR
+  slidePlanCacheLimit = SLIDE_PLAN_CACHE_FLOOR
+}
+
+/** What the page cache is holding, for the cases that have to say how much a show costs. */
+export function slideCacheMetrics(): { pages: number; bytes: number; limit: number } {
+  return { pages: slideHtmlCache.size, bytes: slideHtmlCacheBytes, limit: slideHtmlCacheLimit }
 }
 
 export function clearSlideHtmlCache(): void {
   slideHtmlCache.clear()
+  slideHtmlCacheBytes = 0
 }
 
 export function readSlidePlan(hash: string): SlidePlan | undefined {
@@ -196,12 +221,25 @@ export function markSlideFailed(key: string, flags: string): void {
 
 const slideKeyListeners = new Map<string, Set<() => void>>()
 
+// Prepared markup is held as a string, so its cost is its length: doubled for the UTF-16 units the
+// engine actually stores, which is the number the byte cap is written against.
+function slideMarkupBytes(markup: SlideMarkup): number {
+  return markup.html.length * 2
+}
+
 export function rememberSlideHtml(key: string, markup: SlideMarkup): void {
+  const held = slideHtmlCache.get(key)
+  if (held) slideHtmlCacheBytes -= slideMarkupBytes(held)
   slideHtmlCache.delete(key)
   slideHtmlCache.set(key, markup)
-  while (slideHtmlCache.size > slideHtmlCacheLimit) {
+  slideHtmlCacheBytes += slideMarkupBytes(markup)
+  // The newest page is never evicted by the byte cap on its own: one slide carrying a picture bigger
+  // than the whole budget is a fact about that slide, not a reason to leave the show with nothing.
+  while (slideHtmlCache.size > slideHtmlCacheLimit || (slideHtmlCacheBytes > SLIDE_HTML_CACHE_BYTE_CAP && slideHtmlCache.size > 1)) {
     const oldest = slideHtmlCache.keys().next().value
     if (oldest === undefined) break
+    const evicted = slideHtmlCache.get(oldest)
+    if (evicted) slideHtmlCacheBytes -= slideMarkupBytes(evicted)
     slideHtmlCache.delete(oldest)
   }
   const keyListeners = slideKeyListeners.get(key)
@@ -316,7 +354,39 @@ export const SLIDE_CONTROL_SELECTORS = [
   '[data-tabs-action]',
 ]
 
-const SLIDE_CONTROL_SELECTOR = SLIDE_CONTROL_SELECTORS.join(', ')
+/**
+ * What the list above can ask for, read out of it once at module load: an attribute name, or a class
+ * that only counts on the tag the selector named. Deriving it here keeps `SLIDE_CONTROL_SELECTORS` the
+ * single source the coverage gate writes to — a new family is matched the moment it is listed.
+ */
+const CONTROL_ATTRIBUTE_NAMES = new Set<string>()
+const CONTROL_TAG_CLASSES = new Map<string, string>()
+for (const selector of SLIDE_CONTROL_SELECTORS) {
+  const attribute = /^\[([\w:-]+)\]$/.exec(selector)
+  if (attribute) {
+    CONTROL_ATTRIBUTE_NAMES.add(attribute[1]!.toLowerCase())
+    continue
+  }
+  const anchored = /^([a-z]+)\.([\w-]+)$/.exec(selector)
+  if (anchored) {
+    CONTROL_TAG_CLASSES.set(anchored[2]!, anchored[1]!.toUpperCase())
+    continue
+  }
+  throw new Error(`slide control selector is neither an attribute nor a tag.class: ${selector}`)
+}
+
+// A comma list of eighteen selectors walks the subtree eighteen times, which measured costlier than
+// rendering the slide it came from (PR-H3). One pass over the elements, asking each about the handful
+// of attributes it actually carries, is the same answer for a fraction of the walk.
+function isSlideControl(element: Element): boolean {
+  for (const attribute of element.attributes) {
+    if (CONTROL_ATTRIBUTE_NAMES.has(attribute.name)) return true
+  }
+  for (const className of element.classList) {
+    if (CONTROL_TAG_CLASSES.get(className) === element.tagName) return true
+  }
+  return false
+}
 
 /**
  * Strips those controls out of one slide's markup, and takes the two live affordances that are not
@@ -342,16 +412,21 @@ const SLIDE_CONTROL_SELECTOR = SLIDE_CONTROL_SELECTORS.join(', ')
 export function dropSlideControls(html: string): string {
   const template = document.createElement('template')
   template.innerHTML = html
-  template.content.querySelectorAll(SLIDE_CONTROL_SELECTOR).forEach((control) => control.remove())
-  template.content.querySelectorAll<HTMLElement>('[data-task-line]').forEach((box) => {
-    delete box.dataset.taskLine
-    box.removeAttribute('name')
-    box.tabIndex = -1
-    box.style.pointerEvents = 'none'
-  })
-  template.content.querySelectorAll<HTMLElement>('[data-code-collapse-at]').forEach((block) => {
-    delete block.dataset.codeCollapseAt
-  })
+  // The list is static, so a control removed here does not disturb the walk; its own descendants are
+  // still visited, now detached, which costs nothing and changes nothing.
+  for (const element of template.content.querySelectorAll<HTMLElement>('*')) {
+    if (isSlideControl(element)) {
+      element.remove()
+      continue
+    }
+    if (element.hasAttribute('data-task-line')) {
+      element.removeAttribute('data-task-line')
+      element.removeAttribute('name')
+      element.tabIndex = -1
+      element.style.pointerEvents = 'none'
+    }
+    if (element.hasAttribute('data-code-collapse-at')) element.removeAttribute('data-code-collapse-at')
+  }
   return template.innerHTML
 }
 

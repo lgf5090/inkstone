@@ -20,7 +20,10 @@ export function presenterTokenFromLocation(search: string): string | null {
   return new URLSearchParams(search).get('presenter') || null
 }
 
-export type PresenterInboundCommand = 'next' | 'prev' | 'first' | 'last'
+/** What the console can ask the projector to do. `jump` is the one that carries a number: it is the
+ * outline row the presenter clicked, and the show lands on that slide rather than one step over.
+ * `editNotes` is the note box handed back to the window that owns the document (PR-M8). */
+export type PresenterInboundCommand = 'next' | 'prev' | 'first' | 'last' | { jump: number } | { editNotes: { slide: number, text: string } }
 
 export interface PresenterSlideState {
   noteTitle: string
@@ -33,6 +36,9 @@ export interface PresenterSlideState {
   steps: number
   slideCount: number
   pageCount: number
+  /** One label per slide, in deck order, for the console's outline. Built where the deck is, so a page
+   * turn does not re-read every slide's markup just to print the same list again. */
+  slideTitles: string[]
   currentSlideSource: string
   currentLayout?: SlideLayout
   nextSlideSource: string | null
@@ -92,6 +98,7 @@ export interface PresenterStateSource {
   pageCount: number
   deck: string[]
   notes: string[]
+  slideTitles: string[]
   plans: Record<number, SlidePlan>
   startedAt: number
   proseFont?: ProseFont
@@ -104,6 +111,8 @@ export interface PresenterBroadcasterOptions extends PresenterStateSource {
   goNext: () => void
   goPrev: () => void
   jumpTo: (index: number) => void
+  /** The console's note box, applied to the document this window owns (PR-M8). */
+  editSpeakerNote: (slide: number, text: string) => void
 }
 
 /** The next press of the turn, which is what the console has to show: one block more while the page is
@@ -123,7 +132,7 @@ function nextPresenterPage(source: { deck: string[]; plans: Record<number, Slide
 }
 
 export function buildPresenterSlideState(options: PresenterStateSource): PresenterSlideState {
-  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont } = options
+  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont } = options
   const currentPlan = plans[slideIndex]
   // The step total is read off the plan rather than sent: the payload already carries the plan it came
   // from, and a total that disagreed with it would print a page number the projector never showed.
@@ -136,6 +145,7 @@ export function buildPresenterSlideState(options: PresenterStateSource): Present
     steps,
     slideCount,
     pageCount,
+    slideTitles,
     currentSlideSource: deck[slideIndex] ?? '',
     currentLayout: currentPlan?.layout,
     ...nextPresenterPage({ deck, plans, slideIndex, subPage, step, steps, pageCount }),
@@ -153,10 +163,10 @@ export function buildPresenterSlideState(options: PresenterStateSource): Present
  * page. A field added to `PresenterStateSource` has to join this list, or the payload starts freezing
  * while the show moves on. */
 export function usePresenterSlideState(source: PresenterStateSource): PresenterSlideState {
-  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont } = source
+  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont } = source
   return useMemo(
-    () => buildPresenterSlideState({ noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont }),
-    [noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont],
+    () => buildPresenterSlideState({ noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont }),
+    [noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont],
   )
 }
 
@@ -164,7 +174,7 @@ function useBroadcasterChannel(
   open: boolean,
   token: string | null,
   stateRef: React.RefObject<PresenterSlideState>,
-  navRef: React.RefObject<{ goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number }>,
+  navRef: React.RefObject<{ goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number; editSpeakerNote: (slide: number, text: string) => void }>,
   readyRef: React.RefObject<boolean>,
 ) {
   const channelRef = useRef<BroadcastChannel | null>(null)
@@ -210,9 +220,9 @@ function useBroadcasterChannel(
 }
 
 export function usePresenterBroadcaster(options: PresenterBroadcasterOptions): void {
-  const { open, token, slideCount, goNext, goPrev, jumpTo } = options
-  const navRef = useRef({ goNext, goPrev, jumpTo, slideCount })
-  navRef.current = { goNext, goPrev, jumpTo, slideCount }
+  const { open, token, slideCount, goNext, goPrev, jumpTo, editSpeakerNote } = options
+  const navRef = useRef({ goNext, goPrev, jumpTo, slideCount, editSpeakerNote })
+  navRef.current = { goNext, goPrev, jumpTo, slideCount, editSpeakerNote }
 
   const statePayload = usePresenterSlideState(options)
   const stateRef = useRef(statePayload)
@@ -233,7 +243,12 @@ export function usePresenterBroadcaster(options: PresenterBroadcasterOptions): v
   }, [open, statePayload, channelRef])
 }
 
-function handleInboundCommand(command: PresenterInboundCommand, nav: { goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number }) {
+function handleInboundCommand(command: PresenterInboundCommand, nav: { goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number; editSpeakerNote: (slide: number, text: string) => void }) {
+  if (typeof command !== 'string') {
+    // The show's own clamp is what makes a hand-typed message on the channel no better than a click.
+    if ('jump' in command) return nav.jumpTo(command.jump)
+    return nav.editSpeakerNote(command.editNotes.slide, command.editNotes.text)
+  }
   switch (command) {
     case 'next':
       return nav.goNext()

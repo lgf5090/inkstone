@@ -1,13 +1,16 @@
 import { useCallback, useRef, type RefObject } from 'react'
+import { Eraser, Undo2 } from 'lucide-react'
+import { IconButton } from '../../components/primitives'
 import { createPortal } from 'react-dom'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { usePresentation } from '../../store/presentation'
 import { DeckHandoutSheet, DeckImageSheet, DeckPrintSheet } from './deck-print'
-import { DeckExportProgress, PresentationControls, SlideProgress, type PresentationControlsProps } from './presentation-controls'
+import { DeckExportProgress, PresentationControls, PresentationExitConfirm, SlideProgress, type PresentationControlsProps } from './presentation-controls'
 import { PresentationKeyGuide } from './presentation-key-guide'
 import { CoverAnnouncement, PresentationStage, ScreenCover, SlidePreparationNotice, stageProps } from './presentation-stage'
 import { LaserPointer, Spotlight } from './presentation-pointer'
+import { PresentationInkLayer, inkKeyFor, useInkBoard, type InkMenuProps } from './presentation-ink'
 import { SlidePreflight } from './slide-preflight'
 import { SlideOverviewGrid } from './slide-overview-grid'
 import { SlideRail } from './slide-rail'
@@ -32,17 +35,23 @@ export function PresentationOverlay() {
 
   if (!open) return null
 
-  return createPortal(<PresentationDialog panelRef={panelRef} stageRef={stageRef} session={session} onClose={onClose} />, document.body)
+  return createPortal(<PresentationDialog panelRef={panelRef} stageRef={stageRef} session={session} />, document.body)
 }
 
 // The slide surface itself: the list, the canvas, the controls and the overview are one dialog so
 // the focus trap, the idle fade and the portal all belong to a single element.
-function PresentationDialog({ panelRef, stageRef, session, onClose }: {
+function PresentationDialog({ panelRef, stageRef, session }: {
   panelRef: RefObject<HTMLDivElement | null>
   stageRef: RefObject<HTMLDivElement | null>
   session: PresentationSession
-  onClose: () => void
 }) {
+  const ink = useInkBoard(inkKeyFor(session.index, session.sub))
+  // The board is the dialog's own, because the marks belong to the window that is drawing them: the
+  // presenter console and the audience link each have their own sheet of glass (PR-M13).
+  // The marker is the third pointer tool, so the keys own whether it is on; the strokes themselves
+  // belong to this window, which is the glass the presenter is drawing on (PR-M13).
+  const inkProps: InkMenuProps = { inkOn: session.ink, onToggleInk: session.toggleInk }
+
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault()
     if (session.screenCover) return
@@ -70,8 +79,18 @@ function PresentationDialog({ panelRef, stageRef, session, onClose }: {
       >
         {session.railOpen && <SlideRail {...slideSurfaceProps(session)} title={session.noteTitle} progress={session.listProgress} chromeHidden={session.chromeHidden} occluded={session.occluded} />}
         <PresentationStage {...stageProps(stageRef, session)} />
-        {session.presenterPanel && <PresenterPanel state={session.presenterPanel} chromeHidden={session.chromeHidden} occluded={session.occluded} onClose={session.closePresenterPanel} />}
-        <PresentationControls {...controlProps(session, onClose)} />
+        {/* Above the slide and below the chrome: the marker draws on the page the room is looking at,
+            and the bar that turns it off must stay reachable under a hand that is drawing. */}
+        <PresentationInkLayer
+          active={session.ink}
+          strokes={ink.strokes}
+          live={ink.live}
+          onBegin={ink.add}
+          onExtend={ink.extend}
+          onEnd={ink.finish}
+        />
+        {session.presenterPanel && <PresenterPanel state={session.presenterPanel} chromeHidden={session.chromeHidden} occluded={session.occluded} onClose={session.closePresenterPanel} onEditNotes={session.editSpeakerNote} />}
+        <PresentationControls {...controlProps(session, session.requestClose, inkProps)} />
         <SlideProgress page={session.page} pageTotal={session.pageTotal} />
         {session.overview && <SlideOverviewGrid {...slideSurfaceProps(session)} onClose={session.clearOverview} />}
         {/* Painted over the grid rather than beside it, and put away before it by the same Esc: the
@@ -85,7 +104,27 @@ function PresentationDialog({ panelRef, stageRef, session, onClose }: {
             drawn outside it would sit under the very slide it is meant to point at. */}
         {session.imageProgress && <DeckExportProgress current={session.imageProgress.current} total={session.imageProgress.total} />}
         <LaserPointer active={session.laser} />
-        <PresentationContextMenu {...contextMenuProps(panelRef, session, onClose)} />
+        {/* The two ways to take marks away live beside the tool that makes them, not in the door: a
+            presenter who has just drawn a circle wants the eraser under the same hand, and the bar at
+            the bottom of the screen fades out on its own while the marker must not. */}
+        {session.ink && (
+          <div
+            data-presentation-ink-bar
+            className='absolute right-[var(--sp-4)] top-[var(--sp-4)] z-[var(--z-toast)] flex items-center gap-[var(--sp-1)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-[var(--sp-2)] py-[var(--sp-1)] shadow-[var(--shadow-sm)]'
+          >
+            <IconButton label={t('workspace.presentation_ink_undo')} size='sm' disabled={!ink.hasMarks} onClick={ink.undo}>
+              <Undo2 size={14} />
+            </IconButton>
+            <IconButton label={t('workspace.presentation_ink_clear')} size='sm' disabled={!ink.hasMarks} onClick={ink.clear}>
+              <Eraser size={14} />
+            </IconButton>
+          </div>
+        )}
+
+        <PresentationContextMenu {...contextMenuProps(panelRef, session, session.requestClose, inkProps)} />
+        {/* Inside the dialog for the same reason the cover and the card are: a confirm portalled to
+            the body would sit under the fullscreen element it is asking about. */}
+        <PresentationExitConfirm open={session.exitAsked} onConfirm={session.closeNow} onCancel={session.keepPresenting} />
       </div>
       <PresentationSheets session={session} />
     </>
@@ -131,7 +170,7 @@ function slideSurfaceProps(session: PresentationSession) {
 
 // The controls read the session's position and toggles as flat props, so mapping them in
 // one place keeps the dialog's markup about the slide surface rather than about plumbing.
-function controlProps(session: PresentationSession, onClose: () => void): PresentationControlsProps {
+function controlProps(session: PresentationSession, onClose: () => void, ink: InkMenuProps): PresentationControlsProps {
   return {
     slideIndex: session.index,
     slideCount: session.deck.length,
@@ -148,7 +187,7 @@ function controlProps(session: PresentationSession, onClose: () => void): Presen
     occluded: session.occluded,
     compact: session.compact,
     // The door reads the same rows as the right-click menu, plus the groups that answer to no key.
-    overflowItems: [...buildPresentationOverflowItems(menuItemsProps(session, onClose)), ...buildAudienceItems(menuItemsProps(session, onClose))],
+    overflowItems: [...buildPresentationOverflowItems(menuItemsProps(session, onClose, ink)), ...buildAudienceItems(menuItemsProps(session, onClose, ink))],
     exporting: Boolean(session.images),
     onPrev: session.goPrev,
     onNext: session.goNext,
@@ -158,6 +197,7 @@ function controlProps(session: PresentationSession, onClose: () => void): Presen
     onToggleFullscreen: session.toggleFullscreen,
     onOpenPresenter: session.openPresenter,
     audienceFollowing: session.audienceFollowing,
+    audienceViewers: session.audienceViewers,
     onToggleAudience: session.toggleAudience,
     onExport: session.exportDeck,
     onExportHandout: session.exportHandout,
@@ -171,7 +211,7 @@ function controlProps(session: PresentationSession, onClose: () => void): Presen
  * The show's rows, built once: the right-click menu and the capsule's narrow-screen door read the same
  * list, so a phone does not get a quieter second map of the same screen.
  */
-function menuItemsProps(session: PresentationSession, onClose: () => void): PresentationMenuItemsOptions {
+function menuItemsProps(session: PresentationSession, onClose: () => void, ink: InkMenuProps): PresentationMenuItemsOptions {
   return {
     linkUrl: null,
     slideIndex: session.index,
@@ -198,6 +238,7 @@ function menuItemsProps(session: PresentationSession, onClose: () => void): Pres
     onOpenPresenter: session.openPresenter,
     audienceFollowing: session.audienceFollowing,
     onToggleAudience: session.toggleAudience,
+    ...ink,
     onToggleKeyGuide: session.toggleKeyGuide,
     onToggleLaser: session.toggleLaser,
     onToggleSpotlight: session.toggleSpotlight,
@@ -207,9 +248,9 @@ function menuItemsProps(session: PresentationSession, onClose: () => void): Pres
   }
 }
 
-function contextMenuProps(panelRef: RefObject<HTMLDivElement | null>, session: PresentationSession, onClose: () => void): PresentationContextMenuProps {
+function contextMenuProps(panelRef: RefObject<HTMLDivElement | null>, session: PresentationSession, onClose: () => void, ink: InkMenuProps): PresentationContextMenuProps {
   return {
-    ...menuItemsProps(session, onClose),
+    ...menuItemsProps(session, onClose, ink),
     // The menu's own wiring wins over the shared rows: the link under the pointer is what this list is
     // about, and where it opened is where the panel lands.
     linkUrl: session.contextLink,

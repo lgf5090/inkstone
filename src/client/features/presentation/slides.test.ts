@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderMarkdown } from '../../lib/markdown/renderer'
-import { findSlideIndexByOffset, splitIntoSlides, splitIntoSlidesWithNotes, takeLayoutDirective } from './slides'
+import { findSlideIndexByOffset, replaceSpeakerNote, splitIntoSlides, splitIntoSlidesWithNotes, takeLayoutDirective } from './slides'
 
 describe('splitIntoSlides — separators and code fences', () => {
   it('returns the whole note as a single slide when there is no separator', () => {
@@ -470,5 +470,102 @@ describe('takeLayoutDirective', () => {
 
   it('leaves a slide that carries no switch alone', () => {
     expect(takeLayoutDirective('# A\n\npoint')).toEqual({ body: '# A\n\npoint', layout: undefined })
+  })
+})
+
+// PR-M8: the presenter edits a note during the talk, and the edit is a document edit. Everything this
+// block asserts is about the one thing that must not happen: the slides moving under the speaker.
+describe('replaceSpeakerNote', () => {
+  const notesOf = (source: string) => splitIntoSlidesWithNotes(source).notes
+  const slidesOf = (source: string) => splitIntoSlides(source)
+
+  it('rewrites the cue it is pointed at and leaves the rest of the file alone', () => {
+    const source = '# A\n\nfirst\n\n<!-- note: old -->\n\n---\n\n# B\n\nsecond'
+    expect(replaceSpeakerNote(source, 0, 'new')).toBe('# A\n\nfirst\n\n<!-- note: new -->\n\n---\n\n# B\n\nsecond')
+  })
+
+  it('adds the cue inside the slide it belongs to, before the rule that ends it', () => {
+    const source = '# A\n\nfirst\n\n---\n\n# B\n\nsecond'
+    const next = replaceSpeakerNote(source, 0, 'say it slowly')
+    expect(notesOf(next ?? '')).toEqual(['say it slowly', ''])
+    expect(next?.indexOf('say it slowly')).toBeLessThan(next?.indexOf('# B') ?? 0)
+  })
+
+  it('takes the note away when the presenter empties the box', () => {
+    const source = '# A\n\nfirst\n\n<!-- note: old -->\n\n---\n\n# B\n\nsecond'
+    const next = replaceSpeakerNote(source, 0, '   ')
+    expect(notesOf(next ?? 'x')).toEqual(['', ''])
+    expect(next).not.toContain('note:')
+  })
+
+  it('keeps every slide byte-identical, which is what keeps the talk on its page', () => {
+    const source = '# A\n\nfirst\n\n---\n\n# B\n\nsecond\n\n---\n\n# C\n\nthird'
+    const next = replaceSpeakerNote(source, 1, 'the middle one')
+    expect(slidesOf(next ?? 'x')).toEqual(slidesOf(source))
+    expect(slidesOf(next ?? 'x')).toHaveLength(3)
+  })
+
+  it('round-trips a note with lines in it', () => {
+    const source = '# A\n\nfirst'
+    const next = replaceSpeakerNote(source, 0, 'line one\nline two')
+    expect(notesOf(next ?? 'x')).toEqual(['line one\nline two'])
+    expect(slidesOf(next ?? 'x')).toEqual(slidesOf(source))
+  })
+
+  it('replaces the older spelling of the cue with the current one', () => {
+    const source = '# A\n\nfirst\n\n<!-- speaker: old -->'
+    const next = replaceSpeakerNote(source, 0, 'new')
+    expect(notesOf(next ?? 'x')).toEqual(['new'])
+    expect(next).not.toContain('speaker:')
+  })
+
+  it('keeps front matter and the rest of the document out of reach', () => {
+    const source = '---\ntitle: Q3\n---\n\n# A\n\nfirst\n\n---\n\n# B\n\nsecond'
+    const next = replaceSpeakerNote(source, 1, 'closing words')
+    expect(next?.startsWith('---\ntitle: Q3\n---')).toBe(true)
+    expect(notesOf(next ?? 'x')).toEqual(['', 'closing words'])
+  })
+
+  it('refuses a slide the deck does not have', () => {
+    const source = '# A\n\nfirst'
+    expect(replaceSpeakerNote(source, 1, 'x')).toBeNull()
+    expect(replaceSpeakerNote(source, -1, 'x')).toBeNull()
+    expect(replaceSpeakerNote(source, 0.5, 'x')).toBeNull()
+  })
+
+  it('keeps a document written with CRLF using its own line endings', () => {
+    const source = '# A\r\n\r\nfirst\r\n\r\n---\r\n\r\n# B\r\n\r\nsecond'
+    const next = replaceSpeakerNote(source, 0, 'windows notes')
+    expect(next).toBe('# A\r\n\r\nfirst\r\n\r\n<!-- note: windows notes -->\r\n\r\n---\r\n\r\n# B\r\n\r\nsecond')
+    expect(notesOf(next ?? 'x')).toEqual(['windows notes', ''])
+  })
+
+  it('refuses a note whose own words would close the cue early', () => {
+    const source = '# A\n\nfirst'
+    // The closer inside the text ends the cue where the author did not mean it, and the
+    // remainder of the line falls back into the slide as prose: the slide check is what notices.
+    expect(replaceSpeakerNote(source, 0, 'x -->')).toBeNull()
+    expect(replaceSpeakerNote(source, 0, 'a\n-->\nb')).toBeNull()
+  })
+
+  it('refuses a cue it cannot find the end of, rather than cutting into the document', () => {
+    const source = '# A\n\nfirst\n\n<!-- note: opened and never closed\n\nstill the note'
+    expect(replaceSpeakerNote(source, 0, 'x')).toBeNull()
+  })
+
+  it('keeps a rule written inside a note from becoming a new slide', () => {
+    const source = '# A\n\nfirst'
+    // A `---` on a line of its own is a slide separator everywhere else in the document, and the cue is
+    // the one place it is prose. The writer and the splitter have to agree about that, or the talk
+    // reprints itself with an extra page in the middle.
+    const next = replaceSpeakerNote(source, 0, 'before\n\n---\n\n# B')
+    expect(slidesOf(next ?? 'x')).toEqual(slidesOf(source))
+    expect(notesOf(next ?? 'x')).toEqual(['before\n\n---\n\n# B'])
+  })
+
+  it('writes no trailing whitespace into the document for a blank line of the note', () => {
+    const source = '# A\n\nfirst'
+    const next = replaceSpeakerNote(source, 0, 'one\n\ntwo')
+    expect(next).toBe('# A\n\nfirst\n\n<!-- note:\none\n\ntwo\n-->')
   })
 })
