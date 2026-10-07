@@ -33,6 +33,13 @@ function toolbarButton(label: string) {
   return button!
 }
 
+/** A row of whichever menu or submenu is currently open — a submenu is portalled, so it is not under the toolbar. */
+function menuRow(label: string): HTMLElement {
+  const row = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) => node.textContent === label)
+  expect(row, `no menu row labelled ${label}`).not.toBeUndefined()
+  return row!
+}
+
 describe('editor toolbar interactions', () => {
   it('shows the actual link binding on hover and omits invented shortcuts for unbound actions', async () => {
     vi.useFakeTimers()
@@ -85,18 +92,63 @@ describe('editor toolbar interactions', () => {
     expect(state.doc.toString()).toBe('```ts\nconst a = 1\n```')
   })
 
-  it('inserts a chart from the code and diagrams menu', async () => {
+  it('offers each diagram family as a submenu of its own templates', async () => {
     let state = EditorState.create({ doc: '', selection: EditorSelection.cursor(0) })
     await act(() => root.render(createElement(EditorToolbar, {
       onPickImage: vi.fn(),
       runCommand: (command) => command({ state, dispatch: (transaction: { state: EditorState }) => { state = transaction.state } } as never),
     })))
     await act(() => toolbarButton(t('workspace.code_and_diagrams')).click())
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) => node.textContent === t('workspace.chart_block'))
-    expect(item).toBeDefined()
-    await act(() => item!.click())
-    expect(state.doc.toString()).toContain('```chart style=table\n| :bar: | Jan | Feb | Mar |\n')
+    const parents: Array<[string, number]> = [
+      [t('workspace.mermaid_diagram'), 14],
+      [t('workspace.chartjs_diagram'), 7],
+      [t('workspace.mind_map'), 2],
+      [t('workspace.kanban_board'), 2],
+    ];
+    for (const [label] of parents) {
+      const row = menuRow(label)
+      expect(row.getAttribute('aria-haspopup')).toBe('menu')
+      expect(row.getAttribute('aria-expanded')).toBe('false')
+    }
+    for (const [label, leaves] of parents) {
+      await act(() => menuRow(label).click())
+      const panel = document.querySelector<HTMLElement>('[role="group"]')
+      expect(panel, label).not.toBeNull()
+      expect([...panel!.querySelectorAll('[role="menuitem"]')]).toHaveLength(leaves)
+      expect(menuRow(label).getAttribute('aria-expanded')).toBe('true')
+    }
+    expect(state.doc.toString()).toBe('')
+  })
+
+  it('inserts the chosen chart template from the Chart.js submenu', async () => {
+    let state = EditorState.create({ doc: '', selection: EditorSelection.cursor(0) })
+    await act(() => root.render(createElement(EditorToolbar, {
+      onPickImage: vi.fn(),
+      runCommand: (command) => command({ state, dispatch: (transaction: { state: EditorState }) => { state = transaction.state } } as never),
+    })))
+    await act(() => toolbarButton(t('workspace.code_and_diagrams')).click())
+    await act(() => menuRow(t('workspace.chartjs_diagram')).click())
+    await act(() => menuRow(t('workspace.chart_line')).click())
+    expect(state.doc.toString()).toContain('```chart style=table\n| :line: | Jan | Feb | Mar | Apr |\n')
     expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  // The two boards differ only in the body they start from, and which one a fence is stays the fence's
+  // own business — so the pair is worth pinning: an outline board and a JSON board are different notes.
+  it('inserts an outline board and a JSON board as two separate entries', async () => {
+    let state = EditorState.create({ doc: '', selection: EditorSelection.cursor(0) })
+    await act(() => root.render(createElement(EditorToolbar, {
+      onPickImage: vi.fn(),
+      runCommand: (command) => command({ state, dispatch: (transaction: { state: EditorState }) => { state = transaction.state } } as never),
+    })))
+    await act(() => toolbarButton(t('workspace.code_and_diagrams')).click())
+    await act(() => menuRow(t('workspace.kanban_board')).click())
+    await act(() => menuRow(t('workspace.kanban_outline')).click())
+    expect(state.doc.toString()).toBe('```kanban\n## To Do\n- [ ] Write the plan\n- [ ] Review the plan\n\n## Doing\n- [ ] Draft the columns\n\n## Done\n- [x] Pick the board format\n```\n')
+    await act(() => toolbarButton(t('workspace.code_and_diagrams')).click())
+    await act(() => menuRow(t('workspace.kanban_board')).click())
+    await act(() => menuRow(t('workspace.kanban_json')).click())
+    expect(state.doc.toString()).toContain('```kanban\n{\n  "title": "Kanban",')
   })
 
   it('lets keyboard users choose a block formula without losing their selected text', async () => {

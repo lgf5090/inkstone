@@ -2,9 +2,15 @@ import type { EditorView } from '@codemirror/view'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { beforeAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
-import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertChart, insertKanban, insertMathBlock, setHeading, toggleComment } from './commands'
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertDiagramCode, insertMathBlock, setHeading, toggleComment } from './commands'
 import { parseKanbanBody } from '../lib/markdown/kanban/body'
 import { convertChartBody, detectChartMode } from '../lib/markdown/chart'
+import { CHART_TEMPLATES, KANBAN_TEMPLATES } from './diagram-templates'
+
+// The toolbar's diagram entries are the same command over a different template, so the behaviour these
+// cases pin belongs to `insertDiagramCode` and the bodies come from the template list.
+const insertKanban = insertDiagramCode('```kanban', KANBAN_TEMPLATES[1]!.body)
+const insertChart = insertDiagramCode('```chart style=table', CHART_TEMPLATES[0]!.body)
 import { renderMarkdown } from '../lib/markdown/renderer'
 
 function runFenceCompletion(doc: string, cursor = doc.length) {
