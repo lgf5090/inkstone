@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
+import { walkSource } from './lib/scratch-files.mjs'
 
 const UPDATE = process.argv.includes('--update')
 const UPDATE_ARMED = process.env.INKSTONE_COMMENTS_UPDATE === '1'
@@ -48,6 +49,16 @@ const allowed = new Map([
     "// over the surface underneath it (`over`) before it is compared (`contrastRatio`).",
     "// Legacy rgba() carries its alpha as a fourth channel, not after a slash.",
     "// color(srgb r g b) — what Chrome computes a color-mix() into.",
+  ]],
+  ["scripts/lib/scratch-files.mjs", [
+    "// One definition of what a scratch probe is, so a measurement in flight is invisible",
+    "// to every scanner at once rather than to some of them. `**/*.tmp.*` is already the",
+    "// exclusion in both tsconfig projects and in the vitest project that globs the",
+    "// source tree, but the two text gates below walk the working tree themselves, so",
+    "// without the same rule here one session's probe turns the shared pipeline red for",
+    "// everyone else. The gate that names the leftovers out loud is",
+    "// tests/no-scratch-test-files.test.ts, and it stays loud on purpose: this module",
+    "// hides the noise, not the accountability.",
   ]],
   ["scripts/lib/theme-tokens.mjs", [
     "// Reads the token layer as declared text rather than as painted pixels, for the",
@@ -2934,6 +2945,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
+  ]],
+  ["src/client/features/sidebar/navigation.test.ts", [
+    "// Five controls is the measured ceiling: at 180px of row the label still takes one",
+    "// unclipped line, and a sixth would push it onto a second.",
   ]],
   ["src/client/features/sidebar/sidebar-calendar.test.ts", [
     "// Collapsing the block hides the heatmap but used to leave the whole-vault",
@@ -7378,7 +7393,7 @@ const failures = []
 let approvedCount = 0
 const roots = ['src', 'scripts', 'tests']
 const files = [
-  ...roots.filter((root) => fs.existsSync(root)).flatMap((root) => [...walk(path.resolve(root))]),
+  ...roots.filter((root) => fs.existsSync(root)).flatMap((root) => [...walkSource(path.resolve(root))]),
   ...['vite.config.ts', 'vitest.config.ts', 'index.html', 'wrangler.toml'].map((file) => path.resolve(file)),
 ]
 
@@ -7498,14 +7513,6 @@ function preview(comment) {
 
 function relative(file) {
   return path.relative(process.cwd(), file).replaceAll('\\', '/')
-}
-
-function* walk(directory) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const target = path.join(directory, entry.name)
-    if (entry.isDirectory()) yield* walk(target)
-    else yield target
-  }
 }
 
 function rebuildAllowlist() {

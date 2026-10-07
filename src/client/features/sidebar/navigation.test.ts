@@ -700,14 +700,42 @@ describe('folder row menu', () => {
         expect(patchNote).toHaveBeenLastCalledWith(moved.id, { folderId: null });
     });
 
-    it('expands and collapses every branch from the section header', async () => {
+    it('expands and collapses every branch from the section header menu', async () => {
+        const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
+        useNotes.setState({ folders: [folder, child], notes: {} });
+        const header = () => document.querySelector<HTMLElement>('#sidebar-folders > div')!;
+        const headerMenu = async () => {
+            await act(() => {
+                header().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+            });
+            return document.querySelector<HTMLElement>('[role="menu"]')!;
+        };
+        await act(() => root.render(createElement(Sidebar)));
+        await click(byLabel(await headerMenu(), t('folders.expand_all')));
+        expect(useUi.getState().expandedFolders).toContain(folder.id);
+        await click(byLabel(await headerMenu(), t('folders.collapse_all')));
+        expect(useUi.getState().expandedFolders).not.toContain(folder.id);
+    });
+
+    it('reaches the header menu from a button, not only from a right click', async () => {
+        await act(() => root.render(createElement(Sidebar)));
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+        await click(byLabel(document.querySelector<HTMLElement>('#sidebar-folders > div')!, t('common.more_actions')));
+        const scope = document.querySelector<HTMLElement>('[role="menu"]')!;
+        expect([...scope.querySelectorAll('button')].map((element) => element.textContent?.replace(/✓$/, '').trim())).toContain(t('folders.manage_folders'));
+    });
+
+    it('keeps the section header one line wide enough for its label', async () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
-        await click(byLabel(container, t('folders.expand_all')));
-        expect(useUi.getState().expandedFolders).toContain(folder.id);
-        await click(byLabel(container, t('folders.collapse_all')));
-        expect(useUi.getState().expandedFolders).not.toContain(folder.id);
+        const header = document.querySelector<HTMLElement>('#sidebar-folders > div')!;
+        const label = [...header.querySelectorAll<HTMLElement>('div')].find((element) => element.className.includes('uppercase'))!;
+        // Five controls is the measured ceiling: at 180px of row the label still takes one
+        // unclipped line, and a sixth would push it onto a second.
+        expect(header.querySelectorAll('button')).toHaveLength(5);
+        expect(label.className).toContain('whitespace-nowrap');
+        expect(label.className).toContain('truncate');
     });
 
     it('sorts sibling folders by name from the row menu', async () => {

@@ -1,9 +1,10 @@
 // @vitest-environment node
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
+import { isScratchPath, walkSource } from '../scripts/lib/scratch-files.mjs'
 import appConfig from '../vitest.config'
 
 const ROOT = path.resolve(new URL('..', import.meta.url).pathname)
@@ -11,6 +12,7 @@ const MARKER = '.tmp.'
 const PATTERN = '**/*.tmp.*'
 const TS_PROJECTS = ['tsconfig.client.json', 'tsconfig.worker.json']
 const SCAN_ROOTS = ['src', 'tests', 'scripts', 'public']
+const TREE_WALKING_GATES = ['scripts/check-i18n.mjs', 'scripts/check-comments.mjs']
 
 const isScratch = (file: string) => path.basename(file).includes(MARKER)
 const relative = (file: string) => path.relative(ROOT, file).split(path.sep).join('/')
@@ -71,5 +73,30 @@ describe('scratch probes stay out of the gates', () => {
 
   it('carries the exclusion in the vitest project that collects the source tree', () => {
     expect(projectExclude('jsdom'), 'jsdom').toContain(PATTERN)
+  })
+
+  it('hides the marker from the gates that walk the tree as text', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'inkstone-scratch-walk-'))
+    try {
+      mkdirSync(path.join(dir, 'nested'))
+      writeFileSync(path.join(dir, 'kept.ts'), '')
+      writeFileSync(path.join(dir, 'probe.tmp.ts'), '')
+      writeFileSync(path.join(dir, 'nested', 'kept.mjs'), '')
+      writeFileSync(path.join(dir, 'nested', 'probe.tmp.mjs'), '')
+      expect([...walkSource(dir)].map((file) => path.relative(dir, file).split(path.sep).join('/')).sort(), 'walked files').toEqual(['kept.ts', 'nested/kept.mjs'])
+      expect(isScratchPath(`scripts/probe${MARKER}ts`), 'marker').toBe(true)
+      expect(isScratchPath('scripts/probe.ts'), 'ordinary file').toBe(false)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the text gates no private copy of the tree walk', () => {
+    for (const name of TREE_WALKING_GATES) {
+      const source = readFileSync(path.join(ROOT, name), 'utf8')
+      expect(source, name).toContain('walkSource(')
+      expect(source, name).not.toMatch(/function\* walk\(/)
+    }
   })
 })
