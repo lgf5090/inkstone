@@ -25,10 +25,21 @@ interface TemplateInput {
   tags?: string[]
 }
 
+/** Everything a destructive action can take away, kept so one toast button can give it back. */
+interface TemplateLibrarySnapshot {
+  categories: NoteTemplateCategory[]
+  templates: NoteTemplate[]
+}
+
 interface TemplateLibraryState {
   categories: NoteTemplateCategory[]
   templates: NoteTemplate[]
   hydrated: boolean
+  /**
+   * The library as it was before the last destructive action, kept in memory only.
+   * One step deep, because that is all a toast's undo button promises.
+   */
+  undoable: TemplateLibrarySnapshot | null
   /** Account the hydrated library belongs to; a change forces a re-read. */
   owner: string
   hydrate: (owner: string) => Promise<void>
@@ -47,6 +58,8 @@ interface TemplateLibraryState {
   applyBatch: (ids: readonly string[], patchFor: (template: NoteTemplate) => Partial<NoteTemplate> | null) => number
   /** One write for a whole selection of removals; built-ins are refused. */
   removeTemplates: (ids: readonly string[]) => number
+  /** Give back what the last destructive action took. False when there is nothing to give back. */
+  restoreUndoable: () => boolean
 }
 
 const NAME_MAX = TEMPLATE_IMPORT_LIMITS.maxNameLength
@@ -295,6 +308,7 @@ export const useNoteTemplates = create<TemplateLibraryState>((set, get) => ({
   categories: [],
   templates: [],
   hydrated: false,
+  undoable: null,
   owner: '',
   hydrate: (owner) => hydrateImpl(set, get, owner),
   createCategory: (name) => createCategoryImpl(set, name),
@@ -310,6 +324,7 @@ export const useNoteTemplates = create<TemplateLibraryState>((set, get) => ({
   toggleTemplateStar: (id) => toggleTemplateFlag(set, id, 'isStarred'),
   applyBatch: (ids, patchFor) => applyBatchImpl(set, ids, patchFor),
   removeTemplates: (ids) => removeTemplatesImpl(set, ids),
+  restoreUndoable: () => restoreUndoableImpl(set, get),
 }))
 
 /**
@@ -427,7 +442,7 @@ function deleteCategoryImpl(
       ? { ...item, categoryId: null }
       : item)
     persist(templates, categories)
-    return { categories, templates }
+    return { categories, templates, undoable: snapshotOf(state) }
   })
   return true
 }
@@ -503,7 +518,7 @@ function deleteTemplateImpl(
   set((state) => {
     const templates = state.templates.filter((item) => item.id !== id)
     persist(templates, state.categories)
-    return { templates }
+    return { templates, undoable: snapshotOf(state) }
   })
   return true
 }
@@ -666,7 +681,46 @@ function removeTemplatesImpl(set: SetTemplateState, ids: readonly string[]): num
     })
     if (removed === 0) return state
     persist(templates, state.categories)
-    return { templates }
+    return { templates, undoable: snapshotOf(state) }
   })
   return removed
+}
+
+function snapshotOf(state: TemplateLibraryState): TemplateLibrarySnapshot {
+  return { categories: [...state.categories], templates: [...state.templates] }
+}
+
+/**
+ * Give back what the last destructive action took away.
+ *
+ * The snapshot is merged, not dropped in place: anything the user touched since the
+ * delete keeps their version, and an entry that is simply gone comes back with the
+ * id, position and timestamps it had. So undoing a delete never quietly reverts an
+ * unrelated edit made in the meantime.
+ */
+function restoreUndoableImpl(set: SetTemplateState, get: () => TemplateLibraryState): boolean {
+  const snapshot = get().undoable
+  if (!snapshot) return false
+  set((state) => {
+    const liveIds = new Set(state.templates.map((item) => item.id))
+    const revived = snapshot.templates.filter((item) => !liveIds.has(item.id))
+    const categoryIds = new Set(state.categories.map((item) => item.id))
+    const backCategories = snapshot.categories.filter((item) => !categoryIds.has(item.id))
+    const orphaned = new Map(backCategories.map((item) => [item.id, item.id]))
+    const whereTheyWere = new Map(snapshot.templates.map((item) => [item.id, item.categoryId]))
+    let relinked = 0
+    const kept = state.templates.map((item) => {
+      if (item.categoryId !== null) return item
+      const previous = whereTheyWere.get(item.id)
+      if (previous === null || previous === undefined || !orphaned.has(previous)) return item
+      relinked += 1
+      return { ...item, categoryId: previous }
+    })
+    if (!revived.length && !backCategories.length && !relinked) return { undoable: null }
+    const templates = [...kept, ...revived]
+    const categories = orderedCategories([...state.categories, ...backCategories])
+    persist(templates, categories)
+    return { categories, templates, undoable: null }
+  })
+  return true
 }

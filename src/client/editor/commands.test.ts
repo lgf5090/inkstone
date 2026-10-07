@@ -2,7 +2,7 @@ import type { EditorView } from '@codemirror/view'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { beforeAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
-import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertKanban, insertMathBlock, setHeading, toggleComment } from './commands'
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertKanban, insertMathBlock, insertRenderedTemplate, setHeading, toggleComment } from './commands'
 import { parseKanbanBody } from '../lib/markdown/kanban/body'
 import { renderMarkdown } from '../lib/markdown/renderer'
 
@@ -303,5 +303,42 @@ describe('timeline insertion', () => {
     const result = runColonCompletion('::: timeline History')
     expect(result.handled).toBe(true)
     expect(result.doc).toBe('::: timeline History\n\n:::')
+  })
+})
+
+function runTemplateInsert(content: string, cursor: number | null, docs: string[], selection?: { anchor: number, head: number }) {
+  let state = EditorState.create({
+    doc: docs.join('\n'),
+    selection: selection ? EditorSelection.create([EditorSelection.range(selection.anchor, selection.head)]) : undefined,
+  })
+  let next = state
+  const handled = insertRenderedTemplate(content, cursor)({
+    state,
+    dispatch: (transaction) => { next = transaction.state },
+  })
+  return { handled, doc: next.doc.toString(), ranges: next.selection.ranges.map((range) => [range.from, range.to]) }
+}
+
+describe('insertRenderedTemplate', () => {
+  it('replaces the selection and lands the caret where the template asked', () => {
+    const { handled, doc, ranges } = runTemplateInsert('Body {{here}}', 5, ['old text'], { anchor: 0, head: 8 })
+    expect(handled).toBe(true)
+    expect(doc).toBe('Body {{here}}')
+    expect(ranges).toEqual([[5, 5]])
+  })
+
+  it('puts the caret at the end when the template has no cursor marker', () => {
+    const { doc, ranges } = runTemplateInsert('plain body', null, [''])
+    expect(doc).toBe('plain body')
+    expect(ranges).toEqual([[10, 10]])
+  })
+
+  it('refuses to insert nothing, so one undo step is never wasted', () => {
+    expect(runTemplateInsert('', 0, ['keep']).handled).toBe(false)
+  })
+
+  it('shifts the caret by the text that came before it in the same insertion', () => {
+    const { ranges } = runTemplateInsert('---\ntitle: x\n---\n\nafter', 14, [''])
+    expect(ranges).toEqual([[14, 14]])
   })
 })

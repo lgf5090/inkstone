@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { EditorView } from '@codemirror/view';
 import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { insertRenderedTemplate } from '../../editor/commands';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
 import { LIMITS } from '@shared/constants';
@@ -247,6 +248,15 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         command(view);
         view.focus();
     }, [view]);
+    const templateInsert = useUi((state) => state.templateInsert);
+    const clearTemplateInsert = useUi((state) => state.clearTemplateInsert);
+    useEffect(() => {
+        if (!templateInsert || !view || templateInsert.noteId !== note?.id)
+            return;
+        insertRenderedTemplate(templateInsert.content, templateInsert.cursor)(view);
+        view.focus();
+        clearTemplateInsert();
+    }, [templateInsert, view, note?.id, clearTemplateInsert]);
     const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, previewSettings.syncScroll && showSplit);
     const jumpToHeading = useCallback((heading: Heading) => {
         if (view && showEditor) {

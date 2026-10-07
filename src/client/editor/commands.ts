@@ -565,6 +565,22 @@ export const insertTable: StateCommand = (target) => {
     return insertPrefixedBlock(template, 2)(target);
 };
 /**
+ * Replace the selection with already-rendered text and put the caret where the
+ * template asked for it. One transaction, so one undo takes the block back.
+ */
+export function insertRenderedTemplate(content: string, cursor: number | null): StateCommand {
+    return ({ state, dispatch }) => {
+        if (!content)
+            return false;
+        const changes = state.changeByRange((range) => ({
+            changes: { from: range.from, to: range.to, insert: content },
+            range: EditorSelection.cursor(range.from + (cursor ?? content.length)),
+        }));
+        dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
+        return true;
+    };
+}
+/**
  * Insert the configured new-note template at each caret.
  *
  * This interpolates only: the note already exists, so merging its front matter
@@ -572,7 +588,7 @@ export const insertTable: StateCommand = (target) => {
  * are filled from the note being edited, and `{{cursor}}` lands the caret
  * inside the inserted text.
  */
-export const insertNoteTemplate: StateCommand = ({ state, dispatch }) => {
+export const insertNoteTemplate: StateCommand = (target) => {
     const template = useSession.getState().settings.notes?.newNoteTemplate ?? '';
     if (!template.trim())
         return false;
@@ -584,14 +600,7 @@ export const insertNoteTemplate: StateCommand = ({ state, dispatch }) => {
         folder: folder?.name ?? '',
         tags: (summary?.tags ?? []).join(', '),
     });
-    if (!rendered.content)
-        return false;
-    const changes = state.changeByRange((range) => ({
-        changes: { from: range.from, to: range.to, insert: rendered.content },
-        range: EditorSelection.cursor(range.from + (rendered.cursor ?? rendered.content.length)),
-    }));
-    dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
-    return true;
+    return insertRenderedTemplate(rendered.content, rendered.cursor)(target);
 };
 export const insertCodeBlock: StateCommand = ({ state, dispatch }) => {
     const changes = state.changeByRange((range) => {

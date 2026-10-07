@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { DEFAULT_NEW_NOTE_TEMPLATE, NEW_NOTE_TEMPLATE_MAX_LENGTH } from '@shared/constants'
+import { NEW_NOTE_PLACEHOLDERS } from '@shared/note-template-render'
 import { renderNewNoteTemplate } from '@shared/note-template-render'
 import { Input, SettingRow, Switch, Textarea } from '../../components/form'
 import { Button } from '../../components/primitives'
@@ -25,11 +26,29 @@ export function NotesSettings() {
   const setSyncTitleToFrontMatter = useCallback((syncTitleToFrontMatter: boolean) => void update({ notes: { syncTitleToFrontMatter } }), [update]);
   const setSyncFrontMatterTitle = useCallback((syncFrontMatterTitle: boolean) => void update({ notes: { syncFrontMatterTitle } }), [update]);
   const isDefault = notes.newNoteTemplate === DEFAULT_NEW_NOTE_TEMPLATE;
+  const templateRef = useRef<HTMLTextAreaElement>(null);
+  const insertPlaceholder = useCallback((placeholder: string) => {
+    const field = templateRef.current;
+    const token = `{{${placeholder}}}`;
+    const value = notes.newNoteTemplate;
+    const at = field ? field.selectionStart : value.length;
+    const end = field ? field.selectionEnd : value.length;
+    const room = NEW_NOTE_TEMPLATE_MAX_LENGTH - value.length + (end - at);
+    if (room <= 0) return;
+    const text = token.slice(0, room);
+    setTemplate(value.slice(0, at) + text + value.slice(end));
+    requestAnimationFrame(() => {
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(at + text.length, at + text.length);
+    });
+  }, [notes.newNoteTemplate, setTemplate]);
   return (<div className="space-y-6">
     <section>
       <SettingRow title={t("settings.new_note_template")} description={t("settings.new_note_template_description")}>
         <div className="flex w-[340px] max-w-full flex-col items-end gap-2">
           <Textarea
+            ref={templateRef}
             aria-label={t("settings.new_note_template")}
             value={notes.newNoteTemplate}
             onChange={(event) => setTemplate(event.target.value)}
@@ -37,6 +56,16 @@ export function NotesSettings() {
             rows={10}
             spellCheck={false}
             className="w-full font-mono text-[12.5px]"/>
+          <div className="flex w-full flex-wrap justify-end gap-1">
+            {NEW_NOTE_PLACEHOLDERS.map((placeholder) => (<button
+              key={placeholder}
+              type="button"
+              onClick={() => insertPlaceholder(placeholder)}
+              className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-1.5 py-px font-mono text-[10.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
+              {`{{${placeholder}}}`}
+            </button>))}
+          </div>
+          <p className="w-full text-right text-[10.5px] text-[var(--text-quaternary)]">{t("templates.placeholders_hint")}</p>
           <div className="flex w-full items-center justify-between gap-2">
             <span className="text-[10.5px] tabular text-[var(--text-quaternary)]">
               {t("settings.new_note_template_characters", {

@@ -119,17 +119,16 @@ function cssEscape(value: string): string {
 }
 
 /**
- * Land the ring and the real focus on one card.
+ * Move the ring onto one card and bring it into view.
  *
- * The ring alone would not make the printed `Enter use` true: the activation is a
- * button, and a button only answers Enter when the document holds it.
+ * The card owns the DOM focus itself: it focuses its own use button whenever the ring
+ * lands on it, which is what makes Enter work after an arrow.
  */
 function focusTemplateCard(deps: Pick<GalleryKeyboardDeps, 'gridRef' | 'setFocusedId'>, id: string): void {
   deps.setFocusedId(id)
   requestAnimationFrame(() => {
-    const card = deps.gridRef.current?.querySelector<HTMLElement>(`[data-template-id="${cssEscape(id)}"]`)
-    card?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    ;(card?.querySelector<HTMLElement>('button') ?? card)?.focus({ preventScroll: true })
+    deps.gridRef.current?.querySelector<HTMLElement>(`[data-template-id="${cssEscape(id)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   })
 }
 

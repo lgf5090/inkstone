@@ -9,14 +9,15 @@ import { Field, Input, Select, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useUi } from '../../store/ui'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 
 const EDITOR_MODAL_WIDTH = 680
 const NARROW_MODAL_WIDTH = 420
 const IMPORT_MODAL_WIDTH = 560
 
-export function TemplateEditorModal({ template, categories, onClose }: {
+export function TemplateEditorModal({ template, initial, categories, onClose }: {
   template: NoteTemplate | null
+  initial?: TemplateDraft | null
   categories: NoteTemplateCategory[]
   onClose: () => void
 }) {
@@ -28,7 +29,7 @@ export function TemplateEditorModal({ template, categories, onClose }: {
       categoryId: template.categoryId,
       tags: template.tags,
     }
-    : EMPTY_DRAFT)
+    : initial ?? EMPTY_DRAFT)
   const [isError, setIsError] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   useEffect(() => { nameRef.current?.focus() }, [])
@@ -226,6 +227,29 @@ export function BatchMoveDialog({ categories, onMove, onClose }: {
     <div className='space-y-1'>
       <MoveChoice label={t('templates.uncategorized')} selected={false} onClick={() => onMove(null)}/>
       {categories.map((category) => (<MoveChoice key={category.id} label={category.name} selected={false} onClick={() => onMove(category.id)}/>))}
+    </div>
+  </Modal>)
+}
+
+export function TemplatePreviewModal({ template, categoryName, onUse, onClose }: {
+  template: NoteTemplate
+  categoryName: string
+  onUse: () => void
+  onClose: () => void
+}) {
+  useLocale()
+  const lines = template.content.split('\n')
+  return (<Modal open onClose={onClose} title={template.name} description={categoryName} width={EDITOR_MODAL_WIDTH} ariaLabel={template.name} footer={<>
+    <Button variant='ghost' onClick={onClose}>{t('common.close')}</Button>
+    <Button variant='primary' onClick={onUse}>{t('templates.use_template')}</Button>
+  </>}>
+    <div className='space-y-2'>
+      {template.description && <p className='text-[12px] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>}
+      {template.tags.length > 0 && (<div className='flex flex-wrap gap-1'>
+        {template.tags.map((tag) => (<span key={tag} className='rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[10px] text-[var(--text-tertiary)]'>#{tag}</span>))}
+      </div>)}
+      <pre className='max-h-[min(46vh,420px)] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 text-[11.5px] leading-relaxed whitespace-pre font-mono text-[var(--text-secondary)]'>{template.content}</pre>
+      <p className='text-[11px] text-[var(--text-quaternary)]'>{t('templates.preview_lines_value0', { value0: lines.length })}</p>
     </div>
   </Modal>)
 }

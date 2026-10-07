@@ -206,6 +206,7 @@ const allowed = new Map([
     "// a block inside a list item has to stay inside it.",
     "// The range runs up to the start of the closing fence, so it ends in a line break the new body has to",
     "// hand back — otherwise the last line of the block swallows the ``` that closed it.",
+    "/**\n * Replace the selection with already-rendered text and put the caret where the\n * template asked for it. One transaction, so one undo takes the block back.\n */",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
@@ -660,6 +661,8 @@ const allowed = new Map([
   ["src/client/features/templates/gallery-actions.ts", [
     "/**\n * Batch actions apply one store write per template. Each write re-serializes the\n * whole library, so the count reported back is the number that actually changed\n * rather than the size of the selection.\n */",
     "/**\n * Batch actions take the store's batch primitives, so a selection costs one\n * library write instead of one per card. The count reported back is the number\n * that actually changed, not the size of the selection.\n */",
+    "/**\n * Deleting stays reversible for as long as the toast is on screen, which is the only\n * window an undo button printed on it can honestly promise.\n */",
+    "/**\n * The two directions a note and the library can move in: this note becomes a\n * template, or a template becomes text at the caret of this note. Both need the note\n * that is open behind the panel, so both say so when there is none.\n */",
   ]],
   ["src/client/features/templates/gallery-derived.ts", [
     "/**\n * One query, one rule: the gallery grid and the community list are the same\n * search over the same four fields, because a search box that only works in one\n * of the two is a control that lies about what the view can do.\n */",
@@ -672,8 +675,8 @@ const allowed = new Map([
     "/** Non-arrow shortcut keys; returns true once the event was consumed. */",
     "/**\n * Moves the focus ring across the grid. The column count is read from the laid-out\n * grid rather than assumed, because the same panel is one column on a phone and\n * three on a wide desktop.\n */",
     "/** Template ids are opaque and can start with a digit, which is not a bare CSS attribute value. */",
-    "/**\n * Land the ring and the real focus on one card.\n *\n * The ring alone would not make the printed `Enter use` true: the activation is a\n * button, and a button only answers Enter when the document holds it.\n */",
     "/**\n * Keys the search box owns.\n *\n * The panel opens with the caret in the search field, so without these the shortcut\n * row printed under the header described keys that could not be pressed: Escape had\n * to give back one step (clear the query) before it gives up the dialog, and ArrowDown\n * is how the caret walks out of the field and into the grid.\n */",
+    "/**\n * Move the ring onto one card and bring it into view.\n *\n * The card owns the DOM focus itself: it focuses its own use button whenever the ring\n * lands on it, which is what makes Enter work after an arrow.\n */",
   ]],
   ["src/client/features/templates/gallery-modals.tsx", [
     "// Reading the whole file into a string first, so an oversized drop fails",
@@ -3842,6 +3845,10 @@ const allowed = new Map([
     "// writes through `localDb` directly and stays quiet, so this cannot echo back.",
     "/**\n * Apply a patch to a whole selection in one write.\n *\n * The per-template store methods each re-serialize the library, so a loop over\n * them costs N writes of the whole record: at the 2000-template import ceiling a\n * select-all star took sixteen seconds of blocked main thread. Selections are the\n * common case, so the batch is the primitive and the loop is not.\n */",
     "/**\n * The account server keeps one copy of the library, so it survives a cleared\n * browser and follows the user to another device — the same durability class as\n * `settings`. Local writes are debounced because a batch click is one intent, and\n * a failed push leaves `pendingPush` set, which is what makes the next change (or\n * the next hydrate) retry instead of dropping the edit.\n */",
+    "/** Everything a destructive action can take away, kept so one toast button can give it back. */",
+    "/** Give back what the last destructive action took. False when there is nothing to give back. */",
+    "/**\n * Give back what the last destructive action took away.\n *\n * The snapshot is merged, not dropped in place: anything the user touched since the\n * delete keeps their version, and an entry that is simply gone comes back with the\n * id, position and timestamps it had. So undoing a delete never quietly reverts an\n * unrelated edit made in the meantime.\n */",
+    "/**\n   * The library as it was before the last destructive action, kept in memory only.\n   * One step deep, because that is all a toast's undo button promises.\n   */",
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
@@ -3898,6 +3905,8 @@ const allowed = new Map([
     "// expression written from a tag menu is the same grammar a person can type by hand.",
     "/** What a caller may say about a toast; the store supplies the id, the tone default and the timing. */",
     "/**\n * A notice that offers to take the action back. The undo is a closure over the state to put back,\n * so this has to be called from wherever that closure still exists — a board that dropped a card\n * hands over the patch that restores it, and nothing here remembers the board.\n */",
+    "/** Rendered template text the workspace editor should insert for one note. */",
+    "/**\n   * A template the gallery asked the open editor to swallow. The gallery is a panel\n   * over the workspace, so it has no view of its own; the workspace applies this and\n   * clears it, which keeps the one-transaction undo contract in the editor.\n   */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",

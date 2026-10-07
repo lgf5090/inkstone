@@ -4,7 +4,7 @@ import { useSession } from '../../store/session'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useDialogFocus, useEscape, useLockScroll } from '../../components/overlay'
 import { api } from '../../lib/api'
-import { GALLERY_PERSIST_KEY, loadGalleryPersist, type GalleryFilter, type GalleryPersistedState } from './gallery-persist'
+import { GALLERY_PERSIST_KEY, loadGalleryPersist, type GalleryFilter, type GalleryPersistedState, type TemplateDraft } from './gallery-persist'
 
 export function useGalleryLocalState({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -27,6 +27,8 @@ export function useGalleryLocalState({ onClose }: { onClose: () => void }) {
   const [isBatchMoving, setIsBatchMoving] = useState(false)
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const [searchFocused, setSearchFocused] = useState(false)
+  const [savingNote, setSavingNote] = useState<TemplateDraft | null>(null)
+  const [previewing, setPreviewing] = useState<NoteTemplate | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<{ id: string; after: boolean } | null>(null)
   const [dropCategory, setDropCategory] = useState<string | null>(null)
@@ -77,6 +79,10 @@ export function useGalleryLocalState({ onClose }: { onClose: () => void }) {
     setFocusedId,
     searchFocused,
     setSearchFocused,
+    savingNote,
+    setSavingNote,
+    previewing,
+    setPreviewing,
     draggingId,
     setDraggingId,
     dropHint,

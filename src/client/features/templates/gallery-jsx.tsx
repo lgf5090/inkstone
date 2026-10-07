@@ -11,6 +11,7 @@ import {
   ImportTemplatesModal,
   MoveTemplateDialog,
   TemplateEditorModal,
+  TemplatePreviewModal,
   TemplateRenameDialog,
 } from './gallery-modals'
 import { CommunityPanel } from './community-panel'
@@ -99,7 +100,7 @@ export function GalleryMain({ g }: { g: GalleryController }) {
         {derived.visible.map((template) => (<TemplateCard key={template.id} template={template} categoryName={filterActions.categoryName(template.categoryId)} selectMode={selectMode} selected={selectedIds.has(template.id)} focused={focusedId === template.id} dragging={draggingId === template.id} dropHint={dropHint?.id === template.id ? dropHint.after : null} onToggleSelect={() => selectActions.toggleSelect(template.id)} onDragStart={(id) => state.setDraggingId(id)} onDragOver={(id, after) => state.setDropHint({ id, after })} onDrop={(card, after) => dragActions.handleCardDrop(card, after)} onDragEnd={() => {
             state.setDraggingId(null)
             state.setDropHint(null)
-          }} onUse={() => templateActions.useTemplate(template)} onEdit={() => state.setEditing(template)} onRename={() => state.setRenaming(template)} onDuplicate={() => useNoteTemplates.getState().duplicateTemplate(template.id)} onMove={() => state.setMoving(template)} onDelete={() => void templateActions.deleteTemplate(template)} onPublish={() => state.setPublishing(template)} onTogglePin={() => store.togglePin(template.id)} onToggleStar={() => store.toggleStar(template.id)}/>))}
+          }} onUse={() => templateActions.useTemplate(template)} onEdit={() => state.setEditing(template)} onRename={() => state.setRenaming(template)} onDuplicate={() => useNoteTemplates.getState().duplicateTemplate(template.id)} onMove={() => state.setMoving(template)} onDelete={() => void templateActions.deleteTemplate(template)} onPublish={() => state.setPublishing(template)} onPreview={() => state.setPreviewing(template)} onInsert={() => g.noteBridge.insertActiveNote(template)} onTogglePin={() => store.togglePin(template.id)} onToggleStar={() => store.toggleStar(template.id)}/>))}
       </div>)}
     </main>
   )
@@ -122,9 +123,16 @@ export function GallerySelectBar({ g }: { g: GalleryController }) {
 }
 
 export function GalleryModals({ g }: { g: GalleryController }) {
-  const { state, store, filterActions, batchActions, community } = g
+  const { state, store, filterActions, templateActions, batchActions, community } = g
   return (<>
     {state.editing && <TemplateEditorModal template={state.editing === 'new' ? null : state.editing} categories={store.categories} onClose={() => state.setEditing(null)}/>}
+    {state.savingNote && <TemplateEditorModal template={null} initial={state.savingNote} categories={store.categories} onClose={() => state.setSavingNote(null)}/>}
+    {state.previewing && (<TemplatePreviewModal template={state.previewing} categoryName={filterActions.categoryName(state.previewing.categoryId)} onUse={() => {
+      const previewed = state.previewing
+      state.setPreviewing(null)
+      if (previewed) templateActions.useTemplate(previewed)
+    }} onClose={() => state.setPreviewing(null)}/>)
+    }
     {state.renaming && <TemplateRenameDialog template={state.renaming} onClose={() => state.setRenaming(null)}/>}
     {state.moving && <MoveTemplateDialog template={state.moving} categories={store.categories} onClose={() => state.setMoving(null)}/>}
     {state.categoryDialog && <CategoryDialog dialog={state.categoryDialog} onClose={() => state.setCategoryDialog(null)}/>}

@@ -553,3 +553,93 @@ describe('account sync of the template library', () => {
     expect(bus.pushes).toHaveLength(0)
   })
 })
+
+describe('undoing a destructive action', () => {
+  function makeNamed(names: string[], categoryId: string | null = null) {
+    return names.map((name) => fresh().createTemplate({ name, content: `body of ${name}`, categoryId })!)
+  }
+
+  it('gives a deleted template back with its identity and position', () => {
+    const [gone] = makeNamed(['doomed'])
+    const before = library().templates.find((item) => item.id === gone)!
+    expect(fresh().deleteTemplate(gone)).toBe(true)
+    expect(fresh().templates.some((item) => item.id === gone)).toBe(false)
+    expect(fresh().undoable?.templates.some((item) => item.id === gone)).toBe(true)
+    expect(fresh().restoreUndoable()).toBe(true)
+    const back = fresh().templates.find((item) => item.id === gone)!
+    expect(back).toMatchObject({ name: 'doomed', content: 'body of doomed', position: before.position })
+    expect(fresh().undoable).toBe(null)
+  })
+
+  it('gives a whole batch back in one write', () => {
+    const ids = makeNamed(['a', 'b', 'c', 'd'])
+    const savesBefore = bus.saves
+    expect(fresh().removeTemplates(ids)).toBe(4)
+    bus.saves = 0
+    expect(fresh().restoreUndoable()).toBe(true)
+    expect(bus.saves).toBe(1)
+    expect(ids.every((id) => fresh().templates.some((item) => item.id === id))).toBe(true)
+    expect(savesBefore).toBeGreaterThan(0)
+  })
+
+  it('restores a deleted category together with the templates it held', () => {
+    const category = fresh().createCategory('Field notes')!
+    const [kept] = makeNamed(['resident'], category)
+    expect(fresh().deleteCategory(category)).toBe(true)
+    expect(fresh().templates.find((item) => item.id === kept)?.categoryId).toBe(null)
+    expect(fresh().restoreUndoable()).toBe(true)
+    expect(fresh().categories.some((item) => item.id === category)).toBe(true)
+    expect(fresh().templates.find((item) => item.id === kept)?.categoryId).toBe(category)
+  })
+
+  it('leaves a template the user already moved somewhere else where they put it', () => {
+    const field = fresh().createCategory('Field notes')!
+    const archive = fresh().createCategory('Archive')!
+    const [resident] = makeNamed(['resident'], field)
+    fresh().deleteCategory(field)
+    fresh().updateTemplate(resident, { categoryId: archive })
+    expect(fresh().restoreUndoable()).toBe(true)
+    expect(fresh().categories.some((item) => item.id === field)).toBe(true)
+    expect(fresh().templates.find((item) => item.id === resident)?.categoryId).toBe(archive)
+  })
+
+  it('has nothing to undo before the first destructive action', () => {
+    expect(fresh().undoable).toBe(null)
+    expect(fresh().restoreUndoable()).toBe(false)
+    bus.saves = 0
+    expect(bus.saves).toBe(0)
+  })
+
+  it('refuses to undo a built-in that was never really deleted', () => {
+    const builtin = fresh().templates.find((item) => item.builtin)!
+    expect(fresh().removeTemplates([builtin.id])).toBe(0)
+    expect(fresh().undoable).toBe(null)
+    bus.saves = 0
+    expect(fresh().restoreUndoable()).toBe(false)
+    expect(bus.saves).toBe(0)
+  })
+
+  it('keeps only the newest step, which is what a single undo button means', () => {
+    const first = makeNamed(['first'])
+    const second = makeNamed(['second'])
+    fresh().deleteTemplate(first[0]!)
+    fresh().deleteTemplate(second[0]!)
+    expect(fresh().restoreUndoable()).toBe(true)
+    expect(fresh().templates.some((item) => item.id === second[0])).toBe(true)
+    expect(fresh().templates.some((item) => item.id === first[0])).toBe(false)
+  })
+
+  it('brings the deleted entry back without undoing an unrelated edit', () => {
+    const [gone] = makeNamed(['doomed'])
+    const [stays] = makeNamed(['stays'])
+    const before = fresh().templates.length
+    fresh().deleteTemplate(gone)
+    fresh().updateTemplate(stays, { name: 'renamed after the delete' })
+    expect(fresh().restoreUndoable()).toBe(true)
+    expect(fresh().templates.find((item) => item.id === stays)?.name).toBe('renamed after the delete')
+    expect(fresh().templates.some((item) => item.id === gone)).toBe(true)
+    const ids = fresh().templates.map((item) => item.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(fresh().templates).toHaveLength(before)
+  })
+})

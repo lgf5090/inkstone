@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NoteTemplate } from '@shared/types'
 import { useGalleryKeyboard } from './gallery-keyboard'
 
@@ -33,6 +33,7 @@ interface Harness {
   search: HTMLInputElement
   grid: HTMLDivElement
   buttonOf: (id: string) => HTMLElement
+  scrolled: { ids: string[] }
 }
 
 function harness(ids: string[] = ['a', 'b', 'c']): Harness {
@@ -76,6 +77,7 @@ function harness(ids: string[] = ['a', 'b', 'c']): Harness {
     calls,
     search,
     grid,
+    scrolled,
     buttonOf: (id: string) => grid.querySelector<HTMLElement>(`[data-template-id="${id}"] button`)!,
   }
 }
@@ -87,11 +89,22 @@ function press(target: EventTarget, keyName: string) {
   return { event: event as unknown as Parameters<ReturnType<typeof useGalleryKeyboard>>[0], preventDefault }
 }
 
+const scrolled = { ids: [] as string[] }
+
 beforeEach(() => {
-  Element.prototype.scrollIntoView = () => {}
+  vi.useFakeTimers()
+  scrolled.ids = []
+  Element.prototype.scrollIntoView = function () {
+    const card = this.closest('[data-template-id]')
+    if (card) scrolled.ids.push(card.getAttribute('data-template-id')!)
+  }
 })
 
 
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('gallery keyboard from inside the search box', () => {
   it('clears the query on the first Escape and keeps the dialog', () => {
@@ -111,14 +124,14 @@ describe('gallery keyboard from inside the search box', () => {
     expect(calls.setQuery).toEqual([])
   })
 
-  it('walks the caret into the first card on ArrowDown', async () => {
-    const { deps, calls, search, buttonOf } = harness()
+  it('walks the ring into the first card on ArrowDown', () => {
+    const { deps, calls, search, scrolled } = harness()
     const { event, preventDefault } = press(search, 'ArrowDown')
     useGalleryKeyboard(deps)(event)
     expect(preventDefault).toHaveBeenCalled()
     expect(calls.setFocusedId).toEqual(['a'])
-    
-    await vi.waitFor(() => expect(document.activeElement).toBe(buttonOf('a')))
+    vi.advanceTimersByTime(20)
+    expect(scrolled.ids).toEqual(['a'])
   })
 
   it('keeps the caret in the field when there is nothing to walk into', () => {
@@ -144,17 +157,16 @@ describe('gallery keyboard from inside the search box', () => {
     expect(calls.setIsHelpOpen).toEqual([true])
   })
 
-  it('moves real focus across the grid with the arrows, so Enter can activate', async () => {
-    const { deps, buttonOf } = harness()
+  it('moves the ring and brings the card into view with the arrows', () => {
+    const { deps, buttonOf, scrolled } = harness()
     const handler = useGalleryKeyboard(deps)
-    buttonOf('a').focus()
+    deps.focusedId = 'a'
     handler(press(buttonOf('a'), 'ArrowRight').event)
     expect(deps.focusedId).toBe('b')
-    
-    await vi.waitFor(() => expect(document.activeElement).toBe(buttonOf('b')))
+    vi.advanceTimersByTime(20)
     handler(press(buttonOf('b'), 'ArrowDown').event)
     expect(deps.focusedId).toBe('c')
-    
-    await vi.waitFor(() => expect(document.activeElement).toBe(buttonOf('c')))
+    vi.advanceTimersByTime(20)
+    expect(scrolled.ids).toEqual(['b', 'c'])
   })
 })

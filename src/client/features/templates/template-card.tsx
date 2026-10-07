@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Check, Copy, FilePlus2, FolderPlus, MoreHorizontal, Pencil, Pin, PinOff, Send, Star, Trash2 } from 'lucide-react'
+import { Check, Copy, CornerDownLeft, Eye, FilePlus2, FolderPlus, MoreHorizontal, Pencil, Pin, PinOff, Send, Star, Trash2 } from 'lucide-react'
 import type { NoteTemplate } from '@shared/types'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
@@ -29,6 +29,8 @@ interface TemplateCardProps {
   onMove: () => void
   onDelete: () => void
   onPublish: () => void
+  onPreview: () => void
+  onInsert: () => void
   onTogglePin: () => void
   onToggleStar: () => void
 }
@@ -41,10 +43,14 @@ function templateMenuItems(
     onDuplicate: () => void
     onMove: () => void
     onPublish: () => void
+    onPreview: () => void
+    onInsert: () => void
     onDelete: () => void
   },
 ): MenuItem[] {
   const items: MenuItem[] = [
+    { id: 'preview', label: t('templates.preview_template'), icon: <Eye size={13}/>, onSelect: handlers.onPreview },
+    { id: 'insert', label: t('templates.insert_into_note'), icon: <CornerDownLeft size={13}/>, onSelect: handlers.onInsert },
     { id: 'edit', label: t('templates.edit_template'), icon: <Pencil size={13}/>, onSelect: handlers.onEdit },
     { id: 'rename', label: t('templates.rename_template'), icon: <FilePlus2 size={13}/>, onSelect: handlers.onRename },
     { id: 'duplicate', label: t('templates.duplicate_template'), icon: <Copy size={13}/>, onSelect: handlers.onDuplicate },
@@ -254,6 +260,7 @@ export function TemplateCard(props: TemplateCardProps) {
     template, categoryName, selectMode, selected, focused, dragging, dropHint,
     onToggleSelect, onDragStart, onDragOver, onDrop, onDragEnd, onUse, onEdit, onRename,
     onDuplicate, onMove, onDelete, onPublish, onTogglePin, onToggleStar,
+    onPreview, onInsert,
   } = props
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const useButtonRef = useRef<HTMLButtonElement>(null)
@@ -266,7 +273,7 @@ export function TemplateCard(props: TemplateCardProps) {
     () => template.content.split('\n').filter((line) => line.trim()).length,
     [template.content],
   )
-  const items = templateMenuItems(template, { onEdit, onRename, onDuplicate, onMove, onPublish, onDelete })
+  const items = templateMenuItems(template, { onEdit, onRename, onDuplicate, onMove, onPublish, onPreview, onInsert, onDelete })
   const handleContextMenu = (event: MouseEvent) => {
     setIsMenuOpen(false)
     contextMenu.onContextMenu(event)

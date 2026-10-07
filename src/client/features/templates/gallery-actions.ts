@@ -1,12 +1,81 @@
 import { useCallback } from 'react'
 import type { CommunityTemplate, NoteTemplate, NoteTemplateCategory } from '@shared/types'
+import type { MessageKey } from '@shared/locales/en-US'
+import { TEMPLATE_IMPORT_LIMITS } from '@shared/note-templates'
+import { interpolateNewNoteTemplate } from '@shared/note-template-render'
 import { createNoteFromTemplate } from '../../lib/template-notes'
+import { peekNoteContent } from '../preview/card-content'
+import { useNotes } from '../../store/notes'
 import { templateOrderValue, useNoteTemplates } from '../../store/note-templates'
 import { useUi } from '../../store/ui'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import type { GalleryLocalState } from './gallery-state'
+
+const TEMPLATE_NAME_MAX = TEMPLATE_IMPORT_LIMITS.maxNameLength
+
+/**
+ * Deleting stays reversible for as long as the toast is on screen, which is the only
+ * window an undo button printed on it can honestly promise.
+ */
+function toastUndoableDelete(count: number, key: MessageKey) {
+  if (count <= 0) return
+  useUi.getState().toast({
+    title: t(key, { value0: count }),
+    tone: 'success',
+    action: { label: t('common.undo'), run: () => void useNoteTemplates.getState().restoreUndoable() },
+  })
+}
+
+/**
+ * The two directions a note and the library can move in: this note becomes a
+ * template, or a template becomes text at the caret of this note. Both need the note
+ * that is open behind the panel, so both say so when there is none.
+ */
+export function useGalleryNoteBridge(state: GalleryLocalState, onClose: () => void) {
+  const { setSavingNote } = state
+  const activeNoteId = useUi((ui) => ui.activeNoteId)
+  const activeTitle = useNotes((notes) => (activeNoteId ? notes.notes[activeNoteId]?.title ?? null : null))
+  const saveActiveNoteAsTemplate = useCallback(() => {
+    void (async () => {
+      if (!activeNoteId) return
+      const content = await peekNoteContent(activeNoteId)
+      const ui = useUi.getState()
+      if (!content || !content.trim()) {
+        ui.toast({ title: t('templates.note_has_nothing_to_save'), tone: 'danger' })
+        return
+      }
+      setSavingNote({
+        name: (activeTitle ?? t('templates.template_from_note')).slice(0, TEMPLATE_NAME_MAX),
+        description: '',
+        content,
+        categoryId: null,
+        tags: [],
+      })
+    })()
+  }, [activeNoteId, activeTitle, setSavingNote])
+  const insertActiveNote = useCallback((template: NoteTemplate) => {
+    const notes = useNotes.getState()
+    const id = useUi.getState().activeNoteId
+    const summary = id ? notes.notes[id] : null
+    if (!id || !summary) {
+      useUi.getState().toast({ title: t('templates.no_note_to_insert_into'), tone: 'danger' })
+      return
+    }
+    const folder = summary.folderId ? notes.folders.find((item) => item.id === summary.folderId) : null
+    const rendered = interpolateNewNoteTemplate(template.content, {
+      title: summary.title || t('common.new_note'),
+      folder: folder?.name ?? '',
+      tags: (summary.tags ?? []).join(', '),
+    })
+    if (!rendered.content) return
+    useUi.getState().requestTemplateInsert({ noteId: id, content: rendered.content, cursor: rendered.cursor })
+    useUi.getState().toast({ title: t('templates.inserted_into_note'), tone: 'success' })
+    onClose()
+  }, [onClose])
+  return { saveActiveNoteAsTemplate, insertActiveNote, hasActiveNote: Boolean(activeNoteId && activeTitle) }
+}
 
 export function useGalleryFilterActions(state: GalleryLocalState, categories: NoteTemplateCategory[]) {
   const { setFilter } = state
@@ -23,7 +92,9 @@ export function useGalleryFilterActions(state: GalleryLocalState, categories: No
       tone: 'danger',
     })
     if (!ok) return
-    useNoteTemplates.getState().deleteCategory(category.id)
+    const removed = useNoteTemplates.getState().deleteCategory(category.id)
+    if (removed)
+      toastUndoableDelete(1, 'templates.deleted_category_toast_value0')
     setFilter((current) => current.kind === 'category' && current.id === category.id
       ? { kind: 'all' }
       : current)
@@ -50,8 +121,8 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       confirmLabel: t('templates.delete_template'),
       tone: 'danger',
     })
-    if (ok)
-      useNoteTemplates.getState().deleteTemplate(template.id)
+    if (ok && useNoteTemplates.getState().deleteTemplate(template.id))
+      toastUndoableDelete(1, 'templates.deleted_templates_toast_value0')
   }, [])
   const importCommunityTemplate = useCallback((item: CommunityTemplate) => {
     const match = categories.find((category) => category.name.toLocaleLowerCase() === item.category.toLocaleLowerCase())
@@ -202,7 +273,7 @@ export function useGalleryBatchActions(
     if (!ok) return
     const deleted = runBatchDelete(selectedTemplates)
     setSelectedIds(new Set())
-    useUi.getState().toast({ title: t('templates.batch_deleted_value0', { value0: deleted }), tone: 'success' })
+    toastUndoableDelete(deleted, 'templates.batch_deleted_value0')
   }, [selectedTemplates, setSelectedIds])
   return { batchToggleStar, batchMove, batchDelete }
 }
