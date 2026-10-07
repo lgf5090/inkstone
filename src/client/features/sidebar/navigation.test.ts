@@ -540,7 +540,25 @@ describe('folder row menu', () => {
             expect(patchFolder).toHaveBeenCalledExactlyOnceWith('d', { parentId: 'c', beforeId: null });
         });
 
-        it('hides the moved folder and everything below it from the destinations', async () => {
+        it('paints the move flyout as an opaque panel', async () => {
+        await openMoveMenu(1);
+        const panel = flyout(t('folders.move_to'));
+        expect(panel.className).not.toContain('bg-');
+        expect(panel.firstElementChild?.className).toContain('bg-[var(--bg-overlay)]');
+    });
+    it('keeps the shortcut row out of the level anchoring', async () => {
+        setInboxFolderId('a');
+        const { panel } = await openMoveMenu(1);
+        const rows = [...panel.querySelectorAll<HTMLElement>(`[data-move-row][data-move-id="a"]`)];
+        expect(rows).toHaveLength(2);
+        expect(rows[0].hasAttribute('data-move-shortcut')).toBe(true);
+        expect(rows[1].hasAttribute('data-move-shortcut')).toBe(false);
+        await act(() => rows[1].focus());
+        const nested = document.querySelector<HTMLElement>(`[role="group"][aria-label="Alpha"]`);
+        expect(nested).toBeTruthy();
+        expect(nested?.querySelector('[data-move-row]')?.textContent).toContain('Beta');
+    });
+    it('hides the moved folder and everything below it from the destinations', async () => {
             const { panel } = await openMoveMenu(0);
             expect(rowsAt(panel, 0).map((element) => element.dataset.moveId)).toEqual(['', 'd']);
             expect(panel.textContent).not.toContain('Beta');
