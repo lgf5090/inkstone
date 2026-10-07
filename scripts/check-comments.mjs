@@ -85,6 +85,9 @@ const allowed = new Map([
     "// whole-grid renders. `getDiaryId` is called once per day cell during the month grid's",
     "// render, so counting its calls counts renders — the only way this is visible in jsdom,",
     "// because a wasted render mutates no DOM.",
+    "// C-05. The week panel used to render every note of every day it had ever shown and",
+    "// never unmount them, so the DOM under a collapsed panel grew with the busiest day of",
+    "// the vault rather than with what the reader can actually see.",
   ]],
   ["src/client/components/activity-calendar/heat-cell.ts", [
     "/**\n * One day tile of a heat surface. `null` is not a day of this month at all, so it draws nothing.\n *\n * The whole ramp sits on paper rather than on the surface behind it: level 0 is the bare tile and\n * levels 1-4 mix the accent into that same white, so a quiet day and a busy day are the same object\n * at different saturation. Mixing over `transparent` made the quiet tiles read as shaded days,\n * because their fill was only a few points off the sunken sidebar behind them.\n */",
@@ -121,6 +124,15 @@ const allowed = new Map([
     "// The width is kept as the answer it produces, never as a number: the navigation panel",
     "// animates its width, so a raw `contentRect.width` reached this component as around twenty",
     "// distinct fractions per deliberate change and each one re-rendered the whole heat grid.",
+  ]],
+  ["src/client/components/activity-calendar/weeks-strip.tsx", [
+    "// A day with more notes than this gets a truncated list plus a way out. The panel below",
+    "// the week strip used to mount every note of the last-shown week and day forever, so a",
+    "// single busy day (a bulk import, a whole-vault restore) put thousands of buttons under a",
+    "// collapsed surface. 50 is a row-count budget, not a data limit: the day filter still",
+    "// shows all of them.",
+    "// `--dur-base` is 220ms and the collapse animates `grid-template-rows`, which needs its",
+    "// children present for the whole run; unmounting any earlier would snap the panel shut.",
   ]],
   ["src/client/components/form.tsx", [
     "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",

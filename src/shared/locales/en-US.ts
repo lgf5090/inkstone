@@ -1946,6 +1946,7 @@ export const EN_US_MESSAGES = {
     "sidebar.calendar_outside_window_value0": "newest edit is {value0} days outside this range",
     "sidebar.calendar_prev_month": "Previous month",
     "sidebar.calendar_prev_year": "Previous year",
+    "sidebar.calendar_show_day_all_value0": "Show all {value0} notes for this day",
     "sidebar.calendar_this_month": "Back to this month",
     "sidebar.calendar_this_year": "Back to this year",
     "sidebar.calendar_title": "Activity calendar",

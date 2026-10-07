@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, useState } from 'react'
-import { buildStripWeeks, buildYearHeatMeta, HEAT_PERCENTS, monthRangeToKeys, yearHeatLevel, ActivityCalendar } from './activity-calendar'
+import { buildStripWeeks, buildYearHeatMeta, HEAT_PERCENTS, monthRangeToKeys, yearHeatLevel, DAY_NOTE_LIMIT, ActivityCalendar } from './activity-calendar'
 import type { ActivityCalendarProps } from './activity-calendar/props'
 import { renderElement } from '../lib/test-render'
 
@@ -413,5 +413,86 @@ describe('the measured root width', () => {
     expect(observed.length).toBe(0)
     expect(fixed.container.querySelector('[aria-label="sidebar.calendar_view"]')).toBeTruthy()
     fixed.unmount()
+  })
+})
+
+// C-05. The week panel used to render every note of every day it had ever shown and
+// never unmount them, so the DOM under a collapsed panel grew with the busiest day of
+// the vault rather than with what the reader can actually see.
+describe('week panel note lists', () => {
+  const DAY = '2026-09-02'
+  const many = (count: number) => Array.from({ length: count }, (_, i) => ({
+    id: `note-${i}`,
+    title: `Note ${i}`,
+    updatedAt: new Date(2026, 8, 2, 12).getTime() - i,
+  }))
+
+  function renderWeeks(count: number) {
+    const selected: string[] = []
+    const rendered = renderElement(createElement(ActivityCalendar, calendarProps({
+      view: 'weeks',
+      counts: new Map([[DAY, count]]),
+      notesByDay: new Map([[DAY, many(count)]]),
+      onDaySelect: (key) => { selected.push(key) },
+    })))
+    return { container: rendered.container, unmount: rendered.unmount, selected }
+  }
+
+  const noteRows = (root: HTMLElement) => [...root.querySelectorAll('button')].filter((b) => /^Note \d+$/.test(b.textContent?.trim() ?? ''))
+  const weekColumn = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('[aria-label*="sidebar.calendar_expand_week"]')].at(-1)!
+  const weekNotesToggle = (root: HTMLElement) => root.querySelector('[aria-label*="sidebar.calendar_week_notes"]') as HTMLButtonElement
+  const dayToggle = (root: HTMLElement) => root.querySelector('[aria-label="sidebar.calendar_expand_day"]') as HTMLButtonElement
+  const showAllRow = (root: HTMLElement) => root.querySelector('[aria-label^="sidebar.calendar_show_day_all"]')
+
+  it('caps the week note list and hands the rest to the day filter', () => {
+    const { container, selected, unmount } = renderWeeks(DAY_NOTE_LIMIT + 12)
+    act(() => { weekColumn(container).click() })
+    act(() => { weekNotesToggle(container).click() })
+    expect(noteRows(container)).toHaveLength(DAY_NOTE_LIMIT)
+    const row = showAllRow(container)
+    expect(row).not.toBeNull()
+    act(() => { row!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(selected).toEqual([DAY])
+    unmount()
+  })
+
+  it('caps the per-day row list the same way', () => {
+    const { container, selected, unmount } = renderWeeks(DAY_NOTE_LIMIT + 7)
+    act(() => { weekColumn(container).click() })
+    act(() => { dayToggle(container).click() })
+    expect(noteRows(container)).toHaveLength(DAY_NOTE_LIMIT)
+    act(() => { showAllRow(container)!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(selected).toEqual([DAY])
+    unmount()
+  })
+
+  it('lists every note and offers no way out while the day fits under the cap', () => {
+    const { container, unmount } = renderWeeks(5)
+    act(() => { weekColumn(container).click() })
+    act(() => { weekNotesToggle(container).click() })
+    expect(noteRows(container)).toHaveLength(5)
+    expect(showAllRow(container)).toBeNull()
+    unmount()
+  })
+
+  it('drops a collapsed panel out of the DOM once its closing animation has run', () => {
+    vi.useFakeTimers()
+    try {
+      const { container, unmount } = renderWeeks(5)
+      act(() => { weekColumn(container).click() })
+      act(() => { weekNotesToggle(container).click() })
+      expect(noteRows(container)).toHaveLength(5)
+      act(() => { weekColumn(container).click() })
+      expect(weekNotesToggle(container)).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(100) })
+      expect(weekNotesToggle(container)).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(400) })
+      expect(showAllRow(container)).toBeNull()
+      expect(weekNotesToggle(container)).toBeNull()
+      unmount()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 })
