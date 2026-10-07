@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, useState } from 'react'
 import { buildStripWeeks, buildYearHeatMeta, HEAT_PERCENTS, monthRangeToKeys, yearHeatLevel, ActivityCalendar } from './activity-calendar'
 import type { ActivityCalendarProps } from './activity-calendar/props'
@@ -325,5 +325,93 @@ describe('internal jump flash', () => {
     finally {
       restore()
     }
+  })
+})
+
+// The root width used to be stored as the raw fractional `contentRect.width`, and the
+// navigation panel animates its width over `--dur-slow` (AppShell.tsx:141), so one
+// deliberate width change delivered roughly twenty distinct state updates and twenty
+// whole-grid renders. `getDiaryId` is called once per day cell during the month grid's
+// render, so counting its calls counts renders — the only way this is visible in jsdom,
+// because a wasted render mutates no DOM.
+describe('the measured root width', () => {
+  const observed: { callback: ResizeObserverCallback; element: Element }[] = []
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    observed.length = 0
+  })
+
+  function installObserverSpy() {
+    vi.stubGlobal('ResizeObserver', class SpyObserver {
+      callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+      }
+
+      observe(element: Element) {
+        observed.push({ callback: this.callback, element })
+      }
+
+      unobserve() {}
+      disconnect() {}
+    })
+  }
+
+  function tickWidth(width: number) {
+    act(() => {
+      for (const entry of observed)
+        entry.callback([{ contentRect: { width } } as ResizeObserverEntry], null as unknown as ResizeObserver)
+    })
+  }
+
+  function renderWidthProbe() {
+    const counts = { renders: 0 }
+    const rendered = renderElement(createElement('div', null, createElement(ActivityCalendar, calendarProps({
+      view: 'month',
+      columnsPreference: 'auto',
+      getDiaryId: () => {
+        counts.renders++
+        return null
+      },
+    }))))
+    return { counts, container: rendered.container, unmount: rendered.unmount }
+  }
+
+  it('re-renders nothing for width ticks that keep the same column bucket', () => {
+    installObserverSpy()
+    const { counts, unmount } = renderWidthProbe()
+    expect(observed.length).toBe(1)
+    tickWidth(320)
+    const afterCrossing = counts.renders
+    expect(afterCrossing).toBeGreaterThan(0)
+    tickWidth(320.5)
+    tickWidth(321.25)
+    tickWidth(322)
+    expect(counts.renders).toBe(afterCrossing)
+    unmount()
+  })
+
+  it('still follows a width that crosses the column threshold', () => {
+    installObserverSpy()
+    const year = renderElement(createElement('div', null, createElement(ActivityCalendar, calendarProps({ view: 'year', columnsPreference: 'auto' }))))
+    const grid = () => year.container.querySelector('[aria-label="sidebar.calendar_year_grid_aria"]')
+    tickWidth(240)
+    expect(grid()!.className).toContain('grid-cols-3')
+    tickWidth(420)
+    expect(grid()!.className).toContain('grid-cols-4')
+    year.unmount()
+  })
+
+  it('does not observe the root at all when a fixed column count is preferred', () => {
+    installObserverSpy()
+    const { unmount } = renderWidthProbe()
+    expect(observed.length).toBe(1)
+    unmount()
+    observed.length = 0
+    const fixed = renderElement(createElement('div', null, createElement(ActivityCalendar, calendarProps({ view: 'month', columnsPreference: '4' }))))
+    expect(observed.length).toBe(0)
+    expect(fixed.container.querySelector('[aria-label="sidebar.calendar_view"]')).toBeTruthy()
+    fixed.unmount()
   })
 })

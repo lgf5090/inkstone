@@ -79,6 +79,12 @@ const allowed = new Map([
     "// mixes into the same paper the quiet tiles show, so the ramp is one object at four saturations.",
     "// Neighbouring months' days draw nothing at all, so the paper run is what carries the month's shape.",
     "// 2026-09 has the first Monday on the 7th: column 0 (Mon) filters 09-07..09-13.",
+    "// The root width used to be stored as the raw fractional `contentRect.width`, and the",
+    "// navigation panel animates its width over `--dur-slow` (AppShell.tsx:141), so one",
+    "// deliberate width change delivered roughly twenty distinct state updates and twenty",
+    "// whole-grid renders. `getDiaryId` is called once per day cell during the month grid's",
+    "// render, so counting its calls counts renders — the only way this is visible in jsdom,",
+    "// because a wasted render mutates no DOM.",
   ]],
   ["src/client/components/activity-calendar/heat-cell.ts", [
     "/**\n * One day tile of a heat surface. `null` is not a day of this month at all, so it draws nothing.\n *\n * The whole ramp sits on paper rather than on the surface behind it: level 0 is the bare tile and\n * levels 1-4 mix the accent into that same white, so a quiet day and a busy day are the same object\n * at different saturation. Mixing over `transparent` made the quiet tiles read as shaded days,\n * because their fill was only a few points off the sunken sidebar behind them.\n */",
@@ -112,6 +118,9 @@ const allowed = new Map([
   ]],
   ["src/client/components/activity-calendar/use-activity-calendar.ts", [
     "// Marks an external month jump (settings preview click) or an internal jump (week click, gap-cell follow, endpoint locate) with the same fade-in + receding accent ring.",
+    "// The width is kept as the answer it produces, never as a number: the navigation panel",
+    "// animates its width, so a raw `contentRect.width` reached this component as around twenty",
+    "// distinct fractions per deliberate change and each one re-rendered the whole heat grid.",
   ]],
   ["src/client/components/form.tsx", [
     "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",

@@ -28,7 +28,7 @@ export interface CalendarState {
   dragStartKey: React.MutableRefObject<string | null>
   dragHoverKey: React.MutableRefObject<string | null>
   rootRef: React.RefObject<HTMLDivElement | null>
-  rootWidth: number | null
+  measuredColumns: YearGridColumns | null
 }
 
 export interface FlashState {
