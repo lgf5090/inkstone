@@ -15,8 +15,10 @@ import { codeFenceSource, emojiSource, containerDirectiveSource, tagSource, wiki
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
 import { editorKeymap } from './shortcuts';
-import { liveBlockContextMenu, livePreview } from './live-preview';
+import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
+import { runRenderedLinkGesture, runSourceLinkGesture } from '../features/links/use-link-editor';
+import { registerLinkEditorNote } from '../features/links/store';
 import type { EditorContext } from '../features/workspace/context-menu/types';
 import { detectEditorContext } from '../features/workspace/context-menu/detect-editor';
 import { takePendingEditorCursor } from '../store/new-note';
@@ -104,6 +106,14 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         return true;
     };
     const liveCompartment = useRef(new Compartment());
+    const linkRef = useRef({ settings, noteId });
+    linkRef.current = { settings, noteId };
+    const linkGestureRef = useRef<(event: MouseEvent, view: EditorView, target: HTMLElement, kind: 'click' | 'dblclick') => boolean>(() => false);
+    linkGestureRef.current = (event, view, target, kind) => {
+        const current = linkRef.current;
+        if (!current.noteId) return false;
+        return runRenderedLinkGesture(event, view, target, kind, current.settings, current.noteId);
+    };
     const lineNumbersCompartment = useRef(new Compartment());
     const tabSizeCompartment = useRef(new Compartment());
     const placeholderCompartment = useRef(new Compartment());
@@ -182,10 +192,21 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                 contextmenu(event, view) {
                     return contextMenuRef.current(event, view);
                 },
+                click(event, view) {
+                    const current = linkRef.current;
+                    if (current.noteId) runSourceLinkGesture(event, view, 'click', current.settings, current.noteId);
+                    return false;
+                },
+                dblclick(event, view) {
+                    const current = linkRef.current;
+                    if (current.noteId) runSourceLinkGesture(event, view, 'dblclick', current.settings, current.noteId);
+                    return false;
+                },
             }),
             liveBlockContextMenu.of((event, view, lineStart) => {
                 contextMenuRef.current(event, view, lineStart);
             }),
+            liveLinkGesture.of((event, view, target, kind) => linkGestureRef.current(event, view, target, kind)),
             linkHoverExtension(),
             linkHoverFacet.of({
                 propose: (link, options) => hoverRef.current.propose(link, options),
@@ -204,6 +225,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         view.contentDOM.spellcheck = settings.spellcheck;
         viewRef.current = view;
         setActiveEditorView(view);
+        if (noteId)
+            registerLinkEditorNote(view, noteId);
         const pendingCursor = noteId ? takePendingEditorCursor(noteId) : null;
         if (pendingCursor !== null) {
             view.dispatch({

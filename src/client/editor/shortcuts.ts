@@ -6,6 +6,7 @@ import { IS_MAC } from '../lib/hotkeys';
 import { codeMirrorKey } from '../lib/shortcuts';
 import { insertLink, setHeading, toggleBold, toggleComment, toggleBulletList, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskDone, toggleTaskList, formatCodeBlock } from './commands';
 import { toggleUnderline } from './text-format';
+import { openLinkAtCursor } from '../features/links/use-link-editor';
 
 interface EditorShortcut {
     id: string;
@@ -22,6 +23,7 @@ export const EDITOR_SHORTCUTS: EditorShortcut[] = [
     { id: 'inline-code', combo: 'mod+e', label: 'common.inline_code', run: toggleInlineCode },
     { id: 'strikethrough', combo: 'mod+shift+x', label: 'common.strikethrough', run: toggleStrikethrough },
     { id: 'link', combo: 'mod+k', label: 'workspace.link', run: insertLink() },
+    { id: 'link-editor', combo: 'mod+alt+k', label: 'workspace.link_editor', run: openLinkAtCursor },
     { id: 'comment', combo: 'mod+/', label: 'workspace.hidden_comment', run: toggleComment },
     { id: 'paragraph', combo: 'mod+alt+0', label: 'workspace.paragraph', run: setHeading(0) },
     ...[1, 2, 3, 4, 5, 6].map((level): EditorShortcut => ({

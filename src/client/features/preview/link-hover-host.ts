@@ -7,6 +7,7 @@ import { useSession } from '../../store/session'
 import { usePinnedWindows } from '../../store/pinned-windows'
 import { withPinnedWindowSize } from '../../lib/pinned-window-size'
 import { useLinkHover } from './link-hover'
+import { useLinkEditor } from '../links/store'
 import type { WikiLinkHoverCardState } from '../../types/hover-card'
 
 export function resolveHoverCandidate(link: HTMLElement, sourceNoteId: string | null): WikiLinkHoverCardState | null {
@@ -32,11 +33,14 @@ export function resolveHoverCandidate(link: HTMLElement, sourceNoteId: string | 
 
 export function useLinkHoverHost(sourceNoteId: string | null) {
   const preview = useSession((s) => s.settings.preview)
+  // The link editor and a preview card are two panels over the same span, and the card wins the race
+  // by 320ms; while the reader is editing a link there is nothing left to preview about it.
+  const editing = useLinkEditor((s) => s.request !== null)
   const resolve = useCallback((link: HTMLElement) => resolveHoverCandidate(link, sourceNoteId), [sourceNoteId])
   const hover = useLinkHover({
     resolve,
     delay: preview.linkHoverDelayMs,
-    enabled: preview.linkHover,
+    enabled: preview.linkHover && !editing,
     armOnNonLink: true,
   })
   const handlePin = useCallback((card: WikiLinkHoverCardState, rect: DOMRect) => {

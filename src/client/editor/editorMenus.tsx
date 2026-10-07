@@ -55,7 +55,8 @@ import {
 } from './commands'
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
 import { openEmojiPicker } from '../store/emoji-picker'
-import { AlignCenter, AlignLeft, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Eraser, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, Strikethrough, Subscript, Superscript, Table as TableIcon, Underline } from 'lucide-react'
+import { AlignCenter, AlignLeft, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Eraser, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, SquarePen, Strikethrough, Subscript, Superscript, Table as TableIcon, Underline } from 'lucide-react'
+import { openLinkAtCursor } from '../features/links/use-link-editor'
 
 /**
  * The editor's command lists in one place.
@@ -167,7 +168,8 @@ export function listMenuItems(run: RunEditorCommand): MenuItem[] {
 export function referenceMenuItems(run: RunEditorCommand): MenuItem[] {
   return [
     { id: 'link', label: t('workspace.link'), combo: editorCombo('link'), onSelect: () => run(insertLink()) },
-    { id: 'wiki-link', label: t('common.wiki_links'), separatorBefore: true, onSelect: () => run(toggleWikiLink) },
+    { id: 'link-editor', label: t('workspace.link_editor'), icon: <SquarePen size={13} />, combo: editorCombo('link-editor'), separatorBefore: true, onSelect: () => run(openLinkAtCursor) },
+    { id: 'wiki-link', label: t('common.wiki_links'), onSelect: () => run(toggleWikiLink) },
     { id: 'note-embed', label: t('workspace.note_embed'), onSelect: () => run(toggleNoteEmbed) },
     { id: 'block-reference', label: t('workspace.block_reference'), onSelect: () => run(toggleBlockReference) },
     { id: 'footnote', label: t('workspace.footnote'), separatorBefore: true, onSelect: () => run(insertFootnote) },
