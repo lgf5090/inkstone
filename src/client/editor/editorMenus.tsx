@@ -177,7 +177,9 @@ export function blockMenuItems(run: RunEditorCommand): MenuItem[] {
 
 /** The context menu's single Insert row: every block the editor can write, one level deeper. */
 export function insertMenuItem(run: RunEditorCommand, pickImage: () => void, pickFile: () => void): MenuItem {
-  const code = codeMenuItems(run)
+  // The dropdown is for producing something new. Formatting the block the cursor is already in is an
+  // action on an existing block, so it stays on the toolbar's own button and out of this list.
+  const code = codeMenuItems(run).filter((item) => item.id !== 'format-code')
   const blocks = blockMenuItems(run)
   const children: MenuItem[] = [
     { id: 'link', label: t('workspace.link'), icon: <Link2 size={13} />, combo: editorCombo('link'), onSelect: () => run(insertLink()) },

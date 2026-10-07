@@ -255,6 +255,8 @@ const allowed = new Map([
   ["src/client/editor/editorMenus.tsx", [
     "/**\n * The editor's command lists in one place.\n *\n * The toolbar shows them as seven dropdowns and the context menu folds them into one Insert submenu;\n * both are built here from the same rows so a new block family is registered once. A caller supplies\n * `run`, which is where each surface decides what \"pressing\" means — the toolbar closes its own menu\n * first, the context menu closes the whole panel after.\n */",
     "/** The context menu's single Insert row: every block the editor can write, one level deeper. */",
+    "// The dropdown is for producing something new. Formatting the block the cursor is already in is an",
+    "// action on an existing block, so it stays on the toolbar's own button and out of this list.",
   ]],
   ["src/client/editor/link-hover-plugin.ts", [
     "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
