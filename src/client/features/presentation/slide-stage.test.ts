@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { renderElement } from '../../lib/test-render'
 import { initI18n, t } from '../../lib/i18n'
 import { CoverAnnouncement, ScreenCover } from './presentation-stage'
-import { measureStage, SLIDE_DESIGN_HEIGHT, SLIDE_DESIGN_WIDTH, SLIDE_PAD_X, SLIDE_PAD_Y } from './slide-stage'
+import { measureStage, NARROW_STAGE_RATIO, SLIDE_DESIGN_HEIGHT, SLIDE_DESIGN_NARROW_WIDTH, SLIDE_DESIGN_WIDTH, SLIDE_PAD_X, SLIDE_PAD_Y } from './slide-stage'
 
 // The cover's accessible name is a resource string, so the resources have to be loaded for the
 // assertion to compare anything but a key against itself.
@@ -139,5 +139,46 @@ describe('CoverAnnouncement — the change a flat colour hides', () => {
     act(() => { view.rerender(createElement(CoverAnnouncement, { cover: null })) })
     expect(announced()).toContain(t('workspace.presentation_cover_off'))
     view.unmount()
+  })
+})
+
+// PR-M6: what a phone held upright is shown. The stage is the only place that decides how big the type
+// ends up, and the whole claim of the narrow canvas is that the same glass carries bigger words.
+describe('measureStage — the canvas a stage gets', () => {
+  it('keeps a window and a projector on the sixteen-by-nine design', () => {
+    const wide = measureStage(1600, 1000)
+    expect(wide.designWidth).toBe(SLIDE_DESIGN_WIDTH)
+    expect(wide.designHeight).toBe(SLIDE_DESIGN_HEIGHT)
+    expect(wide.scale).toBeCloseTo(Math.min(1600 / SLIDE_DESIGN_WIDTH, 1000 / SLIDE_DESIGN_HEIGHT), 8)
+  })
+
+  it('does not flip for a handset turned sideways', () => {
+    expect(measureStage(780, 390).designWidth).toBe(SLIDE_DESIGN_WIDTH)
+  })
+
+  it('draws a taller, narrower canvas for a phone held up', () => {
+    const phone = measureStage(420, 840)
+    expect(phone.designWidth).toBe(SLIDE_DESIGN_NARROW_WIDTH)
+    expect(phone.designHeight).toBe(1280)
+    expect(phone.contentWidth).toBe(SLIDE_DESIGN_NARROW_WIDTH - SLIDE_PAD_X * 2)
+    expect(phone.contentHeight).toBe(1280 - SLIDE_PAD_Y * 2)
+  })
+
+  it('puts type twice as large on that glass, which is the point of the round', () => {
+    const phone = measureStage(420, 840)
+    const asIfSixteenNine = 420 / SLIDE_DESIGN_WIDTH
+    expect(phone.scale / asIfSixteenNine).toBeCloseTo(2, 8)
+  })
+
+  it('fills the glass rather than letterboxing it', () => {
+    const phone = measureStage(420, 840)
+    expect(phone.designWidth * phone.scale).toBeCloseTo(420, 6)
+    expect(phone.designHeight * phone.scale).toBeCloseTo(840, 6)
+  })
+
+  it('flips on at the ratio it names, and not before', () => {
+    expect(NARROW_STAGE_RATIO).toBe(1.2)
+    expect(measureStage(500, 600).designWidth).toBe(SLIDE_DESIGN_NARROW_WIDTH)
+    expect(measureStage(500, 599).designWidth).toBe(SLIDE_DESIGN_WIDTH)
   })
 })

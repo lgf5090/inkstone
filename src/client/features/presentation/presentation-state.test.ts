@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { backwardMove, deckProgress, entryIndexOf, escapeAction, forwardMove, interceptSlideLink, isBlockedSlideLinkHref, isSafeSlideLinkHref, nextSliceGap, nextSlicePace, nextUnmeasuredSlide, overviewMove, presentedNoteContent, railEntries, railOpenFor, stageClickDirection, swipeDirection , clampSlideIndex} from './presentation-state'
+import { backwardMove, clampSlideIndex, deckProgress, entryIndexOf, escapeAction, exitAsk, forwardMove, interceptSlideLink, isBlockedSlideLinkHref, isSafeSlideLinkHref, nextSliceGap, nextSlicePace, nextUnmeasuredSlide, overviewMove, presentedNoteContent, railEntries, railOpenFor, stageClickDirection, swipeDirection } from './presentation-state'
 import type { SlidePlan } from './slide-pagination'
 
 const planOf = (pages: number): SlidePlan => ({
@@ -202,6 +202,21 @@ describe('escapeAction', () => {
     expect(escapeAction({ fullscreen: true, laser: true, overview: true, spotlight: true, keyGuide: true })).toBe('closeKeyGuide')
     expect(escapeAction({ fullscreen: false, laser: false, overview: false, keyGuide: true })).toBe('closeKeyGuide')
   })
+
+  it('puts the marker away before it costs the talk a screen or the show', () => {
+    expect(escapeAction({ fullscreen: true, laser: false, overview: false, ink: true })).toBe('clearInk')
+    expect(escapeAction({ fullscreen: true, laser: true, overview: true, spotlight: true, ink: true })).toBe('closeOverview')
+    expect(escapeAction({ fullscreen: false, laser: false, overview: false, spotlight: true, ink: true })).toBe('clearSpotlight')
+  })
+
+  // PR-L3: the question a show with an audience asks is the topmost layer on the screen, and Escape is
+  // its answer of "stay". It has to outrank every rung above, or a second press ends the talk the first
+  // one was meant to protect.
+  it('answers an open exit question as staying, whatever else is on the screen', () => {
+    expect(escapeAction({ fullscreen: true, laser: true, overview: true, spotlight: true, keyGuide: true, exitConfirm: true })).toBe('cancelExitConfirm')
+    expect(escapeAction({ fullscreen: false, laser: false, overview: false, exitConfirm: true })).toBe('cancelExitConfirm')
+    expect(escapeAction({ fullscreen: true, laser: false, overview: false, exitConfirm: false })).toBe('exitFullscreen')
+  })
 })
 
 describe('overviewMove', () => {
@@ -385,5 +400,15 @@ describe('clampSlideIndex keeps the show on a slide the deck has', () => {
   it('has no slide to be on when the deck is empty — and never an index off either end of it', () => {
     expect(clampSlideIndex(0, 0)).toBe(0)
     expect(clampSlideIndex(6, 0), 'an empty deck answers 0, not -1: every reader indexes with this').toBe(0)
+  })
+})
+
+describe('exitAsk', () => {
+  it('asks before ending a talk somebody else is watching', () => {
+    expect(exitAsk({ audienceFollowing: true })).toBe('ask')
+  })
+
+  it('just closes when nobody is following', () => {
+    expect(exitAsk({ audienceFollowing: false })).toBe('close')
   })
 })

@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Code, Download, EllipsisVertical, FileText, Images, LayoutGrid, Maximize, Minimize, PanelLeftClose, PanelLeftOpen, Presentation, Radio, Snowflake, Users, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { IS_DEMO_MODE } from '../../lib/runtime'
-import { t } from '../../lib/i18n'
+import { t, type MessageKey } from '../../lib/i18n'
 import { IconButton, Spinner } from '../../components/primitives'
-import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
+import { Menu, submenuFor, Tooltip, type MenuItem } from '../../components/overlay'
 import { Z_INDEX } from '../../lib/z-index'
 import { presentationKeyCombo } from './presentation-keys'
 import { hasBackwardMove, hasForwardMove } from './presentation-state'
@@ -55,36 +55,64 @@ export interface PresentationControlsProps {
   onExportHtml: () => void
   /** Whether an audience is following this show, and the press that changes it (N-34). */
   audienceFollowing: boolean
+  /** How many browsers have been reading the show lately (PR-M7). Zero while nobody is following. */
+  audienceViewers: number
   onToggleAudience: () => void
   onClose: () => void
 }
 
-export function PresentationControls({ slideIndex, slideCount, subPage, pageCount, step, steps, isFullscreen, railOpen, overview, following, followLost, audienceFollowing, chromeHidden, occluded, compact, overflowItems, exporting, onPrev, onNext, onToggleRail, onToggleOverview, onToggleFollowing, onToggleFullscreen, onOpenPresenter, onToggleAudience, onExport, onExportImages, onExportHandout, onExportHtml, onClose }: PresentationControlsProps) {
+// How long a gesture that only woke the bar may keep ownership of its own click. A touch reports no
+// move before the tap, so the control that appears under the finger would otherwise be pressed by the
+// very gesture that revealed it — and the click arrives after React has already drawn the bar back.
+const GHOST_CLICK_MS = 700
+
+export function PresentationControls({ slideIndex, slideCount, subPage, pageCount, step, steps, isFullscreen, railOpen, overview, following, followLost, audienceFollowing, audienceViewers, chromeHidden, occluded, compact, overflowItems, exporting, onPrev, onNext, onToggleRail, onToggleOverview, onToggleFollowing, onToggleFullscreen, onOpenPresenter, onToggleAudience, onExport, onExportImages, onExportHandout, onExportHtml, onClose }: PresentationControlsProps) {
+  const wokeByThisGesture = useRef(0)
   return (
+    // A faded bar is `inert` *and* `invisible`, and both make the browser's hit test walk straight
+    // past it to the stage behind — so the first tap where the controls are became a page turn in
+    // front of the room (PR-H1, measured on a 420px touch window). This wrapper owns the bar's
+    // rectangle and never fades, so the gesture that brings the controls back is only that. It takes
+    // no space of its own: the bar is its only child and paints exactly over it.
     <div
-      data-presentation-chrome
-      inert={chromeHidden || occluded ? true : undefined}
-      className={cn(
-        'absolute bottom-[var(--sp-4)] left-1/2 flex -translate-x-1/2 items-center gap-[var(--sp-0-5)] rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] p-[var(--sp-1)] shadow-[var(--shadow-pop)]',
-        'transition-opacity duration-[var(--dur-base)] ease-[var(--ease-out)]',
-        chromeHidden && 'pointer-events-none opacity-0 invisible',
-      )}
+      data-presentation-chrome-guard
+      className='absolute bottom-[var(--sp-4)] left-1/2 -translate-x-1/2'
+      onPointerDownCapture={() => {
+        if (chromeHidden) wokeByThisGesture.current = Date.now()
+      }}
+      onClickCapture={(event) => {
+        if (Date.now() - wokeByThisGesture.current > GHOST_CLICK_MS) return
+        // Same gesture, revealed control: the press is spent on bringing the bar back.
+        wokeByThisGesture.current = 0
+        event.stopPropagation()
+        event.preventDefault()
+      }}
     >
-      <SlideStepper slideIndex={slideIndex} slideCount={slideCount} subPage={subPage} pageCount={pageCount} step={step} steps={steps} onPrev={onPrev} onNext={onNext} />
-      <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
-      {compact
-        ? <ViewDoor items={[...overflowItems, ...exportMenuItems({ onExport, onExportImages, onExportHandout, onExportHtml })]} exporting={exporting} />
-        : <>
-          <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
-          <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
-          <ExportControls exporting={exporting} onExport={onExport} onExportImages={onExportImages} onExportHandout={onExportHandout} onExportHtml={onExportHtml} />
-        </>}
-      <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
-      <Tooltip label={t('workspace.presentation_exit')} combo={presentationKeyCombo('exit')} side='top'>
-        <IconButton label={t('workspace.presentation_exit')} size='sm' onClick={onClose}>
-          <X size={15} />
-        </IconButton>
-      </Tooltip>
+      <div
+        data-presentation-chrome
+        inert={chromeHidden || occluded ? true : undefined}
+        className={cn(
+          'flex items-center gap-[var(--sp-0-5)] rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] p-[var(--sp-1)] shadow-[var(--shadow-pop)]',
+          'transition-opacity duration-[var(--dur-base)] ease-[var(--ease-out)]',
+          chromeHidden && 'pointer-events-none opacity-0 invisible',
+        )}
+      >
+        <SlideStepper slideIndex={slideIndex} slideCount={slideCount} subPage={subPage} pageCount={pageCount} step={step} steps={steps} onPrev={onPrev} onNext={onNext} />
+        <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
+        {compact
+          ? <ViewDoor items={doorItems(overflowItems, exportGroupItem({ onExport, onExportImages, onExportHandout, onExportHtml, exporting }))} exporting={exporting} />
+          : <>
+            <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} audienceViewers={audienceViewers} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
+            <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
+            <ExportControls exporting={exporting} onExport={onExport} onExportImages={onExportImages} onExportHandout={onExportHandout} onExportHtml={onExportHtml} />
+          </>}
+        <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
+        <Tooltip label={t('workspace.presentation_exit')} combo={presentationKeyCombo('exit')} side='top'>
+          <IconButton label={t('workspace.presentation_exit')} size='sm' onClick={onClose}>
+            <X size={15} />
+          </IconButton>
+        </Tooltip>
+      </div>
     </div>
   )
 }
@@ -97,12 +125,13 @@ function followControlLabel({ following, followLost }: { following: boolean; fol
   return following ? t('workspace.presentation_freeze') : t('workspace.presentation_follow')
 }
 
-function ViewControls({ railOpen, overview, following, followLost, audienceFollowing, isFullscreen, onToggleRail, onToggleOverview, onToggleFollowing, onToggleAudience, onToggleFullscreen, onOpenPresenter }: {
+function ViewControls({ railOpen, overview, following, followLost, audienceFollowing, audienceViewers, isFullscreen, onToggleRail, onToggleOverview, onToggleFollowing, onToggleAudience, onToggleFullscreen, onOpenPresenter }: {
   railOpen: boolean
   overview: boolean
   following: boolean
   followLost: boolean
   audienceFollowing: boolean
+  audienceViewers: number
   isFullscreen: boolean
   onToggleRail: () => void
   onToggleOverview: () => void
@@ -139,10 +168,19 @@ function ViewControls({ railOpen, overview, following, followLost, audienceFollo
           offered in the demo edition at all: the demo's whole backend is a map inside this tab, so a link
           handed to another person would open a page that never heard of the talk. */}
       {!IS_DEMO_MODE && (
-        <Tooltip label={audienceLabel} side='top'>
-          <IconButton label={audienceLabel} size='sm' data-audience-toggle='true' active={audienceFollowing} onClick={onToggleAudience}>
-            <Users size={14} />
-          </IconButton>
+        <Tooltip label={audienceFollowing && audienceViewers > 0 ? `${audienceLabel} · ${t('workspace.presentation_audience_viewers', { value0: audienceViewers })}` : audienceLabel} side='top'>
+          <span className='relative inline-flex'>
+            <IconButton label={audienceLabel} size='sm' data-audience-toggle='true' active={audienceFollowing} onClick={onToggleAudience}>
+              <Users size={14} />
+            </IconButton>
+            {/* The number is a mark on the control, not a second control: a presenter reads it in the
+                half-second before the next page, and the buttons either side cannot give up their room. */}
+            {audienceFollowing && audienceViewers > 0 && (
+              <span data-audience-count aria-hidden='true' className='pointer-events-none absolute -right-[var(--sp-1)] -top-[var(--sp-1)] min-w-[var(--sp-4)] rounded-full bg-[var(--accent)] px-[2px] text-center text-[length:var(--text-12)] leading-[var(--sp-4)] text-[var(--accent-contrast)]'>
+                {audienceViewers > 99 ? '99+' : audienceViewers}
+              </span>
+            )}
+          </span>
         </Tooltip>
       )}
       <Tooltip label={followLabel} combo={followLost ? undefined : presentationKeyCombo('follow')} side='top'>
@@ -214,6 +252,62 @@ function ViewDoor({ items, exporting }: { items: MenuItem[]; exporting: boolean 
       <Menu anchor={buttonRef} open={open} onClose={() => setOpen(false)} items={rows} align='end' width={DOOR_WIDTH} container={container} zIndex={Z_INDEX.menu + 1} label={t('common.more_actions')} />
     </>
   )
+}
+
+/**
+ * The door's own shape: the four screen modes and the four exports each collapse into one row.
+ *
+ * Fifteen rows measured 653px of content in the 419px panel a 420×860 phone gives a door, which left
+ * the last row cut in half with nothing on screen saying there was more — and everything below the
+ * fold unreachable (PR-M1). Nine rows fit. The group rows carry a mark when one of their children is
+ * on, because a door that cannot show that the screen is blacked out has traded one problem for a
+ * worse one, and the wide bar keeps every row on top level where there is room for them.
+ */
+const DOOR_GROUPS: Array<{ id: string; label: MessageKey; ids: string[] }> = [
+  { id: 'modes', label: 'workspace.presentation_modes', ids: ['laser', 'spotlight', 'ink', 'blackout', 'whiteout'] },
+]
+
+function doorItems(overflow: MenuItem[], exportRow: MenuItem): MenuItem[] {
+  const out: MenuItem[] = []
+  const taken = new Set<string>()
+  for (const item of overflow) {
+    const group = DOOR_GROUPS.find((g) => g.ids.includes(item.id))
+    if (!group) {
+      out.push(item)
+      continue
+    }
+    if (taken.has(group.id)) continue
+    taken.add(group.id)
+    const children = overflow.filter((row) => group.ids.includes(row.id))
+    out.push({
+      id: group.id,
+      label: t(group.label),
+      icon: children[0]?.icon,
+      separatorBefore: item.separatorBefore,
+      checked: children.some((row) => row.checked),
+      submenu: submenuFor(children, DOOR_WIDTH),
+    })
+  }
+  out.push(exportRow)
+  return out
+}
+
+/**
+ * The door's one export row.
+ *
+ * Four export rows at the tail of a fifteen-row list measured 653px of content in a 419px panel on a
+ * 420×860 phone, which left the last row cut in half and every export below the fold with nothing on
+ * screen saying there was more (PR-M1). Folded into a submenu the door is twelve rows, and the group
+ * row is where the working state shows — a spinner on a row nobody can reach is not feedback.
+ */
+function exportGroupItem({ onExport, onExportImages, onExportHandout, onExportHtml, exporting }: { onExport: () => void; onExportImages: () => void; onExportHandout: () => void; onExportHtml: () => void; exporting: boolean }): MenuItem {
+  return {
+    id: 'export',
+    label: t('workspace.export'),
+    icon: exporting ? <span data-export-spinner aria-hidden='true'><Spinner size={14} /></span> : <Download size={14} />,
+    separatorBefore: true,
+    submenu: submenuFor(exportMenuItems({ onExport, onExportImages, onExportHandout, onExportHtml }), DOOR_WIDTH),
+  }
 }
 
 // The exports the wide bar draws as buttons; on a phone they walk through the door with the rest, and
@@ -298,6 +392,61 @@ export function SlideProgress({ page, pageTotal }: { page: number; pageTotal: nu
       aria-hidden='true'
     >
       <div data-slide-progress className='h-full bg-[var(--accent)] transition-[width] duration-[var(--dur-base)] ease-[var(--ease-out)]' style={{ width: `${Math.round((page / pageTotal) * 100)}%` }} />
+    </div>
+  )
+}
+
+/**
+ * The one question a show with an audience asks before it ends (PR-L3).
+ *
+ * It is painted inside the projector's own dialog rather than handed to the app's confirm layer,
+ * because the browser only ever paints the subtree of the element that has the full screen — a portal
+ * on `document.body` would sit under the very show it is asking about, which is the mistake this
+ * module has now made four times. Escape is not answered here: the show's own ladder puts the question
+ * away, so the key that opened it cannot be the key that ends the talk, and a second handler for the
+ * same key would be a second rule to keep in step. The safe answer carries the focus, as everywhere
+ * else in the app that asks about something destructive.
+ */
+export function PresentationExitConfirm({ open, onConfirm, onCancel }: {
+  open: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const stayRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (open) stayRef.current?.focus()
+  }, [open])
+  if (!open) return null
+  return (
+    <div
+      data-presentation-exit-confirm
+      role='alertdialog'
+      aria-modal='true'
+      aria-label={t('workspace.presentation_exit_audience')}
+      className='absolute inset-0 z-[var(--z-toast)] flex items-center justify-center bg-[var(--scrim)]'
+    >
+      <div className='flex w-[min(90%,calc(var(--sp-16)*6))] flex-col gap-[var(--sp-4)] rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-[var(--sp-5)] shadow-[var(--shadow-pop)]'>
+        <p className='text-[length:var(--text-16)] leading-relaxed text-[var(--text-primary)]'>
+          {t('workspace.presentation_exit_audience')}
+        </p>
+        <div className='flex items-center justify-end gap-[var(--sp-2)]'>
+          <button
+            ref={stayRef}
+            type='button'
+            className='rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--sp-3)] py-[var(--sp-1-5)] text-[length:var(--text-14)] text-[var(--text-primary)]'
+            onClick={onCancel}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type='button'
+            className='rounded-[var(--r-md)] border border-[var(--danger)] px-[var(--sp-3)] py-[var(--sp-1-5)] text-[length:var(--text-14)] font-medium text-[var(--danger)]'
+            onClick={onConfirm}
+          >
+            {t('workspace.presentation_exit')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

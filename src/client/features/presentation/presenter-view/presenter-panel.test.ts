@@ -16,6 +16,7 @@ afterEach(() => {
 
 const STATE: PresenterSlideState = {
   noteTitle: 'Project Architecture',
+  slideTitles: [],
   slideIndex: 1,
   subPage: 0,
   step: 0,
@@ -37,6 +38,7 @@ function renderPanel(overrides: Partial<Parameters<typeof PresenterPanel>[0]> = 
     chromeHidden: false,
     occluded: false,
     onClose: vi.fn(),
+    onEditNotes: vi.fn(),
     ...overrides,
   }))
   return rendered

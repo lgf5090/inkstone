@@ -70,6 +70,7 @@ function audienceCapsuleProps() {
     following: false,
     followLost: false,
     audienceFollowing: false,
+    audienceViewers: 0,
     chromeHidden: false,
     occluded: false,
     compact: false,

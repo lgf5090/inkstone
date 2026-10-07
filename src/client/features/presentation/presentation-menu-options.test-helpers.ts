@@ -24,6 +24,8 @@ export function menuOptions(overrides: Partial<PresentationMenuItemsOptions> = {
     screenCover: null,
     keyGuide: false,
     audienceFollowing: false,
+    inkOn: false,
+    onToggleInk: () => {},
     onPrev: vi.fn(),
     onNext: vi.fn(),
     onToggleRail: vi.fn(),
