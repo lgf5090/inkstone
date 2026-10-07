@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement } from '../../../lib/test-render'
 import { PresenterWindow, type PresenterWindowProps } from './presenter-window'
-import { usePresenterTimer } from './use-presenter-timer'
+import { usePresenterTimer, useSlideTimings } from './use-presenter-timer'
 import type { PresenterSlideState } from './use-presenter-channel'
 import { planSlidePages, type SlideBlock } from '../slide-pagination'
 
@@ -381,4 +381,60 @@ describe('PresenterWindow — a page the room watches arrive in stages', () => {
     const next = container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)
     expect(next?.disabled).toBe(true)
   })
+})
+
+// PR-M9: a rehearsal is about the pages, not only the wall clock. The timings are read off the show's
+// own elapsed number, so a paused room is not charged to the page that was up.
+describe('useSlideTimings', () => {
+  let timings!: ReturnType<typeof useSlideTimings>
+
+  function Host(props: { slide: number; elapsed: number }) {
+    timings = useSlideTimings(props.slide, props.elapsed)
+    return createElement('span')
+  }
+
+  it('counts the current page from the moment it arrived', () => {
+    const view = renderElement(createElement(Host, { slide: 0, elapsed: 5 }))
+    expect(timings.currentSeconds).toBe(5)
+    view.rerender(createElement(Host, { slide: 0, elapsed: 12 }))
+    expect(timings.currentSeconds).toBe(12)
+    view.unmount()
+  })
+
+  it('charges each page for the stretch it held the room', () => {
+    const view = renderElement(createElement(Host, { slide: 0, elapsed: 0 }))
+    view.rerender(createElement(Host, { slide: 0, elapsed: 10 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 10 }))
+    expect(timings.bySlide[0]).toBe(10)
+    expect(timings.currentSeconds).toBe(0)
+    view.rerender(createElement(Host, { slide: 1, elapsed: 25 }))
+    expect(timings.bySlide).toEqual({ 0: 10, 1: 15 })
+    expect(timings.visited).toBe(2)
+    view.unmount()
+  })
+
+  it('adds to a page the presenter went back to rather than restarting it', () => {
+    const view = renderElement(createElement(Host, { slide: 0, elapsed: 0 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 20 }))
+    view.rerender(createElement(Host, { slide: 0, elapsed: 30 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 40 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 50 }))
+    expect(timings.bySlide[0], 'the first page was held for 20s and again for 10s').toBe(30)
+    expect(timings.bySlide[1], 'the second page held 10s, and is still up for 10 more').toBe(20)
+    expect(timings.currentSeconds).toBe(10)
+    expect(timings.visited).toBe(2)
+    view.unmount()
+  })
+})
+
+describe('the presenter’s per-page clock', () => {
+  it('says how long this page has held the room while the talk runs', () => {
+    const view = renderPresenter({ initialState: mockSlideState })
+    const timing = view.container.querySelector('[data-presenter-slide-timing]')
+    expect(timing, 'the header has no per-page clock').toBeTruthy()
+    expect(timing!.textContent).toContain(t('workspace.presentation_slide_elapsed', { value0: '' }).trim())
+    expect(timing!.textContent).toMatch(/\d[:]\d\d$/)
+    view.unmount()
+  })
+
 })

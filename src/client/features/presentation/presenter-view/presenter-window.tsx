@@ -8,7 +8,7 @@ import { PresenterSlidePreview } from './presenter-slide-preview'
 import { formatDeckPosition, type DeckPosition } from '../deck-position'
 import { hasBackwardMove, hasForwardMove } from '../presentation-state'
 import { PresenterNextSlidePane, PresenterSpeakerNotesPane } from './presenter-panes'
-import { usePresenterTimer } from './use-presenter-timer'
+import { usePresenterTimer, useSlideTimings, type SlideTimings } from './use-presenter-timer'
 import {
   formatClock,
   formatElapsed,
@@ -102,6 +102,7 @@ function PresenterHeader({
   // The show ending is heard as the channel closing, not as a final message: the last page the room
   // saw stays on screen as a record, and so does the time it took (L-6).
   const timer = usePresenterTimer(state.startedAt, !connected)
+  const timings = useSlideTimings(state.slideIndex, timer.elapsedSeconds)
 
   return (
     <header className='flex h-[var(--sp-12)] shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-[var(--sp-4)]'>
@@ -115,7 +116,7 @@ function PresenterHeader({
         <ConnectionBadge connected={connected} />
       </div>
 
-      <PresenterHeaderTimer timer={timer} clock={clock} frozen={!connected} />
+      <PresenterHeaderTimer timer={timer} clock={clock} frozen={!connected} timings={timings} />
       <PresenterHeaderStepper state={state} sendCommand={sendCommand} />
     </header>
   )
@@ -125,10 +126,12 @@ function PresenterHeaderTimer({
   timer,
   clock,
   frozen,
+  timings,
 }: {
   timer: ReturnType<typeof usePresenterTimer>
   clock: string
   frozen: boolean
+  timings: SlideTimings
 }) {
   return (
     <div className='flex items-center gap-[var(--sp-4)]'>
@@ -144,6 +147,14 @@ function PresenterHeaderTimer({
           )}
         >
           {formatElapsed(timer.elapsedSeconds)}
+        </span>
+        {/* The number a rehearsal is actually about: not how long the talk has been running, but how
+            long this page has held the room — and, once the show is over, what the whole run cost
+            across how many pages (PR-M9). */}
+        <span data-presenter-slide-timing className='tabular text-[length:var(--text-12)] text-[var(--text-tertiary)]'>
+          {frozen
+            ? t('workspace.presentation_rehearsal_summary', { value0: timings.visited, value1: formatElapsed(timer.elapsedSeconds) })
+            : t('workspace.presentation_slide_elapsed', { value0: formatElapsed(timings.currentSeconds) })}
         </span>
         <Tooltip label={timer.isPaused ? t('workspace.presentation_timer_resume') : t('workspace.presentation_timer_pause')}>
           <IconButton

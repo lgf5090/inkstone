@@ -1112,6 +1112,8 @@ const allowed = new Map([
     "// the surface where a step that stopped travelling would first be visible.",
     "// PR-L4: the accent is the one colour on this bar that means “look, something is off”. A clock that",
     "// is simply running wore it, so every presenter view opened looking like the talk had overrun.",
+    "// PR-M9: a rehearsal is about the pages, not only the wall clock. The timings are read off the show's",
+    "// own elapsed number, so a paused room is not charged to the page that was up.",
   ]],
   ["src/client/features/presentation/presenter-view/presenter-window.tsx", [
     "// The console reads the show's own position: the same derivation, so the number the speaker sees is the",
@@ -1121,6 +1123,7 @@ const allowed = new Map([
     "// Nothing to pause or reset on a show that is over: the numbers are a record, and",
     "// `togglePause` would count the silence since the room left as if the talk were running.",
     "/* The accent is the one colour on this bar that means \"look, something is off\": a running\n            clock is the normal state of a talk and painting it in it reads as overtime (PR-L4).\n            It goes loud only when the timer is paused, and quiet once the show is over. */",
+    "/* The number a rehearsal is actually about: not how long the talk has been running, but how\n            long this page has held the room — and, once the show is over, what the whole run cost\n            across how many pages (PR-M9). */",
   ]],
   ["src/client/features/presentation/presenter-view/use-presenter-broadcast.test.ts", [
     "// What the show puts on the channel is the author's private notes and the deck's source, so the",
@@ -1205,6 +1208,11 @@ const allowed = new Map([
     "/**\n * The show's own clock.\n *\n * `frozen` is the show having ended while this window is still open: the reading stops where the room\n * stopped rather than counting the silence after it. It is deliberately not the pause button — a paused\n * clock is a presenter's decision that resumes on the next press, a frozen one is a record.\n */",
     "// Stopping the tick is the whole of freezing: `elapsedSeconds` reads `now`, and `now` only moves on",
     "// a tick, so the display holds at whatever the clock last said.",
+    "/** Where the show has been and how long each page held it, in seconds. */",
+    "/** How long the page on screen has been on screen. */",
+    "/** Seconds spent on each slide, summed over every visit. */",
+    "/** How many distinct slides the run went across. */",
+    "/**\n * Per-slide time, derived from the show's own clock rather than from a second one (PR-M9).\n *\n * `elapsedSeconds` already stops when the presenter pauses and holds when the show ends, so reading\n * page time off it means a paused room is not charged to the page that was up, and a talk that was\n * stopped on stage is a record rather than a running count. A page visited twice is charged twice —\n * going back to the numbers is part of the talk, and a rehearsal that forgot it would report a run\n * that never happened.\n */",
   ]],
   ["src/client/features/presentation/slide-canvas.test.ts", [
     "// The plain render is what this file counts: the spy wraps the real function so every other case",
