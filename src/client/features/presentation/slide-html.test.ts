@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { SLIDE_CONTROL_SELECTORS, dropSlideControls, slideSettingFlags, stagedFor, type SlideMarkup } from './slide-html'
+import {
+  SLIDE_CONTROL_SELECTORS,
+  buildIncrementalSlidePlans,
+  clearSlideHtmlCache,
+  clearSlidePlanCache,
+  dropSlideControls,
+  markSlideFailed,
+  readSlideHtml,
+  rememberSlideHtml,
+  rememberSlidePlan,
+  reserveSlideCache,
+  slideSettingFlags,
+  stagedFor,
+  type SlideMarkup,
+} from './slide-html'
+import type { SlidePlan } from './slide-pagination'
 
 const parse = (html: string) => {
   const host = document.createElement('div')
@@ -90,5 +105,83 @@ describe('slideSettingFlags', () => {
 
   it('tells two settings apart that draw different pages', () => {
     expect(slideSettingFlags({ math: true, mermaid: true, chart: false })).not.toBe(slideSettingFlags({ math: true, mermaid: false, chart: false }))
+  })
+})
+
+const planOf = (from: number): SlidePlan => ({ pages: [{ from, to: from + 1, top: 0 }], scales: [1] })
+const markupOf = (html: string, flags?: string): SlideMarkup => ({ html, fences: {} as SlideMarkup['fences'], flags })
+
+describe('reserveSlideCache', () => {
+  it('keeps the first page of a deck longer than the floor', () => {
+    clearSlideHtmlCache()
+    reserveSlideCache(80)
+    for (let index = 0; index < 80; index++) rememberSlideHtml(`k${index}`, markupOf(`<p>${index}</p>`))
+    expect(readSlideHtml('k0')?.html).toBe('<p>0</p>')
+    expect(readSlideHtml('k79')?.html).toBe('<p>79</p>')
+  })
+
+  it('does not shrink the floor for a short deck', () => {
+    clearSlideHtmlCache()
+    reserveSlideCache(5)
+    for (let index = 0; index < 60; index++) rememberSlideHtml(`s${index}`, markupOf(`<p>${index}</p>`))
+    expect(readSlideHtml('s0')?.html).toBe('<p>0</p>')
+  })
+
+  it('takes the ceiling back down for the next show', () => {
+    clearSlideHtmlCache()
+    reserveSlideCache(80)
+    clearSlideHtmlCache()
+    reserveSlideCache(5)
+    for (let index = 0; index < 70; index++) rememberSlideHtml(`u${index}`, markupOf(`<p>${index}</p>`))
+    expect(readSlideHtml('u0')).toBeUndefined()
+    expect(readSlideHtml('u69')?.html).toBe('<p>69</p>')
+  })
+})
+
+describe('buildIncrementalSlidePlans', () => {
+  it('hands back the very object when no page moved', () => {
+    clearSlidePlanCache()
+    const first = planOf(0)
+    rememberSlidePlan('a', first)
+    const current = { 0: first }
+    expect(buildIncrementalSlidePlans(['a'], current)).toBe(current)
+  })
+
+  it('re-keys the plans it holds onto the deck as it now stands', () => {
+    clearSlidePlanCache()
+    const first = planOf(0)
+    const second = planOf(5)
+    rememberSlidePlan('a', first)
+    rememberSlidePlan('b', second)
+    const out = buildIncrementalSlidePlans(['b', 'a'], { 0: first, 1: second })
+    expect(out[0]).toBe(second)
+    expect(out[1]).toBe(first)
+  })
+
+  it('says the deck changed when a page fell out', () => {
+    clearSlidePlanCache()
+    const first = planOf(0)
+    const second = planOf(5)
+    rememberSlidePlan('a', first)
+    const current = { 0: first, 1: second }
+    const out = buildIncrementalSlidePlans(['a'], current)
+    expect(out).not.toBe(current)
+    expect(out[1]).toBeUndefined()
+  })
+})
+
+describe('markSlideFailed', () => {
+  it('puts the news on the staged page every surface reads', () => {
+    clearSlideHtmlCache()
+    rememberSlideHtml('f1', markupOf('<p>x</p>'))
+    markSlideFailed('f1', 'mdc')
+    expect(readSlideHtml('f1')?.failed).toBe(true)
+    expect(readSlideHtml('f1')?.flags).toBe('mdc')
+  })
+
+  it('says nothing about a page that was never staged', () => {
+    clearSlideHtmlCache()
+    expect(() => markSlideFailed('absent', 'mdc')).not.toThrow()
+    expect(readSlideHtml('absent')).toBeUndefined()
   })
 })
