@@ -214,6 +214,9 @@ const allowed = new Map([
     "/** The note's stored word count, so the estimate costs nothing per keystroke. */",
     "/** Hold Ctrl (or Option/Command) over a row to preview the section under it. */",
     "// The reference arms the peek with a held modifier, so the row's own tooltip is untouched.",
+    "/** 'text' lets a heading's own first strong character decide its base direction. */",
+    "// 'auto' resolves the paragraph direction from the heading's first strong character,",
+    "// which is what the setting promises; unicode-bidi: plaintext does not move a flex item's text.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",

@@ -17,6 +17,7 @@ import {
     Asterisk,
     type LucideProps,
 } from 'lucide-react';
+import type { OutlineTextDirectionName } from '@shared/types';
 import type { Heading } from '../../lib/markdown/renderer';
 import { renderMarkdown, renderOutlineLabel } from '../../lib/markdown/renderer';
 import { createPortal } from 'react-dom';
@@ -220,7 +221,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, showReadingTime = false, readingSpeed = DEFAULT_READING_SPEED_WPM, wordCount = 0, hoverPeek = false, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, showReadingTime = false, readingSpeed = DEFAULT_READING_SPEED_WPM, wordCount = 0, hoverPeek = false, textDirection = 'system', }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -247,6 +248,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     wordCount?: number;
     /** Hold Ctrl (or Option/Command) over a row to preview the section under it. */
     hoverPeek?: boolean;
+    /** 'text' lets a heading's own first strong character decide its base direction. */
+    textDirection?: OutlineTextDirectionName;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -524,7 +527,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </div>)}
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
-        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} hoverPeek={hoverPeek} onHoverRow={(index, rect) => setHoverRow({ index, rect })} onLeaveRow={() => setHoverRow(null)} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
+        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} hoverPeek={hoverPeek} textDirection={textDirection} onHoverRow={(index, rect) => setHoverRow({ index, rect })} onLeaveRow={() => setHoverRow(null)} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
 
@@ -536,7 +539,7 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     </>);
 }
 
-function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, markdownLabels, sourceLine, hoverPeek, onHoverRow, onLeaveRow, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
+function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, markdownLabels, sourceLine, hoverPeek, textDirection, onHoverRow, onLeaveRow, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
     node: OutlineNode;
     isLocated: boolean;
     isCollapsed: boolean;
@@ -546,6 +549,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
     truncateLength: number;
     markdownLabels: boolean;
     hoverPeek: boolean;
+    textDirection: OutlineTextDirectionName;
     onHoverRow: (index: number, rect: AnchorRect) => void;
     onLeaveRow: () => void;
     /** The heading's own source line, so the label can be re-rendered as markdown. */
@@ -568,6 +572,9 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
     const { heading, tier, hasChildren } = node;
     const typography = getHeadingTypography(heading.level, isLocated);
     const HeadingIcon = getHeadingIcon(heading.level);
+    // 'auto' resolves the paragraph direction from the heading's first strong character,
+    // which is what the setting promises; unicode-bidi: plaintext does not move a flex item's text.
+    const bidiDir = textDirection === 'text' ? 'auto' : 'ltr';
     const label = heading.text || t('preview.untitled');
     const shown = truncateHeading(label, truncateLength);
     const markup = useMemo(() => {
@@ -634,7 +641,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
               {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}
               <HeadingIcon size={typography.iconSize} aria-hidden="true" className={cn('shrink-0 transition-opacity duration-[var(--dur-fast)]', typography.iconColor, !isLocated && 'group-hover:text-[var(--text-secondary)] group-hover:opacity-100')}/>
-              {markup ? (<span className="min-w-0 flex-1 truncate" data-outline-markup="true" dangerouslySetInnerHTML={{ __html: markup }}/>) : (<span className="min-w-0 flex-1 truncate">{shown}</span>)}
+              {markup ? (<span dir={bidiDir} className="min-w-0 flex-1 truncate" data-outline-markup="true" dangerouslySetInnerHTML={{ __html: markup }}/>) : (<span dir={bidiDir} className="min-w-0 flex-1 truncate">{shown}</span>)}
             </button>
           </Tooltip>)}
       </div>

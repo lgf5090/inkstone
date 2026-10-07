@@ -112,6 +112,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlineTruncateLength: 0,
     outlineMarkdownLabels: false,
     outlineHoverPeek: false,
+    outlineTextDirection: 'system',
     outlineShowReadingTime: true,
     outlineReadingSpeed: DEFAULT_READING_SPEED_WPM,
     outlineDragEdits: false,
@@ -174,6 +175,7 @@ const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
 const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
 const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover', 'floating-circle'] as const
 const OUTLINE_AUTO_EXPANDS = ['off', 'ancestors'] as const
+const OUTLINE_TEXT_DIRECTIONS = ['system', 'text'] as const
 const OUTLINE_TOOLTIP_SIDES = ['left', 'right'] as const
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -259,6 +261,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.outlineTruncateLength = integerInRange(preview.outlineTruncateLength, 0, 120, base.preview.outlineTruncateLength)
   base.preview.outlineMarkdownLabels = booleanValue(preview.outlineMarkdownLabels, base.preview.outlineMarkdownLabels)
   base.preview.outlineHoverPeek = booleanValue(preview.outlineHoverPeek, base.preview.outlineHoverPeek)
+  base.preview.outlineTextDirection = enumValue(preview.outlineTextDirection, OUTLINE_TEXT_DIRECTIONS, base.preview.outlineTextDirection)
   base.preview.outlineShowReadingTime = booleanValue(preview.outlineShowReadingTime, base.preview.outlineShowReadingTime)
   base.preview.outlineReadingSpeed = integerInRange(preview.outlineReadingSpeed, 50, 1000, base.preview.outlineReadingSpeed)
   base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)

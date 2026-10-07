@@ -800,3 +800,31 @@ describe('Outline hover peek', () => {
         await act(async () => { unmount(); });
     });
 });
+
+describe('Outline heading text direction', () => {
+    const ROW: Heading[] = [{ level: 1, text: 'שלום world', slug: 'bidi', line: 0 }];
+
+    function labelSpan(container: HTMLElement): HTMLElement {
+        return container.querySelector<HTMLButtonElement>('button[data-slug="bidi"]')!.querySelector('span:last-child')!;
+    }
+
+    it('pins the label to the interface direction by default', () => {
+        const { container, unmount } = renderOutline(ROW, vi.fn());
+        expect(labelSpan(container).getAttribute('dir')).toBe('ltr');
+        unmount();
+    });
+
+    it('hands the direction to the heading text when asked', () => {
+        const { container, unmount } = renderOutline(ROW, vi.fn(), { textDirection: 'text' });
+        expect(labelSpan(container).getAttribute('dir')).toBe('auto');
+        unmount();
+    });
+
+    it('applies the same direction to a markdown-rendered label', () => {
+        const { container, unmount } = renderOutline(ROW, vi.fn(), { content: '# **שלום** world\n', markdownLabels: true, textDirection: 'text' });
+        const span = container.querySelector<HTMLElement>('[data-outline-markup]')!;
+        expect(span.getAttribute('dir')).toBe('auto');
+        expect(span.innerHTML).toBe('<strong>שלום</strong> world');
+        unmount();
+    });
+});

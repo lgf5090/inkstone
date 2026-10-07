@@ -1,7 +1,7 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
-import type { OutlineAutoExpandName, OutlineModeName } from '@shared/types';
+import type { OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -124,6 +124,13 @@ export function EditorSettings() {
         {preview.showToc && preview.outlineShowReadingTime && <SettingRow title={t("settings.outline_reading_speed")} description={t("settings.outline_reading_speed_description")}>
           <Slider label={t("settings.outline_reading_speed")} className="w-[200px]" value={preview.outlineReadingSpeed} min={50} max={1000} step={25} onChange={(outlineReadingSpeed) => void update({ preview: { outlineReadingSpeed } })}/>
         </SettingRow>}
+        {preview.showToc && <SettingRow title={t("settings.outline_text_direction")} description={t("settings.outline_text_direction_description")}>
+          <Segmented<OutlineTextDirectionName> label={t("settings.outline_text_direction")} value={preview.outlineTextDirection} onChange={(outlineTextDirection) => void update({ preview: { outlineTextDirection } })} options={[
+            { value: 'system', label: t("settings.outline_text_direction_system") },
+            { value: 'text', label: t("settings.outline_text_direction_text") },
+        ]}/>
+        </SettingRow>}
+
         {preview.showToc && <SettingRow title={t("settings.outline_hover_peek")} description={t("settings.outline_hover_peek_description")}>
           <Switch checked={preview.outlineHoverPeek} onChange={(outlineHoverPeek) => void update({ preview: { outlineHoverPeek } })} label={t("settings.outline_hover_peek")}/>
         </SettingRow>}

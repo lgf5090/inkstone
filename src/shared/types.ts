@@ -119,6 +119,7 @@ export interface EditorSettings {
 export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
 export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover' | 'floating-circle'
 export type OutlineAutoExpandName = 'off' | 'ancestors'
+export type OutlineTextDirectionName = 'system' | 'text'
 
 export interface PreviewSettings {
   layout: EditorLayout
@@ -132,6 +133,7 @@ export interface PreviewSettings {
   outlineTruncateLength: number
   outlineMarkdownLabels: boolean
   outlineHoverPeek: boolean
+  outlineTextDirection: OutlineTextDirectionName
   outlineShowReadingTime: boolean
   outlineReadingSpeed: number
   outlineDragEdits: boolean

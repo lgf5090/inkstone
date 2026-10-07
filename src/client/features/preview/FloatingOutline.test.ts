@@ -34,6 +34,7 @@ function renderPanel(collapsible = false) {
         readingSpeed: 300,
         wordCount: 2,
         hoverPeek: false,
+        textDirection: 'system',
         collapsible,
         containerRef: ref,
     }));
