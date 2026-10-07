@@ -20,7 +20,9 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
-import { SidebarTags } from '../tags/SidebarTags';import { t, useLocale } from "../../lib/i18n";
+import { SidebarTags } from '../tags/SidebarTags';
+import { SIDEBAR_PANEL_ID, SidebarTabStrip, tabId } from './SidebarTabs';
+import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
@@ -35,6 +37,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
 }) {
     const view = useUi((s) => !s.listCollapsed && !s.searchList ? s.view : null);
     const openView = useUi((s) => s.openView);
+    const sidebarTab = useUi((s) => s.sidebarTab);
     const counts = useNavigationCounts();
     return (<>
         {collapsed ? <SidebarRail onExpand={onCollapse}/> : (<aside className="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]">
@@ -53,18 +56,21 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
       </header>
 
       <div className="shrink-0 px-2 pt-2"><SearchButton /></div>
+      <SidebarTabStrip />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-4">
-        <SidebarCalendar />
-        <div className="space-y-px">
-          <ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>
-          <ViewItem icon={<Clock size={14}/>} label={t("navigation.recently_edited")} view="recent" active={view === 'recent'} onSelect={openView}/>
-          <ViewItem icon={<Star size={14}/>} label={t("navigation.favorites")} view="starred" count={counts.starred} active={view === 'starred'} onSelect={openView}/>
-          <ViewItem icon={<Inbox size={14}/>} label={t("navigation.unfiled")} view="unfiled" count={counts.unfiled} active={view === 'unfiled'} onSelect={openView}/>
-        </div>
+      <div id={SIDEBAR_PANEL_ID} role="tabpanel" aria-labelledby={tabId(sidebarTab)} className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-4">
+        {sidebarTab === 'library' && (<>
+          <SidebarCalendar />
+          <div className="space-y-px">
+            <ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>
+            <ViewItem icon={<Clock size={14}/>} label={t("navigation.recently_edited")} view="recent" active={view === 'recent'} onSelect={openView}/>
+            <ViewItem icon={<Star size={14}/>} label={t("navigation.favorites")} view="starred" count={counts.starred} active={view === 'starred'} onSelect={openView}/>
+            <ViewItem icon={<Inbox size={14}/>} label={t("navigation.unfiled")} view="unfiled" count={counts.unfiled} active={view === 'unfiled'} onSelect={openView}/>
+          </div>
 
-        <FolderSection />
-        <SidebarTags />
+          <FolderSection />
+        </>)}
+        {sidebarTab === 'tags' && <SidebarTags />}
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
-import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
+import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SidebarTab, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
+import { ACCENTS, LIMITS, SIDEBAR_TABS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import { tagKey } from '@shared/markdown-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
@@ -67,6 +67,8 @@ interface UiState {
 
 
   view: ViewKind
+  /** Which panel the sidebar tab strip shows; only one is mounted at a time. */
+  sidebarTab: SidebarTab
   folderId: string | null
   /** Tag filters in effect; one tag also matches its subtree, and several combine with AND. */
   tags: string[]
@@ -114,6 +116,7 @@ interface UiState {
   openExplorer: (folderId?: string | null) => void
   setMobilePane: (pane: UiState['mobilePane']) => void
   openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null; tags?: readonly string[] }) => void
+  setSidebarTab: (tab: SidebarTab) => void
   toggleTagFilter: (tag: string, additive: boolean) => void
   toggleTagExclusion: (tag: string) => void
   setDateFilter: (value: DateRangeFilter | null) => void
@@ -165,6 +168,7 @@ const DEFAULTS = {
   navCollapsed: false,
   listCollapsed: true,
   view: 'all' as ViewKind,
+  sidebarTab: 'library' as SidebarTab,
   folderId: null,
   tags: [] as string[],
   excludedTags: [] as string[],
@@ -199,6 +203,7 @@ const PERSISTED_KEYS = [
   'activeWorkspacePane',
   'workspacePaneLayouts',
   'view',
+  'sidebarTab',
   'folderId',
   'tags',
   'excludedTags',
@@ -236,6 +241,7 @@ function loadPersisted(): Partial<UiState> {
       out.workspaceSplitRatio = clamp(value.workspaceSplitRatio, 0.2, 0.8)
     }
     if (isChoice(value.view, VIEW_KINDS)) out.view = value.view as ViewKind
+    if (isChoice(value.sidebarTab, SIDEBAR_TABS)) out.sidebarTab = value.sidebarTab as SidebarTab
     if (value.folderId === null || typeof value.folderId === 'string') {
       out.folderId = value.folderId?.slice(0, 128) ?? null
     }
@@ -550,6 +556,7 @@ export const useUi = create<UiState>((set, get) => ({
     return { view: tags.length ? 'tag' : 'all', tags, selectedIds: [] }
   }),
 
+  setSidebarTab: (tab) => set({ sidebarTab: tab }),
   setSort: (sort, order) => set((s) => ({ sort, order: order ?? s.order })),
   setDensity: (density) => set({ density }),
   // A malformed key reaches Intl.DateTimeFormat as an Invalid Date, which throws inside the list

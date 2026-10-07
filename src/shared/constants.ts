@@ -1,4 +1,4 @@
-import type { AccentName, CodeFormatKeywordCase, EmojiInsertFormat, SkinTone, UserSettings, ViewKind } from './types'
+import type { AccentName, CodeFormatKeywordCase, EmojiInsertFormat, SidebarTab, SkinTone, UserSettings, ViewKind } from './types'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
@@ -85,6 +85,8 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
 }
 
 export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
+
+export const SIDEBAR_TABS: SidebarTab[] = ['library', 'tags']
 
 /**
  * The template inserted at the top of a new note. Keep the placeholders ASCII:

@@ -1,0 +1,87 @@
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Folder } from '@shared/types';
+import { SIDEBAR_TABS } from '@shared/constants';
+import { initI18n, t } from '../../lib/i18n';
+import { installTestGlobals } from '../../lib/test-render';
+import { useNotes } from '../../store/notes';
+import { useUi } from '../../store/ui';
+import { Sidebar } from './Sidebar';
+import { SIDEBAR_PANEL_ID, SIDEBAR_TAB_IDS, tabId } from './SidebarTabs';
+
+const folder: Folder = { id: 'folder', name: 'Project', parentId: null, icon: null, color: null, position: 0, createdAt: 1, updatedAt: 1 };
+const originalUi = useUi.getState();
+const originalNotes = useNotes.getState();
+let root: Root;
+let container: HTMLDivElement;
+
+beforeEach(async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    installTestGlobals();
+    await initI18n();
+    useUi.setState({ ...originalUi, sidebarTab: 'library', listCollapsed: true, view: 'all', folderId: null, activeNoteId: null, expandedFolders: [] });
+    useNotes.setState({ ...originalNotes, folders: [folder], tags: [{ key: 'demo', fullKey: 'demo', name: 'demo', count: 2, children: [] }], notes: {} });
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(() => root.render(createElement(Sidebar)));
+});
+
+afterEach(async () => {
+    await act(() => root.unmount());
+    container.remove();
+    useUi.setState(originalUi, true);
+    useNotes.setState(originalNotes, true);
+    vi.unstubAllGlobals();
+});
+
+const tabs = () => [...container.querySelectorAll<HTMLButtonElement>('aside [role="tab"]')];
+const panel = () => container.querySelector<HTMLElement>(`#${SIDEBAR_PANEL_ID}`)!;
+const press = async (element: HTMLElement, key: string) => {
+    await act(async () => {
+        element.focus();
+        element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+};
+
+describe('sidebar tab strip', () => {
+    it('offers only tabs the store is allowed to remember', () => {
+        for (const id of SIDEBAR_TAB_IDS)
+            expect(SIDEBAR_TABS, `tab ${id} has no place in the persisted value list`).toContain(id);
+    });
+
+    it('gives the library tab the folder tree and keeps the tag list out of it', () => {
+        expect(container.querySelectorAll('[data-folder-drop-target]').length).toBe(1);
+        expect(panel().getAttribute('aria-labelledby')).toBe(tabId('library'));
+        expect(container.querySelector('[data-tag-row]')).toBeNull();
+    });
+
+    it('swaps the whole body when the tag tab is chosen', async () => {
+        await act(async () => tabs().find((tab) => tab.dataset.tab === 'tags')?.click());
+        expect(useUi.getState().sidebarTab).toBe('tags');
+        expect(container.querySelectorAll('[data-folder-drop-target]').length).toBe(0);
+        expect(container.querySelector(`input[aria-label="${t('tags.filter')}"]`)).toBeTruthy();
+        expect(panel().getAttribute('aria-labelledby')).toBe(tabId('tags'));
+    });
+
+    it('keeps exactly one tab in the tab order and moves it with the arrows', async () => {
+        const tabbable = () => tabs().filter((tab) => tab.tabIndex === 0).map((tab) => tab.dataset.tab);
+        expect(tabbable()).toEqual(['library']);
+        await press(tabs()[0], 'ArrowRight');
+        expect(tabbable()).toEqual(['tags']);
+        expect(useUi.getState().sidebarTab).toBe('tags');
+        await press(tabs()[1], 'ArrowLeft');
+        expect(useUi.getState().sidebarTab).toBe('library');
+        await press(tabs()[0], 'End');
+        expect(useUi.getState().sidebarTab).toBe('tags');
+        await press(tabs()[1], 'Home');
+        expect(useUi.getState().sidebarTab).toBe('library');
+    });
+
+    it('remembers the choice against the store default', () => {
+        expect(originalUi.sidebarTab).toBe('library');
+        useUi.getState().setSidebarTab('tags');
+        expect(useUi.getState().sidebarTab).toBe('tags');
+    });
+});
