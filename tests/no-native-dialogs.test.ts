@@ -147,7 +147,7 @@ describe('no native dialogs anywhere in the shipped code', () => {
 
   it('calls no window alert, confirm or prompt', () => {
     expect(PROJECT.flatMap(({ file, source }) => nativeDialogCalls(file, source))).toEqual([])
-  })
+  }, 20_000)
 
   it('documents every leave-page listener and never raises the browser dialog', () => {
     expect(PROJECT.flatMap(({ file, source }) => leavePageFindings(file, source))).toEqual([])

@@ -120,6 +120,12 @@ const allowedHanFragments = new Map([
         '\u4e2d\u6587',
         '\u8349\u7a3f',
     ]],
+    [path.resolve('src/client/lib/emoji-catalog.test.ts'), [
+        // Icon search has to answer in the language the user types it in, so the probe words are Han.
+        '\u6587\u4ef6\u5939',
+        'plane \u98de\u673a',
+        '\u7ea2 \u70b9',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.
@@ -127,7 +133,7 @@ const allowedHanFragments = new Map([
  * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these
  * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen
@@ -252,7 +258,7 @@ function isTextSource(file) {
     return /\.(?:css|html|js|jsx|json|md|mjs|svg|toml|ts|tsx)$/.test(file);
 }
 function rejectHan(file) {
-    const source = fs.readFileSync(file, 'utf8');
+    const source = blankInputVocabulary(file, fs.readFileSync(file, 'utf8'));
     const checked = (allowedHanFragments.get(file) ?? []).reduce((text, fragment) => text.replace(fragment, ' '.repeat(fragment.length)), source);
     const match = forbiddenCjk.exec(checked);
     if (!match)
@@ -261,6 +267,22 @@ function rejectHan(file) {
     const line = before.split(/\r?\n/).length;
     const column = match.index - Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'));
     failures.push(`${path.relative(process.cwd(), file)}:${line}:${column} Chinese text is allowed only in src/shared/locales/zh-CN.ts`);
+}
+function blankInputVocabulary(file, source) {
+    if (![...inputVocabularyConstants].some((name) => source.includes('const ' + name)))
+        return source;
+    const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const spans = [];
+    const walk = (node) => {
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && inputVocabularyConstants.has(node.name.text) && node.initializer)
+            spans.push([node.initializer.getStart(sourceFile), node.initializer.getEnd()]);
+        ts.forEachChild(node, walk);
+    };
+    walk(sourceFile);
+    let text = source;
+    for (const [from, to] of spans.sort((a, b) => b[0] - a[0]))
+        text = text.slice(0, from) + text.slice(from, to).replace(/[^\n]/g, ' ') + text.slice(to);
+    return text;
 }
 function insideInputVocabulary(node) {
     let current = node.parent;
