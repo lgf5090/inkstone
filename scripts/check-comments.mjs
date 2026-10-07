@@ -177,6 +177,9 @@ const allowed = new Map([
     "// attached and focused; the shim keeps the completion path exercisable instead of untestable.",
     "// The command does not choose a format: a selection that already looks like a task list becomes an",
     "// outline fence, and the fence itself decides — which is why this asserts through the parser.",
+    "// The starter writes no styling of its own, so the note's accent paints the chart and repaints it when",
+    "// the theme changes. A keyword cell's JSON lands in `options` rather than on the dataset, which is why",
+    "// the byte-identical round trip alone would not notice a colour written there — the absence is asserted.",
   ]],
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
@@ -195,6 +198,7 @@ const allowed = new Map([
     "// a block inside a list item has to stay inside it.",
     "// The range runs up to the start of the closing fence, so it ends in a line break the new body has to",
     "// hand back — otherwise the last line of the block swallows the ``` that closed it.",
+    "/**\n * A chart, in the format an author can edit in place: the first cell names the type, the header row is\n * the x axis, and each row is one series. The block's own toolbar converts it to JSON when the full\n * option set is needed, so this command does not settle that choice — it only starts somewhere the\n * chart parser reads back as a chart. Nothing is styled on purpose: a chart with no colours of its own\n * is painted from the note's accent and repaints when the accent or the theme changes, while a starter\n * that wrote its own would freeze that choice into the note.\n */",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",

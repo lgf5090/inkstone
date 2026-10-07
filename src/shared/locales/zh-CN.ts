@@ -1894,6 +1894,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.block_reference": "块引用",
     "workspace.callout": "提示块",
     "workspace.characters": "字符",
+    "workspace.chart_block": "Chart.js 图表",
     "workspace.close_right_note": "关闭右侧笔记",
     "workspace.choose_a_note_or_write_a_new_one": "选一篇笔记，或者写一篇新的",
     "workspace.code_block": "代码块",
