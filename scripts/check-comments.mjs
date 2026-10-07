@@ -877,6 +877,12 @@ const allowed = new Map([
   ["src/client/features/presentation/presentation-settings.test.ts", [
     "// Three switches the account owns over what a show looks like. Each is asserted where it is felt,",
     "// because a setting nothing reads still renders a perfectly good toggle.",
+    "// The overlay is a portal on `document.body` and it outlives the case that opened it unless it is",
+    "// unmounted by name. Clearing `document.body` would leave the root live, and its next effect would",
+    "// then run against the globals the teardown has already taken away.",
+    "// The projector and the slide list both draw this chart, and a thumbnail is always drawn at",
+    "// once whatever the account says — so the answer has to come from the canvas inside the projector,",
+    "// not from whichever chart was built last.",
   ]],
   ["src/client/features/presentation/presentation-stage.tsx", [
     "/** How far into this page the show has walked (N-31); the projector is the only surface that has one. */",
@@ -2533,9 +2539,10 @@ const allowed = new Map([
     "// tail used to cost one object per line of the whole file (60k) before being truncated.",
   ]],
   ["src/client/features/workspace/Workspace.tsx", [
-    "// The show lives in its own chunk, so the key that opens one is the first thing that asks for",
-    "// the deck splitter. Awaiting here also means a note deleted between the click and the chunk",
-    "// landing is caught by the same 'nothing to present' answer the command palette gets.",
+    "// Not a `useCallback`: this sits below the \"no note selected\" early return above, so a hook here",
+    "// would be called on some renders and skipped on others, and React aborts the tree over that.",
+    "// The row lists below are rebuilt every render anyway, so a stable identity bought nothing here.",
+    "// The show lives in its own chunk, so this call is the first thing that asks for the deck splitter.",
   ]],
   ["src/client/features/workspace/reading-position.ts", [
     "// Reading position is optional when browser storage is unavailable.",
