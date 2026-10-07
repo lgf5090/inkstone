@@ -64,7 +64,7 @@ export function installTestGlobals(): void {
   // the reader's place on every page turn calls it, and a missing method is a render crash rather than
   // a no-op. Guarded, because a test that wants to count the calls stubs its own.
   if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
-    Element.prototype.scrollIntoView = () => {}
+    Element.prototype.scrollIntoView = function scrollIntoView() {}
   }
 }
 

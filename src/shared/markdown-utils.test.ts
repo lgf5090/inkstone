@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, replaceTagInContent, tagNamesEqual, toPlainText } from './markdown-utils'
+import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -239,5 +239,22 @@ describe('extractAttachmentIds', () => {
 
   it('ignores md-example markers inside ordinary code fences', () => {
     expect(extractAttachmentIds(`~~~~text\n\`\`\`md-example\n![a](/api/files/${idA})\n\`\`\`\n~~~~`)).toEqual([])
+  })
+})
+
+describe('readingMinutes', () => {
+  it('keeps a one minute floor for nothing to read', () => {
+    expect(readingMinutes(0)).toBe(1)
+    expect(readingMinutes(149)).toBe(1)
+  })
+
+  it('rounds to the nearest minute at the default speed', () => {
+    expect(readingMinutes(450)).toBe(2)
+    expect(readingMinutes(DEFAULT_READING_SPEED_WPM * 3)).toBe(3)
+  })
+
+  it('honours a slower reading speed', () => {
+    expect(readingMinutes(600, 100)).toBe(6)
+    expect(readingMinutes(600, 1000)).toBe(1)
   })
 })
