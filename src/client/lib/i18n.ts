@@ -98,6 +98,9 @@ export async function initI18n(): Promise<void> {
 export type { MessageKey };
 export function t(key: MessageKey, params?: Params): string {
     const template = messages[locale][key] ?? enMessagesCache?.[key] ?? key;
+    return interpolate(template, params);
+}
+function interpolate(template: string, params?: Params): string {
     if (!params)
         return template;
     return template.replace(/\{([A-Za-z0-9_]+)\}/g, (whole, name: string) => {
@@ -114,6 +117,14 @@ export function localizedTexts(key: MessageKey): string[] {
             out.push(value);
     }
     return out;
+}
+/**
+ * `localizedTexts` with its parameters filled in: a value that was written into a note
+ * while the interface spoke another language is still the same string, so a lookup keyed
+ * on display text has to answer in every shipped language at once.
+ */
+export function localizedParams(key: MessageKey, params?: Params): string[] {
+    return localizedTexts(key).map((template) => interpolate(template, params));
 }
 export function getLocaleResources(): number {
     return resourcesVersion;

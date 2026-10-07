@@ -25,12 +25,28 @@ function monthMoveIndex(key: string, index: number, length: number): number {
 
 function yearMoveIndex(key: string, index: number, columns: number): number {
   switch (key) {
+    case 'ArrowLeft': return index - 1
+    case 'ArrowRight': return index + 1
     case 'ArrowUp': return index - columns
     case 'ArrowDown': return index + columns
     case 'Home': return 0
     case 'End': return 11
     default: return index
   }
+}
+
+// The two ways of asking for a month range: a second click commits, a second Space commits.
+function selectYearRange(props: ActivityCalendarProps, state: CalendarState, month: number): void {
+  state.setFocusedMonth(month)
+  if (state.yearRangeAnchor === null) {
+    state.setYearRangeAnchor({ year: props.cursor.year, month })
+    state.setYearRangeHover(month)
+    return
+  }
+  const range = monthRangeToKeys(state.yearRangeAnchor.year, state.yearRangeAnchor.month, month)
+  state.setYearRangeAnchor(null)
+  state.setYearRangeHover(null)
+  props.onRangeSelect(range.start, range.end)
 }
 
 export interface NavHandlers {
@@ -74,7 +90,7 @@ export function useCalendarNav(props: ActivityCalendarProps, base: CalendarBase,
 export interface MonthGridHandlers {
   handleGridKeyDown: React.KeyboardEventHandler
   handleGridMouseDown: React.MouseEventHandler
-  handleGridMouseEnter: React.MouseEventHandler
+  handleGridMouseOver: React.MouseEventHandler
 }
 
 export function useMonthGridHandlers(props: ActivityCalendarProps, state: CalendarState, month: MonthState): MonthGridHandlers {
@@ -97,45 +113,65 @@ export function useMonthGridHandlers(props: ActivityCalendarProps, state: Calend
       props.onRangeSelect(range.start, range.end)
     }
   }
+  // A gap day belongs to the neighbouring month: it may be clicked (that is how one reaches
+  // the next month's diary) but it never anchors or extends a drag, because the grid cannot
+  // show which half of the range came from the padding.
+  const draggableCell = (target: EventTarget | null): HTMLButtonElement | null => {
+    const cell = (target as HTMLElement | null)?.closest?.<HTMLButtonElement>('[data-day-key]') ?? null
+    if (!cell || cell.dataset.dayGap !== undefined)
+      return null
+    return cell
+  }
   const handleGridMouseDown = (event: React.MouseEvent) => {
-    const key = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-day-key]')?.dataset.dayKey ?? null
-    if (key === null)
+    if (event.button !== 0)
       return
+    const cell = draggableCell(event.target)
+    if (cell === null)
+      return
+    const key = cell.dataset.dayKey!
     state.dragStartKey.current = key
     state.dragHoverKey.current = key
     state.setDragRange(null)
   }
-  const handleGridMouseEnter = (event: React.MouseEvent) => {
+  const handleGridMouseOver = (event: React.MouseEvent) => {
     if (state.dragStartKey.current === null)
       return
-    const key = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-day-key]')?.dataset.dayKey ?? null
-    if (key === null)
+    const cell = draggableCell(event.target)
+    if (cell === null)
       return
+    const key = cell.dataset.dayKey!
     state.dragHoverKey.current = key
     state.setDragRange(normalizeRange(state.dragStartKey.current, key))
   }
-  return { handleGridKeyDown, handleGridMouseDown, handleGridMouseEnter }
+  return { handleGridKeyDown, handleGridMouseDown, handleGridMouseOver }
 }
 
 export function useRootKeyHandler(props: ActivityCalendarProps, state: CalendarState): React.KeyboardEventHandler {
   return (event: React.KeyboardEvent) => {
     if (event.key !== 'Escape')
       return
+    // Only swallow the key when a rung of this ladder actually closed something: the view
+    // resets the week expansions on its own, so an Escape with nothing left must reach the shell.
     if (props.view === 'year' && state.yearRangeAnchor !== null) {
+      event.preventDefault()
       state.setYearRangeAnchor(null)
       state.setYearRangeHover(null)
       return
     }
     if (state.expandedDay !== null) {
+      event.preventDefault()
       state.setExpandedDay(null)
       return
     }
     if (state.isExpandedWeekNotes) {
+      event.preventDefault()
       state.setIsExpandedWeekNotes(false)
       return
     }
-    if (state.expandedWeek !== null)
+    if (state.expandedWeek !== null) {
+      event.preventDefault()
       state.setExpandedWeek(null)
+    }
   }
 }
 
@@ -145,7 +181,7 @@ export interface YearGridHandlers {
 }
 
 export function useYearGridHandlers(props: ActivityCalendarProps, state: CalendarState, base: CalendarBase, nav: NavHandlers, flash: FlashState): YearGridHandlers {
-  const handleYearGridKeyDown = (event: React.KeyboardEvent) => {
+  const rawKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'PageUp') {
       event.preventDefault()
       nav.shiftYear(-1)
@@ -174,36 +210,45 @@ export function useYearGridHandlers(props: ActivityCalendarProps, state: Calenda
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key))
       return
     event.preventDefault()
-    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && cardMonth >= 0) {
-      nav.focusWeekday(cardMonth, 0, event.currentTarget)
-      return
-    }
-    let index = base.focusMonth
+    // Walk from the card the caret is actually on; the derived focus month is only the fallback
+    // for a grid nobody has moved inside yet.
+    let index = cardMonth >= 0 ? cardMonth : base.focusMonth
     index = Math.max(0, Math.min(11, yearMoveIndex(event.key, index, base.yearColumns)))
     state.setFocusedMonth(index)
     event.currentTarget.querySelector<HTMLButtonElement>(`[data-month="${index}"]`)?.focus()
   }
-  return { handleYearGridKeyDown, handleMonthClick: useYearMonthClick(props, state, flash) }
+  const handleYearGridSpace = (event: React.KeyboardEvent) => {
+    if (event.key !== ' ')
+      return
+    const card = (event.target as HTMLElement).closest<HTMLElement>('[data-month-card]')
+    const month = card ? Number(card.getAttribute('data-month-card')) : -1
+    if (month < 0)
+      return
+    // Without this the browser's own Space activation would fire a click, and a click on a
+    // card is the jump-to-month action, not the range anchor.
+    event.preventDefault()
+    selectYearRange(props, state, month)
+  }
+  return {
+    handleYearGridKeyDown: (event: React.KeyboardEvent) => {
+      handleYearGridSpace(event)
+      if (!event.defaultPrevented)
+        rawKeyDown(event)
+    },
+    handleMonthClick: useYearMonthClick(props, state, flash),
+  }
 }
 
 function useYearMonthClick(props: ActivityCalendarProps, state: CalendarState, flash: FlashState) {
   return (event: React.MouseEvent, month: number) => {
-    state.setFocusedMonth(month)
     if (event.detail === 0) {
+      state.setFocusedMonth(month)
       props.onCursorChange({ year: props.cursor.year, month })
       props.onViewChange('month')
       flash.flash()
       return
     }
-    if (state.yearRangeAnchor === null) {
-      state.setYearRangeAnchor({ year: props.cursor.year, month })
-      state.setYearRangeHover(month)
-      return
-    }
-    const range = monthRangeToKeys(state.yearRangeAnchor.year, state.yearRangeAnchor.month, month)
-    state.setYearRangeAnchor(null)
-    state.setYearRangeHover(null)
-    props.onRangeSelect(range.start, range.end)
+    selectYearRange(props, state, month)
   }
 }
 
@@ -250,6 +295,7 @@ export function useStripHandlers(props: ActivityCalendarProps, state: CalendarSt
   const jumpToDay = (key: string) => {
     const [year, month] = key.split('-').map(Number)
     state.setFocusedKey(key)
+    state.setPendingFocus(key)
     props.onCursorChange({ year, month: month - 1 })
     props.onViewChange('month')
     props.onDaySelect(key)
@@ -259,20 +305,30 @@ export function useStripHandlers(props: ActivityCalendarProps, state: CalendarSt
 
 export function useRangeDragFinish(props: ActivityCalendarProps, state: CalendarState): void {
   useEffect(() => {
+    const abandon = () => {
+      state.dragStartKey.current = null
+      state.dragHoverKey.current = null
+      state.setDragRange(null)
+    }
     const onWindowMouseUp = () => {
       if (state.dragStartKey.current === null)
         return
       const anchor = state.dragStartKey.current
       const hover = state.dragHoverKey.current
-      state.dragStartKey.current = null
-      state.dragHoverKey.current = null
-      state.setDragRange(null)
+      abandon()
       if (hover !== null && hover !== anchor) {
         const range = normalizeRange(anchor, hover)
         props.onRangeSelect(range.start, range.end)
       }
     }
+    // A release outside the window never reaches us, so the next hover would finish a drag
+    // the user believes they cancelled.
+    const onWindowBlur = () => { abandon() }
     window.addEventListener('mouseup', onWindowMouseUp)
-    return () => window.removeEventListener('mouseup', onWindowMouseUp)
+    window.addEventListener('blur', onWindowBlur)
+    return () => {
+      window.removeEventListener('mouseup', onWindowMouseUp)
+      window.removeEventListener('blur', onWindowBlur)
+    }
   }, [props.onRangeSelect])
 }

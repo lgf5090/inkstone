@@ -1131,3 +1131,35 @@ describe('excluded tag filters', () => {
     });
 
 });
+
+describe('the day filter on a narrow list', () => {
+    const DAY = '2026-10-05';
+    const noon = (day: number) => new Date(2026, 9, day, 12).getTime();
+
+    async function renderFiltered(notes: Record<string, NoteSummary>) {
+        useNotes.setState({ ...originalNotes, folders: [folder], notes, tags: [], openNote: vi.fn(async () => undefined) });
+        useUi.setState({ ...originalUi, listCollapsed: true, view: 'all', folderId: null, tags: [], selectedIds: [], searchList: false, dateFilter: { start: DAY, end: DAY } });
+        await act(() => root.render(createElement(NoteList)));
+    }
+
+    it('shows the day chip with its clear control where the desktop header is absent', async () => {
+        await renderFiltered({ [note.id]: { ...note, updatedAt: noon(5) } });
+        const chip = container.querySelector('[data-day-filter-chip]');
+        expect(chip).toBeTruthy();
+        expect(byLabel(chip!, t('notes.clear_day_filter'))).toBeTruthy();
+    });
+
+    it('clearing the chip on the narrow layout drops the filter', async () => {
+        await renderFiltered({ [note.id]: { ...note, updatedAt: noon(5) } });
+        await click(byLabel(container, t('notes.clear_day_filter')));
+        expect(useUi.getState().dateFilter).toBeNull();
+    });
+
+    it('names the day filter in the empty state instead of offering a new note', async () => {
+        await renderFiltered({ [note.id]: { ...note, updatedAt: noon(6) } });
+        expect(container.textContent).toContain(t('notes.no_notes_on_this_day'));
+        expect(container.textContent).not.toContain(t('notes.no_notes_yet'));
+        expect(container.textContent).not.toContain(t('common.new_note'));
+    });
+
+});

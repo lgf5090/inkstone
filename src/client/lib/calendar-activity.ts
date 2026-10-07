@@ -19,7 +19,7 @@ export interface ActivityProjection {
   counts: Map<string, number>
   noteIdByTitle: Map<string, string>
   notesByDay: Map<string, ActivityDayNote[]>
-  /** Newest `updatedAt` among alive notes as a day key; null when the vault holds none. */
+  /** Newest `updatedAt` among counted notes as a day key; null when the vault holds none. */
   latestEditKey: string | null
 }
 
@@ -28,6 +28,7 @@ interface ActivityEntry {
   ref: NoteSummary
   key: string
   title: string
+  counted: boolean
 }
 
 
@@ -37,6 +38,17 @@ interface ActivityProjectionSlot extends ActivityProjection {
   titleCounts: Map<string, number>
   latestUpdatedAt: number
 }
+
+// Two tiers of visibility, because the calendar asks two different questions. The day
+// slices answer "how active was this day", which has to agree with what the note list
+// shows, so archived notes are out. The title slots answer "which note is this day's
+// diary", and an archived diary must still be found there or clicking its date would
+// file a second note for the same day.
+export function isActivityNote(note: Pick<NoteSummary, 'deletedAt' | 'isArchived'>): boolean {
+  return !note.deletedAt && !note.isArchived
+}
+
+const isAliveNote = (note: Pick<NoteSummary, 'deletedAt'>): boolean => !note.deletedAt
 
 let activityProjectionSlot: ActivityProjectionSlot | null = null
 
@@ -48,10 +60,12 @@ function latestEditKeyOf(latestUpdatedAt: number): string | null {
   return latestUpdatedAt === 0 ? null : dateKey(new Date(latestUpdatedAt))
 }
 
+// Only the counted tier feeds the gap banner: an archived note is invisible to the
+// list, so pointing the reader at a day the list cannot show would repeat C-14.
 function rescanLatestUpdatedAt(byId: Map<string, ActivityEntry>): number {
   let latest = 0
   for (const entry of byId.values()) {
-    if (entry.ref.updatedAt > latest)
+    if (entry.counted && entry.ref.updatedAt > latest)
       latest = entry.ref.updatedAt
   }
   return latest
@@ -66,16 +80,19 @@ export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>)
   let latestUpdatedAt = 0
   for (const id in notes) {
     const note = notes[id]!
-    if (note.deletedAt !== null)
+    if (!isAliveNote(note))
       continue
     const key = dateKey(new Date(note.updatedAt))
-    if (note.updatedAt > latestUpdatedAt)
-      latestUpdatedAt = note.updatedAt
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-    byId.set(id, { ref: note, key, title: note.title })
+    const counted = isActivityNote(note)
+    byId.set(id, { ref: note, key, title: note.title, counted })
     titleCounts.set(note.title, (titleCounts.get(note.title) ?? 0) + 1)
     if (!noteIdByTitle.has(note.title))
       noteIdByTitle.set(note.title, id)
+    if (!counted)
+      continue
+    if (note.updatedAt > latestUpdatedAt)
+      latestUpdatedAt = note.updatedAt
+    counts.set(key, (counts.get(key) ?? 0) + 1)
     const list = notesByDay.get(key)
     const item: ActivityDayNote = { id, title: note.title, updatedAt: note.updatedAt }
     if (list)
@@ -95,7 +112,7 @@ export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>)
 function claimNextNoteWithTitle(notes: Record<string, NoteSummary>, title: string): string | null {
   for (const id in notes) {
     const note = notes[id]!
-    if (note.deletedAt === null && note.title === title)
+    if (isAliveNote(note) && note.title === title)
       return id
   }
   return null
@@ -197,42 +214,62 @@ function trackLatestUpdatedAt(ctx: ProjectionCtx, from: number | null, to: numbe
 
 function applyTombstone(ctx: ProjectionCtx, id: string, prev: ActivityEntry): void {
   ctx.byId.delete(id)
-  ensureCountsWritable(ctx)
-  ensureByDayWritable(ctx)
-  decrementCount(ctx.counts, prev.key)
-  removeFromDay(ctx.byDay, prev.key, id)
+  if (prev.counted) {
+    ensureCountsWritable(ctx)
+    ensureByDayWritable(ctx)
+    decrementCount(ctx.counts, prev.key)
+    removeFromDay(ctx.byDay, prev.key, id)
+    trackLatestUpdatedAt(ctx, prev.ref.updatedAt, null)
+  }
   ensureTitlesWritable(ctx)
   dropTitleClaim(ctx.titleCounts, ctx.titles, ctx.next, prev.title, id)
-  trackLatestUpdatedAt(ctx, prev.ref.updatedAt, null)
 }
 
-function applyInsert(ctx: ProjectionCtx, id: string, note: NoteSummary, key: string): void {
-  ensureCountsWritable(ctx)
-  ensureByDayWritable(ctx)
-  ctx.counts.set(key, (ctx.counts.get(key) ?? 0) + 1)
-  upsertInDay(ctx.byDay, key, { id, title: note.title, updatedAt: note.updatedAt })
+function applyInsert(ctx: ProjectionCtx, id: string, note: NoteSummary, key: string, counted: boolean): void {
+  if (counted) {
+    ensureCountsWritable(ctx)
+    ensureByDayWritable(ctx)
+    ctx.counts.set(key, (ctx.counts.get(key) ?? 0) + 1)
+    upsertInDay(ctx.byDay, key, { id, title: note.title, updatedAt: note.updatedAt })
+  }
   ensureTitlesWritable(ctx)
   if (ctx.titles.get(note.title) === undefined)
     ctx.titles.set(note.title, id)
   ctx.titleCounts.set(note.title, (ctx.titleCounts.get(note.title) ?? 0) + 1)
-  ctx.byId.set(id, { ref: note, key, title: note.title })
-  trackLatestUpdatedAt(ctx, null, note.updatedAt)
+  ctx.byId.set(id, { ref: note, key, title: note.title, counted })
+  if (counted)
+    trackLatestUpdatedAt(ctx, null, note.updatedAt)
 }
 
 // An alive note whose projection fields actually changed.
-function applyChange(ctx: ProjectionCtx, id: string, note: NoteSummary, prev: ActivityEntry, key: string): void {
-  if (prev.key !== key) {
+function applyChange(ctx: ProjectionCtx, id: string, note: NoteSummary, prev: ActivityEntry, key: string, counted: boolean): void {
+  const item = { id, title: note.title, updatedAt: note.updatedAt }
+  if (prev.counted && counted) {
+    if (prev.key !== key) {
+      ensureCountsWritable(ctx)
+      decrementCount(ctx.counts, prev.key)
+      ctx.counts.set(key, (ctx.counts.get(key) ?? 0) + 1)
+      ensureByDayWritable(ctx)
+      removeFromDay(ctx.byDay, prev.key, id)
+      upsertInDay(ctx.byDay, key, item)
+    } else {
+      // Same day: per-day count is unchanged; only the day's list needs
+      // rebuilding, so the counts map keeps its identity.
+      ensureByDayWritable(ctx)
+      upsertInDay(ctx.byDay, key, item)
+    }
+  }
+  else if (prev.counted) {
     ensureCountsWritable(ctx)
+    ensureByDayWritable(ctx)
     decrementCount(ctx.counts, prev.key)
-    ctx.counts.set(key, (ctx.counts.get(key) ?? 0) + 1)
-    ensureByDayWritable(ctx)
     removeFromDay(ctx.byDay, prev.key, id)
-    upsertInDay(ctx.byDay, key, { id, title: note.title, updatedAt: note.updatedAt })
-  } else {
-    // Same day: per-day count is unchanged; only the day's list needs
-    // rebuilding, so the counts map keeps its identity.
+  }
+  else if (counted) {
+    ensureCountsWritable(ctx)
     ensureByDayWritable(ctx)
-    upsertInDay(ctx.byDay, key, { id, title: note.title, updatedAt: note.updatedAt })
+    ctx.counts.set(key, (ctx.counts.get(key) ?? 0) + 1)
+    upsertInDay(ctx.byDay, key, item)
   }
   if (prev.title !== note.title) {
     ensureTitlesWritable(ctx)
@@ -241,24 +278,30 @@ function applyChange(ctx: ProjectionCtx, id: string, note: NoteSummary, prev: Ac
       ctx.titles.set(note.title, id)
     ctx.titleCounts.set(note.title, (ctx.titleCounts.get(note.title) ?? 0) + 1)
   }
-  ctx.byId.set(id, { ref: note, key, title: note.title })
-  trackLatestUpdatedAt(ctx, prev.ref.updatedAt, note.updatedAt)
+  ctx.byId.set(id, { ref: note, key, title: note.title, counted })
+  // Archiving retires the newest edit without changing its timestamp, and un-archiving
+  // can hand it back, so either tier crossing has to be reported — but a note that sits
+  // outside the counted tier on both sides never touched the maximum.
+  if (prev.counted || counted)
+    trackLatestUpdatedAt(ctx, prev.counted ? prev.ref.updatedAt : null, counted ? note.updatedAt : null)
 }
 
 // An id vanished from the map without a tombstone: drop its stale
 // contributions (a rare path that costs one extra walk when it fires).
 function sweepVanishedIds(ctx: ProjectionCtx): void {
-  ensureCountsWritable(ctx)
-  ensureByDayWritable(ctx)
   ensureTitlesWritable(ctx)
   for (const [id, entry] of [...ctx.byId]) {
     if (ctx.next[id] !== undefined)
       continue
     ctx.byId.delete(id)
-    decrementCount(ctx.counts, entry.key)
-    removeFromDay(ctx.byDay, entry.key, id)
+    if (entry.counted) {
+      ensureCountsWritable(ctx)
+      ensureByDayWritable(ctx)
+      decrementCount(ctx.counts, entry.key)
+      removeFromDay(ctx.byDay, entry.key, id)
+      trackLatestUpdatedAt(ctx, entry.ref.updatedAt, null)
+    }
     dropTitleClaim(ctx.titleCounts, ctx.titles, ctx.next, entry.title, id)
-    trackLatestUpdatedAt(ctx, entry.ref.updatedAt, null)
   }
 }
 
@@ -284,27 +327,28 @@ export function updateActivityProjection(slot: ActivityProjectionSlot, next: Rec
     const prev = ctx.byId.get(id)
     if (prev && prev.ref === note)
       continue
-    if (note.deletedAt !== null) {
+    if (!isAliveNote(note)) {
       tombstoned++
       if (!prev)
         continue
       applyTombstone(ctx, id, prev)
       continue
     }
+    const counted = isActivityNote(note)
     const key = dateKey(new Date(note.updatedAt))
-    if (prev && prev.key === key && prev.title === note.title && prev.ref.updatedAt === note.updatedAt) {
+    if (prev && prev.key === key && prev.title === note.title && prev.counted === counted && prev.ref.updatedAt === note.updatedAt) {
       // A commit that touched fields this projection does not read
       // (excerpt, tags, pin, ...): keep every output identity stable.
       // updatedAt feeds both the day key and the day-list sort, so it
       // must match down to the millisecond for the slice to be skipped.
-      ctx.byId.set(id, { ref: note, key, title: note.title })
+      ctx.byId.set(id, { ref: note, key, title: note.title, counted })
       continue
     }
     if (!prev) {
-      applyInsert(ctx, id, note, key)
+      applyInsert(ctx, id, note, key, counted)
       continue
     }
-    applyChange(ctx, id, note, prev, key)
+    applyChange(ctx, id, note, prev, key, counted)
   }
   if (visited - tombstoned !== ctx.byId.size)
     sweepVanishedIds(ctx)

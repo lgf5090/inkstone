@@ -23,6 +23,8 @@ export interface CalendarState {
   setYearRangeAnchor: React.Dispatch<React.SetStateAction<{ year: number; month: number } | null>>
   yearRangeHover: number | null
   setYearRangeHover: React.Dispatch<React.SetStateAction<number | null>>
+  pendingFocus: string | null
+  setPendingFocus: React.Dispatch<React.SetStateAction<string | null>>
   lastExpandedWeek: React.MutableRefObject<number | null>
   lastExpandedDay: React.MutableRefObject<string | null>
   dragStartKey: React.MutableRefObject<string | null>
