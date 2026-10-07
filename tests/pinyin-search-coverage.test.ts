@@ -202,3 +202,43 @@ describe('pinyin search stays live', () => {
     expect(offenders, `filters that will not read Chinese initials:\n${offenders.join('\n')}`).toEqual([])
   })
 })
+
+/**
+ * The two things that keep reading search cheap are invisible to a render test: the big listing has
+ * to warm its own labels at idle, and nothing may download the dictionary before a session has shown
+ * it needs one. Both live in source that a later edit can undo quietly, so they are checked here.
+ */
+function sourceOf(path: string): string {
+  const module = byPath.get(path)
+  if (!module) throw new Error(`no such module: ${path}`)
+  return module.text
+}
+
+function bodyOf(text: string, anchor: string): string {
+  const start = text.indexOf(anchor)
+  if (start < 0) throw new Error(`anchor missing: ${anchor}`)
+  const lines = text.slice(start).split('\n')
+  for (let index = 1; index < lines.length; index++) {
+    if (/^\s*[)}];/.test(lines[index]!)) return lines.slice(0, index + 1).join('\n')
+  }
+  return lines.join('\n')
+}
+
+describe('the reading search stays cheap', () => {
+  it('the note listing warms its own labels, and only once the dictionary is there', () => {
+    const noteList = sourceOf('features/list/NoteList.tsx')
+    expect(noteList).toMatch(/warmPinyinKeys\(/)
+    expect(noteList).toMatch(/if \(!pinyinIsLoaded\(\)\)/)
+  })
+
+  it('boot asks for the dictionary only when a title has a reading left to find', () => {
+    const shell = sourceOf('features/shell/AppShell.tsx')
+    expect(shell).toMatch(/textNeedsReading\(/)
+    expect(bodyOf(shell, 'const warm = () => {')).not.toMatch(/preloadPinyin/)
+  })
+
+  it('subscribing to the version downloads nothing', () => {
+    const pinyin = sourceOf('lib/pinyin.ts')
+    expect(bodyOf(pinyin, 'function subscribe(')).not.toMatch(/preloadPinyin\(\)/)
+  })
+})

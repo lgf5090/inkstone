@@ -24,7 +24,7 @@ import { TemplateQuickActions } from '../templates/quick-actions';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { removeTagFromNote } from '../tags/tagMutations';
-import { usePinyinVersion } from '../../lib/pinyin'
+import { pinyinIsLoaded, usePinyinVersion, warmPinyinKeys } from '../../lib/pinyin'
 
 const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
 /** The concatenated key is the only copied string; bound it by characters, not entries. */
@@ -168,6 +168,15 @@ export function NoteList() {
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
     }, [notes, searchScope, deferredFilter, searchList, remote, allNotes, contents, pinyinVersion]);
+    useEffect(() => {
+        // Deriving the whole vault's readings costs about 0.06ms a title, so on the first keystroke it
+        // is one 120ms task for 2000 notes. Idle spreads the same work into a few milliseconds per
+        // tick; a search typed before the walk finishes is not wrong, because the matcher derives
+        // whatever the warm-up has not reached yet.
+        if (!pinyinIsLoaded())
+            return;
+        return warmPinyinKeys(searchScope.map((note) => note.title));
+    }, [searchScope, pinyinVersion]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
