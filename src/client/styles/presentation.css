@@ -1,0 +1,383 @@
+.ink-slide {
+  --prose-size: var(--slide-prose-size);
+  --prose-line: var(--slide-line-height);
+  --code-size: var(--slide-code-size);
+}
+
+.ink-slide .ink-prose {
+  max-width: none;
+  padding-block: 0;
+}
+
+.ink-slide .ink-prose > :first-child {
+  margin-top: 0;
+}
+
+.ink-slide .ink-prose .chartjs-block {
+  margin: 0.5em 0;
+}
+
+.ink-slide .ink-prose .chartjs-container {
+  max-width: none;
+  max-height: none;
+  height: var(--slide-chart-height);
+}
+
+.ink-slide .ink-prose .mermaid-block,
+.ink-slide .ink-prose .table-wrap,
+.ink-slide .ink-prose .code-block {
+  max-width: none;
+}
+
+.ink-slide .ink-slide-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.ink-slide .ink-slide-split {
+  column-count: 2;
+  column-gap: var(--sp-6);
+  column-fill: balance;
+}
+
+.ink-slide .ink-slide-split > * {
+  break-inside: avoid;
+}
+
+.ink-slide-thumb .chartjs-block.loading::before,
+.ink-slide-thumb .mermaid-block.loading::before {
+  display: none;
+}
+
+.ink-prose .chartjs-still {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ink-slide-thumb .ink-prose {
+  pointer-events: none;
+}
+
+/* The printed page is the design canvas, and every sheet stamps these with its own numbers on
+   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a
+   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide
+   one, and so the token gate can see a definition for a name the sheet writes from a template. */
+:root {
+  --deck-page-width: 1280px;
+  --deck-page-height: 720px;
+  --deck-pad-x: 56px;
+  --deck-pad-y: 44px;
+}
+
+.deck-print-sheet {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  width: var(--deck-page-width);
+  background: var(--bg-editor);
+}
+
+.deck-print-page {
+  position: relative;
+  overflow: hidden;
+  width: var(--deck-page-width);
+  height: var(--deck-page-height);
+  background: var(--bg-editor);
+}
+
+.deck-print-body {
+  position: absolute;
+  top: var(--deck-pad-y);
+  left: var(--deck-pad-x);
+}
+
+.deck-print-page-number {
+  position: absolute;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  padding: var(--sp-0-5) var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--bg-overlay);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  print-color-adjust: exact;
+}
+
+.deck-handout-sheet {
+  --deck-handout-scale: 0.46;
+}
+
+.deck-handout-page {
+  display: flex;
+  gap: var(--sp-6);
+  align-items: flex-start;
+  box-sizing: border-box;
+  width: var(--deck-page-width);
+  min-height: var(--deck-page-height);
+  padding: var(--sp-6);
+  background: var(--bg-editor);
+}
+
+.deck-handout-figure {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: calc(var(--deck-page-width) * var(--deck-handout-scale));
+}
+
+.deck-handout-slide {
+  height: calc(var(--deck-page-height) * var(--deck-handout-scale));
+  overflow: hidden;
+}
+
+.deck-handout-slide .deck-print-page {
+  transform: scale(var(--deck-handout-scale));
+  transform-origin: top left;
+}
+
+.deck-handout-body {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.deck-handout-position {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+
+.deck-handout-notes {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-16);
+  line-height: var(--ui-line);
+  white-space: pre-wrap;
+}
+
+.deck-html-body {
+  margin: 0;
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.deck-html-body .deck-print-sheet {
+  position: fixed;
+  inset: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background: transparent;
+}
+
+.deck-html-body .deck-print-page {
+  display: none;
+  transform: scale(var(--deck-html-scale, 1));
+}
+
+.deck-html-body .deck-print-page[data-current] {
+  display: block;
+}
+
+.deck-html-bar {
+  position: fixed;
+  bottom: var(--sp-4);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+}
+
+.deck-html-bar button {
+  min-width: var(--sp-12);
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.deck-html-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.deck-html-bar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.deck-html-position {
+  min-width: var(--sp-16);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .deck-html-body .deck-print-page[data-current] {
+    animation: deck-html-in var(--dur-base) var(--ease-out);
+  }
+}
+
+@keyframes deck-html-in {
+  from {
+    opacity: 0.6;
+  }
+}
+
+@media print {
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body > *:not(.deck-print-sheet):not(.kanban-print-sheet) {
+    display: none !important;
+  }
+
+  .deck-print-sheet {
+    position: static;
+    left: auto;
+  }
+
+  .deck-print-page {
+    break-after: page;
+    print-color-adjust: exact;
+  }
+
+  .deck-print-page:last-child {
+    break-after: auto;
+  }
+}
+
+.presentation-key-guide {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  z-index: var(--z-popover);
+  width: min(100% - var(--sp-6), calc(var(--sp-16) * 10));
+  max-height: calc(100% - var(--sp-12));
+  overflow-y: auto;
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  transform: translate(-50%, -50%);
+}
+.presentation-key-guide ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--sp-16) * 3), 1fr));
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.presentation-key-guide li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.laser-pointer {
+  --laser-dot-size: 12px;
+
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  pointer-events: none;
+}
+
+.laser-pointer span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--laser-dot-size);
+  height: var(--laser-dot-size);
+  margin-top: calc(var(--laser-dot-size) / -2);
+  margin-left: calc(var(--laser-dot-size) / -2);
+  border-radius: var(--r-full);
+  background: var(--danger);
+  transform: translate3d(var(--laser-x, -100vw), var(--laser-y, -100vh), 0);
+}
+
+.laser-trail {
+  opacity: 0.25;
+  filter: blur(2px);
+  transition: transform var(--dur-fast) linear;
+}
+
+.laser-trail + .laser-trail {
+  opacity: 0.16;
+  transition-duration: var(--dur-base);
+}
+
+.laser-trail + .laser-trail + .laser-trail {
+  opacity: 0.08;
+  transition-duration: var(--dur-slow);
+}
+
+.laser-dot {
+  box-shadow: 0 0 0 calc(var(--laser-dot-size) * 0.35) color-mix(in oklab, var(--danger) 45%, transparent);
+  animation: laser-pulse calc(var(--dur-slow) * 4) ease-in-out infinite;
+}
+
+@keyframes laser-pulse {
+  50% {
+    box-shadow: 0 0 0 calc(var(--laser-dot-size) * 0.9) color-mix(in oklab, var(--danger) 12%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .laser-dot {
+    animation: none;
+  }
+}
+
+.presentation-spotlight {
+  --spotlight-radius: 120px;
+
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  pointer-events: none;
+  background: radial-gradient(
+    circle var(--spotlight-radius) at var(--spotlight-x, -100vw) var(--spotlight-y, -100vh),
+    transparent 0%,
+    transparent calc(var(--spotlight-radius) - 1px),
+    color-mix(in oklab, #000 65%, transparent) var(--spotlight-radius)
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presentation-spotlight {
+    transition: none;
+  }
+}

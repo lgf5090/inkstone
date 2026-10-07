@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Share2, Star, Waypoints, X, } from 'lucide-react';
+import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Pencil, Plus, Presentation, Share2, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { api } from '../../lib/api';
 import { readingMinutes } from '@shared/markdown-utils';
@@ -342,6 +342,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             });
         }
     };
+    // Not a `useCallback`: this sits below the "no note selected" early return above, so a hook here
+    // would be called on some renders and skipped on others, and React aborts the tree over that.
+    // The row lists below are rebuilt every render anyway, so a stable identity bought nothing here.
+    // The show lives in its own chunk, so this call is the first thing that asks for the deck splitter.
+    const startPresentation = () => {
+        void import('../presentation').then((module) => module.startPresentationFromNote(note.id));
+    };
     const exportMenuItems: MenuItem[] = [
         { id: 'md', label: t("workspace.export_markdown"), icon: <FileText size={13}/>, onSelect: () => void exportNote('md') },
         { id: 'html', label: t("workspace.export_html"), icon: <FileCode size={13}/>, onSelect: () => void exportNote('html') },
@@ -349,6 +356,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     ];
     const mobileItems: MenuItem[] = [
         ...(isMobile ? [
+            { id: 'present', label: t("workspace.presentation_mode"), icon: <Presentation size={13}/>, onSelect: startPresentation },
             { id: 'star', label: note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites"), checked: note.isStarred, onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }) },
             { id: 'backlinks', label: t("common.backlinks"), checked: backlinksOpen, onSelect: toggleBacklinks },
             { id: 'local-graph', label: t("graph.local_graph"), checked: localGraphOpen, onSelect: toggleLocalGraph },
@@ -497,7 +505,12 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             { value: 'preview', label: <Eye size={12.5}/>, title: t("workspace.reading_mode") },
         ]}/>
           </div>
-          {!isMobile && <><Tooltip label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} combo={APP_SHORTCUTS.star}>
+          {!isMobile && <><Tooltip label={t("workspace.presentation_mode")} combo={APP_SHORTCUTS.present}>
+            <IconButton label={t("workspace.presentation_mode")} size="sm" onClick={startPresentation}>
+              <Presentation size={14}/>
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} combo={APP_SHORTCUTS.star}>
             <IconButton label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} size="sm" active={note.isStarred} onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}>
               <Star size={14} className={note.isStarred ? 'fill-current' : undefined}/>
             </IconButton>

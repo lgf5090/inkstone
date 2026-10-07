@@ -1,0 +1,8 @@
+export { PRESENTATION_HOTKEYS, PRESENTATION_START_COMBO } from './presentation-hotkeys'
+export { presentationKeyReference } from './presentation-keys'
+export { PresentationOverlay } from './presentation-overlay'
+export { AudienceView } from './audience-view'
+export { startPresentationFromNote } from './start-presentation'
+export { findSlideIndexByOffset, splitIntoSlides } from './slides'
+export { PresenterWindow } from './presenter-view/presenter-window'
+export { openPresenterWindow } from './presenter-view/use-presenter-channel'

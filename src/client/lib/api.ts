@@ -1,6 +1,11 @@
 import { CLIENT_HEADER } from '@shared/constants'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
+  PublicSharePresence,
+  SharePresencePosition,
+  SharePresenceSession,
+} from '@shared/share-presence'
+import type {
   AppLocale,
   Attachment,
   AttachmentWithUsage,
@@ -72,16 +77,26 @@ interface RequestOptions {
   signal?: AbortSignal
   formData?: FormData
   timeoutMs?: number
+  /**
+   * Conditional GET/POST support for a caller that polls. `onEtag` is handed whatever the server
+   * answered with, including on the 304 that carries no body, so the next beat can send it back.
+   */
+  ifNoneMatch?: string
+  onEtag?: (etag: string | null) => void
+  /** A question about *now* must not be answered from the cache; a stored "where is the talk" is a
+   * different question's answer. */
+  cache?: RequestCache
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, formData, timeoutMs } = options
+  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, onEtag, cache } = options
 
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
     'X-Inkstone-Origin': CLIENT_ID,
     'Accept-Language': getLocale(),
   }
+  if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch
   let payload: BodyInit | undefined
   if (formData) {
     payload = formData
@@ -114,11 +129,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       body: payload,
       signal: timeoutController?.signal ?? signal,
       credentials: 'same-origin',
+      ...(cache ? { cache } : {}),
     })
 
     const notifyOtherTabs = method !== 'GET' && shouldNotifyOtherTabs(path)
     if (response.status === 204) {
       if (notifyOtherTabs) publishBroadcast({ type: 'local-write', clientId: CLIENT_ID })
+      return undefined as T
+    }
+
+    // A 304 is not `ok` to fetch, so it has to be answered before the failure path below or every
+    // "nothing moved" beat would surface as an error. It carries no body: the caller keeps what it
+    // holds, and the ETag it already has is the one that just proved itself.
+    if (response.status === 304) {
+      onEtag?.(response.headers.get('ETag') ?? ifNoneMatch ?? null)
       return undefined as T
     }
 
@@ -262,6 +286,9 @@ function shouldNotifyOtherTabs(path: string): boolean {
   return /^\/api\/(?:notes(?:\/|$)|folders(?:\/|$)|tags(?:\/|$)|import(?:\?|$))/.test(path)
 }
 
+
+/** What the owner's own question answers: nothing, or where the show is and how long it may run. */
+export type PresenceStatus = { running: false } | { running: true, expiresAt: number, presence: PublicSharePresence }
 
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
@@ -499,6 +526,32 @@ export const api = {
     remove: (noteId: string) => request<{ ok: true }>(`/api/share/${noteId}`, { method: 'DELETE' }),
     read: (slug: string, password?: string, signal?: AbortSignal) =>
       request<PublicNote>(`/api/public/${slug}`, { method: 'POST', body: { password }, signal }),
+  },
+
+  /**
+   * The audience-follow channel: start a show, move its position, end it.
+   *
+   * `start` is the only call that ever returns the capability token — the server keeps a hash, so a
+   * refresh cannot recover it and a presenter who wants the link again starts a new show. The viewer's
+   * read is a public call with no session at all.
+   */
+  presence: {
+    start: (noteId: string) =>
+      request<SharePresenceSession>(`/api/share/${noteId}/present/start`, { method: 'POST', body: {} }),
+    publish: (noteId: string, position: SharePresencePosition) =>
+      request<{ updatedAt: number }>(`/api/share/${noteId}/present`, { method: 'POST', body: position }),
+    stop: (noteId: string) =>
+      request<{ stopped: true }>(`/api/share/${noteId}/present/stop`, { method: 'POST', body: {} }),
+    status: (noteId: string, signal?: AbortSignal) =>
+      request<PresenceStatus>(`/api/share/${noteId}/present`, { signal }),
+    /**
+     * The viewer's heartbeat. `undefined` means "nothing moved since the last beat" (a 304), which is
+     * why the caller keeps what it holds rather than treating it as a blank. `cache: 'no-store'`
+     * because a stored answer to "where is the talk now" is not a stale answer — it is a different
+     * question's.
+     */
+    read: (slug: string, token: string, ifNoneMatch?: string, onEtag?: (etag: string | null) => void) =>
+      request<PublicSharePresence | undefined>(`/api/public/${slug}/present`, { method: 'POST', body: { token }, ifNoneMatch, onEtag, cache: 'no-store' }),
   },
 
   transfer: {

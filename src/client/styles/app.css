@@ -3,6 +3,7 @@
 @import './editor.css';
 @import './prose.css';
 @import './kanban.css';
+@import './presentation.css';
 
 
 @theme inline {

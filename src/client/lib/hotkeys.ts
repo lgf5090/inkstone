@@ -147,6 +147,10 @@ export function prettyCombo(combo: string, isMac = IS_MAC): string[] {
         return '←'
       case 'arrowright':
         return '→'
+      case 'pageup':
+        return 'Page Up'
+      case 'pagedown':
+        return 'Page Down'
       case ',':
         return ','
       default:

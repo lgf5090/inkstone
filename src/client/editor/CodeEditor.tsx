@@ -13,7 +13,7 @@ import { editorTheme } from './theme';
 import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } from './decorations';
 import { codeFenceSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
 import { pasteExtension, type PasteHandlers } from './paste';
-import { completeCodeFenceOnEnter, completeColonFenceOnEnter, smartEnter, tableTab } from './commands';
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
 import { editorKeymap } from './shortcuts';
 import { livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
@@ -163,9 +163,15 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         });
         view.contentDOM.spellcheck = settings.spellcheck;
         viewRef.current = view;
+        setActiveEditorView(view);
         onReady?.(view);
         return () => {
             onReady?.(null);
+            // Only the view that registered may unregister itself: a second editor mounted over this
+            // one (a pinned window, a mode switch) owns the cursor now, and clearing it here would
+            // leave the show's start key with no view to read.
+            if (getActiveEditorView() === view)
+                setActiveEditorView(null);
             view.destroy();
             viewRef.current = null;
         };

@@ -221,6 +221,27 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_share_asset_sessions_expires
      ON share_asset_sessions(expires_at)`,
 
+  // One row per shared note currently being presented to an audience. Keyed by slug because that is
+  // all a viewer knows, and one row per share is the decision that "a share has one show at a time"
+  // enforced by the schema rather than by convention. The token is stored hashed for the same reason
+  // session tokens are: this row is the capability that lets a stranger read where a talk is, and a
+  // leaked row must not be a leaked link. Nothing else lives here — no viewer identifiers, no per-page
+  // history, no counts — and the lease in `expires_at` is what stops a forgotten show from answering
+  // forever.
+  `CREATE TABLE IF NOT EXISTS share_presence (
+    slug TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    slide INTEGER NOT NULL DEFAULT 0,
+    page INTEGER NOT NULL DEFAULT 0,
+    step INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_share_presence_user ON share_presence(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_share_presence_expiry ON share_presence(expires_at)`,
+
   `CREATE TABLE IF NOT EXISTS changes (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -710,6 +731,7 @@ const REQUIRED_TABLES = [
   'backup_runs',
   'shares',
   'share_asset_sessions',
+  'share_presence',
   'changes',
   'sessions',
   'login_attempts',

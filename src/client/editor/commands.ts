@@ -8,6 +8,19 @@ import { CODE_FORMAT_FAILURE_MESSAGES, formatCodeResult } from '../lib/markdown/
 import { useSession } from '../store/session';
 import { useUi } from '../store/ui';
 
+// The view that is on screen right now. A show opens on the slide under the cursor, and the key that
+// starts one, the command palette and the note's own menu all fire from outside the editor, so the
+// editor names the view it holds rather than every caller keeping a line back to it.
+let activeEditorView: EditorView | null = null;
+
+export function setActiveEditorView(view: EditorView | null): void {
+    activeEditorView = view;
+}
+
+export function getActiveEditorView(): EditorView | null {
+    return activeEditorView;
+}
+
 
 export function toggleWrap(open: string, close = open, options: { suggestWhenOpeningEmpty?: boolean } = {}): StateCommand {
     return (target) => {

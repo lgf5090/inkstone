@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Eye, FileText, PanelLeft, PencilLine, UserRound } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { registerAll } from '../../lib/hotkeys';
+import { registerAll, type Hotkey } from '../../lib/hotkeys';
+import { PRESENTATION_HOTKEYS } from '../presentation';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useBreakpoint } from '../../lib/hooks';
 import { useSyncEngine } from '../../lib/sync';
@@ -11,6 +12,7 @@ import { InlineErrorBoundary } from '../../components/ErrorBoundary';
 import { EditorSkeleton } from '../../components/feedback';
 import { PANEL_WIDTHS, useUi } from '../../store/ui';
 import { createContextualNote, useNotes } from '../../store/notes';
+import { usePresentation } from '../../store/presentation';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { Sidebar } from '../sidebar/Sidebar';
@@ -228,132 +230,139 @@ function OverlayHost() {
     </>);
 }
 
-function useGlobalHotkeys(): void {
-    useEffect(() => {
+const ui = () => useUi.getState();
+const notes = () => useNotes.getState();
+const hasNote = () => {
+    const id = ui().activeNoteId;
+    return Boolean(id && notes().notes[id] && !notes().notes[id].deletedAt);
+};
 
-
-        const ui = () => useUi.getState();
-        const notes = () => useNotes.getState();
-        const hasNote = () => {
+// The shell's keys as data rather than as an argument to `registerAll`: the shortcut reference has to
+// list them, and a key one surface owes to another (the projector owns `?` while a show is up) can
+// only be tested against a list somebody can read.
+export const GLOBAL_HOTKEYS: Hotkey[] = [
+    {
+        id: 'command',
+        combo: APP_SHORTCUTS.command,
+        description: () => t("common.command_palette"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        allowInOverlay: true,
+        handler: () => ui().togglePanel('command'),
+    },
+    {
+        id: 'new-note',
+        combo: APP_SHORTCUTS.newNote,
+        description: () => t("common.new_note"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        handler: () => void createContextualNote(),
+    },
+    {
+        id: 'search',
+        combo: APP_SHORTCUTS.search,
+        description: () => t("shell.search_all_notes"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        allowInOverlay: true,
+        handler: () => ui().openSearchList(),
+    },
+    {
+        id: 'graph',
+        combo: APP_SHORTCUTS.graph,
+        description: () => t("common.graph"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        allowInOverlay: true,
+        handler: () => ui().togglePanel('graph'),
+    },
+    {
+        id: 'settings',
+        combo: APP_SHORTCUTS.settings,
+        description: () => t("common.open_settings"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        handler: () => ui().openPanel('settings'),
+    },
+    {
+        id: 'toggle-list',
+        combo: APP_SHORTCUTS.toggleList,
+        description: () => t("shell.collapse_expand_list"),
+        group: () => t("common.interface"),
+        allowInInput: true,
+        handler: () => ui().toggleList(),
+    },
+    {
+        id: 'cycle-layout',
+        combo: APP_SHORTCUTS.cycleLayout,
+        description: () => t("shell.cycle_editor_split_preview"),
+        group: () => t("common.interface"),
+        allowInInput: true,
+        enabled: hasNote,
+        handler: () => {
+            const order = ['live', 'split', 'preview'] as const;
+            const uiState = ui();
+            if (uiState.workspaceSecondaryNoteId) {
+                const pane = uiState.activeWorkspacePane;
+                const current = order.indexOf(uiState.workspacePaneLayouts[pane]);
+                uiState.setWorkspacePaneLayout(pane, order[(current + 1) % order.length]);
+                return;
+            }
+            const session = useSession.getState();
+            const current = order.indexOf(session.settings.preview.layout);
+            void session.updateSettings({
+                preview: { layout: order[(current + 1) % order.length] },
+            });
+        },
+    },
+    {
+        id: 'shortcuts',
+        combo: APP_SHORTCUTS.shortcuts,
+        description: () => t("shell.keyboard_shortcuts"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        allowInOverlay: true,
+        // While a show is up, `?` belongs to the projector: it opens the show's own key card
+        // there, and an app-wide modal stacked over the talk would be the third thing on the
+        // screen. The registry runs before the overlay's own listener and swallows the
+        // keystroke it answers, so this is the gate.
+        enabled: () => !usePresentation.getState().open,
+        handler: () => ui().togglePanel('shortcuts'),
+    },
+    {
+        id: 'save',
+        combo: APP_SHORTCUTS.save,
+        description: () => t("shell.save_now"),
+        group: () => t("common.edit"),
+        allowInInput: true,
+        allowInOverlay: true,
+        handler: () => void notes().flush({ immediate: true }),
+    },
+    {
+        id: 'star',
+        combo: APP_SHORTCUTS.star,
+        description: () => t("shell.add_to_remove_from_favorites"),
+        group: () => t("common.note"),
+        allowInInput: true,
+        enabled: hasNote,
+        handler: () => {
             const id = ui().activeNoteId;
-            return Boolean(id && notes().notes[id] && !notes().notes[id].deletedAt);
-        };
-        return registerAll([
-            {
-                id: 'command',
-                combo: APP_SHORTCUTS.command,
-                description: () => t("common.command_palette"),
-                group: () => t("shell.global"),
-                allowInInput: true,
-                allowInOverlay: true,
-                handler: () => ui().togglePanel('command'),
-            },
-            {
-                id: 'new-note',
-                combo: APP_SHORTCUTS.newNote,
-                description: () => t("common.new_note"),
-                group: () => t("shell.global"),
-                allowInInput: true,
-                handler: () => void createContextualNote(),
-            },
-            {
-                id: 'search',
-                combo: APP_SHORTCUTS.search,
-                description: () => t("shell.search_all_notes"),
-                group: () => t("shell.global"),
-                allowInInput: true,
-                allowInOverlay: true,
-                handler: () => ui().openSearchList(),
-            },
-            {
-                id: 'graph',
-                combo: APP_SHORTCUTS.graph,
-                description: () => t("common.graph"),
-                group: () => t("shell.global"),
-                allowInInput: true,
-                allowInOverlay: true,
-                handler: () => ui().togglePanel('graph'),
-            },
-            {
-                id: 'settings',
-                combo: APP_SHORTCUTS.settings,
-                description: () => t("common.open_settings"),
-                group: () => t("shell.global"),
-                allowInInput: true,
-                handler: () => ui().openPanel('settings'),
-            },
-            {
-                id: 'toggle-list',
-                combo: APP_SHORTCUTS.toggleList,
-                description: () => t("shell.collapse_expand_list"),
-                group: () => t("common.interface"),
-                allowInInput: true,
-                handler: () => ui().toggleList(),
-            },
-            {
-                id: 'cycle-layout',
-                combo: APP_SHORTCUTS.cycleLayout,
-                description: () => t("shell.cycle_editor_split_preview"),
-                group: () => t("common.interface"),
-                allowInInput: true,
-                enabled: hasNote,
-                handler: () => {
-                    const order = ['live', 'split', 'preview'] as const;
-                    const uiState = ui();
-                    if (uiState.workspaceSecondaryNoteId) {
-                        const pane = uiState.activeWorkspacePane;
-                        const current = order.indexOf(uiState.workspacePaneLayouts[pane]);
-                        uiState.setWorkspacePaneLayout(pane, order[(current + 1) % order.length]);
-                        return;
-                    }
-                    const session = useSession.getState();
-                    const current = order.indexOf(session.settings.preview.layout);
-                    void session.updateSettings({
-                        preview: { layout: order[(current + 1) % order.length] },
-                    });
-                },
-            },
-            {
-                id: 'shortcuts',
-                combo: APP_SHORTCUTS.shortcuts,
-                description: () => t("shell.keyboard_shortcuts"),
-                group: () => t("shell.global"),
-                allowInInput: true,
-                allowInOverlay: true,
-                handler: () => ui().togglePanel('shortcuts'),
-            },
-            {
-                id: 'save',
-                combo: APP_SHORTCUTS.save,
-                description: () => t("shell.save_now"),
-                group: () => t("common.edit"),
-                allowInInput: true,
-                allowInOverlay: true,
-                handler: () => void notes().flush({ immediate: true }),
-            },
-            {
-                id: 'star',
-                combo: APP_SHORTCUTS.star,
-                description: () => t("shell.add_to_remove_from_favorites"),
-                group: () => t("common.note"),
-                allowInInput: true,
-                enabled: hasNote,
-                handler: () => {
-                    const id = ui().activeNoteId;
-                    const note = id ? notes().notes[id] : null;
-                    if (id && note)
-                        void notes().patchNote(id, { isStarred: !note.isStarred });
-                },
-            },
-            {
-                id: 'outline',
-                combo: APP_SHORTCUTS.outline,
-                description: () => t("shell.show_hide_outline"),
-                group: () => t("common.interface"),
-                allowInInput: true,
-                enabled: hasNote,
-                handler: () => ui().toggleOutline(),
-            },
-        ]);
-    }, []);
+            const note = id ? notes().notes[id] : null;
+            if (id && note)
+                void notes().patchNote(id, { isStarred: !note.isStarred });
+        },
+    },
+    {
+        id: 'outline',
+        combo: APP_SHORTCUTS.outline,
+        description: () => t("shell.show_hide_outline"),
+        group: () => t("common.interface"),
+        allowInInput: true,
+        enabled: hasNote,
+        handler: () => ui().toggleOutline(),
+    },
+];
+
+function useGlobalHotkeys(): void {
+    useEffect(() => registerAll([...GLOBAL_HOTKEYS, ...PRESENTATION_HOTKEYS]), []);
 }

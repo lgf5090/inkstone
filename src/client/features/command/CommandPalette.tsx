@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, ListTree, Moon, Palette, Pencil, Plus, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -126,6 +126,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
             },
             ...(activeNote
                 ? [
+                    {
+                        id: 'cmd-presentation-mode',
+                        kind: 'command' as const,
+                        label: t("workspace.presentation_mode"),
+                        icon: <Presentation size={14}/>,
+                        combo: APP_SHORTCUTS.present,
+                        group: t("common.current_note"),
+                        run: () => void import('../presentation').then((module) => module.startPresentationFromNote(activeNote.id)),
+                    },
                     {
                         id: 'cmd-star',
                         kind: 'command' as const,
