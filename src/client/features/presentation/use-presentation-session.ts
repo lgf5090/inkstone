@@ -7,7 +7,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { type DeckHandoutPayload, type DeckSheetPayload, useDeckExport } from './deck-export'
 import type { DeckExportProgress } from './deck-print'
-import { backwardMove, clampSlideIndex, deckProgress, forwardMove, railOpenFor } from './presentation-state'
+import { backwardMove, clampSlideIndex, deckProgress, exitAsk, forwardMove, railOpenFor } from './presentation-state'
 import { useChromeAutoHide } from './use-chrome-auto-hide'
 import { useAudienceFollow } from './use-audience-follow'
 import { useDialogBehavior } from './use-dialog-behavior'
@@ -89,7 +89,19 @@ export interface PresentationSession {
   /** Which page of the deck the running image export has written, or null while nothing is being written. */
   imageProgress: DeckExportProgress | null
   /** Everything the idle deck-measuring pass needs, grouped so the dialog can spread it. */
+  /** Everything the idle deck-measuring pass needs, grouped so the dialog can spread it. */
   preflight: SlidePreflightProps
+  /**
+   * Asking to leave. With an audience following this show it does not close the show — it asks first
+   * (PR-L3), because a keystroke that strands a room is not a keystroke anyone meant to press.
+   */
+  requestClose: () => void
+  /** The ask is on screen. */
+  exitAsked: boolean
+  /** The answer that ends it: the show goes, and the audience link with it. */
+  closeNow: () => void
+  /** The answer that keeps it: the question goes away and nothing else moves. */
+  keepPresenting: () => void
   screenCover: 'black' | 'white' | null
   clearCover: () => void
   toggleBlackout: () => void
@@ -213,9 +225,22 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
   const { listProgress, onProgress } = useListProgress()
   const presenter = useSessionPresenter({ open, noteTitle, nav, deck, notes, proseFont, startedAt })
   const audience = useSessionAudience(open, noteId, nav)
+  const [exitAsked, setExitAsked] = useState(false)
+  // A show with a room following it ends on a second, deliberate press: the link is out there, and
+  // the presenter is the only one who knows whether leaving was the plan.
+  const requestClose = useCallback(() => {
+    if (exitAsk({ audienceFollowing: audience.audienceFollowing }) === 'ask') setExitAsked(true)
+    else onClose()
+  }, [audience.audienceFollowing, onClose])
+  const keepPresenting = useCallback(() => setExitAsked(false), [])
+  // The question belongs to the show it asks about: whatever closes the talk puts it away, so a reopened
+  // show never opens on an answer the presenter already gave.
+  useEffect(() => {
+    if (!open) setExitAsked(false)
+  }, [open])
   const contextMenu = usePresentationContextMenu(open)
   const mode = usePresentationKeys({ open, slideCount: deck.length, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo, toggleFullscreen, toggleRail, toggleFollowing, openPresenter: presenter.openPresenter, isMenuOpen: Boolean(contextMenu.contextPoint) })
-  useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide })
+  useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose: requestClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide, exitConfirmOn: exitAsked, clearExitConfirm: keepPresenting })
   const slideUnprepared = useSlideHtml({ open, deck, hashes, index: nav.index, content: presentedContent, noteTitle, dark, metrics })
   useReleasePreparedPages(open)
   // The union of the pieces above, spread rather than unpacked key by key; explicit is only what this
@@ -241,7 +266,11 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
     toggleRail,
     toggleFollowing,
     ...presenter,
-    occluded: mode.overview || Boolean(mode.screenCover) || Boolean(contextMenu.contextPoint),
+    occluded: mode.overview || Boolean(mode.screenCover) || Boolean(contextMenu.contextPoint) || exitAsked,
+    requestClose,
+    exitAsked,
+    closeNow: onClose,
+    keepPresenting,
     ...nav,
     ...audience,
     ...mode,

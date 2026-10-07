@@ -3,7 +3,7 @@ import { initI18n, t, type MessageKey } from '../../lib/i18n'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { installTestGlobals, renderElement } from '../../lib/test-render'
 import { menuOptions } from './presentation-menu-options.test-helpers'
-import { DeckExportProgress, PresentationControls, SlideProgress, type PresentationControlsProps } from './presentation-controls'
+import { DeckExportProgress, PresentationControls, PresentationExitConfirm, SlideProgress, type PresentationControlsProps } from './presentation-controls'
 import { buildPresentationOverflowItems } from './presentation-context-menu'
 
 installTestGlobals()
@@ -607,3 +607,57 @@ describe('PresentationControls — the first tap on a faded bar', () => {
   })
 })
 
+
+describe('PresentationExitConfirm — the question a show with an audience asks', () => {
+  const press = (el: HTMLElement | null | undefined) => {
+    if (!el) throw new Error('the confirm is missing a button')
+    act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+  }
+  const answer = (dialog: Element | null | undefined, label: string) =>
+    [...(dialog?.querySelectorAll('button') ?? [])].find((item) => item.textContent?.trim() === label)
+
+  it('is not in the tree until the show is asked to leave', () => {
+    const view = renderElement(createElement(PresentationExitConfirm, { open: false, onConfirm: vi.fn(), onCancel: vi.fn() }))
+    expect(view.container.querySelector('[data-presentation-exit-confirm]')).toBeNull()
+    view.unmount()
+  })
+
+  it('names the question and offers both answers', () => {
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm: vi.fn(), onCancel: vi.fn() }))
+    const dialog = view.container.querySelector<HTMLElement>('[data-presentation-exit-confirm]')
+    expect(dialog?.getAttribute('role')).toBe('alertdialog')
+    expect(dialog?.getAttribute('aria-label')).toBe(t('workspace.presentation_exit_audience'))
+    const buttons = [...(dialog?.querySelectorAll('button') ?? [])]
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual([t('common.cancel'), t('workspace.presentation_exit')])
+    expect(dialog?.contains(document.activeElement)).toBe(true)
+    view.unmount()
+  })
+
+  // The safe answer takes the focus, so the key that opens the question cannot end the talk on the way
+  // through — the same rule the app's own confirm layer follows for anything destructive.
+  it('puts the focus on the answer that keeps the show', () => {
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm: vi.fn(), onCancel: vi.fn() }))
+    expect(document.activeElement?.textContent?.trim()).toBe(t('common.cancel'))
+    view.unmount()
+  })
+
+  it('ends the show only on the answer that says so', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm, onCancel }))
+    press(answer(view.container.querySelector('[data-presentation-exit-confirm]'), t('workspace.presentation_exit')))
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    expect(onCancel).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it('keeps the show on the answer that says stay', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    const view = renderElement(createElement(PresentationExitConfirm, { open: true, onConfirm, onCancel }))
+    press(answer(view.container.querySelector('[data-presentation-exit-confirm]'), t('common.cancel')))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(onConfirm).not.toHaveBeenCalled()
+    view.unmount()
+  })
+})

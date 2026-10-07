@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Code, Download, EllipsisVertical, FileText, Images, LayoutGrid, Maximize, Minimize, PanelLeftClose, PanelLeftOpen, Presentation, Radio, Snowflake, Users, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -380,6 +380,61 @@ export function SlideProgress({ page, pageTotal }: { page: number; pageTotal: nu
       aria-hidden='true'
     >
       <div data-slide-progress className='h-full bg-[var(--accent)] transition-[width] duration-[var(--dur-base)] ease-[var(--ease-out)]' style={{ width: `${Math.round((page / pageTotal) * 100)}%` }} />
+    </div>
+  )
+}
+
+/**
+ * The one question a show with an audience asks before it ends (PR-L3).
+ *
+ * It is painted inside the projector's own dialog rather than handed to the app's confirm layer,
+ * because the browser only ever paints the subtree of the element that has the full screen — a portal
+ * on `document.body` would sit under the very show it is asking about, which is the mistake this
+ * module has now made four times. Escape is not answered here: the show's own ladder puts the question
+ * away, so the key that opened it cannot be the key that ends the talk, and a second handler for the
+ * same key would be a second rule to keep in step. The safe answer carries the focus, as everywhere
+ * else in the app that asks about something destructive.
+ */
+export function PresentationExitConfirm({ open, onConfirm, onCancel }: {
+  open: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const stayRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (open) stayRef.current?.focus()
+  }, [open])
+  if (!open) return null
+  return (
+    <div
+      data-presentation-exit-confirm
+      role='alertdialog'
+      aria-modal='true'
+      aria-label={t('workspace.presentation_exit_audience')}
+      className='absolute inset-0 z-[var(--z-toast)] flex items-center justify-center bg-[var(--scrim)]'
+    >
+      <div className='flex w-[min(90%,calc(var(--sp-16)*6))] flex-col gap-[var(--sp-4)] rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-[var(--sp-5)] shadow-[var(--shadow-pop)]'>
+        <p className='text-[length:var(--text-16)] leading-relaxed text-[var(--text-primary)]'>
+          {t('workspace.presentation_exit_audience')}
+        </p>
+        <div className='flex items-center justify-end gap-[var(--sp-2)]'>
+          <button
+            ref={stayRef}
+            type='button'
+            className='rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--sp-3)] py-[var(--sp-1-5)] text-[length:var(--text-14)] text-[var(--text-primary)]'
+            onClick={onCancel}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type='button'
+            className='rounded-[var(--r-md)] border border-[var(--danger)] px-[var(--sp-3)] py-[var(--sp-1-5)] text-[length:var(--text-14)] font-medium text-[var(--danger)]'
+            onClick={onConfirm}
+          >
+            {t('workspace.presentation_exit')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

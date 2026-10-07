@@ -2294,6 +2294,7 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_exit_fullscreen": "退出全屏",
     "workspace.presentation_fullscreen_denied": "浏览器没有把整屏交给放映，放映继续在本窗口里可用",
     "workspace.presentation_slide_unprepared": "这一页的图表没能准备好，现在按没有图表的样子放映",
+    "workspace.presentation_exit_audience": "观众还在跟随这场放映。确定现在结束吗？",
     "workspace.presentation_exit": "退出演示",
     "workspace.presentation_slides": "幻灯片",
     "workspace.presentation_show_slides": "显示幻灯片列表",

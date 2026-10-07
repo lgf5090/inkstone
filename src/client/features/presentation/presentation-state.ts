@@ -29,16 +29,27 @@ export function railOpenFor(choice: boolean | null, fitsViewport: boolean): bool
   return choice ?? fitsViewport
 }
 
-// The ladder `Esc` walks: the layer the presenter is looking at first, so neither the key card, the
-// overview grid nor the laser ever costs a talk its show, then the screen, then the show. The card is
-// the top rung because it is painted over the grid it can sit on. Named fields because three booleans
-// in a row say nothing about which rung is which.
-export function escapeAction({ fullscreen, laser, overview, spotlight, keyGuide }: { fullscreen: boolean; laser: boolean; overview: boolean; spotlight?: boolean; keyGuide?: boolean }): 'closeKeyGuide' | 'closeOverview' | 'clearSpotlight' | 'clearLaser' | 'exitFullscreen' | 'close' {
+// The ladder `Esc` walks: the question a show asks before it ends comes first, because the key that
+// opened it must not be the key that closes it. Then the layer the presenter is looking at — the card,
+// painted over the grid it can sit on, then the grid — so neither the key card, the overview grid nor
+// the laser ever costs a talk its show, then the screen, then the show. Named fields because three
+// booleans in a row say nothing about which rung is which.
+export function escapeAction({ fullscreen, laser, overview, spotlight, keyGuide, exitConfirm }: { fullscreen: boolean; laser: boolean; overview: boolean; spotlight?: boolean; keyGuide?: boolean; exitConfirm?: boolean }): 'cancelExitConfirm' | 'closeKeyGuide' | 'closeOverview' | 'clearSpotlight' | 'clearLaser' | 'exitFullscreen' | 'close' {
+  if (exitConfirm) return 'cancelExitConfirm'
   if (keyGuide) return 'closeKeyGuide'
   if (overview) return 'closeOverview'
   if (spotlight) return 'clearSpotlight'
   if (laser) return 'clearLaser'
   return fullscreen ? 'exitFullscreen' : 'close'
+}
+
+/**
+ * Whether leaving the show is a fact or a question (PR-L3). With an audience following, the same
+ * keystroke ends somebody else's talk too, and only the presenter knows whether that is the plan —
+ * so the press asks first. Without one, closing a show is closing a window: no ceremony.
+ */
+export function exitAsk({ audienceFollowing }: { audienceFollowing: boolean }): 'ask' | 'close' {
+  return audienceFollowing ? 'ask' : 'close'
 }
 
 // Where the arrow puts the focus inside the overview grid. The grid is laid out by the browser, so

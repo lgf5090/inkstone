@@ -4,7 +4,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { usePresentation } from '../../store/presentation'
 import { DeckHandoutSheet, DeckImageSheet, DeckPrintSheet } from './deck-print'
-import { DeckExportProgress, PresentationControls, SlideProgress, type PresentationControlsProps } from './presentation-controls'
+import { DeckExportProgress, PresentationControls, PresentationExitConfirm, SlideProgress, type PresentationControlsProps } from './presentation-controls'
 import { PresentationKeyGuide } from './presentation-key-guide'
 import { CoverAnnouncement, PresentationStage, ScreenCover, SlidePreparationNotice, stageProps } from './presentation-stage'
 import { LaserPointer, Spotlight } from './presentation-pointer'
@@ -32,16 +32,15 @@ export function PresentationOverlay() {
 
   if (!open) return null
 
-  return createPortal(<PresentationDialog panelRef={panelRef} stageRef={stageRef} session={session} onClose={onClose} />, document.body)
+  return createPortal(<PresentationDialog panelRef={panelRef} stageRef={stageRef} session={session} />, document.body)
 }
 
 // The slide surface itself: the list, the canvas, the controls and the overview are one dialog so
 // the focus trap, the idle fade and the portal all belong to a single element.
-function PresentationDialog({ panelRef, stageRef, session, onClose }: {
+function PresentationDialog({ panelRef, stageRef, session }: {
   panelRef: RefObject<HTMLDivElement | null>
   stageRef: RefObject<HTMLDivElement | null>
   session: PresentationSession
-  onClose: () => void
 }) {
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault()
@@ -71,7 +70,7 @@ function PresentationDialog({ panelRef, stageRef, session, onClose }: {
         {session.railOpen && <SlideRail {...slideSurfaceProps(session)} title={session.noteTitle} progress={session.listProgress} chromeHidden={session.chromeHidden} occluded={session.occluded} />}
         <PresentationStage {...stageProps(stageRef, session)} />
         {session.presenterPanel && <PresenterPanel state={session.presenterPanel} chromeHidden={session.chromeHidden} occluded={session.occluded} onClose={session.closePresenterPanel} />}
-        <PresentationControls {...controlProps(session, onClose)} />
+        <PresentationControls {...controlProps(session, session.requestClose)} />
         <SlideProgress page={session.page} pageTotal={session.pageTotal} />
         {session.overview && <SlideOverviewGrid {...slideSurfaceProps(session)} onClose={session.clearOverview} />}
         {/* Painted over the grid rather than beside it, and put away before it by the same Esc: the
@@ -85,7 +84,10 @@ function PresentationDialog({ panelRef, stageRef, session, onClose }: {
             drawn outside it would sit under the very slide it is meant to point at. */}
         {session.imageProgress && <DeckExportProgress current={session.imageProgress.current} total={session.imageProgress.total} />}
         <LaserPointer active={session.laser} />
-        <PresentationContextMenu {...contextMenuProps(panelRef, session, onClose)} />
+        <PresentationContextMenu {...contextMenuProps(panelRef, session, session.requestClose)} />
+        {/* Inside the dialog for the same reason the cover and the card are: a confirm portalled to
+            the body would sit under the fullscreen element it is asking about. */}
+        <PresentationExitConfirm open={session.exitAsked} onConfirm={session.closeNow} onCancel={session.keepPresenting} />
       </div>
       <PresentationSheets session={session} />
     </>

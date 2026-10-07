@@ -143,7 +143,32 @@ describe('useAudienceFollow — the show moves, the audience moves with it', () 
     expect(api.presence.stop, 'a show already ended by the open flip is not stopped twice').toHaveBeenCalledTimes(1)
   })
 
-  // The way a show actually ends: the overlay leaves the tree, so there is no render in which
+  // The way the show actually ends in the app: the store's `stop()` clears `noteId` in the same commit
+  // that sets `open` false, so a hook that reads `noteId` back to decide whether to end the audience is
+  // handed nothing to end it with, and the row keeps answering for the whole lease.
+  it('ends the audience show when the store clears the note along with the room', async () => {
+    const held = { current: null as HookResult | null }
+    let open = true
+    let noteId: string | null = 'note-1'
+    function Closing() {
+      held.current = useAudienceFollow({ open, noteId, position: { slide: 0, page: 0, step: 0 } })
+      return null
+    }
+    const view = renderElement(createElement(Closing))
+    await act(async () => { await Promise.resolve() })
+    await press(held.current!)
+
+    open = false
+    noteId = null
+    await act(async () => { view.rerender(createElement(Closing)) })
+    await act(async () => { await Promise.resolve() })
+    expect(api.presence.stop, 'one commit ends both, and the link goes with them').toHaveBeenCalledWith('note-1')
+    expect(api.presence.stop).toHaveBeenCalledTimes(1)
+    await act(async () => { view.unmount() })
+    expect(api.presence.stop, 'the commit that ended the show already stopped it').toHaveBeenCalledTimes(1)
+  })
+
+  // The other way a show ends: the overlay leaves the tree, so there is no render in which
   // `open` goes false. A hook that only listens for that render leaves the row answering for the
   // whole lease — the viewer keeps seeing "following" over a talk that is over.
   it('ends the audience show when the overlay is taken out of the tree', async () => {

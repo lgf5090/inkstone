@@ -59,25 +59,34 @@ export function useAudienceFollow(options: {
     })
   }, [session, noteId, where, position])
 
-  // Leaving the show — by the exit button, by Escape, or by the tab being closed around it — ends the
-  // audience with it.
-  useEffect(() => {
-    if (!open && session && noteId) end(noteId)
-  }, [open, session, noteId, end])
-
-  // That effect only runs on a *render* in which `open` went false, and a show that closes because the
-  // overlay leaves the tree never gets that render: an unmount runs cleanups and nothing else. Without
-  // this half the row lives out its whole lease and the viewer keeps reading "following this show"
-  // over a talk that ended minutes ago, with the note's title and last page still served to it.
+  // Where the show is, kept off the render inputs: stopping the store's `stop()` clears `noteId` in the
+  // same commit that closes the show, so an effect that reads `noteId` back to decide whether an
+  // audience is still running would never see one. This ref is the last thing that still knows.
   const live = useRef<{ noteId: string, end: (note: string) => void } | null>(null)
+
+  // Leaving the show — by the exit button, by Escape, or by the tab being closed around it — ends the
+  // audience with it. Declared above the assignment below on purpose: an effect that runs after it would
+  // already have emptied the ref of the show that just ended.
   useEffect(() => {
-    live.current = session && noteId ? { noteId, end } : null
-  })
+    if (open) return
+    const running = live.current
+    live.current = null
+    if (running) running.end(running.noteId)
+  }, [open])
+
+  // The other half: a show that closes because the overlay leaves the tree never gets a render in which
+  // `open` went false — an unmount runs cleanups and nothing else. Without this the row lives out its
+  // whole lease and the viewer keeps reading "following this show" over a talk that ended minutes ago,
+  // with the note's title and last page still served to it.
   useEffect(() => () => {
     const running = live.current
     live.current = null
     if (running) running.end(running.noteId)
   }, [])
+
+  useEffect(() => {
+    live.current = session && noteId ? { noteId, end } : null
+  })
 
   // A note that was deleted takes its share, and therefore this show, down with it.
   useEffect(() => {
