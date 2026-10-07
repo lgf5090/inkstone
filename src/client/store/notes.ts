@@ -25,6 +25,7 @@ import {
     type CalendarPeriod,
     type VirtualTreeNamespace,
 } from '../lib/calendar-tree';
+import { adoptedFrontMatterTitle, buildNewNoteContent, rememberPendingEditorCursor, syncTitleIntoFrontMatter } from './new-note';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -63,6 +64,9 @@ interface NotesState {
         folderId?: string | null;
         isStarred?: boolean;
         open?: boolean;
+        tags?: string[];
+        /** Caret offset for an explicitly supplied `content`; ignored when the template builds it. */
+        cursor?: number | null;
     }) => Promise<string | null>;
     patchNote: (id: string, patch: Partial<Pick<NoteSummary, 'isPinned' | 'isStarred' | 'isArchived'>> & {
         folderId?: string | null;
@@ -673,14 +677,14 @@ export const useNotes = create<NotesState>((set, get) => ({
         const nextTitle = title.slice(0, LIMITS.titleMaxLength);
         if (summary.title === nextTitle)
             return;
-        stageNoteTextWrite(id, content, nextTitle, set, get);
+        stageNoteTextWrite(id, syncTitleIntoFrontMatter(content, nextTitle) ?? content, nextTitle, set, get);
     },
     editContent(id, content) {
         const state = get();
         const summary = state.notes[id];
         if (!summary || !hasOwnContent(state.contents, id) || state.contents[id] === content)
             return;
-        stageNoteTextWrite(id, content, dirty.get(id)?.title, set, get);
+        stageNoteTextWrite(id, content, adoptedFrontMatterTitle(state.contents[id], content) ?? dirty.get(id)?.title, set, get);
     },
     async flush(options) {
         commitAllPendingSummaryDerivations();
@@ -701,10 +705,20 @@ export const useNotes = create<NotesState>((set, get) => ({
     async createNote(input) {
         const id = input?.id ?? newLocalEntityId();
         const existing = get().notes[id];
-        const content = input?.content ?? '';
         const title = (input?.title ?? '').trim().slice(0, LIMITS.titleMaxLength);
         const folderId = input?.folderId ?? currentFolderId();
         const isStarred = input?.isStarred ?? false;
+        let content = input?.content ?? '';
+        let cursor: number | null = input?.cursor ?? null;
+        if (input?.content === undefined) {
+            const built = buildNewNoteContent(title, input?.tags, folderId, get().folders);
+            content = built.content;
+            cursor = built.cursor;
+            if (built.tagsUnapplied.length)
+                content = `${built.tagsUnapplied.map((name) => `#${name}`).join(' ')}\n\n${content}`;
+        }
+        if (cursor !== null)
+            rememberPendingEditorCursor(id, cursor);
         if (existing) {
             const request = api.notes.create({ id, title, content, folderId, ...(isStarred ? { isStarred: true } : {}) });
             pendingNoteCreates.set(id, request);
@@ -2783,10 +2797,13 @@ export function createContextualNote(input?: {
             ...(folderId ? { folderId } : {}),
         });
     }
+    // The tags a note was created under go to the store as a list rather than as
+    // body text: the new-note template decides where they land, and its front
+    // matter is where a tag page expects them.
     return useNotes.getState().createNote({
         ...input,
         ...(folderId ? { folderId } : {}),
-        ...(ui.view === 'tag' && ui.tags.length && input?.content === undefined ? { content: `${ui.tags.map((name) => `#${name}`).join(' ')}\n\n` } : {}),
+        ...(ui.view === 'tag' && ui.tags.length && input?.content === undefined ? { tags: [...ui.tags] } : {}),
         ...(ui.view === 'starred' ? { isStarred: true } : {}),
     });
 }

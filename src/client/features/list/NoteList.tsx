@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, LayoutTemplate, Link2, MoreHorizontal, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { groupLabel, parseDateKey } from '../../lib/time';
@@ -318,6 +318,11 @@ export function NoteList() {
                 <ArrowDownWideNarrow size={14}/>
               </IconButton>
             </Tooltip>
+            {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("templates.new_note_from_template")} combo={APP_SHORTCUTS.templates}>
+                <IconButton label={t("templates.new_note_from_template")} size="sm" onClick={() => useUi.getState().openPanel('templates')}>
+                  <LayoutTemplate size={14}/>
+                </IconButton>
+              </Tooltip>)}
             {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
                 <IconButton label={t("common.new_note")} size="sm" onClick={() => void createContextualNote()}>
                   <Plus size={15}/>
@@ -354,6 +359,11 @@ export function NoteList() {
               <ArrowDownWideNarrow size={17}/>
             </IconButton>
           </Tooltip>
+          {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("templates.new_note_from_template")} combo={APP_SHORTCUTS.templates}>
+              <IconButton label={t("templates.new_note_from_template")} size="sm" className="mobile-library-templates" onClick={() => useUi.getState().openPanel('templates')}>
+                <LayoutTemplate size={17}/>
+              </IconButton>
+            </Tooltip>)}
           {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
               <IconButton label={t("common.new_note")} size="sm" className="mobile-library-compose" onClick={() => void createContextualNote()}>
                 <Plus size={19}/>

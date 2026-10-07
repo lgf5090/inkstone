@@ -259,6 +259,15 @@ export const GLOBAL_HOTKEYS: Hotkey[] = [
         handler: () => void createContextualNote(),
     },
     {
+        id: 'new-note-from-template',
+        combo: APP_SHORTCUTS.templates,
+        description: () => t("templates.new_note_from_template"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        allowInOverlay: true,
+        handler: () => ui().togglePanel('templates'),
+    },
+    {
         id: 'search',
         combo: APP_SHORTCUTS.search,
         description: () => t("shell.search_all_notes"),

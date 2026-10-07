@@ -99,7 +99,7 @@ export function Button({
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title'> {
   label: string
-  size?: Size
+  size?: 'xs' | Size
   variant?: Variant
   active?: boolean
   ref?: Ref<HTMLButtonElement>
@@ -125,7 +125,7 @@ export function IconButton({
         'inline-flex shrink-0 items-center justify-center rounded-[var(--r-md)]',
         'transition-[background-color,color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40',
-        size === 'sm' ? 'size-8 md:size-6' : size === 'lg' ? 'size-10 md:size-9' : 'size-9 md:size-7',
+        size === 'xs' ? 'size-6' : size === 'sm' ? 'size-8 md:size-6' : size === 'lg' ? 'size-10 md:size-9' : 'size-9 md:size-7',
         active
           ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
           : VARIANTS[variant],

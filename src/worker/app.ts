@@ -8,6 +8,8 @@ import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
 import { foldersRoutes } from './routes/folders'
 import { tagsRoutes } from './routes/tags'
+import { communityTemplatesRoutes } from './routes/community-templates'
+import { templateLibraryRoutes } from './routes/template-library'
 import { searchRoutes } from './routes/search'
 import { syncRoutes } from './routes/sync'
 import { filesRoutes } from './routes/files'
@@ -81,6 +83,8 @@ export function createApp() {
   app.route('/api/notes', notesRoutes)
   app.route('/api/folders', foldersRoutes)
   app.route('/api/tags', tagsRoutes)
+  app.route('/api/templates/community', communityTemplatesRoutes)
+  app.route('/api/templates', templateLibraryRoutes)
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)
   app.route('/api/files', filesRoutes)

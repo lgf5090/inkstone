@@ -33,6 +33,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     avatar_url TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'member',
     settings TEXT NOT NULL DEFAULT '{}',
+    template_library TEXT,
     created_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL
   )`,
@@ -374,6 +375,22 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_fts_index_queue_due
      ON fts_index_queue(user_id, created_at, note_id)`,
+  `CREATE TABLE IF NOT EXISTS community_templates (
+    id TEXT PRIMARY KEY,
+    author_id TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    category TEXT NOT NULL DEFAULT '',
+    uses INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_community_templates_created
+     ON community_templates(created_at DESC, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_community_templates_author
+     ON community_templates(author_id)`,
 ]
 
 interface SchemaMigration {
@@ -657,9 +674,45 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 25,
-    statements: [`ALTER TABLE tags ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0`],
-    skipIfColumnExists: { table: 'tags', column: 'is_pinned' },
+    // The shared template directory: one row per published template, listed newest first.
+    version: 26,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS community_templates (
+         id TEXT PRIMARY KEY,
+         author_id TEXT NOT NULL,
+         author_name TEXT NOT NULL,
+         name TEXT NOT NULL,
+         description TEXT NOT NULL DEFAULT '',
+         content TEXT NOT NULL,
+         tags TEXT NOT NULL DEFAULT '[]',
+         category TEXT NOT NULL DEFAULT '',
+         uses INTEGER NOT NULL DEFAULT 0,
+         created_at INTEGER NOT NULL
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_community_templates_created
+         ON community_templates(created_at DESC, id)`,
+      `CREATE INDEX IF NOT EXISTS idx_community_templates_author
+         ON community_templates(author_id)`,
+    ],
+  },
+  {
+    // The account's own template library, so it survives a cleared browser and travels
+    // between devices the way `settings` does. `skipIfColumnExists` because a fresh
+    // database already gets the column from SCHEMA_STATEMENTS.
+    version: 27,
+    skipIfColumnExists: { table: 'users', column: 'template_library' },
+    statements: [
+      `ALTER TABLE users ADD COLUMN template_library TEXT`,
+    ],
+  },
+  {
+    // How many accounts adopted each published template. `skipIfColumnExists` because a
+    // fresh database already gets the column from SCHEMA_STATEMENTS and from version 26.
+    version: 28,
+    skipIfColumnExists: { table: 'community_templates', column: 'uses' },
+    statements: [
+      `ALTER TABLE community_templates ADD COLUMN uses INTEGER NOT NULL DEFAULT 0`,
+    ],
   },
 ]
 
@@ -683,7 +736,7 @@ const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
 const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_meta: ['key', 'value'],
   schema_migrations: ['version', 'applied_at'],
-  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'created_at', 'last_seen_at'],
+  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'created_at', 'last_seen_at'],
   folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at', 'deleted_at'],
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],
@@ -711,6 +764,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at', 'attempts', 'next_retry_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
+  community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'uses', 'created_at'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -745,6 +799,7 @@ const REQUIRED_TABLES = [
   'ai_index_queue',
   'fts_index_queue',
   'rewrite_queue',
+  'community_templates',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -796,6 +851,8 @@ const REQUIRED_INDEXES = [
   'idx_notes_user_pinned_created',
   'idx_notes_user_pinned_title',
   'idx_attachments_user_size',
+  'idx_community_templates_created',
+  'idx_community_templates_author',
 ] as const
 
 

@@ -41,6 +41,7 @@ import {
   formatStamp,
 } from '../backup/snapshot'
 import { createBackupArchive } from '../backup/archive'
+import { applyBackupTemplates } from '../backup/templates'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -243,6 +244,9 @@ transferRoutes.post('/import', async (c) => {
             [...backup.manifest.notes, ...backup.manifest.attachments]
               .map((entry) => `${backup.rootPrefix}${entry.path}`.toLowerCase()),
           )
+          if (backup.manifest.templates) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.templates.path}`.toLowerCase())
+          }
           const entries = await readZip(bytes, {
             ...zipOptions,
             maxEntryBytes: LIMITS.importUploadMaxBytes,
@@ -413,6 +417,7 @@ async function importBackupFileBatch(
   const attachmentByPath = new Map(
     manifest.attachments.map((entry) => [entry.path.toLowerCase(), entry]),
   )
+  const templatesByPath = manifest.templates?.path.toLowerCase() ?? null
   const seen = new Set<string>()
   const planned = selected.map(({ file, path }) => {
     if (!isSafeBackupPath(path)) throw new Error(`Invalid backup path: ${path}`)
@@ -421,24 +426,26 @@ async function importBackupFileBatch(
     seen.add(key)
     const note = noteByPath.get(key)
     const attachment = attachmentByPath.get(key)
-    if (!note && !attachment) throw new Error(`The file is not listed in the backup manifest: ${path}`)
-    return { file, path, note, attachment }
+    const templates = templatesByPath !== null && key === templatesByPath
+    if (!note && !attachment && !templates) throw new Error(`The file is not listed in the backup manifest: ${path}`)
+    return { file, path, note, attachment, templates }
   })
 
   for (const item of planned) {
-    const entry = item.note ?? item.attachment!
+    const entry = item.note ?? item.attachment ?? (item.templates ? manifest.templates! : null)
+    if (!entry) continue
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await verifyBackupEntry(
       bytes,
-      item.note ? item.note.bytes : item.attachment!.size,
+      item.note ? item.note.bytes : item.attachment ? item.attachment.size : manifest.templates!.bytes,
       entry.sha256,
       entry.path,
     )
-    if (item.note) {
+    if (item.note || item.templates) {
       try {
         new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
       } catch {
-        throw new Error(`The Markdown file is not valid UTF-8: ${item.note.path}`)
+        throw new Error(`The backup file is not valid UTF-8: ${entry.path}`)
       }
     }
   }
@@ -462,6 +469,13 @@ async function importBackupFileBatch(
       throw new Error(`The Markdown file is not valid UTF-8: ${entry.path}`)
     }
     await importBackupMarkdown(c, userId, entry, text, manifest, ctx)
+  }
+  const templatesItem = planned.find((item) => item.templates)
+  if (templatesItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await templatesItem.file.arrayBuffer()),
+    )
+    await applyBackupTemplates(c.env.DB, userId, text)
   }
 }
 

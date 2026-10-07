@@ -8,6 +8,8 @@ import { SettingRow } from '../../components/form';
 import { confirm } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { useNotes } from '../../store/notes';
+import { useNoteTemplates } from '../../store/note-templates';
+import { useSession } from '../../store/session';
 import { AttachmentManager } from '../attachments/AttachmentManager';
 import { t } from "../../lib/i18n";
 import { restoreMarkdownBackupFolder } from '../../lib/backup-import';
@@ -74,6 +76,8 @@ export function DataSettings() {
     };
     const reportImport = async (result: Awaited<ReturnType<typeof api.transfer.import>>) => {
         const refreshed = await pull({ force: true }).then(() => true, () => false);
+        const owner = useSession.getState().user?.id ?? '';
+        await useNoteTemplates.getState().reloadFromAccount(owner).catch(() => {});
         void loadStats();
         const summary = t("settings.created_value0_updated_value1_skipped_value2_restored_value3_attachments", { value0: result.createdNotes, value1: result.updatedNotes, value2: result.skippedNotes, value3: result.createdAttachments, value4: result.skippedAttachments });
         const details = [summary];
