@@ -2,6 +2,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { NoteSummary } from '@shared/types'
 import { renderElement, type RenderedElement } from '../lib/test-render'
+import { buildActivityProjectionCached } from '../lib/calendar-activity'
 import { dateKey } from '../lib/time'
 import { useNotes, useVisibleNotes } from '../store/notes'
 import { useUi } from '../store/ui'
@@ -87,6 +88,19 @@ describe('the list honours the calendar day filter', () => {
     apply({ start: '2026-10-04', end: '2026-10-04' })
     act(() => { useUi.getState().openView('starred') })
     expect(useUi.getState().dateFilter).toBeNull()
+  })
+
+  it('answers the heat cell with the same collection it promises', () => {
+    // One number, two truths: the projection feeds the cell and this hook feeds the
+    // rows, so any day whose count differs from its visible list is a broken promise.
+    const projection = buildActivityProjectionCached(NOTES)
+    const keys = Object.values(NOTES).map((item) => dateKey(new Date(item.updatedAt)))
+    for (const key of [...new Set(keys)]) {
+      const listed = apply({ start: key, end: key })
+      expect(listed, key).toEqual((projection.notesByDay.get(key) ?? []).map((item) => item.id).sort())
+      expect(listed.length, key).toBe(projection.counts.get(key) ?? 0)
+    }
+    expect(apply(null)).toHaveLength([...projection.counts.values()].reduce((sum, value) => sum + value, 0))
   })
 })
 

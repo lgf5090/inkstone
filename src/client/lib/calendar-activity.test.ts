@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NoteSummary } from '@shared/types'
-import { buildActivityProjectionCached } from './calendar-activity'
+import { buildActivityProjectionCached, buildActivityProjectionFresh } from './calendar-activity'
 import { dateKey } from './time'
 
 const note = (overrides: Partial<NoteSummary> = {}): NoteSummary => ({
@@ -20,18 +20,23 @@ const naive = (notes: Record<string, NoteSummary>) => {
   for (const item of Object.values(notes)) {
     if (item.deletedAt !== null)
       continue
-    const key = dateKey(new Date(item.updatedAt))
-    if (item.updatedAt > latest)
-      latest = item.updatedAt
-    counts.set(key, (counts.get(key) ?? 0) + 1)
+    // Two tiers: an archived note still owns its title slot (clicking the day must
+    // reopen that diary instead of creating a second one), but it is counted and
+    // listed nowhere, because the `all` view hides it.
+    if (!item.isArchived) {
+      const key = dateKey(new Date(item.updatedAt))
+      if (item.updatedAt > latest)
+        latest = item.updatedAt
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+      const list = notesByDay.get(key)
+      const entry = { id: item.id, title: item.title, updatedAt: item.updatedAt }
+      if (list)
+        list.push(entry)
+      else
+        notesByDay.set(key, [entry])
+    }
     if (!noteIdByTitle.has(item.title))
       noteIdByTitle.set(item.title, item.id)
-    const list = notesByDay.get(key)
-    const entry = { id: item.id, title: item.title, updatedAt: item.updatedAt }
-    if (list)
-      list.push(entry)
-    else
-      notesByDay.set(key, [entry])
   }
   for (const list of notesByDay.values())
     list.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -74,23 +79,29 @@ const randomStep = (rand: () => number, notes: Record<string, NoteSummary>, step
     const ts = day(2024 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 12), 1 + Math.floor(rand() * 28))
     return { ...notes, [target]: note({ id: target, title: FUZZ_TITLES[Math.floor(rand() * FUZZ_TITLES.length)]!, updatedAt: ts, createdAt: ts }) }
   }
-  if (op < 0.35) {
+  if (op < 0.28) {
     return { ...notes, [target]: { ...current, updatedAt: day(2024 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 12), 1 + Math.floor(rand() * 28)) } }
   }
-  if (op < 0.5) {
+  if (op < 0.38) {
     return { ...notes, [target]: { ...current, title: FUZZ_TITLES[Math.floor(rand() * FUZZ_TITLES.length)]! } }
   }
-  if (op < 0.65) {
+  if (op < 0.5) {
     return { ...notes, [target]: { ...current, deletedAt: day(2026, 9, 1), updatedAt: day(2026, 9, 1) } }
   }
-  if (op < 0.75) {
+  if (op < 0.6) {
     return { ...notes, [target]: { ...current, deletedAt: null, updatedAt: day(2024 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 12), 1 + Math.floor(rand() * 28)) } }
   }
-  if (op < 0.85) {
+  if (op < 0.7) {
+    return { ...notes, [target]: { ...current, isArchived: true } }
+  }
+  if (op < 0.78) {
+    return { ...notes, [target]: { ...current, isArchived: false } }
+  }
+  if (op < 0.86) {
     const ts = day(2024 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 12), 1 + Math.floor(rand() * 28))
     return { ...notes, [id(5_500 + step)]: note({ id: id(5_500 + step), title: FUZZ_TITLES[Math.floor(rand() * FUZZ_TITLES.length)]!, updatedAt: ts, createdAt: ts }) }
   }
-  if (op < 0.95) {
+  if (op < 0.93) {
     return { ...notes, [target]: { ...current, isPinned: true, excerpt: `excerpt ${step}` } }
   }
   const { [target]: gone, ...rest } = notes
@@ -349,6 +360,96 @@ describe('buildActivityProjectionCached — latestEditKey', () => {
     const large = commitReads(5000)
     expect([small, large]).toEqual([large, large])
     expect(large).toBeLessThan(50)
+  })
+})
+
+describe('buildActivityProjectionCached — archived notes', () => {
+  it('cold-builds a vault holding an archived note exactly like the naive rebuild', () => {
+    const map = asRecord([
+      note({ id: 'a', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'b', title: 'Shared', updatedAt: day(2026, 7, 2), isArchived: true }),
+      note({ id: 'c', title: 'Shared', updatedAt: day(2026, 7, 3) }),
+      note({ id: 'd', title: 'Gone', updatedAt: day(2026, 7, 3), deletedAt: day(2026, 9, 1) }),
+    ])
+    const fresh = buildActivityProjectionFresh(map)
+    const expected = naive(map)
+    expect(fresh.counts).toEqual(expected.counts)
+    expect(fresh.noteIdByTitle).toEqual(expected.noteIdByTitle)
+    expect(fresh.notesByDay).toEqual(expected.notesByDay)
+  })
+
+  it('counts and lists nothing for an archived note but keeps its title slot', () => {
+    const map = asRecord([
+      note({ id: 'a', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'b', title: 'Unique', updatedAt: day(2026, 7, 2), isArchived: true }),
+    ])
+    const projection = buildActivityProjectionCached(map)
+    expect(projection.counts.get('2026-07-02')).toBeUndefined()
+    expect(projection.notesByDay.get('2026-07-02')).toBeUndefined()
+    expect(projection.counts.get('2026-07-01')).toBe(1)
+    // The diary lookup still has to find an archived diary, or clicking that day
+    // would create a second note for the same date.
+    expect(projection.noteIdByTitle.get('Unique')).toBe('b')
+    const renamed = buildActivityProjectionCached({ ...map, b: { ...map.b!, title: 'Renamed' } })
+    expect(renamed.noteIdByTitle.get('Unique')).toBeUndefined()
+    expect(renamed.noteIdByTitle.get('Renamed')).toBe('b')
+    expect(renamed.counts.get('2026-07-02')).toBeUndefined()
+  })
+
+  it('drops an archived note out of both day slices and keeps the untouched day stable', () => {
+    const map = asRecord([
+      note({ id: 'a', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'b', title: 'Shared', updatedAt: day(2026, 7, 2) }),
+      note({ id: 'c', title: 'Other', updatedAt: day(2026, 7, 2) }),
+    ])
+    const first = buildActivityProjectionCached(map)
+    const second = buildActivityProjectionCached({ ...map, b: { ...map.b!, isArchived: true } })
+    expect(second.counts.get('2026-07-02')).toBe(1)
+    expect(second.notesByDay.get('2026-07-02')).toEqual([{ id: 'c', title: 'Other', updatedAt: day(2026, 7, 2) }])
+    expect(second.counts.get('2026-07-01')).toBe(first.counts.get('2026-07-01'))
+    expect(second.notesByDay.get('2026-07-01')).toBe(first.notesByDay.get('2026-07-01'))
+    expect(second.noteIdByTitle.get('Shared')).toBe('b')
+  })
+
+  it('puts the slices back when the note is unarchived', () => {
+    const map = asRecord([
+      note({ id: 'a', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'b', title: 'Diary', updatedAt: day(2026, 7, 2), isArchived: true }),
+    ])
+    const archived = buildActivityProjectionCached(map)
+    expect(archived.counts.get('2026-07-02')).toBeUndefined()
+    const live = buildActivityProjectionCached({ ...map, b: { ...map.b!, isArchived: false } })
+    expect(live.counts.get('2026-07-02')).toBe(1)
+    expect(live.notesByDay.get('2026-07-02')).toEqual([{ id: 'b', title: 'Diary', updatedAt: day(2026, 7, 2) }])
+    expect(live.noteIdByTitle.get('Diary')).toBe('b')
+  })
+
+  it('re-claims a vacated title slot with an archived note still alive', () => {
+    const map = asRecord([
+      note({ id: 'a', title: 'Alpha', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'b', title: 'Alpha', updatedAt: day(2026, 7, 2), isArchived: true }),
+    ])
+    const first = buildActivityProjectionCached(map)
+    expect(first.noteIdByTitle.get('Alpha')).toBe('a')
+    const second = buildActivityProjectionCached({ ...map, a: { ...map.a!, deletedAt: day(2026, 9, 1) } })
+    expect(second.noteIdByTitle.get('Alpha')).toBe('b')
+    expect(second.counts.get('2026-07-02')).toBeUndefined()
+  })
+
+  // The gap banner reads the counted tier, so archiving the newest note has to hand the
+  // pointer to the runner-up — otherwise it names a day the list cannot show (C-14).
+  it('hands the newest-edit pointer over when that note is archived, and back when it returns', () => {
+    const map = asRecord([
+      note({ id: 'a', title: 'Older', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'b', title: 'Newest', updatedAt: day(2026, 9, 28, 23) }),
+    ])
+    expect(buildActivityProjectionCached(map).latestEditKey).toBe('2026-09-28')
+    const filed = buildActivityProjectionCached({ ...map, b: { ...map.b!, isArchived: true } })
+    expect(filed.latestEditKey).toBe('2026-07-01')
+    // The archived note still owns its title slot, so the diary lookup is unaffected.
+    expect(filed.noteIdByTitle.get('Newest')).toBe('b')
+    const back = buildActivityProjectionCached({ ...map, b: { ...map.b!, isArchived: false } })
+    expect(back.latestEditKey).toBe('2026-09-28')
   })
 })
 

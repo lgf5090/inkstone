@@ -117,6 +117,7 @@ interface UiState {
   toggleTagExclusion: (tag: string) => void
   setDateFilter: (value: DateRangeFilter | null) => void
   requestCalendarJump: (year: number, month: number) => void
+  consumeCalendarJump: (nonce: number) => void
   setSort: (sort: SortKey, order?: SortOrder) => void
   setDensity: (density: UiDensity) => void
   toggleFolder: (id: string) => void
@@ -549,6 +550,9 @@ export const useUi = create<UiState>((set, get) => ({
   requestCalendarJump: (year, month) => set((s) => ({
     calendarJump: { year, month, nonce: (s.calendarJump?.nonce ?? 0) + 1 },
   })),
+  // The jump is a one-shot instruction: leaving it in the store would let any later
+  // remount of the calendar obey it again and overwrite what the user chose since.
+  consumeCalendarJump: (nonce) => set((s) => (s.calendarJump?.nonce === nonce ? { calendarJump: null } : {})),
 
   toggleFolder: (id) =>
     set((s) => ({

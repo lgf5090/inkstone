@@ -144,6 +144,13 @@ export function NoteList() {
             return t('notes.filtering_by_day_value0', { value0: start });
         return t('notes.filtering_by_day_range_value0', { value0: start, value1: format.format(parseDateKey(dateFilter.end)) });
     }, [dateFilter, locale]);
+    const dayFilterChip = dateFilter ? (<div data-day-filter-chip className="mt-1 flex min-w-0 items-center gap-1 self-start rounded-full border border-[var(--border-subtle)] py-0.5 pr-0.5 pl-1.5 text-[10.5px] text-[var(--text-tertiary)]">
+      <CalendarDays size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
+      <span className="min-w-0 truncate">{dayFilterText}</span>
+      <IconButton label={t('notes.clear_day_filter')} size="sm" className="size-5" onClick={() => setDateFilter(null)}>
+        <X size={10}/>
+      </IconButton>
+    </div>) : null;
     // Browsing the search panel shows the same collection as the sidebar, but typing into it
     // means "find the note", and the server layer already answers that including archived
     // notes; scoping the local layer to the view made archived notes findable online and
@@ -309,17 +316,12 @@ export function NoteList() {
     return (<section className={cn('relative flex h-full min-h-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]', breakpoint === 'mobile' && 'mobile-note-list')}>
       <header className="shrink-0 px-3 pt-3 pb-2">
         {breakpoint === 'mobile' && <div className="mobile-library-brand"><Logo size={22}/><span>{t('common.product_name')}</span></div>}
+        {breakpoint === 'mobile' && dayFilterChip}
         {breakpoint !== 'mobile' && <div className="mb-2.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
             {view === 'folder' && !isVirtualFolderId(folderId) && <p className="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">{t("folders.includes_subfolders")}</p>}
-            {dateFilter && (<div className="mt-1 flex min-w-0 items-center gap-1 rounded-full border border-[var(--border-subtle)] py-0.5 pr-0.5 pl-1.5 text-[10.5px] text-[var(--text-tertiary)]">
-              <CalendarDays size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
-              <span className="min-w-0 truncate">{dayFilterText}</span>
-              <IconButton label={t('notes.clear_day_filter')} size="sm" className="size-5" onClick={() => setDateFilter(null)}>
-                <X size={10}/>
-              </IconButton>
-            </div>)}
+            {dayFilterChip}
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             {breakpoint === 'tablet' && (<Tooltip label={t("notes.open_navigation")}>
@@ -387,7 +389,7 @@ export function NoteList() {
 
       <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} onScroll={onListScroll} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
         {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
-        {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
+        {!hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
               {group.label && (<div className="px-2 pt-3 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
                   {group.label}
                 </div>)}
@@ -759,13 +761,18 @@ function BulkBar() {
       {folderPickerOpen && <FolderPicker open title={t("notes.move_to_folder")} folders={folders} currentId={commonFolderId} rootLabel={t("notes.remove_from_folder")} onSelect={(folderId) => void runAll(() => performAll((id) => patchNote(id, { folderId }), folderId ? t("notes.moved") : t("notes.moved_out")))} onClose={() => setFolderPickerOpen(false)}/>}
     </div>);
 }
-function ListEmpty({ view, filtering }: {
+function ListEmpty({ view, filtering, dayFiltering }: {
     view: string;
     filtering: boolean;
+    dayFiltering: boolean;
 }) {
     const shortcut = (combo: string) => prettyCombo(combo).join('+');
     if (filtering) {
         return <Empty art="search" title={t("notes.no_matching_notes")} description={t("notes.try_another_search_or_press_shortcut_to_search_everywhere", { shortcut: shortcut(APP_SHORTCUTS.search) })}/>;
+    }
+    if (dayFiltering) {
+        return (<Empty art="search" title={t("notes.no_notes_on_this_day")} description={t("notes.no_notes_on_this_day_desc")} action={<button type="button" onClick={() => useUi.getState().setDateFilter(null)} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+            <X size={13}/>{t("notes.clear_day_filter")}</button>}/>);
     }
     const config: Record<string, {
         art: 'notes' | 'starred' | 'trash' | 'archive' | 'folder' | 'tag';
