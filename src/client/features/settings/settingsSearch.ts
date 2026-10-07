@@ -53,6 +53,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.outline_truncate_length', detailKey: 'settings.outline_truncate_length_description' },
   { section: 'editor', titleKey: 'settings.outline_show_reading_time', detailKey: 'settings.outline_show_reading_time_description' },
   { section: 'editor', titleKey: 'settings.outline_reading_speed', detailKey: 'settings.outline_reading_speed_description' },
+  { section: 'editor', titleKey: 'settings.outline_hover_peek', detailKey: 'settings.outline_hover_peek_description' },
   { section: 'editor', titleKey: 'settings.outline_markdown_labels', detailKey: 'settings.outline_markdown_labels_description' },
   { section: 'editor', titleKey: 'settings.outline_drag_edits', detailKey: 'settings.outline_drag_edits_description' },
   { section: 'editor', titleKey: 'settings.outline_keep_search', detailKey: 'settings.outline_keep_search_description' },

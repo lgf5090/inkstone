@@ -212,6 +212,8 @@ const allowed = new Map([
     "// Truncation cuts the markdown source before it is rendered, never the markup after.",
     "// A math or embed-only heading sanitises down to bare tags; the plain label is the better row.",
     "/** The note's stored word count, so the estimate costs nothing per keystroke. */",
+    "/** Hold Ctrl (or Option/Command) over a row to preview the section under it. */",
+    "// The reference arms the peek with a held modifier, so the row's own tooltip is untouched.",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -418,6 +420,8 @@ const allowed = new Map([
     "/** The four parked positions the panel header offers, in the order a reader scans them. */",
     "/** The corner a saved ratio sits on, or `null` for a position the reader dragged by hand. */",
     "/** The collapsed trigger's diameter, shared by its bounds and its own box. */",
+    "/**\n * Where a hover popover lands beside the row that called it.\n * A row against the window edge gets the other side; the vertical clamp keeps it on screen\n * even when the popover is taller than the space below.\n */",
+    "// Keep the reader's side whenever it has room; cross over only when it does not.",
   ]],
   ["src/client/features/preview/outline-registry.ts", [
     "/** Only the active note's outline is exportable; a stale snapshot must never reach the clipboard. */",

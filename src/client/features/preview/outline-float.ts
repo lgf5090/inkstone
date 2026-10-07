@@ -83,6 +83,31 @@ export const DRAG_THRESHOLD = 6;
 /** The collapsed trigger's diameter, shared by its bounds and its own box. */
 export const CIRCLE_SIZE = 36;
 
+export interface AnchorRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+/**
+ * Where a hover popover lands beside the row that called it.
+ * A row against the window edge gets the other side; the vertical clamp keeps it on screen
+ * even when the popover is taller than the space below.
+ */
+export function popoverPosition(anchor: AnchorRect, box: { width: number; height: number }, viewport: { width: number; height: number }, side: 'left' | 'right', gap = 8, margin = 8): { top: number; left: number } {
+    const fitsLeft = anchor.left - gap - box.width >= margin;
+    const fitsRight = anchor.left + anchor.width + gap + box.width <= viewport.width - margin;
+    const preferRight = side === 'right';
+    // Keep the reader's side whenever it has room; cross over only when it does not.
+    const flipNeeded = preferRight ? !fitsRight : !fitsLeft;
+    const useRight = preferRight !== flipNeeded;
+    return {
+        left: clamp(useRight ? anchor.left + anchor.width + gap : anchor.left - gap - box.width, margin, Math.max(margin, viewport.width - box.width - margin)),
+        top: clamp(anchor.top, margin, Math.max(margin, viewport.height - box.height - margin)),
+    };
+}
+
 export interface PanelCorner extends PanelRatio {
     id: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }

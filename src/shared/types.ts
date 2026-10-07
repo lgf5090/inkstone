@@ -131,6 +131,7 @@ export interface PreviewSettings {
   outlineTooltipSide: 'left' | 'right'
   outlineTruncateLength: number
   outlineMarkdownLabels: boolean
+  outlineHoverPeek: boolean
   outlineShowReadingTime: boolean
   outlineReadingSpeed: number
   outlineDragEdits: boolean

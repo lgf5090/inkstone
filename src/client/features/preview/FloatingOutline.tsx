@@ -53,7 +53,7 @@ interface DragVisual {
     edgeY: SnappedEdge;
 }
 
-export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, markdownLabels, showReadingTime, readingSpeed, wordCount, collapsible = false, containerRef, }: {
+export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, markdownLabels, showReadingTime, readingSpeed, wordCount, hoverPeek, collapsible = false, containerRef, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -72,6 +72,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     showReadingTime: boolean;
     readingSpeed: number;
     wordCount: number;
+    hoverPeek: boolean;
     /** Collapses to a dot the reader clicks open, the way the reference parks its circle. */
     collapsible?: boolean;
     containerRef: RefObject<HTMLElement | null>;
@@ -216,7 +217,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
           </Tooltip>)}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} autoExpand={autoExpand} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} showReadingTime={showReadingTime} readingSpeed={readingSpeed} wordCount={wordCount} className="h-full max-h-full w-full py-2 pr-2"/>
+        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} autoExpand={autoExpand} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} showReadingTime={showReadingTime} readingSpeed={readingSpeed} wordCount={wordCount} hoverPeek={hoverPeek} className="h-full max-h-full w-full py-2 pr-2"/>
       </div>
       {drag?.edgeX && <span aria-hidden="true" className={cnGuide('vertical', drag.edgeX)}/>}
       {drag?.edgeY && <span aria-hidden="true" className={cnGuide('horizontal', drag.edgeY)}/>}

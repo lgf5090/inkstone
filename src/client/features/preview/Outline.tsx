@@ -18,7 +18,9 @@ import {
     type LucideProps,
 } from 'lucide-react';
 import type { Heading } from '../../lib/markdown/renderer';
-import { renderOutlineLabel } from '../../lib/markdown/renderer';
+import { renderMarkdown, renderOutlineLabel } from '../../lib/markdown/renderer';
+import { createPortal } from 'react-dom';
+import { popoverPosition, type AnchorRect } from './outline-float';
 import { cn } from '../../lib/cn';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import {
@@ -60,6 +62,8 @@ const OUTLINE_INDENT_STEP = 10;
 const CHEVRON_SLOT = 14;
 const ACTIVE_SCAN_OFFSET = 60;
 const MAX_LEVEL_BUTTONS = 6;
+const PEEK_CHAR_LIMIT = 4000;
+const PEEK_BOX = { width: 300, height: 240 };
 
 const HEADING_ICONS: Record<number, ComponentType<LucideProps>> = {
     1: Heading1,
@@ -216,7 +220,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, showReadingTime = false, readingSpeed = DEFAULT_READING_SPEED_WPM, wordCount = 0, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, showReadingTime = false, readingSpeed = DEFAULT_READING_SPEED_WPM, wordCount = 0, hoverPeek = false, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -241,6 +245,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     readingSpeed?: number;
     /** The note's stored word count, so the estimate costs nothing per keystroke. */
     wordCount?: number;
+    /** Hold Ctrl (or Option/Command) over a row to preview the section under it. */
+    hoverPeek?: boolean;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -351,6 +357,59 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
             ?.scrollIntoView({ block: 'nearest' });
     }, [locatedSlug, searching]);
 
+    const lines = useMemo(() => (content === undefined ? [] : content.split('\n')), [content]);
+    const editable = content !== undefined && Boolean(onContentChange) && lines.length > 0;
+    const [hoverRow, setHoverRow] = useState<{ index: number; rect: AnchorRect } | null>(null);
+    const [modifierDown, setModifierDown] = useState(false);
+    useEffect(() => {
+        if (!hoverPeek)
+            return;
+        // The reference arms the peek with a held modifier, so the row's own tooltip is untouched.
+        const isPeekKey = (event: KeyboardEvent) => event.key === 'Control' || event.key === 'Meta' || event.key === 'Alt';
+        const down = (event: KeyboardEvent) => {
+            if (isPeekKey(event)) setModifierDown(true);
+        };
+        const up = (event: KeyboardEvent) => {
+            if (isPeekKey(event)) setModifierDown(false);
+        };
+        const clear = () => setModifierDown(false);
+        window.addEventListener('keydown', down);
+        window.addEventListener('keyup', up);
+        window.addEventListener('blur', clear);
+        return () => {
+            window.removeEventListener('keydown', down);
+            window.removeEventListener('keyup', up);
+            window.removeEventListener('blur', clear);
+        };
+    }, [hoverPeek]);
+    useEffect(() => {
+        if (!hoverPeek)
+            return;
+        const drop = () => setHoverRow(null);
+        const scroller = scrollerRef?.current ?? document.querySelector<HTMLElement>('[data-preview-scroller]');
+        scroller?.addEventListener('scroll', drop, { passive: true });
+        listRef.current?.addEventListener('scroll', drop);
+        return () => {
+            scroller?.removeEventListener('scroll', drop);
+            listRef.current?.removeEventListener('scroll', drop);
+        };
+    }, [hoverPeek, scrollerRef]);
+    const peekIndex = hoverPeek && modifierDown ? hoverRow?.index ?? null : null;
+    const peek = useMemo(() => {
+        if (peekIndex === null || hoverRow === null || content === undefined)
+            return null;
+        const range = sectionRange(headings, peekIndex, lines.length);
+        const body = lines.slice(range.start + 1, range.end).join('\n').trim();
+        if (!body)
+            return null;
+        const clipped = body.length > PEEK_CHAR_LIMIT ? `${body.slice(0, PEEK_CHAR_LIMIT)}\n\n…` : body;
+        return { title: headings[peekIndex]?.text ?? '', html: renderMarkdown(clipped).html };
+    }, [peekIndex, hoverRow, content, headings, lines]);
+
+    const peekAt = peek && hoverRow
+        ? popoverPosition(hoverRow.rect, PEEK_BOX, { width: window.innerWidth, height: window.innerHeight }, tooltipSide)
+        : null;
+
     const levelPresets = useMemo(() => {
         const presets = new Map<number, Set<string>>();
         for (let depth = 1; depth <= maxLevel; depth++) presets.set(depth, collapsedToLevel(tree, depth));
@@ -361,8 +420,6 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
 
     const [renamingIndex, setRenamingIndex] = useState<number | null>(null);
     const toast = useUi((state) => state.toast);
-    const lines = useMemo(() => (content === undefined ? [] : content.split('\n')), [content]);
-    const editable = content !== undefined && Boolean(onContentChange) && lines.length > 0;
     const applyLines = (next: string[]) => {
         onContentChange?.(next.join('\n'));
     };
@@ -435,7 +492,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     if (headings.length === 0)
         return null;
 
-    return (<nav className={cn('sticky top-0 flex max-h-full w-[168px] shrink-0 flex-col self-start overflow-hidden py-5 pr-3', className)} aria-label={t('common.outline')}>
+    return (<>
+      <nav className={cn('sticky top-0 flex max-h-full w-[168px] shrink-0 flex-col self-start overflow-hidden py-5 pr-3', className)} aria-label={t('common.outline')}>
       <div className="mb-1 flex shrink-0 items-center gap-1.5 px-2">
         <ListTree size={11} className="shrink-0 text-[var(--text-quaternary)]"/>
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t('common.outline')}</span>
@@ -466,17 +524,19 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         </div>)}
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-px overflow-y-auto">
-        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
+        {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} hoverPeek={hoverPeek} onHoverRow={(index, rect) => setHoverRow({ index, rect })} onLeaveRow={() => setHoverRow(null)} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
 
       {showReadingTime && (<div className="mt-1 shrink-0 px-2 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
           {t('outline.reading_time', { minutes: readingMinutes(wordCount, readingSpeed) })}
         </div>)}
-    </nav>);
+      </nav>
+      {peek && peekAt && createPortal((<aside data-outline-peek role="note" aria-label={t('outline.peek_label', { title: peek.title })} className="ink-prose fixed z-[520] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] text-[length:var(--text-11)] shadow-[var(--shadow-pop)]" style={{ left: peekAt.left, top: peekAt.top, width: PEEK_BOX.width, maxHeight: PEEK_BOX.height, padding: 8, margin: 0 }} dangerouslySetInnerHTML={{ __html: peek.html }}/>), document.body)}
+    </>);
 }
 
-function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, markdownLabels, sourceLine, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
+function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipSide, truncateLength, markdownLabels, sourceLine, hoverPeek, onHoverRow, onLeaveRow, buildMenu, menuEnabled, canRename, renaming, onStartRename, onCommitRename, onCancelRename, canDrag, dragging, dropHint, onDragStartRow, onDragEndRow, onDragOverRow, onDropRow }: {
     node: OutlineNode;
     isLocated: boolean;
     isCollapsed: boolean;
@@ -485,6 +545,9 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
     tooltipSide: 'left' | 'right';
     truncateLength: number;
     markdownLabels: boolean;
+    hoverPeek: boolean;
+    onHoverRow: (index: number, rect: AnchorRect) => void;
+    onLeaveRow: () => void;
     /** The heading's own source line, so the label can be re-rendered as markdown. */
     sourceLine?: string;
     buildMenu: (node: OutlineNode) => MenuItem[];
@@ -566,7 +629,7 @@ function OutlineRow({ node, isLocated, isCollapsed, onToggle, onSelect, tooltipS
                     committedRef.current = true;
                     onCancelRename();
                 }
-            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
+            }} onDoubleClick={(event) => event.stopPropagation()} className="h-5 min-w-0 flex-1 rounded-[var(--r-sm)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 text-[length:var(--text-11-5)] text-[var(--text-primary)] outline-none"/>) : (<Tooltip label={label} side={tooltipSide}>            <button type="button" data-slug={heading.slug} aria-current={isLocated ? 'location' : undefined} onClick={() => onSelect(heading)} onDoubleClick={canRename ? onStartRename : undefined} onMouseEnter={hoverPeek ? (event) => { const rect = event.currentTarget.getBoundingClientRect(); onHoverRow(node.index, { left: rect.left, top: rect.top, width: rect.width, height: rect.height }); } : undefined} onMouseLeave={hoverPeek ? onLeaveRow : undefined} className={cn('group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] pr-1.5 text-left leading-snug', 'transition-colors duration-[var(--dur-fast)]', typography.fontSize, typography.fontWeight, typography.textColor, typography.paddingY, isLocated
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
               {isLocated && <span aria-hidden="true" className={cn('absolute top-1/2 left-0.5 h-3.5', ACTIVE_BAR_W, '-translate-y-1/2 rounded-full bg-[var(--accent)]')}/>}

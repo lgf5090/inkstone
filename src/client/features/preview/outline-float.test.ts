@@ -7,6 +7,7 @@ import {
   cornerFor,
     passedThreshold,
     panelBounds,
+  popoverPosition,
     panelHeight,
     resolvePosition,
     snapToBounds,
@@ -146,5 +147,31 @@ describe('cornerFor', () => {
 
   it('reads an out-of-range ratio as the clamped corner', () => {
     expect(cornerFor({ x: 4, y: -3 })?.id).toBe('top-right');
+  });
+});
+
+describe('popoverPosition', () => {
+  const box = { width: 300, height: 240 };
+  const room = { width: 1600, height: 1000 };
+
+  it('sits to the left of a mid-window row when that is the preference', () => {
+    expect(popoverPosition({ left: 800, top: 200, width: 180, height: 24 }, box, room, 'left')).toEqual({ left: 492, top: 200 });
+  });
+
+  it('crosses over when the preferred side has no room', () => {
+    const againstLeft = popoverPosition({ left: 20, top: 100, width: 180, height: 24 }, box, room, 'left');
+    expect(againstLeft.left).toBe(208);
+    const againstRight = popoverPosition({ left: 1500, top: 100, width: 80, height: 24 }, box, room, 'right');
+    expect(againstRight.left).toBe(1192);
+  });
+
+  it('keeps a low row on screen', () => {
+    expect(popoverPosition({ left: 400, top: 950, width: 180, height: 24 }, box, room, 'left').top).toBe(752);
+    expect(popoverPosition({ left: 400, top: 2, width: 180, height: 24 }, box, room, 'left').top).toBe(8);
+  });
+
+  it('stays inside the viewport when neither side has room', () => {
+    const squeezed = popoverPosition({ left: 150, top: 40, width: 20, height: 20 }, box, { width: 320, height: 1000 }, 'left');
+    expect(squeezed.left).toBe(12);
   });
 });

@@ -736,3 +736,67 @@ describe('Outline reading time footer', () => {
         unmount();
     });
 });
+
+describe('Outline hover peek', () => {
+    const PEEK: Heading[] = [
+        { level: 1, text: 'Alpha', slug: 'alpha', line: 0 },
+        { level: 2, text: 'Beta', slug: 'beta', line: 4 },
+    ];
+    const BODY = '# Alpha\n\nalpha body text\n\n## Beta\n\nbeta body\n';
+
+    async function hover(slug: string): Promise<void> {
+        await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control' })); });
+        const row = document.querySelector<HTMLElement>(`button[data-slug="${slug}"]`)!;
+        await act(async () => { row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    }
+
+    function peek(): Element | null {
+        return document.body.querySelector('[data-outline-peek]');
+    }
+
+    it('stays closed without the modifier held', async () => {
+        const { unmount } = renderOutline(PEEK, vi.fn(), { content: BODY, hoverPeek: true });
+        const row = document.querySelector<HTMLElement>('button[data-slug="beta"]')!;
+        await act(async () => { row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+        expect(peek()).toBeNull();
+        await act(async () => { unmount(); });
+    });
+
+    it('shows the section under the heading while Ctrl is held', async () => {
+        const { unmount } = renderOutline(PEEK, vi.fn(), { content: BODY, hoverPeek: true });
+        await hover('beta');
+        const card = peek();
+        expect(card).not.toBeNull();
+        expect(card!.textContent).toContain('beta body');
+        expect(card!.getAttribute('aria-label')).toBe('outline.peek_label');
+        await act(async () => { unmount(); });
+    });
+
+    it('closes when the modifier is released', async () => {
+        const { unmount } = renderOutline(PEEK, vi.fn(), { content: BODY, hoverPeek: true });
+        await hover('beta');
+        expect(peek()).not.toBeNull();
+        await act(async () => { window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' })); });
+        expect(peek()).toBeNull();
+        await act(async () => { unmount(); });
+    });
+
+    it('shows the whole branch for a parent heading, subsection text included', async () => {
+        const { container, unmount } = renderOutline(PEEK, vi.fn(), { content: BODY, hoverPeek: true });
+        await hover('alpha');
+        const card = peek();
+        expect(card!.textContent).toContain('alpha body text');
+        expect(card!.textContent).toContain('beta body');
+        expect(card!.querySelector('h2')!.textContent).toContain('Beta');
+        expect(container.ownerDocument.body.querySelectorAll('[data-outline-peek]').length).toBe(1);
+        await act(async () => { unmount(); });
+    });
+
+    it('stays silent when the preference is off', async () => {
+        const { unmount } = renderOutline(PEEK, vi.fn(), { content: BODY });
+        await hover('beta');
+        expect(peek()).toBeNull();
+        await act(async () => { window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' })); });
+        await act(async () => { unmount(); });
+    });
+});

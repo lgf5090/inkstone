@@ -33,6 +33,7 @@ function renderPanel(collapsible = false) {
         showReadingTime: true,
         readingSpeed: 300,
         wordCount: 2,
+        hoverPeek: false,
         collapsible,
         containerRef: ref,
     }));
