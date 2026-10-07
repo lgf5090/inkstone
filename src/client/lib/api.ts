@@ -14,6 +14,8 @@ import type {
   BackupTargetInput,
   BackupTargetPatchInput,
   Backlink,
+  CommunityTemplate,
+  CommunityTemplateInput,
   Folder,
   GraphResponse,
   ImportResult,
@@ -484,6 +486,23 @@ export const api = {
         return settings
       }),
     stats: () => request<Record<string, number>>('/api/settings/stats'),
+  },
+
+  communityTemplates: {
+    list: (before?: string, limit = 50) =>
+      request<{ templates: CommunityTemplate[]; hasMore: boolean; nextCursor: string | null }>(
+        `/api/templates/community?limit=${encodeURIComponent(String(limit))}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
+      ),
+    publish: (body: CommunityTemplateInput) =>
+      request<{ template: CommunityTemplate }>('/api/templates/community', { method: 'POST', body }),
+    remove: (id: string) => request<{ ok: true }>(`/api/templates/community/${id}`, { method: 'DELETE' }),
+    use: (id: string) => request<{ uses: number }>(`/api/templates/community/${id}/use`, { method: 'POST' }),
+  },
+
+  templateLibrary: {
+    load: () => request<{ savedAt: number; library: unknown }>('/api/templates/library'),
+    save: (library: string) =>
+      request<{ savedAt: number }>('/api/templates/library', { method: 'PUT', body: { library } }),
   },
 
   mcp: {

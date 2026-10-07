@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -115,6 +115,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 combo: APP_SHORTCUTS.newNote,
                 group: t("command.commands"),
                 run: () => void createContextualNote(),
+            },
+            {
+                id: 'cmd-new-from-template',
+                kind: 'command',
+                label: t("templates.new_note_from_template"),
+                icon: <LayoutTemplate size={14}/>,
+                combo: APP_SHORTCUTS.templates,
+                group: t("command.commands"),
+                run: () => openPanel('templates'),
             },
             {
                 id: 'cmd-new-folder',

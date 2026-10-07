@@ -4,7 +4,7 @@ import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter
 import { IconButton } from '../../components/primitives';
 import { Menu, submenuFor, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { generateMindmapFromOutline, formatCodeBlock, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDiagramCode, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { generateMindmapFromOutline, formatCodeBlock, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDiagramCode, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertNoteTemplate, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from '../../editor/diagram-templates';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
@@ -62,6 +62,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
         { id: 'tag', label: t('workspace.insert_tag'), onSelect: run(insertTag) },
         { id: 'block-id', label: t('workspace.block_id'), onSelect: run(insertBlockId) },
         { id: 'front-matter', label: t('workspace.front_matter'), onSelect: run(insertFrontMatter), separatorBefore: true },
+        { id: 'note-template', label: t('editor.insert_note_template'), onSelect: run(insertNoteTemplate) },
         { id: 'comment', label: t('workspace.hidden_comment'), combo: editorCombo('comment'), onSelect: run(toggleComment), separatorBefore: true },
     ];
     // One submenu per diagram family, built from the template list itself: adding a chart type or a

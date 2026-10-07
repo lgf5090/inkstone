@@ -88,6 +88,38 @@ const allowedHanFragments = new Map([
         '\u9879\u76ee\u5f00\u6e90',
         '\u6b63\u5f0f\u5f00\u6e90',
     ]],
+    // A built-in template tags its notes with a Han label, so the tag merge has to keep a
+    // non-ASCII item in a flow list intact. The gate replaces one occurrence per listed
+        // fragment, so the tag is named as many times as the fixture spells it.
+    // A tag view is the case that matters for the merge, and the built-in catalog tags in Han,
+    // so the fixture spells the tag twice: once going in, once coming back out.
+    [path.resolve('src/client/store/new-note.test.ts'), [
+        '\u6bcf\u65e5',
+        '\u6bcf\u65e5',
+    ]],
+    [path.resolve('src/client/features/templates/gallery-persist.test.ts'), [
+        // The separators a Chinese keyboard produces are the thing under test.
+        '\uFF0C',
+        '\u3001',
+    ]],
+    [path.resolve('src/shared/note-template-render.test.ts'), [
+        '\u6bcf\u65e5',
+        '\u6bcf\u65e5',
+        '\u6bcf\u65e5',
+        '\u5e74\u5ea6\u8ba1\u5212',
+        '\u5e74\u5ea6\u8ba1\u5212',
+        // YAML-hostile folder names, which only exist in the language users type them in.
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u4e2d\u6587 \u540d\u79f0',
+        '\u4e2d\u6587',
+        '\u8349\u7a3f',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.
@@ -96,8 +128,25 @@ const allowedHanFragments = new Map([
  * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
  */
 const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS']);
-const english = readMessages(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES');
-const chinese = readMessages(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES');
+// The built-in note template bodies live in their own file so they stay out of the
+// start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
+// the two languages would be proven against each other only for the keys that happen
+// to sit in the main file.
+const noteTemplateBodyFiles = {
+    en: [path.join(localeRoot, 'en-US-note-template-content.ts'), 'EN_US_NOTE_TEMPLATE_CONTENT'],
+    zh: [path.join(localeRoot, 'zh-CN-note-template-content.ts'), 'ZH_CN_NOTE_TEMPLATE_CONTENT'],
+};
+function readCatalog(variableFile, variableName, [bodyFile, bodyName]) {
+    const messages = readMessages(variableFile, variableName);
+    for (const [key, value] of readMessages(bodyFile, bodyName)) {
+        if (messages.has(key))
+            failures.push(`duplicate message across catalog files: ${key}`);
+        messages.set(key, value);
+    }
+    return messages;
+}
+const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES', noteTemplateBodyFiles.en);
+const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES', noteTemplateBodyFiles.zh);
 for (const key of english.keys()) {
     if (!chinese.has(key))
         failures.push(`missing zh-CN message: ${key}`);
@@ -124,7 +173,7 @@ const englishOnlyPaths = [
     path.resolve('.github'),
 ];
 for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walk(target)] : [])) {
-    if (file === path.join(localeRoot, 'zh-CN.ts') || !isTextSource(file))
+    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file))
         continue;
     rejectHan(file);
 }

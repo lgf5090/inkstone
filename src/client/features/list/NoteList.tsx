@@ -20,6 +20,7 @@ import { writeNoteDrag } from '../../lib/note-drag';
 import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
 import { openNoteFloatingWindow } from './note-floating-window';
 import { FolderPicker } from '../folders/FolderPicker';
+import { TemplateQuickActions } from '../templates/quick-actions';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { removeTagFromNote } from '../tags/tagMutations';
@@ -318,6 +319,7 @@ export function NoteList() {
                 <ArrowDownWideNarrow size={14}/>
               </IconButton>
             </Tooltip>
+            {view !== 'trash' && view !== 'archived' && <TemplateQuickActions/>}
             {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
                 <IconButton label={t("common.new_note")} size="sm" onClick={() => void createContextualNote()}>
                   <Plus size={15}/>
@@ -354,6 +356,7 @@ export function NoteList() {
               <ArrowDownWideNarrow size={17}/>
             </IconButton>
           </Tooltip>
+          {view !== 'trash' && view !== 'archived' && <TemplateQuickActions iconSize={17} className="mobile-library-templates"/>}
           {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
               <IconButton label={t("common.new_note")} size="sm" className="mobile-library-compose" onClick={() => void createContextualNote()}>
                 <Plus size={19}/>

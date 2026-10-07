@@ -5,6 +5,7 @@ export const MARKDOWN_BACKUP_VERSION = 3 as const
 export type MarkdownBackupVersion = 2 | typeof MARKDOWN_BACKUP_VERSION
 export const BACKUP_MANIFEST_NAME = 'manifest.json'
 export const BACKUP_COMPLETE_NAME = 'COMPLETE'
+export const BACKUP_TEMPLATES_NAME = 'templates.json'
 
 export type MarkdownBackupNoteState = 'notes' | 'archived' | 'trash'
 
@@ -32,6 +33,12 @@ export interface MarkdownBackupAttachmentEntry {
   createdAt: number
 }
 
+export interface MarkdownBackupTemplatesEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupManifest {
   format: typeof MARKDOWN_BACKUP_FORMAT
   version: MarkdownBackupVersion
@@ -40,6 +47,8 @@ export interface MarkdownBackupManifest {
   snapshot: string
   notes: MarkdownBackupNoteEntry[]
   attachments: MarkdownBackupAttachmentEntry[]
+  /** The account's own template library, absent from a backup taken before it was worth keeping. */
+  templates?: MarkdownBackupTemplatesEntry
 }
 
 const HASH_RE = /^[0-9a-f]{64}$/
@@ -67,6 +76,15 @@ export function backupCompletePath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_COMPLETE_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_COMPLETE_NAME
+}
+
+export function backupTemplatesPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_TEMPLATES_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_TEMPLATES_NAME
 }
 
 export function backupAttachmentPath(sha256: string, filename: string): string {
@@ -182,6 +200,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
   }
   if (notes.some((note) => note.attachmentHashes.some((hash) => !hashes.has(hash)))) return null
 
+  let templates: MarkdownBackupTemplatesEntry | undefined
+  if (value.templates !== undefined) {
+    if (!isRecord(value.templates)) return null
+    const expectedPath = backupTemplatesPath(value.snapshot, value.version)
+    if (
+      value.templates.path !== expectedPath ||
+      !isSafeSize(value.templates.bytes) ||
+      value.templates.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.templates.sha256 !== 'string' ||
+      !HASH_RE.test(value.templates.sha256)
+    ) return null
+    templates = { path: expectedPath, bytes: value.templates.bytes, sha256: value.templates.sha256 }
+  }
+
   return {
     format: MARKDOWN_BACKUP_FORMAT,
     version: value.version,
@@ -190,6 +222,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     snapshot: value.snapshot,
     notes,
     attachments,
+    templates,
   }
 }
 

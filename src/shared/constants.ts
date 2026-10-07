@@ -39,6 +39,16 @@ export const LIMITS = {
   importArchiveExpandedMaxBytes: 80 * 1024 * 1024,
   versionsPerNote: 50,
   notesMaxPerUser: 20_000,
+  /**
+   * A shared template is a snippet, not a document. Kept under the route's JSON
+   * body ceiling so an oversized post is refused with a specific message rather
+   * than by the transport limit.
+   */
+  communityTemplateContentMaxLength: 6 * 1024,
+  communityTemplatesMaxPerUser: 100,
+  communityTemplatesPerHour: 10,
+  communityTemplateUsesPerHour: 120,
+  communityTemplatesPageSizeMax: 200,
   backupRunsKept: 50,
   backupTargetsMax: 12,
   changeLogKept: 5000,
@@ -75,6 +85,29 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
 }
 
 export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
+
+/**
+ * The template inserted at the top of a new note. Keep the placeholders ASCII:
+ * they are filled in at creation time with the note title and the current
+ * date and time. The first line must be `---`, since a leading blank line would
+ * stop the front matter from parsing at all.
+ */
+export const DEFAULT_NEW_NOTE_TEMPLATE = `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: []
+aliases:
+  - ''
+---
+
+`
+
+/**
+ * Ceiling the server applies to the stored template. The settings editor caps
+ * input at the same number so what a reader sees in the preview is what the
+ * account keeps.
+ */
+export const NEW_NOTE_TEMPLATE_MAX_LENGTH = 4096
 
 export const DEFAULT_SETTINGS: UserSettings = {
   appearance: {
@@ -145,6 +178,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   notes: {
     todoTag: '',
+    newNoteTemplate: DEFAULT_NEW_NOTE_TEMPLATE,
+    syncTitleToFrontMatter: true,
+    syncFrontMatterTitle: true,
   },
 }
 
@@ -197,6 +233,11 @@ export function mergeSettings(partial: unknown): UserSettings {
   const notes = asRecord(src.notes)
 
   base.notes.todoTag = normalizeTodoTags(notes.todoTag)
+  base.notes.newNoteTemplate = typeof notes.newNoteTemplate === 'string'
+    ? notes.newNoteTemplate.slice(0, NEW_NOTE_TEMPLATE_MAX_LENGTH)
+    : base.notes.newNoteTemplate
+  base.notes.syncTitleToFrontMatter = booleanValue(notes.syncTitleToFrontMatter, base.notes.syncTitleToFrontMatter)
+  base.notes.syncFrontMatterTitle = booleanValue(notes.syncFrontMatterTitle, base.notes.syncFrontMatterTitle)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
