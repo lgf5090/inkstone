@@ -1,4 +1,4 @@
-import { StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
+import { Facet, StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import { parseWikiTarget, renderMarkdownBlocks, type Heading, type MarkdownBlock } from '../lib/markdown/renderer';
@@ -14,6 +14,18 @@ import { selectMarkdownTab, moveMarkdownTabFocus } from '../features/preview/mar
 
 const focusChanged = StateEffect.define<boolean>();
 const refresh = StateEffect.define<boolean>();
+
+/**
+ * What a rendered block calls when the reader right-clicks inside it. The host editor supplies it, so
+ * the live surface and the source surface answer with one menu. `lineStart` is the source position the
+ * rendered markup came from — the one thing coordinates cannot give for a widget, since the block's
+ * pixels are not the document's characters.
+ */
+export type LiveBlockContextMenu = (event: MouseEvent, view: EditorView, lineStart: number) => void;
+
+export const liveBlockContextMenu = Facet.define<LiveBlockContextMenu, LiveBlockContextMenu | null>({
+    combine: (handlers) => handlers[0] ?? null,
+});
 
 class RenderedBlock extends WidgetType {
     constructor(readonly block: MarkdownBlock, readonly source: string, readonly revision: number, readonly title: string, readonly fences: FenceBodies) { super(); }
@@ -109,6 +121,23 @@ class RenderedBlock extends WidgetType {
         host.addEventListener('keydown', (event) => {
             const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]');
             if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); moveMarkdownTabFocus(tab, event.key); }
+        });
+        host.addEventListener('contextmenu', (event) => {
+            // A rendered block answers to neither of the two places the note menu is normally asked
+            // for: this widget swallows event forwarding, and the markup under the pointer is rendered
+            // output rather than source, so the menu has to be requested here or a right-click inside
+            // a paragraph, a table row or a board falls through to the browser's own.
+            const ask = view.state.facet(liveBlockContextMenu);
+            if (!ask) return;
+            const target = event.target as HTMLElement;
+            const mapped = target.closest<HTMLElement>('[data-line]');
+            let wanted = Math.max(this.block.startLine + 1, Math.min(this.block.endLine, Number(mapped?.dataset.line ?? this.block.startLine) + 1));
+            // A rendered table stamps only the line it starts on, so the row under the pointer is read
+            // from the table's own shape: the header line, then the delimiter row, then one line per
+            // body row. Without this a row's menu would edit the header row instead.
+            const row = target.closest('tr');
+            if (row?.parentElement?.nodeName === 'TBODY') wanted += 2 + row.sectionRowIndex;
+            ask(event, view, view.state.doc.line(Math.min(wanted, view.state.doc.lines)).from);
         });
         return host;
     }
