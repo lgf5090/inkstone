@@ -4,6 +4,7 @@ import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import { tagKey } from '@shared/markdown-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
+import { isDateKey } from '../lib/time'
 import { t } from '../lib/i18n'
 
 
@@ -297,6 +298,11 @@ function loadPersisted(): Partial<UiState> {
   }
 }
 
+function validDateFilter(value: DateRangeFilter | null): DateRangeFilter | null {
+  if (!value || !isDateKey(value.start) || !isDateKey(value.end))
+    return null
+  return value.start <= value.end ? { start: value.start, end: value.end } : { start: value.end, end: value.start }
+}
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
@@ -546,7 +552,10 @@ export const useUi = create<UiState>((set, get) => ({
 
   setSort: (sort, order) => set((s) => ({ sort, order: order ?? s.order })),
   setDensity: (density) => set({ density }),
-  setDateFilter: (dateFilter) => set({ dateFilter }),
+  // A malformed key reaches Intl.DateTimeFormat as an Invalid Date, which throws inside the list
+  // header and the error boundary answers by reloading the page forever. A reversed range is not
+  // an error, just a drag the other way round.
+  setDateFilter: (dateFilter) => set({ dateFilter: validDateFilter(dateFilter) }),
   requestCalendarJump: (year, month) => set((s) => ({
     calendarJump: { year, month, nonce: (s.calendarJump?.nonce ?? 0) + 1 },
   })),

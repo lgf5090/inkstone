@@ -6,7 +6,24 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
 export function dateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  // Four digits always, and never `NaN`: `999-12-31`, `10000-01-01` and `NaN-NaN-NaN` all break
+  // the string comparisons every range in the calendar layer relies on.
+  const local = Number.isFinite(date.getTime()) ? date : new Date(0)
+  const year = Math.min(9999, Math.max(1, local.getFullYear()))
+  return `${String(year).padStart(4, '0')}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`
+}
+
+/** A `YYYY-MM-DD` that names a real day: what the store will accept as a filter bound. */
+export function isDateKey(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false
+  const [year, month, day] = value.split('-').map(Number)
+  if (month < 1 || month > 12 || day < 1)
+    return false
+  const back = new Date(year!, month! - 1, day!)
+  // The Date constructor maps a two digit year onto 1900-1999, which would reject `0042-01-01`.
+  back.setFullYear(year!)
+  return back.getFullYear() === year && back.getMonth() === month! - 1 && back.getDate() === day
 }
 
 export function parseDateKey(key: string): Date {
@@ -38,16 +55,26 @@ export type WeekStartDay = 0 | 1 | 2 | 3 | 4 | 5 | 6
  * Which weekday opens a reader's calendar is locale data, so it is read off `Intl` rather than off
  * the languages this app ships. `firstDay` is ISO-numbered (Monday = 1 … Sunday = 7) while the
  * grids index JS `getDay()`, where Sunday is 0 — hence the modulo. Runtimes without `getWeekInfo`
- * get the answer these calendars shipped with before the API existed.
+ * get the answer these calendars shipped with before the API existed: `weekStartFor` is called on
+ * every render of the sidebar and the appearance preview, so the answer is kept per locale tag —
+ * the set is this app's handful of locales, and `Intl.Locale` construction is the cost being saved.
  */
+const weekStartCache = new Map<string, WeekStartDay>()
+
 export function weekStartFor(locale: string): WeekStartDay {
+  const cached = weekStartCache.get(locale)
+  if (cached !== undefined)
+    return cached
   const withWeekInfo = new Intl.Locale(locale) as Intl.Locale & {
     getWeekInfo?: () => { firstDay?: number }
+    weekInfo?: { firstDay?: number }
   }
-  const firstDay = withWeekInfo.getWeekInfo?.()?.firstDay
-  if (typeof firstDay === 'number')
-    return (firstDay % 7) as WeekStartDay
-  return locale === 'zh-CN' ? 1 : 0
+  // `getWeekInfo` is the Stage-3 form; `weekInfo` is the same data as a getter, which engines
+  // shipped earlier. Asking for both leaves the fallback below reachable only where neither exists.
+  const firstDay = withWeekInfo.getWeekInfo?.()?.firstDay ?? withWeekInfo.weekInfo?.firstDay
+  const start = typeof firstDay === 'number' ? (firstDay % 7) as WeekStartDay : (locale === 'zh-CN' ? 1 : 0)
+  weekStartCache.set(locale, start)
+  return start
 }
 
 /** The seven column labels of a grid, in the same order as that grid's columns. */
