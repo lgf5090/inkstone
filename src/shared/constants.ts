@@ -1,4 +1,5 @@
 import type { AccentName, CodeFormatKeywordCase, UserSettings, ViewKind } from './types'
+import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
 export const APP_VERSION = packageVersion
@@ -105,6 +106,19 @@ export const DEFAULT_SETTINGS: UserSettings = {
     syncScroll: true,
     showToc: true,
     outlineMode: 'sidebar',
+    outlineDefaultLevel: 6,
+    outlineShowProgress: true,
+    outlineAutoExpand: 'off',
+    outlineTooltipSide: 'left',
+    outlineTruncateLength: 0,
+    outlineMarkdownLabels: false,
+    outlineHoverPeek: false,
+    outlineTextDirection: 'system',
+    outlineShowReadingTime: true,
+    outlineReadingSpeed: DEFAULT_READING_SPEED_WPM,
+    outlineDragEdits: false,
+    outlineKeepSearch: false,
+    outlineLocateByCursor: false,
     math: true,
     mermaid: true,
     chart: true,
@@ -161,7 +175,10 @@ const PROSE_WIDTHS = ['narrow', 'normal', 'wide', 'full'] as const
 const EDITOR_FONTS = ['mono', 'sans'] as const
 const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
 const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
-const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover'] as const
+const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover', 'floating-circle'] as const
+const OUTLINE_AUTO_EXPANDS = ['off', 'ancestors'] as const
+const OUTLINE_TEXT_DIRECTIONS = ['system', 'text'] as const
+const OUTLINE_TOOLTIP_SIDES = ['left', 'right'] as const
 const CODE_FORMAT_KEYWORD_CASES: CodeFormatKeywordCase[] = ['upper', 'lower', 'keep']
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -243,6 +260,19 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
   base.preview.showToc = booleanValue(preview.showToc, base.preview.showToc)
   base.preview.outlineMode = enumValue(preview.outlineMode, OUTLINE_MODES, base.preview.outlineMode)
+  base.preview.outlineDefaultLevel = integerInRange(preview.outlineDefaultLevel, 1, 6, base.preview.outlineDefaultLevel)
+  base.preview.outlineShowProgress = booleanValue(preview.outlineShowProgress, base.preview.outlineShowProgress)
+  base.preview.outlineKeepSearch = booleanValue(preview.outlineKeepSearch, base.preview.outlineKeepSearch)
+  base.preview.outlineDragEdits = booleanValue(preview.outlineDragEdits, base.preview.outlineDragEdits)
+  base.preview.outlineAutoExpand = enumValue(preview.outlineAutoExpand, OUTLINE_AUTO_EXPANDS, base.preview.outlineAutoExpand)
+  base.preview.outlineTooltipSide = enumValue(preview.outlineTooltipSide, OUTLINE_TOOLTIP_SIDES, base.preview.outlineTooltipSide)
+  base.preview.outlineTruncateLength = integerInRange(preview.outlineTruncateLength, 0, 120, base.preview.outlineTruncateLength)
+  base.preview.outlineMarkdownLabels = booleanValue(preview.outlineMarkdownLabels, base.preview.outlineMarkdownLabels)
+  base.preview.outlineHoverPeek = booleanValue(preview.outlineHoverPeek, base.preview.outlineHoverPeek)
+  base.preview.outlineTextDirection = enumValue(preview.outlineTextDirection, OUTLINE_TEXT_DIRECTIONS, base.preview.outlineTextDirection)
+  base.preview.outlineShowReadingTime = booleanValue(preview.outlineShowReadingTime, base.preview.outlineShowReadingTime)
+  base.preview.outlineReadingSpeed = integerInRange(preview.outlineReadingSpeed, 50, 1000, base.preview.outlineReadingSpeed)
+  base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)
   base.preview.chart = booleanValue(preview.chart, base.preview.chart)

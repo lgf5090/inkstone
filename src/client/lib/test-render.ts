@@ -13,6 +13,11 @@ export function installTestGlobals(): void {
     }
     globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
   }
+  // jsdom ships no scrollIntoView at all, so a component that scrolls a located row into view
+  // throws for reasons that have nothing to do with what the test is about.
+  if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = function scrollIntoView() {}
+  }
 }
 
 
