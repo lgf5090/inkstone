@@ -121,6 +121,9 @@ export interface PresentationSession {
   spotlight: boolean
   clearSpotlight: () => void
   toggleSpotlight: () => void
+  ink: boolean
+  clearInk: () => void
+  toggleInk: () => void
   /** An audience is following this show, and the link is out there (N-34). */
   audienceFollowing: boolean
   /** How many browsers have read the show's position lately (PR-M7). */
@@ -254,7 +257,7 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
   }, [open])
   const contextMenu = usePresentationContextMenu(open)
   const mode = usePresentationKeys({ open, slideCount: deck.length, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo, toggleFullscreen, toggleRail, toggleFollowing, openPresenter: presenter.openPresenter, isMenuOpen: Boolean(contextMenu.contextPoint) })
-  useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose: requestClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide, exitConfirmOn: exitAsked, clearExitConfirm: keepPresenting })
+  useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose: requestClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, inkOn: mode.ink, clearInk: mode.clearInk, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide, exitConfirmOn: exitAsked, clearExitConfirm: keepPresenting })
   const slideUnprepared = useSlideHtml({ open, deck, hashes, index: nav.index, content: presentedContent, noteTitle, dark, metrics })
   useReleasePreparedPages(open)
   // The union of the pieces above, spread rather than unpacked key by key; explicit is only what this

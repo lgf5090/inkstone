@@ -203,6 +203,12 @@ describe('escapeAction', () => {
     expect(escapeAction({ fullscreen: false, laser: false, overview: false, keyGuide: true })).toBe('closeKeyGuide')
   })
 
+  it('puts the marker away before it costs the talk a screen or the show', () => {
+    expect(escapeAction({ fullscreen: true, laser: false, overview: false, ink: true })).toBe('clearInk')
+    expect(escapeAction({ fullscreen: true, laser: true, overview: true, spotlight: true, ink: true })).toBe('closeOverview')
+    expect(escapeAction({ fullscreen: false, laser: false, overview: false, spotlight: true, ink: true })).toBe('clearSpotlight')
+  })
+
   // PR-L3: the question a show with an audience asks is the topmost layer on the screen, and Escape is
   // its answer of "stay". It has to outrank every rung above, or a second press ends the talk the first
   // one was meant to protect.

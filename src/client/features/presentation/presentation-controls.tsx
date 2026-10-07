@@ -264,7 +264,7 @@ function ViewDoor({ items, exporting }: { items: MenuItem[]; exporting: boolean 
  * worse one, and the wide bar keeps every row on top level where there is room for them.
  */
 const DOOR_GROUPS: Array<{ id: string; label: MessageKey; ids: string[] }> = [
-  { id: 'modes', label: 'workspace.presentation_modes', ids: ['laser', 'spotlight', 'blackout', 'whiteout'] },
+  { id: 'modes', label: 'workspace.presentation_modes', ids: ['laser', 'spotlight', 'ink', 'blackout', 'whiteout'] },
 ]
 
 function doorItems(overflow: MenuItem[], exportRow: MenuItem): MenuItem[] {

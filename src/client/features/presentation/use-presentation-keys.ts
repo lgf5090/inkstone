@@ -30,15 +30,19 @@ function useScreenCover(open: boolean) {
 // The pointer is a mode of the show rather than of the note, so it goes out with the show:
 // a talk that ends must not leave a red dot following whoever moves the mouse next.
 function usePointerTools(open: boolean) {
-  const [tool, setTool] = useState<'laser' | 'spotlight' | null>(null)
+  // One pointer tool at a time: a laser and a marker on the same slide fight over the same pixel,
+  // and a spotlight mask laid over a stroke hides the stroke (PR-M13).
+  const [tool, setTool] = useState<'laser' | 'spotlight' | 'ink' | null>(null)
   const clearLaser = useCallback(() => setTool((t) => (t === 'laser' ? null : t)), [])
   const clearSpotlight = useCallback(() => setTool((t) => (t === 'spotlight' ? null : t)), [])
   const toggleLaser = useCallback(() => setTool((t) => (t === 'laser' ? null : 'laser')), [])
   const toggleSpotlight = useCallback(() => setTool((t) => (t === 'spotlight' ? null : 'spotlight')), [])
+  const clearInk = useCallback(() => setTool((t) => (t === 'ink' ? null : t)), [])
+  const toggleInk = useCallback(() => setTool((t) => (t === 'ink' ? null : 'ink')), [])
   useEffect(() => {
     if (!open) setTool(null)
   }, [open])
-  return { laser: tool === 'laser', spotlight: tool === 'spotlight', clearLaser, clearSpotlight, toggleLaser, toggleSpotlight }
+  return { laser: tool === 'laser', spotlight: tool === 'spotlight', ink: tool === 'ink', clearLaser, clearSpotlight, clearInk, toggleLaser, toggleSpotlight, toggleInk }
 }
 
 // A mode of the screen rather than of the note: the overview grid and the key card both go out with
@@ -70,6 +74,7 @@ function usePresentationRunner(actions: {
   toggleWhiteout: () => void
   toggleLaser: () => void
   toggleSpotlight: () => void
+  toggleInk: () => void
   toggleOverview: () => void
   toggleKeyGuide: () => void
   openPresenter?: () => void
@@ -101,6 +106,8 @@ function usePresentationRunner(actions: {
         return current.toggleLaser()
       case 'spotlight':
         return current.toggleSpotlight()
+      case 'ink':
+        return current.toggleInk()
       case 'overview':
         return current.toggleOverview()
       case 'keyGuide':
@@ -122,6 +129,9 @@ export interface PresentationKeysResult {
   spotlight: boolean
   clearSpotlight: () => void
   toggleSpotlight: () => void
+  ink: boolean
+  clearInk: () => void
+  toggleInk: () => void
   /** Whether the whole deck is laid out on top of the slide surface. */
   overview: boolean
   clearOverview: () => void
@@ -135,10 +145,10 @@ export interface PresentationKeysResult {
 export function usePresentationKeys(options: PresentationKeysOptions): PresentationKeysResult {
   const { open, slideCount, goNext, goPrev, jumpTo, toggleFullscreen, toggleRail, toggleFollowing, openPresenter, isMenuOpen } = options
   const { screenCover, clearCover, toggleBlackout, toggleWhiteout } = useScreenCover(open)
-  const { laser, clearLaser, toggleLaser, spotlight, clearSpotlight, toggleSpotlight } = usePointerTools(open)
+  const { laser, clearLaser, toggleLaser, spotlight, clearSpotlight, toggleSpotlight, ink, clearInk, toggleInk } = usePointerTools(open)
   const grid = useShowMode(open)
   const card = useShowMode(open)
-  const run = usePresentationRunner({ goNext, goPrev, jumpTo, slideCount, toggleFullscreen, toggleRail, toggleFollowing, toggleBlackout, toggleWhiteout, toggleLaser, toggleSpotlight, toggleOverview: grid.toggle, toggleKeyGuide: card.toggle, openPresenter })
+  const run = usePresentationRunner({ goNext, goPrev, jumpTo, slideCount, toggleFullscreen, toggleRail, toggleFollowing, toggleBlackout, toggleWhiteout, toggleLaser, toggleSpotlight, toggleInk, toggleOverview: grid.toggle, toggleKeyGuide: card.toggle, openPresenter })
 
   const onKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
@@ -168,5 +178,5 @@ export function usePresentationKeys(options: PresentationKeysOptions): Presentat
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [open, onKeyDown])
 
-  return { screenCover, clearCover, toggleBlackout, toggleWhiteout, laser, clearLaser, toggleLaser, spotlight, clearSpotlight, toggleSpotlight, overview: grid.active, clearOverview: grid.clear, toggleOverview: grid.toggle, keyGuide: card.active, clearKeyGuide: card.clear, toggleKeyGuide: card.toggle }
+  return { screenCover, clearCover, toggleBlackout, toggleWhiteout, laser, clearLaser, toggleLaser, spotlight, clearSpotlight, toggleSpotlight, overview: grid.active, clearOverview: grid.clear, toggleOverview: grid.toggle, keyGuide: card.active, clearKeyGuide: card.clear, toggleKeyGuide: card.toggle, ink, clearInk, toggleInk }
 }

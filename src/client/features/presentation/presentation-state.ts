@@ -34,11 +34,12 @@ export function railOpenFor(choice: boolean | null, fitsViewport: boolean): bool
 // painted over the grid it can sit on, then the grid — so neither the key card, the overview grid nor
 // the laser ever costs a talk its show, then the screen, then the show. Named fields because three
 // booleans in a row say nothing about which rung is which.
-export function escapeAction({ fullscreen, laser, overview, spotlight, keyGuide, exitConfirm }: { fullscreen: boolean; laser: boolean; overview: boolean; spotlight?: boolean; keyGuide?: boolean; exitConfirm?: boolean }): 'cancelExitConfirm' | 'closeKeyGuide' | 'closeOverview' | 'clearSpotlight' | 'clearLaser' | 'exitFullscreen' | 'close' {
+export function escapeAction({ fullscreen, laser, overview, spotlight, ink, keyGuide, exitConfirm }: { fullscreen: boolean; laser: boolean; overview: boolean; spotlight?: boolean; ink?: boolean; keyGuide?: boolean; exitConfirm?: boolean }): 'cancelExitConfirm' | 'closeKeyGuide' | 'closeOverview' | 'clearSpotlight' | 'clearInk' | 'clearLaser' | 'exitFullscreen' | 'close' {
   if (exitConfirm) return 'cancelExitConfirm'
   if (keyGuide) return 'closeKeyGuide'
   if (overview) return 'closeOverview'
   if (spotlight) return 'clearSpotlight'
+  if (ink) return 'clearInk'
   if (laser) return 'clearLaser'
   return fullscreen ? 'exitFullscreen' : 'close'
 }

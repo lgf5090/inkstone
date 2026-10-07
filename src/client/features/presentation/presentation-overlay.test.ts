@@ -330,6 +330,51 @@ const pressKey = (key: string, target: EventTarget = window) => {
 
 const keyCard = () => document.querySelector('[data-presentation-key-guide]')
 
+// PR-M13: the marker is a tool the presenter reaches for mid-sentence, so the key, the layer over the
+// slide, and the bar that takes marks away have to be one gesture apart.
+const inkLayer = () => document.querySelector<HTMLElement>('[data-presentation-ink]')
+
+describe('PresentationOverlay — the marker', () => {
+  it('comes up on its own key and goes away on the same press', () => {
+    const view = renderElement(createElement(PresentationOverlay))
+    expect(inkLayer()?.getAttribute('data-presentation-ink')).toBe('off')
+    expect(document.querySelector('[data-presentation-ink-bar]')).toBeNull()
+
+    pressKey('m')
+    expect(inkLayer()?.getAttribute('data-presentation-ink')).toBe('on')
+    const bar = document.querySelector('[data-presentation-ink-bar]')
+    expect(bar).toBeTruthy()
+    expect(bar?.querySelector('button')?.disabled, 'a page with nothing on it has nothing to take back').toBe(true)
+
+    pressKey('m')
+    expect(document.querySelector('[data-presentation-ink-bar]'), 'the bar goes with the tool').toBeNull()
+    view.unmount()
+  })
+
+  it('draws a mark on the page and erases it again from the bar', () => {
+    const view = renderElement(createElement(PresentationOverlay))
+    pressKey('m')
+    const layer = inkLayer()
+    if (!layer) throw new Error('the marker came up without its layer')
+    layer.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    const stroke = (type: string, x: number, y: number) => {
+      act(() => {
+        layer.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }))
+      })
+    }
+    expect(layer.querySelector('path')).toBeNull()
+    stroke('pointerdown', 100, 100)
+    stroke('pointermove', 300, 250)
+    stroke('pointerup', 300, 250)
+    expect(layer.querySelector('path'), 'the stroke is still on the glass after the pointer lifts').toBeTruthy()
+
+    const undo = document.querySelector<HTMLButtonElement>(`[data-presentation-ink-bar] button[aria-label="${t('workspace.presentation_ink_undo')}"]`)
+    act(() => { undo?.click() })
+    expect(layer.querySelector('path'), 'one press takes the last mark back').toBeNull()
+    view.unmount()
+  })
+})
+
 describe('PresentationOverlay — the key card', () => {
   it('opens on ? and puts the card away on Escape before it costs the show', () => {
     const view = renderElement(createElement(PresentationOverlay))

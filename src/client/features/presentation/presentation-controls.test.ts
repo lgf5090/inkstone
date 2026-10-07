@@ -403,16 +403,16 @@ describe('PresentationControls at phone width', () => {
     expect(container.querySelector(`[aria-label="${t('workspace.presentation_show_overview')}"]`)).toBeTruthy()
   })
 
-  it('hands a thumb the four tools no key on this screen can reach', () => {
+  it('hands a thumb the tools no key on this screen can reach', () => {
     renderElement(createElement(PresentationControls, chromeProps({ compact: true, overflowItems: buildPresentationOverflowItems(menuOptions()) })))
     act(() => {
       door()?.click()
     })
     const modes = openModeRows()
-    for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
+    for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_ink'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
       expect(modes.some((row) => row.textContent?.includes(label)), label).toBe(true)
     }
-    expect(modes).toHaveLength(4)
+    expect(modes).toHaveLength(5)
   })
 
   it('keeps the door short enough that everything on it can be reached', () => {

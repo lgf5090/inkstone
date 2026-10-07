@@ -640,6 +640,7 @@ const allowed = new Map([
     "// in Chrome), so the first element that is neither the menu's backdrop nor the menu is what the",
     "// projector is showing under the pointer. Searching deeper would offer a link hidden under an opaque",
     "// surface; not stopping at the panel's edge would offer one from the application behind the show.",
+    "/** The marker over the slide (PR-M13): whether it is on, and the two ways to take marks away. */",
   ]],
   ["src/client/features/presentation/presentation-controls-audience.test.ts", [
     "// N-34: the audience control says which of the two it would do, on the bar and behind the phone's door.",
@@ -780,6 +781,22 @@ const allowed = new Map([
     "/** The key that starts a show, spelled once: the row in the editor's right-click menu prints this same\n * string, so the two cannot drift into showing different keys for one action. */",
     "/**\n * The show's app-level shortcut: present the note that is on screen, from wherever the keyboard\n * happens to be — including inside the editor, since the cursor's position is what decides which\n * slide the deck opens on.\n *\n * It stays quiet while a show is running. Re-running start() would rebuild the deck and jump the\n * projector back to the slide under the editor cursor, which is not what a presenter mid-talk means\n * by the key that opened the show; the overlay owns the screen and its own keys once it is up.\n */",
   ]],
+  ["src/client/features/presentation/presentation-ink.test.ts", [
+    "// The talk moves; the marks do not. A circle drawn over the numbers slide is there when the speaker",
+    "// comes back for it, and is not painted over the slide after it.",
+    "// A stage with no layout still reports a box, so the percentages have something to divide by.",
+  ]],
+  ["src/client/features/presentation/presentation-ink.tsx", [
+    "/**\n * The marker a presenter draws with over the slide (PR-M13).\n *\n * Coordinates are stored as a percentage of the stage rather than as pixels: a phone that is turned\n * sideways mid-talk, or a window that is dragged across a projector's resolution, keeps the circle\n * around the same number instead of leaving it where the old glass used to end.\n *\n * The strokes are keyed by the page they were made on, which is what a talk needs and what a shared\n * whiteboard does not do: a mark drawn over the numbers slide is there when the speaker comes back to\n * it, and is nowhere else. Nothing leaves this window — the audience's link carries a position, not a\n * drawing, so what a remote viewer sees is the page, not the pen.\n */",
+    "/** The five rows the door shows for the marker: whether it is on, and the two ways to take marks away. */",
+    "/** The path a stroke draws: a lone tap is a dot, and a line is its points joined. */",
+    "/** The stroke under way, which is drawn the same way and joined to the board when the pointer lifts. */",
+    "/** A page with nothing on it has nothing to take back, and the control should say so. */",
+    "// The stroke under way is kept beside the state rather than read out of an updater: lifting it onto",
+    "// the board is a second state write, and a write nested inside another one's updater lands in the",
+    "// wrong order the moment a pointer gesture and an erase arrive in the same batch.",
+    "// A stroke is not a page turn: the stage underneath reads a click on the slide as \"next\".",
+  ]],
   ["src/client/features/presentation/presentation-key-guide.tsx", [
     "// Where the show's bindings can be looked up, opened by `?` and by the right-click row that names it.",
     "// It is a layer of the projector rather than a row of the capsule: a panel that grew the toolbar pushes",
@@ -884,6 +901,8 @@ const allowed = new Map([
     "// show folds the middle of it behind one door. This is the wiring case: the session's room is what",
     "// moves the controls, not a prop some caller forgot to pass.",
     "// The list belongs to the projector it opened from: painted beside the dialog it would sit under it.",
+    "// PR-M13: the marker is a tool the presenter reaches for mid-sentence, so the key, the layer over the",
+    "// slide, and the bar that takes marks away have to be one gesture apart.",
   ]],
   ["src/client/features/presentation/presentation-overlay.tsx", [
     "// The show reads its own store, which the shell hosts: that is what keeps a talk",
@@ -906,6 +925,12 @@ const allowed = new Map([
     "// The menu's own wiring wins over the shared rows: the link under the pointer is what this list is",
     "// about, and where it opened is where the panel lands.",
     "/* Inside the dialog for the same reason the cover and the card are: a confirm portalled to\n            the body would sit under the fullscreen element it is asking about. */",
+    "// The board is the dialog's own, because the marks belong to the window that is drawing them: the",
+    "// presenter console and the audience link each have their own sheet of glass (PR-M13).",
+    "// The marker is the third pointer tool, so the keys own whether it is on; the strokes themselves",
+    "// belong to this window, which is the glass the presenter is drawing on (PR-M13).",
+    "/* Above the slide and below the chrome: the marker draws on the page the room is looking at,\n            and the bar that turns it off must stay reachable under a hand that is drawing. */",
+    "/* The two ways to take marks away live beside the tool that makes them, not in the door: a\n            presenter who has just drawn a circle wants the eraser under the same hand, and the bar at\n            the bottom of the screen fades out on its own while the marker must not. */",
   ]],
   ["src/client/features/presentation/presentation-pointer.test.ts", [
     "/**\n * The laser pointer layer — what a talk points with when the operating system's cursor is a\n * speck on the projector. It is decoration, so three things have to hold: it never takes a\n * click the slide was going to receive, it never reaches a screen reader, and it never keeps\n * a pointer listener once the mode is off, because a show that runs for an hour should not\n * accumulate listeners for a dot nobody is looking at.\n */",
@@ -2119,6 +2144,8 @@ const allowed = new Map([
     "/** Whether the show's own key card is lying over the projector. */",
     "// The two slide lists walk differently: the rail its column, the overview grid its rows — so",
     "// the sideways turn goes back to the show whenever the rail holds the focus.",
+    "// One pointer tool at a time: a laser and a marker on the same slide fight over the same pixel,",
+    "// and a spotlight mask laid over a stroke hides the stroke (PR-M13).",
   ]],
   ["src/client/features/presentation/use-presentation-session.ts", [
     "// Everything the show holds that is not markup: which note is on screen, how it splits, where the",
