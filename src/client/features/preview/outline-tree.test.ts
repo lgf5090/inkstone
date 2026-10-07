@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Heading } from '../../lib/markdown/renderer';
+import { preloadPinyin } from '../../lib/pinyin';
 import {
     activeHeadingIndex,
     buildOutlineTree,
@@ -123,6 +124,14 @@ describe('compileFilter', () => {
         const test = compileFilter('set(', true);
         expect(test('anything')).toBe(true);
         expect(test('other')).toBe(true);
+    });
+
+    it('matches a Chinese heading by its first letters, once the readings have arrived', async () => {
+        await preloadPinyin();
+        const test = compileFilter('ysms', false);
+        expect(test('\u6f14\u793a\u6a21\u5f0f')).toBe(true);
+        expect(test('\u5168\u9009')).toBe(false);
+        expect(compileFilter('quanxuan', false)('\u5168\u9009')).toBe(true);
     });
 });
 

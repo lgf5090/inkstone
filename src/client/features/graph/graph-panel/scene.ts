@@ -24,6 +24,7 @@ import {
   SPATIAL_CELL_SIZE,
 } from './constants'
 import type { CanvasEdge, CanvasNode, CanvasState, Palette } from './types'
+import { matchesQuery } from '../../../lib/fuzzy'
 
 export const FALLBACK_PALETTE: Palette = {
   edge: '#6b7280',
@@ -85,12 +86,14 @@ export function matchedColorGroup(
 export function matchesColorGroup(node: GraphNode, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return false
+  // Field by field: a crawl across the joined string would let one term's letters borrow from the
+  // next field, which for a graph filter reads as the wrong node matching.
   const haystack = [
     node.title,
     node.folderName ?? '',
     ...node.tags.map((tag) => tag.name),
-  ].join(' ').toLowerCase()
-  return needle.split(/\s+/).every((term) => haystack.includes(term))
+  ]
+  return needle.split(/\s+/).every((term) => haystack.some((field) => matchesQuery(field, term)))
 }
 
 export function nodeColor(node: CanvasNode, groupBy: GroupBy, fallback: string): string {
@@ -337,7 +340,7 @@ export function graphCounts(response: GraphResponse | null): GraphCounts {
 export function graphSearchHits(nodes: readonly GraphNode[], query: string): Set<string> | null {
   const needle = query.trim().toLowerCase()
   if (!needle) return null
-  const hits = nodes.filter((node) => node.title.toLowerCase().includes(needle)).map((node) => node.id)
+  const hits = nodes.filter((node) => matchesQuery(node.title, needle)).map((node) => node.id)
   return hits.length ? new Set(hits) : null
 }
 

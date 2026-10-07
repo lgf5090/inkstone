@@ -142,6 +142,12 @@ export interface PreviewSettings {
   outlineDragEdits: boolean
   outlineKeepSearch: boolean
   outlineLocateByCursor: boolean
+  /** Right-click (or a long press) opens the note's own menu instead of the browser's. */
+  contextMenu: boolean
+  /** The clipboard and history strip above the menu's rows. */
+  contextMenuToolbar: boolean
+  /** The filter box that narrows the menu to what the query matches. */
+  contextMenuSearch: boolean
   math: boolean
   mermaid: boolean
   chart: boolean

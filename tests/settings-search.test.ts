@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
 import { getLocale, initI18n, setLocaleAsync, t } from '../src/client/lib/i18n'
+import { pinyinKeysOf, preloadPinyin } from '../src/client/lib/pinyin'
 import { SETTINGS_SEARCH_INDEX, countBySection, searchSettings } from '../src/client/features/settings/settingsSearch'
 
 const featureRoot = resolve('src/client/features/settings')
@@ -72,6 +73,7 @@ const scanned = scanSources()
 beforeAll(async () => {
   localStorage.clear()
   await initI18n()
+  await preloadPinyin()
 })
 
 describe('settings search index', () => {
@@ -135,6 +137,21 @@ describe('settings search matching', () => {
     const other = getLocale() === 'en-US' ? ZH_CN_MESSAGES : EN_US_MESSAGES
     const hits = searchSettings(other['settings.theme'])
     expect(hits.map((hit) => hit.entry.titleKey)).toContain('settings.theme')
+  })
+
+  it('reads a Chinese label by its first letters and by its full reading', async () => {
+    const previous = getLocale()
+    try {
+      await setLocaleAsync('zh-CN', false)
+      const keys = pinyinKeysOf(t('settings.theme'))
+      expect(keys).not.toBeNull()
+      for (const query of [keys!.initials, keys!.full]) {
+        expect(searchSettings(query).map((hit) => hit.entry.titleKey), query).toContain('settings.theme')
+      }
+    }
+    finally {
+      await setLocaleAsync(previous, false)
+    }
   })
 
   it('matches a setting by one of its control values', () => {

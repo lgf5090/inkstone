@@ -5,6 +5,8 @@ import { Drawer } from '../../components/overlay';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { folderPathLabel } from '../../lib/folders';
+import { matchesQuery } from '../../lib/fuzzy'
+import { usePinyinVersion } from '../../lib/pinyin'
 
 export function FolderPicker({
     open,
@@ -28,13 +30,14 @@ export function FolderPicker({
     onClose: () => void;
 }) {
     const [query, setQuery] = useState('');
+    const pinyinVersion = usePinyinVersion()
     const choices = useMemo(() => {
-        const normalized = query.trim().toLocaleLowerCase();
+        const normalized = query.trim();
         return (folders ?? [])
             .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
-            .filter(({ folder, path }) => !excludedIds?.has(folder.id) && (!normalized || path.toLocaleLowerCase().includes(normalized)))
+            .filter(({ folder, path }) => !excludedIds?.has(folder.id) && (!normalized || matchesQuery(path, normalized)))
             .sort((a, b) => a.path.localeCompare(b.path));
-    }, [excludedIds, folders, query]);
+    }, [excludedIds, folders, query, pinyinVersion]);
     const choose = (folderId: string | null) => {
         if (folderId !== currentId)
             onSelect(folderId);

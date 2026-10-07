@@ -28,6 +28,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
+import { usePinyinVersion } from '../../lib/pinyin'
 import {
   DEFAULT_PREFERENCES,
   GRAPH_PINNED_MAX,
@@ -68,6 +69,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [prefs, setPrefs] = useState(loadPreferences)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const pinyinVersion = usePinyinVersion()
   const [query, setQuery] = useState('')
   const [data, setData] = useState<GraphResponse | null>(null)
   const [pending, setPending] = useState(false)
@@ -101,7 +103,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), GRAPH_SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [search])
+  }, [search, pinyinVersion])
 
   useEffect(() => {
     const timer = window.setTimeout(() => persistPreferences(prefs), GRAPH_PREFS_DEBOUNCE_MS)
@@ -176,7 +178,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
 
   const searchHits = useMemo(
     () => (data && query ? graphSearchHits(data.nodes, query) : null),
-    [data, query],
+    [data, query, pinyinVersion],
   )
   const legend = useMemo(
     () => (data ? colorLegends(data.nodes, prefs.groupBy, prefs.colorGroups, GRAPH_LEGEND_MAX) : []),
