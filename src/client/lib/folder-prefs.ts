@@ -1,12 +1,18 @@
 import { useSyncExternalStore } from 'react';
+import { isUsableIconGlyph } from './emoji-catalog';
 
 export const FOLDER_PREFS_STORAGE_KEY = 'inkstone.folder-preferences.v1';
 
+export const RECENT_ICON_LIMIT = 12;
+
 export interface FolderPreferences {
     inboxFolderId: string | null;
+    recentIcons: string[];
 }
 
-const DEFAULT_PREFERENCES: FolderPreferences = { inboxFolderId: null };
+function defaultPreferences(): FolderPreferences {
+    return { inboxFolderId: null, recentIcons: [] };
+}
 
 const listeners = new Set<() => void>();
 
@@ -14,22 +20,29 @@ function readStorage(): Storage | null {
     return typeof localStorage === 'undefined' ? null : localStorage;
 }
 
+function readRecentIcons(value: unknown): string[] {
+    if (!Array.isArray(value))
+        return [];
+    return [...new Set(value.filter((item): item is string => typeof item === 'string' && isUsableIconGlyph(item)))].slice(0, RECENT_ICON_LIMIT);
+}
+
 export function loadFolderPrefs(storage: Storage | null = readStorage()): FolderPreferences {
     if (!storage)
-        return { ...DEFAULT_PREFERENCES };
+        return defaultPreferences();
     try {
         const raw = storage.getItem(FOLDER_PREFS_STORAGE_KEY);
         if (!raw)
-            return { ...DEFAULT_PREFERENCES };
+            return defaultPreferences();
         const parsed = JSON.parse(raw) as Partial<FolderPreferences>;
         return {
             inboxFolderId: typeof parsed.inboxFolderId === 'string' && parsed.inboxFolderId
                 ? parsed.inboxFolderId
                 : null,
+            recentIcons: readRecentIcons(parsed.recentIcons),
         };
     }
     catch {
-        return { ...DEFAULT_PREFERENCES };
+        return defaultPreferences();
     }
 }
 
@@ -64,6 +77,16 @@ export function setInboxFolderId(folderId: string | null): void {
 export function clearInboxFolderIfDeleted(folderId: string): void {
     if (currentPreferences.inboxFolderId === folderId)
         setInboxFolderId(null);
+}
+
+export function pushRecentIcon(icon: string): void {
+    if (!isUsableIconGlyph(icon))
+        return;
+    const previous = currentPreferences.recentIcons;
+    const next = [icon, ...previous.filter((item) => item !== icon)].slice(0, RECENT_ICON_LIMIT);
+    if (next[0] === previous[0] && next.length === previous.length)
+        return;
+    saveFolderPrefs({ recentIcons: next });
 }
 
 function subscribe(listener: () => void): () => void {

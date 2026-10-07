@@ -36,6 +36,7 @@ const allowed = new Map([
     "// start-up locale chunk. The gate reads them as one catalog with the rest, otherwise",
     "// the two languages would be proven against each other only for the keys that happen",
     "// to sit in the main file.",
+    "// Icon search has to answer in the language the user types it in, so the probe words are Han.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",

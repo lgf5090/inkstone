@@ -483,8 +483,11 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         });
     }, [submenu]);
     useEffect(() => {
-        if (submenu?.focus)
-            submenuRef.current?.focus({ preventScroll: true });
+        if (!submenu?.focus)
+            return;
+        const panel = submenuRef.current;
+        const first = panel?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])');
+        (first ?? panel)?.focus({ preventScroll: true });
     }, [submenu]);
     useEscape(open, () => {
         if (submenu) {
@@ -516,6 +519,13 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             ?.querySelector<HTMLElement>(`[data-menu-index="${cursor}"]`)
             ?.focus({ preventScroll: true });
     }, [open, cursor, submenu]);
+    const reanchorSubmenu = () => {
+        if (!submenu || submenuIndex < 0)
+            return;
+        const row = menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${submenuIndex}"]`);
+        if (row)
+            setSubmenu((current) => current ? { ...current, rect: row.getBoundingClientRect() } : current);
+    };
     const openSubmenuFor = (index: number, focus: boolean) => {
         const row = menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${index}"]`);
         const item = items[index];
@@ -604,7 +614,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     }, [open, items, cursor, submenu, onClose]);
     if (!open)
         return null;
-    return (<>{createPortal(<div ref={menuRef} {...(panelId ? { id: panelId } : {})} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
+    return (<>{createPortal(<div ref={menuRef} {...(panelId ? { id: panelId } : {})} role="menu" aria-label={label} tabIndex={-1} onScroll={reanchorSubmenu} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
       {items.map((item, index) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
