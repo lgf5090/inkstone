@@ -185,6 +185,39 @@ export function fenceAt(content: string, line: number, languages: readonly strin
     return { info: opening.info, body: fenceBody(lines, line, findClosingLine(lines, line, opening), opening.indent.length) }
 }
 
+interface EnclosingFence {
+    /** 0-based line of the opening fence. */
+    line: number
+    /** 0-based line of the closing fence, or -1 when the note leaves the block open. */
+    closing: number
+    info: string
+    /** The run of spaces the opening fence is indented by, which the body was read back without. */
+    indent: string
+    body: string
+}
+
+/**
+ * The fence a line of the note sits inside, counting the opening and closing lines themselves, because a
+ * cursor parked on a fence marker is still on that block. Fences never nest, so the scan jumps past each
+ * block it has read instead of looking for an inner one.
+ */
+export function enclosingFence(content: string, line: number, languages: readonly string[]): EnclosingFence | null {
+    const { lines } = splitLines(content)
+    for (let index = 0; index < lines.length; index++) {
+        const opening = parseFenceOpening(lines[index] ?? '', languages)
+        if (!opening)
+            continue
+        const closing = findClosingLine(lines, index, opening)
+        const last = closing === -1 ? lines.length : closing
+        if (line >= index && line <= last)
+            return { line: index, closing, info: opening.info, indent: opening.indent, body: fenceBody(lines, index, closing, opening.indent.length) }
+        if (closing === -1)
+            break
+        index = closing
+    }
+    return null
+}
+
 /**
  * Rewrites one fence, keeping the note's EOL style and every line outside the block byte-identical. A
  * fence is widened when the new body contains a line that would otherwise close it early. Returns null

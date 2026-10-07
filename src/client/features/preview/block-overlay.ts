@@ -1,4 +1,5 @@
 import { t } from '../../lib/i18n'
+import type { SqlKeywordCase } from '../../lib/markdown/code-formatter'
 import type { TabScope } from './markdown-tabs'
 
 /**
@@ -83,6 +84,9 @@ export interface BlockActionContext {
   sourceNoteId: string | null
   committedSourceRef: { current: string }
   api: { editContent: (noteId: string, next: string) => void; toast: BlockToast }
+  /** The knobs the code-block formatter reads at press time. A surface with no note to format leaves it
+   * out, and the toolbar falls back to the settings a fresh account has. */
+  codeFormat?: CodeFormatToolbarOptions
   /**
    * The two mind map head buttons whose panel is React state rather than prose markup, because the
    * block they sit in is re-rendered wholesale from the note and would drop it. Only the surface that
@@ -106,6 +110,12 @@ export function blockActionSource(ctx: BlockActionContext): { noteId: string; so
   return { noteId, source: ctx.committedSourceRef.current }
 }
 
+export interface CodeFormatToolbarOptions {
+  enabled: boolean
+  tabSize: number
+  keywordCase: SqlKeywordCase
+}
+
 /**
  * The account settings that change what a block's toolbar is allowed to offer. A module reads them from
  * here instead of from a caller that knows them, because the preview hands every family the same pass
@@ -113,6 +123,7 @@ export function blockActionSource(ctx: BlockActionContext): { noteId: string; so
  */
 export interface BlockToolbarOptions {
   chart: boolean
+  codeFormat?: CodeFormatToolbarOptions
   /**
    * Whose note the surface is drawing, for the families that remember a choice between visits. A
    * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.

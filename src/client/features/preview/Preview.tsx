@@ -76,6 +76,7 @@ export const Preview = memo(function Preview({
   const internalScrollerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = externalScrollerRef ?? internalScrollerRef
   const preview = useSession((s) => s.settings.preview)
+  const editorSettings = useSession((s) => s.settings.editor)
   const appearance = useSession((s) => s.settings.appearance)
   const userId = useSession((s) => s.user?.id)
   const locale = useLocale()
@@ -232,7 +233,15 @@ export const Preview = memo(function Preview({
       })
       // Every block head is built here rather than on the live host so it is part of the markup the
       // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
-      enhanceBlockToolbars(staging, { chart: preview.chart, tabScope })
+      enhanceBlockToolbars(staging, {
+        chart: preview.chart,
+        codeFormat: {
+          enabled: preview.codeFormatButton,
+          tabSize: editorSettings.tabSize,
+          keywordCase: editorSettings.codeFormatKeywordCase,
+        },
+        tabScope,
+      })
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
@@ -286,6 +295,9 @@ export const Preview = memo(function Preview({
     preview.chart,
     preview.codeBlockCollapse,
     preview.codeBlockCollapseLines,
+    preview.codeFormatButton,
+    editorSettings.tabSize,
+    editorSettings.codeFormatKeywordCase,
     theme,
   ])
 
@@ -311,6 +323,11 @@ export const Preview = memo(function Preview({
     sourceNoteId,
     committedSourceRef,
     api: { editContent, toast },
+    codeFormat: {
+      enabled: preview.codeFormatButton,
+      tabSize: editorSettings.tabSize,
+      keywordCase: editorSettings.codeFormatKeywordCase,
+    },
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
   })
 

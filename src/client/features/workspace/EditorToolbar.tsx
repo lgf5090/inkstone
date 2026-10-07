@@ -1,10 +1,10 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Strikethrough, Table } from 'lucide-react';
+import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Sparkles, Strikethrough, Table } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { generateMindmapFromOutline, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertKanban, insertLink, insertMathBlock, insertMermaid, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { generateMindmapFromOutline, formatCodeBlock, insertAlign, insertAdvancedCodeBlock, insertChart, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertKanban, insertLink, insertMathBlock, insertMermaid, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 
@@ -68,8 +68,10 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
         { id: 'advanced-code', label: t('workspace.enhanced_code_block'), onSelect: run(insertAdvancedCodeBlock) },
         { id: 'js-example', label: t('workspace.runnable_js_block'), onSelect: run(insertRunnableJsBlock) },
         { id: 'mermaid', label: t('workspace.mermaid_diagram'), onSelect: run(insertMermaid), separatorBefore: true },
+        { id: 'chart', label: t('workspace.chart_block'), onSelect: run(insertChart) },
         { id: 'kanban', label: t('workspace.kanban_board'), onSelect: run(insertKanban) },
         { id: 'mindmap-from-outline', label: t('workspace.mindmap_from_outline'), onSelect: run(generateMindmapFromOutline) },
+        { id: 'format-code', label: t('command.format_code_block'), combo: editorCombo('format-code'), separatorBefore: true, onSelect: run(formatCodeBlock) },
     ];
     const mathItems: MenuItem[] = [
         { id: 'inline-math', label: t('workspace.inline_math'), onSelect: run(toggleInlineMath) },
@@ -125,6 +127,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
       {menuButton('note', <FileText size={14}/>)}
       <Divider />
       {menuButton('code', <Braces size={14}/>, { label: t('workspace.code_block'), onClick: run(insertCodeBlock) })}
+      <ToolButton label={t('command.format_code_block')} combo={editorCombo('format-code')} onClick={run(formatCodeBlock)}><Sparkles size={14}/></ToolButton>
       <ToolButton label={t('workspace.table')} onClick={run(insertTable)}><Table size={14}/></ToolButton>
       {menuButton('math', <Sigma size={14}/>)}
       {menuButton('block', <Blocks size={14}/>)}

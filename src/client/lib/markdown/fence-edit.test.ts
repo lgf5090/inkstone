@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFencePatchAtSource, fenceAt, joinLines, normalizeEol, splitLines } from './fence-edit'
+import { applyFencePatchAtSource, enclosingFence, fenceAt, joinLines, normalizeEol, splitLines } from './fence-edit'
 
 const MD = ['md-example', 'markdown-example']
 const NOTE = [
@@ -11,6 +11,54 @@ const NOTE = [
   '',
   'after',
 ].join('\n')
+
+describe('enclosingFence', () => {
+  const TWO = [
+    'intro',
+    '',
+    '```js title="a"',
+    'const a=1',
+    '```',
+    '',
+    '- item',
+    '  ```py',
+    '  x=1',
+    '  ```',
+  ].join('\n')
+
+  it('finds the fence a body line sits in, with its info and indent', () => {
+    expect(enclosingFence(TWO, 3, [])).toEqual({ line: 2, closing: 4, info: 'js title="a"', indent: '', body: 'const a=1' })
+  })
+
+  it('counts the fence lines themselves as inside the block', () => {
+    expect(enclosingFence(TWO, 2, [])?.line).toBe(2)
+    expect(enclosingFence(TWO, 4, [])?.line).toBe(2)
+  })
+
+  it('answers null on a line that is in no fence', () => {
+    expect(enclosingFence(TWO, 0, [])).toBeNull()
+    expect(enclosingFence(TWO, 5, [])).toBeNull()
+    expect(enclosingFence(TWO, 6, [])).toBeNull()
+  })
+
+  it('reads an indented fence back without its own run of spaces', () => {
+    expect(enclosingFence(TWO, 8, [])).toEqual({ line: 7, closing: 9, info: 'py', indent: '  ', body: 'x=1' })
+  })
+
+  it('holds a line to the outer block, since a fence with info cannot close it', () => {
+    const nested = '```md\n```js\nx\n```\n```'
+    expect(enclosingFence(nested, 2, [])).toEqual({ line: 0, closing: 3, info: 'md', indent: '', body: '```js\nx' })
+  })
+
+  it('keeps an unclosed fence running to the end of the note', () => {
+    expect(enclosingFence('a\n```js\nx\ny', 3, [])).toEqual({ line: 1, closing: -1, info: 'js', indent: '', body: 'x\ny' })
+  })
+
+  it('respects the language list the caller is scoped to', () => {
+    expect(enclosingFence(TWO, 3, ['py'])).toBeNull()
+    expect(enclosingFence(TWO, 3, ['js'])?.info).toBe('js title="a"')
+  })
+})
 
 describe('fenceAt', () => {
   it('reads the info string and body of the fence the renderer drew', () => {

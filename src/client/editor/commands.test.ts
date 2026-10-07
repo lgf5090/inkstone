@@ -2,8 +2,9 @@ import type { EditorView } from '@codemirror/view'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { beforeAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
-import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertKanban, insertMathBlock, setHeading, toggleComment } from './commands'
+import { completeCodeFenceOnEnter, completeColonFenceOnEnter, insertChart, insertKanban, insertMathBlock, setHeading, toggleComment } from './commands'
 import { parseKanbanBody } from '../lib/markdown/kanban/body'
+import { convertChartBody, detectChartMode } from '../lib/markdown/chart'
 import { renderMarkdown } from '../lib/markdown/renderer'
 
 function runFenceCompletion(doc: string, cursor = doc.length) {
@@ -275,6 +276,50 @@ describe('insertKanban', () => {
   it('leaves text outside the new fence byte-identical', () => {
     const { doc } = runInsert(insertKanban, 'before\n')
     expect(doc.startsWith('before\n')).toBe(true)
+    expect((doc.match(/```/g) ?? []).length).toBe(2)
+  })
+})
+
+describe('insertChart', () => {
+  const bodyOf = (doc: string) => doc.slice(doc.indexOf('```chart style=table') + '```chart style=table'.length, doc.lastIndexOf('```')).trim()
+
+  it('inserts a table the chart reader draws as a bar chart', () => {
+    const { handled, doc } = runInsert(insertChart, '# Plan\n')
+    expect(handled).toBe(true)
+    expect(doc.startsWith('# Plan\n')).toBe(true)
+    const body = bodyOf(doc)
+    expect(detectChartMode(body)).toBe('table')
+    expect(renderMarkdown(doc).html).toContain('data-chart')
+
+    const asJson = convertChartBody(body)
+    expect(asJson.ok).toBe(true)
+    if (!asJson.ok) return
+    const config = JSON.parse(asJson.body)
+    expect(config.type).toBe('bar')
+    expect(config.data.labels).toEqual(['Jan', 'Feb', 'Mar'])
+    expect(config.data.datasets[0].data).toEqual([12, 19, 15])
+    expect(config.options).toBeUndefined()
+  })
+
+  // The starter writes no styling of its own, so the note's accent paints the chart and repaints it when
+  // the theme changes. A keyword cell's JSON lands in `options` rather than on the dataset, which is why
+  // the byte-identical round trip alone would not notice a colour written there — the absence is asserted.
+  it('round-trips through the other format without losing anything', () => {
+    const body = bodyOf(runInsert(insertChart, '').doc)
+    const asJson = convertChartBody(body)
+    expect(asJson.ok).toBe(true)
+    if (!asJson.ok) return
+    const back = convertChartBody(asJson.body)
+    expect(back.ok).toBe(true)
+    if (!back.ok) return
+    expect(back.dropped).toBe(0)
+    expect(back.body).toBe(body)
+  })
+
+  it('wraps a selection instead of overwriting it, and leaves the rest of the note alone', () => {
+    const source = '| :pie: | yes |\n| --- | --- |\n| no | 1 |'
+    const { doc } = runInsert(insertChart, source, { anchor: 0, head: source.length })
+    expect(doc).toBe(`\`\`\`chart style=table\n${source}\n\`\`\`\n`)
     expect((doc.match(/```/g) ?? []).length).toBe(2)
   })
 })

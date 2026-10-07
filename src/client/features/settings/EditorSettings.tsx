@@ -1,7 +1,7 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
-import type { OutlineModeName } from '@shared/types';
+import type { CodeFormatKeywordCase, OutlineModeName } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -78,6 +78,10 @@ export function EditorSettings() {
           <Slider label={t("settings.code_block_collapse_after")} className="w-[200px]" value={preview.codeBlockCollapseLines} min={8} max={100} step={1} onChange={(codeBlockCollapseLines) => void update({ preview: { codeBlockCollapseLines } })} suffix={t("settings.lines")}/>
         </SettingRow>}
 
+        <SettingRow title={t("settings.code_format_button")} description={t("settings.code_format_button_description")}>
+          <Switch checked={preview.codeFormatButton} onChange={(codeFormatButton) => void update({ preview: { codeFormatButton } })} label={t("settings.code_format_button")}/>
+        </SettingRow>
+
         <SettingRow title={t("settings.show_outline_by_default")}>
           <Switch checked={preview.showToc} onChange={(showToc) => void update({ preview: { showToc } })} label={t("settings.show_outline_by_default")}/>
         </SettingRow>
@@ -143,6 +147,14 @@ export function EditorSettings() {
           <Segmented<string> label={t("settings.indent_width")} value={String(editor.tabSize)} onChange={(value) => void update({ editor: { tabSize: Number(value) } })} options={[
             { value: '2', label: '2' },
             { value: '4', label: '4' },
+        ]}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.code_format_keyword_case")}>
+          <Segmented<CodeFormatKeywordCase> label={t("settings.code_format_keyword_case")} value={editor.codeFormatKeywordCase} onChange={(codeFormatKeywordCase) => void update({ editor: { codeFormatKeywordCase } })} options={[
+            { value: 'upper', label: t("settings.code_format_upper") },
+            { value: 'lower', label: t("settings.code_format_lower") },
+            { value: 'keep', label: t("settings.code_format_keep") },
         ]}/>
         </SettingRow>
       </section>

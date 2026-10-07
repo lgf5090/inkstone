@@ -187,6 +187,9 @@ const allowed = new Map([
     "// attached and focused; the shim keeps the completion path exercisable instead of untestable.",
     "// The command does not choose a format: a selection that already looks like a task list becomes an",
     "// outline fence, and the fence itself decides — which is why this asserts through the parser.",
+    "// The starter writes no styling of its own, so the note's accent paints the chart and repaints it when",
+    "// the theme changes. A keyword cell's JSON lands in `options` rather than on the dataset, which is why",
+    "// the byte-identical round trip alone would not notice a colour written there — the absence is asserted.",
   ]],
   ["src/client/editor/commands.ts", [
     "// openFenceBeforeLine walks every earlier line, so it only runs for lines that are",
@@ -200,6 +203,12 @@ const allowed = new Map([
     "/** The menu-level action: says so when there was no outline to draw, instead of looking like a dead item. */",
     "/**\n * A column block arrives as two columns, because the `::` that divides them is the one part of the\n * syntax a reader cannot guess from the header.\n */",
     "/**\n * A board, in the format the selection already has: wrapping headings and list items yields an\n * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.\n * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the\n * body, so this command does not have to know.\n */",
+    "/**\n * Rewrite the body of the fence the cursor sits in, leaving the fence lines and the rest of the note\n * byte-identical. One transaction, so one press of undo is one format. The press says so when the cursor\n * was not on a block: a menu item and a key binding that both do nothing look exactly like a dead control.\n */",
+    "// The body was read back without the fence's own run of spaces, so it goes back with them re-added:",
+    "// a block inside a list item has to stay inside it.",
+    "// The range runs up to the start of the closing fence, so it ends in a line break the new body has to",
+    "// hand back — otherwise the last line of the block swallows the ``` that closed it.",
+    "/**\n * A chart, in the format an author can edit in place: the first cell names the type, the header row is\n * the x axis, and each row is one series. The block's own toolbar converts it to JSON when the full\n * option set is needed, so this command does not settle that choice — it only starts somewhere the\n * chart parser reads back as a chart. Nothing is styled on purpose: a chart with no colours of its own\n * is painted from the note's accent and repaints when the accent or the theme changes, while a starter\n * that wrote its own would freeze that choice into the note.\n */",
     "// The view that is on screen right now. A show opens on the slide under the cursor, and the key that",
     "// starts one, the command palette and the note's own menu all fire from outside the editor, so the",
     "// editor names the view it holds rather than every caller keeping a line back to it.",
@@ -283,6 +292,9 @@ const allowed = new Map([
   ["src/client/features/presentation/audience-view.tsx", [
     "/**\n * The position as written, read against what this device has measured.\n *\n * A page the viewer's device has not measured yet cannot be clamped to a page that exists — the\n * measurement arrives a frame later and the clamp would have to be undone — so the intent is held and\n * read through the same clamps the show uses for a plan that changed underneath it (N-31). A slide the\n * deck has lost pulls the position back onto one it still has.\n */",
     "/**\n * The audience's seat at somebody else's show (ADR-0006).\n *\n * The viewer is handed the same markdown the share page already renders and paginates it on their own\n * device, so what the speaker wrote is applied through the clamps the show uses for a plan that changed\n * underneath it: a phone gets the pages the phone fits, and lands on the speaker's page as soon as that\n * page exists here.\n *\n * Following is a switch, not a harness. The moment a viewer turns a page themselves they have decided to\n * look somewhere else, and being yanked back on the next beat is worse than being behind.\n */",
+    "// A follower's page arrives already drawn: the beat that moves them on to the next page is not",
+    "// a moment they chose to watch a chart grow, and a chart that replays its entrance on every",
+    "// beat would be re-replaying it while the speaker is still talking over the last one.",
     "/**\n * The viewer's own position: the speaker's numbers held as written, read through this device's plans.\n */",
     "// Where the show put them: the numbers as written, clamped only at the ends of the deck.",
     "// A press is the viewer taking the wheel: the page they moved to stays theirs until they hand the show",
@@ -291,9 +303,6 @@ const allowed = new Map([
     "// The actions are read off a ref because the listener lives on `window` while the page moves.",
     "// Whether this page is still being told to somebody, in the one place a viewer can read it. Held as a",
     "// function because the five states have to be named the same way wherever a viewer is standing.",
-    "// A follower's page arrives already drawn: the beat that moves them on to the next page is not",
-    "// a moment they chose to watch a chart grow, and a chart that replays its entrance on every",
-    "// beat would be re-replaying it while the speaker is still talking over the last one.",
   ]],
   ["src/client/features/presentation/deck-export.test.ts", [
     "/**\n * Which export a press asks for, and what the show therefore holds.\n *\n * Both exports read the same pages, so the kind has to be part of what is held: holding the pages alone\n * would mount the printed deck and the handout at the same time and print two sheets for one press.\n * The handout adds the second half of that contract — a sheet the speaker reads has to carry the\n * notes, and the notes are indexed by slide, not by printed page (N-32).\n */",
@@ -887,6 +896,7 @@ const allowed = new Map([
   ["src/client/features/presentation/presentation-stage.tsx", [
     "/** How far into this page the show has walked (N-31); the projector is the only surface that has one. */",
     "/** How many reveals this page holds — zero when it arrives all at once. */",
+    "/** Charts arrive already drawn when the account turned their animation off. */",
     "/** The overview grid is drawn over the slide, so nothing in the slide can be reached. */",
     "// This chip used to fade itself to 35% opacity, which composites its text to 1.67:1 against the",
     "// slide — the axe `color-contrast` violation L-1 has been carrying. AA is the floor, so it now",
@@ -904,7 +914,6 @@ const allowed = new Map([
     "// which of the two it is, inside the dialog where a reader already is. It is not change-tracked the",
     "// way the cover announcement is: a live region stays quiet about what was already there when it",
     "// mounted, so opening on a good page says nothing and the first page that fails is the one that speaks.",
-    "/** Charts arrive already drawn when the account turned their animation off. */",
   ]],
   ["src/client/features/presentation/presentation-state.test.ts", [
     "// N-21: the bar under the show has to count the pages the deck measures, not the slides the author",
@@ -1939,6 +1948,7 @@ const allowed = new Map([
     "/** Builds the same deck as images; the sheet appears until the PNGs are saved. */",
     "/** Which page of the deck the running image export has written, or null while nothing is being written. */",
     "/** Everything the idle deck-measuring pass needs, grouped so the dialog can spread it. */",
+    "/** Whether charts on the projector arrive already drawn, per the account's own setting. */",
     "/** Whether the show is drawing its own pointer. */",
     "/** An audience is following this show, and the link is out there (N-34). */",
     "/** Starts or ends that — the link is handed to the presenter's clipboard on the way in. */",
@@ -1971,6 +1981,9 @@ const allowed = new Map([
     "// narrow for eleven controls gets the bar that fits it. Both are the same measurement, so both come",
     "// from the same call — the overlay outlives a single show now that the shell hosts it, which is why",
     "// the room is followed live rather than frozen at app start.",
+    "// The account says whether a show should start with the list beside it; the room says whether",
+    "// there is anywhere to put it. Either answer being 'no' closes it, and neither is a reason to",
+    "// tell the presenter their setting is wrong — the toggle stays live for this show.",
     "// Which slide the show is on, kept inside the deck at both ends: the opening index is clamped in case",
     "// the note it was resumed from has since lost slides, a deck that shrinks mid-talk pulls the position",
     "// back onto a slide that exists, and `goTo` cannot walk past either end. The page *within* a slide is",
@@ -2001,10 +2014,6 @@ const allowed = new Map([
     "// Clamping waits for a known plan: an edit mid-talk re-splits the deck, and a clamp",
     "// against the \"one page\" a missing plan implies would bounce the presenter to the top",
     "// of the slide on every unrelated write.",
-    "/** Whether charts on the projector arrive already drawn, per the account's own setting. */",
-    "// The account says whether a show should start with the list beside it; the room says whether",
-    "// there is anywhere to put it. Either answer being 'no' closes it, and neither is a reason to",
-    "// tell the presenter their setting is wrong — the toggle stays live for this show.",
   ]],
   ["src/client/features/presentation/use-presented-note.ts", [
     "// Followed edits land on the projector, but a re-split per keystroke would remount",
@@ -2061,6 +2070,7 @@ const allowed = new Map([
     "// A run finishes in a chain of microtasks, so the flush that lets a case read what landed has to",
     "// cross a task boundary rather than count hops.",
     "/** Writes the account's own display settings, the way the settings panel does. */",
+    "// The enhancement chain reads `math` / `mermaid` / `chart` out of the account's own",
     "// settings, and the canvas's diagram pass honours them too, so a page prepared for one set of them",
     "// is not the page the room is asking for after the presenter turns one off. It used to be left",
     "// alone forever: the cache is keyed without them, so the entry the flip pointed at was already",
@@ -2082,7 +2092,6 @@ const allowed = new Map([
     "// about the page on screen. It must not be read as a reason to stop preparing that page.",
     "// The other half of the same rule: when the page's own text is what changed, that is a different",
     "// page, and it gets its own run.",
-    "// The enhancement chain reads `math` / `mermaid` / `chart` out of the account's own",
   ]],
   ["src/client/features/presentation/use-slide-html.ts", [
     "// The staging node is parked *in the document* rather than left detached, because this fork's snapshot",
@@ -2100,6 +2109,10 @@ const allowed = new Map([
     "// drawn by the canvas that shows the page, and the capture of that page is what the slide list and",
     "// the printed deck carry. `false` would replace the block with its source and no chart would ever",
     "// be drawn for this show.",
+    "// A projector is read from across a room, and which column a card sits in is part of what the card",
+    "// says (N-36), so the board shape is asked for rather than taken from the list this pass defaults",
+    "// to. The channel stays 'snapshot' because that is what happens: a still, drawn here, travels in",
+    "// the markup the slide list and the printed deck both read.",
     "// Renders the enhanced markup for one slide off-DOM and caches it, so the canvas and",
     "// the slide list — and the idle preflight pass — all read the same prepared html per",
     "// content fingerprint, theme and slide. A prepared page is left alone: re-enhancing an",
@@ -2126,10 +2139,6 @@ const allowed = new Map([
     "// out is the point — an edit in another slide re-splits the note and hands over a new array, and",
     "// taking that as a reason to start over cancelled the run on the page the presenter is actually",
     "// looking at.",
-    "// A projector is read from across a room, and which column a card sits in is part of what the card",
-    "// says (N-36), so the board shape is asked for rather than taken from the list this pass defaults",
-    "// to. The channel stays 'snapshot' because that is what happens: a still, drawn here, travels in",
-    "// the markup the slide list and the printed deck both read.",
   ]],
   ["src/client/features/presentation/use-slide-plans.ts", [
     "/**\n * The page layout of every slide the surface has drawn, kept where the position is kept.\n *\n * The canvas measures the slide it renders — it is the only place that knows how the same markup falls\n * across the same canvas — and hands the plan out here so the counter can name its pages and the move\n * can walk them. It lives apart from the show because any surface that holds a deck position needs this\n * map, and a viewer following along needs that and nothing else of the projector's state machine.\n */",
@@ -2210,6 +2219,7 @@ const allowed = new Map([
     "/**\n * The surface's toast. `action` is what carries an undo for the toolbar presses that rewrite the\n * note — a format conversion has no editor keystroke behind it, so the offer has to travel with the\n * message that says it happened.\n */",
     "/**\n   * The two mind map head buttons whose panel is React state rather than prose markup, because the\n   * block they sit in is re-rendered wholesale from the note and would drop it. Only the surface that\n   * holds the note has that state, so the toolbar asks for it through here.\n   */",
     "/**\n   * Whose note the surface is drawing, for the families that remember a choice between visits. A\n   * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.\n   */",
+    "/** The knobs the code-block formatter reads at press time. A surface with no note to format leaves it\n   * out, and the toolbar falls back to the settings a fresh account has. */",
   ]],
   ["src/client/features/preview/card-content-chart.test.ts", [
     "/**\n * A note card renders a few lines of another note and deliberately draws neither diagrams nor charts,\n * but it only runs the enhancer at all when it spots something that needs it. A chart fence becomes a\n * `div.chart-block`, which is none of `pre code` / `[data-math]` / `[data-mermaid]`, so a note whose\n * only rich content is a chart skipped the pass and the card showed \"Rendering chart…\" forever — a\n * loading state nothing would ever resolve.\n */",
@@ -2826,6 +2836,24 @@ const allowed = new Map([
     "/**\n * The table text for a model. Unpadded: a body a toggle wrote should read like one a person typed, and\n * trailing spaces inside every cell would show up in the note as whitespace the editor keeps.\n */",
     "/** The number a cell means: thousands separators allowed, anything unreadable is zero. */",
   ]],
+  ["src/client/lib/markdown/code-formatter.ts", [
+    "/** Why a press wrote nothing, in the words the author can act on. */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/c-style.ts", [
+    "/**\n * A slash opens a comment or a regex depending on what came before it, and the two\n * failures are asymmetric: reading a regex that opens with an escaped star as a block\n * comment puts the formatter inside a comment that never closes, so every line below it\n * is copied verbatim and the block silently stops being formatted. Division is therefore\n * the default, and a regex is only recognised where a value can start.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/index.ts", [
+    "/**\n * The ceiling on the body one press may rewrite. Every formatter here is linear per line, but they are all\n * driven from a click on a block a reader did not write: a shared note hands one author's text to another\n * person's main thread, and a fence can be pasted as well as typed. The number sits far above any block a\n * person reads in a note, so it refuses a blob rather than a big example.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/json.ts", [
+    "/**\n * JSON is reformatted by re-emitting its own tokens, never by `JSON.parse` + `JSON.stringify`. A round-trip\n * through a parsed value rewrites the data it is only supposed to re-indent: `1.0` becomes `1`, `1e10` becomes\n * `10000000000`, and an integer past `Number.MAX_SAFE_INTEGER` comes back with different digits. Stripping\n * `//` comments before parsing is no better, because it also eats the `//` of every `\"https://…\"` value.\n * Scanning instead of parsing keeps every scalar byte for byte and leaves comments where they were written.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/markup.ts", [
+    "/**\n * Placeholders come back out in one pass with a function replacer. A string replacement would read `$&` and\n * `$1` inside the restored text as patterns — a script body holding `\"$&\"` would be rewritten with a copy of\n * the placeholder — and a loop over the blocks would let a literal that *mentions* a later placeholder have\n * it substituted by that later pass.\n */",
+  ]],
+  ["src/client/lib/markdown/code-formatter/types.ts", [
+    "/**\n * How deep a formatter will indent. Nesting depth is the one number a note can grow without bound while\n * its byte size stays small — a thousand `<div>` with nothing between them is eleven kilobytes — and an\n * indent per level makes the output grow with the square of it. Real documents stop nesting long before\n * this, so the cap is invisible on anything a person wrote and keeps one press from asking for megabytes.\n */",
+  ]],
   ["src/client/lib/markdown/colon-fence.ts", [
     "/**\n * The one reading of `:::` fences that both halves of the family have to agree on.\n *\n * The renderer scans markdown-it's line index while a settings toolbar scans the note's raw text, and\n * the two fail identically if each keeps its own copy of the rule: a line inside a ``` fence is text,\n * a `::: word` opens a container however the author spaced it, and a bare `::` separates columns only\n * when it is not inside a container that owns it. Every one of those judgements lives here and is\n * reached through a line reader, so a container can never be split one way on screen and another way\n * when a toolbar edits its header.\n */",
     "/** The slice of a markdown-it block state this module needs; kept structural so tests can fake it. */",
@@ -2974,6 +3002,9 @@ const allowed = new Map([
     "/** The lines a text block contributes; an empty text contributes none. */",
     "/** Rewrites the whole block as plain text: the fence, its body and its closing line all go. */",
     "/** Inserts text on its own lines right after the block, leaving the fence alone. */",
+    "/** 0-based line of the closing fence, or -1 when the note leaves the block open. */",
+    "/** The run of spaces the opening fence is indented by, which the body was read back without. */",
+    "/**\n * The fence a line of the note sits inside, counting the opening and closing lines themselves, because a\n * cursor parked on a fence marker is still on that block. Fences never nest, so the scan jumps past each\n * block it has read instead of looking for an inner one.\n */",
   ]],
   ["src/client/lib/markdown/kanban/archive.ts", [
     "/**\n * The archive: cards a board has finished with but must not lose. An archived card leaves every\n * view, every count and every still snapshot, and comes back only through restore — deletion, by\n * contrast, is the operation the archive exists to keep people away from.\n */",
