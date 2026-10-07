@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type SetStateAction, } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type SetStateAction, } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronRight, Search, X } from 'lucide-react';
 import { cn } from '../lib/cn';
+import { fuzzyMatch } from '../lib/fuzzy';
 import { Button, IconButton, Kbd } from './primitives';
 import { FIELD_BASE } from './form';
 import { t } from "../lib/i18n";
@@ -378,6 +379,74 @@ export interface MenuItem {
     onSelect?: () => void;
     separatorBefore?: boolean;
     submenu?: ReactNode | ((context: MenuSubmenuContext) => ReactNode);
+    /**
+     * The rows behind this one, given to the search box as data even when the submenu itself is a
+     * hand-written panel. A caller that builds a submenu out of `MenuItem[]` already has the list;
+     * without this the search would only ever match what the top level shows.
+     */
+    subItems?: MenuItem[];
+}
+/** A row the search box may offer that is not in the list — the header's own buttons. */
+export interface MenuSearchAction {
+    id: string;
+    label: string;
+    icon?: ReactNode;
+    combo?: string;
+    disabled?: boolean;
+    onSelect?: () => void;
+}
+
+/**
+ * What a query matches: the row itself, anything behind it, or a header action that says the same
+ * thing as a button. A promoted child is re-labelled `parent > child` and every match loses its
+ * separator, because a filtered list is no longer the grouping the unfiltered one was arranged into.
+ */
+export function filterMenuItems(items: MenuItem[], query: string, actions: MenuSearchAction[] = []): MenuItem[] {
+    const needle = query.trim();
+    if (!needle)
+        return items;
+    const matches = (label: string) => labelMatches(label, needle);
+    const out: MenuItem[] = [];
+    for (const action of actions) {
+        if (action.disabled || !matches(action.label))
+            continue;
+        out.push({ id: `action-${action.id}`, label: action.label, icon: action.icon, combo: action.combo, onSelect: action.onSelect });
+    }
+    for (const item of items) {
+        const parentMatches = matches(item.label);
+        if (parentMatches)
+            out.push({ ...item, separatorBefore: false });
+        // A row that matched on its own name is one hover away from its children; promoting them too
+        // would turn a search for the parent into the parent's whole list, the opposite of filtering.
+        if (parentMatches)
+            continue;
+        for (const sub of item.subItems ?? []) {
+            if (!matches(sub.label) && !matches(`${item.label} › ${sub.label}`))
+                continue;
+            out.push({
+                ...sub,
+                id: `${item.id}:${sub.id}`,
+                label: `${item.label} › ${sub.label}`,
+                icon: sub.icon ?? item.icon,
+                separatorBefore: false,
+            });
+        }
+    }
+    return out;
+}
+
+/** Substring and fuzzy come from the palette's matcher; initials cover a two-word English label. */
+function labelMatches(label: string, query: string): boolean {
+    if (fuzzyMatch(label, query))
+        return true;
+    const words = label
+        .split(/[\s_\-›>/\\|()\uFF08\uFF09\u3001]+/)
+        .filter((word) => word.length > 0);
+    if (words.length < 2)
+        return false;
+    const initials = words.map((word) => word[0]!).join('').toLowerCase();
+    const needle = query.toLowerCase();
+    return needle.length > 1 && (initials.startsWith(needle) || initials.includes(needle));
 }
 interface OpenSubmenu {
     id: string;
@@ -386,7 +455,7 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, }: {
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, header, searchable = false, searchPlaceholder = t('overlay.search_menu'), searchActions, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -406,9 +475,18 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
      * inerted everything behind it, so the rows are reachable by neither the trap nor the escape route.
      */
     container?: HTMLElement | null;
+    /** Pinned above the rows: the quick-action strip a context menu opens with. */
+    header?: ReactNode;
+    /** Shows the filter box and narrows the list to what the query matches. */
+    searchable?: boolean;
+    searchPlaceholder?: string;
+    /** The header's buttons, offered to the filter box as rows of their own. */
+    searchActions?: MenuSearchAction[];
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
     const submenuRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLDivElement>(null);
+    const [query, setQuery] = useState('');
     const [position, setPosition] = useState<{
         top: number;
         left: number;
@@ -427,14 +505,25 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     const anchorRef = 'current' in anchor ? anchor : null;
     const point = 'current' in anchor ? null : anchor;
     const menuWidth = Math.min(width, Math.max(0, innerWidth - 16));
-    const submenuIndex = submenu ? items.findIndex((item) => item.id === submenu.id) : -1;
-    const submenuItem = submenuIndex >= 0 ? items[submenuIndex] : undefined;
+    const visibleItems = useMemo(() => (searchable ? filterMenuItems(items, query, searchActions) : items), [searchable, items, query, searchActions]);
+    const submenuIndex = submenu ? visibleItems.findIndex((item) => item.id === submenu.id) : -1;
+    const submenuItem = submenuIndex >= 0 ? visibleItems[submenuIndex] : undefined;
+    useEffect(() => {
+        if (open && searchable)
+            setQuery('');
+    }, [open, searchable]);
+    useEffect(() => {
+        if (!searchable)
+            return;
+        setCursor(visibleItems.findIndex((item) => !item.disabled));
+    }, [searchable, query, visibleItems]);
     useLayoutEffect(() => {
         if (!open)
             return;
         const margin = 8;
         const itemHeight = innerWidth < 768 ? 40 : 30;
-        const height = Math.min(items.length * itemHeight + 12, 420);
+        const headHeight = (header ? 44 : 0) + (searchable ? 40 : 0);
+        const height = Math.min(visibleItems.length * itemHeight + 12 + headHeight, 420);
         let top: number;
         let left: number;
         if (point) {
@@ -454,8 +543,8 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             top = Math.max(viewport.top + margin, (point ? point.y : (anchorRef?.current?.getBoundingClientRect().top ?? top)) - height - 5);
         left = Math.min(Math.max(viewport.left + margin, left), viewport.right - menuWidth - margin);
         setPosition({ top, left, origin: `${flipUp ? 'bottom' : 'top'} ${align === 'end' ? 'right' : 'left'}` });
-        setCursor(items.findIndex((i) => !i.disabled));
-    }, [open, items, align, menuWidth, anchorRef, point]);
+        setCursor(visibleItems.findIndex((i) => !i.disabled));
+    }, [open, visibleItems, align, menuWidth, anchorRef, point, header, searchable]);
     useEffect(() => {
         if (!open)
             setSubmenu(null);
@@ -512,13 +601,21 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         }
         if (submenu?.focus)
             return;
+        // The filter box owns the caret while the query is being typed; stealing it for a row would
+        // send every following keystroke to the menu instead of the field.
+        if (searchRef.current?.contains(document.activeElement))
+            return;
         menuRef.current
             ?.querySelector<HTMLElement>(`[data-menu-index="${cursor}"]`)
             ?.focus({ preventScroll: true });
-    }, [open, cursor, submenu]);
+    }, [open, cursor, submenu, searchable]);
+    useEffect(() => {
+        if (open && searchable)
+            searchRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    }, [open, searchable]);
     const openSubmenuFor = (index: number, focus: boolean) => {
         const row = menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${index}"]`);
-        const item = items[index];
+        const item = visibleItems[index];
         if (!row || !item?.submenu)
             return;
         setSubmenu((current) => current?.id === item.id && current.focus === focus
@@ -527,13 +624,13 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     };
     const moveCursor = (step: number) => {
         let next = cursor;
-        for (let i = 0; i < items.length; i++) {
-            next = (next + step + items.length) % items.length;
-            if (!items[next]?.disabled)
+        for (let i = 0; i < visibleItems.length; i++) {
+            next = (next + step + visibleItems.length) % visibleItems.length;
+            if (!visibleItems[next]?.disabled)
                 break;
         }
         setCursor(next);
-        if (items[next]?.submenu)
+        if (visibleItems[next]?.submenu)
             openSubmenuFor(next, submenu !== null);
         else
             setSubmenu(null);
@@ -545,6 +642,9 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)
                 return;
             const target = event.target instanceof HTMLElement ? event.target : null;
+            // The filter field handles its own keys; a Space typed there is a character, not a press.
+            if (target && searchRef.current?.contains(target))
+                return;
             const insideSubmenu = Boolean(target && submenuRef.current?.contains(target));
             if (insideSubmenu) {
                 const editable = target?.closest('input, textarea, [contenteditable="true"]');
@@ -563,18 +663,18 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             }
             else if (event.key === 'Home' || event.key === 'End') {
                 event.preventDefault();
-                const indexes = items
+                const indexes = visibleItems
                     .map((item, index) => item.disabled ? -1 : index)
                     .filter((index) => index >= 0);
                 const next = event.key === 'Home' ? (indexes[0] ?? -1) : (indexes[indexes.length - 1] ?? -1);
                 setCursor(next);
-                if (items[next]?.submenu)
+                if (visibleItems[next]?.submenu)
                     openSubmenuFor(next, submenu !== null);
                 else
                     setSubmenu(null);
             }
             else if (event.key === 'ArrowRight') {
-                const item = items[cursor];
+                const item = visibleItems[cursor];
                 if (!item?.submenu)
                     return;
                 event.preventDefault();
@@ -588,7 +688,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             }
             else if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                const item = items[cursor];
+                const item = visibleItems[cursor];
                 if (!item || item.disabled)
                     return;
                 if (item.submenu) {
@@ -601,11 +701,54 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
-    }, [open, items, cursor, submenu, onClose]);
+    }, [open, visibleItems, cursor, submenu, onClose]);
     if (!open)
         return null;
-    return (<>{createPortal(<div ref={menuRef} {...(panelId ? { id: panelId } : {})} role="menu" aria-label={label} tabIndex={-1} onScroll={() => setSubmenu(null)} className="anim-pop fixed max-h-[420px] overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
-      {items.map((item, index) => (<div key={item.id}>
+    return (<>{createPortal(<div ref={menuRef} {...(panelId ? { id: panelId } : {})} role="menu" aria-label={label} tabIndex={-1} className="anim-pop fixed flex max-h-[420px] flex-col rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{ top: position.top, left: position.left, width: menuWidth, transformOrigin: position.origin, zIndex }}>
+      {header && <div className="shrink-0">{header}</div>}
+      {searchable && (<div ref={searchRef} className="relative shrink-0 pb-1">
+          <Search size={13} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]"/>
+          <input type="search" role="searchbox" data-owns-escape aria-label={searchPlaceholder} value={query} placeholder={searchPlaceholder} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const first = visibleItems.findIndex((item) => !item.disabled);
+                if (first < 0)
+                    return;
+                setCursor(first);
+                menuRef.current
+                    ?.querySelector<HTMLElement>(`[data-menu-index="${first}"]`)
+                    ?.focus({ preventScroll: true });
+            }
+            else if (event.key === 'Enter') {
+                event.preventDefault();
+                const item = cursor >= 0 ? visibleItems[cursor] : undefined;
+                if (!item || item.disabled)
+                    return;
+                if (item.submenu) {
+                    openSubmenuFor(cursor, true);
+                    return;
+                }
+                item.onSelect?.();
+                onClose();
+            }
+            else if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                if (query)
+                    setQuery('');
+                else
+                    onClose();
+            }
+        }} className={`${FIELD_BASE} h-8 w-full rounded-[var(--r-sm)] bg-transparent pr-7 pl-7 text-[12.5px]`} autoComplete="off" spellCheck={false}/>
+          {query && (<IconButton label={t('overlay.clear_search')} size="sm" className="absolute top-1/2 right-0.5 -translate-y-1/2" onClick={() => {
+                setQuery('');
+                searchRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+            }}>
+              <X size={12}/>
+            </IconButton>)}
+        </div>)}
+      <div className="min-h-0 flex-1 overflow-y-auto" onScroll={() => setSubmenu(null)}>
+        {visibleItems.map((item, index) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
                 if (item.disabled)
@@ -636,6 +779,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             {item.combo && <Kbd combo={item.combo}/>}
           </button>
         </div>))}
+      </div>
     </div>, container ?? document.body)}
       {submenuItem?.submenu && createPortal(<div ref={submenuRef} role="group" aria-label={submenuItem.label} tabIndex={-1} className="anim-pop fixed outline-none" style={{
         top: submenuPosition?.top ?? 0,

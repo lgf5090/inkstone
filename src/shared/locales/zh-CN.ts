@@ -983,6 +983,8 @@ export const ZH_CN_MESSAGES = {
     "overlay.menu": "菜单",
     "overlay.side_panel": "侧边面板",
     "overlay.submenu": "子菜单",
+    "overlay.search_menu": "搜索菜单…",
+    "overlay.clear_search": "清除搜索",
     "preview.chart_title": "图表",
     "preview.chart_show_source": "源代码",
     "preview.chart_format_table": "表格",

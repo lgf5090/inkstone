@@ -982,6 +982,8 @@ export const EN_US_MESSAGES = {
     "overlay.menu": "Menu",
     "overlay.side_panel": "Side panel",
     "overlay.submenu": "Submenu",
+    "overlay.search_menu": "Search menu…",
+    "overlay.clear_search": "Clear search",
     "preview.chart_title": "Chart",
     "preview.chart_show_source": "Source",
     "preview.chart_format_table": "Table",
