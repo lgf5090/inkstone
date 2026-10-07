@@ -292,7 +292,7 @@ export function SectionLabel({ children, className }: { children: ReactNode; cla
   return (
     <div
       className={cn(
-        'px-2 pt-1 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.075em] text-[var(--text-quaternary)]',
+        'min-w-0 truncate px-2 pt-1 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.075em] text-[var(--text-quaternary)] whitespace-nowrap',
         className,
       )}
     >
