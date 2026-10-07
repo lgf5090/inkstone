@@ -3252,6 +3252,9 @@ const allowed = new Map([
     "// Best-effort: an asset that cannot be read keeps its original URL, which an SVG image cannot",
     "// resolve, so the picture simply renders without it.",
   ]],
+  ["src/client/lib/emoji-glyph.ts", [
+    "/**\n * Whether a glyph survives the icon column: the store truncates at eight UTF-16 units, and a\n * zero-width-joiner sequence cut in that range renders as two half pictures. This lives apart from\n * the catalogue itself so the preferences module can ask it without pulling the search code, and\n * with it the fuzzy matcher, onto the boot path.\n */",
+  ]],
   ["src/client/lib/export-note.ts", [
     "// Pinned so an exported document cannot silently load a different stylesheet: the hash",
     "// is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.",
@@ -6533,6 +6536,10 @@ const allowed = new Map([
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",
     "// next to the colour list rather than at each call site.",
+    "/**\n * Whether an organiser colour can be told apart from the surface it sits on. An unresolvable\n * surface (a CSS variable the reader cannot compute) is treated as visible: the guard exists to\n * stop a user painting a folder the same colour as its background, not to block themes it\n * cannot see.\n */",
+    "/** A six-digit hex the author mixed themselves, outside the preset ramp. */",
+    "/**\n * Resolve the colour a theme actually painted with: a hex, an `rgb()` triple, or the `oklch()`\n * form the design tokens use — `getComputedStyle` hands back whichever the author wrote.\n */",
+    "/**\n * WCAG contrast between an organiser colour and the surface it is painted on. A folder icon and a\n * tag pill carry no other weight, so a colour closer than 3:1 to the theme simply disappears.\n * Null means \"not two plain hexes\", which callers must read as unknown rather than as a pass.\n */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

@@ -805,6 +805,49 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         </div>, container ?? document.body)}
     </>);
 }
+export function MenuSubmenuList({ label, items, width = 178, zIndex = 265 }: {
+    label: string;
+    items: MenuItem[];
+    width?: number;
+    zIndex?: number;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    const rows = (scope: ParentNode) => [...scope.querySelectorAll<HTMLButtonElement>('button[data-submenu-row]:not([disabled])')];
+    const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End')
+            return;
+        const list = rows(event.currentTarget);
+        if (list.length === 0)
+            return;
+        event.preventDefault();
+        const at = list.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? list.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
+        list[next]?.focus({ preventScroll: true });
+    };
+    useEffect(() => {
+        const panel = ref.current?.parentElement;
+        if (panel && document.activeElement === panel)
+            rows(ref.current!)[0]?.focus({ preventScroll: true });
+    }, []);
+    return (<div ref={ref} role="group" aria-label={label} onKeyDown={onKeyDown} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] outline-none" style={{
+        width,
+        zIndex,
+    }}>
+      {items.map((item) => (<div key={item.id}>
+          {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
+          <button type="button" data-submenu-row disabled={item.disabled} onClick={item.onSelect} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[12.5px] transition-colors duration-[80ms] md:h-[30px]', 'disabled:pointer-events-none disabled:opacity-40', item.tone === 'danger'
+                ? 'text-[var(--danger)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+            {item.icon && (<span className="flex size-4 shrink-0 items-center justify-center opacity-85">
+                {item.icon}
+              </span>)}
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
+            {item.combo && <Kbd combo={item.combo}/>}
+          </button>
+        </div>))}
+    </div>);
+}
 export function useContextMenu() {
     const [point, setPoint] = useState<{
         x: number;

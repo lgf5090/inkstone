@@ -1,14 +1,22 @@
-import { useMemo, useState } from 'react';
-import { Check, FolderClosed, Search, Settings2 } from 'lucide-react';
-import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, FolderClosed, Palette, Search, Settings2 } from 'lucide-react';
+import {
+    ORGANIZER_COLORS,
+    isCustomOrganizerColor,
+    isOrganizerColorVisible,
+    isResolvedOrganizerColor,
+    organizerColorContrast,
+    organizerColorLabel,
+} from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
 import { t, useLocale } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
 import {
     ICON_MAX_CODE_UNITS,
-    EMOJI_ICON_CATEGORIES,
     isUsableIconGlyph,
-    searchEmoji,
+    loadEmojiCatalog,
+    searchEmojiIn,
+    type EmojiCategory,
     type EmojiEntry,
 } from '../../lib/emoji-catalog';
 import { pushRecentIcon, useFolderPreferences } from '../../lib/folder-prefs';
@@ -29,13 +37,14 @@ function firstGrapheme(value: string): string | null {
     return (segmented?.[0] ?? Array.from(trimmed)[0]) ?? null;
 }
 
-function MenuPanel({ label, hint, width, children }: {
+function MenuPanel({ label, hint, width, children, panelRef }: {
     label: string;
     hint?: React.ReactNode;
     width: number;
     children: React.ReactNode;
+    panelRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-    return (<div className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)] outline-none" style={{ width }} onClick={(event) => event.stopPropagation()}>
+    return (<div ref={panelRef} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)] outline-none" style={{ width }} onClick={(event) => event.stopPropagation()}>
       <div className="flex min-w-0 items-baseline justify-between gap-2 px-0.5 pt-0.5 pb-2">
         <span className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
         {hint}
@@ -65,20 +74,77 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
     onSelectColor: (color: string | null) => void;
     onManageFolders?: () => void;
 }) {
-    return (<MenuPanel label={t("folders.color")} width={COLOR_PANEL_WIDTH} hint={color
+    const panelRef = useRef<HTMLDivElement>(null);
+    const [draft, setDraft] = useState('');
+    const [refused, setRefused] = useState(false);
+    const surface = () => {
+        let node: HTMLElement | null = panelRef.current;
+        while (node) {
+            const painted = getComputedStyle(node).backgroundColor;
+            if (isResolvedOrganizerColor(painted))
+                return painted;
+            node = node.parentElement;
+        }
+        return '';
+    };
+    const ratio = (hex: string) => organizerColorContrast(hex, surface());
+    const offer = (hex: string) => {
+        const next = hex.toLocaleLowerCase();
+        if (!isCustomOrganizerColor(next))
+            return;
+        if (!isOrganizerColorVisible(next, surface())) {
+            setDraft(next);
+            setRefused(true);
+            return;
+        }
+        setRefused(false);
+        onSelectColor(next);
+    };
+    const shown = color ?? null;
+    const shownRatio = shown && isCustomOrganizerColor(shown) ? ratio(shown) : null;
+    return (<MenuPanel panelRef={panelRef} label={t("folders.color")} width={COLOR_PANEL_WIDTH} hint={shown
         ? (<span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-quaternary)]">
-              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true"/>
-              <span className="truncate">{organizerColorLabel(color, t)}</span>
+              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: shown }} aria-hidden="true"/>
+              <span className="truncate">{organizerColorLabel(shown, t)}</span>
             </span>)
         : undefined}>
       <div role="group" aria-label={t("folders.color")} className="grid grid-cols-6 gap-1.5 px-0.5">
-        <SwatchButton active={!color} label={t("folders.no_color")} color={null} onPick={() => onSelectColor(null)}>
+        <SwatchButton active={!color} label={t("folders.no_color")} color={null} onPick={() => {
+                setRefused(false);
+                onSelectColor(null);
+            }}>
           <FolderClosed size={13}/>
         </SwatchButton>
-        {ORGANIZER_COLORS.map((value) => (<SwatchButton key={value} active={color === value} label={organizerColorLabel(value, t)} color={value} onPick={() => onSelectColor(value)}>
+        {ORGANIZER_COLORS.map((value) => (<SwatchButton key={value} active={color === value} label={organizerColorLabel(value, t)} color={value} onPick={() => {
+                setRefused(false);
+                onSelectColor(value);
+            }}>
             {color === value && <Check size={13} className="text-white"/>}
           </SwatchButton>))}
       </div>
+      <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
+      <div className="flex items-center gap-1.5">
+        <label className="relative flex size-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-default)] hover:text-[var(--text-secondary)]">
+          <Palette size={13} aria-hidden="true"/>
+          <span className="sr-only">{t("color.custom")}</span>
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(draft || shown || '') ? draft || shown || '#888888' : '#888888'} onChange={(event) => setDraft(event.target.value.toLocaleLowerCase())} onBlur={(event) => offer(event.target.value)} aria-label={t("color.custom")} className="absolute inset-0 size-full cursor-pointer opacity-0"/>
+        </label>
+        <input type="text" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={(event) => offer(event.target.value)} onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    offer(event.currentTarget.value);
+                }
+            }} placeholder={shown ?? '#rrggbb'} spellCheck={false} autoComplete="off" aria-label={t("folders.color_custom_value")} className={cn('h-7 min-w-0 flex-1 rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 font-mono text-[11.5px] uppercase text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)]', refused
+                ? 'border-[var(--danger)]'
+                : 'border-[var(--border-subtle)] focus:border-[var(--accent)]')}/>
+      </div>
+      <p className={cn('px-0.5 pt-1 text-[11px]', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
+        {refused
+            ? t("color.contrast_too_low")
+            : shownRatio !== null
+                ? t("color.contrast_ratio_value0", { value0: shownRatio.toFixed(1) })
+                : t("folders.color_custom_hint")}
+      </p>
       {onManageFolders && (<>
           <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
           <button type="button" onClick={onManageFolders} className="flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">
@@ -120,6 +186,7 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
     onSelectIcon: (icon: string | null) => void;
 }) {
     const [query, setQuery] = useState('');
+    const [catalog, setCatalog] = useState<readonly EmojiCategory[] | null>(null);
     const locale = useLocale();
     const pinyinVersion = usePinyinVersion();
     const { recentIcons } = useFolderPreferences();
@@ -131,11 +198,24 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
             ? t("folders.icon_too_long_value0", { value0: ICON_MAX_CODE_UNITS })
             : t("folders.icon_unusable")
         : null;
+    useEffect(() => {
+        let alive = true;
+        loadEmojiCatalog().then((module) => {
+            if (alive)
+                setCatalog(module.EMOJI_ICON_CATEGORIES);
+        }, () => {
+            if (alive)
+                setCatalog([]);
+        });
+        return () => {
+            alive = false;
+        };
+    }, []);
     const matches = useMemo(() => {
-        if (!trimmed)
+        if (!trimmed || !catalog)
             return null;
         const lower = trimmed.toLocaleLowerCase();
-        const named = EMOJI_ICON_CATEGORIES.filter((category) => {
+        const named = catalog.filter((category) => {
             const label = t(category.labelKey).toLocaleLowerCase();
             return label === lower || label.startsWith(lower) || label.includes(lower);
         });
@@ -144,10 +224,10 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
             for (const entry of category.entries)
                 found.set(entry.char, entry);
         }
-        for (const entry of searchEmoji(trimmed))
+        for (const entry of searchEmojiIn(catalog.flatMap((category) => category.entries), trimmed))
             found.set(entry.char, entry);
         return [...found.values()].slice(0, ICON_RESULT_LIMIT);
-    }, [trimmed, locale, pinyinVersion]);
+    }, [trimmed, catalog, locale, pinyinVersion]);
     const pick = (char: string) => {
         pushRecentIcon(char);
         onSelectIcon(char);
@@ -161,8 +241,9 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
         <input type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("folders.icon_search")} autoComplete="off" className="h-7 w-full rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] pr-2 pl-7 text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)]"/>
       </label>
       <div className="-mx-1 max-h-[226px] overflow-y-auto">
-        {matches === null && recentIcons.length > 0 && (<IconSection title={t("folders.icon_recent")} entries={recentIcons.map((char) => ({ char, keys: 'recent' }))} current={icon ?? null} onPick={pick}/>)}
-        {matches === null && EMOJI_ICON_CATEGORIES.map((category) => <IconSection key={category.id} title={t(category.labelKey)} entries={category.entries} current={icon ?? null} onPick={pick}/>)}
+        {catalog === null && (<p className="px-2 py-6 text-center text-[11.5px] text-[var(--text-quaternary)]">{t("folders.icon_loading")}</p>)}
+        {catalog !== null && matches === null && recentIcons.length > 0 && (<IconSection title={t("folders.icon_recent")} entries={recentIcons.map((char) => ({ char, keys: 'recent' }))} current={icon ?? null} onPick={pick}/>)}
+        {catalog !== null && matches === null && catalog.map((category) => <IconSection key={category.id} title={t(category.labelKey)} entries={category.entries} current={icon ?? null} onPick={pick}/>)}
         {matches !== null && matches.length > 0 && (<IconSection title={t("folders.icon_matches_value0", { value0: matches.length })} entries={matches} current={icon ?? null} onPick={pick}/>)}
         {matches !== null && matches.length === 0 && (<div className="px-2 py-6 text-center">
               <p className="text-[12px] text-[var(--text-tertiary)]">{t("folders.icon_no_match")}</p>

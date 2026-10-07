@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, FolderClosed, Home } from 'lucide-react';
+import { Check, ChevronRight, FolderClosed, Inbox } from 'lucide-react';
 import type { FolderNode } from '../../store/notes';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
@@ -34,11 +34,12 @@ function levelLeft(rect: DOMRect): number {
     return Math.max(margin, Math.min(rect.left - LEVEL_WIDTH - LEVEL_GAP, window.innerWidth - margin - LEVEL_WIDTH));
 }
 
-export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, onSelect }: {
+export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, inboxFolderId, onSelect }: {
     tree: readonly FolderNode[];
     subject: FolderNode;
     currentParentId: string | null;
     excludedIds: ReadonlySet<string>;
+    inboxFolderId?: string | null;
     onSelect: (parentId: string | null) => void;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
@@ -57,6 +58,7 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, on
         walk(levels);
         return found;
     }, [levels]);
+    const inbox = inboxFolderId && inboxFolderId !== subject.id ? byId.get(inboxFolderId) ?? null : null;
 
 
     const reanchor = useCallback(() => {
@@ -179,7 +181,8 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, on
         <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--text-tertiary)]">{t("folders.move_subject_value0", { value0: subject.name })}</span>
       </div>
       <div className="max-h-[252px] overflow-y-auto border-t border-[var(--border-subtle)] pt-1" onScroll={reanchor} role="group" aria-label={t("folders.move_to")}>
-        <MoveRow depth={0} id={null} label={t("folders.top_level")} glyph={<Home size={13}/>} count={0} isCurrent={currentParentId === null} hasChildren={levels.length > 0} onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(null)}/>
+        <MoveRow depth={0} id={null} label={t("folders.move_unfiled")} glyph={<Inbox size={13}/>} count={0} isCurrent={currentParentId === null} hasChildren={levels.length > 0} onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(null)}/>
+        {inbox && (<MoveRow depth={0} id={inbox.id} label={t("folders.move_inbox_value0", { value0: inbox.name })} glyph={inbox.icon || null} color={inbox.color} count={inbox.directNotes} isCurrent={currentParentId === inbox.id} hasChildren={false} onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(inbox.id)}/>)}
         {levels.map((node) => <FolderBranch key={node.id} node={node} depth={0} currentParentId={currentParentId} onHover={hover} onSelect={onSelect}/>)}
         {levels.length === 0 && currentParentId === null && (<p className="px-2 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">{t("folders.move_empty")}</p>)}
       </div>

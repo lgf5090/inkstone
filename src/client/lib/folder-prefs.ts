@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { isUsableIconGlyph } from './emoji-catalog';
+import { isUsableIconGlyph } from './emoji-glyph';
 
 export const FOLDER_PREFS_STORAGE_KEY = 'inkstone.folder-preferences.v1';
 
