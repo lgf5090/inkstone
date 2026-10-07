@@ -1,4 +1,4 @@
-import { fitMindmapBlock } from '../../lib/markdown/mindmap/registry'
+import { remeasureMindmapBlock } from '../../lib/markdown/mindmap/registry'
 
 const SYNC_STORAGE_PREFIX = 'inkstone:tabs-sync:v1:'
 
@@ -131,11 +131,11 @@ function rememberSyncedChoice(tabs: HTMLElement, index: number, scope: TabScope 
 /**
  * A panel that was hidden while its block was measured comes back with the size of nothing at all, so
  * everything that lays itself out on a real box has to be told here. Chart.js is configured
- * `responsive`, which is the resize event below; a mind map needs the direct nudge, because its
- * container watcher cannot fire — the box it watches only changes once the panel is already visible.
+ * `responsive`, which is the resize event below; a mind map needs the direct nudge — it measured itself
+ * against a zero box, and leaving the repair to its container watcher is a race rather than a design.
  */
 export function revealActiveTabContent(panel: HTMLElement): void {
-  panel.querySelectorAll<HTMLElement>('[data-mindmap]').forEach(fitMindmapBlock)
+  panel.querySelectorAll<HTMLElement>('[data-mindmap]').forEach(remeasureMindmapBlock)
   if (panel.querySelectorAll<HTMLElement>('[data-chart], [data-mermaid], [data-mindmap]').length)
     window.dispatchEvent(new Event('resize'))
 }

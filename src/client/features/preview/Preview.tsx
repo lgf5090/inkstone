@@ -25,6 +25,10 @@ import {
   resetMermaidNode,
   toggleCodeBlockCollapse,
 } from '../../lib/markdown/enhance'
+import { KanbanFullscreen } from '../../lib/markdown/kanban'
+import { kanbanIndex } from '../../lib/markdown/kanban/view'
+import { fenceBody, registerFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
+import { useKanbanBlocks } from './use-kanban-blocks'
 import { updateTaskAtSourceLine } from '../../editor/commands'
 import { useUi } from '../../store/ui'
 import { useNotes, findNoteByTitle } from '../../store/notes'
@@ -72,6 +76,7 @@ export const Preview = memo(function Preview({
   const internalScrollerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = externalScrollerRef ?? internalScrollerRef
   const preview = useSession((s) => s.settings.preview)
+  const editorSettings = useSession((s) => s.settings.editor)
   const appearance = useSession((s) => s.settings.appearance)
   const userId = useSession((s) => s.user?.id)
   const locale = useLocale()
@@ -105,6 +110,11 @@ export const Preview = memo(function Preview({
   const wikiScrollCleanupRef = useRef<() => void>(() => {})
   const [mermaidEpoch, setMermaidEpoch] = useState(0)
   const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null)
+  // The markup the host is *holding*, not the markup about to be drawn: a board is a React root and
+  // can only be mounted into the live tree. It also carries the fence bodies, because with the bodies
+  // out of the attributes an edit to a board leaves the markup string identical — so the markup alone
+  // would never say the board changed.
+  const [kanbanCommit, setKanbanCommit] = useState<{ html: string, fences: FenceBodies } | null>(null)
 
   useLayoutEffect(() => {
     if (hostRef.current && !hostRef.current.hasChildNodes() && rendered.html) {
@@ -120,6 +130,14 @@ export const Preview = memo(function Preview({
     hostRef,
     epoch: mermaidEpoch,
     dark: theme === 'dark',
+  })
+
+  const kanban = useKanbanBlocks({
+    scope: noteId ?? 'unsaved',
+    noteId: noteId ?? null,
+    hostRef,
+    committedHtml: kanbanCommit?.html ?? '',
+    fences: kanbanCommit?.fences ?? null,
   })
 
   useEffect(() => {
@@ -185,6 +203,9 @@ export const Preview = memo(function Preview({
 
     const staging = document.createElement('div')
     staging.innerHTML = rendered.html
+    // Registered before the swap so the patch below can read a staged block's body: the copy in the
+    // host still resolves against the previous set, and the two are what say whether a board changed.
+    registerFenceBodies(staging, rendered.fences)
 
     const prepare = async () => {
       if (rendered.hasEmbeds) {
@@ -198,6 +219,9 @@ export const Preview = memo(function Preview({
         math: preview.math,
         mermaid: preview.mermaid,
         chart: preview.chart,
+        // 'live' says the board is somebody else's job: a React root cannot be drawn into detached
+        // staging, so this pass leaves the block's placeholder standing and the mount below replaces it.
+        kanban: 'live',
         // The map itself is mounted from the committed markup by `useMindmapBlocks`, so this pass has
         // to leave the placeholder standing: a snapshot drawn here would be swapped in over the live
         // canvas by the next diff, and the registry would then re-parent into a block holding an image.
@@ -209,12 +233,28 @@ export const Preview = memo(function Preview({
       })
       // Every block head is built here rather than on the live host so it is part of the markup the
       // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
-      enhanceBlockToolbars(staging, { chart: preview.chart, tabScope })
+      enhanceBlockToolbars(staging, {
+        chart: preview.chart,
+        codeFormat: {
+          enabled: preview.codeFormatButton,
+          tabSize: editorSettings.tabSize,
+          keywordCase: editorSettings.codeFormatKeywordCase,
+        },
+        tabScope,
+      })
       if (cancelled || revision !== preparationRef.current) return
 
       restorePreviewInteractionState(staging, capturePreviewInteractionState(hostRef.current))
 
       const nextHtml = staging.innerHTML
+      // Outside the swap below on purpose: a fence-body edit leaves this markup string identical, so
+      // gating the mount on a changed string would leave the board showing the old cards. Returning the
+      // same object keeps React from re-rendering when neither half moved.
+      setKanbanCommit((current) =>
+        current && current.html === nextHtml && current.fences === rendered.fences
+          ? current
+          : { html: nextHtml, fences: rendered.fences },
+      )
       committedSourceRef.current = debounced
       if (nextHtml !== committedHtmlRef.current) {
         const scroller = scrollerRef.current
@@ -255,6 +295,9 @@ export const Preview = memo(function Preview({
     preview.chart,
     preview.codeBlockCollapse,
     preview.codeBlockCollapseLines,
+    preview.codeFormatButton,
+    editorSettings.tabSize,
+    editorSettings.codeFormatKeywordCase,
     theme,
   ])
 
@@ -280,6 +323,11 @@ export const Preview = memo(function Preview({
     sourceNoteId,
     committedSourceRef,
     api: { editContent, toast },
+    codeFormat: {
+      enabled: preview.codeFormatButton,
+      tabSize: editorSettings.tabSize,
+      keywordCase: editorSettings.codeFormatKeywordCase,
+    },
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
   })
 
@@ -502,6 +550,9 @@ export const Preview = memo(function Preview({
         data-preview-content
         className="ink-prose"
       />
+      {kanban.fullscreen && (
+        <KanbanFullscreen session={kanban.fullscreen.session} onClose={kanban.closeFullscreen}/>
+      )}
       <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
       {mindmap.fullscreen && (
         <MindmapFullscreen session={mindmap.fullscreen.session} onClose={mindmap.closeFullscreen}/>
@@ -734,6 +785,24 @@ export function patchDom(dest: Node, src: Node): void {
         // canvas. Preserving it there left an off switch with a chart still drawn on screen.
         // The line is still re-stamped: a format toggle changes how many lines a block above occupies,
         // which moves this one, and the line is what the toolbar resolves its write against.
+        if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
+        return
+      }
+    }
+
+    // A mounted board is a React root living inside this element, and none of it is in innerHTML:
+    // re-syncing the subtree would put the renderer's placeholder back over a board that did not
+    // change, and the reader would lose the column they had scrolled to. The two bodies are compared
+    // through the fence set each copy was registered with, because the body is deliberately not an
+    // attribute here — and an empty answer on either side means unregistered markup, which is never
+    // a match worth preserving.
+    if (destEl.hasAttribute('data-kanban') && srcEl.hasAttribute('data-kanban') &&
+      destEl.querySelector('[data-kanban-canvas]') &&
+      !srcEl.classList.contains('kanban-source')) {
+      const live = fenceBody(destEl, 'kanban', kanbanIndex(destEl))
+      if (live !== '' && live === fenceBody(srcEl, 'kanban', kanbanIndex(srcEl))) {
+        // The line is still re-stamped: a block above changing its line count moves this one, and the
+        // line is what a write resolves its fence against.
         if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return
       }

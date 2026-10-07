@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { ConfirmHost } from './components/overlay'
+import { ConfirmHost, PromptHost } from './components/overlay'
 import { Toaster } from './components/feedback'
 import { Spinner } from './components/primitives'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -77,6 +77,7 @@ export function App() {
       </ErrorBoundary>
       <Toaster />
       <ConfirmHost />
+      <PromptHost />
     </>
   )
 }

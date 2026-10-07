@@ -167,6 +167,16 @@ export function subscribeLocale(listener: () => void): () => void {
 export function useLocale(): AppLocale {
     return useSyncExternalStore(subscribeLocale, getLocale, getLocale);
 }
+/**
+ * Subscribes a component that calls {@link t} during render to the two things that change what `t`
+ * answers: the active locale, and the resource version this locale's messages arrive under. A board
+ * rendered outside the app's own locale-aware tree would otherwise keep last locale's copy after a
+ * language switch, because React has no other reason to run its render again.
+ */
+export function useLocaleRepaint(): void {
+    useLocale();
+    useLocaleResources();
+}
 export function localeTag(): string {
     return locale;
 }

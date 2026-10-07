@@ -18,12 +18,12 @@ import { detectMindmapMode, normalizeEol } from './body';
 import type { MindmapBlockEntry } from './entry';
 import { loadMindmapVendor } from './loader';
 import { decorateMindmapLinks } from './node-links';
-import { watchMindmapContainer } from './resize';
+import { relayoutMindmap, watchMindmapBox, watchMindmapContainer } from './resize';
 import { renderStaticMindmapBlocks } from './static';
 import { APP_THEME_CHOICE, fenceThemeChoice, type MindmapThemeChoice } from './theme';
 import type { MindmapFenceWriter, MindmapVendorLoader, MindmapWriteResult, MindmapWriter } from './types';
 import { flushEntry, scheduleWrite, setEntryTheme } from './write';
-import { createMindmapCanvas, decorateMindmapControls, disarmNativeFullscreen, isMindmapWritableHere, markMindmapLoading, markMindmapReady, markMindmapThemeMenuOpen, MINDMAP_PLACEHOLDER_SELECTOR, mindmapBlocks, mindmapBody, mindmapIndex, mindmapThemeAnnotation, showMindmapError, showMindmapThemeChoice, type MindmapThemePickName } from './view';
+import { createMindmapCanvas, decorateMindmapControls, disarmNativeFullscreen, hasLayoutBox, isMindmapWritableHere, markMindmapLoading, markMindmapReady, markMindmapThemeMenuOpen, MINDMAP_PLACEHOLDER_SELECTOR, mindmapBlocks, mindmapBody, mindmapIndex, mindmapThemeAnnotation, showMindmapError, showMindmapThemeChoice, type MindmapThemePickName } from './view';
 
 export type { MindmapBlockEntry } from './entry';
 
@@ -118,6 +118,25 @@ export function mindmapEntryForNode(node: HTMLElement): MindmapBlockEntry | null
 /** The header button of a live block; a no-op while the block is still loading. */
 export function fitMindmapBlock(node: HTMLElement): void {
     mindmapEntryForNode(node)?.handle?.scaleFit();
+}
+
+/**
+ * Re-measure a map that has just become visible.
+ *
+ * A block mounted inside a hidden tab panel laid itself out against a zero box, which puts `NaN` into
+ * every connector below the first level. The container watcher repairs that when it reports a real
+ * size — but revealing a panel is not guaranteed to change the box it observes, and the surfaces that
+ * mirror a map without a live instance have no watcher at all, so whoever hides a map has to say so.
+ */
+export function remeasureMindmapBlock(node: HTMLElement): void {
+    const entry = mindmapEntryForNode(node);
+    if (!entry?.handle)
+        return;
+    const container = entry.container;
+    // Still nothing to measure against: leave it to the watcher, which reports once a box exists.
+    if (!container || !hasLayoutBox(container))
+        return;
+    relayoutMindmap(entry);
 }
 
 /** Notifies when a block becomes ready, changes owner or starts editing. */
@@ -244,6 +263,7 @@ function createEntry(node: HTMLElement, options: MindmapMountOptions, load: Mind
         dirty: false,
         timer: null,
         pending: null,
+        awaitingBox: false,
     };
     entries.set(created.key, created);
     return created;
@@ -281,6 +301,17 @@ async function mountBlock(node: HTMLElement, entry: MindmapBlockEntry, options: 
         else
             showMindmapThemeChoice(node, entry.choice);
         syncEntry(entry, body);
+        return;
+    }
+    // A block that has never been drawn adopts the body it will be drawn from now, so the instance that
+    // eventually arrives is built from what the fence says today rather than from the body the entry
+    // happened to be created with.
+    entry.source = body;
+    entry.mode = detectMindmapMode(body);
+    if (entry.awaitingBox) {
+        // The canvas an earlier pass left waiting for a box has to move into this render's placeholder:
+        // the watcher measures that element, and a detached one never reports a size.
+        placeContainer(entry);
         return;
     }
     await createInstance(entry);
@@ -350,6 +381,29 @@ function createInstance(entry: MindmapBlockEntry): Promise<void> {
     return entry.pending;
 }
 
+/**
+ * Holds off the first drawing until the block has a box to measure.
+ *
+ * The library reads node boxes out of the DOM as it draws, so a block with no box — a tab panel that
+ * is not showing — hands it nothing, and every connector below the first level comes back `NaN` with
+ * the browser saying so on the console. The map is built when the box arrives instead, which is why no
+ * surface that hides one has to remember to wake it. Reports false where nothing can watch for a box,
+ * leaving the caller to draw as it always did: a stale drawing beats a map that never appears.
+ */
+function awaitFirstBox(entry: MindmapBlockEntry): boolean {
+    const observer = watchMindmapBox(entry, () => {
+        observer?.disconnect();
+        entry.awaitingBox = false;
+        entry.observer = null;
+        void createInstance(entry);
+    });
+    if (!observer)
+        return false;
+    entry.awaitingBox = true;
+    entry.observer = observer;
+    return true;
+}
+
 async function buildInstance(entry: MindmapBlockEntry): Promise<void> {
     markMindmapLoading(entry.host);
     const vendor = await entry.load();
@@ -377,6 +431,8 @@ async function buildInstance(entry: MindmapBlockEntry): Promise<void> {
     // a detached one lays out as zeros and draws NaN link paths.
     entry.container = container;
     placeContainer(entry);
+    if (!hasLayoutBox(container) && awaitFirstBox(entry))
+        return;
     entry.handle = vendor.create({
         el: container,
         body: { ...parsed, theme: entry.choice },

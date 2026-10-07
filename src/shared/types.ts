@@ -114,7 +114,10 @@ export interface EditorSettings {
   livePreview: boolean
   tabSize: number
   autoSaveDelay: number
+  codeFormatKeywordCase: CodeFormatKeywordCase
 }
+
+export type CodeFormatKeywordCase = 'upper' | 'lower' | 'keep'
 
 export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
 export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover'
@@ -129,6 +132,7 @@ export interface PreviewSettings {
   chart: boolean
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
+  codeFormatButton: boolean
   linkHover: boolean
   linkHoverDelayMs: number
   linkPreviewLength: number

@@ -180,6 +180,99 @@ describe('code block settings toolbar', () => {
   })
 })
 
+describe('code block format button', () => {
+  const MESSY = '```ts\nfunction f(){\nconst a=1\nreturn a\n}\n```'
+  const FORMATTED = '```ts\nfunction f() {\n  const a = 1\n  return a\n}\n```'
+  const PADDED = '# Title\n\n' + MESSY + '\n\nafter\n'
+
+  function built(source = MESSY, codeFormat?: { enabled: boolean, tabSize: number, keywordCase: 'upper' | 'lower' | 'keep' }): HTMLElement {
+    const root = codeRoot(source)
+    enhanceCodeBlockToolbarsInRoot(root, codeFormat ? { codeFormat } : undefined)
+    return root
+  }
+
+  function press(root: HTMLElement, source: string, format?: { enabled: boolean, tabSize: number, keywordCase: 'upper' | 'lower' | 'keep' }): { edits: string[], toasts: { title: string, tone?: string }[] } {
+    const edits: string[] = []
+    const toasts: { title: string, tone?: string }[] = []
+    const handled = executeCodeBlockAction(
+      'format-code',
+      node(root, '[data-code-action="format-code"]'),
+      source,
+      (next) => edits.push(next),
+      (opts) => toasts.push(opts),
+      format,
+    )
+    expect(handled).toBe(true)
+    return { edits, toasts }
+  }
+
+  it('sits before the settings trigger and carries its own accessible name', () => {
+    const root = built()
+    const actions = [...node(root, '.block-tools').querySelectorAll<HTMLButtonElement>('button')].map((button) => button.dataset.codeAction)
+    expect(actions).toEqual(['format-code', 'toggle-settings'])
+    expect(node(root, '[data-code-action="format-code"]').getAttribute('aria-label')).toBeTruthy()
+  })
+
+  it('is not drawn when the setting is off, and the settings trigger still is', () => {
+    const root = built(MESSY, { enabled: false, tabSize: 2, keywordCase: 'upper' })
+    expect(root.querySelector('[data-code-action="format-code"]')).toBeNull()
+    expect(root.querySelector('[data-code-action="toggle-settings"]')).not.toBeNull()
+  })
+
+  it('rewrites the body and leaves the fence lines and the rest of the note alone', () => {
+    const { edits, toasts } = press(built(PADDED), PADDED)
+    expect(edits).toEqual(['# Title\n\n' + FORMATTED + '\n\nafter\n'])
+    expect(toasts[0]?.title).toBe('preview.code_format_done')
+  })
+
+  it('follows the tab size and keyword case it was drawn with', () => {
+    const source = '```sql\nselect a from t\n```'
+    const lower = press(built(source), source, { enabled: true, tabSize: 2, keywordCase: 'lower' })
+    expect(lower.edits[0]).toBe('```sql\nselect a\nfrom t\n```')
+    const upper = press(built(source), source, { enabled: true, tabSize: 2, keywordCase: 'upper' })
+    expect(upper.edits[0]).toBe('```sql\nSELECT a\nFROM t\n```')
+  })
+
+  it('says the block was already formatted rather than writing nothing quietly', () => {
+    const { edits, toasts } = press(built(FORMATTED), FORMATTED)
+    expect(edits).toEqual([])
+    expect(toasts[0]).toMatchObject({ title: 'preview.code_format_unchanged', tone: 'warning' })
+  })
+
+  it('keeps an offer to put the previous text back', () => {
+    const edits: string[] = []
+    const toasts: { title: string, action?: { label: string, run: () => void } }[] = []
+    executeCodeBlockAction('format-code', node(built(PADDED), '[data-code-action="format-code"]'), PADDED, (next) => edits.push(next), (opts) => toasts.push(opts))
+    expect(edits.length).toBe(1)
+    toasts[0]?.action?.run()
+    expect(edits[1]).toBe(PADDED)
+  })
+
+  it('refuses a block whose fence line no longer opens one', () => {
+    const root = built(PADDED)
+    const moved = PADDED.replace('```ts', 'plain prose')
+    const { edits, toasts } = press(root, moved)
+    expect(edits).toEqual([])
+    expect(toasts[0]).toMatchObject({ title: 'preview.code_edit_unavailable', tone: 'warning' })
+  })
+
+  it('routes a click through the note and refuses a stale preview', () => {
+    const root = built(PADDED)
+    const editContent = vi.fn()
+    const context = (source: string, committed: string) => ({
+      content: source,
+      sourceNoteId: 'n1',
+      committedSourceRef: { current: committed },
+      codeFormat: { enabled: true, tabSize: 2, keywordCase: 'upper' as const },
+      api: { editContent, toast: vi.fn() },
+    })
+    codeBlockToolbar.handle({ preventDefault: vi.fn() }, node(root, '[data-code-action="format-code"]'), context(`${PADDED}typed`, PADDED))
+    expect(editContent).not.toHaveBeenCalled()
+    codeBlockToolbar.handle({ preventDefault: vi.fn() }, node(root, '[data-code-action="format-code"]'), context(PADDED, PADDED))
+    expect(editContent).toHaveBeenCalledWith('n1', '# Title\n\n' + FORMATTED + '\n\nafter\n')
+  })
+})
+
 describe('code option reads from rendered markup', () => {
   it('the panel reads the same values the renderer wrote', () => {
     const info = 'ts title="utils.ts" line-numbers start=3 {2,4} wrap collapse=20 theme=dark'

@@ -4,6 +4,7 @@ import { ACCENTS, LIMITS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import { tagKey } from '@shared/markdown-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
+import { t } from '../lib/i18n'
 
 
 const STORAGE_KEY = UI_STORAGE_KEY
@@ -29,6 +30,9 @@ export interface ToastItem {
   action?: { label: string; run: () => void }
   duration: number
 }
+
+/** What a caller may say about a toast; the store supplies the id, the tone default and the timing. */
+export type ToastInput = Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }
 
 interface UiState {
 
@@ -116,7 +120,7 @@ interface UiState {
   toggleLocalGraph: () => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
-  toast: (input: Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }) => string
+  toast: (input: ToastInput) => string
   dismissToast: (id: string) => void
   applyAppearance: (patch: { theme?: ThemePref; accent?: AccentName; background?: BackgroundName; fontScale?: number }) => void
 }
@@ -640,4 +644,15 @@ export function switchThemeWithTransition(
       },
     )
   }).catch(() => {})
+}
+
+/**
+ * A notice that offers to take the action back. The undo is a closure over the state to put back,
+ * so this has to be called from wherever that closure still exists — a board that dropped a card
+ * hands over the patch that restores it, and nothing here remembers the board.
+ */
+export function toastWithUndo(title: string, undo: () => void, options?: { duration?: number }): void {
+  const input: ToastInput = { title, action: { label: t('common.undo'), run: undo } }
+  if (options?.duration !== undefined) input.duration = options.duration
+  useUi.getState().toast(input)
 }

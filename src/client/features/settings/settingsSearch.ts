@@ -43,6 +43,8 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.diagram', detailKey: 'settings.render_mermaid_code_blocks_into_flowcharts' },
   { section: 'editor', titleKey: 'settings.chart', detailKey: 'settings.render_chart_fences_as_charts' },
   { section: 'editor', titleKey: 'settings.collapse_long_code_blocks', detailKey: 'settings.collapse_long_code_blocks_description' },
+  { section: 'editor', titleKey: 'settings.code_format_button', detailKey: 'settings.code_format_button_description' },
+  { section: 'editor', titleKey: 'settings.code_format_keyword_case', termKeys: ['settings.code_format_upper', 'settings.code_format_lower', 'settings.code_format_keep'] },
   { section: 'editor', titleKey: 'settings.code_block_collapse_after', termKeys: ['settings.lines'] },
   { section: 'editor', titleKey: 'settings.show_outline_by_default' },
   { section: 'editor', titleKey: 'settings.outline_display_mode', detailKey: 'settings.outline_display_mode_desc', termKeys: ['settings.outline_sidebar', 'settings.outline_floating_always', 'settings.outline_floating_hover'] },

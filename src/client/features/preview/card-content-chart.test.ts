@@ -25,7 +25,7 @@ describe('a chart block reaching a note card', () => {
   it('settles on its body as text once the card declines to draw it', async () => {
     const host = document.createElement('div');
     host.innerHTML = renderMarkdown(CHART_ONLY).html;
-    await enhancePreview(host, { math: false, mermaid: false, chart: false, mindmap: 'source', dark: false });
+    await enhancePreview(host, { math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', dark: false });
     const block = host.querySelector<HTMLElement>('[data-chart]')!;
     expect(block.classList.contains('loading')).toBe(false);
     expect(block.classList.contains('chart-source')).toBe(true);
@@ -37,7 +37,7 @@ describe('a chart block reaching a note card', () => {
   it('leaves the chart alone for a surface that does draw it, so the card is the only decliner', async () => {
     const host = document.createElement('div');
     host.innerHTML = renderMarkdown(CHART_ONLY).html;
-    await enhancePreview(host, { math: false, mermaid: false, chart: true, mindmap: 'source', dark: false });
+    await enhancePreview(host, { math: false, mermaid: false, chart: true, kanban: 'source', mindmap: 'source', dark: false });
     expect(host.querySelector<HTMLElement>('[data-chart]')!.classList.contains('chart-source')).toBe(false);
     expect(host.querySelector<HTMLElement>('[data-chart]')!.classList.contains('loading')).toBe(true);
   });

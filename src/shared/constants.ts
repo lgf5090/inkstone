@@ -1,4 +1,4 @@
-import type { AccentName, UserSettings, ViewKind } from './types'
+import type { AccentName, CodeFormatKeywordCase, UserSettings, ViewKind } from './types'
 import { version as packageVersion } from '../../package.json'
 
 export const APP_VERSION = packageVersion
@@ -130,6 +130,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     livePreview: true,
     tabSize: 2,
     autoSaveDelay: 500,
+    codeFormatKeywordCase: 'upper',
   },
   preview: {
     layout: 'live',
@@ -141,6 +142,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     chart: true,
     codeBlockCollapse: true,
     codeBlockCollapseLines: 24,
+    codeFormatButton: true,
     linkHover: true,
     linkHoverDelayMs: 320,
     linkPreviewLength: 4000,
@@ -195,6 +197,7 @@ const EDITOR_FONTS = ['mono', 'sans'] as const
 const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
 const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
 const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover'] as const
+const CODE_FORMAT_KEYWORD_CASES: CodeFormatKeywordCase[] = ['upper', 'lower', 'keep']
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
 
@@ -270,6 +273,11 @@ export function mergeSettings(partial: unknown): UserSettings {
     3000,
     base.editor.autoSaveDelay,
   )
+  base.editor.codeFormatKeywordCase = enumValue(
+    editor.codeFormatKeywordCase,
+    CODE_FORMAT_KEYWORD_CASES,
+    base.editor.codeFormatKeywordCase,
+  )
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
@@ -285,6 +293,7 @@ export function mergeSettings(partial: unknown): UserSettings {
     100,
     base.preview.codeBlockCollapseLines,
   )
+  base.preview.codeFormatButton = booleanValue(preview.codeFormatButton, base.preview.codeFormatButton)
   base.preview.linkHover = booleanValue(preview.linkHover, base.preview.linkHover)
   base.preview.linkHoverDelayMs = integerInRange(
     preview.linkHoverDelayMs,

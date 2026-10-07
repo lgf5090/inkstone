@@ -3,6 +3,9 @@ import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
 import { markdownToMindmapOutline } from '../lib/markdown/mindmap/outline';
 import { interpolateNewNoteTemplate } from '@shared/note-template-render';
+import { enclosingFence } from '../lib/markdown/fence-edit';
+import { parseFenceInfo } from '../lib/markdown/fence-info';
+import { CODE_FORMAT_FAILURE_MESSAGES, formatCodeResult } from '../lib/markdown/code-formatter';
 import { useSession } from '../store/session';
 import { useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
@@ -354,6 +357,18 @@ export const insertMermaid: StateCommand = (target) => insertWrappedBlock(
 )(target);
 
 /**
+ * A board, in the format the selection already has: wrapping headings and list items yields an
+ * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.
+ * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the
+ * body, so this command does not have to know.
+ */
+export const insertKanban: StateCommand = (target) => insertWrappedBlock(
+    '```kanban',
+    '```',
+    '{\n  "title": "Kanban",\n  "columns": [\n    {\n      "id": "status",\n      "name": "Status",\n      "type": "select",\n      "options": [\n        { "id": "todo", "label": "To Do", "color": "gray" },\n        { "id": "in_progress", "label": "In Progress", "color": "blue" },\n        { "id": "done", "label": "Done", "color": "green" }\n      ]\n    }\n  ],\n  "items": []\n}',
+)(target);
+
+/**
  * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole
  * note. All of it is one transaction, so one undo takes the fence back — the same contract every
  * other insertion here has. Returns false when the text holds no headings and no lists, which is not
@@ -381,6 +396,48 @@ export function generateMindmapFromOutline(view: EditorView): boolean {
         return true;
     useUi.getState().toast({ title: t('workspace.mindmap_from_outline_empty'), tone: 'warning' });
     return false;
+}
+
+/**
+ * Rewrite the body of the fence the cursor sits in, leaving the fence lines and the rest of the note
+ * byte-identical. One transaction, so one press of undo is one format. The press says so when the cursor
+ * was not on a block: a menu item and a key binding that both do nothing look exactly like a dead control.
+ */
+export function formatCodeBlock(view: EditorView): boolean {
+    const state = view.state;
+    const cursorLine = state.doc.lineAt(state.selection.main.head);
+    const fence = enclosingFence(state.doc.toString(), cursorLine.number - 1, []);
+    if (!fence) {
+        useUi.getState().toast({ title: t('command.format_code_block_outside'), tone: 'warning' });
+        return false;
+    }
+    const settings = useSession.getState().settings;
+    const result = formatCodeResult(fence.body, parseFenceInfo(fence.info).language, {
+        tabSize: settings.editor.tabSize,
+        sqlKeywordCase: settings.editor.codeFormatKeywordCase,
+    });
+    if (!result.ok) {
+        useUi.getState().toast({ title: t(CODE_FORMAT_FAILURE_MESSAGES[result.reason ?? 'failed']), tone: 'warning' });
+        return true;
+    }
+    // The body was read back without the fence's own run of spaces, so it goes back with them re-added:
+    // a block inside a list item has to stay inside it.
+    const body = result.text.split('\n').map((text) => (text.length > 0 ? `${fence.indent}${text}` : text)).join('\n');
+    const from = state.doc.line(Math.min(fence.line + 2, state.doc.lines)).from;
+    const to = fence.closing === -1 ? state.doc.length : state.doc.line(fence.closing + 1).from;
+    if (to < from)
+        return true;
+    // The range runs up to the start of the closing fence, so it ends in a line break the new body has to
+    // hand back — otherwise the last line of the block swallows the ``` that closed it.
+    const replaced = state.sliceDoc(from, to);
+    const insert = body.length > 0 && replaced.endsWith('\n') ? `${body}\n` : body;
+    view.dispatch(state.update({
+        changes: { from, to, insert },
+        selection: EditorSelection.cursor(from),
+        scrollIntoView: true,
+        userEvent: 'input.format',
+    }));
+    return true;
 }
 
 export const insertMathBlock: StateCommand = ({ state, dispatch }) => {

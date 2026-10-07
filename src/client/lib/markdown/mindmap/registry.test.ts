@@ -8,10 +8,12 @@ import type { MindmapCreateOptions, MindmapFenceRef, MindmapHandle, MindmapVendo
 import {
     captureMindmapFocus,
     destroyMindmaps,
+    fitMindmapBlock,
     flushMindmaps,
     mindmapEntryForNode,
     mountMindmaps,
     pickMindmapTheme,
+    remeasureMindmapBlock,
     retryMindmap,
     type MindmapMountOptions,
 } from './registry';
@@ -426,5 +428,233 @@ describe('retry', () => {
         expect(first.calls.destroy).toBe(1);
         expect(h.options).toHaveLength(2);
         expect(root.querySelector('[data-mindmap-canvas]')).not.toBeNull();
+    });
+});
+
+describe('a map that was hidden and is shown again', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    function canvas(root: HTMLElement): HTMLElement {
+        return root.querySelector<HTMLElement>('[data-mindmap-canvas]')!;
+    }
+
+    /** The box a revealed tab panel hands the map; jsdom measures nothing on its own. */
+    function reportSize(root: HTMLElement): void {
+        vi.spyOn(canvas(root), 'getBoundingClientRect').mockReturnValue({ width: 619, height: 459 } as DOMRect);
+    }
+
+    it('re-measures against the box it just got rather than only moving the viewport', async () => {
+        const { root, h } = await mounted('- Core');
+        reportSize(root);
+        remeasureMindmapBlock(blocks(root)[0]!);
+        expect(h.handles[0]!.calls.layout).toBe(1);
+        expect(h.handles[0]!.calls.scaleFit).toBe(1);
+    });
+
+    it('leaves the map alone while its panel is still zero-sized', async () => {
+        const { root, h } = await mounted('- Core');
+        remeasureMindmapBlock(blocks(root)[0]!);
+        expect(h.handles[0]!.calls.layout).toBeUndefined();
+        expect(h.handles[0]!.calls.scaleFit).toBeUndefined();
+    });
+
+    it('moves the viewport without re-measuring for the header\'s fit button', async () => {
+        const { root, h } = await mounted('- Core');
+        reportSize(root);
+        fitMindmapBlock(blocks(root)[0]!);
+        expect(h.handles[0]!.calls.scaleFit).toBe(1);
+        expect(h.handles[0]!.calls.layout).toBeUndefined();
+    });
+
+    it('leaves a block the registry never mounted alone', async () => {
+        const { h } = await mounted('- Core');
+        const mirrored = blocks(host('- Other'))[0]!;
+        expect(() => {
+            remeasureMindmapBlock(mirrored);
+            fitMindmapBlock(mirrored);
+        }).not.toThrow();
+        expect(h.handles[0]!.calls.layout).toBeUndefined();
+        expect(h.handles[0]!.calls.scaleFit).toBeUndefined();
+    });
+});
+
+describe('a block kept out of the layout', () => {
+    class FakeRO {
+        static instances: FakeRO[] = [];
+        targets: Element[] = [];
+        disconnects = 0;
+        constructor(readonly callback: (reports: Array<{ contentRect: { width: number, height: number } }>) => void) {
+            FakeRO.instances.push(this);
+        }
+        observe(target: Element): void {
+            this.targets.push(target);
+        }
+        disconnect(): void {
+            this.disconnects++;
+        }
+        report(width: number, height: number): void {
+            this.callback([{ contentRect: { width, height } }]);
+        }
+    }
+
+    function stubRO(): void {
+        FakeRO.instances = [];
+        vi.stubGlobal('ResizeObserver', FakeRO);
+    }
+
+    /** A tab panel that is not showing: nothing inside it has a box. */
+    function hide(root: HTMLElement): () => void {
+        root.hidden = true;
+        return () => {
+            root.hidden = false;
+        };
+    }
+
+    /** jsdom measures nothing on its own, so a test that wants a box has to hand one out. */
+    function stubBox(width: number, height: number): () => void {
+        const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect');
+        HTMLElement.prototype.getBoundingClientRect = () => ({ width, height }) as DOMRect;
+        return () => {
+            if (previous)
+                Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', previous);
+            else
+                delete (HTMLElement.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+        };
+    }
+
+    /**
+     * Reveals a hidden fixture. The box has to be handed out as well: jsdom would keep measuring the
+     * block at zero no matter what the markup says, and the build under test asks the DOM.
+     */
+    function revealed(report: () => void, width = 619, height = 459): Promise<void> {
+        const unstub = stubBox(width, height);
+        report();
+        return settled().finally(unstub);
+    }
+
+    async function settled(): Promise<void> {
+        for (let i = 0; i < 12; i++)
+            await Promise.resolve();
+    }
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        FakeRO.instances = [];
+    });
+
+    it('waits for a box instead of drawing into nothing, then builds once', async () => {
+        stubRO();
+        const root = host('- Core');
+        const show = hide(root);
+        const h = harness();
+        await mountWith(root, { vendor: h });
+        const block = blocks(root)[0]!;
+        const canvas = block.querySelector<HTMLElement>('[data-mindmap-canvas]')!;
+        expect(canvas).toBeTruthy();
+        expect(h.options).toHaveLength(0);
+        expect(block.classList.contains('loading')).toBe(true);
+        expect(block.classList.contains('is-ready')).toBe(false);
+        const watcher = FakeRO.instances[0]!;
+        expect(watcher.targets).toEqual([canvas]);
+        watcher.report(0, 0);
+        expect(h.options).toHaveLength(0);
+        await revealed(() => {
+            show();
+            watcher.report(619, 459);
+        });
+        expect(h.options).toHaveLength(1);
+        expect(h.handles).toHaveLength(1);
+        expect(block.classList.contains('is-ready')).toBe(true);
+        expect(watcher.disconnects).toBe(1);
+        expect(FakeRO.instances).toHaveLength(2);
+        // The wait is over: a later pass now reaches the instance the way every other block does.
+        root.innerHTML = markup('- Edited');
+        await mountWith(root, { vendor: h });
+        expect(h.handles[0]!.calls.refresh).toBe(1);
+        expect(FakeRO.instances).toHaveLength(2);
+    });
+
+    it('draws a clipped-but-measurable block at once, the way a collapsed details leaves it', async () => {
+        stubRO();
+        const root = host('- Core');
+        const details = document.createElement('details');
+        root.remove();
+        details.append(root);
+        document.body.append(details);
+        const unstub = stubBox(639, 350);
+        try {
+            const h = harness();
+            await mountWith(root, { vendor: h });
+            expect(h.options).toHaveLength(1);
+            expect(blocks(root)[0]!.classList.contains('is-ready')).toBe(true);
+            // The one watcher is the drawing's own: nothing waits for a box the block already has.
+            expect(FakeRO.instances).toHaveLength(1);
+            expect(FakeRO.instances[0]!.disconnects).toBe(0);
+        }
+        finally {
+            unstub();
+        }
+    });
+
+    it('draws anyway where nothing can report a box', async () => {
+        const root = host('- Core');
+        hide(root);
+        const h = harness();
+        await mountWith(root, { vendor: h });
+        expect(h.options).toHaveLength(1);
+        expect(blocks(root)[0]!.classList.contains('is-ready')).toBe(true);
+    });
+
+    it('takes the newest fence body and the new placeholder from a pass that lands while waiting', async () => {
+        stubRO();
+        const root = host('- Core');
+        hide(root);
+        const h = harness();
+        await mountWith(root, { vendor: h });
+        const watcher = FakeRO.instances[0]!;
+        root.innerHTML = markup('- Changed');
+        await mountWith(root, { vendor: h });
+        const placeholder = blocks(root)[0]!.querySelector('[data-mindmap-placeholder]')!;
+        expect(watcher.targets[0]!.parentElement).toBe(placeholder);
+        expect(watcher.targets[0]!.isConnected).toBe(true);
+        await revealed(() => {
+            root.hidden = false;
+            watcher.report(619, 459);
+        });
+        expect(h.options).toHaveLength(1);
+        expect(h.parses[h.parses.length - 1]!.body).toBe('- Changed');
+    });
+
+    it('builds a body the waiting build refused once the fence is fixed', async () => {
+        stubRO();
+        const root = host('- Core');
+        const show = hide(root);
+        const h = harness();
+        h.vendor.parse = (body) => body.includes('BOOM')
+            ? { ok: false, error: 'bad body' }
+            : { ok: true, data: { nodeData: { topic: body, children: [] } }, extra: {}, theme: APP_THEME_CHOICE };
+        await mountWith(root, { vendor: h });
+        const watcher = FakeRO.instances[0]!;
+        root.innerHTML = markup('- BOOM');
+        await mountWith(root, { vendor: h });
+        const unstub = stubBox(619, 459);
+        try {
+            show();
+            watcher.report(619, 459);
+            await settled();
+            expect(h.options).toHaveLength(0);
+            expect(blocks(root)[0]!.classList.contains('has-error')).toBe(true);
+            // Nothing is watching this block any more — the wait ended with the report that failed —
+            // so the next pass has to be the one that builds it.
+            root.innerHTML = markup('- Fixed');
+            await mountWith(root, { vendor: h });
+            expect(h.options).toHaveLength(1);
+            expect(blocks(root)[0]!.classList.contains('is-ready')).toBe(true);
+        }
+        finally {
+            unstub();
+        }
     });
 });

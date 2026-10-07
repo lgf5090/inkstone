@@ -2,6 +2,7 @@
 @import './tokens.css';
 @import './editor.css';
 @import './prose.css';
+@import './kanban.css';
 
 
 @theme inline {

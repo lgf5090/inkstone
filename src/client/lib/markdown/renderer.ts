@@ -18,6 +18,10 @@ import type { TabSegment } from './panels';
 import { encodeDataValue } from './data-attr';
 import { parseFenceInfo } from './fence-info';
 import { readCodeOptions } from './code-options';
+import { createFenceBodies, takeFenceIndex, type FenceBodies } from './fence-bodies';
+// From the body module, not the kanban index: the index re-exports the React board, and a fence that
+// only needs the language list and the mode must not pull the whole UI into the markdown chunk.
+import { detectKanbanMode, KANBAN_LANGUAGES } from './kanban/body';
 import { EXAMPLE_SPLIT_DEFAULTS, exampleRatioLabel, parseExampleSplit, type ExampleFamily } from './example-split';
 import { isTimelineDateTime, parseTimelineItem, splitTimelineInfo } from './timeline-options';
 import type { TimelineItem, TimelineOptions, TimelineStatus } from './timeline-options';
@@ -39,6 +43,13 @@ export interface RenderResult {
     hasEmbeds: boolean;
     frontMatter: Record<string, unknown>;
     frontMatterErrors: string[];
+    /**
+     * The fence bodies this markup was built from, one per rich block in document order. A board's
+     * body is far too large to ride in a `data-*` attribute — every sanitizer pass and every
+     * `innerHTML` write would re-walk it — so the host registers these on the element instead and the
+     * block's `data-kanban-index` is the key back.
+     */
+    fences: FenceBodies;
 }
 interface RenderEnvironment {
     headings: Heading[];
@@ -54,6 +65,7 @@ interface RenderEnvironment {
     mindmapSequence: number;
     docId: string;
     hideFrontMatter?: boolean;
+    fences: FenceBodies;
 }
 export interface WikiTarget {
     raw: string;
@@ -624,6 +636,9 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         childEnv.exampleSequence = parentEnv.exampleSequence;
         childEnv.mindmapSequence = parentEnv.mindmapSequence;
         childEnv.docId = `${parentEnv.docId}-example-${exampleId}`;
+        // One set for the whole document: a markup string carries no per-subtree registration once it
+        // is re-parsed, so a board inside an example answers to the outer numbering.
+        childEnv.fences = parentEnv.fences;
         const preview = md.render(stripObsidianComments(token.content), childEnv).replace(/ data-line="\d+"/g, '');
         parentEnv.hasMath ||= childEnv.hasMath;
         parentEnv.hasMermaid ||= childEnv.hasMermaid;
@@ -662,6 +677,29 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         // the fence again when the toolbar writes the note.
         const style = readFenceStyle(token.info);
         return `<div class="chart-block loading"${line}${style === null ? '' : ` data-chart-style="${escapeAttr(style)}"`} data-chart="${escapeAttr(encodeDataValue(token.content))}" aria-busy="true">${escapeHtml(t("markdown.rendering_chart"))}</div>`;
+    }
+    if ((KANBAN_LANGUAGES as readonly string[]).includes(info.language)) {
+        // The body goes to the render's fence set rather than into an attribute: a two-hundred-card
+        // board is ~17 KB of encoded text that every sanitizer pass and every innerHTML write would
+        // walk again on each keystroke. `data-kanban-index` is the key back, and the host that
+        // inserts this markup registers the set on the element holding it.
+        const env = renderEnv(rendererEnv);
+        const index = takeFenceIndex(env.fences, 'kanban', token.content);
+        const mode = detectKanbanMode(token.content);
+        const fullscreenLabel = escapeAttr(t("preview.kanban_fullscreen"));
+        return [
+            `<div class="kanban-block loading"${line} data-kanban="" data-kanban-index="${index}" aria-busy="true">`,
+            // No board name here: it lives in the fence body, which this markup would have to parse a
+            // second time to read. The registry, which has the parsed body, names the head instead.
+            `<div class="kanban-block-head">`,
+            `<span class="kanban-block-mode">${escapeHtml(mode)}</span>`,
+            `<span class="kanban-block-actions">`,
+            `<button type="button" class="kanban-block-btn" data-kanban-fullscreen aria-label="${fullscreenLabel}" title="${fullscreenLabel}"></button>`,
+            `</span>`,
+            `</div>`,
+            `<div class="kanban-block-placeholder" data-kanban-placeholder>${escapeHtml(t("preview.kanban_loading"))}</div>`,
+            `</div>`,
+        ].join('');
     }
     if ((MINDMAP_LANGUAGES as readonly string[]).includes(info.language))
         return renderMindmapBlock(token, line, rendererEnv);
@@ -779,6 +817,8 @@ export const PURIFY_CONFIG = {
         'data-mermaid',
         'data-chart',
         'data-chart-style',
+        'data-kanban',
+        'data-kanban-index',
         'data-wikilink',
         'data-embed-target',
         'data-block-ref',
@@ -859,7 +899,7 @@ export interface MarkdownBlock {
 }
 
 /** Parse once with the full document environment so reference links retain their targets. */
-export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[]; headings: Heading[] } {
+export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[]; headings: Heading[]; fences: FenceBodies } {
     const env = emptyEnvironment();
     const tokens = md.parse(stripObsidianComments(source), env);
     const groups: Array<{ startLine: number; endLine: number; raw: string }> = [];
@@ -883,7 +923,7 @@ export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[];
         groups[groups.length - 1]!.raw += tail;
     const blocks: MarkdownBlock[] = [];
     if (!groups.length)
-        return { blocks, headings: env.headings };
+        return { blocks, headings: env.headings, fences: env.fences };
     const marker = `${env.taskNonce}:`;
     const frame = document.createElement('template');
     frame.innerHTML = materializeTrustedTasks(DOMPurify.sanitize(groups.map((group, index) => `<div data-render-group="${marker}${index}">${group.raw}</div>`).join(''), PURIFY_CONFIG), env.taskNonce);
@@ -896,7 +936,7 @@ export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[];
         if (group && html.trim())
             blocks.push({ startLine: group.startLine, endLine: group.endLine, html });
     }
-    return { blocks, headings: env.headings };
+    return { blocks, headings: env.headings, fences: env.fences };
 }
 
 export function renderMarkdown(source: string, options?: { hideFrontMatter?: boolean }): RenderResult {
@@ -913,6 +953,7 @@ export function renderMarkdown(source: string, options?: { hideFrontMatter?: boo
         hasEmbeds: env.hasEmbeds,
         frontMatter: env.frontMatter,
         frontMatterErrors: env.frontMatterErrors,
+        fences: env.fences,
     };
 }
 
@@ -1009,6 +1050,7 @@ function emptyEnvironment(): RenderEnvironment {
         exampleSequence: 0,
         mindmapSequence: 0,
         docId: `ink-${nonce}`,
+        fences: createFenceBodies(),
     };
 }
 function renderEnv(value: unknown): RenderEnvironment {
