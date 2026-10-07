@@ -172,6 +172,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/preview/FloatingOutline.tsx", [
     "/* The grip owns pointer capture: a handle that captured the pointer would retarget the\n            click of every button in this row away from itself, and they would never fire. */",
+    "/** Collapses to a dot the reader clicks open, the way the reference parks its circle. */",
+    "// A finished drag must not also count as the click that opens the panel.",
   ]],
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
@@ -415,6 +417,7 @@ const allowed = new Map([
     "/** A pane too narrow to move the panel keeps the saved ratio on that axis rather than discarding where it was parked. */",
     "/** The four parked positions the panel header offers, in the order a reader scans them. */",
     "/** The corner a saved ratio sits on, or `null` for a position the reader dragged by hand. */",
+    "/** The collapsed trigger's diameter, shared by its bounds and its own box. */",
   ]],
   ["src/client/features/preview/outline-registry.ts", [
     "/** Only the active note's outline is exportable; a stale snapshot must never reach the clipboard. */",

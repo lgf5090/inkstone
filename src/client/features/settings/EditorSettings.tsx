@@ -87,6 +87,7 @@ export function EditorSettings() {
             { value: 'sidebar', label: t("settings.outline_sidebar") },
             { value: 'floating-always', label: t("settings.outline_floating_always") },
             { value: 'floating-hover', label: t("settings.outline_floating_hover") },
+            { value: 'floating-circle', label: t("settings.outline_floating_circle") },
         ]}/>
         </SettingRow>}
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { GripHorizontal, RotateCcw } from 'lucide-react';
+import { GripHorizontal, ListTree, Minus, RotateCcw } from 'lucide-react';
 import type { Heading } from '../../lib/markdown/renderer';
 import { Tooltip } from '../../components/overlay';
 import { t } from '../../lib/i18n';
@@ -7,6 +7,7 @@ import type { MessageKey } from '@shared/locales/en-US';
 import { useUi } from '../../store/ui';
 import { Outline } from './Outline';
 import {
+    CIRCLE_SIZE,
     CORNERS,
     DEFAULT_RATIO,
     OUTLINE_FLOAT_WIDTH,
@@ -52,7 +53,7 @@ interface DragVisual {
     edgeY: SnappedEdge;
 }
 
-export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, markdownLabels, showReadingTime, readingSpeed, wordCount, containerRef, }: {
+export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, markdownLabels, showReadingTime, readingSpeed, wordCount, collapsible = false, containerRef, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -71,13 +72,18 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     showReadingTime: boolean;
     readingSpeed: number;
     wordCount: number;
+    /** Collapses to a dot the reader clicks open, the way the reference parks its circle. */
+    collapsible?: boolean;
     containerRef: RefObject<HTMLElement | null>;
 }) {
     const stored = useUi((state) => state.outlineFloatingPosition);
     const setLayout = useUi((state) => state.setLayout);
     const [box, setBox] = useState({ width: 0, height: 0 });
     const [drag, setDrag] = useState<DragVisual | null>(null);
+    const [expanded, setExpanded] = useState(!collapsible);
     const gestureRef = useRef<DragGesture | null>(null);
+    // A finished drag must not also count as the click that opens the panel.
+    const movedRef = useRef(false);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -100,7 +106,10 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     }, [containerRef]);
 
     const height = panelHeight(box.height);
-    const bounds = panelBounds(box.width, box.height, OUTLINE_FLOAT_WIDTH, height);
+    const folded = collapsible && !expanded;
+    const width = folded ? CIRCLE_SIZE : OUTLINE_FLOAT_WIDTH;
+    const travel = folded ? CIRCLE_SIZE : height;
+    const bounds = panelBounds(box.width, box.height, width, travel);
     const resting = resolvePosition(stored ?? DEFAULT_RATIO, bounds);
     const activeCorner = cornerFor(stored ?? DEFAULT_RATIO)?.id ?? null;
     const point = clampToBounds(drag?.point ?? resting, bounds);
@@ -123,6 +132,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
         catch {
             return;
         }
+        movedRef.current = false;
         gestureRef.current = {
             pointerId: event.pointerId,
             startClientX: event.clientX,
@@ -142,6 +152,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
         if (!gesture.active && !passedThreshold(deltaX, deltaY))
             return;
         gesture.active = true;
+        movedRef.current = true;
         const snapped = snapToBounds({ left: gesture.startLeft + deltaX, top: gesture.startTop + deltaY }, bounds);
         setDrag({ point: snapped.position, edgeX: snapped.edgeX, edgeY: snapped.edgeY });
     };
@@ -167,6 +178,17 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [drag]);
 
+    if (folded)
+        return (<button type="button" data-outline-circle aria-label={t('outline.expand_panel')} onClick={() => {
+                if (movedRef.current) {
+                    movedRef.current = false;
+                    return;
+                }
+                setExpanded(true);
+            }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={abort} onLostPointerCapture={abort} className="absolute z-20 flex cursor-grab touch-none select-none items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-quaternary)] shadow-lg transition-colors hover:text-[var(--accent)] active:cursor-grabbing" style={{ left: point.left, top: point.top, width: CIRCLE_SIZE, height: CIRCLE_SIZE }}>
+          <ListTree size={14} aria-hidden="true"/>
+        </button>);
+
     return (<div className="absolute z-20 flex flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-lg" data-outline-floating style={{ left: point.left, top: point.top, width: OUTLINE_FLOAT_WIDTH, height }}>
       <div className="flex shrink-0 items-center gap-1 rounded-t-[var(--r-lg)] border-b border-[var(--border-subtle)] px-1.5 py-1">
         {/* The grip owns pointer capture: a handle that captured the pointer would retarget the
@@ -187,6 +209,11 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
             <RotateCcw size={10}/>
           </button>
         </Tooltip>
+        {collapsible && (<Tooltip label={t('outline.collapse_panel')} side="bottom">
+            <button type="button" aria-label={t('outline.collapse_panel')} onClick={() => setExpanded(false)} className="shrink-0 rounded-[var(--r-sm)] p-0.5 text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+              <Minus size={10}/>
+            </button>
+          </Tooltip>)}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} autoExpand={autoExpand} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} showReadingTime={showReadingTime} readingSpeed={readingSpeed} wordCount={wordCount} className="h-full max-h-full w-full py-2 pr-2"/>

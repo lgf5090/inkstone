@@ -117,7 +117,7 @@ export interface EditorSettings {
 }
 
 export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
-export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover'
+export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover' | 'floating-circle'
 export type OutlineAutoExpandName = 'off' | 'ancestors'
 
 export interface PreviewSettings {

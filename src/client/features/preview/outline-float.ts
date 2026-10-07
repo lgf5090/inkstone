@@ -80,6 +80,9 @@ export function snapToBounds(point: PanelPoint, bounds: PanelBounds): { position
 
 export const DRAG_THRESHOLD = 6;
 
+/** The collapsed trigger's diameter, shared by its bounds and its own box. */
+export const CIRCLE_SIZE = 36;
+
 export interface PanelCorner extends PanelRatio {
     id: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }

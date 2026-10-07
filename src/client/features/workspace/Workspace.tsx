@@ -160,10 +160,10 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const outlineShowReadingTime = previewSettings.outlineShowReadingTime;
     const outlineReadingSpeed = previewSettings.outlineReadingSpeed;
     const outlineLocateByCursor = previewSettings.outlineLocateByCursor;
-    const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover';
+    const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover' || outlineMode === 'floating-circle';
     const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && !outlineIsFloating;
     const outlineFloatingVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && outlineIsFloating
-        && (outlineMode === 'floating-always' || outlineHovered);
+        && (outlineMode === 'floating-always' || outlineMode === 'floating-circle' || outlineHovered);
     const defaultOutlineWidth = outlineVisible ? OUTLINE_WIDTH : 0;
     const defaultContentWidth = Math.max(0, containerWidth - SPLIT_HANDLE_WIDTH - PREVIEW_BORDER_WIDTH - defaultOutlineWidth);
     const defaultEditorWidth = defaultContentWidth / 2;
@@ -557,7 +557,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount}/>)}
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount}/>}
-        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} containerRef={containerRef}/>)}
+        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} collapsible={outlineMode === 'floating-circle'} containerRef={containerRef}/>)}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}

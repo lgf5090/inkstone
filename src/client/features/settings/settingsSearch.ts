@@ -45,7 +45,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.collapse_long_code_blocks', detailKey: 'settings.collapse_long_code_blocks_description' },
   { section: 'editor', titleKey: 'settings.code_block_collapse_after', termKeys: ['settings.lines'] },
   { section: 'editor', titleKey: 'settings.show_outline_by_default' },
-  { section: 'editor', titleKey: 'settings.outline_display_mode', detailKey: 'settings.outline_display_mode_desc', termKeys: ['settings.outline_sidebar', 'settings.outline_floating_always', 'settings.outline_floating_hover'] },
+  { section: 'editor', titleKey: 'settings.outline_display_mode', detailKey: 'settings.outline_display_mode_desc', termKeys: ['settings.outline_sidebar', 'settings.outline_floating_always', 'settings.outline_floating_hover', 'settings.outline_floating_circle'] },
   { section: 'editor', titleKey: 'settings.outline_default_level', detailKey: 'settings.outline_default_level_description' },
   { section: 'editor', titleKey: 'settings.outline_show_progress' },
   { section: 'editor', titleKey: 'settings.outline_auto_expand', detailKey: 'settings.outline_auto_expand_description', termKeys: ['settings.outline_auto_expand_off', 'settings.outline_auto_expand_ancestors'] },

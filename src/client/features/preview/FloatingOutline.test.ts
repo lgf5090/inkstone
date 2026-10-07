@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { installTestGlobals, renderElement } from '../../lib/test-render';
 import { FloatingOutline } from './FloatingOutline';
 import type { Heading } from '../../lib/markdown/renderer';
@@ -11,7 +11,7 @@ const HEADINGS: Heading[] = [
     { level: 2, text: 'Beta', slug: 'beta', line: 2 },
 ];
 
-function renderPanel() {
+function renderPanel(collapsible = false) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const ref = { current: container };
@@ -33,6 +33,7 @@ function renderPanel() {
         showReadingTime: true,
         readingSpeed: 300,
         wordCount: 2,
+        collapsible,
         containerRef: ref,
     }));
     return { ...root, dispose: () => { root.unmount(); container.remove(); } };
@@ -73,6 +74,34 @@ describe('FloatingOutline header controls', () => {
     it('shows the reading time row the parent hands down', () => {
         const { container, dispose } = renderPanel();
         expect(container.textContent).toContain('outline.reading_time');
+        dispose();
+    });
+});
+
+describe('FloatingOutline collapsed dot', () => {
+    it('shows only the dot until the reader opens it', () => {
+        const { container, dispose } = renderPanel(true);
+        expect(container.querySelector('[data-outline-circle]')).not.toBeNull();
+        expect(container.querySelector('[data-outline-floating]')).toBeNull();
+        dispose();
+    });
+
+    it('opens the panel from the dot and folds it back again', async () => {
+        const { container, dispose } = renderPanel(true);
+        await act(async () => { container.querySelector<HTMLButtonElement>('[data-outline-circle]')!.click(); });
+        expect(container.querySelector('[data-outline-floating]')).not.toBeNull();
+        expect(container.querySelector('[data-outline-circle]')).toBeNull();
+        const collapse = container.querySelector<HTMLButtonElement>('button[aria-label="outline.collapse_panel"]');
+        expect(collapse).not.toBeNull();
+        await act(async () => { collapse!.click(); });
+        expect(container.querySelector('[data-outline-circle]')).not.toBeNull();
+        dispose();
+    });
+
+    it('leaves the panel open when the mode is not the folded one', () => {
+        const { container, dispose } = renderPanel(false);
+        expect(container.querySelector('[data-outline-circle]')).toBeNull();
+        expect(container.querySelector('button[aria-label="outline.collapse_panel"]')).toBeNull();
         dispose();
     });
 });
