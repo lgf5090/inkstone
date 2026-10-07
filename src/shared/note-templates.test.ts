@@ -148,6 +148,13 @@ describe('parseTemplateLibraryExport', () => {
     expect(parsed.data?.templates[0]).toMatchObject({ isPinned: false, isStarred: false })
   })
 
+  it('keeps pin and star flags for the account\x27s own snapshot', () => {
+    const parsed = parseTemplateLibraryExport(exportJson({
+      templates: [template('tpl-1', { isPinned: true, isStarred: true })],
+    }), { keepFlags: true })
+    expect(parsed.data?.templates[0]).toMatchObject({ isPinned: true, isStarred: true })
+  })
+
   it('clamps an over-long name, description and body', () => {
     const parsed = parseTemplateLibraryExport(exportJson({
       templates: [template('tpl-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', {

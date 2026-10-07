@@ -873,7 +873,10 @@ function isExportId(value: unknown): value is string {
  * the payload is not a well-formed export; malformed entries are dropped
  * individually so a partially broken file can still be imported.
  */
-export function parseTemplateLibraryExport(text: string): TemplateLibraryParseResult {
+export function parseTemplateLibraryExport(
+  text: string,
+  options: { keepFlags?: boolean } = {},
+): TemplateLibraryParseResult {
   const empty: TemplateLibraryParseResult = { data: null, dropped: 0, truncated: false }
   if (text.length > TEMPLATE_IMPORT_LIMITS.maxTextLength) return empty
   let value: unknown
@@ -915,7 +918,7 @@ export function parseTemplateLibraryExport(text: string): TemplateLibraryParseRe
   const templates: NoteTemplate[] = []
   let contentBudget = TEMPLATE_IMPORT_LIMITS.maxTotalContentLength
   for (const candidate of rawTemplates.slice(0, TEMPLATE_IMPORT_LIMITS.maxTemplates)) {
-    const template = normalizeExportTemplate(candidate)
+    const template = normalizeExportTemplate(candidate, options.keepFlags === true)
     if (!template) {
       dropped++
       continue
@@ -964,7 +967,7 @@ function normalizeExportCategory(value: NoteTemplateCategory): NoteTemplateCateg
 }
 
 /** Validates one entry and clamps its fields; returns null when it is unusable. */
-function normalizeExportTemplate(value: unknown): NoteTemplate | null {
+function normalizeExportTemplate(value: unknown, keepFlags: boolean): NoteTemplate | null {
   if (!isRecord(value)) return null
   if (!isExportId(value.id) ||
     typeof value.name !== 'string' ||
@@ -991,8 +994,10 @@ function normalizeExportTemplate(value: unknown): NoteTemplate | null {
       .slice(0, TEMPLATE_IMPORT_LIMITS.maxTagsPerTemplate)
       .map((tag) => clampText(tag, TEMPLATE_IMPORT_LIMITS.maxTagLength)),
     builtin: false,
-    isPinned: false,
-    isStarred: false,
+    // A file from another device must not pre-pin the gallery; the account's own
+    // snapshot is the user's library, so it round-trips the marks unchanged.
+    isPinned: keepFlags ? value.isPinned : false,
+    isStarred: keepFlags ? value.isStarred : false,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   }

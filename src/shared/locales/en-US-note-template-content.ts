@@ -6,20 +6,20 @@ tags: [work, checklist]
 ---
 
 \`\`\`kanban
-{"title": "{{title}}", "columns": ["Backlog", "In progress", "Done"], "views": [{"type": "board", "name": "Board"}]}
-\`\`\`
-
 ## Backlog
 - [ ] Scope the stories
 - [ ] Agree the sprint goal
 
 ## In progress
-- [ ] 
+- [ ] Start the first story
 
 ## Done
-- [ ] 
+- [x] Set up the board
+\`\`\`
 
-## Retro notes
+Sprint goal: 
+
+Risks and blockers:
 - 
 
 {{cursor}}

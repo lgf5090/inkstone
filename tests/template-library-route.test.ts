@@ -113,6 +113,15 @@ describe('the account template library', () => {
     expect(parsed.data?.categories.map((item) => item.id)).toEqual([CATEGORY.id])
   })
 
+  it('keeps the star and pin marks of the library it was given', async () => {
+    const starred = { ...template('tpl-a'), isStarred: true, isPinned: true }
+    const text = JSON.stringify(buildTemplateLibraryExport([CATEGORY], [starred]))
+    expect((await send('PUT', { library: text })).status).toBe(200)
+    const loaded = await load()
+    const read = parseTemplateLibraryExport(JSON.stringify(loaded.library), { keepFlags: true })
+    expect(read.data?.templates[0]).toMatchObject({ isStarred: true, isPinned: true })
+  })
+
   it('keeps one copy per account and lets the newest write win', async () => {
     await send('PUT', { library: libraryText(['tpl-a']) }, FIRST)
     await send('PUT', { library: libraryText(['tpl-z']) }, SECOND)

@@ -3863,6 +3863,8 @@ const allowed = new Map([
     "/** Give back what the last destructive action took. False when there is nothing to give back. */",
     "/**\n * Give back what the last destructive action took away.\n *\n * The snapshot is merged, not dropped in place: anything the user touched since the\n * delete keeps their version, and an entry that is simply gone comes back with the\n * id, position and timestamps it had. So undoing a delete never quietly reverts an\n * unrelated edit made in the meantime.\n */",
     "/**\n   * The library as it was before the last destructive action, kept in memory only.\n   * One step deep, because that is all a toast's undo button promises.\n   */",
+    "// The snapshot only ever carries what the user made, so it has not been",
+    "// seeded: claiming the current version here would drop the built-in catalog.",
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
@@ -4015,6 +4017,8 @@ const allowed = new Map([
     "/**\n   * Ceiling on the combined body size of one import. The per-entry cap alone\n   * would let a file of 2000 full-size templates ask the browser to store 128 MB\n   * under a single IndexedDB key.\n   */",
     "/** A hand-edited export can claim any date; the gallery prints it, so it gets a sane range. */",
     "/**\n * The id character set the app itself generates (`tpl-`/`cat-` plus a base32 tail)\n * and nothing wider: an id becomes a `data-template-id` attribute, a CSS selector\n * and a map key, so a newline or a quote in an imported id is a bug waiting in the\n * gallery rather than data worth keeping.\n */",
+    "// A file from another device must not pre-pin the gallery; the account's own",
+    "// snapshot is the user's library, so it round-trips the marks unchanged.",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

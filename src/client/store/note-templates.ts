@@ -290,12 +290,14 @@ async function readRemoteLibrary(): Promise<TemplateLibraryData | null> {
   try {
     const remote = await api.templateLibrary.load()
     if (!remote.library || !(remote.savedAt > 0)) return null
-    const parsed = parseTemplateLibraryExport(JSON.stringify(remote.library))
+    const parsed = parseTemplateLibraryExport(JSON.stringify(remote.library), { keepFlags: true })
     if (!parsed.data) return null
     return {
       categories: parsed.data.categories,
       templates: parsed.data.templates,
-      seedVersion: TEMPLATE_SEED_VERSION,
+      // The snapshot only ever carries what the user made, so it has not been
+      // seeded: claiming the current version here would drop the built-in catalog.
+      seedVersion: 0,
       syncedAt: remote.savedAt,
       pendingPush: false,
     }

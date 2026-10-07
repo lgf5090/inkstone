@@ -505,6 +505,34 @@ describe('account sync of the template library', () => {
     expect(fresh().templates.some((item) => item.name === 'Unsynced')).toBe(true)
   })
 
+  it('re-seeds the built-in catalog on a browser that only has the account copy', async () => {
+    const snapshot = buildTemplateLibraryExport(
+      [{ id: 'cat-1', name: 'Mine', builtin: false, position: 0, createdAt: 10 }],
+      [template({ id: 'tpl-1', name: 'Starred', content: 'x' })],
+    )
+    stored.value = null
+    bus.remote = { savedAt: 9000, library: snapshot }
+    useNoteTemplates.setState({ categories: [], templates: [], hydrated: false, owner: '' })
+    await fresh().hydrate('user-b')
+    expect(fresh().templates.filter((item) => item.builtin)).toHaveLength(BUILTIN_TEMPLATE_DEFS.length)
+    expect(fresh().categories.filter((item) => item.builtin)).toHaveLength(8)
+    expect(fresh().templates.some((item) => item.id === 'tpl-1')).toBe(true)
+    expect(library().seedVersion).toBe(TEMPLATE_SEED_VERSION)
+  })
+
+  it('gives back the star and pin marks the account copy carried', async () => {
+    const snapshot = buildTemplateLibraryExport(
+      [{ id: 'cat-1', name: 'Mine', builtin: false, position: 0, createdAt: 10 }],
+      [template({ id: 'tpl-1', name: 'Starred', content: 'x', isStarred: true, isPinned: true })],
+    )
+    stored.value = null
+    bus.remote = { savedAt: 9000, library: snapshot }
+    useNoteTemplates.setState({ categories: [], templates: [], hydrated: false, owner: '' })
+    await fresh().hydrate('user-b')
+    const restored = fresh().templates.find((item) => item.id === 'tpl-1')
+    expect(restored).toMatchObject({ isStarred: true, isPinned: true })
+  })
+
   it('pushes a burst of changes once', async () => {
     vi.useFakeTimers()
     try {

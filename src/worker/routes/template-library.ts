@@ -43,7 +43,7 @@ templateLibraryRoutes.put('/library', async (c) => {
   const userId = c.get('userId')
   const body = await readJson<{ library?: unknown }>(c, JSON_BODY_LIMITS.templateLibrary)
   if (typeof body.library !== 'string') throw ApiError.badRequest('The template library must be sent as text')
-  const parsed = parseTemplateLibraryExport(body.library)
+  const parsed = parseTemplateLibraryExport(body.library, { keepFlags: true })
   if (!parsed.data) throw ApiError.badRequest('The template library could not be read')
   if (parsed.dropped > 0 || parsed.truncated) throw ApiError.badRequest('The template library contains entries that cannot be stored')
   const savedAt = Date.now()
