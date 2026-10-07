@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { BUILTIN_TEMPLATE_DEFS } from '@shared/note-templates'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import { EN_US_NOTE_TEMPLATE_CONTENT } from '@shared/locales/en-US-note-template-content'
 import { ZH_CN_NOTE_TEMPLATE_CONTENT } from '@shared/locales/zh-CN-note-template-content'
@@ -16,8 +17,8 @@ describe('note template bodies load on demand', () => {
 
   it('keeps the bodies out of the catalog the start-up chunk loads', () => {
     expect(DIARY in EN_US_MESSAGES).toBe(false)
-    expect(Object.keys(EN_US_NOTE_TEMPLATE_CONTENT).length).toBe(38)
-    expect(Object.keys(ZH_CN_NOTE_TEMPLATE_CONTENT).length).toBe(38)
+    expect(Object.keys(EN_US_NOTE_TEMPLATE_CONTENT)).toHaveLength(BUILTIN_TEMPLATE_DEFS.length)
+    expect(Object.keys(ZH_CN_NOTE_TEMPLATE_CONTENT)).toHaveLength(BUILTIN_TEMPLATE_DEFS.length)
   })
 
   it('resolves a body only once the bodies have been loaded', async () => {

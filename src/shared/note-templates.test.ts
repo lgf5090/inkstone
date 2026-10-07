@@ -238,3 +238,54 @@ describe('the exported stamp', () => {
     expect(withExportedAt(Number.NaN)).toBeGreaterThan(0)
   })
 })
+
+describe('the catalog keeps its shape', () => {
+  function frontMatterTags(content: string): string[] {
+    const closed = content.indexOf('\n---', 4)
+    const head = closed < 0 ? '' : content.slice(0, closed)
+    const line = /^tags: \[([^\]]*)\]$/m.exec(head)
+    return line ? line[1].split(',').map((tag) => tag.trim()).filter(Boolean) : []
+  }
+
+  it('gives every category at least six templates', () => {
+    const counts = new Map<string, number>()
+    for (const def of BUILTIN_TEMPLATE_DEFS)
+      counts.set(def.categoryId, (counts.get(def.categoryId) ?? 0) + 1)
+    const thin = BUILTIN_TEMPLATE_CATEGORIES
+      .map((category) => category.id)
+      .filter((id) => (counts.get(id) ?? 0) < 6)
+    expect(thin, `categories below the floor: ${thin.join(', ')}`).toEqual([])
+  })
+
+  it('never leaves a category without a template', () => {
+    const used = new Set(BUILTIN_TEMPLATE_DEFS.map((def) => def.categoryId))
+    for (const category of BUILTIN_TEMPLATE_CATEGORIES)
+      expect(used.has(category.id), category.id).toBe(true)
+  })
+
+  it('names only tags the catalog carries a label for', () => {
+    for (const def of BUILTIN_TEMPLATE_DEFS)
+      for (const tag of def.tags)
+        expect(BUILTIN_TEMPLATE_TAG_LABELS, `${def.id} ${tag}`).toHaveProperty(tag)
+  })
+
+  it('tags both languages of every body the same way', async () => {
+    const { EN_US_NOTE_TEMPLATE_CONTENT } = await import('./locales/en-US-note-template-content')
+    const { ZH_CN_NOTE_TEMPLATE_CONTENT } = await import('./locales/zh-CN-note-template-content')
+    const en = EN_US_NOTE_TEMPLATE_CONTENT as Record<string, string>
+    const zh = ZH_CN_NOTE_TEMPLATE_CONTENT as Record<string, string>
+    for (const def of BUILTIN_TEMPLATE_DEFS) {
+      const key = def.contentKey
+      if (!(key in en) || !(key in zh)) continue
+      expect(frontMatterTags(zh[key]).length, def.id)
+        .toBe(frontMatterTags(en[key]).length)
+    }
+  })
+
+  it('keeps English bodies free of Chinese and Chinese bodies carrying it', async () => {
+    const { EN_US_NOTE_TEMPLATE_CONTENT } = await import('./locales/en-US-note-template-content')
+    const han = /[\u4e00-\u9fff]/
+    for (const [key, body] of Object.entries(EN_US_NOTE_TEMPLATE_CONTENT as Record<string, string>))
+      expect(han.test(body), key).toBe(false)
+  })
+})

@@ -1,4 +1,1304 @@
 export const ZH_CN_NOTE_TEMPLATE_CONTENT = {
+    "template.kanban_sprint_board.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 清单]
+---
+
+\`\`\`kanban
+{"title": "{{title}}", "columns": ["待办", "进行中", "已完成"], "views": [{"type": "board", "name": "看板"}]}
+\`\`\`
+
+## 待办
+- [ ] 拆故事
+- [ ] 定迭代目标
+
+## 进行中
+- [ ] 
+
+## 已完成
+- [ ] 
+
+## 回顾备忘
+- 
+
+{{cursor}}
+`,
+    "template.mindmap_reading_map.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习]
+---
+
+## 书
+
+\`\`\`mindmap
+- {{title}}
+  - 核心论点
+  - 结构
+    - 第一部
+    - 第二部
+  - 我会用上的
+  - 待解的问题
+\`\`\`
+
+## 章节
+- 
+
+## 值得留下的句子
+> 
+
+`,
+    "template.chart_weekly_dashboard.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [每周, 表格]
+---
+
+## 本周
+
+\`\`\`chart style=table
+| 日期 | 专注小时 | 打断次数 |
+| --- | --- | --- |
+| 周一 | 4 | 3 |
+| 周二 | 5 | 2 |
+| 周三 | 3 | 4 |
+| 周四 | 6 | 2 |
+| 周五 | 4 | 3 |
+\`\`\`
+
+## 读数字
+- 状态最好：
+- 拖累我的：
+
+## 下周只改一件事
+- [ ] 
+
+`,
+    "template.timeline_milestones.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 复盘]
+---
+
+::: timeline
+:: [milestone] {{date}} 启动
+范围确认，责任人确定。
+:: [todo] {{date}} 首个版本
+:: [doing] {{date}} 内测反馈
+:::
+
+## 风险
+- 
+
+## 还没定的事
+- 
+
+`,
+    "template.columns_comparison.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [决策, 表格]
+---
+
+## {{title}}
+
+::: cols
+### 方案 A
+- 成本：
+- 工作量：
+- 风险：
+
+::
+### 方案 B
+- 成本：
+- 工作量：
+- 风险：
+:::
+
+## 结论
+> 
+
+## 理由
+- 
+
+`,
+    "template.tabs_alternatives.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [计划]
+---
+
+:::: tabs
+::: tab-item 方案 A
+- 目标：
+- 步骤：
+- 成本：
+:::
+::: tab-item 方案 B
+- 目标：
+- 步骤：
+- 成本：
+:::
+::: tab-item 方案 C
+- 目标：
+- 步骤：
+- 成本：
+:::
+::::
+
+## 选定的
+- 
+
+`,
+    "template.details_faq.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作]
+---
+
+## {{title}}
+
+::: details [这是什么？]
+> 
+
+:::
+
+::: details [给谁用？]
+> 
+
+:::
+
+::: details [怎么开始？]
+1. 
+2. 
+
+:::
+
+## 还没说清的
+- 
+
+`,
+    "template.callout_annotations.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作, 清单]
+---
+
+## {{title}}
+
+> [!NOTE]
+> 不打断阅读顺序的补充说明。
+
+> [!TIP]
+> 马上能派上用场的捷径。
+
+> [!WARNING]
+> 忽略就会出问题的地方。
+
+## 用法
+- [ ] 一页最多一个
+- [ ] 警示放在要做动作的那句话旁边
+
+`,
+    "template.blank.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [每日]
+---
+
+{{cursor}}
+`,
+    "template.front_matter_only.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+date: {{date}}
+folder: {{folder}}
+tags: [表格]
+---
+
+{{cursor}}
+`,
+    "template.daily_note.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+date: {{date}}
+tags: [每日]
+---
+
+## 今天
+- [ ] 
+
+## 随手记
+- 
+
+## 流水
+- {{time}} 
+
+## 收尾
+- 做完：
+- 顺延：
+- [ ] 
+
+`,
+    "template.weekly_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [每周, 复盘]
+---
+
+## 做成了
+1. 
+
+## 没做成
+1. 
+
+## 数字
+| 指标 | 目标 | 实际 |
+| --- | --- | --- |
+|  |  |  |
+
+## 下周，按顺序
+- [ ] 
+- [ ] 
+- [ ] 
+
+## 有一件事该停
+> 
+
+`,
+    "template.monthly_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [复盘, 目标]
+---
+
+## 这个月的目标
+| 目标 | 状态 | 证据 |
+| --- | --- | --- |
+|  |  |  |
+
+## 习惯
+- 守住的：
+- 断掉的：
+
+## 最好的一次决定
+> 
+
+## 这个月花在了哪
+- 
+
+## 下月的主题
+- [ ] 
+
+`,
+    "template.annual_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [复盘, 目标]
+---
+
+## 这一年的大数
+| 方面 | 去年 | 今年 |
+| --- | --- | --- |
+| 健康 |  |  |
+| 工作 |  |  |
+| 学习 |  |  |
+| 钱 |  |  |
+
+## 一季度
+- 
+
+## 二季度
+- 
+
+## 三季度
+- 
+
+## 四季度
+- 
+
+## 想重复的
+1. 
+
+## 要留下的
+1. 
+
+## 明年，一句话说清
+> 
+
+`,
+    "template.one_on_one.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 会议]
+---
+
+## 和谁
+- 
+
+## 对方的议题
+1. 
+
+## 我的议题
+1. 
+
+## 值得问的问题
+- 这周卡住你的是什么？
+- 最近学到了什么？
+- 我们的协作方式你想改哪一处？
+
+## 行动项
+- [ ] 负责人：— 事项：
+- [ ] 负责人：— 事项：
+
+## 只记给自己的
+> 
+
+`,
+    "template.rfc.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [技术, 决策]
+---
+
+## 状态
+- 作者：
+- 评审：
+- 结论：待定
+
+## 问题
+> 
+
+## 建议的改法
+- 
+
+## 考虑过的备选
+1. 不选，因为：
+2. 不选，因为：
+
+## 上线
+- [ ] 
+- [ ] 
+
+## 还没回答的
+- 
+
+`,
+    "template.incident_postmortem.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [技术, 复盘]
+---
+
+## 概要
+> 
+
+## 影响
+| 时间窗 | 受影响用户 | 谁发现的 |
+| --- | --- | --- |
+|  |  |  |
+
+## 时间线
+| 时间 | 发生了什么 |
+| --- | --- |
+| {{time}} |  |
+
+## 根因
+- 
+
+## 做得好的
+- 
+
+## 做得差的
+- 
+
+## 改进项
+- [ ] 
+- [ ] 
+
+`,
+    "template.sop.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [清单, 工作]
+---
+
+## 什么时候跑
+- 触发：
+- 频率：
+- 责任人：
+
+## 步骤
+1. 
+2. 
+3. 
+
+## 收工前确认
+- [ ] 
+- [ ] 
+
+## 例外情况
+> 
+
+## 出了岔子
+- 上报给：
+- 回滚方式：
+
+`,
+    "template.zettelkasten_permanent.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 写作]
+---
+
+## {{title}}
+
+> 
+
+## 用自己的话
+- 
+
+## 连到
+- [[]]
+
+## 被连到
+- [[]]
+
+## 出处
+- 
+
+`,
+    "template.fleeting_note.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [每日]
+---
+
+## 记下了
+> 
+
+## 从哪来的
+- 
+
+## 它可能变成
+- [ ] 一条永久笔记
+- [ ] 一个任务
+- [ ] 一个项目
+- [ ] 直接删掉
+
+## 处理期限
+- {{tomorrow}}
+
+`,
+    "template.literature_note.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 写作]
+---
+
+## 来源
+| 字段 | 值 |
+| --- | --- |
+| 作者 |  |
+| 年份 |  |
+| 链接 |  |
+
+## 观点，按原文顺序
+1. （页码） 
+2. （页码） 
+
+## 我的反应
+> 
+
+## 想追问的
+- 
+
+`,
+    "template.map_of_content.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 技术]
+---
+
+## {{title}}
+
+> 
+
+## 从这里进
+- [[]]
+- [[]]
+
+## 按问题
+- ？→ [[]]
+
+## 按概念
+- → [[]]
+
+## 缺口
+- [ ] 
+
+## 最近加的
+- 
+
+`,
+    "template.sq3r_reading.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 清单]
+---
+
+## 1. 浏览
+- 小标题：
+- 图表：
+
+## 2. 提问
+- [ ] 
+
+## 3. 阅读
+> 
+
+## 4. 合上书复述
+- 
+
+## 5. 复盘
+| 问题 | 回答 |
+| --- | --- |
+|  |  |
+
+## 还没懂
+- 
+
+`,
+    "template.glossary.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 表格]
+---
+
+## {{title}}
+
+| 术语 | 定义 | 首次出现 |
+| --- | --- | --- |
+|  |  | [[]] |
+
+## 容易混的一对
+- 与 → 
+
+## 什么时候加
+- [ ] 
+
+`,
+    "template.interview_notes.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 会议]
+---
+
+## 对象
+- 谁：
+- 时间：
+- 目的：
+
+## 问答
+**问：** 
+**答：** 
+
+## 原话
+> 
+
+## 信号
+- 
+
+## 欠的追问
+- [ ] 
+
+`,
+    "template.backlog.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 清单]
+---
+
+## 排过序的
+| 事项 | 价值 | 成本 | 决定期限 |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## 冷宫
+- 
+
+## 这季度砍掉的
+- 
+
+## 怎么提一个
+1. 
+
+`,
+    "template.competitive_analysis.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [技术, 表格]
+---
+
+## 是谁
+| 名称 | 定位 | 价格 |
+| --- | --- | --- |
+|  |  |  |
+
+## 逐项对比
+| 能力 | 我们 | 他们 | 备注 |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## 我们输在哪
+> 
+
+## 我们赢在哪
+> 
+
+## 该抄的
+- [ ] 
+
+`,
+    "template.decision_log.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [决策, 复盘]
+---
+
+## 决定
+> 
+
+## 背景
+- 
+
+## 否掉的选项
+| 选项 | 为什么不 |
+| --- | --- |
+|  |  |
+
+## 谁同意了
+- 
+
+## 什么会推翻它
+- [ ] 
+
+## 何时重看
+- {{tomorrow}}
+
+`,
+    "template.onboarding_checklist.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [清单, 工作]
+---
+
+## 权限
+- [ ] 
+
+## 要见的人
+- [ ] 
+
+## 先读的
+- [ ] 
+
+## 头几件事
+- [ ] 
+
+## 第一周
+| 天 | 结果 |
+| --- | --- |
+| 1 |  |
+| 3 |  |
+| 5 |  |
+
+## 要问主管的
+- 
+
+`,
+    "template.handover_doc.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 清单]
+---
+
+## 这是什么
+> 
+
+## 东西在哪
+| 东西 | 位置 | 权限 |
+| --- | --- | --- |
+|  |  |  |
+
+## 周期性的活
+| 什么时候 | 做什么 | 问谁 |
+| --- | --- | --- |
+|  |  |  |
+
+## 做了一半的
+- [ ] 
+
+## 坑
+- 
+
+## 联系人
+- 
+
+`,
+    "template.ab_experiment.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [技术, 表格]
+---
+
+## 假设
+> 
+
+## 设计
+| 字段 | 值 |
+| --- | --- |
+| 指标 |  |
+| 样本量 |  |
+| 跑多久 |  |
+| 分流 |  |
+
+## 护栏指标
+- 
+
+## 结果
+| 分组 | 样本 | 指标 | 提升 |
+| --- | --- | --- | --- |
+| A |  |  |  |
+| B |  |  |  |
+
+## 结论
+- [ ] 上线
+- [ ] 再改
+- [ ] 不做
+
+`,
+    "template.character_card.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作]
+---
+
+## {{title}}
+
+| 字段 | 值 |
+| --- | --- |
+| 年龄 |  |
+| 位置 |  |
+| 想要 |  |
+| 需要 |  |
+| 伤口 |  |
+
+## 说话方式
+> 
+
+## 小动作
+- 
+
+## 自相矛盾之处
+- 
+
+## 变化
+- 开场：
+- 收尾：
+
+`,
+    "template.worldbuilding.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作]
+---
+
+## {{title}}
+
+## 规则
+> 
+
+## 代价
+- 
+
+## 谁得利
+- 
+
+## 谁受害
+- 
+
+## 大家都以为
+- 
+
+## 实际上
+- 
+
+## 它出现在
+- [[]]
+
+`,
+    "template.book_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 写作]
+---
+
+## 结论
+> 
+
+## 这本书主张
+1. 
+
+## 它证得怎么样
+- 
+
+## 最好的一章
+- 
+
+## 最弱的一处
+- 
+
+## 谁该读
+- [ ] 
+
+## 谁可以跳过
+- [ ] 
+
+## 打分
+| 维度 | 分 |
+| --- | --- |
+| 观点 |  |
+| 文笔 |  |
+| 用处 |  |
+
+`,
+    "template.film_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作, 复盘]
+---
+
+## 一句话
+> 
+
+## 它想做的
+- 
+
+## 做到没有
+- 
+
+## 定调的那场戏
+> 
+
+## 手艺
+| 部分 | 成立吗 | 为什么 |
+| --- | --- | --- |
+| 剪辑 |  |  |
+| 声音 |  |  |
+| 剧本 |  |  |
+
+## 怎么看
+- [ ] 影院
+- [ ] 家里
+- [ ] 不看
+
+`,
+    "template.scqa_pyramid.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作, 工作]
+---
+
+## 背景
+- 
+
+## 冲突
+- 
+
+## 疑问
+> 
+
+## 答案（先说这个）
+> 
+
+## 支撑
+1. 因为 
+   1. 
+2. 因为 
+   1. 
+3. 因为 
+   1. 
+
+## 顺序自检
+- [ ] 读者的疑问出现在答案之前
+- [ ] 每条支撑只说一件事
+
+`,
+    "template.longform_article.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [写作]
+---
+
+## 承诺
+> 
+
+## 导语
+> 
+
+## 第一节
+### 
+- 
+
+## 第二节
+### 
+- 
+
+## 转折
+> 
+
+## 第三节
+### 
+- 
+
+## 收尾
+> 
+
+## 待删
+- 
+
+::: details [给编辑的话]
+- 
+
+:::
+
+`,
+    "template.medication_log.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [健康, 表格]
+---
+
+## 今天
+| 时间 | 事项 | 剂量 | 反应 |
+| --- | --- | --- | --- |
+| {{time}} |  |  |  |
+
+## 症状
+- 位置：
+- 程度（0-10）：
+- 起始：
+
+## 要问医生的
+- [ ] 
+
+## 补充
+- 
+
+`,
+    "template.therapy_prep.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [健康, 复盘]
+---
+
+## 上次以来
+- 
+
+## 这周最强烈的感受
+> 
+
+## 我注意到的模式
+- 
+
+## 这次想谈的一件事
+1. 
+
+## 有用的
+- 
+
+## 没用的
+- 
+
+`,
+    "template.health_metrics.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [健康, 表格]
+---
+
+## {{title}}
+
+| 指标 | 去年 | 今年 | 参考范围 | 标记 |
+| --- | --- | --- | --- | --- |
+| 体重 |  |  |  |  |
+| 血压 |  |  |  |  |
+| 心率 |  |  |  |  |
+| 空腹血糖 |  |  |  |  |
+| 低密度脂蛋白 |  |  |  |  |
+
+## 变了什么
+- 
+
+## 要复查的
+- [ ] 
+
+## 医生说的
+> 
+
+`,
+    "template.quit_tracker.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [健康, 目标, 清单]
+---
+
+## 开始
+- 时间：{{date}}
+- 为了：
+> 
+
+## 今天
+| 时间 | 冲动 | 强度 | 我改做了什么 |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## 有效的替代
+- 
+
+## 如果没扛住
+> 
+
+## 里程碑
+- [ ] 24 小时
+- [ ] 一周
+- [ ] 一个月
+
+`,
+    "template.mood_checkin.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [健康, 每日]
+---
+
+## {{date}} {{time}}
+
+| 维度 | 1-5 |
+| --- | --- |
+| 心情 |  |
+| 精力 |  |
+| 专注 |  |
+| 焦虑 |  |
+
+## 触发点
+- 
+
+## 我做了什么
+- 
+
+## 我需要什么
+- [ ] 
+
+## 明天
+> 
+
+`,
+    "template.lesson_plan.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [学习, 计划]
+---
+
+## 班级
+- 科目：
+- 时长：
+
+## 目标
+> 学完学生能 
+
+## 引入（5 分钟）
+- 
+
+## 讲授（15 分钟）
+1. 
+2. 
+
+## 练习（20 分钟）
+- [ ] 
+
+## 检测
+| 提问 | 好答案长什么样 |
+| --- | --- |
+|  |  |
+
+## 出门小题
+> 
+
+## 下次
+- 
+
+`,
+    "template.lab_notebook.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [技术, 表格]
+---
+
+## 问题
+> 
+
+## 假设
+> 
+
+## 材料
+- 
+
+## 方法
+1. 
+
+## 原始结果
+| 次数 | 输入 | 输出 | 备注 |
+| --- | --- | --- | --- |
+| 1 |  |  |  |
+
+## 异常
+- 
+
+## 结论
+- [ ] 支持
+- [ ] 推翻
+- [ ] 说不清
+
+## 下一个实验
+- 
+
+`,
+    "template.client_profile.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 会议]
+---
+
+## 是谁
+| 字段 | 值 |
+| --- | --- |
+| 公司 |  |
+| 联系人 |  |
+| 职务 |  |
+
+## 他们的处境
+> 
+
+## 决策链
+- 谁定：
+- 谁能卡：
+- 预算在谁手上：
+
+## 时间线
+- 
+
+## 我们要的
+- 
+
+## 听到的顾虑
+- 
+
+## 下一步
+- [ ] 
+
+`,
+    "template.sales_call.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [工作, 清单]
+---
+
+## 打之前
+- 我要：
+- 他们大概要：
+
+## 通话中
+| 话题 | 他们说 | 我说 |
+| --- | --- | --- |
+|  |  |  |
+
+## 信号
+- 预算：
+- 决策权：
+- 需求：
+- 时间：
+
+## 说定的
+- [ ] 
+
+## 跟进期限
+- {{tomorrow}}
+
+`,
+    "template.case_summary.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [复盘, 写作]
+---
+
+## 案号
+| 字段 | 值 |
+| --- | --- |
+| 事务 |  |
+| 委托人 |  |
+| 法院 |  |
+
+## 事实
+- 
+
+## 争点
+1. 
+
+## 各方立场
+| 方 | 主张 | 依据 |
+| --- | --- | --- |
+|  |  |  |
+
+## 未决问题
+- [ ] 
+
+## 期限
+| 到期 | 事项 | 责任人 |
+| --- | --- | --- |
+|  |  |  |
+
+`,
+    "template.flat_comparison.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [钱, 表格]
+---
+
+## 一票否决
+| 房子 | 有吗 | 是什么 |
+| --- | --- | --- |
+|  |  |  |
+
+## 并排看
+| 项 | A | B | C |
+| --- | --- | --- | --- |
+| 价格 |  |  |  |
+| 通勤 |  |  |  |
+| 采光 |  |  |  |
+| 噪音 |  |  |  |
+| 收纳 |  |  |  |
+
+## 房租之外的开销
+- 
+
+## 看过
+- {{date}} 
+
+## 倾向
+> 
+
+`,
     "template.article_outline.content": `---
 title: {{title}}
 createdAt: {{createdAt}}

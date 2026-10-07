@@ -1,4 +1,1304 @@
 export const EN_US_NOTE_TEMPLATE_CONTENT = {
+    "template.kanban_sprint_board.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, checklist]
+---
+
+\`\`\`kanban
+{"title": "{{title}}", "columns": ["Backlog", "In progress", "Done"], "views": [{"type": "board", "name": "Board"}]}
+\`\`\`
+
+## Backlog
+- [ ] Scope the stories
+- [ ] Agree the sprint goal
+
+## In progress
+- [ ] 
+
+## Done
+- [ ] 
+
+## Retro notes
+- 
+
+{{cursor}}
+`,
+    "template.mindmap_reading_map.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study]
+---
+
+## Book
+
+\`\`\`mindmap
+- {{title}}
+  - Core claim
+  - Structure
+    - Part 1
+    - Part 2
+  - What I will use
+  - Questions
+\`\`\`
+
+## Chapters
+- 
+
+## Quotes worth keeping
+> 
+
+`,
+    "template.chart_weekly_dashboard.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [weekly, table]
+---
+
+## This week
+
+\`\`\`chart style=table
+| Day | Focus hours | Breaks |
+| --- | --- | --- |
+| Mon | 4 | 3 |
+| Tue | 5 | 2 |
+| Wed | 3 | 4 |
+| Thu | 6 | 2 |
+| Fri | 4 | 3 |
+\`\`\`
+
+## Reading the numbers
+- Best day:
+- What dragged:
+
+## Next week's one change
+- [ ] 
+
+`,
+    "template.timeline_milestones.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, review]
+---
+
+::: timeline
+:: [milestone] {{date}} Kickoff
+Scope agreed, owner named.
+:: [todo] {{date}} First release
+:: [doing] {{date}} Beta feedback
+:::
+
+## Risks
+- 
+
+## Decisions still open
+- 
+
+`,
+    "template.columns_comparison.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [decision, table]
+---
+
+## {{title}}
+
+::: cols
+### Option A
+- Cost:
+- Effort:
+- Risk:
+
+::
+### Option B
+- Cost:
+- Effort:
+- Risk:
+:::
+
+## Verdict
+> 
+
+## Why
+- 
+
+`,
+    "template.tabs_alternatives.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [planning]
+---
+
+:::: tabs
+::: tab-item Plan A
+- Goal:
+- Steps:
+- Cost:
+:::
+::: tab-item Plan B
+- Goal:
+- Steps:
+- Cost:
+:::
+::: tab-item Plan C
+- Goal:
+- Steps:
+- Cost:
+:::
+::::
+
+## Chosen
+- 
+
+`,
+    "template.details_faq.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing]
+---
+
+## {{title}}
+
+::: details [What is this?]
+> 
+
+:::
+
+::: details [Who is it for?]
+> 
+
+:::
+
+::: details [How do I start?]
+1. 
+2. 
+
+:::
+
+## Still unclear
+- 
+
+`,
+    "template.callout_annotations.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing, checklist]
+---
+
+## {{title}}
+
+> [!NOTE]
+> Extra context that should not interrupt the reading.
+
+> [!TIP]
+> A shortcut the reader can use right away.
+
+> [!WARNING]
+> Something that goes wrong if ignored.
+
+## How to use them
+- [ ] One per page, at most
+- [ ] Put the warning where the action is
+
+`,
+    "template.blank.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [daily]
+---
+
+{{cursor}}
+`,
+    "template.front_matter_only.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+date: {{date}}
+folder: {{folder}}
+tags: [table]
+---
+
+{{cursor}}
+`,
+    "template.daily_note.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+date: {{date}}
+tags: [daily]
+---
+
+## Today
+- [ ] 
+
+## Notes
+- 
+
+## Log
+- {{time}} 
+
+## Closed out
+- Done:
+- Carried over:
+- [ ] 
+
+`,
+    "template.weekly_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [weekly, review]
+---
+
+## Wins
+1. 
+
+## Missed
+1. 
+
+## Numbers
+| Metric | Target | Actual |
+| --- | --- | --- |
+|  |  |  |
+
+## Next week, in order
+- [ ] 
+- [ ] 
+- [ ] 
+
+## One thing to stop doing
+> 
+
+`,
+    "template.monthly_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [review, goal]
+---
+
+## Goals this month
+| Goal | Status | Evidence |
+| --- | --- | --- |
+|  |  |  |
+
+## Habits
+- Kept:
+- Broken:
+
+## Best decision
+> 
+
+## What the month cost
+- 
+
+## Next month's theme
+- [ ] 
+
+`,
+    "template.annual_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [review, goal]
+---
+
+## The year in numbers
+| Area | Last year | This year |
+| --- | --- | --- |
+| Health |  |  |
+| Work |  |  |
+| Learning |  |  |
+| Money |  |  |
+
+## Q1
+- 
+
+## Q2
+- 
+
+## Q3
+- 
+
+## Q4
+- 
+
+## What I would repeat
+1. 
+
+## What I am leaving behind
+1. 
+
+## Next year, in one line
+> 
+
+`,
+    "template.one_on_one.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, meeting]
+---
+
+## With
+- 
+
+## Their topics
+1. 
+
+## My topics
+1. 
+
+## Questions worth asking
+- What is blocking you this week?
+- What did you learn recently?
+- What would you change about how we work?
+
+## Actions
+- [ ] Owner: — Task:
+- [ ] Owner: — Task:
+
+## Private notes
+> 
+
+`,
+    "template.rfc.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [tech, decision]
+---
+
+## Status
+- Author:
+- Reviewers:
+- Decision: pending
+
+## Problem
+> 
+
+## Proposed change
+- 
+
+## Alternatives considered
+1. Rejected because:
+2. Rejected because:
+
+## Rollout
+- [ ] 
+- [ ] 
+
+## Open questions
+- 
+
+`,
+    "template.incident_postmortem.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [tech, review]
+---
+
+## Summary
+> 
+
+## Impact
+| Window | Users affected | Detected by |
+| --- | --- | --- |
+|  |  |  |
+
+## Timeline
+| Time | What happened |
+| --- | --- |
+| {{time}} |  |
+
+## Root cause
+- 
+
+## What went well
+- 
+
+## What went badly
+- 
+
+## Follow-ups
+- [ ] 
+- [ ] 
+
+`,
+    "template.sop.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [checklist, work]
+---
+
+## When this runs
+- Trigger:
+- Frequency:
+- Owner:
+
+## Steps
+1. 
+2. 
+3. 
+
+## Checks before finishing
+- [ ] 
+- [ ] 
+
+## Exceptions
+> 
+
+## If something breaks
+- Escalate to:
+- Rollback:
+
+`,
+    "template.zettelkasten_permanent.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, writing]
+---
+
+## {{title}}
+
+> 
+
+## In my own words
+- 
+
+## Links to
+- [[]]
+
+## Links from
+- [[]]
+
+## Source
+- 
+
+`,
+    "template.fleeting_note.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [daily]
+---
+
+## Captured
+> 
+
+## Where it came from
+- 
+
+## What it might become
+- [ ] A permanent note
+- [ ] A task
+- [ ] A project
+- [ ] Deleted
+
+## Process by
+- {{tomorrow}}
+
+`,
+    "template.literature_note.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, writing]
+---
+
+## Source
+| Field | Value |
+| --- | --- |
+| Author |  |
+| Year |  |
+| Link |  |
+
+## Claims, in order
+1. (p. ) 
+2. (p. ) 
+
+## My reaction
+> 
+
+## Open questions
+- 
+
+`,
+    "template.map_of_content.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, tech]
+---
+
+## {{title}}
+
+> 
+
+## Start here
+- [[]]
+- [[]]
+
+## By question
+- ? → [[]]
+
+## By concept
+- → [[]]
+
+## Gaps
+- [ ] 
+
+## Recently added
+- 
+
+`,
+    "template.sq3r_reading.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, checklist]
+---
+
+## 1. Survey
+- Heading:
+- Figures:
+
+## 2. Question
+- [ ] 
+
+## 3. Read
+> 
+
+## 4. Recite, without looking
+- 
+
+## 5. Review
+| Question | Answer |
+| --- | --- |
+|  |  |
+
+## Still unclear
+- 
+
+`,
+    "template.glossary.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, table]
+---
+
+## {{title}}
+
+| Term | Definition | First seen |
+| --- | --- | --- |
+|  |  | [[]] |
+
+## Confused pairs
+- vs → 
+
+## Add when
+- [ ] 
+
+`,
+    "template.interview_notes.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, meeting]
+---
+
+## With
+- Who:
+- When:
+- Purpose:
+
+## Questions and answers
+**Q:** 
+**A:** 
+
+## In their words
+> 
+
+## Signals
+- 
+
+## Follow-ups I owe
+- [ ] 
+
+`,
+    "template.backlog.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, checklist]
+---
+
+## Ranked
+| Item | Value | Cost | Decision by |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## Cold storage
+- 
+
+## Cut this quarter
+- 
+
+## How to raise one
+1. 
+
+`,
+    "template.competitive_analysis.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [tech, table]
+---
+
+## Who
+| Name | Positioning | Price |
+| --- | --- | --- |
+|  |  |  |
+
+## Feature by feature
+| Feature | Us | Them | Notes |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## Where we lose
+> 
+
+## Where we win
+> 
+
+## What to copy
+- [ ] 
+
+`,
+    "template.decision_log.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [decision, review]
+---
+
+## Decision
+> 
+
+## Context
+- 
+
+## Options rejected
+| Option | Why not |
+| --- | --- |
+|  |  |
+
+## Who agreed
+- 
+
+## What would reverse this
+- [ ] 
+
+## Revisit on
+- {{tomorrow}}
+
+`,
+    "template.onboarding_checklist.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [checklist, work]
+---
+
+## Access
+- [ ] 
+
+## People to meet
+- [ ] 
+
+## Read first
+- [ ] 
+
+## First tasks
+- [ ] 
+
+## Week one
+| Day | Outcome |
+| --- | --- |
+| 1 |  |
+| 3 |  |
+| 5 |  |
+
+## Questions for the manager
+- 
+
+`,
+    "template.handover_doc.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, checklist]
+---
+
+## What this is
+> 
+
+## Where things live
+| Thing | Location | Access |
+| --- | --- | --- |
+|  |  |  |
+
+## Recurring work
+| When | What | Who to ask |
+| --- | --- | --- |
+|  |  |  |
+
+## Half done
+- [ ] 
+
+## Traps
+- 
+
+## Contacts
+- 
+
+`,
+    "template.ab_experiment.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [tech, table]
+---
+
+## Hypothesis
+> 
+
+## Design
+| Field | Value |
+| --- | --- |
+| Metric |  |
+| Sample size |  |
+| Runtime |  |
+| Split |  |
+
+## Guardrails
+- 
+
+## Result
+| Variant | N | Metric | Lift |
+| --- | --- | --- | --- |
+| A |  |  |  |
+| B |  |  |  |
+
+## Decision
+- [ ] Ship
+- [ ] Iterate
+- [ ] Kill
+
+`,
+    "template.character_card.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing]
+---
+
+## {{title}}
+
+| Field | Value |
+| --- | --- |
+| Age |  |
+| Role |  |
+| Wants |  |
+| Needs |  |
+| Wound |  |
+
+## Voice
+> 
+
+## Tells
+- 
+
+## Contradiction
+- 
+
+## Arc
+- Starts:
+- Ends:
+
+`,
+    "template.worldbuilding.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing]
+---
+
+## {{title}}
+
+## The rule
+> 
+
+## The cost
+- 
+
+## Who benefits
+- 
+
+## Who is harmed
+- 
+
+## What everyone believes about it
+- 
+
+## What is actually true
+- 
+
+## Where it shows up
+- [[]]
+
+`,
+    "template.book_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, writing]
+---
+
+## Verdict
+> 
+
+## The book claims
+1. 
+
+## How well it proves it
+- 
+
+## Best chapter
+- 
+
+## Weakest part
+- 
+
+## Read it if
+- [ ] 
+
+## Skip it if
+- [ ] 
+
+## Rating
+| Axis | Score |
+| --- | --- |
+| Ideas |  |
+| Prose |  |
+| Usefulness |  |
+
+`,
+    "template.film_review.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing, review]
+---
+
+## One line
+> 
+
+## What it aims at
+- 
+
+## Whether it lands
+- 
+
+## The scene that decides it
+> 
+
+## Craft
+| Element | Works? | Why |
+| --- | --- | --- |
+| Editing |  |  |
+| Sound |  |  |
+| Script |  |  |
+
+## See it
+- [ ] In a cinema
+- [ ] At home
+- [ ] Never
+
+`,
+    "template.scqa_pyramid.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing, work]
+---
+
+## Situation
+- 
+
+## Complication
+- 
+
+## Question
+> 
+
+## Answer (say this first)
+> 
+
+## Support
+1. Because 
+   1. 
+2. Because 
+   1. 
+3. Because 
+   1. 
+
+## Order check
+- [ ] The reader's question comes before the answer
+- [ ] Each support is one idea
+
+`,
+    "template.longform_article.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [writing]
+---
+
+## Promise
+> 
+
+## Lede
+> 
+
+## Section 1
+### 
+- 
+
+## Section 2
+### 
+- 
+
+## The turn
+> 
+
+## Section 3
+### 
+- 
+
+## Close
+> 
+
+## Cut list
+- 
+
+::: details [Notes for the editor]
+- 
+
+:::
+
+`,
+    "template.medication_log.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [health, table]
+---
+
+## Today
+| Time | What | Dose | Reaction |
+| --- | --- | --- | --- |
+| {{time}} |  |  |  |
+
+## Symptoms
+- Where:
+- Severity (0-10):
+- Started:
+
+## Questions for the doctor
+- [ ] 
+
+## Notes
+- 
+
+`,
+    "template.therapy_prep.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [health, review]
+---
+
+## Since last time
+- 
+
+## Strongest feeling this week
+> 
+
+## Patterns I noticed
+- 
+
+## One thing to bring up
+1. 
+
+## What helped
+- 
+
+## What did not
+- 
+
+`,
+    "template.health_metrics.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [health, table]
+---
+
+## {{title}}
+
+| Measure | Last year | This year | Range | Flag |
+| --- | --- | --- | --- | --- |
+| Weight |  |  |  |  |
+| Blood pressure |  |  |  |  |
+| Pulse |  |  |  |  |
+| Fasting glucose |  |  |  |  |
+| LDL |  |  |  |  |
+
+## What changed
+- 
+
+## To follow up
+- [ ] 
+
+## Doctor's note
+> 
+
+`,
+    "template.quit_tracker.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [health, goal, checklist]
+---
+
+## Started
+- When: {{date}}
+- Why:
+> 
+
+## Today
+| Time | Urge | Strength | What I did instead |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## Substitutions that work
+- 
+
+## Slip plan
+> 
+
+## Milestones
+- [ ] 24h
+- [ ] 1 week
+- [ ] 1 month
+
+`,
+    "template.mood_checkin.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [health, daily]
+---
+
+## {{date}} {{time}}
+
+| Axis | 1-5 |
+| --- | --- |
+| Mood |  |
+| Energy |  |
+| Focus |  |
+| Anxiety |  |
+
+## What set it off
+- 
+
+## What I did
+- 
+
+## What I need
+- [ ] 
+
+## Tomorrow
+> 
+
+`,
+    "template.lesson_plan.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [study, planning]
+---
+
+## Class
+- Subject:
+- Length:
+
+## Objective
+> Students will be able to 
+
+## Activate (5 min)
+- 
+
+## Teach (15 min)
+1. 
+2. 
+
+## Practise (20 min)
+- [ ] 
+
+## Check
+| Question | What a good answer looks like |
+| --- | --- |
+|  |  |
+
+## Exit ticket
+> 
+
+## Next time
+- 
+
+`,
+    "template.lab_notebook.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [tech, table]
+---
+
+## Question
+> 
+
+## Hypothesis
+> 
+
+## Materials
+- 
+
+## Method
+1. 
+
+## Raw results
+| Run | Input | Output | Notes |
+| --- | --- | --- | --- |
+| 1 |  |  |  |
+
+## Anomalies
+- 
+
+## Conclusion
+- [ ] Supports
+- [ ] Refutes
+- [ ] Inconclusive
+
+## Next experiment
+- 
+
+`,
+    "template.client_profile.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, meeting]
+---
+
+## Who
+| Field | Value |
+| --- | --- |
+| Company |  |
+| Contact |  |
+| Role |  |
+
+## Their situation
+> 
+
+## Decision chain
+- Who decides:
+- Who blocks:
+- Budget owner:
+
+## Timeline
+- 
+
+## Our ask
+- 
+
+## Objections heard
+- 
+
+## Next step
+- [ ] 
+
+`,
+    "template.sales_call.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [work, checklist]
+---
+
+## Before
+- I want:
+- They likely want:
+
+## During
+| Topic | They said | I said |
+| --- | --- | --- |
+|  |  |  |
+
+## Signals
+- Budget:
+- Authority:
+- Need:
+- Timing:
+
+## Committed
+- [ ] 
+
+## Follow up by
+- {{tomorrow}}
+
+`,
+    "template.case_summary.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [review, writing]
+---
+
+## Reference
+| Field | Value |
+| --- | --- |
+| Matter |  |
+| Client |  |
+| Court |  |
+
+## Facts
+- 
+
+## Issues
+1. 
+
+## Positions
+| Party | Argues | Authority |
+| --- | --- | --- |
+|  |  |  |
+
+## Open questions
+- [ ] 
+
+## Deadlines
+| Due | What | Owner |
+| --- | --- | --- |
+|  |  |  |
+
+`,
+    "template.flat_comparison.content": `---
+title: {{title}}
+createdAt: {{createdAt}}
+tags: [finance, table]
+---
+
+## Deal breakers
+| Place | Deal breaker? | What |
+| --- | --- | --- |
+|  |  |  |
+
+## Side by side
+| Item | A | B | C |
+| --- | --- | --- | --- |
+| Price |  |  |  |
+| Commute |  |  |  |
+| Light |  |  |  |
+| Noise |  |  |  |
+| Storage |  |  |  |
+
+## Costs beyond rent
+- 
+
+## Visited
+- {{date}} 
+
+## Leaning
+> 
+
+`,
     "template.article_outline.content": `---
 title: {{title}}
 createdAt: {{createdAt}}

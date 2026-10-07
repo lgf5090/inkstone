@@ -669,3 +669,26 @@ describe('language switch refreshes the pristine built-ins', () => {
     }
   })
 })
+
+describe('a catalog that grew since the account last opened it', () => {
+  it('tops up the new built-ins for a library seeded at the previous version', async () => {
+    const keptId = fresh().createTemplate({ name: 'Written by hand', content: 'keep me' })!
+    const keptTemplate = library().templates.find((item) => item.id === keptId)!
+    const stale = library().templates.filter((item) => item.builtin).slice(0, 38)
+    stored.value = {
+      categories: library().categories,
+      templates: [...stale, keptTemplate],
+      seedVersion: 1,
+      syncedAt: 0,
+      pendingPush: false,
+    }
+    useNoteTemplates.setState({ hydrated: false })
+    await fresh().hydrate('user-a')
+    const ids = new Set(fresh().templates.map((item) => item.id))
+    for (const def of BUILTIN_TEMPLATE_DEFS)
+      expect(ids.has(def.id), def.id).toBe(true)
+    expect(fresh().templates.find((item) => item.id === keptId)?.name).toBe('Written by hand')
+    expect(library().seedVersion).toBe(TEMPLATE_SEED_VERSION)
+  })
+
+})
