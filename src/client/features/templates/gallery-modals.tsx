@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Check, Upload } from 'lucide-react'
 import type { NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import { TEMPLATE_IMPORT_LIMITS, parseTemplateLibraryExport } from '@shared/note-templates'
@@ -32,13 +32,15 @@ export function TemplateEditorModal({ template, initial, categories, onClose }: 
     }
     : initial ?? EMPTY_DRAFT)
   const [isError, setIsError] = useState(false)
+  const [bodyError, setBodyError] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   useEffect(() => { nameRef.current?.focus() }, [])
   const save = () => {
-    if (!draft.name.trim() || !draft.content) {
-      setIsError(true)
-      return
-    }
+    const missingName = !draft.name.trim()
+    const missingBody = !draft.content.trim()
+    setIsError(missingName)
+    setBodyError(missingBody)
+    if (missingName || missingBody) return
     const store = useNoteTemplates.getState()
     if (template) store.updateTemplate(template.id, draft)
     else store.createTemplate(draft)
@@ -50,7 +52,7 @@ export function TemplateEditorModal({ template, initial, categories, onClose }: 
     </>}>
     <div className='space-y-4'>
       <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
-        <Field label={t('templates.template_name')} required>
+        <Field label={t('templates.template_name')} required hint={isError ? <span className='text-[var(--danger)]'>{t('templates.name_required')}</span> : undefined}>
           <Input ref={nameRef} invalid={isError} maxLength={TEMPLATE_IMPORT_LIMITS.maxNameLength} value={draft.name} onChange={(event) => {
             setDraft({ ...draft, name: event.target.value })
             setIsError(false)
@@ -69,8 +71,11 @@ export function TemplateEditorModal({ template, initial, categories, onClose }: 
       <Field label={t('templates.description')}>
         <Input maxLength={TEMPLATE_IMPORT_LIMITS.maxDescriptionLength} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder={t('templates.description')}/>
       </Field>
-      <Field label={t('templates.template_content')} hint={t('templates.template_content_hint')}>
-        <Textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} rows={16} spellCheck={false} className='min-h-70 font-mono text-[12.5px]'/>
+      <Field label={t('templates.template_content')} hint={bodyError ? <span className='text-[var(--danger)]'>{t('templates.content_required')}</span> : t('templates.template_content_hint')}>
+        <Textarea value={draft.content} aria-invalid={bodyError} onChange={(event) => {
+          setDraft({ ...draft, content: event.target.value })
+          setBodyError(false)
+        }} rows={16} spellCheck={false} className='min-h-70 font-mono text-[12.5px]'/>
       </Field>
     </div>
   </Modal>)
@@ -96,7 +101,7 @@ export function TemplateRenameDialog({ template, onClose }: {
       <Button variant='ghost' onClick={onClose}>{t('common.cancel')}</Button>
       <Button variant='primary' onClick={save}>{t('common.save')}</Button>
     </>}>
-    <Field label={t('templates.template_name')} required>
+    <Field label={t('templates.template_name')} required hint={isError ? <span className='text-[var(--danger)]'>{t('templates.name_required')}</span> : undefined}>
       <Input ref={inputRef} invalid={isError} maxLength={TEMPLATE_IMPORT_LIMITS.maxNameLength} value={name} onChange={(event) => {
         setName(event.target.value)
         setIsError(false)
@@ -159,7 +164,7 @@ export function CategoryDialog({ dialog, onClose }: {
       <Button variant='ghost' onClick={onClose}>{t('common.cancel')}</Button>
       <Button variant='primary' onClick={save}>{t('common.save')}</Button>
     </>}>
-    <Field label={t('templates.category_name')} required>
+    <Field label={t('templates.category_name')} required hint={isError ? <span className='text-[var(--danger)]'>{t('templates.name_required')}</span> : undefined}>
       <Input ref={inputRef} invalid={isError} maxLength={TEMPLATE_IMPORT_LIMITS.maxNameLength} value={name} onChange={(event) => {
         setName(event.target.value)
         setIsError(false)
@@ -177,6 +182,7 @@ export function ImportTemplatesModal({ onClose }: {
 }) {
   const [text, setText] = useState('')
   const [isError, setIsError] = useState(false)
+  const errorId = useId()
   const fileRef = useRef<HTMLInputElement>(null)
   const importJson = () => {
     const parsed = parseTemplateLibraryExport(text)
@@ -220,10 +226,11 @@ export function ImportTemplatesModal({ onClose }: {
     </>}>
     <div className='space-y-3'>
       <p className='text-[12px] leading-relaxed text-[var(--text-tertiary)]'>{t('templates.import_hint')}</p>
-      <Textarea value={text} aria-invalid={isError} onChange={(event) => {
+      <Textarea value={text} aria-invalid={isError} aria-describedby={isError ? errorId : undefined} id={errorId} onChange={(event) => {
         setText(event.target.value)
         setIsError(false)
       }} rows={10} spellCheck={false} placeholder={t('templates.import_paste_placeholder')} className='min-h-45 font-mono text-[12px]'/>
+      {isError && <p id={errorId} className='text-[11.5px] text-[var(--danger)]'>{t('templates.import_invalid')}</p>}
       <input ref={fileRef} type='file' accept='.json,application/json' className='hidden' onChange={pickFile}/>
       <Button variant='secondary' icon={<Upload size={13}/>} onClick={() => fileRef.current?.click()}>{t('templates.import_file')}</Button>
     </div>

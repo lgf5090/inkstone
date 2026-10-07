@@ -23,6 +23,7 @@ import { SidebarTags } from '../tags/SidebarTags';import { t, useLocale } from "
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
+import { TemplateQuickActions } from '../templates/quick-actions';
 import { useTreeChildrenMount } from './useTreeChildrenMount';
 import { CalendarTree, InboxTree, isDropBlockedTarget, TodoTree } from './virtual-tree';
 import { SidebarCalendar } from './sidebar-calendar';
@@ -482,6 +483,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             <Settings2 size={13}/>
           </IconButton>
         </Tooltip>
+        <TemplateQuickActions iconSize={13}/>
         <Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
           <IconButton label={t("common.new_note")} size="sm" onClick={() => void createContextualNote()}><FilePlus2 size={13}/></IconButton>
         </Tooltip>

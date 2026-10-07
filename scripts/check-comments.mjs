@@ -5832,7 +5832,7 @@ const allowed = new Map([
     "/**\n * Paths of the siblings sharing `fullPath`'s parent that themselves have children — the rows a\n * \"toggle this level\" action has to touch.\n */",
   ]],
   ["src/client/lib/template-notes.ts", [
-    "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter.\n */",
+    "/**\n * Create a note from a gallery template and open it, returning the new id.\n *\n * The template's `{{cursor}}` is handed to the editor through `createNote`, so\n * the marker is stripped from the body and the caret lands where the author\n * pointed it rather than at the end of the front matter. Placement follows the\n * same rules as the `+` button — the open folder, else the inbox — because a\n * template note is still just a new note.\n */",
   ]],
   ["src/client/lib/test-render.ts", [
     "/** Idempotent jsdom shims needed to render React components in unit tests. */",
@@ -5949,6 +5949,8 @@ const allowed = new Map([
     "// The tags a note was created under go to the store as a list rather than as",
     "// body text: the new-note template decides where they land, and its front",
     "// matter is where a tag page expects them.",
+    "/** Caret offset for an explicitly supplied `content`, so a template can point it. */",
+    "/** Where the caller wants the note, when it knows better than the open view. */",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",
