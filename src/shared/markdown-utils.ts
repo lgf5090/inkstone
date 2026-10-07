@@ -1039,8 +1039,11 @@ export function segmentCJK(text: string): string {
   return text.replace(CJK_GLOBAL, ' $& ').replace(/\s{2,}/g, ' ')
 }
 
-export function readingMinutes(words: number): number {
-  return Math.max(1, Math.round(words / 300))
+/** The speed the status bar and the outline agree on when the reader has not chosen their own. */
+export const DEFAULT_READING_SPEED_WPM = 300
+
+export function readingMinutes(words: number, wordsPerMinute: number = DEFAULT_READING_SPEED_WPM): number {
+  return Math.max(1, Math.round(words / wordsPerMinute))
 }
 
 export function slugifyHeading(text: string): string {

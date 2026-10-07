@@ -80,6 +80,24 @@ export function snapToBounds(point: PanelPoint, bounds: PanelBounds): { position
 
 export const DRAG_THRESHOLD = 6;
 
+export interface PanelCorner extends PanelRatio {
+    id: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+}
+
+/** The four parked positions the panel header offers, in the order a reader scans them. */
+export const CORNERS: readonly PanelCorner[] = [
+    { id: 'top-left', x: 0, y: 0 },
+    { id: 'top-right', x: 1, y: 0 },
+    { id: 'bottom-left', x: 0, y: 1 },
+    { id: 'bottom-right', x: 1, y: 1 },
+];
+
+/** The corner a saved ratio sits on, or `null` for a position the reader dragged by hand. */
+export function cornerFor(ratio: PanelRatio, tolerance = 0.02): PanelCorner | null {
+    return CORNERS.find((corner) => Math.abs(corner.x - clamp(ratio.x, 0, 1)) <= tolerance
+        && Math.abs(corner.y - clamp(ratio.y, 0, 1)) <= tolerance) ?? null;
+}
+
 export function passedThreshold(deltaX: number, deltaY: number, threshold = DRAG_THRESHOLD): boolean {
     return Math.hypot(deltaX, deltaY) >= threshold;
 }

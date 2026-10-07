@@ -720,3 +720,19 @@ describe('Outline markdown labels', () => {
         unmount();
     });
 });
+
+describe('Outline reading time footer', () => {
+    const ONE: Heading[] = [{ level: 1, text: 'One', slug: 'one', line: 0 }];
+
+    it('renders the estimate row when the preference is on', () => {
+        const { container, unmount } = renderOutline(ONE, vi.fn(), { showReadingTime: true, wordCount: 450, readingSpeed: 300 });
+        expect(container.textContent).toContain('outline.reading_time');
+        unmount();
+    });
+
+    it('leaves the estimate row out by default', () => {
+        const { container, unmount } = renderOutline(ONE, vi.fn());
+        expect(container.textContent).not.toContain('outline.reading_time');
+        unmount();
+    });
+});

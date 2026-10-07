@@ -116,6 +116,13 @@ export function EditorSettings() {
           <Slider label={t("settings.outline_truncate_length")} className="w-[200px]" value={preview.outlineTruncateLength} min={0} max={120} step={5} onChange={(outlineTruncateLength) => void update({ preview: { outlineTruncateLength } })}/>
         </SettingRow>}
 
+        {preview.showToc && <SettingRow title={t("settings.outline_show_reading_time")} description={t("settings.outline_show_reading_time_description")}>
+          <Switch checked={preview.outlineShowReadingTime} onChange={(outlineShowReadingTime) => void update({ preview: { outlineShowReadingTime } })} label={t("settings.outline_show_reading_time")}/>
+        </SettingRow>}
+
+        {preview.showToc && preview.outlineShowReadingTime && <SettingRow title={t("settings.outline_reading_speed")} description={t("settings.outline_reading_speed_description")}>
+          <Slider label={t("settings.outline_reading_speed")} className="w-[200px]" value={preview.outlineReadingSpeed} min={50} max={1000} step={25} onChange={(outlineReadingSpeed) => void update({ preview: { outlineReadingSpeed } })}/>
+        </SettingRow>}
         {preview.showToc && <SettingRow title={t("settings.outline_markdown_labels")} description={t("settings.outline_markdown_labels_description")}>
           <Switch checked={preview.outlineMarkdownLabels} onChange={(outlineMarkdownLabels) => void update({ preview: { outlineMarkdownLabels } })} label={t("settings.outline_markdown_labels")}/>
         </SettingRow>}

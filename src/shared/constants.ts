@@ -1,4 +1,5 @@
 import type { AccentName, UserSettings, ViewKind } from './types'
+import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
 export const APP_VERSION = packageVersion
@@ -110,6 +111,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlineTooltipSide: 'left',
     outlineTruncateLength: 0,
     outlineMarkdownLabels: false,
+    outlineShowReadingTime: true,
+    outlineReadingSpeed: DEFAULT_READING_SPEED_WPM,
     outlineDragEdits: false,
     outlineKeepSearch: false,
     outlineLocateByCursor: false,
@@ -254,6 +257,8 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.outlineTooltipSide = enumValue(preview.outlineTooltipSide, OUTLINE_TOOLTIP_SIDES, base.preview.outlineTooltipSide)
   base.preview.outlineTruncateLength = integerInRange(preview.outlineTruncateLength, 0, 120, base.preview.outlineTruncateLength)
   base.preview.outlineMarkdownLabels = booleanValue(preview.outlineMarkdownLabels, base.preview.outlineMarkdownLabels)
+  base.preview.outlineShowReadingTime = booleanValue(preview.outlineShowReadingTime, base.preview.outlineShowReadingTime)
+  base.preview.outlineReadingSpeed = integerInRange(preview.outlineReadingSpeed, 50, 1000, base.preview.outlineReadingSpeed)
   base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)

@@ -3,21 +3,39 @@ import { GripHorizontal, RotateCcw } from 'lucide-react';
 import type { Heading } from '../../lib/markdown/renderer';
 import { Tooltip } from '../../components/overlay';
 import { t } from '../../lib/i18n';
+import type { MessageKey } from '@shared/locales/en-US';
 import { useUi } from '../../store/ui';
 import { Outline } from './Outline';
 import {
+    CORNERS,
     DEFAULT_RATIO,
     OUTLINE_FLOAT_WIDTH,
     clampToBounds,
+    cornerFor,
     panelBounds,
     panelHeight,
     passedThreshold,
     resolvePosition,
     snapToBounds,
     toRatio,
+    type PanelCorner,
     type PanelPoint,
     type SnappedEdge,
 } from './outline-float';
+
+const CORNER_LABEL: Record<PanelCorner['id'], MessageKey> = {
+    'top-left': 'outline.corner_top_left',
+    'top-right': 'outline.corner_top_right',
+    'bottom-left': 'outline.corner_bottom_left',
+    'bottom-right': 'outline.corner_bottom_right',
+};
+
+const CORNER_DOT: Record<PanelCorner['id'], string> = {
+    'top-left': 'left-0 top-0',
+    'top-right': 'right-0 top-0',
+    'bottom-left': 'bottom-0 left-0',
+    'bottom-right': 'bottom-0 right-0',
+};
 
 interface DragGesture {
     pointerId: number;
@@ -34,7 +52,7 @@ interface DragVisual {
     edgeY: SnappedEdge;
 }
 
-export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, markdownLabels, containerRef, }: {
+export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defaultLevel, showProgress, keepSearch, activeOverride, content, onContentChange, dragEdits, autoExpand, tooltipSide, truncateLength, markdownLabels, showReadingTime, readingSpeed, wordCount, containerRef, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -50,6 +68,9 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     tooltipSide: 'left' | 'right';
     truncateLength: number;
     markdownLabels: boolean;
+    showReadingTime: boolean;
+    readingSpeed: number;
+    wordCount: number;
     containerRef: RefObject<HTMLElement | null>;
 }) {
     const stored = useUi((state) => state.outlineFloatingPosition);
@@ -81,6 +102,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     const height = panelHeight(box.height);
     const bounds = panelBounds(box.width, box.height, OUTLINE_FLOAT_WIDTH, height);
     const resting = resolvePosition(stored ?? DEFAULT_RATIO, bounds);
+    const activeCorner = cornerFor(stored ?? DEFAULT_RATIO)?.id ?? null;
     const point = clampToBounds(drag?.point ?? resting, bounds);
 
     const commit = useCallback((next: PanelPoint) => {
@@ -146,9 +168,20 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
     }, [drag]);
 
     return (<div className="absolute z-20 flex flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-lg" data-outline-floating style={{ left: point.left, top: point.top, width: OUTLINE_FLOAT_WIDTH, height }}>
-      <div className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1 rounded-t-[var(--r-lg)] border-b border-[var(--border-subtle)] px-1.5 py-1 active:cursor-grabbing" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={abort} onLostPointerCapture={abort} onDoubleClick={() => setLayout({ outlineFloatingPosition: DEFAULT_RATIO })}>
-        <GripHorizontal size={11} aria-hidden="true" className="text-[var(--text-quaternary)]"/>
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.drag_hint')}</span>
+      <div className="flex shrink-0 items-center gap-1 rounded-t-[var(--r-lg)] border-b border-[var(--border-subtle)] px-1.5 py-1">
+        {/* The grip owns pointer capture: a handle that captured the pointer would retarget the
+            click of every button in this row away from itself, and they would never fire. */}
+        <div className="flex min-w-0 flex-1 cursor-grab touch-none select-none items-center gap-1 active:cursor-grabbing" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={abort} onLostPointerCapture={abort} onDoubleClick={() => setLayout({ outlineFloatingPosition: DEFAULT_RATIO })}>
+          <GripHorizontal size={11} aria-hidden="true" className="text-[var(--text-quaternary)]"/>
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.drag_hint')}</span>
+        </div>
+        {CORNERS.map((corner) => (<Tooltip key={corner.id} label={t(CORNER_LABEL[corner.id])} side="bottom">
+            <button type="button" aria-label={t(CORNER_LABEL[corner.id])} aria-pressed={activeCorner === corner.id} onClick={() => setLayout({ outlineFloatingPosition: { x: corner.x, y: corner.y } })} className={`shrink-0 rounded-[var(--r-sm)] p-0.5 transition-colors hover:bg-[var(--bg-hover)] ${activeCorner === corner.id ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)] hover:text-[var(--text-primary)]'}`}>
+              <span aria-hidden="true" className="relative block h-2.5 w-2.5 rounded-[2px] border border-current">
+                <span className={`absolute h-1 w-1 rounded-full bg-current ${CORNER_DOT[corner.id]}`}/>
+              </span>
+            </button>
+          </Tooltip>))}
         <Tooltip label={t('outline.reset_position')} side="bottom">
           <button type="button" aria-label={t('outline.reset_position')} onClick={() => setLayout({ outlineFloatingPosition: DEFAULT_RATIO })} className="shrink-0 rounded-[var(--r-sm)] p-0.5 text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
             <RotateCcw size={10}/>
@@ -156,7 +189,7 @@ export function FloatingOutline({ headings, onSelect, scrollerRef, noteId, defau
         </Tooltip>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} autoExpand={autoExpand} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} className="h-full max-h-full w-full py-2 pr-2"/>
+        <Outline headings={headings} onSelect={onSelect} scrollerRef={scrollerRef} noteId={noteId} defaultLevel={defaultLevel} showProgress={showProgress} keepSearch={keepSearch} activeOverride={activeOverride} content={content} onContentChange={onContentChange} dragEdits={dragEdits} autoExpand={autoExpand} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} showReadingTime={showReadingTime} readingSpeed={readingSpeed} wordCount={wordCount} className="h-full max-h-full w-full py-2 pr-2"/>
       </div>
       {drag?.edgeX && <span aria-hidden="true" className={cnGuide('vertical', drag.edgeX)}/>}
       {drag?.edgeY && <span aria-hidden="true" className={cnGuide('horizontal', drag.edgeY)}/>}

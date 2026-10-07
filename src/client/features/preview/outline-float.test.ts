@@ -4,6 +4,7 @@ import {
     FLOAT_MARGIN,
     SNAP_DISTANCE,
     clampToBounds,
+  cornerFor,
     passedThreshold,
     panelBounds,
     panelHeight,
@@ -120,4 +121,30 @@ describe('passedThreshold', () => {
         expect(passedThreshold(4, 4)).toBe(false);
         expect(passedThreshold(5, 5)).toBe(true);
     });
+});
+
+describe('cornerFor', () => {
+  it('names each of the four parked positions', () => {
+    expect(cornerFor({ x: 0, y: 0 })?.id).toBe('top-left');
+    expect(cornerFor({ x: 1, y: 0 })?.id).toBe('top-right');
+    expect(cornerFor({ x: 0, y: 1 })?.id).toBe('bottom-left');
+    expect(cornerFor({ x: 1, y: 1 })?.id).toBe('bottom-right');
+  });
+
+  it('reports the default ratio as its corner', () => {
+    expect(cornerFor(DEFAULT_RATIO)?.id).toBe('top-right');
+  });
+
+  it('tolerates the rounding a dragged ratio carries', () => {
+    expect(cornerFor({ x: 0.995, y: 0.004 })?.id).toBe('top-right');
+  });
+
+  it('calls a mid-pane position custom', () => {
+    expect(cornerFor({ x: 0.5, y: 0.5 })).toBeNull();
+    expect(cornerFor({ x: 0.9, y: 0 })).toBeNull();
+  });
+
+  it('reads an out-of-range ratio as the clamped corner', () => {
+    expect(cornerFor({ x: 4, y: -3 })?.id).toBe('top-right');
+  });
 });

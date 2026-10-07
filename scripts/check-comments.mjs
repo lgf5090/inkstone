@@ -166,6 +166,13 @@ const allowed = new Map([
     "// entry dies with the replaced map so nothing is retained strongly.",
     "/** Newest edit key with whole days it sits outside the selected window (null when it is inside or the inputs are empty). */",
   ]],
+  ["src/client/features/preview/FloatingOutline.test.ts", [
+    "// A click retargets to the pointer-capture element, so a control nested in the grip",
+    "// would never receive its own click. jsdom cannot reproduce that; this pins the shape.",
+  ]],
+  ["src/client/features/preview/FloatingOutline.tsx", [
+    "/* The grip owns pointer capture: a handle that captured the pointer would retarget the\n            click of every button in this row away from itself, and they would never fire. */",
+  ]],
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
   ]],
@@ -202,6 +209,7 @@ const allowed = new Map([
     "/** The heading's own source line, so the label can be re-rendered as markdown. */",
     "// Truncation cuts the markdown source before it is rendered, never the markup after.",
     "// A math or embed-only heading sanitises down to bare tags; the plain label is the better row.",
+    "/** The note's stored word count, so the estimate costs nothing per keystroke. */",
   ]],
   ["src/client/features/preview/Preview.tsx", [
     "// Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the",
@@ -405,6 +413,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/preview/outline-float.ts", [
     "/** A pane too narrow to move the panel keeps the saved ratio on that axis rather than discarding where it was parked. */",
+    "/** The four parked positions the panel header offers, in the order a reader scans them. */",
+    "/** The corner a saved ratio sits on, or `null` for a position the reader dragged by hand. */",
   ]],
   ["src/client/features/preview/outline-registry.ts", [
     "/** Only the active note's outline is exportable; a stale snapshot must never reach the clipboard. */",
@@ -1326,6 +1336,8 @@ const allowed = new Map([
     "// jsdom defines no `scrollIntoView` at all, so it is assigned rather than spied — the same",
     "// stand-in the rail's own cases use.",
     "/** Render a React node into a fresh container appended to document.body (portals land on body as usual). */",
+    "// jsdom ships no scrollIntoView at all, so a component that scrolls a located row into view",
+    "// throws for reasons that have nothing to do with what the test is about.",
   ]],
   ["src/client/lib/time.ts", [
     "/** Day-key arithmetic: the key `delta` days after (or before) `key`. */",
@@ -1450,6 +1462,7 @@ const allowed = new Map([
     "/**\n * The LIKE pattern for a tag prefix: escapes the two wildcards and the escape character, then\n * appends `%`. Paired with `ESCAPE '\\\\'` in SQL and with tagInScope() in TypeScript, which spell\n * the same subtree rule for the offline shell.\n */",
     "// A layout block's remainder is its configuration, not a title, so the whole line goes; a",
     "// `::: details Some title` keeps its, because there the remainder is the title.",
+    "/** The speed the status bar and the outline agree on when the reader has not chosen their own. */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

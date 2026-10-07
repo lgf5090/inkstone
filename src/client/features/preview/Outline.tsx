@@ -50,6 +50,7 @@ import {
     type OutlineNode,
 } from './outline-tree';
 import { publishOutlineHeadings } from './outline-registry';
+import { DEFAULT_READING_SPEED_WPM, readingMinutes } from '@shared/markdown-utils';
 import { useUi } from '../../store/ui';
 
 const ACTIVE_BAR_W = 'w-[var(--sp-0-625)]';
@@ -215,7 +216,7 @@ function useOutlineCollapse(tree: OutlineNode[], noteId: string | undefined, def
     return { collapsed, setCollapsed, toggle };
 }
 
-export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, }: {
+export function Outline({ headings, onSelect, scrollerRef, className, noteId, defaultLevel = 6, showProgress = true, activeOverride, keepSearch = false, content, onContentChange, dragEdits = false, autoExpand = 'off', tooltipSide = 'left', truncateLength = 0, markdownLabels = false, showReadingTime = false, readingSpeed = DEFAULT_READING_SPEED_WPM, wordCount = 0, }: {
     headings: Heading[];
     onSelect: (heading: Heading) => void;
     scrollerRef?: RefObject<HTMLElement | null>;
@@ -236,6 +237,10 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
     truncateLength?: number;
     /** Renders each heading's own inline markdown, read back from its source line. */
     markdownLabels?: boolean;
+    showReadingTime?: boolean;
+    readingSpeed?: number;
+    /** The note's stored word count, so the estimate costs nothing per keystroke. */
+    wordCount?: number;
 }) {
     const tracked = useOutlineTracking(headings, scrollerRef);
     const active = activeOverride ?? tracked.active;
@@ -464,6 +469,10 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         {drawn.map((node) => (<OutlineRow key={`${node.heading.slug}-${node.index}`} node={node} isLocated={node.heading.slug === locatedSlug} isCollapsed={collapsed.has(node.heading.slug)} onToggle={toggle} onSelect={onSelect} tooltipSide={tooltipSide} truncateLength={truncateLength} markdownLabels={markdownLabels} sourceLine={lines[node.heading.line]} buildMenu={buildMenu} menuEnabled={!searching} canRename={editable} renaming={renamingIndex === node.index} onStartRename={() => setRenamingIndex(node.index)} onCommitRename={commitRename} onCancelRename={() => setRenamingIndex(null)} canDrag={canDrag} dragging={dragFrom === node.index} dropHint={dropAt?.index === node.index ? dropAt.position : null} onDragStartRow={() => setDragFrom(node.index)} onDragEndRow={() => { setDragFrom(null); setDropAt(null); }} onDragOverRow={(index, position) => setDropAt((current) => current?.index === index && current.position === position ? current : { index, position })} onDropRow={finishDrop}/>))}
         {drawn.length === 0 && <li className="px-2 py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('outline.no_matches')}</li>}
       </ul>
+
+      {showReadingTime && (<div className="mt-1 shrink-0 px-2 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
+          {t('outline.reading_time', { minutes: readingMinutes(wordCount, readingSpeed) })}
+        </div>)}
     </nav>);
 }
 

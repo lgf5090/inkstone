@@ -157,6 +157,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const outlineTooltipSide = previewSettings.outlineTooltipSide;
     const outlineTruncateLength = previewSettings.outlineTruncateLength;
     const outlineMarkdownLabels = previewSettings.outlineMarkdownLabels;
+    const outlineShowReadingTime = previewSettings.outlineShowReadingTime;
+    const outlineReadingSpeed = previewSettings.outlineReadingSpeed;
     const outlineLocateByCursor = previewSettings.outlineLocateByCursor;
     const outlineIsFloating = outlineMode === 'floating-always' || outlineMode === 'floating-hover';
     const outlineVisible = !isMobile && outlineOpen && paneActive && headings.length > 0 && !outlineIsFloating;
@@ -552,10 +554,10 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
         {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
             <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
-            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels}/>)}
+            {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount}/>)}
           </div>)}
-        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels}/>}
-        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} containerRef={containerRef}/>)}
+        {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount}/>}
+        {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} containerRef={containerRef}/>)}
       </div>
 
       {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}
@@ -574,7 +576,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
       <footer className="flex h-[var(--statusbar-h)] shrink-0 items-center gap-2 overflow-hidden border-t border-[var(--border-subtle)] px-3 text-[11px] text-[var(--text-quaternary)]">
         <span className="tabular">{note.wordCount}{t("common.words")}</span>
         <span className="hidden tabular sm:inline">{note.charCount}{t("workspace.characters")}</span>
-        <span className="hidden tabular md:inline">{t("common.about")}{readingMinutes(note.wordCount)}{t("common.min")}</span>
+        <span className="hidden tabular md:inline">{t("common.about")}{readingMinutes(note.wordCount, outlineReadingSpeed)}{t("common.min")}</span>
         {noteFolder && noteFolderPath && (<Tooltip label={noteFolderPath} side="top">
             <button type="button" onClick={() => openFolderView(folders, noteFolder.id)} className="inline-flex min-w-0 max-w-40 items-center gap-1 truncate rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] md:max-w-48">
               <FolderClosed size={11} className="shrink-0" style={{ color: noteFolder.color ?? undefined }}/>
