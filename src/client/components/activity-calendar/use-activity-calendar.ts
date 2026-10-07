@@ -11,7 +11,7 @@ import { useCalendarNav, useMonthGridHandlers, useRangeDragFinish, useRootKeyHan
 
 export type { CalendarState, FlashState, CalendarBase, MonthState, StripState, LatestState } from './types'
 
-function useCalendarState(): CalendarState {
+function useCalendarState(measureColumns: boolean): CalendarState {
   const [expandedWeek, setExpandedWeek] = useState<number | null>(null)
   const [expandedDay, setExpandedDay] = useState<string | null>(null)
   const [isExpandedWeekNotes, setIsExpandedWeekNotes] = useState(false)
@@ -25,20 +25,25 @@ function useCalendarState(): CalendarState {
   const dragStartKey = useRef<string | null>(null)
   const dragHoverKey = useRef<string | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const [rootWidth, setRootWidth] = useState<number | null>(null)
+  // The width is kept as the answer it produces, never as a number: the navigation panel
+  // animates its width, so a raw `contentRect.width` reached this component as around twenty
+  // distinct fractions per deliberate change and each one re-rendered the whole heat grid.
+  const [measuredColumns, setMeasuredColumns] = useState<YearGridColumns | null>(null)
   useEffect(() => {
+    if (!measureColumns)
+      return
     const el = rootRef.current
     if (!el)
       return
-    setRootWidth(el.getBoundingClientRect().width)
+    setMeasuredColumns(yearGridColumns(el.getBoundingClientRect().width))
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries)
-        setRootWidth(entry.contentRect.width)
+        setMeasuredColumns(yearGridColumns(entry.contentRect.width))
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
-  return { expandedWeek, setExpandedWeek, expandedDay, setExpandedDay, isExpandedWeekNotes, setIsExpandedWeekNotes, focusedKey, setFocusedKey, focusedMonth, setFocusedMonth, dragRange, setDragRange, yearRangeAnchor, setYearRangeAnchor, yearRangeHover, setYearRangeHover, lastExpandedWeek, lastExpandedDay, dragStartKey, dragHoverKey, rootRef, rootWidth }
+  }, [measureColumns])
+  return { expandedWeek, setExpandedWeek, expandedDay, setExpandedDay, isExpandedWeekNotes, setIsExpandedWeekNotes, focusedKey, setFocusedKey, focusedMonth, setFocusedMonth, dragRange, setDragRange, yearRangeAnchor, setYearRangeAnchor, yearRangeHover, setYearRangeHover, lastExpandedWeek, lastExpandedDay, dragStartKey, dragHoverKey, rootRef, measuredColumns }
 }
 
 function useCalendarFlash(jumpFlash: number, view: 'month' | 'weeks' | 'year'): FlashState {
@@ -79,7 +84,7 @@ function useCalendarBase(props: ActivityCalendarProps, state: CalendarState): Ca
     const formatter = new Intl.DateTimeFormat(props.locale, { month: 'short' })
     return Array.from({ length: 12 }, (_, month) => formatter.format(new Date(props.cursor.year, month, 1)))
   }, [props.cursor.year, props.locale])
-  const yearColumns: YearGridColumns = props.columnsPreference !== 'auto' ? (props.columnsPreference === '4' ? 4 : 3) : (state.rootWidth === null ? YEAR_GRID_COLUMNS : yearGridColumns(state.rootWidth))
+  const yearColumns: YearGridColumns = props.columnsPreference !== 'auto' ? (props.columnsPreference === '4' ? 4 : 3) : (state.measuredColumns ?? YEAR_GRID_COLUMNS)
   const focusMonth = state.focusedMonth !== null && state.focusedMonth >= 0 && state.focusedMonth < 12
     ? state.focusedMonth
     : (isCurrentYear ? now.getMonth() : 0)
@@ -280,7 +285,7 @@ interface CalendarHook {
 }
 
 export function useActivityCalendar(props: ActivityCalendarProps): CalendarHook {
-  const state = useCalendarState()
+  const state = useCalendarState(props.columnsPreference === 'auto')
   const flash = useCalendarFlash(props.jumpFlash ?? 0, props.view)
   const base = useCalendarBase(props, state)
   const month = useCalendarMonth(props, state, base)

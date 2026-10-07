@@ -107,4 +107,44 @@ describe('the sidebar calendar block', () => {
     const stored = JSON.parse(localStorage.getItem(CALENDAR_PERSIST_KEY) ?? '{}') as { view?: string }
     expect(stored.view).toBe('month')
   })
+
+  // Collapsing the block hides the heatmap but used to leave the whole-vault
+  // projection attached to the notes map, so typing kept paying for a picture
+  // nobody was looking at. Counting `updatedAt` reads is how this says "no scan"
+  // without a wall-clock budget; the expanded arm above keeps the case honest by
+  // proving the same commit does read the vault when the block is open.
+  describe('the collapsed arm of C-28', () => {
+    const counting = (id: string, updatedAt: number, counter: { reads: number }): NoteSummary => Object.defineProperty(
+      summary(id, 0),
+      'updatedAt',
+      { enumerable: true, configurable: true, get: () => { counter.reads++; return updatedAt } },
+    )
+
+    const commitOneEdit = (counter: { reads: number }) => {
+      const before = counter.reads
+      act(() => {
+        useNotes.setState({
+          notes: { ...NOTES, b: counting('b', stamp(2026, 10, 5), counter) },
+        })
+      })
+      return counter.reads - before
+    }
+
+    const toggle = () => container.querySelector<HTMLElement>('section > div > button[aria-expanded]')
+
+    it('reads the vault for a commit while the block is open', () => {
+      const counter = { reads: 0 }
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('true')
+      expect(commitOneEdit(counter)).toBeGreaterThan(0)
+    })
+
+    it('reads nothing for the same commit once the block is collapsed', () => {
+      const counter = { reads: 0 }
+      act(() => { toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('false')
+      expect(container.querySelectorAll('[data-day-key]').length).toBe(0)
+      expect(commitOneEdit(counter)).toBe(0)
+      expect(container.querySelector('section')).toBeTruthy()
+    })
+  })
 })

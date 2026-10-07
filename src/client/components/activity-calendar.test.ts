@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, useState } from 'react'
-import { buildStripWeeks, buildYearHeatMeta, HEAT_PERCENTS, monthRangeToKeys, yearHeatLevel, ActivityCalendar } from './activity-calendar'
+import { buildStripWeeks, buildYearHeatMeta, HEAT_PERCENTS, monthRangeToKeys, yearHeatLevel, DAY_NOTE_LIMIT, ActivityCalendar } from './activity-calendar'
 import type { ActivityCalendarProps } from './activity-calendar/props'
 import { renderElement } from '../lib/test-render'
 
@@ -324,6 +324,175 @@ describe('internal jump flash', () => {
     }
     finally {
       restore()
+    }
+  })
+})
+
+// The root width used to be stored as the raw fractional `contentRect.width`, and the
+// navigation panel animates its width over `--dur-slow` (AppShell.tsx:141), so one
+// deliberate width change delivered roughly twenty distinct state updates and twenty
+// whole-grid renders. `getDiaryId` is called once per day cell during the month grid's
+// render, so counting its calls counts renders — the only way this is visible in jsdom,
+// because a wasted render mutates no DOM.
+describe('the measured root width', () => {
+  const observed: { callback: ResizeObserverCallback; element: Element }[] = []
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    observed.length = 0
+  })
+
+  function installObserverSpy() {
+    vi.stubGlobal('ResizeObserver', class SpyObserver {
+      callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+      }
+
+      observe(element: Element) {
+        observed.push({ callback: this.callback, element })
+      }
+
+      unobserve() {}
+      disconnect() {}
+    })
+  }
+
+  function tickWidth(width: number) {
+    act(() => {
+      for (const entry of observed)
+        entry.callback([{ contentRect: { width } } as ResizeObserverEntry], null as unknown as ResizeObserver)
+    })
+  }
+
+  function renderWidthProbe() {
+    const counts = { renders: 0 }
+    const rendered = renderElement(createElement('div', null, createElement(ActivityCalendar, calendarProps({
+      view: 'month',
+      columnsPreference: 'auto',
+      getDiaryId: () => {
+        counts.renders++
+        return null
+      },
+    }))))
+    return { counts, container: rendered.container, unmount: rendered.unmount }
+  }
+
+  it('re-renders nothing for width ticks that keep the same column bucket', () => {
+    installObserverSpy()
+    const { counts, unmount } = renderWidthProbe()
+    expect(observed.length).toBe(1)
+    tickWidth(320)
+    const afterCrossing = counts.renders
+    expect(afterCrossing).toBeGreaterThan(0)
+    tickWidth(320.5)
+    tickWidth(321.25)
+    tickWidth(322)
+    expect(counts.renders).toBe(afterCrossing)
+    unmount()
+  })
+
+  it('still follows a width that crosses the column threshold', () => {
+    installObserverSpy()
+    const year = renderElement(createElement('div', null, createElement(ActivityCalendar, calendarProps({ view: 'year', columnsPreference: 'auto' }))))
+    const grid = () => year.container.querySelector('[aria-label="sidebar.calendar_year_grid_aria"]')
+    tickWidth(240)
+    expect(grid()!.className).toContain('grid-cols-3')
+    tickWidth(420)
+    expect(grid()!.className).toContain('grid-cols-4')
+    year.unmount()
+  })
+
+  it('does not observe the root at all when a fixed column count is preferred', () => {
+    installObserverSpy()
+    const { unmount } = renderWidthProbe()
+    expect(observed.length).toBe(1)
+    unmount()
+    observed.length = 0
+    const fixed = renderElement(createElement('div', null, createElement(ActivityCalendar, calendarProps({ view: 'month', columnsPreference: '4' }))))
+    expect(observed.length).toBe(0)
+    expect(fixed.container.querySelector('[aria-label="sidebar.calendar_view"]')).toBeTruthy()
+    fixed.unmount()
+  })
+})
+
+// C-05. The week panel used to render every note of every day it had ever shown and
+// never unmount them, so the DOM under a collapsed panel grew with the busiest day of
+// the vault rather than with what the reader can actually see.
+describe('week panel note lists', () => {
+  const DAY = '2026-09-02'
+  const many = (count: number) => Array.from({ length: count }, (_, i) => ({
+    id: `note-${i}`,
+    title: `Note ${i}`,
+    updatedAt: new Date(2026, 8, 2, 12).getTime() - i,
+  }))
+
+  function renderWeeks(count: number) {
+    const selected: string[] = []
+    const rendered = renderElement(createElement(ActivityCalendar, calendarProps({
+      view: 'weeks',
+      counts: new Map([[DAY, count]]),
+      notesByDay: new Map([[DAY, many(count)]]),
+      onDaySelect: (key) => { selected.push(key) },
+    })))
+    return { container: rendered.container, unmount: rendered.unmount, selected }
+  }
+
+  const noteRows = (root: HTMLElement) => [...root.querySelectorAll('button')].filter((b) => /^Note \d+$/.test(b.textContent?.trim() ?? ''))
+  const weekColumn = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('[aria-label*="sidebar.calendar_expand_week"]')].at(-1)!
+  const weekNotesToggle = (root: HTMLElement) => root.querySelector('[aria-label*="sidebar.calendar_week_notes"]') as HTMLButtonElement
+  const dayToggle = (root: HTMLElement) => root.querySelector('[aria-label="sidebar.calendar_expand_day"]') as HTMLButtonElement
+  const showAllRow = (root: HTMLElement) => root.querySelector('[aria-label^="sidebar.calendar_show_day_all"]')
+
+  it('caps the week note list and hands the rest to the day filter', () => {
+    const { container, selected, unmount } = renderWeeks(DAY_NOTE_LIMIT + 12)
+    act(() => { weekColumn(container).click() })
+    act(() => { weekNotesToggle(container).click() })
+    expect(noteRows(container)).toHaveLength(DAY_NOTE_LIMIT)
+    const row = showAllRow(container)
+    expect(row).not.toBeNull()
+    act(() => { row!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(selected).toEqual([DAY])
+    unmount()
+  })
+
+  it('caps the per-day row list the same way', () => {
+    const { container, selected, unmount } = renderWeeks(DAY_NOTE_LIMIT + 7)
+    act(() => { weekColumn(container).click() })
+    act(() => { dayToggle(container).click() })
+    expect(noteRows(container)).toHaveLength(DAY_NOTE_LIMIT)
+    act(() => { showAllRow(container)!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(selected).toEqual([DAY])
+    unmount()
+  })
+
+  it('lists every note and offers no way out while the day fits under the cap', () => {
+    const { container, unmount } = renderWeeks(5)
+    act(() => { weekColumn(container).click() })
+    act(() => { weekNotesToggle(container).click() })
+    expect(noteRows(container)).toHaveLength(5)
+    expect(showAllRow(container)).toBeNull()
+    unmount()
+  })
+
+  it('drops a collapsed panel out of the DOM once its closing animation has run', () => {
+    vi.useFakeTimers()
+    try {
+      const { container, unmount } = renderWeeks(5)
+      act(() => { weekColumn(container).click() })
+      act(() => { weekNotesToggle(container).click() })
+      expect(noteRows(container)).toHaveLength(5)
+      act(() => { weekColumn(container).click() })
+      expect(weekNotesToggle(container)).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(100) })
+      expect(weekNotesToggle(container)).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(400) })
+      expect(showAllRow(container)).toBeNull()
+      expect(weekNotesToggle(container)).toBeNull()
+      unmount()
+    }
+    finally {
+      vi.useRealTimers()
     }
   })
 })

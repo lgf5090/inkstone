@@ -9,6 +9,7 @@ import { HeatLegend } from './legend'
 export { latestEditOutsideWindow } from '../../features/list/gap-indicator'
 export { buildStripWeeks, buildYearHeatMeta, yearHeatLevel, HEAT_PERCENTS } from './strip'
 export { heatCell } from './heat-cell'
+export { DAY_NOTE_LIMIT } from './weeks-strip'
 export { monthRangeToKeys } from './range'
 export type { BuildStripWeeksOptions, CalendarDayNote, WeekCell, YearHeatMeta } from './strip'
 

@@ -19,6 +19,8 @@ export interface ActivityProjection {
   counts: Map<string, number>
   noteIdByTitle: Map<string, string>
   notesByDay: Map<string, ActivityDayNote[]>
+  /** Newest `updatedAt` among alive notes as a day key; null when the vault holds none. */
+  latestEditKey: string | null
 }
 
 
@@ -33,9 +35,27 @@ interface ActivityProjectionSlot extends ActivityProjection {
   notes: Record<string, NoteSummary>
   byId: Map<string, ActivityEntry>
   titleCounts: Map<string, number>
+  latestUpdatedAt: number
 }
 
 let activityProjectionSlot: ActivityProjectionSlot | null = null
+
+// The newest edit is the one field of this projection a repair can lose without
+// noticing, so every path that lowers it raises this flag and one exact rescan
+// settles the answer afterwards. `>=` against the running maximum is what makes a
+// tie (two notes sharing the newest millisecond) rescan too.
+function latestEditKeyOf(latestUpdatedAt: number): string | null {
+  return latestUpdatedAt === 0 ? null : dateKey(new Date(latestUpdatedAt))
+}
+
+function rescanLatestUpdatedAt(byId: Map<string, ActivityEntry>): number {
+  let latest = 0
+  for (const entry of byId.values()) {
+    if (entry.ref.updatedAt > latest)
+      latest = entry.ref.updatedAt
+  }
+  return latest
+}
 
 export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>): ActivityProjectionSlot {
   const counts = new Map<string, number>()
@@ -43,11 +63,14 @@ export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>)
   const notesByDay = new Map<string, ActivityDayNote[]>()
   const byId = new Map<string, ActivityEntry>()
   const titleCounts = new Map<string, number>()
+  let latestUpdatedAt = 0
   for (const id in notes) {
     const note = notes[id]!
     if (note.deletedAt !== null)
       continue
     const key = dateKey(new Date(note.updatedAt))
+    if (note.updatedAt > latestUpdatedAt)
+      latestUpdatedAt = note.updatedAt
     counts.set(key, (counts.get(key) ?? 0) + 1)
     byId.set(id, { ref: note, key, title: note.title })
     titleCounts.set(note.title, (titleCounts.get(note.title) ?? 0) + 1)
@@ -62,7 +85,7 @@ export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>)
   }
   for (const list of notesByDay.values())
     list.sort((a, b) => b.updatedAt - a.updatedAt)
-  return { notes, counts, noteIdByTitle, notesByDay, byId, titleCounts }
+  return { notes, counts, noteIdByTitle, notesByDay, byId, titleCounts, latestUpdatedAt, latestEditKey: latestEditKeyOf(latestUpdatedAt) }
 }
 
 // First-wins over insertion order, matching the naive rebuild: the map holds
@@ -144,6 +167,8 @@ interface ProjectionCtx {
   oldTitles: Map<string, string>
   oldByDay: Map<string, ActivityDayNote[]>
   next: Record<string, NoteSummary>
+  latestUpdatedAt: number
+  latestMayHaveDropped: boolean
 }
 
 function ensureCountsWritable(ctx: ProjectionCtx): void {
@@ -161,6 +186,15 @@ function ensureTitlesWritable(ctx: ProjectionCtx): void {
     ctx.titles = new Map(ctx.oldTitles)
 }
 
+function trackLatestUpdatedAt(ctx: ProjectionCtx, from: number | null, to: number | null): void {
+  if (to !== null && to > ctx.latestUpdatedAt) {
+    ctx.latestUpdatedAt = to
+    return
+  }
+  if (from !== null && from >= ctx.latestUpdatedAt)
+    ctx.latestMayHaveDropped = true
+}
+
 function applyTombstone(ctx: ProjectionCtx, id: string, prev: ActivityEntry): void {
   ctx.byId.delete(id)
   ensureCountsWritable(ctx)
@@ -169,6 +203,7 @@ function applyTombstone(ctx: ProjectionCtx, id: string, prev: ActivityEntry): vo
   removeFromDay(ctx.byDay, prev.key, id)
   ensureTitlesWritable(ctx)
   dropTitleClaim(ctx.titleCounts, ctx.titles, ctx.next, prev.title, id)
+  trackLatestUpdatedAt(ctx, prev.ref.updatedAt, null)
 }
 
 function applyInsert(ctx: ProjectionCtx, id: string, note: NoteSummary, key: string): void {
@@ -181,6 +216,7 @@ function applyInsert(ctx: ProjectionCtx, id: string, note: NoteSummary, key: str
     ctx.titles.set(note.title, id)
   ctx.titleCounts.set(note.title, (ctx.titleCounts.get(note.title) ?? 0) + 1)
   ctx.byId.set(id, { ref: note, key, title: note.title })
+  trackLatestUpdatedAt(ctx, null, note.updatedAt)
 }
 
 // An alive note whose projection fields actually changed.
@@ -206,6 +242,7 @@ function applyChange(ctx: ProjectionCtx, id: string, note: NoteSummary, prev: Ac
     ctx.titleCounts.set(note.title, (ctx.titleCounts.get(note.title) ?? 0) + 1)
   }
   ctx.byId.set(id, { ref: note, key, title: note.title })
+  trackLatestUpdatedAt(ctx, prev.ref.updatedAt, note.updatedAt)
 }
 
 // An id vanished from the map without a tombstone: drop its stale
@@ -221,6 +258,7 @@ function sweepVanishedIds(ctx: ProjectionCtx): void {
     decrementCount(ctx.counts, entry.key)
     removeFromDay(ctx.byDay, entry.key, id)
     dropTitleClaim(ctx.titleCounts, ctx.titles, ctx.next, entry.title, id)
+    trackLatestUpdatedAt(ctx, entry.ref.updatedAt, null)
   }
 }
 
@@ -235,6 +273,8 @@ export function updateActivityProjection(slot: ActivityProjectionSlot, next: Rec
     oldTitles: slot.noteIdByTitle,
     oldByDay: slot.notesByDay,
     next,
+    latestUpdatedAt: slot.latestUpdatedAt,
+    latestMayHaveDropped: false,
   }
   let visited = 0
   let tombstoned = 0
@@ -268,7 +308,18 @@ export function updateActivityProjection(slot: ActivityProjectionSlot, next: Rec
   }
   if (visited - tombstoned !== ctx.byId.size)
     sweepVanishedIds(ctx)
-  return { notes: next, counts: ctx.counts, noteIdByTitle: ctx.titles, notesByDay: ctx.byDay, byId: ctx.byId, titleCounts: ctx.titleCounts }
+  if (ctx.latestMayHaveDropped)
+    ctx.latestUpdatedAt = rescanLatestUpdatedAt(ctx.byId)
+  return {
+    notes: next,
+    counts: ctx.counts,
+    noteIdByTitle: ctx.titles,
+    notesByDay: ctx.byDay,
+    byId: ctx.byId,
+    titleCounts: ctx.titleCounts,
+    latestUpdatedAt: ctx.latestUpdatedAt,
+    latestEditKey: latestEditKeyOf(ctx.latestUpdatedAt),
+  }
 }
 
 export function buildActivityProjectionCached(notes: Record<string, NoteSummary>): ActivityProjection {

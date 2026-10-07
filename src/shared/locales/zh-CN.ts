@@ -1946,6 +1946,7 @@ export const ZH_CN_MESSAGES = {
     "sidebar.calendar_outside_window_value0": "最新编辑在所选范围之外 {value0} 天",
     "sidebar.calendar_prev_month": "上个月",
     "sidebar.calendar_prev_year": "上一年",
+    "sidebar.calendar_show_day_all_value0": "显示当天全部 {value0} 篇",
     "sidebar.calendar_this_month": "回到本月",
     "sidebar.calendar_this_year": "回到今年",
     "sidebar.calendar_title": "热力日历",

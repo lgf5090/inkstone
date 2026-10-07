@@ -16,10 +16,13 @@ const naive = (notes: Record<string, NoteSummary>) => {
   const counts = new Map<string, number>()
   const noteIdByTitle = new Map<string, string>()
   const notesByDay = new Map<string, { id: string; title: string; updatedAt: number }[]>()
+  let latest = 0
   for (const item of Object.values(notes)) {
     if (item.deletedAt !== null)
       continue
     const key = dateKey(new Date(item.updatedAt))
+    if (item.updatedAt > latest)
+      latest = item.updatedAt
     counts.set(key, (counts.get(key) ?? 0) + 1)
     if (!noteIdByTitle.has(item.title))
       noteIdByTitle.set(item.title, item.id)
@@ -32,7 +35,7 @@ const naive = (notes: Record<string, NoteSummary>) => {
   }
   for (const list of notesByDay.values())
     list.sort((a, b) => b.updatedAt - a.updatedAt)
-  return { counts, noteIdByTitle, notesByDay }
+  return { counts, noteIdByTitle, notesByDay, latestEditKey: latest === 0 ? null : dateKey(new Date(latest)) }
 }
 
 const day = (year: number, month: number, dayOfMonth: number, hour = 12): number =>
@@ -120,6 +123,7 @@ describe('buildActivityProjectionCached — cold build and identity', () => {
     expect(projection.counts).toEqual(expected.counts)
     expect(projection.noteIdByTitle).toEqual(expected.noteIdByTitle)
     expect(projection.notesByDay).toEqual(expected.notesByDay)
+    expect(projection.latestEditKey).toBe(expected.latestEditKey)
   })
 
   it('returns the exact same projection for the same map identity', () => {
@@ -257,6 +261,97 @@ describe('buildActivityProjectionCached — tombstones and sweeps', () => {
   })
 })
 
+describe('buildActivityProjectionCached — latestEditKey', () => {
+  const vault = (size: number) => {
+    const notes: Record<string, NoteSummary> = {}
+    for (let i = 0; i < size; i++) {
+      const ts = i === 0 ? day(2026, 9, 28, 23) : day(2026, 7, 1 + (i % 28), 1 + (i % 20))
+      notes[id(i)] = note({ id: id(i), title: `V ${i}`, updatedAt: ts, createdAt: ts })
+    }
+    return notes
+  }
+
+  it('names the newest alive day, and falls back to the runner-up once that note is trashed', () => {
+    const notes = vault(4)
+    expect(buildActivityProjectionCached(notes).latestEditKey).toBe('2026-09-28')
+    const trashed = { ...notes[id(0)]!, deletedAt: day(2026, 10, 1) }
+    expect(buildActivityProjectionCached({ ...notes, [id(0)]: trashed }).latestEditKey).toBe('2026-07-04')
+  })
+
+  it('follows the newest day forward when an ordinary note is edited past it', () => {
+    const notes = vault(4)
+    buildActivityProjectionCached(notes)
+    const edited = { ...notes[id(2)]!, updatedAt: day(2026, 10, 5, 9) }
+    expect(buildActivityProjectionCached({ ...notes, [id(2)]: edited }).latestEditKey).toBe('2026-10-05')
+  })
+
+  it('follows a brand-new note that is itself the newest edit', () => {
+    const notes = vault(4)
+    buildActivityProjectionCached(notes)
+    const created = note({ id: 'fresh', title: 'Fresh', updatedAt: day(2026, 11, 11, 11), createdAt: day(2026, 11, 11, 11) })
+    expect(buildActivityProjectionCached({ ...notes, fresh: created }).latestEditKey).toBe('2026-11-11')
+  })
+
+  it('ignores a brand-new note that is older than the newest edit', () => {
+    const notes = vault(4)
+    buildActivityProjectionCached(notes)
+    const created = note({ id: 'stale', title: 'Stale', updatedAt: day(2026, 1, 2), createdAt: day(2026, 1, 2) })
+    expect(buildActivityProjectionCached({ ...notes, stale: created }).latestEditKey).toBe('2026-09-28')
+  })
+
+  it('recomputes when the newest note is edited backwards into an earlier day', () => {
+    const notes = vault(4)
+    buildActivityProjectionCached(notes)
+    const regressed = { ...notes[id(0)]!, updatedAt: day(2026, 7, 3, 8) }
+    expect(buildActivityProjectionCached({ ...notes, [id(0)]: regressed }).latestEditKey).toBe('2026-07-04')
+  })
+
+  it('recomputes when a note that held the newest day vanishes without a tombstone', () => {
+    const notes = vault(4)
+    buildActivityProjectionCached(notes)
+    const { [id(0)]: gone, ...shrunk } = notes
+    void gone
+    expect(buildActivityProjectionCached(shrunk).latestEditKey).toBe('2026-07-04')
+  })
+
+  it('is null for an empty vault and for an all-deleted one', () => {
+    expect(buildActivityProjectionCached({}).latestEditKey).toBeNull()
+    const only = { a: note({ id: 'a', updatedAt: day(2026, 8, 8), deletedAt: day(2026, 8, 9) }) }
+    expect(buildActivityProjectionCached(only).latestEditKey).toBeNull()
+  })
+
+  // The scaling half of C-06: the newest-edit answer used to cost a second whole-vault
+  // `Object.values` scan per commit. Counting `updatedAt` reads pins the invariant the
+  // fix actually claims — a commit that only bumps the newest note must not look at the
+  // others — without depending on a wall-clock budget this shared machine cannot honour.
+  const commitReads = (size: number) => {
+    const counter = { reads: 0 }
+    const counted = (key: string, stamp: number): NoteSummary => Object.defineProperty(
+      note({ id: key, title: `V ${key}`, createdAt: stamp }),
+      'updatedAt',
+      { enumerable: true, configurable: true, get: () => { counter.reads++; return stamp } },
+    )
+    const notes: Record<string, NoteSummary> = {}
+    for (let i = 0; i < size; i++) {
+      const ts = i === 0 ? day(2026, 9, 28, 23) : day(2026, 7, 1 + (i % 28), 1 + (i % 20))
+      notes[id(i)] = counted(id(i), ts)
+    }
+    buildActivityProjectionCached(notes)
+    counter.reads = 0
+    const bumped = counted(id(0), day(2026, 9, 28, 23) + 60_000)
+    const projection = buildActivityProjectionCached({ ...notes, [id(0)]: bumped })
+    expect(projection.latestEditKey).toBe('2026-09-28')
+    return counter.reads
+  }
+
+  it('reads updatedAt the same number of times for one commit on a 200-note and a 5000-note vault', HEAVY_VAULT, () => {
+    const small = commitReads(200)
+    const large = commitReads(5000)
+    expect([small, large]).toEqual([large, large])
+    expect(large).toBeLessThan(50)
+  })
+})
+
 describe('buildActivityProjectionCached — differential fuzz', () => {
   it('stays equal to the naive rebuild through a seeded random op sequence', HEAVY_VAULT, () => {
     const rand = mulberry32(20260902)
@@ -273,6 +368,7 @@ describe('buildActivityProjectionCached — differential fuzz', () => {
       expect(projection.counts).toEqual(expected.counts)
       expect(projection.noteIdByTitle).toEqual(expected.noteIdByTitle)
       expect(normalize(projection.notesByDay)).toEqual(normalize(expected.notesByDay))
+      expect(projection.latestEditKey).toBe(expected.latestEditKey)
     }
   })
 })
