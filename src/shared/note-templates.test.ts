@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { EN_US_MESSAGES } from './locales/en-US'
 import { ZH_CN_MESSAGES } from './locales/zh-CN'
+import { EN_US_NOTE_TEMPLATE_CONTENT } from './locales/en-US-note-template-content'
+import { ZH_CN_NOTE_TEMPLATE_CONTENT } from './locales/zh-CN-note-template-content'
 import type { MessageKey } from './locales/en-US'
 import {
   BUILTIN_TEMPLATE_CATEGORIES,
@@ -77,6 +79,8 @@ describe('built-in template catalog', () => {
   })
 
   it('resolves every message key the catalog names in both locale files', () => {
+    const en = { ...EN_US_MESSAGES, ...EN_US_NOTE_TEMPLATE_CONTENT }
+    const zh = { ...ZH_CN_MESSAGES, ...ZH_CN_NOTE_TEMPLATE_CONTENT }
     const keys: MessageKey[] = [
       ...Object.values(BUILTIN_TEMPLATE_TAG_LABELS),
       ...BUILTIN_TEMPLATE_CATEGORIES.map((def) => def.nameKey),
@@ -84,12 +88,12 @@ describe('built-in template catalog', () => {
     ]
     expect(new Set(keys).size).toBe(keys.length)
     for (const key of keys) {
-      expect(EN_US_MESSAGES[key], key).toBeTruthy()
-      expect(ZH_CN_MESSAGES[key], key).toBeTruthy()
+      expect(en[key], key).toBeTruthy()
+      expect(zh[key], key).toBeTruthy()
     }
     for (const def of BUILTIN_TEMPLATE_DEFS) {
-      expect(EN_US_MESSAGES[def.contentKey], def.contentKey).toContain('{{title}}')
-      expect(EN_US_MESSAGES[def.contentKey], def.contentKey).toMatch(/^---\r?\n/)
+      expect(en[def.contentKey], def.contentKey).toContain('{{title}}')
+      expect(en[def.contentKey], def.contentKey).toMatch(/^---\r?\n/)
     }
   })
 })

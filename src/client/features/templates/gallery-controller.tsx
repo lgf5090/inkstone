@@ -46,6 +46,8 @@ export function useGalleryController({ onClose }: { onClose: () => void }) {
     setIsHelpOpen: state.setIsHelpOpen,
     toggleSelectMode: selectActions.toggleSelectMode,
     searchRef: state.searchRef,
+    query: state.query,
+    setQuery: state.setQuery,
     selectMode: state.selectMode,
     setSelectMode: state.setSelectMode,
     visible: derived.visible,

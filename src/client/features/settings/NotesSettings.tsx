@@ -3,6 +3,7 @@ import { DEFAULT_NEW_NOTE_TEMPLATE, NEW_NOTE_TEMPLATE_MAX_LENGTH } from '@shared
 import { renderNewNoteTemplate } from '@shared/note-template-render'
 import { Input, SettingRow, Switch, Textarea } from '../../components/form'
 import { Button } from '../../components/primitives'
+import { confirm } from '../../components/overlay'
 import { useSession } from '../../store/session'
 import { t, useLocale } from '../../lib/i18n'
 import { splitTagInput } from '../templates/gallery-persist'
@@ -11,7 +12,16 @@ export function NotesSettings() {
   const notes = useSession((s) => s.settings.notes);
   const update = useSession((s) => s.updateSettings);
   const setTemplate = useCallback((newNoteTemplate: string) => void update({ notes: { newNoteTemplate } }), [update]);
-  const restoreDefault = useCallback(() => void update({ notes: { newNoteTemplate: DEFAULT_NEW_NOTE_TEMPLATE } }), [update]);
+  const restoreDefault = useCallback(() => {
+    void (async () => {
+      const ok = await confirm({
+        title: t('settings.restore_default_template'),
+        description: t('settings.restore_default_template_confirm'),
+        confirmLabel: t('settings.restore_default_template'),
+      })
+      if (ok) await update({ notes: { newNoteTemplate: DEFAULT_NEW_NOTE_TEMPLATE } })
+    })()
+  }, [update]);
   const setSyncTitleToFrontMatter = useCallback((syncTitleToFrontMatter: boolean) => void update({ notes: { syncTitleToFrontMatter } }), [update]);
   const setSyncFrontMatterTitle = useCallback((syncFrontMatterTitle: boolean) => void update({ notes: { syncFrontMatterTitle } }), [update]);
   const isDefault = notes.newNoteTemplate === DEFAULT_NEW_NOTE_TEMPLATE;

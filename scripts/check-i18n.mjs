@@ -123,8 +123,25 @@ const allowedHanFragments = new Map([
  * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
  */
 const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS']);
-const english = readMessages(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES');
-const chinese = readMessages(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES');
+// The built-in note template bodies live in their own file so they stay out of the
+// start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
+// the two languages would be proven against each other only for the keys that happen
+// to sit in the main file.
+const noteTemplateBodyFiles = {
+    en: [path.join(localeRoot, 'en-US-note-template-content.ts'), 'EN_US_NOTE_TEMPLATE_CONTENT'],
+    zh: [path.join(localeRoot, 'zh-CN-note-template-content.ts'), 'ZH_CN_NOTE_TEMPLATE_CONTENT'],
+};
+function readCatalog(variableFile, variableName, [bodyFile, bodyName]) {
+    const messages = readMessages(variableFile, variableName);
+    for (const [key, value] of readMessages(bodyFile, bodyName)) {
+        if (messages.has(key))
+            failures.push(`duplicate message across catalog files: ${key}`);
+        messages.set(key, value);
+    }
+    return messages;
+}
+const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES', noteTemplateBodyFiles.en);
+const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES', noteTemplateBodyFiles.zh);
 for (const key of english.keys()) {
     if (!chinese.has(key))
         failures.push(`missing zh-CN message: ${key}`);
@@ -151,7 +168,7 @@ const englishOnlyPaths = [
     path.resolve('.github'),
 ];
 for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walk(target)] : [])) {
-    if (file === path.join(localeRoot, 'zh-CN.ts') || !isTextSource(file))
+    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file))
         continue;
     rejectHan(file);
 }

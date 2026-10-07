@@ -58,7 +58,7 @@ describe('the stored template library', () => {
   it('round-trips a library', async () => {
     const localDb = await db()
     await localDb.bindUser('user-a')
-    const data = { categories: [CATEGORY], templates: [TEMPLATE], seedVersion: 3 }
+    const data = { categories: [CATEGORY], templates: [TEMPLATE], seedVersion: 3, syncedAt: 0, pendingPush: false }
     await localDb.saveTemplateLibrary(data)
     expect(await localDb.loadTemplateLibrary()).toEqual(data)
   })
@@ -70,6 +70,8 @@ describe('the stored template library', () => {
       categories: [],
       templates: [TEMPLATE],
       seedVersion: 1,
+      syncedAt: 0,
+      pendingPush: false,
     })
     await localDb.bindUser('user-b')
     expect(await localDb.loadTemplateLibrary()).toBe(null)
@@ -77,6 +79,8 @@ describe('the stored template library', () => {
       categories: [],
       templates: [{ ...TEMPLATE, id: 'tpl-b', name: 'Account B' }],
       seedVersion: 1,
+      syncedAt: 0,
+      pendingPush: false,
     })
     await localDb.bindUser('user-a')
     expect((await localDb.loadTemplateLibrary())?.templates.map((item) => item.name)).toEqual(['Kept'])
@@ -124,7 +128,7 @@ describe('the stored template library', () => {
     for (const junk of [[], { categories: 'no', templates: 5, seedVersion: {} }]) {
       kv.data.set(scoped('user-a'), junk)
       expect(await localDb.loadTemplateLibrary()).toEqual(
-        Array.isArray(junk) ? null : { categories: [], templates: [], seedVersion: 0 },
+        Array.isArray(junk) ? null : { categories: [], templates: [], seedVersion: 0, syncedAt: 0, pendingPush: false },
       )
     }
   })
@@ -136,7 +140,7 @@ describe('the stored template library', () => {
     await localDb.bindUser('someone-else')
     kv.data.clear()
     kv.data.set('userId', 'user-a')
-    kv.data.set('templateLibrary', { categories: [], templates: [TEMPLATE], seedVersion: 1 })
+    kv.data.set('templateLibrary', { categories: [], templates: [TEMPLATE], seedVersion: 1, syncedAt: 0, pendingPush: false })
     await localDb.bindUser('user-a')
     expect((await localDb.loadTemplateLibrary())?.templates.map((item) => item.id)).toEqual(['tpl-1'])
     expect(kv.data.has('templateLibrary')).toBe(false)

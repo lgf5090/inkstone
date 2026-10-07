@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BUILTIN_TEMPLATE_DEFS, TEMPLATE_SEED_VERSION } from '@shared/note-templates'
+import { BUILTIN_TEMPLATE_DEFS, TEMPLATE_SEED_VERSION, buildTemplateLibraryExport } from '@shared/note-templates'
 import { DEFAULT_NEW_NOTE_TEMPLATE } from '@shared/constants'
 import type { NoteTemplate } from '@shared/types'
 import { initI18n, t } from '../lib/i18n'
@@ -13,6 +13,23 @@ const bus = vi.hoisted(() => ({
   loads: 0,
   published: [] as Array<{ type: string; clientId: string }>,
   listeners: [] as Array<(payload: { type: string; clientId: string }) => void>,
+  remote: { savedAt: 0, library: null as unknown },
+  pushes: [] as string[],
+  pushFails: false,
+}))
+
+vi.mock('../lib/api', () => ({
+  CLIENT_ID: 'this-tab',
+  api: {
+    templateLibrary: {
+      load: async () => ({ savedAt: bus.remote.savedAt, library: bus.remote.library }),
+      save: async (library: string) => {
+        if (bus.pushFails) throw new Error('offline')
+        bus.pushes.push(library)
+        return { savedAt: 5000 + bus.pushes.length }
+      },
+    },
+  },
 }))
 
 vi.mock('../lib/db', () => ({
@@ -67,7 +84,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   stored.value = null
   bus.saves = 0
+  bus.loads = 0
   bus.published = []
+  bus.remote = { savedAt: 0, library: null }
+  bus.pushes = []
+  bus.pushFails = false
   useNoteTemplates.setState({ categories: [], templates: [], hydrated: false, owner: '' })
   await fresh().hydrate('user-a')
 })
@@ -76,6 +97,10 @@ describe('template library hydration', () => {
   it('seeds the whole built-in catalog and writes it once', () => {
     const state = fresh()
     expect(state.templates).toHaveLength(BUILTIN_TEMPLATE_DEFS.length)
+    const diary = state.templates.find((item) => item.id === 'diary')!
+    expect(diary.content.startsWith('---')).toBe(true)
+    expect(diary.content).toContain('{{title}}')
+    expect(diary.content).not.toBe('template.diary.content')
     expect(state.categories.map((item) => item.id)).toEqual([
       'productivity', 'tasks', 'learning', 'work', 'life', 'health', 'writing', 'industry',
     ])
@@ -96,7 +121,7 @@ describe('template library hydration', () => {
     fresh().createTemplate({ name: 'Account A only', content: 'secret body' })
     expect(fresh().templates).toHaveLength(firstTemplates.length + 1)
 
-    stored.value = { categories: [], templates: [template({ id: 'b-1', name: 'Account B' })], seedVersion: TEMPLATE_SEED_VERSION }
+    stored.value = { categories: [], templates: [template({ id: 'b-1', name: 'Account B' })], seedVersion: TEMPLATE_SEED_VERSION, syncedAt: 0, pendingPush: false }
     useNoteTemplates.setState({ hydrated: false })
     await fresh().hydrate('user-b')
 
@@ -107,7 +132,7 @@ describe('template library hydration', () => {
 
   it('keeps a hydrated library for the same account without re-reading', async () => {
     const before = fresh().templates
-    stored.value = { categories: [], templates: [], seedVersion: TEMPLATE_SEED_VERSION }
+    stored.value = { categories: [], templates: [], seedVersion: TEMPLATE_SEED_VERSION, syncedAt: 0, pendingPush: false }
     await fresh().hydrate('user-a')
     expect(fresh().templates).toBe(before)
   })
@@ -117,6 +142,8 @@ describe('template library hydration', () => {
       categories: [],
       templates: [template({ id: 'mine', name: 'Mine' })],
       seedVersion: 0,
+      syncedAt: 0,
+      pendingPush: false,
     }
     useNoteTemplates.setState({ hydrated: false, owner: '' })
     await fresh().hydrate('user-a')
@@ -134,6 +161,8 @@ describe('template library hydration', () => {
         template({ id: 'okr', name: 'My OKR', builtin: false }),
       ],
       seedVersion: TEMPLATE_SEED_VERSION,
+      syncedAt: 0,
+      pendingPush: false,
     }
     useNoteTemplates.setState({ hydrated: false, owner: '' })
     await fresh().hydrate('user-a')
@@ -149,6 +178,8 @@ describe('template library hydration', () => {
       ],
       templates: [template({ id: 'good' })],
       seedVersion: TEMPLATE_SEED_VERSION,
+      syncedAt: 0,
+      pendingPush: false,
     }
     useNoteTemplates.setState({ hydrated: false, owner: '' })
     await fresh().hydrate('user-a')
@@ -446,5 +477,79 @@ describe('cross-tab library coherence', () => {
     expect(fresh().templates).toHaveLength(before)
     expect(fresh().templates.some((item) => item.id === 'tpl-other-tab')).toBe(false)
     expect(bus.saves).toBe(0)
+  })
+})
+
+describe('account sync of the template library', () => {
+  function remoteLibrary(extra: NoteTemplate[]) {
+    return buildTemplateLibraryExport(library().categories, [...library().templates, ...extra])
+  }
+
+  it('takes the newer copy from the account when nothing is pending locally', async () => {
+    const fromAnotherDevice = template({ id: 'tpl-device-2', name: 'From my laptop', content: 'laptop' })
+    bus.remote = { savedAt: 9000, library: remoteLibrary([fromAnotherDevice]) }
+    useNoteTemplates.setState({ hydrated: false, owner: '' })
+    await fresh().hydrate('user-a')
+    expect(fresh().templates.some((item) => item.id === 'tpl-device-2')).toBe(true)
+    expect(library().syncedAt).toBe(9000)
+    expect(library().pendingPush).toBe(false)
+    expect(bus.pushes).toHaveLength(0)
+  })
+
+  it('keeps a local edit that never reached the account', async () => {
+    const accountCopy = remoteLibrary([])
+    fresh().createTemplate({ name: 'Unsynced', content: 'x' })
+    useNoteTemplates.setState({ hydrated: false })
+    bus.remote = { savedAt: 99000, library: accountCopy }
+    await fresh().hydrate('user-a')
+    expect(fresh().templates.some((item) => item.name === 'Unsynced')).toBe(true)
+  })
+
+  it('pushes a burst of changes once', async () => {
+    vi.useFakeTimers()
+    try {
+      for (let index = 0; index < 5; index += 1)
+        fresh().createTemplate({ name: `n${index}`, content: 'x' })
+      await vi.advanceTimersByTimeAsync(1500)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(bus.pushes).toHaveLength(1)
+    const pushed = JSON.parse(bus.pushes[0]!) as { templates: Array<{ name: string }> }
+    expect(pushed.templates.filter((item) => item.name.startsWith('n'))).toHaveLength(5)
+    expect(library().pendingPush).toBe(false)
+    expect(library().syncedAt).toBe(5001)
+  })
+
+  it('leaves the change pending when the push fails and retries on the next hydrate', async () => {
+    vi.useFakeTimers()
+    bus.pushFails = true
+    try {
+      fresh().createTemplate({ name: 'will-retry', content: 'x' })
+      await vi.advanceTimersByTimeAsync(1500)
+    } finally {
+      bus.pushFails = false
+      vi.useRealTimers()
+    }
+    expect(bus.pushes).toHaveLength(0)
+    expect(library().pendingPush).toBe(true)
+    useNoteTemplates.setState({ hydrated: false })
+    await fresh().hydrate('user-a')
+    await vi.waitFor(() => {
+      expect(bus.pushes).toHaveLength(1)
+    }, { timeout: 4000 })
+    expect(library().pendingPush).toBe(false)
+  })
+
+  it('does not push a library that belongs to a signed-out tab', async () => {
+    vi.useFakeTimers()
+    try {
+      fresh().createTemplate({ name: 'orphan', content: 'x' })
+      useNoteTemplates.setState({ owner: '' })
+      await vi.advanceTimersByTimeAsync(1500)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(bus.pushes).toHaveLength(0)
   })
 })

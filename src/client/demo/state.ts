@@ -45,6 +45,7 @@ export interface DemoState {
   backupTargets: Map<string, BackupTarget>
   backupRuns: BackupRun[]
   communityTemplates: CommunityTemplate[]
+  templateLibrary: { savedAt: number; library: unknown } | null
 }
 
 const seedId = (value: number) => `01j${String(value).padStart(23, '0')}`
@@ -104,6 +105,7 @@ export function createDemoState(): DemoState {
     backupTargets: new Map(),
     backupRuns: [],
     communityTemplates: [],
+    templateLibrary: null,
   }
 }
 

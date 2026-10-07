@@ -8,6 +8,16 @@ import { runBatchDelete, runBatchMove, runBatchStar } from './gallery-actions'
 const stored = vi.hoisted((): { value: TemplateLibraryData | null } => ({ value: null }))
 const writes = vi.hoisted(() => ({ saves: 0, broadcasts: 0 }))
 
+vi.mock('../../lib/api', () => ({
+  CLIENT_ID: 'this-tab',
+  api: {
+    templateLibrary: {
+      load: async () => ({ savedAt: 0, library: null }),
+      save: async () => ({ savedAt: 1 }),
+    },
+  },
+}))
+
 vi.mock('../../lib/db', () => ({
   localDb: {
     loadTemplateLibrary: async () => stored.value,

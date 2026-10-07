@@ -31,6 +31,10 @@ const allowed = new Map([
     "// A tag view is the case that matters for the merge, and the built-in catalog tags in Han,",
     "// so the fixture spells the tag twice: once going in, once coming back out.",
     "// YAML-hostile folder names, which only exist in the language users type them in.",
+    "// The built-in note template bodies live in their own file so they stay out of the",
+    "// start-up locale chunk. The gate reads them as one catalog with the rest, otherwise",
+    "// the two languages would be proven against each other only for the keys that happen",
+    "// to sit in the main file.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -657,6 +661,9 @@ const allowed = new Map([
     "/**\n * Batch actions apply one store write per template. Each write re-serializes the\n * whole library, so the count reported back is the number that actually changed\n * rather than the size of the selection.\n */",
     "/**\n * Batch actions take the store's batch primitives, so a selection costs one\n * library write instead of one per card. The count reported back is the number\n * that actually changed, not the size of the selection.\n */",
   ]],
+  ["src/client/features/templates/gallery-derived.ts", [
+    "/**\n * One query, one rule: the gallery grid and the community list are the same\n * search over the same four fields, because a search box that only works in one\n * of the two is a control that lies about what the view can do.\n */",
+  ]],
   ["src/client/features/templates/gallery-export.ts", [
     "/** Built-ins are re-seeded by the app, so an export carries only what the user made. */",
   ]],
@@ -665,6 +672,8 @@ const allowed = new Map([
     "/** Non-arrow shortcut keys; returns true once the event was consumed. */",
     "/**\n * Moves the focus ring across the grid. The column count is read from the laid-out\n * grid rather than assumed, because the same panel is one column on a phone and\n * three on a wide desktop.\n */",
     "/** Template ids are opaque and can start with a digit, which is not a bare CSS attribute value. */",
+    "/**\n * Land the ring and the real focus on one card.\n *\n * The ring alone would not make the printed `Enter use` true: the activation is a\n * button, and a button only answers Enter when the document holds it.\n */",
+    "/**\n * Keys the search box owns.\n *\n * The panel opens with the caret in the search field, so without these the shortcut\n * row printed under the header described keys that could not be pressed: Escape had\n * to give back one step (clear the query) before it gives up the dialog, and ArrowDown\n * is how the caret walks out of the field and into the grid.\n */",
   ]],
   ["src/client/features/templates/gallery-modals.tsx", [
     "// Reading the whole file into a string first, so an oversized drop fails",
@@ -756,6 +765,8 @@ const allowed = new Map([
     "/**\n   * One transaction for a whole flush. enqueueOutbox() reads and rewrites the entire queue,\n   * so calling it per queued write costs K reads plus K clones of an array that grows with K.\n   */",
     "/** The whole client-side template library, persisted as one per-account record. */",
     "/**\n   * Reads the per-account template library, dropping any stored entry that no\n   * longer matches the shape. A corrupt record degrades to an unseeded library\n   * rather than throwing the gallery into an error state.\n   */",
+    "/** `savedAt` of the copy the account server holds, or 0 when never synced. */",
+    "/** Local changes that have not reached the account server yet. */",
   ]],
   ["src/client/lib/element-image.test.ts", [
     "/**\n * The layer every pixel export goes through: an element is serialized into an SVG that carries the\n * document's stylesheet, loaded as an image, and drawn into a canvas. What has to travel inside that\n * SVG is not only its markup — a canvas's pixels are not markup at all, and an `<img>`'s bytes are\n * in another document — and N-24 measured both of those failing quietly: the exported page drew a\n * broken-image glyph where the slide had a picture.\n */",
@@ -836,6 +847,7 @@ const allowed = new Map([
     "/** Provides typed runtime localization with on-demand locale loading. */",
     "// Preload the other locale in background for instant switching, but don't block init",
     "/**\n * Subscribes a component that calls {@link t} during render to the two things that change what `t`\n * answers: the active locale, and the resource version this locale's messages arrive under. A board\n * rendered outside the app's own locale-aware tree would otherwise keep last locale's copy after a\n * language switch, because React has no other reason to run its render again.\n */",
+    "/**\n * The built-in template bodies are the one part of the catalog a reader may never\n * open, so they arrive on demand instead of riding the start-up locale chunk.\n * Registering them mutates the same table `t()` reads, which keeps lookups, the\n * language switch and the `resourcesVersion` signal exactly as they were.\n */",
   ]],
   ["src/client/lib/markdown/chart/accent.ts", [
     "/**\n * The account's accent, read for the things that draw outside CSS.\n *\n * The pure oklch math lives in ./palette; this is the half that touches the document, kept apart so the\n * math stays testable without a DOM. Every call re-reads: a chart's colours must follow the accent the\n * account has now, not the one that happened to be set when the module was first loaded.\n */",
@@ -3829,6 +3841,7 @@ const allowed = new Map([
     "// keeps two tabs open in one browser from erasing each other. Seeding on read",
     "// writes through `localDb` directly and stays quiet, so this cannot echo back.",
     "/**\n * Apply a patch to a whole selection in one write.\n *\n * The per-template store methods each re-serialize the library, so a loop over\n * them costs N writes of the whole record: at the 2000-template import ceiling a\n * select-all star took sixteen seconds of blocked main thread. Selections are the\n * common case, so the batch is the primitive and the loop is not.\n */",
+    "/**\n * The account server keeps one copy of the library, so it survives a cleared\n * browser and follows the user to another device — the same durability class as\n * `settings`. Local writes are debounced because a batch click is one intent, and\n * a failed push leaves `pendingPush` set, which is what makes the next change (or\n * the next hydrate) retry instead of dropping the edit.\n */",
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
@@ -4082,6 +4095,9 @@ const allowed = new Map([
     "// predicates (includeOrphans, local BFS) keep their old plans: one index",
     "// cannot serve an OR across two columns.",
     "// The shared template directory: one row per published template, listed newest first.",
+    "// The account's own template library, so it survives a cleared browser and travels",
+    "// between devices the way `settings` does. `skipIfColumnExists` because a fresh",
+    "// database already gets the column from SCHEMA_STATEMENTS.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -4306,6 +4322,9 @@ const allowed = new Map([
     "// Six statements per member, so a family of fourteen already outgrows the batch ceiling this",
     "// repo respects elsewhere (MAX_BATCH_STATEMENTS in routes/folders.ts). Each chunk is its own",
     "// transaction, so a late failure leaves the earlier chunk applied; note bodies still roll back.",
+  ]],
+  ["src/worker/routes/template-library.ts", [
+    "/** Envelope stored in `users.template_library`: when the account last saved, plus the library. */",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",

@@ -1,3 +1,4 @@
+import type { NoteTemplateContentKey } from './en-US-note-template-content';
 export const EN_US_MESSAGES = {
     "markdown.external_image_blocked": "External image blocked",
     "navigation.note_views": "Note views",
@@ -2178,167 +2179,14 @@ Add several WebDAV/S3 destinations and a schedule under **Settings → Backup**.
 
 Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, sync, or backup settings. You now know everything needed to use Inkstone. Keep this note as a reference or delete it and start writing. #getting-started
 `,
-    "template.article_outline.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [writing]
----
-
-## Working Title
-
-## Thesis
-> 
-
-## Audience
-
-## Outline
-### 1. Hook
-- 
-
-### 2. Section 1
-- Key argument:
-- Evidence:
-
-### 3. Section 2
-- Key argument:
-- Evidence:
-
-### 4. Conclusion
-- 
-
-## Sources
-- 
-`,
     "template.article_outline.description": "Structure an article: thesis, sections and key arguments.",
     "template.article_outline.name": "Article Outline",
-    "template.book_notes.content": `---
-title: Book Notes: {{title}}
-createdAt: {{createdAt}}
-tags: [reading]
----
-
-## Book Info
-- Author:
-- Started: {{date}}
-- Finished:
-
-## Key Ideas
-1. 
-
-## Quotes
-> 
-
-## My Thoughts
-- 
-
-## Action Items
-- [ ] 
-
-## Rating
-⭐⭐⭐⭐⭐
-`,
     "template.book_notes.description": "Capture quotes, ideas and takeaways while reading a book.",
     "template.book_notes.name": "Book Notes",
-    "template.brainstorm.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [brainstorm]
----
-
-## Topic
-
-## Rules
-- Quantity over quality
-- No criticism during the session
-- Build on each other's ideas
-
-## Raw Ideas
-- 
-- 
-- 
-- 
-
-## Clusters
-### Cluster A
-- 
-
-### Cluster B
-- 
-
-## Top Picks
-1. 
-
-## Next Step
-- [ ] 
-`,
     "template.brainstorm.description": "Capture raw ideas first, then cluster and prioritize.",
     "template.brainstorm.name": "Brainstorm",
-    "template.bug_tracker.content": `---
-title: Bug: {{title}}
-createdAt: {{createdAt}}
-tags: [bug]
----
-
-## Severity
-- [ ] Critical
-- [ ] High
-- [ ] Medium
-- [ ] Low
-
-## Environment
-- Version:
-- OS / Browser:
-
-## Repro Steps
-1. 
-
-## Expected
-- 
-
-## Actual
-- 
-
-## Root Cause
-- 
-
-## Fix
-- [ ] 
-
-## Verification
-- [ ] Reproduced before fix
-- [ ] Fixed in:
-`,
     "template.bug_tracker.description": "Document one bug per note: repro steps, cause and fix.",
     "template.bug_tracker.name": "Bug Tracker",
-    "template.bullet_journal.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [bullet-journal]
----
-
-## Future Log
-- [[Month]] · {{tomorrow}}
-- [[Month]] · {{tomorrow}}
-- [[Month]] · {{tomorrow}}
-
-## Monthly Log
-
-| Date | Tasks | Events | Notes |
-| --- | --- | --- | --- |
-|  |  |  |  |
-
-## Daily Log
-
-- [ ] Task
-- [ ] Migrated task · >
-- [ ] Scheduled task · <
-- Event · o
-- Note · -
-
-## Key
-- · task · > migrated · < scheduled · o event · - note
-- * priority · ! inspiration · ? question · x done
-`,
     "template.bullet_journal.description": "Rapid logging with bullets, tasks, events and notes plus a future log.",
     "template.bullet_journal.name": "Bullet Journal",
     "template.category.health": "Health & Habits",
@@ -2363,927 +2211,70 @@ tags: [bullet-journal]
     "template.tag.weekly": "Weekly",
     "template.tag.work": "Work",
     "template.tag.writing": "Writing",
-    "template.class_notes.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [class]
----
-
-## Course
-- Lecturer:
-- Topic:
-
-## Key Points
-1. 
-
-## Examples
-- 
-
-## Questions
-- [ ] 
-
-## After Class
-- [ ] Review notes
-- [ ] Do exercises
-- [ ] Ask questions
-`,
     "template.class_notes.description": "Structured notes for lectures and courses.",
     "template.class_notes.name": "Lecture Notes",
-    "template.cornell.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [cornell]
----
-
-| Cue column | Notes |
-| --- | --- |
-| Keywords, questions | Main notes, diagrams, examples |
-
-> Write keywords and questions on the left, then take notes on the right.
-> Review within 24 hours, cover the notes and quiz yourself from the cue column.
-
-## Summary
-
-Summarize the page in your own words in 1-3 sentences. {{cursor}}
-`,
     "template.cornell.description": "The classic cue-column-summary layout for lectures and reading.",
     "template.cornell.name": "Cornell Notes",
-    "template.dev_daily.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [dev]
----
-
-## Today
-- [ ] 
-- [ ] 
-
-## Details
-- 
-
-## Commits / PRs
-- 
-
-## Blockers
-- 
-
-## Open Questions
-- 
-
-## Tomorrow
-- [ ] 
-
-## Learned
-- 
-`,
     "template.dev_daily.description": "Daily developer log: progress, blockers and next steps.",
     "template.dev_daily.name": "Dev Daily Log",
-    "template.diary.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [diary]
----
-
-## Mood
-- Energy (1-5):
-- Mood (1-5):
-
-## Today's Highlights
-1. 
-
-## What Happened
-- 
-
-## Gratitude
-- 
-
-## Tomorrow
-- [ ] 
-
-{{cursor}}
-`,
     "template.diary.description": "A dated diary entry with mood, highlights and gratitude.",
     "template.diary.name": "Diary Entry",
-    "template.expense_log.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [expense]
----
-
-## Daily Spending
-| Item | Category | Amount |
-| --- | --- | --- |
-|  |  |  |
-
-## Category Totals
-- Food:
-- Transport:
-- Shopping:
-- Other:
-
-## Budget Check
-- Daily budget:
-- Spent today:
-- Remaining this month:
-
-## Notes
-- 
-`,
     "template.expense_log.description": "Track daily spending by category and compare to budget.",
     "template.expense_log.name": "Expense Log",
-    "template.feynman.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [feynman]
----
-
-## Concept
-
-## Plain-Language Explanation
-
-Pretend you are teaching an 8-year-old:
-
-> 
-
-## Gaps Found
-1. 
-
-## Simplify & Retry
-
-Rewrite with an analogy:
-
-## Final Check
-- [ ] Can I explain it without jargon?
-- [ ] Can I give a concrete example?
-`,
     "template.feynman.description": "Explain a concept in plain language to find your knowledge gaps.",
     "template.feynman.name": "Feynman Technique",
-    "template.four_quadrant.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [priority]
----
-
-## 1. Important & Urgent — do now
-- [ ] 
-
-## 2. Important & Not Urgent — schedule
-- [ ] 
-
-## 3. Not Important & Urgent — delegate
-- [ ] 
-
-## 4. Not Important & Not Urgent — drop or limit
-- [ ] 
-
-> Principle: protect time for quadrant 2; the most meaningful work lives there. {{cursor}}
-`,
     "template.four_quadrant.description": "Prioritize tasks by urgency and importance into four quadrants.",
     "template.four_quadrant.name": "Four Quadrants",
-    "template.gtd.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [gtd]
----
-
-## Inbox
-- 
-
-## Next Actions
-- [ ] 
-
-## Waiting For
-- [ ] 
-
-## Projects
-- [ ] 
-
-## Someday / Maybe
-- 
-
-## Calendar
-- {{today}}:
-- {{tomorrow}}:
-
-> Weekly review: empty the inbox, update lists, and decide the next physical action for each project.
-`,
     "template.gtd.description": "Capture, clarify, organize, reflect and engage with your commitments.",
     "template.gtd.name": "GTD Task Management",
-    "template.habit_tracker.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [habits]
----
-
-## Habits
-- [ ] 
-- [ ] 
-- [ ] 
-
-## Monthly Grid
-
-| Date | Habit 1 | Habit 2 | Habit 3 |
-| --- | --- | --- | --- |
-| 1 |  |  |  |
-| 2 |  |  |  |
-| 3 |  |  |  |
-
-## Notes
-- Missed a day? Don't break the chain — just continue. {{cursor}}
-`,
     "template.habit_tracker.description": "Track daily habits across a month with a simple grid.",
     "template.habit_tracker.name": "Habit Tracker",
-    "template.knowledge_cards.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [cards]
----
-
-## Idea
-
-> One sentence.
-
-## Notes
-
-## Sources
-- 
-
-## Related
-- [[Related Note]]
-
-## Actions
-- [ ] 
-
-> Write it as if you will never see the original source again. {{cursor}}
-`,
     "template.knowledge_cards.description": "One idea per card for building a personal knowledge base.",
     "template.knowledge_cards.name": "Knowledge Cards",
-    "template.marketing_plan.content": `---
-title: {{title}} Marketing Plan
-createdAt: {{createdAt}}
-tags: [marketing]
----
-
-## Campaign Overview
-- Goal:
-- Target audience:
-- Launch date:
-
-## Channels
-- [ ] Social media
-- [ ] Email
-- [ ] Content / SEO
-- [ ] Paid ads
-
-## Content Plan
-| Date | Channel | Topic | Status |
-| --- | --- | --- | --- |
-|  |  |  |  |
-
-## Budget
-| Item | Planned | Actual |
-| --- | --- | --- |
-| Ads |  |  |
-| Production |  |  |
-
-## Success Metrics
-- 
-
-## Review
-- {{tomorrow}}
-`,
     "template.marketing_plan.description": "Plan a campaign: audience, channels, budget and timeline.",
     "template.marketing_plan.name": "Marketing Plan",
-    "template.meal_log.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [food]
----
-
-## Breakfast
-- 
-
-## Lunch
-- 
-
-## Dinner
-- 
-
-## Snacks
-- 
-
-## Daily Check
-- Calories:  / 
-- Water:  glasses
-- Feeling:
-- 
-
-> Honest records beat perfect records. {{cursor}}
-`,
     "template.meal_log.description": "Track meals, calories and how you feel afterwards.",
     "template.meal_log.name": "Meal Log",
-    "template.meeting_minutes.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [meeting]
----
-
-## Meta
-- Time:
-- Attendees:
-- Absent:
-
-## Agenda
-1. 
-
-## Discussion
-- 
-
-## Decisions
-1. 
-
-## Action Items
-- [ ] Owner:  · Due: 
-
-## Next Meeting
-- {{tomorrow}}
-`,
     "template.meeting_minutes.description": "Capture decisions, action items and owners from a meeting.",
     "template.meeting_minutes.name": "Meeting Minutes",
-    "template.mistake_notebook.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [mistakes]
----
-
-## Subject
-
-## Original Problem
-
-## My Mistake
-
-## Correct Approach
-
-## Root Cause
-- [ ] Careless
-- [ ] Knowledge gap
-- [ ] Wrong method
-
-## Retest Date
-- {{tomorrow}}
-`,
     "template.mistake_notebook.description": "Log mistakes with the correct approach to avoid repeating them.",
     "template.mistake_notebook.name": "Mistake Notebook",
-    "template.morning_pages.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [journal]
----
-
-## Free writing
-
-Start writing whatever comes to mind. Don't edit, don't stop.
-
-{{cursor}}
-
-## One-line today
-
-## Intention
-`,
     "template.morning_pages.description": "Three pages of stream-of-consciousness writing to clear your mind.",
     "template.morning_pages.name": "Morning Pages",
-    "template.movie_log.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [movies]
----
-
-## Seen
-
-### {{date}}
-- Title:
-- Rating: ⭐⭐⭐
-- Review:
-- Favorite scene:
-
-## Want to Watch
-- [ ] 
-- [ ] 
-
-## Yearly Stats
-- Total:
-- Favorites:
-`,
     "template.movie_log.description": "Track films and shows with ratings and quick reviews.",
     "template.movie_log.name": "Movie & Show Log",
-    "template.okr.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [okr]
----
-
-## Objective 1
-
-- [ ] KR 1.1: 
-- [ ] KR 1.2: 
-- [ ] KR 1.3: 
-
-## Objective 2
-
-- [ ] KR 2.1: 
-- [ ] KR 2.2: 
-
-## Weekly Check-in
-| Week | Progress | Blockers |
-| --- | --- | --- |
-|  |  |  |
-
-> KRs should be measurable, ambitious and time-bound. Review weekly.
-`,
     "template.okr.description": "Objectives and key results to align ambitious goals with measurable outcomes.",
     "template.okr.name": "OKR Goals",
-    "template.pdca.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [pdca]
----
-
-## Plan
-- Goal:
-- Current status:
-- Root causes:
-- Actions to take:
-
-## Do
-- [ ] 
-- [ ] 
-
-## Check
-- Results vs plan:
-- What worked:
-- What did not:
-
-## Act
-- Keep:
-- Adjust:
-- Next cycle starts: {{tomorrow}}
-`,
     "template.pdca.description": "Plan-Do-Check-Act loop for continuous improvement.",
     "template.pdca.name": "PDCA Cycle",
-    "template.pomodoro.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [pomodoro]
----
-
-## Today's Goal
-
-## Pomodoros
-
-| # | Task | Interruptions | Done |
-| --- | --- | --- | --- |
-| 1 |  |  | [ ] |
-| 2 |  |  | [ ] |
-| 3 |  |  | [ ] |
-| 4 |  |  | [ ] |
-
-## Notes
-- 
-
-> Rhythm: 25 min work, 5 min break; every 4 pomodoros take a longer break. {{cursor}}
-`,
     "template.pomodoro.description": "25-minute focus sprints with short breaks.",
     "template.pomodoro.name": "Pomodoro Technique",
-    "template.prd.content": `---
-title: {{title}} PRD
-createdAt: {{createdAt}}
-tags: [product]
----
-
-## Background
-- Problem:
-- Why now:
-
-## Goals
-1. 
-
-## Non-Goals
-- 
-
-## Target Users
-- 
-
-## User Stories
-- As a ..., I want to ..., so that ...
-
-## Scope
-### In Scope
-- [ ] 
-
-### Out of Scope
-- 
-
-## Acceptance Criteria
-- [ ] 
-
-## Metrics
-- 
-
-## Open Questions
-- 
-`,
     "template.prd.description": "Product requirements: background, users, scope and acceptance criteria.",
     "template.prd.name": "Product Requirements",
-    "template.project_review.content": `---
-title: {{title}} Retrospective
-createdAt: {{createdAt}}
-tags: [review]
----
-
-## Background
-- Project:
-- Period:
-- Goal:
-
-## What Went Well
-1. 
-
-## What Went Wrong
-1. 
-
-## Root Causes
-- 
-
-## Keep Doing
-- 
-
-## Improve Next Time
-- [ ] 
-
-## Lessons
-- 
-`,
     "template.project_review.description": "Retrospective on what went well and what to improve.",
     "template.project_review.name": "Project Retrospective",
-    "template.recipe.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [cooking]
----
-
-## Dish
-
-## Servings
-
-## Time
-- Prep:  min
-- Cook:  min
-
-## Ingredients
-- 
-
-## Steps
-1. 
-
-## Taste Notes
-- Rating: ⭐⭐⭐
-- Adjust next time:
-
-> Remember to write down the seasoning amounts you actually used. {{cursor}}
-`,
     "template.recipe.description": "Standard recipe card with ingredients and steps.",
     "template.recipe.name": "Recipe",
-    "template.shopping_list.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [shopping]
----
-
-## Groceries
-- [ ] 
-- [ ] 
-
-## Household
-- [ ] 
-- [ ] 
-
-## Electronics / Other
-- [ ] 
-
-## Budget
-- Planned: 
-- Spent: 
-- Remaining: 
-
-> Tick items off as you put them into the cart. {{cursor}}
-`,
     "template.shopping_list.description": "Categorized shopping list with quantities and budget.",
     "template.shopping_list.name": "Shopping List",
-    "template.sleep_diary.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [sleep]
----
-
-## Last Night
-- Bedtime:
-- Fell asleep:
-- Woke up:
-- Got up:
-
-## Quality
-- Total sleep:  h
-- Quality (1-5):
-- Awakenings:
-
-## Factors
-- Caffeine after 14:00: 
-- Screen time before bed: 
-- Exercise today: 
-
-## Tonight's Plan
-- [ ] Wind down at:
-- [ ] Lights off at:
-
-> Keep a consistent schedule — weekends too. {{cursor}}
-`,
     "template.sleep_diary.description": "Track bedtime, wake time and sleep quality.",
     "template.sleep_diary.name": "Sleep Diary",
-    "template.speech_draft.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [speech]
----
-
-## Occasion
-- Event:
-- Duration:  min
-- Audience:
-
-## One-Minute Message
-> 
-
-## Opening
-- Hook:
-- Why this topic:
-
-## Main Points
-### Point 1
-- 
-
-### Point 2
-- 
-
-### Point 3
-- 
-
-## Closing
-- Recap:
-- Call to action:
-
-## Delivery Notes
-- Pace:
-- Pauses:
-`,
     "template.speech_draft.description": "Draft a speech with opening, main points and call to action.",
     "template.speech_draft.name": "Speech Draft",
-    "template.story_setting.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [story]
----
-
-## Logline
-> 
-
-## Characters
-### Protagonist
-- Name:
-- Want:
-- Need:
-- Flaw:
-
-### Antagonist
-- Name:
-- Want:
-
-## World
-- Setting:
-- Rules:
-- Conflict source:
-
-## Plot
-### Act 1
-- 
-
-### Act 2
-- 
-
-### Act 3
-- 
-
-## Themes
-- 
-`,
     "template.story_setting.description": "Develop characters, world and plot for a story.",
     "template.story_setting.name": "Story Setting",
-    "template.swot.content": `---
-title: {{title}} SWOT
-createdAt: {{createdAt}}
-tags: [swot]
----
-
-|  | Positive | Negative |
-| --- | --- | --- |
-| Internal | **Strengths** | **Weaknesses** |
-|  |  |  |
-| External | **Opportunities** | **Threats** |
-|  |  |  |
-
-## Strategies
-- SO (use strengths to seize opportunities):
-- WO (fix weaknesses to grab opportunities):
-- ST (use strengths to reduce threats):
-- WT (avoid threats, minimize weaknesses):
-`,
     "template.swot.description": "Assess strengths, weaknesses, opportunities and threats.",
     "template.swot.name": "SWOT Analysis",
-    "template.task_breakdown.content": `---
-title: {{title}}
-createdAt: {{createdAt}}
-tags: [planning]
----
-
-## Big Task
-
-**Goal / Definition of done:**
-
-## Subtasks
-- [ ] 1. 
-  - [ ] Details
-- [ ] 2. 
-  - [ ] Details
-- [ ] 3. 
-
-## Dependencies & Risks
-- 
-
-## Estimate
-- Total:  hours
-- Deadline: 
-
-> Each subtask should be small enough to start without thinking. {{cursor}}
-`,
     "template.task_breakdown.description": "Break a big task into small, actionable subtasks.",
     "template.task_breakdown.name": "Task Breakdown",
-    "template.todo_list.content": `---
-title: {{title}} · {{date}}
-createdAt: {{createdAt}}
-tags: [todo]
----
-
-## Today
-- [ ] **High priority**
-  - [ ] 
-- [ ] **Medium priority**
-  - [ ] 
-- [ ] **Low priority**
-  - [ ] 
-
-## Deferred
-- [ ] 
-
-> Pick the single most important task and finish it first. {{cursor}}
-`,
     "template.todo_list.description": "A simple daily todo list with priorities and due dates.",
     "template.todo_list.name": "Todo List",
-    "template.travel_guide.content": `---
-title: {{title}} Travel Guide
-createdAt: {{createdAt}}
-tags: [travel]
----
-
-## Trip Info
-- Destination:
-- Dates:
-- Travelers:
-
-## Itinerary
-### Day 1 · {{today}}
-- [ ] Morning:
-- [ ] Afternoon:
-- [ ] Evening:
-
-### Day 2 · {{tomorrow}}
-- [ ] Morning:
-- [ ] Afternoon:
-- [ ] Evening:
-
-## Budget
-| Item | Planned | Actual |
-| --- | --- | --- |
-| Transport |  |  |
-| Accommodation |  |  |
-| Food |  |  |
-| Tickets |  |  |
-
-## Packing
-- [ ] Documents & IDs
-- [ ] 
-
-## Bookings
-- [ ] Flights
-- [ ] Hotel
-- [ ] 
-
-## Notes
-- 
-`,
     "template.travel_guide.description": "Plan itinerary, budget, packing and bookings for a trip.",
     "template.travel_guide.name": "Travel Guide",
-    "template.weekly_plan.content": `---
-title: {{title}} · Week
-createdAt: {{createdAt}}
-tags: [weekly]
----
-
-## This Week's Focus
-1. 
-
-## Schedule
-| Day | Tasks | Notes |
-| --- | --- | --- |
-| Mon |  |  |
-| Tue |  |  |
-| Wed |  |  |
-| Thu |  |  |
-| Fri |  |  |
-| Sat |  |  |
-| Sun |  |  |
-
-## Next Week Preview
-- 
-
-> Review on Sunday: what moved forward, what needs replanning. {{cursor}}
-`,
     "template.weekly_plan.description": "Plan your week: goals, schedule and reviews.",
     "template.weekly_plan.name": "Weekly Plan",
-    "template.weekly_report.content": `---
-title: {{title}} Weekly Report
-createdAt: {{createdAt}}
-tags: [report]
----
-
-## Completed
-1. 
-
-## In Progress
-- 
-
-## Blockers
-- 
-
-## Learned
-- 
-
-## Next Week
-- [ ] 
-
-## Metrics
-| KPI | Target | Actual |
-| --- | --- | --- |
-|  |  |  |
-`,
     "template.weekly_report.description": "Summarize what you did, learned and plan next week.",
     "template.weekly_report.name": "Weekly Report",
-    "template.workout_plan.content": `---
-title: {{title}} Workout Plan
-createdAt: {{createdAt}}
-tags: [fitness]
----
-
-## Weekly Split
-| Day | Focus |
-| --- | --- |
-| Mon |  |
-| Wed |  |
-| Fri |  |
-
-## Workout Log
-### Push Day
-| Exercise | Sets × Reps | Weight | Done |
-| --- | --- | --- | --- |
-|  |  |  | [ ] |
-
-### Pull Day
-| Exercise | Sets × Reps | Weight | Done |
-| --- | --- | --- | --- |
-|  |  |  | [ ] |
-
-## Rest & Recovery
-- Sleep:  h
-- Stretching: [ ] 
-`,
     "template.workout_plan.description": "Weekly workout split with exercises, sets and reps.",
     "template.workout_plan.name": "Workout Plan",
     "templates.all_templates": "All templates",
@@ -3345,6 +2336,7 @@ tags: [fitness]
     "templates.clear_selection": "Clear selection",
     "templates.exit_select_mode": "Exit select mode",
     "templates.kbd_hint": "↑↓←→ move · Enter use · Ctrl/⌘+click star · / search",
+    "templates.kbd_hint_search": "Type to search · Esc clears · ↓ enters the grid",
     "templates.select_all": "Select all",
     "templates.select_hint": "Click cards to select multiple templates, then run a batch action. Esc exits.",
     "templates.select_mode": "Select mode",
@@ -3352,6 +2344,7 @@ tags: [fitness]
     "templates.selected_count_value0": "{value0} selected",
     "templates.community": "Community",
     "templates.community_count_value0": "{value0} templates shared",
+    "templates.community_count_hits_value0_total_value1": "{value0} of {value1} match",
     "templates.community_empty": "No templates shared yet",
     "templates.community_empty_hint": "Publish a template from your library to get the community started.",
     "templates.community_import": "Add to my library",
@@ -3394,10 +2387,12 @@ tags: [fitness]
     "settings.sync_frontmatter_title": "Sync front matter to title",
     "settings.sync_frontmatter_title_desc": "When the front matter `title` property changes in the editor, update the note title at the top of the workspace.",
     "settings.restore_default_template": "Restore default",
+    "settings.restore_default_template_confirm": "The template you wrote will be replaced by the shipped default. Notes you already created are not changed.",
     "editor.insert_note_template": "Insert note template",
 
     "settings.new_notes": "New notes",
     "templates.import_file_too_large": "That file is too large to import.",
 
 } as const;
-export type MessageKey = keyof typeof EN_US_MESSAGES;
+export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
+export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

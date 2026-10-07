@@ -3,6 +3,27 @@ import type { NoteTemplate } from '@shared/types'
 import { compareTemplates } from '../../store/note-templates'
 import type { GalleryFilter } from './gallery-persist'
 
+export interface TemplateSearchable {
+  name: string
+  description?: string
+  content: string
+  tags?: readonly string[]
+}
+
+/**
+ * One query, one rule: the gallery grid and the community list are the same
+ * search over the same four fields, because a search box that only works in one
+ * of the two is a control that lies about what the view can do.
+ */
+export function templateMatchesQuery(item: TemplateSearchable, query: string): boolean {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (!normalized) return true
+  return item.name.toLocaleLowerCase().includes(normalized) ||
+    (item.description ?? '').toLocaleLowerCase().includes(normalized) ||
+    item.content.toLocaleLowerCase().includes(normalized) ||
+    (item.tags ?? []).some((tag) => tag.toLocaleLowerCase().includes(normalized))
+}
+
 export function useGalleryDerived(
   templates: NoteTemplate[],
   filter: GalleryFilter,
@@ -27,12 +48,7 @@ export function useGalleryDerived(
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
   [counts.byTag])
   const visible = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase()
-    const matchesQuery = (template: NoteTemplate) => !normalized ||
-      template.name.toLocaleLowerCase().includes(normalized) ||
-      template.description.toLocaleLowerCase().includes(normalized) ||
-      template.content.toLocaleLowerCase().includes(normalized) ||
-      template.tags.some((tag) => tag.toLocaleLowerCase().includes(normalized))
+    const matchesQuery = (template: NoteTemplate) => templateMatchesQuery(template, query)
     const list = templates.filter((template) => {
       if (filter.kind === 'favorites') return template.isStarred && matchesQuery(template)
       if (filter.kind === 'uncategorized') return template.categoryId === null && matchesQuery(template)

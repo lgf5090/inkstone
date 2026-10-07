@@ -74,6 +74,10 @@ export interface TemplateLibraryData {
   categories: NoteTemplateCategory[]
   templates: NoteTemplate[]
   seedVersion: number
+  /** `savedAt` of the copy the account server holds, or 0 when never synced. */
+  syncedAt: number
+  /** Local changes that have not reached the account server yet. */
+  pendingPush: boolean
 }
 
 function normalizeOutbox(value: unknown): OutboxItem[] {
@@ -311,7 +315,8 @@ export const localDb = {
       ? value.templates.filter(isNoteTemplate)
       : []
     const seedVersion = isFiniteNumber(value.seedVersion) ? value.seedVersion : 0
-    return { categories, templates, seedVersion }
+    const syncedAt = isFiniteNumber(value.syncedAt) ? value.syncedAt : 0
+    return { categories, templates, seedVersion, syncedAt, pendingPush: value.pendingPush === true }
   },
 
   saveTemplateLibrary: (data: TemplateLibraryData) =>

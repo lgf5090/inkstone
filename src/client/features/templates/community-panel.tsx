@@ -4,9 +4,11 @@ import type { CommunityTemplate } from '@shared/types'
 import { Button, IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
+import { templateMatchesQuery } from './gallery-derived'
 
-export function CommunityPanel({ items, loading, isError, myId, onRefresh, onUse, onImport, onUnpublish }: {
+export function CommunityPanel({ items, query, loading, isError, myId, onRefresh, onUse, onImport, onUnpublish }: {
   items: CommunityTemplate[]
+  query: string
   loading: boolean
   isError: boolean
   myId: string | undefined
@@ -15,6 +17,9 @@ export function CommunityPanel({ items, loading, isError, myId, onRefresh, onUse
   onImport: (item: CommunityTemplate) => void
   onUnpublish: (item: CommunityTemplate) => void
 }) {
+  useLocale()
+  const visible = useMemo(() => items.filter((item) => templateMatchesQuery(item, query)), [items, query])
+  const searching = query.trim() !== ''
   if (loading && items.length === 0)
     return (<div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>
       {[0, 1, 2].map((index) => (<div key={index} className='min-h-33 animate-pulse rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-raised)]'/>))}
@@ -25,19 +30,27 @@ export function CommunityPanel({ items, loading, isError, myId, onRefresh, onUse
       <p className='text-[13px] font-medium text-[var(--text-secondary)]'>{t('templates.community_load_failed')}</p>
       <Button size='sm' variant='secondary' icon={<RotateCw size={13}/>} onClick={onRefresh}>{t('common.refresh')}</Button>
     </div>)
-  if (items.length === 0)
+  if (visible.length === 0)
     return (<div className='flex h-full min-h-60 flex-col items-center justify-center gap-2 text-center'>
       <Globe size={26} className='text-[var(--text-quaternary)]'/>
-      <p className='text-[13px] font-medium text-[var(--text-secondary)]'>{t('templates.community_empty')}</p>
-      <p className='text-[11.5px] text-[var(--text-quaternary)]'>{t('templates.community_empty_hint')}</p>
+      <p className='text-[13px] font-medium text-[var(--text-secondary)]'>
+        {searching ? t('templates.no_matching_templates') : t('templates.community_empty')}
+      </p>
+      <p className='text-[11.5px] text-[var(--text-quaternary)]'>
+        {searching ? t('templates.no_templates_hint') : t('templates.community_empty_hint')}
+      </p>
     </div>)
   return (<div className='space-y-2.5'>
     <div className='flex items-center justify-between gap-2'>
-      <p className='text-[11.5px] text-[var(--text-quaternary)]'>{t('templates.community_count_value0', { value0: items.length })}</p>
+      <p className='text-[11.5px] text-[var(--text-quaternary)]'>
+        {searching
+          ? t('templates.community_count_hits_value0_total_value1', { value0: visible.length, value1: items.length })
+          : t('templates.community_count_value0', { value0: items.length })}
+      </p>
       <Button size='sm' variant='ghost' icon={<RotateCw size={13}/>} disabled={loading} onClick={onRefresh}>{t('common.refresh')}</Button>
     </div>
     <div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>
-      {items.map((item) => (<CommunityCard key={item.id} item={item} mine={item.authorId === myId} onUse={() => onUse(item)} onImport={() => onImport(item)} onUnpublish={() => onUnpublish(item)}/>))}
+      {visible.map((item) => (<CommunityCard key={item.id} item={item} mine={item.authorId === myId} onUse={() => onUse(item)} onImport={() => onImport(item)} onUnpublish={() => onUnpublish(item)}/>))}
     </div>
   </div>)
 }

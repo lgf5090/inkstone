@@ -14,6 +14,8 @@ interface GalleryKeyboardDeps {
   setIsHelpOpen: (value: boolean) => void
   toggleSelectMode: () => void
   searchRef: RefObject<HTMLInputElement | null>
+  query: string
+  setQuery: (value: string) => void
   selectMode: boolean
   setSelectMode: (value: boolean) => void
   visible: NoteTemplate[]
@@ -107,11 +109,7 @@ function handleGalleryArrows(deps: GalleryKeyboardDeps, event: KeyboardEvent): b
   event.preventDefault()
   const next = deps.visible[nextIndex]
   if (!next) return false
-  deps.setFocusedId(next.id)
-  requestAnimationFrame(() => {
-    deps.gridRef.current?.querySelector(`[data-template-id="${cssEscape(next.id)}"]`)
-      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  })
+  focusTemplateCard(deps, next.id)
   return true
 }
 
@@ -120,8 +118,50 @@ function cssEscape(value: string): string {
   return typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(value) : value.replace(/"/g, '\\"')
 }
 
+/**
+ * Land the ring and the real focus on one card.
+ *
+ * The ring alone would not make the printed `Enter use` true: the activation is a
+ * button, and a button only answers Enter when the document holds it.
+ */
+function focusTemplateCard(deps: Pick<GalleryKeyboardDeps, 'gridRef' | 'setFocusedId'>, id: string): void {
+  deps.setFocusedId(id)
+  requestAnimationFrame(() => {
+    const card = deps.gridRef.current?.querySelector<HTMLElement>(`[data-template-id="${cssEscape(id)}"]`)
+    card?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    ;(card?.querySelector<HTMLElement>('button') ?? card)?.focus({ preventScroll: true })
+  })
+}
+
+/**
+ * Keys the search box owns.
+ *
+ * The panel opens with the caret in the search field, so without these the shortcut
+ * row printed under the header described keys that could not be pressed: Escape had
+ * to give back one step (clear the query) before it gives up the dialog, and ArrowDown
+ * is how the caret walks out of the field and into the grid.
+ */
+function handleGallerySearchKeys(deps: GalleryKeyboardDeps, event: KeyboardEvent): boolean {
+  if (event.target !== deps.searchRef.current) return false
+  if (event.key === 'Escape') {
+    if (!deps.query) return false
+    event.preventDefault()
+    deps.setQuery('')
+    return true
+  }
+  if (event.key === 'ArrowDown' && deps.visible.length > 0) {
+    event.preventDefault()
+    focusTemplateCard(deps, (deps.focusedId && deps.visible.some((item) => item.id === deps.focusedId)
+      ? deps.focusedId
+      : deps.visible[0]!.id))
+    return true
+  }
+  return false
+}
+
 export function useGalleryKeyboard(deps: GalleryKeyboardDeps): (event: KeyboardEvent) => void {
   return (event) => {
+    if (handleGallerySearchKeys(deps, event)) return
     if (galleryKeyGuard(deps, event)) return
     if (handleGalleryModifiers(deps, event)) return
     handleGalleryArrows(deps, event)

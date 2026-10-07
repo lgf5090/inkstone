@@ -85,7 +85,7 @@ export function GalleryMain({ g }: { g: GalleryController }) {
   const { filter, selectedIds, focusedId, draggingId, dropHint, selectMode } = state
   return (
     <main className='min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)] md:p-4'>
-      {filter.kind === 'community' && <CommunityPanel items={community.community} loading={community.isCommunityLoading} isError={community.isCommunityError} myId={state.currentUserId} onRefresh={() => void community.refreshCommunity()} onUse={templateActions.useCommunityTemplate} onImport={templateActions.importCommunityTemplate} onUnpublish={(item) => void communityActions.unpublishCommunityTemplate(item)}/>}
+      {filter.kind === 'community' && <CommunityPanel items={community.community} query={state.query} loading={community.isCommunityLoading} isError={community.isCommunityError} myId={state.currentUserId} onRefresh={() => void community.refreshCommunity()} onUse={templateActions.useCommunityTemplate} onImport={templateActions.importCommunityTemplate} onUnpublish={(item) => void communityActions.unpublishCommunityTemplate(item)}/>}
       {filter.kind !== 'community' && derived.visible.some((item) => item.isPinned) && (<div className='mb-[var(--sp-3)] flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>
         <Pin size={11}/>{t('notes.pin')}
       </div>)}

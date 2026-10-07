@@ -7,13 +7,15 @@ import {
   BUILTIN_TEMPLATE_TAG_LABELS,
   TEMPLATE_IMPORT_LIMITS,
   TEMPLATE_SEED_VERSION,
+  buildTemplateLibraryExport,
+  parseTemplateLibraryExport,
   type BuiltinTemplateDef,
   type TemplateLibraryExport,
 } from '@shared/note-templates'
-import { CLIENT_ID } from '../lib/api'
+import { api, CLIENT_ID } from '../lib/api'
 import { createBroadcast, localDb, publishBroadcast, type TemplateLibraryData } from '../lib/db'
 import { randomLocalId } from '../lib/random-id'
-import { t } from '../lib/i18n'
+import { ensureNoteTemplateContentLoaded, t } from '../lib/i18n'
 
 interface TemplateInput {
   name: string
@@ -110,6 +112,8 @@ function buildBuiltinLibrary(): TemplateLibraryData {
     })),
     templates: BUILTIN_TEMPLATE_DEFS.map((def, index) => builtinTemplate(def, index, now)),
     seedVersion: TEMPLATE_SEED_VERSION,
+    syncedAt: 0,
+    pendingPush: false,
   }
 }
 
@@ -201,6 +205,8 @@ function mergeBuiltinSeed(current: TemplateLibraryData): TemplateLibraryData {
     categories: orderedCategories([...current.categories, ...addedCategories]),
     templates: [...refreshed.templates, ...addedTemplates],
     seedVersion: TEMPLATE_SEED_VERSION,
+    syncedAt: current.syncedAt,
+    pendingPush: current.pendingPush,
   }
 }
 
@@ -226,6 +232,63 @@ function watchOtherTabs(): void {
     useNoteTemplates.setState({ hydrated: false })
     void useNoteTemplates.getState().hydrate(owner)
   })
+}
+
+/**
+ * The account server keeps one copy of the library, so it survives a cleared
+ * browser and follows the user to another device — the same durability class as
+ * `settings`. Local writes are debounced because a batch click is one intent, and
+ * a failed push leaves `pendingPush` set, which is what makes the next change (or
+ * the next hydrate) retry instead of dropping the edit.
+ */
+const PUSH_DELAY_MS = 1200
+let lastSyncedAt = 0
+let mutations = 0
+let pushTimer: ReturnType<typeof setTimeout> | null = null
+
+function schedulePush(): void {
+  if (pushTimer) clearTimeout(pushTimer)
+  pushTimer = setTimeout(() => {
+    pushTimer = null
+    void pushLibrary()
+  }, PUSH_DELAY_MS)
+}
+
+async function pushLibrary(): Promise<void> {
+  const { owner, categories, templates } = useNoteTemplates.getState()
+  if (!owner || !templates.length) return
+  const at = mutations
+  try {
+    const saved = await api.templateLibrary.save(JSON.stringify(buildTemplateLibraryExport(categories, templates)))
+    lastSyncedAt = saved.savedAt
+    const current = useNoteTemplates.getState()
+    await localDb.saveTemplateLibrary({
+      categories: current.categories,
+      templates: current.templates,
+      seedVersion: TEMPLATE_SEED_VERSION,
+      syncedAt: saved.savedAt,
+      pendingPush: mutations !== at,
+    })
+  } catch {
+  }
+}
+
+async function readRemoteLibrary(): Promise<TemplateLibraryData | null> {
+  try {
+    const remote = await api.templateLibrary.load()
+    if (!remote.library || !(remote.savedAt > 0)) return null
+    const parsed = parseTemplateLibraryExport(JSON.stringify(remote.library))
+    if (!parsed.data) return null
+    return {
+      categories: parsed.data.categories,
+      templates: parsed.data.templates,
+      seedVersion: TEMPLATE_SEED_VERSION,
+      syncedAt: remote.savedAt,
+      pendingPush: false,
+    }
+  } catch {
+    return null
+  }
 }
 
 export const useNoteTemplates = create<TemplateLibraryState>((set, get) => ({
@@ -265,9 +328,15 @@ function hydrateImpl(
   if (get().hydrated && get().owner === owner) return Promise.resolve()
   const run = async (): Promise<void> => {
     if (get().hydrated && get().owner === owner) return
+    await ensureNoteTemplateContentLoaded()
     const stored = await localDb.loadTemplateLibrary()
-    const next = stored ? mergeBuiltinSeed(stored) : buildBuiltinLibrary()
+    const remote = await readRemoteLibrary()
+    const takeRemote = remote !== null && !(stored?.pendingPush) && remote.syncedAt > (stored?.syncedAt ?? 0)
+    const base = takeRemote ? remote : stored
+    const next = base ? mergeBuiltinSeed(base) : buildBuiltinLibrary()
     if (next !== stored) await localDb.saveTemplateLibrary(next)
+    lastSyncedAt = next.syncedAt
+    if (next.pendingPush) schedulePush()
     // The account moved on while this read was in flight, so its result belongs
     // to nobody: publishing it would show one account's library under another.
     if (hydrateRequested !== owner) return
@@ -284,12 +353,20 @@ function hydrateImpl(
 }
 
 function persist(templates: NoteTemplate[], categories: NoteTemplateCategory[]): void {
-  void localDb.saveTemplateLibrary({ categories, templates, seedVersion: TEMPLATE_SEED_VERSION })
+  void localDb.saveTemplateLibrary({
+    categories,
+    templates,
+    seedVersion: TEMPLATE_SEED_VERSION,
+    syncedAt: lastSyncedAt,
+    pendingPush: true,
+  })
   // A whole-library write from this tab makes every other tab's copy stale, and
   // each of them writes its own copy back on its next mutation. Saying so is what
   // keeps two tabs open in one browser from erasing each other. Seeding on read
   // writes through `localDb` directly and stays quiet, so this cannot echo back.
   publishBroadcast({ type: 'template-library-changed', clientId: CLIENT_ID })
+  mutations += 1
+  schedulePush()
 }
 
 function nextPositionIn(templates: NoteTemplate[], categoryId: string | null): number {

@@ -470,6 +470,12 @@ export const api = {
     remove: (id: string) => request<{ ok: true }>(`/api/templates/community/${id}`, { method: 'DELETE' }),
   },
 
+  templateLibrary: {
+    load: () => request<{ savedAt: number; library: unknown }>('/api/templates/library'),
+    save: (library: string) =>
+      request<{ savedAt: number }>('/api/templates/library', { method: 'PUT', body: { library } }),
+  },
+
   mcp: {
     get: () => request<McpSettingsInfo>('/api/mcp'),
     save: (body: {

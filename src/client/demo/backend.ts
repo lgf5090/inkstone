@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
+import { parseTemplateLibraryExport } from '@shared/note-templates'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
 import { parseQuery } from '@shared/search-query'
@@ -941,6 +942,24 @@ export function createDemoBackend(): DemoBackend {
       return apiError(403, 'forbidden', 'Only the author can unpublish a template')
     state.communityTemplates = state.communityTemplates.filter((item) => item.id !== id)
     return c.json({ ok: true as const })
+  })
+  app.get('/api/templates/library', (c) => c.json({
+    savedAt: state.templateLibrary?.savedAt ?? 0,
+    library: state.templateLibrary?.library ?? null,
+  }))
+  app.put('/api/templates/library', async (c) => {
+    const body = await jsonBody(c.req.raw)
+    if (typeof body.library !== 'string')
+      return apiError(400, 'bad_request', 'The template library must be sent as text')
+    if (utf8ByteLength(body.library) > 1024 * 1024)
+      return apiError(400, 'bad_request', 'The template library is too large')
+    const parsed = parseTemplateLibraryExport(body.library)
+    if (!parsed.data) return apiError(400, 'bad_request', 'The template library could not be read')
+    if (parsed.dropped > 0 || parsed.truncated)
+      return apiError(400, 'bad_request', 'The template library contains entries that cannot be stored')
+    const savedAt = Date.now()
+    state.templateLibrary = { savedAt, library: parsed.data }
+    return c.json({ savedAt })
   })
   app.get('/api/settings/stats', (c) => {
     const tags = listTags(state)
