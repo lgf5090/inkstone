@@ -6,6 +6,7 @@ import { PRESENTATION_HOTKEYS } from '../presentation';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useBreakpoint } from '../../lib/hooks';
 import { useSyncEngine } from '../../lib/sync';
+import { preloadPinyin } from '../../lib/pinyin';
 import { Drawer } from '../../components/overlay';
 import { IconButton } from '../../components/primitives';
 import { InlineErrorBoundary } from '../../components/ErrorBoundary';
@@ -52,7 +53,12 @@ export function AppShell() {
     useEffect(() => {
       // Ctrl+Shift+P is the first thing a returning user presses, and a cold chunk plus
       // `fallback={null}` reads as the shortcut being ignored.
-      const warm = () => { void importCommandPalette(); };
+      const warm = () => {
+        void importCommandPalette();
+        // The reading table behind Chinese first-letter search is a chunk of its own; asking for
+        // it here means the session's first search box already has it.
+        void preloadPinyin();
+      };
       if (typeof window.requestIdleCallback === 'function') {
         const handle = window.requestIdleCallback(warm, { timeout: 3_000 });
         return () => window.cancelIdleCallback(handle);

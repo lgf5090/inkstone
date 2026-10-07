@@ -8,6 +8,7 @@ import type {
   KanbanPropertyType,
   KanbanSort,
 } from './types'
+import { matchesQuery } from '../../fuzzy'
 
 /**
  * What the caller knows besides the cards: the schema, so a rule can be read as a question about
@@ -235,21 +236,17 @@ export function toggleKanbanHiddenColumn(hidden: string[] | undefined, propertyI
 }
 
 function itemMatchesQuery(item: KanbanItem, q: string): boolean {
-  if (item.title.toLowerCase().includes(q)) return true
-  if (item.description?.toLowerCase().includes(q)) return true
-  if (item.content?.toLowerCase().includes(q)) return true
-  for (const val of Object.values(item.properties)) {
-    if (typeof val === 'string' && val.toLowerCase().includes(q)) return true
-    if (Array.isArray(val) && val.some((v) => String(v).toLowerCase().includes(q))) return true
-  }
-  if (item.subtasks?.some((st) =>
-    st.title.toLowerCase().includes(q) ||
-    (st.description && st.description.toLowerCase().includes(q)) ||
-    (st.tags && st.tags.some((t) => t.toLowerCase().includes(q))),
-  )) {
-    return true
-  }
-  return false
+  if (!q.trim()) return true
+  // The board's search box only, never a saved filter rule: a rule is written into the note and has
+  // to ask the same question on every device, while this is one reader asking where a card went.
+  const fields = [
+    item.title,
+    item.description ?? '',
+    item.content ?? '',
+    ...Object.values(item.properties).flatMap((val) => (typeof val === 'string' ? [val] : Array.isArray(val) ? val.map(String) : [])),
+    ...(item.subtasks ?? []).flatMap((st) => [st.title, st.description ?? '', ...(st.tags ?? [])]),
+  ]
+  return q.split(/\s+/).filter(Boolean).every((term) => fields.some((field) => matchesQuery(field, term)))
 }
 
 export function searchKanbanItems(items: KanbanItem[], query: string): KanbanItem[] {

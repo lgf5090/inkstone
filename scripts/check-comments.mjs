@@ -289,9 +289,18 @@ const allowed = new Map([
     "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
     "/** React synthesises onMouseEnter from native mouseover, so a raw mouseenter never reaches it. */",
   ]],
+  ["src/client/features/graph/graph-panel/scene-search.test.ts", [
+    "/**\n * The graph's own filter box, read through the matcher the panel shares with every other listing: a\n * reader who types the first letters of a Chinese note title has to land on that note, and the hit\n * count the panel prints is derived from exactly this set.\n */",
+    "// huan-ying-shi-yong",
+    "// shu-ju-lai-yuan",
+    "// shen-du-yan-jiu",
+    "// dai-ban-shi-xiang, dbsx",
+  ]],
   ["src/client/features/graph/graph-panel/scene.ts", [
     "// Squared compare instead of Math.hypot: pointermove fires up to 240 times a second and",
     "// hypot does overflow scaling work this path never needs.",
+    "// Field by field: a crawl across the joined string would let one term's letters borrow from the",
+    "// next field, which for a graph filter reads as the wrong node matching.",
   ]],
   ["src/client/features/list/NoteList.tsx", [
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
@@ -308,6 +317,8 @@ const allowed = new Map([
     "// Leaving a folder or a tag view changes what the box means, so the query goes with it.",
     "// Entering global search does not: a menu writes an expression there and flips the flag in",
     "// the same action, and clearing it one effect later would drop what was just asked for.",
+    "// One field per line: the matcher reads the first line of a haystack too long to have initials of",
+    "// its own, and that line has to be the title, not the title plus the beginning of the excerpt.",
   ]],
   ["src/client/features/list/gap-indicator.ts", [
     "/** Latest non-deleted note's edit date key (null when there are no notes). */",
@@ -2615,6 +2626,11 @@ const allowed = new Map([
     "/** Leaving the note (or the pane) writes the last edit and drops the instances. */",
     "/**\n * Clicking a node hands the map the DOM focus its shortcuts need — in a split\n * view the editor would otherwise swallow Tab, Delete and undo. The full screen\n * overlay is portaled outside this host, so it installs its own listener on the\n * modal body; both resolve the same entry and focus twice is harmless.\n */",
   ]],
+  ["src/client/features/settings/settingsSearch.ts", [
+    "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
+    "// top of a settings list. Only the reading of the Chinese is added here, so the initials of a",
+    "// Chinese label reach it while `sa` still cannot reach a latin label that merely starts with them.",
+  ]],
   ["src/client/features/share/SharePage.tsx", [
     "// A shared page is read by visitors who have no settings of their own; the author's choice to",
     "// hide diagrams is theirs, not a property of the note, so a shared note always draws.",
@@ -2638,6 +2654,8 @@ const allowed = new Map([
     "// there, and an app-wide modal stacked over the talk would be the third thing on the",
     "// screen. The registry runs before the overlay's own listener and swallows the",
     "// keystroke it answers, so this is the gate.",
+    "// The reading table behind Chinese first-letter search is a chunk of its own; asking for",
+    "// it here means the session's first search box already has it.",
   ]],
   ["src/client/features/sidebar/ExplorerNote.tsx", [
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
@@ -2970,6 +2988,10 @@ const allowed = new Map([
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
+    "// Spaces are ignored, exactly as the letter crawl below ignores them: `q x` means the same query.",
+    "/**\n * Whether a plain-letter query is the reading of the Chinese in a label — and nothing else.\n *\n * A scorer that ranks a hit by *where* it was found cannot take `matchesQuery`, because a\n * letter-by-letter crawl would promote an unrelated label to the top tier. This is the reading test\n * on its own, for the places that keep a literal substring ranking and only need to stop missing the\n * Chinese.\n */",
+    "/**\n * Whether a query is about a piece of text, by any of the three ways a listing reads one: a literal\n * substring, a letter-by-letter crawl through it, or the reading of the Chinese it is written in.\n *\n * The surfaces that only have to keep or drop a row — the outline's filter, a folder picker, the\n * board's search box — call this instead of writing their own `.toLowerCase().includes(...)`, which\n * is the one form of search that silently stops working the moment a note is written in the language\n * the app is mostly used in.\n */",
+    "/**\n * A reading-based hit is reported without ranges: the letters the user typed are not characters in\n * the label, so there is nothing to underline. `splitByRanges` renders such a match as plain text.\n *\n * A haystack too long to be a label is still read by its first line, because the note listing\n * concatenates a title with the body it belongs to: typing the initials of a title has to find that\n * note even though the body behind it is far too long to have initials of its own.\n *\n * It outranks a scattered subsequence — a Chinese label matched by its own initials is the answer the\n * reader meant, while an accidental letter-by-letter crawl through some other title is not — but never\n * a literal substring, which the early return above keeps ahead of it.\n */",
   ]],
   ["src/client/lib/hooks.ts", [
     "/**\n * A clock safe to keep in a dependency list: it only changes on a tick boundary,\n * so a caller that re-renders on pointer movement does not re-derive its inputs.\n */",
@@ -3518,6 +3540,8 @@ const allowed = new Map([
     "// Documents imported from other tools may store the option label where this",
     "// board expects the option id; matching only by id would hide all of those",
     "// cards in No Status, so fall back to a case-insensitive label match.",
+    "// The board's search box only, never a saved filter rule: a rule is written into the note and has",
+    "// to ask the same question on every device, while this is one reader asking where a card went.",
   ]],
   ["src/client/lib/markdown/kanban/i18n-helpers.test.ts", [
     "// A created or duplicated view stores `<type> <n>` so two tabs of one kind read apart. The number",
@@ -5899,6 +5923,30 @@ const allowed = new Map([
   ["src/client/lib/markdown/timeline-options.ts", [
     "/**\n * An unrecognised bracket group is left where it is, so `[2024] Annual report` keeps its year rather\n * than spending it on a status the author never wrote.\n */",
   ]],
+  ["src/client/lib/pinyin-search.test.ts", [
+    "/**\n * The labels a Chinese interface actually uses, written as escapes so the locale gate still owns\n * every piece of copy in the repository. Each one carries its reading in the gloss.\n */",
+    "// quan-xuan",
+    "// yan-shi-mo-shi",
+    "// biao-qian, tab, ye",
+    "// dao-chu",
+    "// cha-ru",
+    "// biao-ge",
+    "// dai-ma-kuai",
+    "// kuai-jie-ru-kou",
+    "// q-zi-z-wu-guan-xi-x",
+    "// zheng-wen-nei-rong",
+  ]],
+  ["src/client/lib/pinyin.ts", [
+    "/**\n * Chinese first-letter search.\n *\n * Typing `qx` has to find the menu row for selecting all, and `ysms` the one for presentation mode.\n * That needs a Han-to-reading table, which is a dictionary rather than an algorithm, so it is a lazy\n * chunk: the app boots without it, `preloadPinyin` asks for it as soon as the shell is up, and every\n * matcher treats an unloaded dictionary as \"no pinyin answer\" rather than blocking on it.\n *\n * The one consequence of that is a search that ran before the chunk landed can have missed, so the\n * module publishes a version and the surfaces that own a search box subscribe to it — see\n * {@link usePinyinVersion}.\n */",
+    "/** What `pinyin-pro` exports for the one job this module has. */",
+    "/** Text longer than this is a note body, not a label; initials of a whole note are nobody's query. */",
+    "/** How much label text the key cache may hold before it starts over, in source characters. */",
+    "/** Start the download if it has not started. Resolves to null when the chunk cannot be fetched. */",
+    "/**\n * Re-render once the dictionary arrives. Called by the components that memoise a filtered list on\n * the query alone, so a search typed in the first instants of a session is not left permanently\n * showing the answer from before the dictionary landed.\n */",
+    "/** Every character's first letter, concatenated: a label read `quan xuan` gives `qx`. */",
+    "/** Every character's full reading, concatenated: the same label gives `quanxuan`. */",
+    "/**\n * The pinyin keys of a label, or null when there is nothing to derive: the dictionary is not here\n * yet, the text is a whole note body, or it holds no CJK character at all. Memoised because every\n * listing asks for these once per row per keystroke.\n */",
+  ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",
     "// No WebCrypto at all: still monotonic-unique inside this tab, never predictable",
@@ -6657,6 +6705,16 @@ const allowed = new Map([
   ]],
   ["tests/phase4-regressions.test.ts", [
     "// The curated hints stay, because they are what tells an operator what to fix.",
+  ]],
+  ["tests/pinyin-search-coverage.test.ts", [
+    "/**\n * Chinese first-letter search lives in a chunk that arrives after boot, so a listing that memoises on\n * the query alone can freeze on the answer computed before the dictionary landed and stay wrong until\n * the reader types another character.\n *\n * Every such listing has to subscribe with `usePinyinVersion()` and list it in that memo's\n * dependencies. A render test cannot see this — by then the dictionary is always loaded — so the gate\n * reads the source instead: a memo that calls the fuzzy matcher, or calls any helper that reaches it,\n * must name `pinyinVersion` in its dependency array.\n */",
+    "/** `file#name` keys for the functions a reader can already tell are reading-dependent. */",
+    "/** Local name -> the `file#exportedName` pair it was imported or re-exported from. */",
+    "/** Files this one re-exports wholesale, so a name imported here may live over there. */",
+    "/** Top-level name -> the source text of its declaration. */",
+    "/** Identifier immediately followed by `(`, anywhere in a snippet of source. */",
+    "/** Every `file#name` this call could be, following re-export barrels as far as they lead. */",
+    "/** `(file, name)` pairs whose call may consult the reading table, grown until it stops growing. */",
   ]],
   ["tests/platform-contract.test.ts", [
     "// Nothing else in this repository reads the deployment configs or the lockfile, so the",

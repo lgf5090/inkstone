@@ -35,6 +35,7 @@ import { useKanbanViewOperations, useKanbanViewState } from './kanban-view-state
 import { useKanbanColumnOperations, useKanbanSchemaOperations } from './kanban-column-hooks'
 import { useMoveItemClearingSorts } from './kanban-manual-move'
 import { DESTRUCTIVE_UNDO_TOAST_MS, useKanbanItemDeletion } from './kanban-item-deletion'
+import { usePinyinVersion } from '../../../pinyin'
 
 function filterAndSortItems(
   items: KanbanItem[],
@@ -86,6 +87,7 @@ export function useKanbanFilterSort(
     setSelectedTags([])
   }, [setSelectedTags])
 
+  const pinyinVersion = usePinyinVersion()
   const filteredItems = useMemo(
     // An archived card is not part of the board any view can show, count or chart; the archive
     // panel is what brings it back.
@@ -94,7 +96,7 @@ export function useKanbanFilterSort(
       sorts: viewState.sorts,
       columns: data.columns,
     }),
-    [data.items, data.columns, viewState.searchQuery, selectedTags, viewState.filters, viewState.sorts],
+    [data.items, data.columns, viewState.searchQuery, selectedTags, viewState.filters, viewState.sorts, pinyinVersion],
   )
 
   const viewData: KanbanData = useMemo(() => ({ ...data, items: filteredItems }), [data, filteredItems])

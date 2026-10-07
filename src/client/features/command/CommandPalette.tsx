@@ -17,6 +17,7 @@ import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
 import { t, useLocale } from "../../lib/i18n";
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
+import { usePinyinVersion } from '../../lib/pinyin'
 interface Item {
     id: string;
     kind: 'command' | 'note' | 'tag' | 'folder';
@@ -368,6 +369,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         const folderChoices = folders.map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }));
         return { folderCounts, folderChoices };
     }, [notes, folders]);
+    const pinyinVersion = usePinyinVersion()
     const items = useMemo<Item[]>(() => {
         const text = deferredQuery.trim();
         if (text.startsWith('>')) {
@@ -460,7 +462,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         }
         return all.sort((a, b) => b.score - a.score).slice(0, 40);
     }, [
-        deferredQuery,
+        deferredQuery,    pinyinVersion,
         folderMatchData,
         locale,
         notes,

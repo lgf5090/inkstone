@@ -2,6 +2,7 @@ import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Menu, filterMenuItems, type MenuItem } from './overlay';
+import { preloadPinyin } from '../lib/pinyin';
 
 const POINT = { x: 10, y: 10 };
 
@@ -119,6 +120,18 @@ describe('filterMenuItems', () => {
         expect(filterMenuItems(items, 'cac').map((item) => item.id)).toEqual(['csv']);
         expect(filterMenuItems(items, 'del').map((item) => item.id)).toEqual(['one']);
         expect(filterMenuItems(items, 'de').map((item) => item.id)).toEqual(['one']);
+    });
+
+    it('matches a Chinese label by its first letters, once the readings have arrived', async () => {
+        await preloadPinyin();
+        const chinese: MenuItem[] = [
+            { id: 'table', label: '\u63d2\u5165 › \u8868\u683c' },
+            { id: 'code', label: '\u4ee3\u7801\u5757' },
+        ];
+        expect(filterMenuItems(chinese, 'crbg').map((item) => item.id)).toEqual(['table']);
+        expect(filterMenuItems(chinese, 'dmk').map((item) => item.id)).toEqual(['code']);
+        expect(filterMenuItems(chinese, 'biaoge').map((item) => item.id)).toEqual(['table']);
+        expect(filterMenuItems(chinese, 'xyz')).toEqual([]);
     });
 });
 

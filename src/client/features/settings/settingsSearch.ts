@@ -1,4 +1,4 @@
-import { fuzzyMatch } from '../../lib/fuzzy'
+import { fuzzyMatch, matchesReading } from '../../lib/fuzzy'
 import { getLocale, getLocaleResources, localizedTexts, t, type MessageKey } from '../../lib/i18n'
 import { SECTION_LABEL_KEYS, type SettingsSection } from './sections'
 
@@ -152,11 +152,15 @@ function lowerVariants(key: MessageKey): string[] {
 }
 
 function bestTier(term: string, titles: string[], extras: string[], sectionText: string[]): number {
-  if (titles.some((value) => value.includes(term)))
+  // The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the
+  // top of a settings list. Only the reading of the Chinese is added here, so the initials of a
+  // Chinese label reach it while `sa` still cannot reach a latin label that merely starts with them.
+  const found = (values: string[]) => values.some((value) => value.includes(term) || matchesReading(value, term))
+  if (found(titles))
     return TIER_TITLE
-  if (extras.some((value) => value.includes(term)))
+  if (found(extras))
     return TIER_TERM
-  return sectionText.some((value) => value.includes(term)) ? TIER_SECTION : 0
+  return found(sectionText) ? TIER_SECTION : 0
 }
 
 function prepareIndex(): PreparedEntry[] {

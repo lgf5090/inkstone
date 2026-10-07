@@ -12,6 +12,8 @@ import { t } from '../../lib/i18n'
 import { useSettingsResource } from './resource'
 import { sharesResource } from './resources'
 import { SharePanel } from '../share/SharePanel'
+import { matchesQuery } from '../../lib/fuzzy'
+import { usePinyinVersion } from '../../lib/pinyin'
 
 export function SharedNotes() {
   const [shares, setShares] = useSettingsResource(sharesResource)
@@ -46,12 +48,13 @@ export function SharedNotes() {
     }
   }, [load])
 
+  const pinyinVersion = usePinyinVersion()
   const visible = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase()
+    const needle = query.trim()
     return shares?.filter((share) => !needle ||
-      share.noteTitle.toLocaleLowerCase().includes(needle) ||
-      share.url.toLocaleLowerCase().includes(needle)) ?? []
-  }, [shares, query])
+      matchesQuery(share.noteTitle ?? '', needle) ||
+      share.url.toLocaleLowerCase().includes(needle.toLocaleLowerCase())) ?? []
+  }, [shares, query, pinyinVersion])
 
   const copy = async (share: ShareListItem) => {
     try {

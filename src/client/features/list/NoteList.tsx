@@ -23,6 +23,7 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { removeTagFromNote } from '../tags/tagMutations';
+import { usePinyinVersion } from '../../lib/pinyin'
 
 const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
 /** The concatenated key is the only copied string; bound it by characters, not entries. */
@@ -33,7 +34,9 @@ function searchKeyOfNote(n: NoteSummary, contents: Record<string, string> | null
     const tags = n.tags.join(' ');
     const cached = searchKeyCache.get(n.id);
     if (cached && cached.rev === n.rev && cached.title === n.title && cached.body === body && cached.tags === tags) return cached.text;
-    const text = `${n.title} ${body} ${tags}`;
+    // One field per line: the matcher reads the first line of a haystack too long to have initials of
+    // its own, and that line has to be the title, not the title plus the beginning of the excerpt.
+    const text = `${n.title}\n${body}\n${tags}`;
     const previous = searchKeyCache.get(n.id);
     if (previous)
         searchKeyCacheChars -= previous.text.length;
@@ -147,6 +150,7 @@ export function NoteList() {
     const searchScope = useMemo(
         () => (searchList ? Object.values(allNotes).filter((item) => !item.deletedAt) : notes),
         [searchList, allNotes, notes]);
+    const pinyinVersion = usePinyinVersion()
     const filtered = useMemo(() => {
         if (!deferredFilter.trim())
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
@@ -162,7 +166,7 @@ export function NoteList() {
             seen.add(note.id);
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
-    }, [notes, searchScope, deferredFilter, searchList, remote, allNotes, contents]);
+    }, [notes, searchScope, deferredFilter, searchList, remote, allNotes, contents, pinyinVersion]);
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;

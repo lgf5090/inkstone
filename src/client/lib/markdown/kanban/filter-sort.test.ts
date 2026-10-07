@@ -11,6 +11,7 @@ import {
   toggleKanbanHiddenColumn,
 } from './filter-sort'
 import type { KanbanFilter, KanbanItem, KanbanProperty, KanbanPropertyType } from './types'
+import { preloadPinyin } from '../../pinyin'
 
 const items: KanbanItem[] = [
   {
@@ -452,5 +453,28 @@ describe('the work-in-progress limit of a column', () => {
       expect(normalizeKanbanWipLimit(junk), `read back ${String(junk)}`).toBeUndefined()
     }
     expect(normalizeKanbanWipLimit(1)).toBe(1)
+  })
+})
+
+describe('searchKanbanItems reads Chinese cards', () => {
+  const DEEP = '\u6df1\u5ea6\u7814\u7a76\u7b14\u8bb0'
+  const ROUTINE = '\u4f8b\u884c\u6574\u7406'
+  const cards: KanbanItem[] = [
+    { id: 'c-1', title: DEEP, properties: { status: 'todo' } },
+    { id: 'c-2', title: ROUTINE, properties: { status: 'todo', notes: DEEP } },
+    { id: 'c-3', title: 'Alone on the board', properties: { status: 'done' } },
+  ]
+
+  it('keeps a card whose title the reader spelled with its first letters', async () => {
+    await preloadPinyin()
+    expect(searchKanbanItems(cards, 'sdyjbj').map((card) => card.id)).toEqual(['c-1', 'c-2'])
+    expect(searchKanbanItems(cards, 'lxzl').map((card) => card.id)).toEqual(['c-2'])
+    expect(searchKanbanItems(cards, 'quan').length).toBe(0)
+  })
+
+  it('still requires every word of a spaced query', async () => {
+    await preloadPinyin()
+    expect(searchKanbanItems(cards, 'sdyjbj lxzl').map((card) => card.id)).toEqual(['c-2'])
+    expect(searchKanbanItems(cards, 'board zzww')).toEqual([])
   })
 })

@@ -11,6 +11,8 @@ import { t } from '../../lib/i18n';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { FolderColorMenu, FolderIconMenu } from './FolderAppearanceMenus';
+import { matchesQuery } from '../../lib/fuzzy'
+import { usePinyinVersion } from '../../lib/pinyin'
 
 interface FolderChoice {
     folder: Folder;
@@ -47,13 +49,14 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
     const [colorPickerId, setColorPickerId] = useState<string | null>(null);
     const [iconPickerId, setIconPickerId] = useState<string | null>(null);
     const counts = useMemo(() => directNoteCounts(notes), [notes]);
+    const pinyinVersion = usePinyinVersion()
     const choices = useMemo<FolderChoice[]>(() => {
-        const normalized = query.trim().toLocaleLowerCase();
+        const normalized = query.trim();
         return folders
             .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
-            .filter(({ path }) => !normalized || path.toLocaleLowerCase().includes(normalized))
+            .filter(({ path }) => !normalized || matchesQuery(path, normalized))
             .sort((a, b) => a.path.localeCompare(b.path));
-    }, [folders, query]);
+    }, [folders, query, pinyinVersion]);
     const emptyFolders = useMemo(() => folders.filter((folder) => isRemovable(folder, counts, folders)), [counts, folders]);
     const submitDraft = () => {
         const name = draftName.trim();

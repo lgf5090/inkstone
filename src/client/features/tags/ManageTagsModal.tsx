@@ -10,6 +10,7 @@ import { useNotes } from '../../store/notes';
 import { t } from '../../lib/i18n';
 import { deleteTag, renameTag, setTagColor, setTagPinned } from './tagMutations';
 import { TagColorMenu } from './TagAppearanceMenus';
+import { usePinyinVersion } from '../../lib/pinyin'
 
 export function ManageTagsModal({ open, onClose }: {
     open: boolean;
@@ -31,9 +32,10 @@ export function ManageTagsModal({ open, onClose }: {
         }
         return flattenTagTree(tree, expanded);
     }, [tags]);
+    const pinyinVersion = usePinyinVersion()
     const visible = useMemo(
         () => query.trim() ? rows.filter((node) => fuzzyMatch(node.fullPath, query)) : rows,
-        [rows, query],
+        [rows, query, pinyinVersion],
     );
     const colorTag: Tag | null = colorFor ? tags.find((tag) => tag.id === colorFor) ?? null : null;
     const pickMergeTarget = (node: Tag) => {

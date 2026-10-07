@@ -17,6 +17,7 @@ import { beginTagDrag, currentTagDrag, droppedTagName, endTagDrag, findDroppedTa
 import { useLinkHoverHost } from '../preview/link-hover-host';
 import { WikiLinkHoverCard } from '../preview/wiki-link-hover-card';
 import { encodeDataValue } from '../../lib/markdown/data-attr';
+import { usePinyinVersion } from '../../lib/pinyin'
 
 const COLLAPSED_ROW_LIMIT = 12;
 const ROOT_DROP = '\u0000root';
@@ -71,7 +72,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         })
     }, [tags]);
     const searching = Boolean(query.trim());
-    const searched = useMemo(() => searchTagTree(tree, query), [tree, query]);
+    const pinyinVersion = usePinyinVersion()
+    const searched = useMemo(() => searchTagTree(tree, query), [tree, query, pinyinVersion]);
     const shownNodes = searching ? searched.nodes : tree;
     const parentPaths = useMemo(() => collectParentPaths(shownNodes), [shownNodes]);
     const allExpanded = parentPaths.length > 0 && parentPaths.every((path) => expanded.has(path));

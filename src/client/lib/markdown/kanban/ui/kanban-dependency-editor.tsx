@@ -4,6 +4,8 @@ import { useClickOutside, useEscape } from '../../../../components/overlay'
 import { t } from '../../../i18n'
 import { kanbanDependencyIds, kanbanDependencyWouldCycle } from '../dependencies'
 import type { KanbanItem } from '../types'
+import { matchesQuery } from '../../../fuzzy'
+import { usePinyinVersion } from '../../../pinyin'
 
 /**
  * The detail panel's dependency editor (KU-23, ADR-0006): the list of cards this card waits on,
@@ -19,9 +21,9 @@ interface DependencyChoice {
 }
 
 function matches(query: string, choices: DependencyChoice[]): DependencyChoice[] {
-  const needle = query.trim().toLowerCase()
+  const needle = query.trim()
   if (!needle) return choices
-  return choices.filter((choice) => choice.title.toLowerCase().includes(needle))
+  return choices.filter((choice) => matchesQuery(choice.title, needle))
 }
 
 /** The trigger the add picker opens from; the panel is a sibling, opened above it in z-order. */
@@ -117,6 +119,7 @@ function DependencyAddRow({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+  const pinyinVersion = usePinyinVersion()
   const panelId = useMemo(() => `kanban-dep-add-${Math.random().toString(36).slice(2, 8)}`, [])
 
   const choices = useMemo(() => {
@@ -124,7 +127,7 @@ function DependencyAddRow({
       .filter((item) => !excluded.has(item.id))
       .map((item) => ({ id: item.id, title: item.title }))
     return matches(query, available)
-  }, [board, excluded, query])
+  }, [board, excluded, query, pinyinVersion])
 
   const close = () => {
     setOpen(false)

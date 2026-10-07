@@ -7,6 +7,7 @@ import { Button, IconButton, Kbd } from './primitives';
 import { FIELD_BASE } from './form';
 import { t } from "../lib/i18n";
 import { getVisibleViewport } from '../lib/viewport';
+import { usePinyinVersion } from '../lib/pinyin'
 
 
 const escStack: (() => void)[] = [];
@@ -505,7 +506,8 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     const anchorRef = 'current' in anchor ? anchor : null;
     const point = 'current' in anchor ? null : anchor;
     const menuWidth = Math.min(width, Math.max(0, innerWidth - 16));
-    const visibleItems = useMemo(() => (searchable ? filterMenuItems(items, query, searchActions) : items), [searchable, items, query, searchActions]);
+    const pinyinVersion = usePinyinVersion()
+    const visibleItems = useMemo(() => (searchable ? filterMenuItems(items, query, searchActions) : items), [searchable, items, query, searchActions, pinyinVersion]);
     const submenuIndex = submenu ? visibleItems.findIndex((item) => item.id === submenu.id) : -1;
     const submenuItem = submenuIndex >= 0 ? visibleItems[submenuIndex] : undefined;
     useEffect(() => {

@@ -17,6 +17,7 @@ import { UI_STORAGE_KEY } from '../../lib/runtime';
 import { scheduleSettingsWarmup, settingsLoaders, warmSettingsSection, type SettingsSection } from './sections';
 import { countBySection, searchSettings, type SettingsSearchHit } from './settingsSearch';
 import { t } from "../../lib/i18n";
+import { usePinyinVersion } from '../../lib/pinyin'
 type Section = SettingsSection;
 const AppearancePage = memo(AppearanceSettings);
 export const SECTIONS: {
@@ -74,7 +75,8 @@ export function SettingsPanel({ onClose }: {
     const resources = useLocaleResources();
     const deferredQuery = useDeferredValue(query);
     const searching = query.trim().length > 0;
-    const hits = useMemo(() => searchSettings(deferredQuery), [deferredQuery, locale, resources]);
+    const pinyinVersion = usePinyinVersion()
+    const hits = useMemo(() => searchSettings(deferredQuery), [deferredQuery, locale, resources, pinyinVersion]);
     const counts = useMemo(() => countBySection(hits), [hits]);
     const groups = useMemo(() => SECTIONS
       .map((item) => ({ item, rows: hits.filter((hit) => hit.entry.section === item.id) }))
