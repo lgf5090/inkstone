@@ -1,7 +1,7 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
-import type { CodeFormatKeywordCase, OutlineModeName } from '@shared/types';
+import type { CodeFormatKeywordCase, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -91,7 +91,68 @@ export function EditorSettings() {
             { value: 'sidebar', label: t("settings.outline_sidebar") },
             { value: 'floating-always', label: t("settings.outline_floating_always") },
             { value: 'floating-hover', label: t("settings.outline_floating_hover") },
+            { value: 'floating-circle', label: t("settings.outline_floating_circle") },
         ]}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_default_level")} description={t("settings.outline_default_level_description")}>
+          <Slider label={t("settings.outline_default_level")} className="w-[200px]" value={preview.outlineDefaultLevel} min={1} max={6} step={1} onChange={(outlineDefaultLevel) => void update({ preview: { outlineDefaultLevel } })}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_show_progress")}>
+          <Switch checked={preview.outlineShowProgress} onChange={(outlineShowProgress) => void update({ preview: { outlineShowProgress } })} label={t("settings.outline_show_progress")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_auto_expand")} description={t("settings.outline_auto_expand_description")}>
+          <Segmented<OutlineAutoExpandName> label={t("settings.outline_auto_expand")} value={preview.outlineAutoExpand} onChange={(outlineAutoExpand) => void update({ preview: { outlineAutoExpand } })} options={[
+            { value: 'off', label: t("settings.outline_auto_expand_off") },
+            { value: 'ancestors', label: t("settings.outline_auto_expand_ancestors") },
+        ]}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_tooltip_side")}>
+          <Segmented<'left' | 'right'> label={t("settings.outline_tooltip_side")} value={preview.outlineTooltipSide} onChange={(outlineTooltipSide) => void update({ preview: { outlineTooltipSide } })} options={[
+            { value: 'left', label: t("settings.outline_tooltip_left") },
+            { value: 'right', label: t("settings.outline_tooltip_right") },
+        ]}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_truncate_length")} description={t("settings.outline_truncate_length_description")}>
+          <Slider label={t("settings.outline_truncate_length")} className="w-[200px]" value={preview.outlineTruncateLength} min={0} max={120} step={5} onChange={(outlineTruncateLength) => void update({ preview: { outlineTruncateLength } })}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_show_reading_time")} description={t("settings.outline_show_reading_time_description")}>
+          <Switch checked={preview.outlineShowReadingTime} onChange={(outlineShowReadingTime) => void update({ preview: { outlineShowReadingTime } })} label={t("settings.outline_show_reading_time")}/>
+        </SettingRow>}
+
+        {preview.showToc && preview.outlineShowReadingTime && <SettingRow title={t("settings.outline_reading_speed")} description={t("settings.outline_reading_speed_description")}>
+          <Slider label={t("settings.outline_reading_speed")} className="w-[200px]" value={preview.outlineReadingSpeed} min={50} max={1000} step={25} onChange={(outlineReadingSpeed) => void update({ preview: { outlineReadingSpeed } })}/>
+        </SettingRow>}
+        {preview.showToc && <SettingRow title={t("settings.outline_text_direction")} description={t("settings.outline_text_direction_description")}>
+          <Segmented<OutlineTextDirectionName> label={t("settings.outline_text_direction")} value={preview.outlineTextDirection} onChange={(outlineTextDirection) => void update({ preview: { outlineTextDirection } })} options={[
+            { value: 'system', label: t("settings.outline_text_direction_system") },
+            { value: 'text', label: t("settings.outline_text_direction_text") },
+        ]}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_hover_peek")} description={t("settings.outline_hover_peek_description")}>
+          <Switch checked={preview.outlineHoverPeek} onChange={(outlineHoverPeek) => void update({ preview: { outlineHoverPeek } })} label={t("settings.outline_hover_peek")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_markdown_labels")} description={t("settings.outline_markdown_labels_description")}>
+          <Switch checked={preview.outlineMarkdownLabels} onChange={(outlineMarkdownLabels) => void update({ preview: { outlineMarkdownLabels } })} label={t("settings.outline_markdown_labels")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_drag_edits")} description={t("settings.outline_drag_edits_description")}>
+          <Switch checked={preview.outlineDragEdits} onChange={(outlineDragEdits) => void update({ preview: { outlineDragEdits } })} label={t("settings.outline_drag_edits")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_keep_search")} description={t("settings.outline_keep_search_description")}>
+          <Switch checked={preview.outlineKeepSearch} onChange={(outlineKeepSearch) => void update({ preview: { outlineKeepSearch } })} label={t("settings.outline_keep_search")}/>
+        </SettingRow>}
+
+        {preview.showToc && <SettingRow title={t("settings.outline_locate_by_cursor")} description={t("settings.outline_locate_by_cursor_description")}>
+          <Switch checked={preview.outlineLocateByCursor} onChange={(outlineLocateByCursor) => void update({ preview: { outlineLocateByCursor } })} label={t("settings.outline_locate_by_cursor")}/>
         </SettingRow>}
 
         <SettingRow title={t("settings.link_hover_preview")} description={t("settings.link_hover_preview_description")}>
@@ -122,6 +183,20 @@ export function EditorSettings() {
         {preview.pinnedWindowSize === 'custom' && <SettingRow title={t("settings.floating_window_height")}>
           <Slider label={t("settings.floating_window_height")} className="w-[200px]" value={preview.pinnedWindowHeight} min={140} max={2000} step={20} onChange={(pinnedWindowHeight) => void update({ preview: { pinnedWindowHeight } })} suffix="px"/>
         </SettingRow>}
+      </section>
+
+      <section>
+        <SettingRow title={t("settings.presentation_slide_list")} description={t("settings.presentation_slide_list_description")}>
+          <Switch checked={preview.presentationSlideList} onChange={(presentationSlideList) => void update({ preview: { presentationSlideList } })} label={t("settings.presentation_slide_list")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.presentation_chart_animation")} description={t("settings.presentation_chart_animation_description")}>
+          <Switch checked={preview.presentationChartAnimation} onChange={(presentationChartAnimation) => void update({ preview: { presentationChartAnimation } })} label={t("settings.presentation_chart_animation")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.presentation_auto_hide")} description={t("settings.presentation_auto_hide_description")}>
+          <Switch checked={preview.presentationAutoHideChrome} onChange={(presentationAutoHideChrome) => void update({ preview: { presentationAutoHideChrome } })} label={t("settings.presentation_auto_hide")}/>
+        </SettingRow>
       </section>
 
       <section>

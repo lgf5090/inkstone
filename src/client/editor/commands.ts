@@ -10,6 +10,19 @@ import { useSession } from '../store/session';
 import { useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
 
+// The view that is on screen right now. A show opens on the slide under the cursor, and the key that
+// starts one, the command palette and the note's own menu all fire from outside the editor, so the
+// editor names the view it holds rather than every caller keeping a line back to it.
+let activeEditorView: EditorView | null = null;
+
+export function setActiveEditorView(view: EditorView | null): void {
+    activeEditorView = view;
+}
+
+export function getActiveEditorView(): EditorView | null {
+    return activeEditorView;
+}
+
 
 export function toggleWrap(open: string, close = open, options: { suggestWhenOpeningEmpty?: boolean } = {}): StateCommand {
     return (target) => {
@@ -350,23 +363,16 @@ export const insertFootnote: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
-export const insertMermaid: StateCommand = (target) => insertWrappedBlock(
-    '```mermaid',
-    '```',
-    'flowchart LR\n  A --> B',
-)(target);
-
 /**
- * A board, in the format the selection already has: wrapping headings and list items yields an
- * `outline` fence, and with nothing selected it yields a `json` fence the reader can edit in place.
- * Which of the two it is stays the fence's own business — `detectKanbanMode` reads it back out of the
- * body, so this command does not have to know.
+ * The one insertion behind every diagram submenu entry: `opening` is the fence's own first line —
+ * ```kanban, or ```chart style=table when the format has to be stated — and `body` is the template's
+ * text. A selection is wrapped rather than replaced, so nothing the author wrote is thrown away, and
+ * which format the block turns out to be stays the fence's own business: every one of these readers
+ * (`detectKanbanMode`, `detectChartMode`, `detectMindmapMode`) works it back out of the body.
  */
-export const insertKanban: StateCommand = (target) => insertWrappedBlock(
-    '```kanban',
-    '```',
-    '{\n  "title": "Kanban",\n  "columns": [\n    {\n      "id": "status",\n      "name": "Status",\n      "type": "select",\n      "options": [\n        { "id": "todo", "label": "To Do", "color": "gray" },\n        { "id": "in_progress", "label": "In Progress", "color": "blue" },\n        { "id": "done", "label": "Done", "color": "green" }\n      ]\n    }\n  ],\n  "items": []\n}',
-)(target);
+export function insertDiagramCode(opening: string, body: string): StateCommand {
+    return insertWrappedBlock(opening, '```', body);
+}
 
 /**
  * Builds a mind map from the note's outline: the selection when there is one, otherwise the whole

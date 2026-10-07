@@ -25,13 +25,16 @@ export function useBreakpoint(): Breakpoint {
 }
 
 
-export function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value)
+export function useDebounced<T>(value: T, delay: number, resetKey?: unknown): T {
+  const [debounced, setDebounced] = useState<{ key: unknown; value: T }>({ key: resetKey, value })
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delay)
+    const timer = window.setTimeout(() => setDebounced({ key: resetKey, value }), delay)
     return () => window.clearTimeout(timer)
-  }, [value, delay])
-  return debounced
+  }, [value, delay, resetKey])
+  // A caller that names what the value belongs to gets the live value the moment that changes, rather
+  // than the last one debounced for something else: a show that opens must present the deck its note
+  // has now, not the empty deck the closed overlay was holding.
+  return debounced.key === resetKey ? debounced.value : value
 }
 
 

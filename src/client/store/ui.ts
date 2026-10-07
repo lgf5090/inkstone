@@ -22,6 +22,9 @@ export type PanelName =
 
 export type WorkspacePane = 'primary' | 'secondary'
 
+/** Palette/hotkey actions the outline panel owns but the shell has to trigger. */
+export type OutlineCommand = 'focus-search' | 'reset-level' | 'expand-all' | 'collapse-all' | 'level-up' | 'level-down'
+
 export interface ToastItem {
   id: string
   title: string
@@ -53,6 +56,8 @@ interface UiState {
 
   navDrawerOpen: boolean
   splitRatio: number | null
+  /** A 0…1 ratio of the travel space, so resizing the window keeps the panel where the reader put it. */
+  outlineFloatingPosition: { x: number; y: number } | null
   workspaceSplitRatio: number | null
   workspacePrimaryNoteId: string | null
   workspaceSecondaryNoteId: string | null
@@ -82,6 +87,7 @@ interface UiState {
 
   panel: PanelName | null
   outlineOpen: boolean
+  outlineCommand: { action: OutlineCommand; seq: number } | null
   backlinksOpen: boolean
   localGraphOpen: boolean
   toasts: ToastItem[]
@@ -94,7 +100,7 @@ interface UiState {
   fontScale: number
 
 
-  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio'>>) => void
+  setLayout: (patch: Partial<Pick<UiState, 'navWidth' | 'listWidth' | 'splitRatio' | 'workspaceSplitRatio' | 'outlineFloatingPosition'>>) => void
   setWorkspacePaneLayout: (pane: WorkspacePane, layout: EditorLayout) => void
   setWorkspaceNote: (pane: WorkspacePane, id: string | null, activate?: boolean, revealOnMobile?: boolean) => void
   activateWorkspacePane: (pane: WorkspacePane) => void
@@ -123,6 +129,7 @@ interface UiState {
   closePanel: () => void
   togglePanel: (panel: PanelName) => void
   toggleOutline: () => void
+  sendOutlineCommand: (action: OutlineCommand) => void
   toggleBacklinks: () => void
   toggleLocalGraph: () => void
   showBacklinks: () => void
@@ -149,6 +156,7 @@ export const DEFAULT_LAYOUT = {
   navWidth: PANEL_WIDTHS.navigation.min,
   listWidth: PANEL_WIDTHS.noteList.min,
   splitRatio: null as number | null,
+  outlineFloatingPosition: null as { x: number; y: number } | null,
 } as const
 
 const DEFAULTS = {
@@ -183,6 +191,7 @@ const PERSISTED_KEYS = [
   'listWidth',
   'navCollapsed',
   'splitRatio',
+  'outlineFloatingPosition',
   'workspaceSplitRatio',
   'workspacePrimaryNoteId',
   'workspaceSecondaryNoteId',
@@ -221,6 +230,7 @@ function loadPersisted(): Partial<UiState> {
     }
     if (typeof value.navCollapsed === 'boolean') out.navCollapsed = value.navCollapsed
     if (isFiniteNumber(value.splitRatio)) out.splitRatio = clamp(value.splitRatio, 0.2, 0.8)
+    if (isRatioPoint(value.outlineFloatingPosition)) out.outlineFloatingPosition = value.outlineFloatingPosition
     if (isFiniteNumber(value.workspaceSplitRatio)) {
       out.workspaceSplitRatio = clamp(value.workspaceSplitRatio, 0.2, 0.8)
     }
@@ -289,6 +299,12 @@ function loadPersisted(): Partial<UiState> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isRatioPoint(value: unknown): value is { x: number; y: number } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const point = value as Record<string, unknown>
+  return isFiniteNumber(point.x) && isFiniteNumber(point.y)
 }
 
 function tagFilter(value: readonly unknown[]): string[] {
@@ -372,6 +388,7 @@ export const useUi = create<UiState>((set, get) => ({
   navDrawerOpen: false,
   panel: null,
   outlineOpen: false,
+  outlineCommand: null as { action: OutlineCommand; seq: number } | null,
   backlinksOpen: false,
   localGraphOpen: false,
   toasts: [],
@@ -568,6 +585,7 @@ export const useUi = create<UiState>((set, get) => ({
   closePanel: () => set({ panel: null }),
   togglePanel: (panel) => set((s) => ({ panel: s.panel === panel ? null : panel })),
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
+  sendOutlineCommand: (action) => set((s) => ({ outlineCommand: { action, seq: (s.outlineCommand?.seq ?? 0) + 1 } })),
   toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
   toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
   showBacklinks: () => set({ backlinksOpen: true }),

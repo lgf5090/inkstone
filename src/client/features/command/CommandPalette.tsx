@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, Moon, Palette, Pencil, Plus, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -12,6 +12,8 @@ import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../compone
 import { useUi } from '../../store/ui';
 import { createContextualNote, useNotes } from '../../store/notes';
 import { folderPathLabel, openFolderView } from '../../lib/folders';
+import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
+import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
 import { t, useLocale } from "../../lib/i18n";
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
@@ -65,6 +67,8 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const openPanel = useUi((s) => s.openPanel);
     const toggleLocalGraph = useUi((s) => s.toggleLocalGraph);
     const openView = useUi((s) => s.openView);
+    const sendOutlineCommand = useUi((s) => s.sendOutlineCommand);
+    const toast = useUi((s) => s.toast);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
     const updateSettings = useSession((s) => s.updateSettings);
     const debounced = useDebounced(query, 180);
@@ -132,6 +136,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
             ...(activeNote
                 ? [
                     {
+                        id: 'cmd-presentation-mode',
+                        kind: 'command' as const,
+                        label: t("workspace.presentation_mode"),
+                        icon: <Presentation size={14}/>,
+                        combo: APP_SHORTCUTS.present,
+                        group: t("common.current_note"),
+                        run: () => void import('../presentation').then((module) => module.startPresentationFromNote(activeNote.id)),
+                    },
+                    {
                         id: 'cmd-star',
                         kind: 'command' as const,
                         label: activeNote.isStarred ? t("command.remove_current_note_from_favorites") : t("command.add_current_note_to_favorites"),
@@ -163,6 +176,70 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                         icon: <Trash2 size={14}/>,
                         group: t("common.current_note"),
                         run: () => void deleteNote(activeNote.id),
+                    },
+                    {
+                        id: 'cmd-outline-copy',
+                        kind: 'command' as const,
+                        label: t("command.copy_outline_as_text"),
+                        icon: <ListTree size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => {
+                            const headings = outlineHeadingsFor(activeNote.id);
+                            if (headings.length === 0) {
+                                toast({ title: t("command.outline_empty") });
+                                return;
+                            }
+                            void navigator.clipboard.writeText(stringifyOutline(buildOutlineTree(headings), { numbering: false, indent: '\t' }));
+                            toast({ title: t("command.outline_copied", { count: headings.length }), tone: 'success' });
+                        },
+                    },
+                    {
+                        id: 'cmd-outline-copy-numbered',
+                        kind: 'command' as const,
+                        label: t("command.copy_outline_numbered"),
+                        icon: <ListTree size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => {
+                            const headings = outlineHeadingsFor(activeNote.id);
+                            if (headings.length === 0) {
+                                toast({ title: t("command.outline_empty") });
+                                return;
+                            }
+                            void navigator.clipboard.writeText(stringifyOutline(buildOutlineTree(headings), { numbering: true, indent: '' }));
+                            toast({ title: t("command.outline_copied", { count: headings.length }), tone: 'success' });
+                        },
+                    },
+                    {
+                        id: 'cmd-outline-focus-search',
+                        kind: 'command' as const,
+                        label: t("command.outline_focus_search"),
+                        icon: <Search size={14}/>,
+                        group: t("common.interface"),
+                        run: () => { sendOutlineCommand('focus-search'); },
+                    },
+                    {
+                        id: 'cmd-outline-level-up',
+                        kind: 'command' as const,
+                        label: t("command.outline_level_up"),
+                        icon: <ListTree size={14}/>,
+                        group: t("common.interface"),
+                        run: () => { sendOutlineCommand('level-up'); },
+                    },
+                    {
+                        id: 'cmd-outline-level-down',
+                        kind: 'command' as const,
+                        label: t("command.outline_level_down"),
+                        icon: <ListTree size={14}/>,
+                        group: t("common.interface"),
+                        run: () => { sendOutlineCommand('level-down'); },
+                    },
+                    {
+                        id: 'cmd-outline-reset-level',
+                        kind: 'command' as const,
+                        label: t("command.outline_reset_level"),
+                        icon: <ListTree size={14}/>,
+                        group: t("common.interface"),
+                        run: () => { sendOutlineCommand('reset-level'); },
                     },
                 ]
                 : []),

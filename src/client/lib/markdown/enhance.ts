@@ -4,7 +4,7 @@ import { decodeDataValue } from './data-attr';
 import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from './example-split';
 // The two kanban entry points come from their own modules, not from `./kanban`: the index re-exports
 // the React board, and a surface that only draws a still must not pull 24k lines of UI into its chunk.
-import { renderStaticKanbans } from './kanban/static';
+import { renderStaticKanbans, type KanbanSnapshotShape } from './kanban/static';
 import { showKanbanSourceAll } from './kanban/view';
 import { MAX_PANEL_COLUMNS, isTrackValue } from './panel-options';
 import { t, type MessageKey } from "../i18n";
@@ -939,6 +939,13 @@ export interface EnhanceOptions {
      */
     kanban: 'live' | 'snapshot' | 'source';
     /**
+     * Which still `snapshot` draws. The list is what a card and a share page can carry in the room they
+     * have; a surface that is read from across a room — a projector — owes the reader which column a
+     * card sits in, because that is part of what the card says. Only read when `kanban` is 'snapshot',
+     * so the channel answer stays the one `tests/kanban-render-channel.test.ts` checks.
+     */
+    kanbanShape?: KanbanSnapshotShape;
+    /**
      * How this surface treats ```mindmap blocks. `live` means the caller mounts a writable map itself
      * from the committed markup, so this pass must leave the placeholder alone; `snapshot` draws a
      * picture in its place, for a surface that cannot host an instance; `source` shows the fence body,
@@ -951,7 +958,7 @@ export interface EnhanceOptions {
 }
 export async function enhancePreview(root: HTMLElement, options: EnhanceOptions): Promise<void> {
     if (options.kanban === 'snapshot')
-        renderStaticKanbans(root, 'list');
+        renderStaticKanbans(root, options.kanbanShape ?? 'list');
     else if (options.kanban === 'source')
         showKanbanSourceAll(root);
     if (options.mermaid) {

@@ -120,13 +120,28 @@ export interface EditorSettings {
 export type CodeFormatKeywordCase = 'upper' | 'lower' | 'keep'
 
 export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
-export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover'
+export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover' | 'floating-circle'
+export type OutlineAutoExpandName = 'off' | 'ancestors'
+export type OutlineTextDirectionName = 'system' | 'text'
 
 export interface PreviewSettings {
   layout: EditorLayout
   syncScroll: boolean
   showToc: boolean
   outlineMode: OutlineModeName
+  outlineDefaultLevel: number
+  outlineShowProgress: boolean
+  outlineAutoExpand: OutlineAutoExpandName
+  outlineTooltipSide: 'left' | 'right'
+  outlineTruncateLength: number
+  outlineMarkdownLabels: boolean
+  outlineHoverPeek: boolean
+  outlineTextDirection: OutlineTextDirectionName
+  outlineShowReadingTime: boolean
+  outlineReadingSpeed: number
+  outlineDragEdits: boolean
+  outlineKeepSearch: boolean
+  outlineLocateByCursor: boolean
   math: boolean
   mermaid: boolean
   chart: boolean
@@ -139,6 +154,13 @@ export interface PreviewSettings {
   pinnedWindowSize: PinnedWindowSizeName
   pinnedWindowWidth: number
   pinnedWindowHeight: number
+  /** Whether a show opens with the slide list already beside it. The room still
+   * decides the ceiling: a phone never gets one it has no space for. */
+  presentationSlideList: boolean
+  /** Whether a chart plays its entrance on the projector, or arrives drawn. */
+  presentationChartAnimation: boolean
+  /** Whether the controls and the list fade out while the presenter is idle. */
+  presentationAutoHideChrome: boolean
 }
 
 export interface BackupSettings {

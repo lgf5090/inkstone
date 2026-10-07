@@ -5,6 +5,7 @@ import { sharePasscodeProblem } from '@shared/share-passcode'
 import type { PublicNote, ShareInfo, ShareListItem } from '@shared/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { registerSharePresenceRoutes, registerSharePublicPresenceRoutes } from './share-presence'
 import { isValidSlug, newSlug } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson, requestClientIp } from '../lib/request'
 import { hashPassword, verifyPassword } from '../lib/password'
@@ -365,3 +366,8 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 }
+
+// Registered here rather than where the instances are declared, so they sit behind the
+// `requireAuth` the owner half mounts above; the public half has no auth and never will.
+registerSharePresenceRoutes(shareManageRoutes)
+registerSharePublicPresenceRoutes(shareRoutes)

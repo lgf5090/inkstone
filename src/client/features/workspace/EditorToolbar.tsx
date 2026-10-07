@@ -1,10 +1,11 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Strikethrough, Table } from 'lucide-react';
+import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Sparkles, Strikethrough, Table } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
-import { Menu, Tooltip, type MenuItem } from '../../components/overlay';
+import { Menu, submenuFor, Tooltip, type MenuItem } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { generateMindmapFromOutline, formatCodeBlock, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertKanban, insertLink, insertMathBlock, insertMermaid, insertNoteTemplate, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { generateMindmapFromOutline, formatCodeBlock, insertAlign, insertAdvancedCodeBlock, insertColumns, insertBlockId, insertCallout, insertCodeBlock, insertDiagramCode, insertDetails, insertFootnote, insertFrontMatter, insertHorizontalRule, insertImage, insertLink, insertMathBlock, insertNoteTemplate, insertRunnableJsBlock, insertTable, insertTabs, insertTag, insertTimeline, setHeading, toggleBlockReference, toggleBold, toggleBulletList, toggleComment, toggleHighlight, toggleInlineCode, toggleInlineMath, toggleItalic, toggleNoteEmbed, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList, toggleWikiLink } from '../../editor/commands';
+import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from '../../editor/diagram-templates';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 
@@ -64,13 +65,25 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
         { id: 'note-template', label: t('editor.insert_note_template'), onSelect: run(insertNoteTemplate) },
         { id: 'comment', label: t('workspace.hidden_comment'), combo: editorCombo('comment'), onSelect: run(toggleComment), separatorBefore: true },
     ];
+    // One submenu per diagram family, built from the template list itself: adding a chart type or a
+    // mermaid diagram is a row in `diagram-templates`, and nothing here has to know about it.
+    const diagramSubmenu = (family: string, opening: string, templates: DiagramTemplate[], width: number) => submenuFor(
+        templates.map((template) => ({
+            id: `${family}-${template.id}`,
+            label: t(template.labelKey),
+            onSelect: run(insertDiagramCode(opening, template.body)),
+        })),
+        width,
+    );
     const codeItems: MenuItem[] = [
         { id: 'code', label: t('workspace.code_block'), onSelect: run(insertCodeBlock) },
         { id: 'advanced-code', label: t('workspace.enhanced_code_block'), onSelect: run(insertAdvancedCodeBlock) },
         { id: 'js-example', label: t('workspace.runnable_js_block'), onSelect: run(insertRunnableJsBlock) },
-        { id: 'mermaid', label: t('workspace.mermaid_diagram'), onSelect: run(insertMermaid), separatorBefore: true },
-        { id: 'kanban', label: t('workspace.kanban_board'), onSelect: run(insertKanban) },
-        { id: 'mindmap-from-outline', label: t('workspace.mindmap_from_outline'), onSelect: run(generateMindmapFromOutline) },
+        { id: 'mermaid', label: t('workspace.mermaid_diagram'), separatorBefore: true, submenu: diagramSubmenu('mermaid', '```mermaid', MERMAID_TEMPLATES, 190) },
+        { id: 'chart', label: t('workspace.chartjs_diagram'), submenu: diagramSubmenu('chart', '```chart style=table', CHART_TEMPLATES, 180) },
+        { id: 'mindmap', label: t('workspace.mind_map'), submenu: diagramSubmenu('mindmap', '```mindmap', MINDMAP_TEMPLATES, 180) },
+        { id: 'kanban', label: t('workspace.kanban_board'), submenu: diagramSubmenu('kanban', '```kanban', KANBAN_TEMPLATES, 180) },
+        { id: 'mindmap-from-outline', label: t('workspace.mindmap_from_outline'), onSelect: run(generateMindmapFromOutline), separatorBefore: true },
         { id: 'format-code', label: t('command.format_code_block'), combo: editorCombo('format-code'), separatorBefore: true, onSelect: run(formatCodeBlock) },
     ];
     const mathItems: MenuItem[] = [
@@ -127,6 +140,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
       {menuButton('note', <FileText size={14}/>)}
       <Divider />
       {menuButton('code', <Braces size={14}/>, { label: t('workspace.code_block'), onClick: run(insertCodeBlock) })}
+      <ToolButton label={t('command.format_code_block')} combo={editorCombo('format-code')} onClick={run(formatCodeBlock)}><Sparkles size={14}/></ToolButton>
       <ToolButton label={t('workspace.table')} onClick={run(insertTable)}><Table size={14}/></ToolButton>
       {menuButton('math', <Sigma size={14}/>)}
       {menuButton('block', <Blocks size={14}/>)}

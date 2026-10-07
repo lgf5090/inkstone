@@ -386,7 +386,7 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, }: {
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -400,6 +400,12 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     label?: string;
     /** The id a caller already points its trigger's `aria-controls` at. */
     panelId?: string;
+    /**
+     * Where the panel is portalled to. It stays `document.body` unless a surface that owns the screen
+     * asks otherwise: a menu left on the body sits outside the dialog that traps the tab order and
+     * inerted everything behind it, so the rows are reachable by neither the trap nor the escape route.
+     */
+    container?: HTMLElement | null;
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
     const submenuRef = useRef<HTMLDivElement>(null);
@@ -630,7 +636,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             {item.combo && <Kbd combo={item.combo}/>}
           </button>
         </div>))}
-    </div>, document.body)}
+    </div>, container ?? document.body)}
       {submenuItem?.submenu && createPortal(<div ref={submenuRef} role="group" aria-label={submenuItem.label} tabIndex={-1} className="anim-pop fixed outline-none" style={{
         top: submenuPosition?.top ?? 0,
         left: submenuPosition?.left ?? 0,
@@ -640,7 +646,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
           {typeof submenuItem.submenu === 'function'
             ? submenuItem.submenu({ closeMenu: onClose })
             : submenuItem.submenu}
-        </div>, document.body)}
+        </div>, container ?? document.body)}
     </>);
 }
 export function useContextMenu() {

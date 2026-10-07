@@ -71,6 +71,13 @@
   --prose-width: 72ch;
   --editor-size: 15px;
 
+  /* A slide is laid out on a fixed 1280x720 design canvas, so its type is measured in canvas
+     pixels rather than in the reader's: 28px on the canvas lands near 18px on a 1080p projector. */
+  --slide-prose-size: 28px;
+  --slide-line-height: 1.44;
+  --slide-code-size: 0.74em;
+  --slide-chart-height: 340px;
+
 
   --writing-line: 1.64;
   --heading-line: 1.28;
@@ -99,10 +106,20 @@
   --sp-9: 36px;
   --sp-10: 40px;
   --text-15: 15px;
+  --text-16: 16px;
   --tracking-title: -0.012em;
+  --tracking-label: 0.06em;
+  --tracking-section: 0.07em;
   --z-float: 30;
   --z-menu: 20;
   --z-popover: 50;
+  /* The projector owns the viewport, so it takes the modal tier; the rows it opens (right-click menu,
+     presenter panel) ride one above it and its own toasts above those. `--z-sticky` is the stage's
+     counter, which must beat a slide's own stacking context but not the controls. */
+  --z-sticky: 10;
+  --z-modal: 250;
+  --z-pop: 260;
+  --z-toast: 400;
   --kanban-tag-gray-fg: oklch(46.5% 0.005 106.6);
   --kanban-tag-gray-bg: color-mix(in oklab, var(--kanban-tag-gray-fg) 14%, transparent);
   --kanban-tag-brown-fg: oklch(49% 0.076 45.6);
@@ -163,6 +180,7 @@
     0 20px 48px -12px oklch(0% 0 0 / 45%);
   --shadow-modal: 0 0 0 1px oklch(100% 0 0 / 8%), 0 16px 40px -8px oklch(0% 0 0 / 65%),
     0 40px 80px -20px oklch(0% 0 0 / 55%);
+  --shadow-soft: 0 1px 2px oklch(0% 0 0 / 12%), 0 4px 16px -4px oklch(0% 0 0 / 10%);
 
   --scrim: oklch(0% 0 0 / 55%);
   --selection: color-mix(in oklab, var(--accent) 30%, transparent);
@@ -249,6 +267,7 @@
     0 12px 28px -8px oklch(20% 0.01 265 / 12%), 0 24px 56px -16px oklch(20% 0.01 265 / 10%);
   --shadow-modal: 0 0 0 1px oklch(20% 0.01 265 / 7%), 0 8px 16px -4px oklch(20% 0.01 265 / 8%),
     0 24px 48px -12px oklch(20% 0.01 265 / 16%);
+  --shadow-soft: 0 1px 2px oklch(20% 0.01 265 / 6%), 0 4px 16px -4px oklch(20% 0.01 265 / 6%);
 
   --scrim: oklch(35% 0.01 265 / 32%);
   --selection: color-mix(in oklab, var(--accent) 22%, transparent);

@@ -29,7 +29,6 @@ function collectDefined(files: string[]): Set<string> {
 const LEGACY_DANGLING = new Map<string, string>([
   ['--danger-soft', 'components/ErrorBoundary.tsx, from the -soft unification that predated this gate'],
   ['--sp-0-625', 'features/preview/Outline.tsx, a spacing step the token scale never carried'],
-  ['--shadow-soft', 'features/settings/TotpSettings.tsx, a shadow name the token scale never carried'],
   ['--font-display', 'styles/app.css, a display face the token scale never carried'],
   ['--code-font-size', 'styles/prose.css and kanban.css; the value is set at runtime by the code-block JS'],
   ['--code-line-height', 'styles/prose.css; same runtime-set pair as --code-font-size'],
