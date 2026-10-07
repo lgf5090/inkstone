@@ -153,6 +153,21 @@ describe('Menu submenu flyout', () => {
         expect(submenu()).toBeNull();
     });
 
+    it('keeps the flyout open and re-anchored while the menu scrolls', () => {
+        renderMenu(items(vi.fn()), vi.fn());
+        act(() => {
+            itemByLabel('Plain').focus();
+        });
+        keyDown('ArrowDown');
+        keyDown('ArrowRight');
+        expect(submenu()).not.toBeNull();
+        const before = submenu()?.getBoundingClientRect().top ?? -1;
+        act(() => {
+            document.querySelector<HTMLElement>('[role="menu"]')!.dispatchEvent(new Event('scroll'));
+        });
+        expect(submenu()).not.toBeNull();
+        expect(submenu()?.getBoundingClientRect().top ?? -1).toBe(before);
+    });
     it('moves focus into the flyout when opened from the keyboard', () => {
         renderMenu(items(vi.fn()), vi.fn());
         act(() => {

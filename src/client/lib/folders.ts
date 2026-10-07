@@ -1,3 +1,4 @@
+import { LIMITS } from '@shared/constants';
 import type { Folder } from '@shared/types';
 import { useUi } from '../store/ui';
 
@@ -24,6 +25,18 @@ export function folderDescendantIds(folders: Folder[], rootId: string): Set<stri
 
 export function noteFolderOwner(note: { folderId: string | null }, folderIds: ReadonlySet<string>): string | null {
     return note.folderId && folderIds.has(note.folderId) ? note.folderId : null;
+}
+
+export function folderMoveExclusions(folders: Folder[], movingId: string): Set<string> {
+    const excluded = folderDescendantIds(folders, movingId);
+    const movingDepth = Math.max(0, folderPath(folders, movingId).length - 1);
+    const relativeSubtreeDepth = Math.max(0, ...[...excluded].map((id) => Math.max(0, folderPath(folders, id).length - 1 - movingDepth)));
+    for (const candidate of folders) {
+        const movedRootDepth = folderPath(folders, candidate.id).length;
+        if (movedRootDepth + relativeSubtreeDepth >= LIMITS.folderDepthMax)
+            excluded.add(candidate.id);
+    }
+    return excluded;
 }
 
 export function isUnfiled(note: { folderId: string | null }, folderIds: ReadonlySet<string>): boolean {

@@ -214,10 +214,9 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
             }}/>
               </div>)}
               {iconPickerId === folder.id && (<div className="pt-2">
-                <FolderIconMenu icon={folder.icon} onSelectIcon={(icon, source) => {
+                <FolderIconMenu icon={folder.icon} onSelectIcon={(icon) => {
                 patchFolder(folder.id, { icon });
-                if (source === 'grid')
-                    setIconPickerId(null);
+                setIconPickerId(null);
             }}/>
               </div>)}
             </li>))}

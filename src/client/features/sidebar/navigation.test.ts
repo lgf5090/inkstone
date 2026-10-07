@@ -7,14 +7,14 @@ import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { initI18n, t } from '../../lib/i18n';
 import { installTestGlobals } from '../../lib/test-render';
 import { api } from '../../lib/api';
-import { getInboxFolderId, setInboxFolderId } from '../../lib/folder-prefs';
+import { getInboxFolderId, loadFolderPrefs, saveFolderPrefs, setInboxFolderId } from '../../lib/folder-prefs';
+import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog';
 import { loadCalendarPrefs, saveCalendarPrefs } from '../../lib/calendar-prefs';
 import { NOTE_DRAG_TYPE } from '../../lib/note-drag';
 import { useNotes, useVisibleNotes } from '../../store/notes';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
-import { Sidebar } from './Sidebar';
-import { FOLDER_ICON_CHOICES } from '../folders/FolderAppearanceMenus';
+import { FolderSection, Sidebar } from './Sidebar';
 import { groupExplorerNotes } from './ExplorerNote';
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { NoteList } from '../list/NoteList';
@@ -366,9 +366,17 @@ describe('folder row menu', () => {
     const allButtons = (scope: ParentNode) => [...scope.querySelectorAll<HTMLButtonElement>('button')];
     const labels = (scope: ParentNode) => allButtons(scope).map((element) => element.textContent?.trim() ?? '');
     const flyout = (label: string) => document.querySelector<HTMLElement>(`[role="group"][aria-label="${label}"]`)!;
+    const type = async (field: HTMLInputElement, value: string) => {
+        await act(() => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value);
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    };
+    const pressedTiles = (scope: ParentNode) => allButtons(scope).filter((element) => element.getAttribute('aria-pressed') !== null);
 
     beforeEach(() => {
         setInboxFolderId(null);
+        saveFolderPrefs({ recentIcons: [] });
     });
 
     async function openFolderMenu() {
@@ -411,19 +419,133 @@ describe('folder row menu', () => {
         expect(flyout(t('folders.color'))).toBeNull();
     });
 
-    it('binds a custom emoji from the icon flyout', async () => {
+    it('shows the whole catalog in the icon flyout', async () => {
         const patchFolder = vi.fn(() => true);
         useNotes.setState({ patchFolder });
         const scope = await openFolderMenu();
         await click(byLabel(scope, t('folders.icon')));
         const panel = flyout(t('folders.icon'));
-        expect(allButtons(panel).filter((element) => element.getAttribute('aria-pressed') !== null)).toHaveLength(FOLDER_ICON_CHOICES.length + 1);
-        const field = panel.querySelector<HTMLInputElement>('input')!;
-        await act(() => {
-            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '🚀tail');
-            field.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(pressedTiles(panel)).toHaveLength(EMOJI_ICON_ENTRIES.length + 1);
+        expect(panel.textContent).toContain(t('folders.icon_category.travel'));
+    });
+
+    it('narrows the icon flyout to what the typed text matches', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.icon')));
+        const panel = flyout(t('folders.icon'));
+        await type(panel.querySelector<HTMLInputElement>('input')!, 'python');
+        const tiles = pressedTiles(panel);
+        expect(tiles.some((tile) => tile.textContent === '🐍')).toBe(true);
+        expect(tiles.length).toBeLessThan(20);
+        expect(patchFolder).not.toHaveBeenCalled();
+    });
+
+    it('binds the typed glyph itself when it is not in the catalog', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.icon')));
+        const panel = flyout(t('folders.icon'));
+        await type(panel.querySelector<HTMLInputElement>('input')!, '🚀tail');
+        const useTyped = [...panel.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.includes(t('folders.icon_use_typed')))!;
+        expect(useTyped.textContent).toContain('🚀');
+        await click(useTyped);
+        expect(patchFolder).toHaveBeenCalledExactlyOnceWith(folder.id, { icon: '🚀' });
+        expect(loadFolderPrefs().recentIcons).toEqual(['🚀']);
+    });
+
+    it('refuses a glyph the store would truncate and says why', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.icon')));
+        const panel = flyout(t('folders.icon'));
+        await type(panel.querySelector<HTMLInputElement>('input')!, String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0073, 0xe0063, 0xe0074, 0xe007f));
+        expect(panel.textContent).toContain(t('folders.icon_too_long_value0', { value0: 8 }));
+        expect([...panel.querySelectorAll<HTMLButtonElement>('button')].some((element) => element.textContent?.includes(t('folders.icon_use_typed')))).toBe(false);
+        expect(patchFolder).not.toHaveBeenCalled();
+    });
+
+    it('recalls a recently used icon at the top of the flyout', async () => {
+        const patchFolder = vi.fn(() => true);
+        useNotes.setState({ patchFolder });
+        saveFolderPrefs({ recentIcons: ['🐍'] });
+        const scope = await openFolderMenu();
+        await click(byLabel(scope, t('folders.icon')));
+        const panel = flyout(t('folders.icon'));
+        expect(panel.textContent).toContain(t('folders.icon_recent'));
+        expect(pressedTiles(panel)[0]?.textContent).toBe('🐍');
+    });
+
+    describe('folder move flyout', () => {
+        const nest = (id: string, name: string, parentId: string | null, position: number): Folder => ({ id, name, parentId, icon: null, color: null, position, createdAt: position + 1, updatedAt: position + 1 });
+        const deep = [nest('a', 'Alpha', null, 0), nest('b', 'Beta', 'a', 0), nest('e', 'Epsilon', 'a', 1), nest('c', 'Gamma', 'b', 0), nest('d', 'Delta', null, 1)];
+
+        async function openMoveMenu(rowIndex: number) {
+            const patchFolder = vi.fn(() => true);
+            useNotes.setState({ folders: deep, notes: {}, patchFolder });
+            await act(() => root.render(createElement(Sidebar)));
+            const row = container.querySelectorAll<HTMLElement>('[data-folder-drop-target]')[rowIndex];
+            await click(byLabel(row, t('common.more_actions')));
+            await click(byLabel(document.querySelector('[role="menu"]')!, t('folders.move_to')));
+            return { panel: flyout(t('folders.move_to')), patchFolder };
+        }
+        const rowsAt = (scope: ParentNode, depth: number) => [...scope.querySelectorAll<HTMLButtonElement>(`[data-move-row][data-move-depth="${depth}"]`)];
+        const rowNamed = (scope: ParentNode, name: string, depth = 0) => {
+            const found = rowsAt(scope, depth).find((element) => element.textContent?.includes(name));
+            if (!found)
+                throw new Error(`missing move row ${name} at ${depth}`);
+            return found;
+        };
+        const keyDown = async (key: string) => {
+            await act(() => {
+                document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+            });
+        };
+
+        it('walks the tree level by level and moves into a nested folder', async () => {
+            const { panel, patchFolder } = await openMoveMenu(1);
+            expect(rowsAt(panel, 0).map((element) => element.dataset.moveId)).toEqual(['', 'a']);
+            expect(rowNamed(panel, t('folders.top_level')).disabled).toBe(true);
+            expect(rowNamed(panel, t('folders.top_level')).textContent).toContain(t('folders.current_location'));
+            await act(() => rowNamed(panel, 'Beta', 1).focus());
+            expect(rowsAt(panel, 2).map((element) => element.dataset.moveId)).toEqual(['c']);
+            await click(rowNamed(panel, 'Gamma', 2));
+            expect(patchFolder).toHaveBeenCalledExactlyOnceWith('d', { parentId: 'c', beforeId: null });
         });
-        expect(patchFolder).toHaveBeenLastCalledWith(folder.id, { icon: '🚀' });
+
+        it('hides the moved folder and everything below it from the destinations', async () => {
+            const { panel } = await openMoveMenu(0);
+            expect(rowsAt(panel, 0).map((element) => element.dataset.moveId)).toEqual(['', 'd']);
+            expect(panel.textContent).not.toContain('Beta');
+            expect(panel.textContent).not.toContain('Epsilon');
+            expect(panel.textContent).not.toContain('Gamma');
+        });
+
+        it('drills with the arrow keys and keeps focus in the deepest level', async () => {
+            const { panel } = await openMoveMenu(1);
+            expect(document.activeElement).toBe(rowNamed(panel, 'Alpha'));
+            await keyDown('ArrowRight');
+            expect(document.activeElement).toBe(rowNamed(panel, 'Beta', 1));
+            await keyDown('ArrowDown');
+            expect(document.activeElement).toBe(rowNamed(panel, 'Epsilon', 1));
+            await keyDown('ArrowUp');
+            expect(document.activeElement).toBe(rowNamed(panel, 'Beta', 1));
+        });
+    });
+
+    it('keeps the folder drawer for the move action on touch layouts', async () => {
+        useNotes.setState({ folders: [folder], notes: {} });
+        await act(() => root.render(createElement(FolderSection, { mobile: true })));
+        const row = container.querySelector('[data-folder-drop-target]')!;
+        await click(byLabel(row, t('common.more_actions')));
+        await click(byLabel(document.querySelector('[role="menu"]')!, t('folders.move_to')));
+        expect(document.querySelector('[data-move-row]')).toBeNull();
+        const drawer = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((element) => element.textContent?.includes(t('folders.choose_parent'))) ?? null;
+        expect(drawer).toBeTruthy();
+        expect(drawer?.textContent).toContain(t('folders.top_level'));
     });
 
     it('marks the inbox folder and flips the menu label', async () => {
