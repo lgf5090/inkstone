@@ -45,6 +45,7 @@ RELEASE_NOTES.md
 test-results/
 playwright-report/
 .tmp-*
+*.tmp.*
 tmp/
 temp/
 *.log

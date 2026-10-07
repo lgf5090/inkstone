@@ -33,5 +33,9 @@
       "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/client/**/*", "src/shared/**/*", "package.json"]
+  "include": ["src/client/**/*", "src/shared/**/*", "package.json"],
+  // Scratch probes (*.tmp.*, gitignored) stay out of the compiler's file list so one session's
+  // in-flight measurement cannot redden another's `tsc -b`. tests/no-scratch-test-files.test.ts
+  // is the half that keeps an excluded probe from being forgotten.
+  "exclude": ["**/*.tmp.*"]
 }
