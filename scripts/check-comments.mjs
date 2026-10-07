@@ -2923,6 +2923,9 @@ const allowed = new Map([
     "// Preferences, not data: a filter change dropped in the last debounce window costs",
     "// the next visit its remembered view, and nothing the user authored with it.",
   ]],
+  ["src/client/features/templates/quick-actions.test.ts", [
+    "// React derives onPointerEnter from the bubbled pointerover, so drive that.",
+  ]],
   ["src/client/features/templates/template-card.tsx", [
     "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
   ]],
