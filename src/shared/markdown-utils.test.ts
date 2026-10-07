@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText } from './markdown-utils'
+import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, mentionContext, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText, trimFrontMatterLead } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -256,5 +256,41 @@ describe('readingMinutes', () => {
   it('honours a slower reading speed', () => {
     expect(readingMinutes(600, 100)).toBe(6)
     expect(readingMinutes(600, 1000)).toBe(1)
+  })
+})
+
+describe('mention excerpts', () => {
+  it('cuts the front matter a window started inside', () => {
+    const window = `---\ncreated: 2026-10-08\ntags: []\n---\nThe sentence naming Deep Research Notes here`
+    expect(trimFrontMatterLead(window)).toBe('The sentence naming Deep Research Notes here')
+  })
+
+  it('keeps a window that begins mid front matter', () => {
+    expect(trimFrontMatterLead('tags: []\naliases: []\n---\nbody text')).toBe('body text')
+  })
+
+  it('cuts the front matter a new note actually carries', () => {
+    const window = '---\ncreated: 2026-10-08T06:43:53.000Z\ntags: []\naliases:\n  - \'\'\n---\njust says Target in passing, no brackets'
+    expect(trimFrontMatterLead(window)).toBe('just says Target in passing, no brackets')
+  })
+
+  it('leaves a horizontal rule and a colon-led sentence alone', () => {
+    const rule = 'First paragraph.\n---\nSecond paragraph.'
+    expect(trimFrontMatterLead(rule)).toBe(rule)
+    const colon = 'Note: this matters\n---\nstill body'
+    expect(trimFrontMatterLead(colon)).toBe(colon)
+  })
+
+  it('centres the excerpt on the mention and ellipsises both ends', () => {
+    const body = `a${'x'.repeat(200)} TARGET b${'y'.repeat(200)}`
+    const out = mentionContext(body, 'TARGET', 10, 10)
+    expect(out.startsWith('…')).toBe(true)
+    expect(out.endsWith('…')).toBe(true)
+    expect(out).toContain('TARGET')
+    expect(out.length).toBeLessThan(40)
+  })
+
+  it('falls back to the head of the text when the needle is absent', () => {
+    expect(mentionContext('no match at all', 'TARGET')).toBe('no match at all')
   })
 })

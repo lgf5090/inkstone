@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, extractTags, likePattern, normalizeLinkKey, replaceWikiLinkTarget } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, extractTags, likePattern, normalizeLinkKey, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
 import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
@@ -11,6 +11,7 @@ import type {
   SortOrder,
   ViewKind,
 } from '@shared/types'
+import { buildFtsQuery } from './search'
 import type { AppBindings } from '../env'
 import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
@@ -1100,15 +1101,36 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
 notesRoutes.get('/:id/backlinks', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
+  const { ftsEnabled } = c.get('database')
   const target = await c.env.DB.prepare(
     `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2`,
   ).bind(id, userId).first<{ title: string }>()
   if (!target) throw ApiError.notFound('Note not found')
-  const needle = `[[${target.title}`
+  const note = { id, title: target.title }
+  return c.json({
+    backlinks: await findLinkedBacklinks(c.env.DB, userId, note),
+    unlinked: await findUnlinkedMentions(c.env.DB, userId, note, ftsEnabled, LIMITS.mentionLimit),
+  })
+})
+
+
+/**
+ * The notes whose `[[wikilinks]]` the link table already points at this one, each with
+ * the text around the link.
+ *
+ * The window is cut from `hit`, so the column has to survive the outer projection: it
+ * did not, and every context came back empty until a test read the row keys.
+ */
+export async function findLinkedBacklinks(
+  db: D1Database,
+  userId: string,
+  target: { id: string; title: string },
+): Promise<Array<{ id: string; title: string; context: string }>> {
+  const needle = `[[${target.title}`.toLowerCase()
   // One lower() copy and one instr per row: SQLite does not share the repeated
   // lower(n.content) subexpression across the three references below.
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, title, len,
+  const { results } = await db.prepare(
+    `SELECT id, title, hit, len,
        substr(content, MAX(hit - 60, 1), ?4) AS window
      FROM (
        SELECT n.id AS id, n.title AS title, n.content AS content,
@@ -1120,17 +1142,74 @@ notesRoutes.get('/:id/backlinks', async (c) => {
         ORDER BY n.updated_at DESC LIMIT 50
      )`,
   )
-    .bind(userId, id, needle.toLowerCase(), needle.length + 150)
+    .bind(userId, target.id, needle, needle.length + 150)
     .all<{ id: string; title: string; hit: number; len: number; window: string }>()
 
-  return c.json({
-    backlinks: results.map((r) => ({
-      id: r.id,
-      title: r.title,
-      context: backlinkContext(r.window, r.hit, r.len, needle.length),
-    })),
-  })
-})
+  return results.map((row) => ({
+    id: row.id,
+    title: row.title,
+    context: backlinkContext(row.window, row.hit, row.len, needle.length),
+  }))
+}
+
+
+/**
+ * Notes that say the target's title in their text without linking to it.
+ *
+ * The full-text index finds the candidates and `instr` confirms the literal phrase:
+ * the index is tokenised and case-folded, so it can offer a note where the words only
+ * happen to sit next to each other, and a mention the reader cannot see is worse than
+ * a shorter list. Notes that already carry a `[[title]]` are left to the linked half of
+ * the panel, since a row would otherwise show up twice with two different meanings.
+ *
+ * Without the index the same answer comes from scanning every body, which is what the
+ * search endpoint already falls back to; the cap bounds the work either way.
+ */
+export async function findUnlinkedMentions(
+  db: D1Database,
+  userId: string,
+  target: { id: string; title: string },
+  ftsEnabled: boolean,
+  limit: number,
+): Promise<Array<{ id: string; title: string; context: string }>> {
+  const title = target.title.trim()
+  if (Array.from(title).length < LIMITS.mentionMinChars)
+    return []
+  const match = ftsEnabled ? buildFtsQuery([title]) : ''
+  if (ftsEnabled && !match)
+    return []
+  const needle = title.toLowerCase()
+  // ?1 is the match expression only when the index is in play, so every later slot shifts.
+  const k = ftsEnabled ? 1 : 0
+  const { results } = await db
+    .prepare(
+      `SELECT id, title, hit, len,
+         substr(content, MAX(hit - 60, 1), ?${4 + k}) AS window
+       FROM (
+         SELECT n.id AS id, n.title AS title, n.content AS content,
+                instr(lower(n.content), ?${3 + k}) AS hit, length(n.content) AS len
+           ${ftsEnabled ? 'FROM notes_fts JOIN notes n ON n.id = notes_fts.note_id AND n.user_id = notes_fts.user_id' : 'FROM notes n'}
+          ${ftsEnabled ? 'WHERE notes_fts MATCH ?1 AND notes_fts.user_id = ?2 AND n.user_id = ?2' : 'WHERE n.user_id = ?1'}
+            AND instr(lower(n.content), ?${3 + k}) > 0
+            AND n.deleted_at IS NULL
+            AND n.id != ?${2 + k}
+            AND NOT EXISTS (
+              SELECT 1 FROM links l
+               WHERE l.user_id = ?${1 + k} AND l.source_note_id = n.id AND l.target_note_id = ?${2 + k}
+            )
+         ORDER BY n.updated_at DESC, n.id ASC
+         LIMIT ?${5 + k}
+       )`,
+    )
+    .bind(...(ftsEnabled ? [match, userId, target.id, needle, needle.length + 150, limit] : [userId, target.id, needle, needle.length + 150, limit]))
+    .all<{ id: string; title: string; hit: number; len: number; window: string }>()
+
+  return results.map((row) => ({
+    id: row.id,
+    title: row.title,
+    context: backlinkContext(row.window, row.hit, row.len, needle.length),
+  }))
+}
 
 
 async function loadNote(db: D1Database, userId: string, id: string): Promise<Note> {
@@ -1150,11 +1229,10 @@ function backlinkContext(window: string, hit: number, len: number, needleLen: nu
   if (hit <= 0) return truncateText(window, 120).replace(/\s+/g, ' ').trim()
   const start = hit > 61 ? hit - 61 : 0
   const end = Math.min(len, (hit - 1) + needleLen + 90)
-  return (
-    (start > 0 ? '…' : '') +
-    window.slice(0, end - start).replace(/\s+/g, ' ').trim() +
-    (end < len ? '…' : '')
-  )
+  // The window is cut around the hit, so a hit near the top of a note reaches back into
+  // the front matter; dropping that lead keeps the sentence the reader came for.
+  const lead = trimFrontMatterLead(window.slice(0, Math.max(0, end - start)))
+  return (start > 0 ? '…' : '') + lead.replace(/\s+/g, ' ').trim() + (end < len ? '…' : '')
 }
 
 export async function rewriteInboundWikiLinks(

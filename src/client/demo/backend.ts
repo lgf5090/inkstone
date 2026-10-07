@@ -12,6 +12,7 @@ import {
   extractAttachmentIds,
   extractWikiLinks,
   isUsableTagName,
+  mentionContext,
   normalizeLinkKey,
   notesCarryAnyTag,
   notesCarryEveryTag,
@@ -254,10 +255,17 @@ export function createDemoBackend(): DemoBackend {
     const target = state.notes.get(c.req.param('id'))
     if (!target) return apiError(404, 'not_found', 'Note not found')
     const key = normalizeLinkKey(target.title)
-    const backlinks = [...state.notes.values()]
-      .filter((note) => note.id !== target.id && extractWikiLinks(note.content).some((link) => link.key === key))
-      .map((note) => ({ id: note.id, title: note.title, context: deriveExcerpt(note.content, 120) }))
-    return c.json({ backlinks })
+    const others = [...state.notes.values()].filter((note) => note.id !== target.id && !note.deletedAt)
+    const linked = others.filter((note) => extractWikiLinks(note.content).some((link) => link.key === key))
+    const title = target.title.trim()
+    const unlinked = Array.from(title).length < LIMITS.mentionMinChars
+      ? []
+      : others.filter((note) => !linked.includes(note) && note.content.toLowerCase().includes(title.toLowerCase()))
+    const shape = (note: Note) => ({ id: note.id, title: note.title, context: mentionContext(note.content, title) })
+    return c.json({
+      backlinks: linked.slice(0, 50).map(shape),
+      unlinked: unlinked.slice(0, LIMITS.mentionLimit).map(shape),
+    })
   })
   app.post('/api/notes/:id/restore', (c) => {
     const note = state.notes.get(c.req.param('id'))

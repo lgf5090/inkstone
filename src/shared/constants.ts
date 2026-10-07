@@ -54,6 +54,8 @@ export const LIMITS = {
   changeLogKept: 5000,
   syncBatchSize: 500,
   searchLimit: 50,
+  mentionLimit: 50,
+  mentionMinChars: 2,
   graphNodeLimitMin: 50,
   graphNodeLimitMax: 600,
   graphNodeLimitDefault: 350,

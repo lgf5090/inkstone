@@ -6845,6 +6845,10 @@ const allowed = new Map([
     "// `::: details Some title` keeps its, because there the remainder is the title.",
     "/** The speed the status bar and the outline agree on when the reader has not chosen their own. */",
     "/**\n * Add a tag to the note's front matter `tags` list, creating the property when\n * it is missing. Returns `content` untouched when there is no front matter to\n * write into, when the tag is blank, or when the note already carries it. An\n * existing flow list keeps its flow spelling, so the default template's\n * `tags: []` becomes `tags: [daily]` rather than three rewritten lines.\n */",
+    "/**\n * Drops a front matter block that a fixed-size text window happened to start inside.\n *\n * A mention excerpt is cut around the hit, and a hit near the top of a note reaches back\n * into the `created:` / `tags:` lines that open every note here, which reads as noise\n * rather than as the sentence the reader came for. Only a lead that really looks like\n * front matter is dropped: every line must be key-shaped, and the block must either open\n * with `---` or run to more than one line, so a horizontal rule after a paragraph — or a\n * sentence that merely begins with \"Note:\" — keeps its text.\n */",
+    "/**\n * The text around a mention, for the panels that list one: `before` characters of\n * lead-in, `after` of tail, whitespace collapsed, and an ellipsis on whichever side\n * was cut. The worker reaches this through a SQL window instead, so both must keep the\n * same lead-in and tail or the same note reads differently in demo and in production.\n */",
+    "// A front matter line opens a key, continues an indented value, or is a list item",
+    "// under one; prose is none of those.",
   ]],
   ["src/shared/note-template-render.ts", [
     "/**\n * Renders a new-note template into note content.\n *\n * Placeholders are filled in a single left-to-right pass, so a value that\n * itself looks like a placeholder (`{{tags}}` inside a note title) is written\n * out literally instead of being expanded a second time.\n */",
@@ -7193,6 +7197,11 @@ const allowed = new Map([
     "// Several `tag` params combine with AND, and each one also matches its whole subtree so the",
     "// rolled-up count in the sidebar and the result set agree. Both halves have to stay in step",
     "// with tagInScope(), which spells the same rule in TypeScript for the offline shell.",
+    "/**\n * The notes whose `[[wikilinks]]` the link table already points at this one, each with\n * the text around the link.\n *\n * The window is cut from `hit`, so the column has to survive the outer projection: it\n * did not, and every context came back empty until a test read the row keys.\n */",
+    "/**\n * Notes that say the target's title in their text without linking to it.\n *\n * The full-text index finds the candidates and `instr` confirms the literal phrase:\n * the index is tokenised and case-folded, so it can offer a note where the words only\n * happen to sit next to each other, and a mention the reader cannot see is worse than\n * a shorter list. Notes that already carry a `[[title]]` are left to the linked half of\n * the panel, since a row would otherwise show up twice with two different meanings.\n *\n * Without the index the same answer comes from scanning every body, which is what the\n * search endpoint already falls back to; the cap bounds the work either way.\n */",
+    "// ?1 is the match expression only when the index is in play, so every later slot shifts.",
+    "// The window is cut around the hit, so a hit near the top of a note reaches back into",
+    "// the front matter; dropping that lead keeps the sentence the reader came for.",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -7293,6 +7302,9 @@ const allowed = new Map([
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
+  ]],
+  ["tests/backlink-mentions.test.ts", [
+    "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",
   ]],
   ["tests/backup-archive-gate.test.ts", [
     "// Emitting the declared length is what lets a test consume the archive to completion:",

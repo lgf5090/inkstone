@@ -969,6 +969,48 @@ export function deriveExcerpt(content: string, max = 220): string {
   return truncateText(text, max).replace(/\s+\S*$/, '') + '…'
 }
 
+/**
+ * Drops a front matter block that a fixed-size text window happened to start inside.
+ *
+ * A mention excerpt is cut around the hit, and a hit near the top of a note reaches back
+ * into the `created:` / `tags:` lines that open every note here, which reads as noise
+ * rather than as the sentence the reader came for. Only a lead that really looks like
+ * front matter is dropped: every line must be key-shaped, and the block must either open
+ * with `---` or run to more than one line, so a horizontal rule after a paragraph — or a
+ * sentence that merely begins with "Note:" — keeps its text.
+ */
+export function trimFrontMatterLead(text: string): string {
+  const closed = text.indexOf('\n---')
+  if (closed < 0)
+    return text
+  const lines = text.slice(0, closed).split('\n').filter((line) => line.trim() !== '')
+  // A front matter line opens a key, continues an indented value, or is a list item
+  // under one; prose is none of those.
+  const isFrontMatterLine = (line: string) =>
+    line === '---' || /^[A-Za-z][\w-]*:/.test(line) || /^\s/.test(line) || /^-\s/.test(line.trim())
+  if (!lines.every(isFrontMatterLine))
+    return text
+  const fields = lines.filter((line) => line !== '---')
+  if (fields.length === 1 && lines[0] !== '---')
+    return text
+  return text.slice(closed + 4).replace(/^\s+/, '')
+}
+
+/**
+ * The text around a mention, for the panels that list one: `before` characters of
+ * lead-in, `after` of tail, whitespace collapsed, and an ellipsis on whichever side
+ * was cut. The worker reaches this through a SQL window instead, so both must keep the
+ * same lead-in and tail or the same note reads differently in demo and in production.
+ */
+export function mentionContext(content: string, needle: string, before = 60, after = 90): string {
+  const haystack = trimFrontMatterLead(content)
+  const hit = haystack.toLowerCase().indexOf(needle.toLowerCase())
+  if (hit < 0) return truncateText(haystack, before + after).replace(/\s+/g, ' ').trim()
+  const start = Math.max(0, hit - before)
+  const end = Math.min(haystack.length, hit + needle.length + after)
+  return (start > 0 ? '…' : '') + haystack.slice(start, end).replace(/\s+/g, ' ').trim() + (end < haystack.length ? '…' : '')
+}
+
 // Same result as the /( ! )\[([^\]]*)\]\([^)]*\)/g pass, as one left-to-right scan:
 // the regex backtracks across the rest of the text for every '[' whose '(' is never
 // closed, which costs seconds on a note near the content size limit.
