@@ -7,6 +7,7 @@ import { useNotes } from '../../store/notes'
 import { usePresentation } from '../../store/presentation'
 import { useUi } from '../../store/ui'
 import { SlidePreparationNotice } from './presentation-stage'
+import { readSlideHtml, rememberSlideHtml, type SlideMarkup } from './slide-html'
 import { PresentationOverlay } from './presentation-overlay'
 
 function pressExportImages() {
@@ -408,6 +409,19 @@ describe('PresentationOverlay — the show in a phone window', () => {
     }
     // The list belongs to the projector it opened from: painted beside the dialog it would sit under it.
     expect(document.querySelector('[role="dialog"] [role="menu"]')).toBeTruthy()
+    view.unmount()
+  })
+})
+
+describe('the pages a show prepared', () => {
+  it('are given back when the show ends', () => {
+    const view = renderElement(createElement(PresentationOverlay))
+    rememberSlideHtml('held', { html: '<p>held</p>', fences: {} as SlideMarkup['fences'], prepared: true, flags: 'mdc' })
+    expect(readSlideHtml('held'), 'nothing was staged').toBeTruthy()
+    act(() => {
+      usePresentation.setState({ open: false, noteId: null, snapshot: '' })
+    })
+    expect(readSlideHtml('held'), 'the show closed and is still holding its markup').toBeUndefined()
     view.unmount()
   })
 })

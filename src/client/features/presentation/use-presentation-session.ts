@@ -12,7 +12,7 @@ import { useChromeAutoHide } from './use-chrome-auto-hide'
 import { useAudienceFollow } from './use-audience-follow'
 import { useDialogBehavior } from './use-dialog-behavior'
 import { useIsDarkTheme } from './presentation-theme'
-import { slideSettingFlags } from './slide-html'
+import { releaseSlideCache, slideSettingFlags } from './slide-html'
 import { planPageSteps, type SlidePlan } from './slide-pagination'
 import { useSlidePlans } from './use-slide-plans'
 import { type PreflightProgress, type SlidePreflightProps } from './slide-preflight'
@@ -150,6 +150,16 @@ function usePresenterFallback(open: boolean) {
   return { panelOpen, openPanel, closePanel }
 }
 
+// A show that has ended is not going to draw those pages again, and a prepared page carries its whole
+// inline picture, so the markup is given back on the way out rather than held until the next talk
+// evicts it — which may never happen.
+function useReleasePreparedPages(open: boolean): void {
+  useEffect(() => {
+    if (open) return
+    releaseSlideCache()
+  }, [open])
+}
+
 function useSessionPresenter(options: {
   open: boolean
   noteTitle: string
@@ -207,6 +217,7 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
   const mode = usePresentationKeys({ open, slideCount: deck.length, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo, toggleFullscreen, toggleRail, toggleFollowing, openPresenter: presenter.openPresenter, isMenuOpen: Boolean(contextMenu.contextPoint) })
   useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide })
   const slideUnprepared = useSlideHtml({ open, deck, hashes, index: nav.index, content: presentedContent, noteTitle, dark, metrics })
+  useReleasePreparedPages(open)
   // The union of the pieces above, spread rather than unpacked key by key; explicit is only what this
   // file decides — `nav` is the position, `mode` what the keys own, `exports` what the controls ask for.
   return {
