@@ -3,10 +3,9 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 
 export function buildDiaryContent(key: string, title: string, tag: string): string {
-  const [year, month, day] = key.split('-').map(Number)
-  const time = new Date(year, month - 1, day)
-  time.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0)
-  const stamp = `${key} ${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`
+  // The day the diary is *about*, not the minute it happened to be filed: a random time of day
+  // claimed a moment that never existed and contradicted the row's real created_at.
+  const stamp = `${key} 00:00:00`
   // JSON's string form is a legal YAML double-quoted scalar, so a title or tag holding a
   // quote, a colon or a newline stays one scalar instead of rewriting the document.
   return `---

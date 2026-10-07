@@ -93,7 +93,7 @@ function WeekHeatColumn({
     <button
       type='button'
       aria-expanded={expandedWeek === weekIndex}
-      aria-pressed={isWeekRangeActive(week)}
+      aria-current={isWeekRangeActive(week) ? 'true' : undefined}
       aria-label={t('sidebar.calendar_expand_week_value0', { value0: week[0]?.key.slice(5), value1: week[6]?.key.slice(5) })}
       onClick={(event) => onStripWeekClick(event, weekIndex)}
       className={cn(
@@ -101,6 +101,7 @@ function WeekHeatColumn({
         expandedWeek === weekIndex && 'bg-[var(--accent-soft)]',
       )}
     >
+      {week.reduce((sum, cell) => sum + cell.count, 0) > 0 && (<span className='sr-only'>{t('sidebar.calendar_week_notes_value0', { value0: week.reduce((sum, cell) => sum + cell.count, 0) })}</span>)}
       {week.map((cell) => (
         <Tooltip key={cell.key} label={flaggedLabel(cell.key)}>
           <span

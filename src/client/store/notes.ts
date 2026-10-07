@@ -8,6 +8,7 @@ import { LIMITS } from '@shared/constants';
 import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
 import { parseDateKey } from '../lib/time';
+import { isDeleted } from '../lib/note-visibility';
 import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds, isUnfiled, noteFolderOwner } from '../lib/folders';
@@ -2953,8 +2954,8 @@ interface ViewContext {
 function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boolean {
     const { folderId, tags, excludedTags, folderScope, folderIds, virtual } = ctx;
     if (view === 'trash')
-        return Boolean(note.deletedAt);
-    if (note.deletedAt)
+        return isDeleted(note);
+    if (isDeleted(note))
         return false;
     if (view === 'archived')
         return note.isArchived;
@@ -3030,13 +3031,16 @@ function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder
 function compareTrash(a: NoteSummary, b: NoteSummary): number {
     return (b.deletedAt ?? b.updatedAt) - (a.deletedAt ?? a.updatedAt) || a.id.localeCompare(b.id);
 }
-function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
+export function pickInitialNoteId(notes: Record<string, NoteSummary>, folders: Folder[]): string | null {
     const ui = useUi.getState();
     const ctx = viewContext(ui.view, ui.folderId, ui.tags, ui.excludedTags, folders);
+    // The same window the list filters by: without it the editor can open on a note the list
+    // does not contain, leaving nothing focused and the arrow keys without a position.
+    const days = dayWindow(ui.dateFilter);
     const active = ui.activeNoteId ? notes[ui.activeNoteId] : undefined;
-    if (active && matchesView(active, ui.view, ctx))
+    if (active && matchesView(active, ui.view, ctx) && inDayWindow(active, days))
         return active.id;
-    const visible = Object.values(notes).filter((note) => matchesView(note, ui.view, ctx));
+    const visible = Object.values(notes).filter((note) => matchesView(note, ui.view, ctx) && inDayWindow(note, days));
     if (ui.view === 'recent') {
         visible.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
     }

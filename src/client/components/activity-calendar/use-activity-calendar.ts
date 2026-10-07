@@ -135,10 +135,14 @@ function useCalendarYear(props: ActivityCalendarProps, state: CalendarState): Ye
 }
 
 function useCalendarStrip(props: ActivityCalendarProps, base: CalendarBase, state: CalendarState): StripState {
-  if (state.expandedWeek !== null)
-    state.lastExpandedWeek.current = state.expandedWeek
-  if (state.expandedDay !== null)
-    state.lastExpandedDay.current = state.expandedDay
+  // React may discard a render that never committed; a ref written during render would then
+  // remember an expansion the reader never saw. The committed value is what the effect records.
+  useEffect(() => {
+    if (state.expandedWeek !== null)
+      state.lastExpandedWeek.current = state.expandedWeek
+    if (state.expandedDay !== null)
+      state.lastExpandedDay.current = state.expandedDay
+  })
   const shownWeek = state.expandedWeek ?? state.lastExpandedWeek.current
   const shownDay = state.expandedDay ?? state.lastExpandedDay.current
   const stripWeeks = useMemo(() => buildStripWeeks(props.counts, { range: props.range, weekStart: props.weekStart, now: base.now, todayKey: base.todayKey, selectedRange: props.selectedRange, getDiaryId: props.getDiaryId, notesByDay: props.notesByDay }), [props.counts, props.getDiaryId, props.notesByDay, base.now, props.range, props.selectedRange, base.todayKey, props.weekStart])

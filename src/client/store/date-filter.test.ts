@@ -4,7 +4,7 @@ import type { NoteSummary } from '@shared/types'
 import { renderElement, type RenderedElement } from '../lib/test-render'
 import { buildActivityProjectionCached } from '../lib/calendar-activity'
 import { dateKey } from '../lib/time'
-import { dayWindow, inDayWindow, useNotes, useVisibleNotes } from '../store/notes'
+import { dayWindow, inDayWindow, pickInitialNoteId, useNotes, useVisibleNotes } from '../store/notes'
 import { useUi } from '../store/ui'
 
 const stamp = (year: number, month: number, day: number) => new Date(year, month - 1, day, 12).getTime()
@@ -254,3 +254,33 @@ describe('the numeric day window', () => {
     expect(vault.filter((note) => stringForm(note.updatedAt, range)).length).toBe(vault.filter((note) => inDayWindow(note as never, days)).length)
   })
 })
+
+describe('what the store accepts as a day filter', () => {
+  const set = (value: { start: string; end: string } | null) => {
+    act(() => { useUi.getState().setDateFilter(value) })
+    return useUi.getState().dateFilter
+  }
+
+  it('drops a key that names no real day instead of poisoning the header', () => {
+    expect(set({ start: 'garbage', end: '2026-10-05' })).toBeNull()
+    expect(set({ start: '2026-10-05', end: '2026-13-45' })).toBeNull()
+    expect(set({ start: '2026-2-5', end: '2026-02-05' })).toBeNull()
+    expect(set({ start: '2026-02-30', end: '2026-02-30' })).toBeNull()
+    expect(set({ start: '2026-10-05', end: '2026-10-05' })).toEqual({ start: '2026-10-05', end: '2026-10-05' })
+  })
+
+  it('straightens a range dragged backwards', () => {
+    expect(set({ start: '2026-10-06', end: '2026-10-04' })).toEqual({ start: '2026-10-04', end: '2026-10-06' })
+  })
+
+  it('opens only a note the filtered list can actually show', () => {
+    act(() => {
+      useUi.setState({ view: 'all', folderId: null, tags: [], dateFilter: null, activeNoteId: null })
+      useNotes.setState({ ...useNotes.getState(), notes: NOTES, folders: [], tags: [] })
+    })
+    expect(pickInitialNoteId(NOTES, [])).not.toBe('midA')
+    set({ start: '2026-10-04', end: '2026-10-04' })
+    expect(pickInitialNoteId(NOTES, [])).toBe('midA')
+  })
+})
+

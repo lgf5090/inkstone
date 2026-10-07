@@ -26,10 +26,9 @@ function collectDefined(files: string[]): Set<string> {
 // Debt that predates the kanban port and belongs to whoever owns that file. Registering it here means
 // the gate is green today and turns red the moment *anyone* adds a new dangling token — which is the
 // only reason it exists. Removing an entry requires the owning module to define the token.
+// Three entries this list used to carry — `--danger-soft`, `--sp-0-625`, `--font-display` — are gone
+// because the calendar round defined them in `styles/tokens.css` instead of leaving them dangling.
 const LEGACY_DANGLING = new Map<string, string>([
-  ['--danger-soft', 'components/ErrorBoundary.tsx, from the -soft unification that predated this gate'],
-  ['--sp-0-625', 'features/preview/Outline.tsx, a spacing step the token scale never carried'],
-  ['--font-display', 'styles/app.css, a display face the token scale never carried'],
   ['--code-font-size', 'styles/prose.css and kanban.css; the value is set at runtime by the code-block JS'],
   ['--code-line-height', 'styles/prose.css; same runtime-set pair as --code-font-size'],
   // Not debt: a template prefix. colors.ts writes var(--kanban-tag-${name}-bg), so the scanner reads a
@@ -69,5 +68,13 @@ describe('every design token referenced by the client is defined (SH-37)', () =>
       }
     }
     expect([...dangling.entries()]).toEqual([])
+  })
+
+  it('carries no registered debt that nothing references any more', () => {
+    // A list that only grows stops meaning anything, so paying off a token has to delete its entry
+    // and this is what makes leaving it behind expensive enough to notice.
+    const sources = files.map((file) => readFileSync(file, 'utf8'))
+    const stale = [...LEGACY_DANGLING.entries()].filter(([name]) => !sources.some((source) => source.includes(`var(${name}`)))
+    expect(stale).toEqual([])
   })
 })

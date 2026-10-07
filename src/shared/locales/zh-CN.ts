@@ -1938,6 +1938,7 @@ export const ZH_CN_MESSAGES = {
     "sidebar.calendar_gap_banner_ahead_value0": "最新编辑在所选范围之后 {value0} 天 · 点击跳到该天",
     "sidebar.calendar_gap_banner_value0": "最新编辑在所选范围之前 {value0} 天 · 点击跳到该天",
     "sidebar.calendar_gap_click_follow": "点击跳到最新编辑那天",
+    "sidebar.calendar_heat_legend": "颜色深浅表示当天笔记数量，从没有到最多",
     "sidebar.calendar_jump_to_day": "在月历中显示该天",
     "sidebar.calendar_less": "少",
     "sidebar.calendar_month_grid_aria": "月历：{value0}",

@@ -106,6 +106,9 @@ const allowed = new Map([
     "// The switch has to be observable, or \"no new animation\" proves nothing.",
     "// The jump row lives inside the \"this week's notes\" block, which C-05 now unmounts",
     "// while closed, so the case has to open it the way a reader would.",
+    "// A zone that deleted a calendar date really does step by two keys there; what must never",
+    "// break is the row shape: sixteen rows, each opening on the configured weekday, ending at",
+    "// today, with no day printed twice.",
   ]],
   ["src/client/components/activity-calendar/heat-cell.ts", [
     "/**\n * One day tile of a heat surface. `null` is not a day of this month at all, so it draws nothing.\n *\n * The whole ramp sits on paper rather than on the surface behind it: level 0 is the bare tile and\n * levels 1-4 mix the accent into that same white, so a quiet day and a busy day are the same object\n * at different saturation. Mixing over `transparent` made the quiet tiles read as shaded days,\n * because their fill was only a few points off the sunken sidebar behind them.\n */",
@@ -116,6 +119,9 @@ const allowed = new Map([
     "// shallow memo lets the whole heatmap subtree skip rendering on such commits",
     "// (typing pauses still legitimately rebuild today's slice and re-render).",
     "/** Reusable calendar + activity heatmap: navigable month grid, yearly month columns, and a GitHub-style weekly strip, with optional per-day note lists. */",
+  ]],
+  ["src/client/components/activity-calendar/legend.tsx", [
+    "/* The five swatches are the only heat signal this view gives, and a swatch has no text level,\n    so the ramp is one labelled image rather than five things a reader cannot hear described. */",
   ]],
   ["src/client/components/activity-calendar/props.ts", [
     "/** Increments each time an external jump (e.g. a settings-preview click) targets the month view, triggering a fade-in + accent ring flash. */",
@@ -146,6 +152,8 @@ const allowed = new Map([
     "// whichever view happens to be current when this effect re-runs.",
     "// A padding day is still a day the user can mean: take the cursor with it, then run the",
     "// same diary flow, so the cell that answers is the one that stays on screen.",
+    "// React may discard a render that never committed; a ref written during render would then",
+    "// remember an expansion the reader never saw. The committed value is what the effect records.",
   ]],
   ["src/client/components/activity-calendar/use-calendar-handlers.ts", [
     "// The two ways of asking for a month range: a second click commits, a second Space commits.",
@@ -2979,6 +2987,8 @@ const allowed = new Map([
   ["src/client/features/sidebar/diary-note.ts", [
     "// JSON's string form is a legal YAML double-quoted scalar, so a title or tag holding a",
     "// quote, a colon or a newline stays one scalar instead of rewriting the document.",
+    "// The day the diary is *about*, not the minute it happened to be filed: a random time of day",
+    "// claimed a moment that never existed and contradicted the row's real created_at.",
   ]],
   ["src/client/features/sidebar/navigation.test.ts", [
     "// Five controls is the measured ceiling: at 180px of row the label still takes one",
@@ -3282,6 +3292,8 @@ const allowed = new Map([
     "// The gap banner reads the counted tier, so archiving the newest note has to hand the",
     "// pointer to the runner-up — otherwise it names a day the list cannot show (C-14).",
     "// The archived note still owns its title slot, so the diary lookup is unaffected.",
+    "// The cached entry point repairs once a slot exists, so it never reaches this sort again; the",
+    "// cold build is called directly here because that is the path a first paint takes.",
   ]],
   ["src/client/lib/calendar-activity.ts", [
     "// The activity-heatmap calendar derives three whole-vault structures from each",
@@ -3318,14 +3330,19 @@ const allowed = new Map([
     "/** Newest `updatedAt` among counted notes as a day key; null when the vault holds none. */",
     "// Two tiers of visibility, because the calendar asks two different questions. The day",
     "// slices answer \"how active was this day\", which has to agree with what the note list",
-    "// shows, so archived notes are out. The title slots answer \"which note is this day's",
-    "// diary\", and an archived diary must still be found there or clicking its date would",
-    "// file a second note for the same day.",
     "// Only the counted tier feeds the gap banner: an archived note is invisible to the",
     "// list, so pointing the reader at a day the list cannot show would repeat C-14.",
     "// Archiving retires the newest edit without changing its timestamp, and un-archiving",
     "// can hand it back, so either tier crossing has to be reported — but a note that sits",
     "// outside the counted tier on both sides never touched the maximum.",
+    "// Where the id sits in the record's own order: the fresh build gives a title to the first note",
+    "// that carries it, so an incremental repair can only hand a slot over to a note that comes",
+    "// earlier than the current owner.",
+    "// shows, so archived notes are out (isActiveNote). The title slots answer \"which note is",
+    "// this day's diary\", and an archived diary must still be found there or clicking its date",
+    "// would file a second note for the same day.",
+    "// The fresh build hands a title to the first note in record order that carries it, so a",
+    "// repair may only move a slot to a note that comes earlier than the current owner.",
   ]],
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
@@ -6350,6 +6367,12 @@ const allowed = new Map([
   ["src/client/lib/markdown/timeline-options.ts", [
     "/**\n * An unrecognised bracket group is left where it is, so `[2024] Annual report` keeps its year rather\n * than spending it on a status the author never wrote.\n */",
   ]],
+  ["src/client/lib/note-visibility.ts", [
+    "// One answer to \"can the user still see this note\", shared by the list, the heatmap projection and",
+    "// the gap banner. The store has always treated `deletedAt: 0` as not deleted (truthiness); the",
+    "// calendar layer compared against null, which made a 0 stamp a note the list shows and the",
+    "// heatmap hides. Both now read this file.",
+  ]],
   ["src/client/lib/pinyin-search.test.ts", [
     "/**\n * The labels a Chinese interface actually uses, written as escapes so the locale gate still owns\n * every piece of copy in the repository. Each one carries its reading in the gloss.\n */",
     "// quan-xuan",
@@ -6440,15 +6463,28 @@ const allowed = new Map([
     "// the reader's place on every page turn calls it, and a missing method is a render crash rather than",
     "// a no-op. Guarded, because a test that wants to count the calls stubs its own.",
   ]],
+  ["src/client/lib/time.test.ts", [
+    "// The old unpadded form put `10000-01-01` *before* `2026-01-01` as a string; clamped, a",
+    "// far-future stamp still sorts after today.",
+    "// @ts-expect-error the double stands in for an engine that shipped only the getter form",
+    "// @ts-expect-error restoring the real constructor",
+    "// @ts-expect-error the double keeps the real constructor's shape and only counts calls",
+  ]],
   ["src/client/lib/time.ts", [
     "/** Day-key arithmetic: the key `delta` days after (or before) `key`. */",
     "/** Whole days from `a` to `b` (negative when `b` is earlier), using UTC day math to stay DST-safe. */",
     "/**\n * The weekday that opens a week grid, as a JS `getDay()` number. Not `0 | 1`: CLDR gives whole\n * calendars that open on Saturday, and every grid here takes this same 0-based index.\n */",
-    "/**\n * Which weekday opens a reader's calendar is locale data, so it is read off `Intl` rather than off\n * the languages this app ships. `firstDay` is ISO-numbered (Monday = 1 … Sunday = 7) while the\n * grids index JS `getDay()`, where Sunday is 0 — hence the modulo. Runtimes without `getWeekInfo`\n * get the answer these calendars shipped with before the API existed.\n */",
     "/** The seven column labels of a grid, in the same order as that grid's columns. */",
     "// 2024-01-07 is a Sunday, so the offset alone selects the weekday.",
     "/** A day as reader-facing text: `Sep 3`, gaining the year when the date is not in this one. */",
     "/**\n * A stored day key as reader-facing text. Rich-media blocks persist `YYYY-MM-DD` because that is\n * what round-trips into a note body, so every surface that prints one goes through here instead of\n * showing the key.\n */",
+    "// Four digits always, and never `NaN`: `999-12-31`, `10000-01-01` and `NaN-NaN-NaN` all break",
+    "// the string comparisons every range in the calendar layer relies on.",
+    "/** A `YYYY-MM-DD` that names a real day: what the store will accept as a filter bound. */",
+    "// The Date constructor maps a two digit year onto 1900-1999, which would reject `0042-01-01`.",
+    "/**\n * Which weekday opens a reader's calendar is locale data, so it is read off `Intl` rather than off\n * the languages this app ships. `firstDay` is ISO-numbered (Monday = 1 … Sunday = 7) while the\n * grids index JS `getDay()`, where Sunday is 0 — hence the modulo. Runtimes without `getWeekInfo`\n * get the answer these calendars shipped with before the API existed: `weekStartFor` is called on\n * every render of the sidebar and the appearance preview, so the answer is kept per locale tag —\n * the set is this app's handful of locales, and `Intl.Locale` construction is the cost being saved.\n */",
+    "// `getWeekInfo` is the Stage-3 form; `weekInfo` is the same data as a getter, which engines",
+    "// shipped earlier. Asking for both leaves the fallback below reachable only where neither exists.",
   ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
@@ -6557,6 +6593,8 @@ const allowed = new Map([
     "// midnight (America/Santiago 2026-09-06 has no 00:00), the parsed date has already",
     "// normalised to 01:00 and `setDate` carries that hour onto the next day, widening the",
     "// window by an hour the reader never selected.",
+    "// The same window the list filters by: without it the editor can open on a note the list",
+    "// does not contain, leaving nothing focused and the arrow keys without a position.",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",
@@ -6597,6 +6635,9 @@ const allowed = new Map([
     "/**\n   * A template the gallery asked the open editor to swallow. The gallery is a panel\n   * over the workspace, so it has no view of its own; the workspace applies this and\n   * clears it, which keeps the one-transaction undo contract in the editor.\n   */",
     "// The jump is a one-shot instruction: leaving it in the store would let any later",
     "// remount of the calendar obey it again and overwrite what the user chose since.",
+    "// A malformed key reaches Intl.DateTimeFormat as an Invalid Date, which throws inside the list",
+    "// header and the error boundary answers by reloading the page forever. A reversed range is not",
+    "// an error, just a drag the other way round.",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -6622,6 +6663,9 @@ const allowed = new Map([
     "/* The leading every dense UI stack shares, so a card and its column header agree. */",
     "/* A slide is laid out on a fixed 1280x720 design canvas, so its type is measured in canvas\n     pixels rather than in the reader's: 28px on the canvas lands near 18px on a 1080p projector. */",
     "/* The projector owns the viewport, so it takes the modal tier; the rows it opens (right-click menu,\n     presenter panel) ride one above it and its own toasts above those. `--z-sticky` is the stage's\n     counter, which must beat a slide's own stacking context but not the controls. */",
+    "/* app.css sets a display face for prose headings with a Georgia fallback; the name lives here so\n  the cascade has one place to retune it and the token gate sees a definition. */",
+    "/* The outline's located-marker bar is 2.5px wide; without the step the class resolved to nothing\n  and the marker painted no pixels at all. */",
+    "/* ErrorBoundary paints a danger wash behind its icon; the fork builds washes with color-mix\n  rather than carrying a second flat colour per theme. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -7430,6 +7474,10 @@ const allowed = new Map([
     "// picking a fork token here would be a silent visual redesign, not a port fix.",
     "// Sized to this fork's tree, not the reference's: the assertion exists to catch a scan that",
     "// silently stopped covering anything, not to encode another project's file count.",
+    "// Three entries this list used to carry — `--danger-soft`, `--sp-0-625`, `--font-display` — are gone",
+    "// because the calendar round defined them in `styles/tokens.css` instead of leaving them dangling.",
+    "// A list that only grows stops meaning anything, so paying off a token has to delete its entry",
+    "// and this is what makes leaving it behind expensive enough to notice.",
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",

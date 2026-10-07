@@ -24,6 +24,13 @@ describe('buildDiaryContent', () => {
     })
   }
 
+  it('stamps the diary with the day it is about, not a invented minute', () => {
+    const first = buildDiaryContent(KEY, 'Diary 2026-10-28', 'diary')
+    const second = buildDiaryContent(KEY, 'Diary 2026-10-28', 'diary')
+    expect(first).toBe(second)
+    expect(first).toContain('createdAt: 2026-10-28 00:00:00\n')
+  })
+
   it('leaves the diary tag findable by the tag reader', () => {
     expect(extractTags(buildDiaryContent(KEY, 'Diary 2026-10-28', 'diary'))).toEqual(['diary'])
   })

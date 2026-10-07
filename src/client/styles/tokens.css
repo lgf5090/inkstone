@@ -7,6 +7,9 @@
     'Microsoft YaHei', sans-serif;
   --font-serif: 'Iowan Old Style', 'Source Serif 4', Charter, Georgia, 'Songti SC',
     'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif;
+  /* app.css sets a display face for prose headings with a Georgia fallback; the name lives here so
+  the cascade has one place to retune it and the token gate sees a definition. */
+  --font-display: var(--font-serif);
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', 'Cascadia Mono',
     Consolas, 'Liberation Mono', Menlo, 'Sarasa Mono SC', monospace;
 
@@ -23,6 +26,9 @@
   --r-full: 999px;
 
   --sp-0-5: 2px;
+  /* The outline's located-marker bar is 2.5px wide; without the step the class resolved to nothing
+  and the marker painted no pixels at all. */
+  --sp-0-625: 2.5px;
   --sp-0-75: 3px;
   --sp-1: 4px;
   --sp-1-5: 6px;
@@ -342,6 +348,9 @@
   --accent-contrast: oklch(99% 0 0);
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-softer: color-mix(in oklab, var(--accent) 7%, transparent);
+  /* ErrorBoundary paints a danger wash behind its icon; the fork builds washes with color-mix
+  rather than carrying a second flat colour per theme. */
+  --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);
   --accent-ring: color-mix(in oklab, var(--accent) 34%, transparent);
   --shadow-ring: 0 0 0 2px var(--accent-ring);
   --accent-muted: color-mix(in oklab, var(--accent) 62%, var(--text-tertiary));

@@ -1,6 +1,6 @@
 import type { DateRangeFilter, NoteSummary } from '@shared/types'
 import { dateKey, daysBetweenKeys } from '../../lib/time'
-import { isActivityNote } from '../../lib/calendar-activity'
+import { isActiveNote } from '../../lib/note-visibility'
 
 type EditableNote = Pick<NoteSummary, 'updatedAt' | 'deletedAt' | 'isArchived'>
 
@@ -10,14 +10,14 @@ type EditableNote = Pick<NoteSummary, 'updatedAt' | 'deletedAt' | 'isArchived'>
 // `calendar-activity.test.ts` can hold the fast answer against this slow oracle.
 /** The newest edit the note list could actually show (archived and deleted are out); null when nothing qualifies. */
 export function computeLatestEditKey(notes: Readonly<Record<string, EditableNote>>): string | null {
-  let latest = 0
+  let latest = -1
   for (const note of Object.values(notes)) {
-    if (!isActivityNote(note))
+    if (!isActiveNote(note))
       continue
     if (note.updatedAt > latest)
       latest = note.updatedAt
   }
-  return latest === 0 ? null : dateKey(new Date(latest))
+  return latest < 0 ? null : dateKey(new Date(latest))
 }
 
 /** Newest edit key with whole days it sits outside the selected window (null when it is inside or the inputs are empty). */

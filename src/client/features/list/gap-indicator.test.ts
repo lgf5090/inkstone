@@ -23,6 +23,11 @@ describe('computeLatestEditKey', () => {
     expect(computeLatestEditKey({ a: note(stamp('2026-09-01T10:00:00.000Z'), stamp('2026-09-01T11:00:00.000Z')) })).toBeNull()
   })
 
+  it('keeps a zero stamp as a real date rather than the empty-vault answer', () => {
+    expect(computeLatestEditKey({ a: note(0) })).toBe('1970-01-01')
+    expect(computeLatestEditKey({})).toBeNull()
+  })
+
   it('skips archived notes so the banner never points at an empty list', () => {
     const notes = {
       live: note(stamp('2026-09-01T10:00:00.000Z')),
