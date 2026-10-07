@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { templateMatchesQuery } from './gallery-derived'
+import { sortCommunityItems, templateMatchesQuery } from './gallery-derived'
 
 function item(overrides: Partial<{ name: string; description: string; content: string; tags: string[] }> = {}) {
   return {
@@ -43,5 +43,31 @@ describe('templateMatchesQuery', () => {
   it('survives a template with the optional fields missing', () => {
     expect(templateMatchesQuery({ name: 'Bare', content: 'body' }, 'bare')).toBe(true)
     expect(templateMatchesQuery({ name: 'Bare', content: 'body' }, 'nope')).toBe(false)
+  })
+})
+
+describe('sortCommunityItems', () => {
+  const rows = [
+    { name: 'Sprint board', authorName: 'Bo', createdAt: 30, id: 'c' },
+    { name: 'apple pie', authorName: 'Ana', createdAt: 10, id: 'a' },
+    { name: 'Banana log', authorName: 'Cai', createdAt: 20, id: 'b' },
+  ]
+
+  it('defaults to newest first', () => {
+    expect(sortCommunityItems(rows, 'newest').map((item) => item.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('sorts by name without caring about case', () => {
+    expect(sortCommunityItems(rows, 'name').map((item) => item.name)).toEqual(['apple pie', 'Banana log', 'Sprint board'])
+  })
+
+  it('sorts by author', () => {
+    expect(sortCommunityItems(rows, 'author').map((item) => item.authorName)).toEqual(['Ana', 'Bo', 'Cai'])
+  })
+
+  it('does not reorder the caller’s array', () => {
+    const source = [...rows]
+    sortCommunityItems(source, 'name')
+    expect(source.map((item) => item.id)).toEqual(['c', 'a', 'b'])
   })
 })

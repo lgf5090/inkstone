@@ -29,7 +29,7 @@ function card(id: string): HTMLElement {
 
 interface Harness {
   deps: Parameters<typeof useGalleryKeyboard>[0]
-  calls: { setQuery: unknown[]; setFocusedId: unknown[]; setIsHelpOpen: unknown[] }
+  calls: { setQuery: unknown[]; setFocusedId: unknown[]; setIsHelpOpen: unknown[]; reorder: unknown[] }
   search: HTMLInputElement
   grid: HTMLDivElement
   buttonOf: (id: string) => HTMLElement
@@ -43,7 +43,7 @@ function harness(ids: string[] = ['a', 'b', 'c']): Harness {
   document.body.append(grid)
   const search = document.createElement('input')
   document.body.append(search)
-  const calls = { setQuery: [] as unknown[], setFocusedId: [] as unknown[], setIsHelpOpen: [] as unknown[] }
+  const calls = { setQuery: [] as unknown[], setFocusedId: [] as unknown[], setIsHelpOpen: [] as unknown[], reorder: [] as unknown[] }
   const deps = {
     editing: null,
     renaming: null,
@@ -67,6 +67,7 @@ function harness(ids: string[] = ['a', 'b', 'c']): Harness {
     focusedId: null as string | null,
     gridRef: { current: grid },
     toggleSelect: () => {},
+    reorder: (direction: string) => { calls.reorder.push(direction) },
     setFocusedId: (value: string | null) => {
       deps.focusedId = value
       calls.setFocusedId.push(value)
@@ -82,8 +83,8 @@ function harness(ids: string[] = ['a', 'b', 'c']): Harness {
   }
 }
 
-function press(target: EventTarget, keyName: string) {
-  const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: keyName })
+function press(target: EventTarget, keyName: string, shift = false) {
+  const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: keyName, shiftKey: shift })
   Object.defineProperty(event, 'target', { value: target })
   const preventDefault = vi.spyOn(event, 'preventDefault')
   return { event: event as unknown as Parameters<ReturnType<typeof useGalleryKeyboard>>[0], preventDefault }
@@ -168,5 +169,23 @@ describe('gallery keyboard from inside the search box', () => {
     expect(deps.focusedId).toBe('c')
     vi.advanceTimersByTime(20)
     expect(scrolled.ids).toEqual(['b', 'c'])
+  })
+
+  it('gives Shift+Arrow the drag gesture', () => {
+    const { deps, calls, buttonOf } = harness()
+    const handler = useGalleryKeyboard(deps)
+    deps.focusedId = 'b'
+    handler(press(buttonOf('b'), 'ArrowRight', true).event)
+    expect(calls.reorder).toEqual(['right'])
+    handler(press(buttonOf('b'), 'ArrowUp', true).event)
+    expect(calls.reorder).toEqual(['right', 'up'])
+    expect(calls.setFocusedId).toEqual([])
+  })
+
+  it('leaves Shift+Arrow to the browser when a selection is being made', () => {
+    const { deps, calls, buttonOf } = harness()
+    deps.selectMode = true
+    useGalleryKeyboard(deps)(press(buttonOf('b'), 'ArrowRight', true).event)
+    expect(calls.reorder).toEqual([])
   })
 })

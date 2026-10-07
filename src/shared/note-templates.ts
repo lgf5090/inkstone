@@ -457,6 +457,27 @@ function clampText(value: string, maxLength: number): string {
   return value.length > maxLength ? value.slice(0, maxLength) : value
 }
 
+/** A hand-edited export can claim any date; the gallery prints it, so it gets a sane range. */
+const EXPORTED_AT_MIN = 0
+const EXPORTED_AT_MAX = Date.UTC(2100, 0, 1)
+
+function clampTimestamp(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(Math.max(Math.trunc(value), EXPORTED_AT_MIN), EXPORTED_AT_MAX)
+}
+
+/**
+ * The id character set the app itself generates (`tpl-`/`cat-` plus a base32 tail)
+ * and nothing wider: an id becomes a `data-template-id` attribute, a CSS selector
+ * and a map key, so a newline or a quote in an imported id is a bug waiting in the
+ * gallery rather than data worth keeping.
+ */
+const EXPORT_ID_RE = /^[0-9a-z_-]{1,64}$/
+
+function isExportId(value: unknown): value is string {
+  return typeof value === 'string' && EXPORT_ID_RE.test(value)
+}
+
 /**
  * Parses and validates an exported template library. Returns a null `data` when
  * the payload is not a well-formed export; malformed entries are dropped
@@ -522,7 +543,7 @@ export function parseTemplateLibraryExport(text: string): TemplateLibraryParseRe
       app: 'inkstone',
       kind: 'template-library',
       version: 1,
-      exportedAt: typeof value.exportedAt === 'number' && Number.isFinite(value.exportedAt) ? value.exportedAt : Date.now(),
+      exportedAt: clampTimestamp(value.exportedAt, Date.now()),
       categories,
       templates,
     },
@@ -537,7 +558,7 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isExportCategory(value: unknown): value is NoteTemplateCategory {
   if (!isRecord(value)) return false
-  return typeof value.id === 'string' &&
+  return isExportId(value.id) &&
     typeof value.name === 'string' &&
     value.builtin === false &&
     isFiniteNumber(value.position) &&
@@ -555,8 +576,7 @@ function normalizeExportCategory(value: NoteTemplateCategory): NoteTemplateCateg
 /** Validates one entry and clamps its fields; returns null when it is unusable. */
 function normalizeExportTemplate(value: unknown): NoteTemplate | null {
   if (!isRecord(value)) return null
-  if (typeof value.id !== 'string' ||
-    (value.categoryId !== null && typeof value.categoryId !== 'string') ||
+  if (!isExportId(value.id) ||
     typeof value.name !== 'string' ||
     typeof value.description !== 'string' ||
     typeof value.content !== 'string' ||
@@ -571,8 +591,8 @@ function normalizeExportTemplate(value: unknown): NoteTemplate | null {
   }
   const template: NoteTemplate = {
     id: clampText(value.id, TEMPLATE_IMPORT_LIMITS.maxIdLength),
-    categoryId: typeof value.categoryId === 'string'
-      ? clampText(value.categoryId, TEMPLATE_IMPORT_LIMITS.maxIdLength)
+    categoryId: typeof value.categoryId === 'string' && isExportId(value.categoryId)
+      ? value.categoryId
       : null,
     name: clampText(value.name, TEMPLATE_IMPORT_LIMITS.maxNameLength),
     description: clampText(value.description, TEMPLATE_IMPORT_LIMITS.maxDescriptionLength),

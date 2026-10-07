@@ -24,6 +24,41 @@ export function templateMatchesQuery(item: TemplateSearchable, query: string): b
     (item.tags ?? []).some((tag) => tag.toLocaleLowerCase().includes(normalized))
 }
 
+/**
+ * Which empty state the grid should explain. `no_templates` was almost unreachable
+ * because a fresh account always carries the built-in catalog, so what a reader
+ * actually meets is an empty view of a library that is not empty.
+ */
+export type GalleryEmptyState = 'search' | 'favorites' | 'category' | 'uncategorized' | 'tag' | 'library'
+
+export function galleryEmptyState(filter: GalleryFilter, query: string): GalleryEmptyState {
+  if (query.trim()) return 'search'
+  if (filter.kind === 'favorites') return 'favorites'
+  if (filter.kind === 'uncategorized') return 'uncategorized'
+  if (filter.kind === 'tag') return 'tag'
+  if (filter.kind === 'category') return 'category'
+  return 'library'
+}
+
+export type CommunitySort = 'newest' | 'name' | 'author'
+
+/**
+ * Ordering the directory cannot do for you: the server only ever answers "newest",
+ * so a reader who wants to find a name in the list has to be given the sort here.
+ * Ties fall back to the other fields so the order is stable across re-renders.
+ */
+export function sortCommunityItems<T extends { name: string; authorName: string; createdAt: number; id: string }>(
+  items: readonly T[],
+  sort: CommunitySort,
+): T[] {
+  const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+  return [...items].sort((a, b) => {
+    if (sort === 'name') return collator.compare(a.name, b.name) || collator.compare(a.id, b.id)
+    if (sort === 'author') return collator.compare(a.authorName, b.authorName) || collator.compare(a.name, b.name)
+    return b.createdAt - a.createdAt || collator.compare(a.id, b.id)
+  })
+}
+
 export function useGalleryDerived(
   templates: NoteTemplate[],
   filter: GalleryFilter,
@@ -68,6 +103,7 @@ export function useGalleryDerived(
     counts,
     tagList,
     visible,
+    emptyState: galleryEmptyState(filter, query),
     selectedTemplates,
     visibleSelected,
     allVisibleSelected,

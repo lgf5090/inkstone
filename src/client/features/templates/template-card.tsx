@@ -6,8 +6,10 @@ import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import { cardClickAction } from './gallery-actions'
 
 const MENU_WIDTH = 200
+const CLOSED_MENU_ITEMS: MenuItem[] = []
 
 interface TemplateCardProps {
   template: NoteTemplate
@@ -99,13 +101,14 @@ function CardUseButton({
       ref={useButtonRef}
       type='button'
       onClick={(event: MouseEvent) => {
-        if (event.ctrlKey || event.metaKey) {
-          event.preventDefault()
-          onToggleStar()
+        const action = cardClickAction(selectMode, event.ctrlKey || event.metaKey)
+        if (action === 'select') {
+          onToggleSelect()
           return
         }
-        if (selectMode) {
-          onToggleSelect()
+        if (action === 'star') {
+          event.preventDefault()
+          onToggleStar()
           return
         }
         onUse()
@@ -129,13 +132,13 @@ function CardToolAction({ tooltip, icon, active, onClick }: {
     <Tooltip label={tooltip} side='top'>
       <IconButton
         label={tooltip}
-        size='sm'
+        size='xs'
         active={active}
         onClick={(event) => {
           event.stopPropagation()
           onClick()
         }}
-        className='size-6! text-[var(--text-tertiary)]'
+        className='text-[var(--text-tertiary)]'
       >
         {icon}
       </IconButton>
@@ -189,12 +192,12 @@ function CardTitleRow({
           <IconButton
             ref={menuButtonRef}
             label={t('common.more_actions')}
-            size='sm'
+            size='xs'
             onClick={(event) => {
               event.stopPropagation()
               onOpenMenu()
             }}
-            className='size-6! text-[var(--text-tertiary)]'
+            className='text-[var(--text-tertiary)]'
           >
             <MoreHorizontal size={13}/>
           </IconButton>
@@ -273,7 +276,10 @@ export function TemplateCard(props: TemplateCardProps) {
     () => template.content.split('\n').filter((line) => line.trim()).length,
     [template.content],
   )
-  const items = templateMenuItems(template, { onEdit, onRename, onDuplicate, onMove, onPublish, onPreview, onInsert, onDelete })
+  const menuOpen = isMenuOpen || Boolean(contextMenu.point)
+  const items = menuOpen
+    ? templateMenuItems(template, { onEdit, onRename, onDuplicate, onMove, onPublish, onPreview, onInsert, onDelete })
+    : CLOSED_MENU_ITEMS
   const handleContextMenu = (event: MouseEvent) => {
     setIsMenuOpen(false)
     contextMenu.onContextMenu(event)

@@ -218,6 +218,76 @@ export function useGallerySelectActions(state: GalleryLocalState, visible: NoteT
  * rather than the size of the selection.
  */
 /**
+ * Which category a card drop lands in, and where in it.
+ *
+ * A tag or favourites view mixes categories the reader cannot see, so a drop there
+ * must not move the card between categories: it reorders inside its own. Everywhere
+ * else the target card's category is what the pointer visibly said.
+ */
+export function dropTarget(
+  templates: readonly NoteTemplate[],
+  source: NoteTemplate,
+  target: NoteTemplate,
+  after: boolean,
+  mixedView: boolean,
+): { categoryId: string | null; index: number } {
+  const categoryId = mixedView ? source.categoryId : target.categoryId
+  const siblings = templates
+    .filter((item) => item.categoryId === categoryId && item.id !== source.id)
+    .sort((a, b) => templateOrderValue(a) - templateOrderValue(b))
+  const at = siblings.findIndex((item) => item.id === target.id)
+  if (at < 0) return { categoryId, index: siblings.length }
+  return { categoryId, index: at + (after ? 1 : 0) }
+}
+
+/**
+ * What a click on a card means. In select mode every click is a tick; the star keeps
+ * its gesture only where the grid is showing something other than a selection.
+ */
+export function cardClickAction(selectMode: boolean, modifier: boolean): 'select' | 'star' | 'use' {
+  if (selectMode) return 'select'
+  if (modifier) return 'star'
+  return 'use'
+}
+
+/**
+ * Where the focused card goes for a keyboard reorder.
+ *
+ * Up and Down step inside the card's own category, which is what dragging does; Left
+ * and Right move it into the neighbouring category of the sidebar order, keeping the
+ * card where it was in the list. Returning the full target lets the caller refuse a
+ * built-in category rename without duplicating that rule.
+ */
+export function reorderTarget(
+  templates: readonly NoteTemplate[],
+  categories: readonly NoteTemplateCategory[],
+  focusedId: string | null,
+  key: 'up' | 'down' | 'left' | 'right',
+): { id: string; categoryId: string | null; index: number } | null {
+  const moving = focusedId ? templates.find((item) => item.id === focusedId) : null
+  if (!moving) return null
+  if (key === 'up' || key === 'down') {
+    const ordered = templates
+      .filter((item) => item.categoryId === moving.categoryId)
+      .sort((a, b) => templateOrderValue(a) - templateOrderValue(b))
+    const at = ordered.findIndex((item) => item.id === moving.id)
+    const step = key === 'up' ? at - 1 : at + 1
+    if (at < 0 || step < 0 || step >= ordered.length) return null
+    const siblings = ordered.filter((item) => item.id !== moving.id)
+    const target = ordered[step]!
+    const index = siblings.findIndex((item) => item.id === target.id) + (key === 'down' ? 1 : 0)
+    return { id: moving.id, categoryId: moving.categoryId, index }
+  }
+  const order = categories.map((item) => item.id)
+  const here = moving.categoryId === null ? -1 : order.indexOf(moving.categoryId)
+  const step = key === 'left' ? here - 1 : here + 1
+  if (here < 0) return order.length && key === 'right' ? { id: moving.id, categoryId: order[0]!, index: 0 } : null
+  if (step < 0) return { id: moving.id, categoryId: null, index: 0 }
+  if (step >= order.length) return null
+  return { id: moving.id, categoryId: order[step], index: 0 }
+}
+
+/**
  * Batch actions take the store's batch primitives, so a selection costs one
  * library write instead of one per card. The count reported back is the number
  * that actually changed, not the size of the selection.
@@ -279,7 +349,7 @@ export function useGalleryBatchActions(
 }
 
 export function useGalleryDragActions(state: GalleryLocalState, templates: NoteTemplate[]) {
-  const { draggingId, setDraggingId, setDropHint, setDropCategory } = state
+  const { draggingId, setDraggingId, setDropHint, setDropCategory, filter } = state
   const handleCardDrop = useCallback((target: NoteTemplate, after: boolean) => {
     const source = templates.find((item) => item.id === draggingId)
     if (!source || source.id === target.id) {
@@ -287,16 +357,12 @@ export function useGalleryDragActions(state: GalleryLocalState, templates: NoteT
       setDropHint(null)
       return
     }
-    const siblings = templates
-      .filter((item) => item.categoryId === target.categoryId && item.id !== source.id)
-      .sort((a, b) => templateOrderValue(a) - templateOrderValue(b))
-    let index = siblings.findIndex((item) => item.id === target.id)
-    if (index < 0) index = siblings.length
-    if (after) index += 1
-    useNoteTemplates.getState().placeTemplate(source.id, target.categoryId, index)
+    const mixedView = filter.kind === 'tag' || filter.kind === 'favorites'
+    const { categoryId, index } = dropTarget(templates, source, target, after, mixedView)
+    useNoteTemplates.getState().placeTemplate(source.id, categoryId, index)
     setDraggingId(null)
     setDropHint(null)
-  }, [draggingId, templates, setDraggingId, setDropHint])
+  }, [draggingId, templates, filter.kind, setDraggingId, setDropHint])
   const handleCategoryDrop = useCallback((categoryId: string | null) => {
     const source = templates.find((item) => item.id === draggingId)
     if (source) {

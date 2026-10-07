@@ -3,6 +3,8 @@ import { useNoteTemplates } from '../../store/note-templates'
 import { Button } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import type { MessageKey } from '@shared/locales/en-US'
+import type { GalleryEmptyState } from './gallery-derived'
 import { CategoryRow, FilterChip, SidebarButton } from './gallery-controls'
 import { TemplateCard } from './template-card'
 import {
@@ -81,21 +83,43 @@ export function GallerySidebar({ g }: { g: GalleryController }) {
   )
 }
 
+const GALLERY_EMPTY_TITLE: Record<GalleryEmptyState, MessageKey> = {
+  search: 'templates.no_matching_templates',
+  library: 'templates.no_templates',
+  favorites: 'templates.no_favorites',
+  category: 'templates.no_in_category_value0',
+  tag: 'templates.no_in_tag_value0',
+  uncategorized: 'templates.no_uncategorized',
+}
+
+const GALLERY_EMPTY_HINT: Record<GalleryEmptyState, MessageKey> = {
+  search: 'templates.no_templates_hint',
+  library: 'templates.no_templates_hint',
+  favorites: 'templates.no_favorites_hint',
+  category: 'templates.no_in_category_hint',
+  tag: 'templates.no_in_tag_hint',
+  uncategorized: 'templates.no_uncategorized_hint',
+}
+
 export function GalleryMain({ g }: { g: GalleryController }) {
   const { state, store, derived, templateActions, filterActions, communityActions, dragActions, selectActions, community } = g
   const { filter, selectedIds, focusedId, draggingId, dropHint, selectMode } = state
   return (
     <main className='min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)] md:p-4'>
-      {filter.kind === 'community' && <CommunityPanel items={community.community} query={state.query} loading={community.isCommunityLoading} isError={community.isCommunityError} myId={state.currentUserId} onRefresh={() => void community.refreshCommunity()} onUse={templateActions.useCommunityTemplate} onImport={templateActions.importCommunityTemplate} onUnpublish={(item) => void communityActions.unpublishCommunityTemplate(item)}/>}
+      {filter.kind === 'community' && <CommunityPanel items={community.community} query={state.query} hasMore={community.hasMoreCommunity} onLoadMore={community.loadMoreCommunity} loading={community.isCommunityLoading} isError={community.isCommunityError} myId={state.currentUserId} onRefresh={() => void community.refreshCommunity()} onUse={templateActions.useCommunityTemplate} onImport={templateActions.importCommunityTemplate} onUnpublish={(item) => void communityActions.unpublishCommunityTemplate(item)}/>}
       {filter.kind !== 'community' && derived.visible.some((item) => item.isPinned) && (<div className='mb-[var(--sp-3)] flex items-center gap-1.5 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]'>
         <Pin size={11}/>{t('notes.pin')}
       </div>)}
       {filter.kind !== 'community' && derived.visible.length === 0 ? (<div className='flex h-full min-h-[240px] flex-col items-center justify-center gap-[var(--sp-2)] text-center'>
         <LayoutTemplate size={26} className='text-[var(--text-quaternary)]'/>
         <p className='text-[13px] font-medium text-[var(--text-secondary)]'>
-          {state.query.trim() ? t('templates.no_matching_templates') : t('templates.no_templates')}
+          {state.filter.kind === 'category'
+            ? t('templates.no_in_category_value0', { value0: filterActions.categoryName(state.filter.id) })
+            : state.filter.kind === 'tag'
+              ? t('templates.no_in_tag_value0', { value0: state.filter.tag })
+              : t(GALLERY_EMPTY_TITLE[derived.emptyState])}
         </p>
-        <p className='text-[11.5px] text-[var(--text-quaternary)]'>{t('templates.no_templates_hint')}</p>
+        <p className='text-[11.5px] text-[var(--text-quaternary)]'>{t(GALLERY_EMPTY_HINT[derived.emptyState])}</p>
       </div>) : filter.kind !== 'community' && (<div ref={state.gridRef} className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>
         {derived.visible.map((template) => (<TemplateCard key={template.id} template={template} categoryName={filterActions.categoryName(template.categoryId)} selectMode={selectMode} selected={selectedIds.has(template.id)} focused={focusedId === template.id} dragging={draggingId === template.id} dropHint={dropHint?.id === template.id ? dropHint.after : null} onToggleSelect={() => selectActions.toggleSelect(template.id)} onDragStart={(id) => state.setDraggingId(id)} onDragOver={(id, after) => state.setDropHint({ id, after })} onDrop={(card, after) => dragActions.handleCardDrop(card, after)} onDragEnd={() => {
             state.setDraggingId(null)

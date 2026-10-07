@@ -1,3 +1,4 @@
+import { TAG_LIST_SEPARATOR } from '@shared/markdown-utils'
 export type GalleryFilter =
   | { kind: 'all' }
   | { kind: 'favorites' }
@@ -10,15 +11,18 @@ export const GALLERY_PERSIST_KEY = 'inkstone.template-gallery.v1'
 
 const FILTER_KINDS = ['all', 'favorites', 'uncategorized', 'community', 'category', 'tag'] as const
 
+/**
+ * What the gallery remembers between visits. The search text is deliberately not
+ * part of it: a shared browser would otherwise keep whatever the last person typed,
+ * and a template search is a lookup, not a preference.
+ */
 export interface GalleryPersistedState {
   filter: GalleryFilter
-  query: string
   selectMode: boolean
 }
 
 export const DEFAULT_GALLERY_STATE: GalleryPersistedState = {
   filter: { kind: 'all' },
-  query: '',
   selectMode: false,
 }
 
@@ -34,7 +38,6 @@ export function loadGalleryPersist(): GalleryPersistedState {
     if (filter.kind === 'tag' && typeof filter.tag !== 'string') return DEFAULT_GALLERY_STATE
     return {
       filter,
-      query: typeof value.query === 'string' ? value.query.slice(0, 200) : '',
       selectMode: value.selectMode === true,
     }
   }
@@ -54,10 +57,10 @@ export interface TemplateDraft {
 export const EMPTY_DRAFT: TemplateDraft = { name: '', description: '', content: '', categoryId: null, tags: [] }
 
 /**
- * Tags are typed as one comma-separated line. The full-width comma is what a
- * Chinese keyboard produces, and a run of whitespace counts as a separator so
- * `daily  reading` does not become one tag.
+ * Tags are typed as one line, so every separator the app already accepts counts here:
+ * both commas, the ideographic comma a Chinese keyboard produces, and a run of
+ * whitespace — so `daily  reading` does not become one tag.
  */
 export function splitTagInput(value: string): string[] {
-  return value.replaceAll('\uFF0C', ',').split(/[\s,]+/).filter(Boolean)
+  return value.split(TAG_LIST_SEPARATOR).filter(Boolean)
 }

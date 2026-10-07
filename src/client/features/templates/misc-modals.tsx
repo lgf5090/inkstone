@@ -13,11 +13,14 @@ const PUBLISH_MODAL_WIDTH = 600
 export function KeyboardHelpModal({ onClose }: { onClose: () => void }) {
   const rows: { label: string; keys: string[] }[] = [
     { label: t('templates.help_move'), keys: ['↑', '↓', '←', '→'] },
+    { label: t('templates.help_reorder'), keys: ['Shift', '↑↓←→'] },
+    { label: t('templates.help_enter_grid'), keys: ['↓'] },
     { label: t('templates.help_use'), keys: ['Enter'] },
     { label: t('templates.help_star'), keys: ['Ctrl/⌘', 'Click'] },
     { label: t('templates.help_search'), keys: ['/'] },
     { label: t('templates.help_tab'), keys: ['Tab'] },
     { label: t('templates.help_esc'), keys: ['Esc'] },
+    { label: t('templates.help_esc_search'), keys: ['Esc'] },
     { label: t('templates.help_help'), keys: ['?'] },
   ]
   const selectRows: { label: string; keys: string[] }[] = [

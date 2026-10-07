@@ -35,6 +35,7 @@ const allowed = new Map([
     "// start-up locale chunk. The gate reads them as one catalog with the rest, otherwise",
     "// the two languages would be proven against each other only for the keys that happen",
     "// to sit in the main file.",
+    "// The separators a Chinese keyboard produces are the thing under test.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -663,9 +664,17 @@ const allowed = new Map([
     "/**\n * Batch actions take the store's batch primitives, so a selection costs one\n * library write instead of one per card. The count reported back is the number\n * that actually changed, not the size of the selection.\n */",
     "/**\n * Deleting stays reversible for as long as the toast is on screen, which is the only\n * window an undo button printed on it can honestly promise.\n */",
     "/**\n * The two directions a note and the library can move in: this note becomes a\n * template, or a template becomes text at the caret of this note. Both need the note\n * that is open behind the panel, so both say so when there is none.\n */",
+    "/**\n * Where the focused card goes for a keyboard reorder.\n *\n * Up and Down step inside the card's own category, which is what dragging does; Left\n * and Right move it into the neighbouring category of the sidebar order, keeping the\n * card where it was in the list. Returning the full target lets the caller refuse a\n * built-in category rename without duplicating that rule.\n */",
+    "/**\n * Which category a card drop lands in, and where in it.\n *\n * A tag or favourites view mixes categories the reader cannot see, so a drop there\n * must not move the card between categories: it reorders inside its own. Everywhere\n * else the target card's category is what the pointer visibly said.\n */",
+    "/**\n * What a click on a card means. In select mode every click is a tick; the star keeps\n * its gesture only where the grid is showing something other than a selection.\n */",
+  ]],
+  ["src/client/features/templates/gallery-controls.tsx", [
+    "/**\n * A category's colour, derived rather than stored: the eight built-in categories get\n * the first eight palette entries in their own order, and anything the user makes gets\n * a stable pick from its id. Template categories have no colour field to read, and a\n * hash is enough to tell eight sidebar rows apart.\n */",
   ]],
   ["src/client/features/templates/gallery-derived.ts", [
     "/**\n * One query, one rule: the gallery grid and the community list are the same\n * search over the same four fields, because a search box that only works in one\n * of the two is a control that lies about what the view can do.\n */",
+    "/**\n * Which empty state the grid should explain. `no_templates` was almost unreachable\n * because a fresh account always carries the built-in catalog, so what a reader\n * actually meets is an empty view of a library that is not empty.\n */",
+    "/**\n * Ordering the directory cannot do for you: the server only ever answers \"newest\",\n * so a reader who wants to find a name in the list has to be given the sort here.\n * Ties fall back to the other fields so the order is stable across re-renders.\n */",
   ]],
   ["src/client/features/templates/gallery-export.ts", [
     "/** Built-ins are re-seeded by the app, so an export carries only what the user made. */",
@@ -677,6 +686,8 @@ const allowed = new Map([
     "/** Template ids are opaque and can start with a digit, which is not a bare CSS attribute value. */",
     "/**\n * Keys the search box owns.\n *\n * The panel opens with the caret in the search field, so without these the shortcut\n * row printed under the header described keys that could not be pressed: Escape had\n * to give back one step (clear the query) before it gives up the dialog, and ArrowDown\n * is how the caret walks out of the field and into the grid.\n */",
     "/**\n * Move the ring onto one card and bring it into view.\n *\n * The card owns the DOM focus itself: it focuses its own use button whenever the ring\n * lands on it, which is what makes Enter work after an arrow.\n */",
+    "/** Keyboard parity with dragging: Shift+Arrow moves the focused card. */",
+    "/**\n * Shift+Arrow is the keyboard version of dragging a card: up and down reorder inside\n * the category, left and right move it to the neighbouring one. Without it the order a\n * mouse can change is unreachable from the keyboard.\n */",
   ]],
   ["src/client/features/templates/gallery-modals.tsx", [
     "// Reading the whole file into a string first, so an oversized drop fails",
@@ -684,10 +695,13 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/gallery-persist.ts", [
     "/** localStorage is shared and hand-editable, so a malformed entry falls back rather than throws. */",
-    "/**\n * Tags are typed as one comma-separated line. The full-width comma is what a\n * Chinese keyboard produces, and a run of whitespace counts as a separator so\n * `daily  reading` does not become one tag.\n */",
+    "/**\n * What the gallery remembers between visits. The search text is deliberately not\n * part of it: a shared browser would otherwise keep whatever the last person typed,\n * and a template search is a lookup, not a preference.\n */",
+    "/**\n * Tags are typed as one line, so every separator the app already accepts counts here:\n * both commas, the ideographic comma a Chinese keyboard produces, and a run of\n * whitespace — so `daily  reading` does not become one tag.\n */",
   ]],
   ["src/client/features/templates/gallery-state.ts", [
     "/**\n * The filter and selection are remembered between visits, but the search box is\n * typed one character at a time, so the write is deferred: persisting per\n * keystroke put a synchronous localStorage flush in front of every repaint.\n */",
+    "// Preferences, not data: a filter change dropped in the last debounce window costs",
+    "// the next visit its remembered view, and nothing the user authored with it.",
   ]],
   ["src/client/features/templates/template-card.tsx", [
     "/**\n * The whole card is one button, so a click anywhere on it uses the template.\n * The title row, description, tags and footer are painted above that button on\n * the z-axis to stay readable, which would otherwise let them swallow the\n * click exactly where the \"use this template\" hint is drawn — so every one of\n * them is transparent to the pointer, and only the tool buttons opt back in.\n */",
@@ -3999,6 +4013,8 @@ const allowed = new Map([
     "/**\n * Parses and validates an exported template library. Returns a null `data` when\n * the payload is not a well-formed export; malformed entries are dropped\n * individually so a partially broken file can still be imported.\n */",
     "/** Validates one entry and clamps its fields; returns null when it is unusable. */",
     "/**\n   * Ceiling on the combined body size of one import. The per-entry cap alone\n   * would let a file of 2000 full-size templates ask the browser to store 128 MB\n   * under a single IndexedDB key.\n   */",
+    "/** A hand-edited export can claim any date; the gallery prints it, so it gets a sane range. */",
+    "/**\n * The id character set the app itself generates (`tpl-`/`cat-` plus a base32 tail)\n * and nothing wider: an id becomes a `data-template-id` attribute, a CSS selector\n * and a map key, so a newline or a quote in an imported id is a bug waiting in the\n * gallery rather than data worth keeping.\n */",
   ]],
   ["src/shared/organizer-colors.ts", [
     "// Both the console and the MCP tools store icons truncated, so the limit lives",

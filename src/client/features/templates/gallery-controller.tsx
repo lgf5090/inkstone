@@ -1,5 +1,6 @@
 import { Copy, Download, FilePlus2, Upload } from 'lucide-react'
 import type { MenuItem } from '../../components/overlay'
+import { useNoteTemplates } from '../../store/note-templates'
 import { useSession } from '../../store/session'
 import { t } from '../../lib/i18n'
 import { copyTemplateLibraryJson, exportTemplateLibrary } from './gallery-export'
@@ -7,6 +8,7 @@ import { useGalleryKeyboard } from './gallery-keyboard'
 import { useGalleryLocalState, useGalleryStoreState, useGalleryEffects, useGalleryCommunity } from './gallery-state'
 import { useGalleryDerived } from './gallery-derived'
 import {
+  reorderTarget,
   useGalleryBatchActions,
   useGalleryCommunityActions,
   useGalleryDragActions,
@@ -67,6 +69,13 @@ export function useGalleryController({ onClose }: { onClose: () => void }) {
     gridRef: state.gridRef,
     toggleSelect: selectActions.toggleSelect,
     setFocusedId: state.setFocusedId,
+    reorder: (direction) => {
+      const target = reorderTarget(store.templates, store.categories, state.focusedId, direction)
+      if (!target) return
+      useNoteTemplates.getState().placeTemplate(target.id, target.categoryId, target.index)
+      const moved = useNoteTemplates.getState().templates.find((item) => item.id === target.id)
+      if (moved) state.setFocusedId(moved.id)
+    },
   })
   return {
     state,

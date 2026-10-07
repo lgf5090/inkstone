@@ -148,9 +148,9 @@ describe('parseTemplateLibraryExport', () => {
     expect(parsed.data?.templates[0]).toMatchObject({ isPinned: false, isStarred: false })
   })
 
-  it('clamps an over-long name, description, id and body', () => {
+  it('clamps an over-long name, description and body', () => {
     const parsed = parseTemplateLibraryExport(exportJson({
-      templates: [template('x'.repeat(500), {
+      templates: [template('tpl-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', {
         name: 'n'.repeat(500),
         description: 'd'.repeat(500),
         content: 'c'.repeat(TEMPLATE_IMPORT_LIMITS.maxContentLength + 10),
@@ -158,11 +158,29 @@ describe('parseTemplateLibraryExport', () => {
       })],
     }))
     const [only] = parsed.data!.templates
-    expect(only.id).toHaveLength(TEMPLATE_IMPORT_LIMITS.maxIdLength)
+    expect(only.id).toHaveLength(36)
     expect(only.name).toHaveLength(TEMPLATE_IMPORT_LIMITS.maxNameLength)
     expect(only.description).toHaveLength(TEMPLATE_IMPORT_LIMITS.maxDescriptionLength)
     expect(only.content).toHaveLength(TEMPLATE_IMPORT_LIMITS.maxContentLength)
     expect(only.tags[0]).toHaveLength(TEMPLATE_IMPORT_LIMITS.maxTagLength)
+  })
+
+  it('refuses an id that could only misbehave as an attribute or a selector', () => {
+    for (const bad of ['x'.repeat(500), 'has space', 'UPPER', 'quote"id', 'line\nbreak', '']) {
+      const parsed = parseTemplateLibraryExport(exportJson({ templates: [template(bad)] }))
+      expect(parsed.data?.templates ?? [], bad).toHaveLength(0)
+      expect(parsed.dropped, bad).toBe(1)
+    }
+  })
+
+  it('refuses a category whose id breaks the charset, and its templates with it', () => {
+    const parsed = parseTemplateLibraryExport(exportJson({
+      categories: [{ id: 'bad id', name: 'Bad', builtin: false, position: 0, createdAt: 1 }],
+      templates: [template('tpl-ok', { categoryId: 'bad id' })],
+    }))
+    expect(parsed.data?.categories ?? []).toHaveLength(0)
+    expect(parsed.data?.templates ?? []).toHaveLength(1)
+    expect(parsed.data?.templates[0]?.categoryId).toBe(null)
   })
 
   it('truncates the entry counts and says so', () => {
@@ -196,5 +214,27 @@ describe('parseTemplateLibraryExport', () => {
   it('refuses a payload past the text ceiling before parsing it', () => {
     const huge = `${'x'.repeat(TEMPLATE_IMPORT_LIMITS.maxTextLength)}"`
     expect(parseTemplateLibraryExport(huge).data).toBe(null)
+  })
+})
+
+describe('the exported stamp', () => {
+  function withExportedAt(exportedAt: unknown) {
+    const base = parseTemplateLibraryExport(JSON.stringify({
+      app: 'inkstone',
+      kind: 'template-library',
+      version: 1,
+      exportedAt,
+      categories: [],
+      templates: [],
+    }))
+    return base.data?.exportedAt
+  }
+
+  it('keeps a sane stamp and clamps a wild one', () => {
+    expect(withExportedAt(1_700_000_000_000)).toBe(1_700_000_000_000)
+    expect(withExportedAt(1e18)).toBeLessThan(Date.UTC(2101, 0, 1))
+    expect(withExportedAt(-9e15)).toBe(0)
+    expect(withExportedAt('soon')).toBeGreaterThan(0)
+    expect(withExportedAt(Number.NaN)).toBeGreaterThan(0)
   })
 })

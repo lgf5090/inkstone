@@ -643,3 +643,29 @@ describe('undoing a destructive action', () => {
     expect(fresh().templates).toHaveLength(before)
   })
 })
+
+describe('language switch refreshes the pristine built-ins', () => {
+  it('renames and re-bodies the untouched built-ins, and never a customized copy', async () => {
+    const { setLocaleAsync, getLocale } = await import('../lib/i18n')
+    const starting = getLocale()
+    const bullet = BUILTIN_TEMPLATE_DEFS[0]
+    const pristine = fresh().templates.find((item) => item.id === bullet.id)!
+    const customized = fresh().createTemplate({ name: 'Mine', content: 'x' })!
+    useNoteTemplates.getState().updateTemplate(customized, { name: 'My own words' })
+    useNoteTemplates.getState().toggleTemplateStar(pristine.id)
+
+    await setLocaleAsync(starting === 'zh-CN' ? 'en-US' : 'zh-CN', false)
+    try {
+      useNoteTemplates.setState({ hydrated: false })
+      await fresh().hydrate('user-a')
+      const renamed = fresh().templates.find((item) => item.id === bullet.id)!
+      const other = t(BUILTIN_TEMPLATE_DEFS[0].nameKey)
+      expect(renamed.name).toBe(other)
+      expect(renamed.isStarred).toBe(true)
+      expect(renamed.content).not.toBe('')
+      expect(fresh().templates.find((item) => item.id === customized)?.name).toBe('My own words')
+    } finally {
+      await setLocaleAsync(starting, false)
+    }
+  })
+})

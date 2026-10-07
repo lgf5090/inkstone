@@ -177,9 +177,13 @@ export function ImportTemplatesModal({ onClose }: {
       return
     }
     const { imported, skipped } = useNoteTemplates.getState().importTemplates(parsed.data)
-    const failed = parsed.dropped + skipped
     useUi.getState().toast({
-      title: t('templates.imported_value0_skipped_value1', { value0: imported, value1: failed }),
+      title: t('templates.import_summary_value0_dup_value1_bad_value2', {
+        value0: imported,
+        value1: skipped,
+        value2: parsed.dropped,
+      }),
+      description: parsed.truncated ? t('templates.import_fields_truncated') : undefined,
       tone: imported ? 'success' : 'danger',
     })
     onClose()

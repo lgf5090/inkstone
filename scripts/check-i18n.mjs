@@ -97,6 +97,11 @@ const allowedHanFragments = new Map([
         '\u6bcf\u65e5',
         '\u6bcf\u65e5',
     ]],
+    [path.resolve('src/client/features/templates/gallery-persist.test.ts'), [
+        // The separators a Chinese keyboard produces are the thing under test.
+        '\uFF0C',
+        '\u3001',
+    ]],
     [path.resolve('src/shared/note-template-render.test.ts'), [
         '\u6bcf\u65e5',
         '\u6bcf\u65e5',

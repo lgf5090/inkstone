@@ -25,6 +25,8 @@ interface GalleryKeyboardDeps {
   gridRef: RefObject<HTMLDivElement | null>
   toggleSelect: (id: string) => void
   setFocusedId: (id: string | null) => void
+  /** Keyboard parity with dragging: Shift+Arrow moves the focused card. */
+  reorder: (direction: 'up' | 'down' | 'left' | 'right') => void
 }
 
 function activeTemplateId(deps: Pick<GalleryKeyboardDeps, 'focusedId'>): string | null | undefined {
@@ -158,10 +160,26 @@ function handleGallerySearchKeys(deps: GalleryKeyboardDeps, event: KeyboardEvent
   return false
 }
 
+/**
+ * Shift+Arrow is the keyboard version of dragging a card: up and down reorder inside
+ * the category, left and right move it to the neighbouring one. Without it the order a
+ * mouse can change is unreachable from the keyboard.
+ */
+function handleGalleryReorder(deps: GalleryKeyboardDeps, event: KeyboardEvent): boolean {
+  if (!event.shiftKey || deps.selectMode) return false
+  const direction = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const
+  const key = direction[event.key as keyof typeof direction]
+  if (!key) return false
+  event.preventDefault()
+  deps.reorder(key)
+  return true
+}
+
 export function useGalleryKeyboard(deps: GalleryKeyboardDeps): (event: KeyboardEvent) => void {
   return (event) => {
     if (handleGallerySearchKeys(deps, event)) return
     if (galleryKeyGuard(deps, event)) return
+    if (handleGalleryReorder(deps, event)) return
     if (handleGalleryModifiers(deps, event)) return
     handleGalleryArrows(deps, event)
   }

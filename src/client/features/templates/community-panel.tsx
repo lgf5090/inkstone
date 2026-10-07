@@ -1,24 +1,30 @@
-import { useMemo } from 'react'
-import { Download, FilePlus2, Globe, RotateCw, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, Download, FilePlus2, Globe, RotateCw, Trash2 } from 'lucide-react'
 import type { CommunityTemplate } from '@shared/types'
 import { Button, IconButton } from '../../components/primitives'
+import { Segmented } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
-import { templateMatchesQuery } from './gallery-derived'
+import { sortCommunityItems, templateMatchesQuery, type CommunitySort } from './gallery-derived'
 
-export function CommunityPanel({ items, query, loading, isError, myId, onRefresh, onUse, onImport, onUnpublish }: {
+export function CommunityPanel({ items, query, loading, isError, hasMore, myId, onRefresh, onLoadMore, onUse, onImport, onUnpublish }: {
   items: CommunityTemplate[]
   query: string
   loading: boolean
   isError: boolean
+  hasMore: boolean
   myId: string | undefined
   onRefresh: () => void
+  onLoadMore: () => void
   onUse: (item: CommunityTemplate) => void
   onImport: (item: CommunityTemplate) => void
   onUnpublish: (item: CommunityTemplate) => void
 }) {
   useLocale()
-  const visible = useMemo(() => items.filter((item) => templateMatchesQuery(item, query)), [items, query])
+  const [sort, setSort] = useState<CommunitySort>('newest')
+  const [mineOnly, setMineOnly] = useState(false)
+  const scoped = useMemo(() => (mineOnly && myId ? items.filter((item) => item.authorId === myId) : items), [items, mineOnly, myId])
+  const visible = useMemo(() => sortCommunityItems(scoped.filter((item) => templateMatchesQuery(item, query)), sort), [scoped, query, sort])
   const searching = query.trim() !== ''
   if (loading && items.length === 0)
     return (<div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>
@@ -39,6 +45,7 @@ export function CommunityPanel({ items, query, loading, isError, myId, onRefresh
       <p className='text-[11.5px] text-[var(--text-quaternary)]'>
         {searching ? t('templates.no_templates_hint') : t('templates.community_empty_hint')}
       </p>
+      {searching && hasMore && (<Button size='sm' variant='secondary' disabled={loading} icon={<RotateCw size={13}/>} onClick={onLoadMore}>{t('templates.community_load_more')}</Button>)}
     </div>)
   return (<div className='space-y-2.5'>
     <div className='flex items-center justify-between gap-2'>
@@ -49,9 +56,31 @@ export function CommunityPanel({ items, query, loading, isError, myId, onRefresh
       </p>
       <Button size='sm' variant='ghost' icon={<RotateCw size={13}/>} disabled={loading} onClick={onRefresh}>{t('common.refresh')}</Button>
     </div>
+    <div className='flex flex-wrap items-center justify-between gap-2'>
+      <Segmented
+        size='sm'
+        label={t('templates.community_sort_label')}
+        value={sort}
+        onChange={setSort}
+        options={[
+          { value: 'newest', label: t('templates.community_sort_newest') },
+          { value: 'name', label: t('templates.community_sort_name') },
+          { value: 'author', label: t('templates.community_sort_author') },
+        ]}/>
+      {myId && items.some((item) => item.authorId === myId) && (<Button
+        size='sm'
+        variant={mineOnly ? 'primary' : 'ghost'}
+        aria-pressed={mineOnly}
+        onClick={() => setMineOnly((current) => !current)}>
+        {t('templates.community_only_mine')}
+      </Button>)}
+    </div>
     <div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'>
       {visible.map((item) => (<CommunityCard key={item.id} item={item} mine={item.authorId === myId} onUse={() => onUse(item)} onImport={() => onImport(item)} onUnpublish={() => onUnpublish(item)}/>))}
     </div>
+    {hasMore && (<Button size='sm' variant='secondary' block loading={loading} icon={<ChevronDown size={13}/>} disabled={loading} onClick={onLoadMore}>
+      {t('templates.community_load_more')}
+    </Button>)}
   </div>)
 }
 

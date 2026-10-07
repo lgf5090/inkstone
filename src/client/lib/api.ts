@@ -461,9 +461,9 @@ export const api = {
   },
 
   communityTemplates: {
-    list: (before?: string) =>
+    list: (before?: string, limit = 50) =>
       request<{ templates: CommunityTemplate[]; hasMore: boolean; nextCursor: string | null }>(
-        `/api/templates/community${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+        `/api/templates/community?limit=${encodeURIComponent(String(limit))}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
       ),
     publish: (body: CommunityTemplateInput) =>
       request<{ template: CommunityTemplate }>('/api/templates/community', { method: 'POST', body }),

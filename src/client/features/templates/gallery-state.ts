@@ -12,7 +12,7 @@ export function useGalleryLocalState({ onClose }: { onClose: () => void }) {
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const [persisted] = useState(loadGalleryPersist)
   const [filter, setFilter] = useState<GalleryFilter>(persisted.filter)
-  const [query, setQuery] = useState(persisted.query)
+  const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<NoteTemplate | 'new' | null>(null)
   const [renaming, setRenaming] = useState<NoteTemplate | null>(null)
   const [moving, setMoving] = useState<NoteTemplate | null>(null)
@@ -122,13 +122,15 @@ const PERSIST_DEBOUNCE_MS = 300
  * keystroke put a synchronous localStorage flush in front of every repaint.
  */
 export function useGalleryEffects(state: GalleryLocalState, store: ReturnType<typeof useGalleryStoreState>) {
-  const { filter, query, selectMode, setFilter } = state
+  const { filter, selectMode, setFilter } = state
+  // Preferences, not data: a filter change dropped in the last debounce window costs
+  // the next visit its remembered view, and nothing the user authored with it.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      localStorage.setItem(GALLERY_PERSIST_KEY, JSON.stringify({ filter, query, selectMode } satisfies GalleryPersistedState))
+      localStorage.setItem(GALLERY_PERSIST_KEY, JSON.stringify({ filter, selectMode } satisfies GalleryPersistedState))
     }, PERSIST_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [filter, query, selectMode])
+  }, [filter, selectMode])
   useEffect(() => {
     if (!store.hydrated) return
     setFilter((current) => {
@@ -141,29 +143,27 @@ export function useGalleryEffects(state: GalleryLocalState, store: ReturnType<ty
   }, [store.categories, store.hydrated, store.templates, setFilter])
 }
 
-const MAX_COMMUNITY_PAGES = 20
+const COMMUNITY_PAGE_SIZE = 50
 
 export function useGalleryCommunity(filter: GalleryFilter) {
   const [community, setCommunity] = useState<CommunityTemplate[]>([])
   const [isCommunityLoading, setIsCommunityLoading] = useState(false)
   const [isCommunityError, setIsCommunityError] = useState(false)
+  const [hasMoreCommunity, setHasMoreCommunity] = useState(false)
   const communityLoadedRef = useRef(false)
   const requestRef = useRef(0)
-  const refreshCommunity = useCallback(async () => {
+  const cursorRef = useRef<string | null>(null)
+  const fetchPage = useCallback(async (cursor: string | undefined, append: boolean) => {
     const request = ++requestRef.current
     setIsCommunityLoading(true)
     setIsCommunityError(false)
     try {
-      const collected: CommunityTemplate[] = []
-      let cursor: string | null = null
-      for (let page = 0; page < MAX_COMMUNITY_PAGES; page++) {
-        const res = await api.communityTemplates.list(cursor ?? undefined)
-        collected.push(...res.templates)
-        if (!res.hasMore || !res.nextCursor) break
-        cursor = res.nextCursor
-      }
+      const res = await api.communityTemplates.list(cursor, COMMUNITY_PAGE_SIZE)
       if (request !== requestRef.current) return
-      setCommunity(collected)
+      if (append) setCommunity((current) => [...current, ...res.templates])
+      else setCommunity(res.templates)
+      cursorRef.current = res.nextCursor
+      setHasMoreCommunity(Boolean(res.hasMore && res.nextCursor))
     }
     catch {
       if (request !== requestRef.current) return
@@ -173,10 +173,23 @@ export function useGalleryCommunity(filter: GalleryFilter) {
       if (request === requestRef.current) setIsCommunityLoading(false)
     }
   }, [])
+  const refreshCommunity = useCallback(() => fetchPage(undefined, false), [fetchPage])
+  const loadMoreCommunity = useCallback(() => {
+    if (!cursorRef.current) return Promise.resolve()
+    return fetchPage(cursorRef.current, true)
+  }, [fetchPage])
   useEffect(() => {
     if (filter.kind !== 'community' || communityLoadedRef.current) return
     communityLoadedRef.current = true
     void refreshCommunity()
   }, [filter.kind, refreshCommunity])
-  return { community, setCommunity, isCommunityLoading, isCommunityError, refreshCommunity }
+  return {
+    community,
+    setCommunity,
+    isCommunityLoading,
+    isCommunityError,
+    hasMoreCommunity,
+    refreshCommunity,
+    loadMoreCommunity,
+  }
 }
