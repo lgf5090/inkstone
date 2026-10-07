@@ -7,9 +7,12 @@ import {
   dropSlideControls,
   markSlideFailed,
   readSlideHtml,
+  readSlidePlan,
   rememberSlideHtml,
   rememberSlidePlan,
+  releaseSlideCache,
   reserveSlideCache,
+  slideCacheMetrics,
   slideSettingFlags,
   stagedFor,
   type SlideMarkup,
@@ -73,6 +76,12 @@ describe('dropSlideControls', () => {
     const html = '<div data-mindmap="1" data-body-key="board-a">waiting</div>'
     expect(dropSlideControls(html)).toContain('data-body-key="board-a"')
     expect(dropSlideControls(html)).toContain('waiting')
+  })
+
+  it('reads a class rule on the tag the selector named, not on every element wearing it', () => {
+    const out = parse(dropSlideControls('<a class="heading-anchor">press</a><span class="heading-anchor">kept</span>'))
+    expect(out.querySelectorAll('a.heading-anchor')).toHaveLength(0)
+    expect(out.textContent).toContain('kept')
   })
 })
 
@@ -183,5 +192,56 @@ describe('markSlideFailed', () => {
     clearSlideHtmlCache()
     expect(() => markSlideFailed('absent', 'mdc')).not.toThrow()
     expect(readSlideHtml('absent')).toBeUndefined()
+  })
+})
+
+describe('what the page cache may hold', () => {
+  const filler = (chars: number) => 'x'.repeat(chars)
+
+  it('refuses to raise the ceiling past the cap for an enormous deck', () => {
+    clearSlideHtmlCache()
+    reserveSlideCache(5000)
+    expect(slideCacheMetrics().limit).toBeLessThanOrEqual(600)
+    for (let index = 0; index < 700; index++) rememberSlideHtml(`c${index}`, markupOf(`<p>${index}</p>`))
+    expect(readSlideHtml('c0')).toBeUndefined()
+    expect(readSlideHtml('c699')?.html).toBe('<p>699</p>')
+  })
+
+  it('gives pages back once the byte budget is spent, oldest first', () => {
+    clearSlideHtmlCache()
+    reserveSlideCache(600)
+    for (let index = 0; index < 6; index++) rememberSlideHtml(`b${index}`, markupOf(filler(2_500_000)))
+    const metrics = slideCacheMetrics()
+    expect(metrics.bytes).toBeLessThanOrEqual(24 * 1024 * 1024)
+    expect(metrics.pages).toBeLessThan(6)
+    expect(readSlideHtml('b0')).toBeUndefined()
+    expect(readSlideHtml('b5')?.html.length).toBe(2_500_000)
+  })
+
+  it('keeps the newest page when that page alone is over budget', () => {
+    clearSlideHtmlCache()
+    rememberSlideHtml('huge', markupOf(filler(13_000_000)))
+    expect(slideCacheMetrics().pages).toBe(1)
+  })
+
+  it('counts a page once, however many times it was written back', () => {
+    clearSlideHtmlCache()
+    const page = markupOf(filler(1_000_000))
+    rememberSlideHtml('k', page)
+    const once = slideCacheMetrics().bytes
+    rememberSlideHtml('k', page)
+    rememberSlideHtml('k', page)
+    expect(slideCacheMetrics().bytes).toBe(once)
+  })
+
+  it('gives the whole deck back on request, plans included', () => {
+    clearSlideHtmlCache()
+    reserveSlideCache(300)
+    rememberSlideHtml('r1', markupOf('<p>1</p>'))
+    rememberSlidePlan('r1', planOf(0))
+    releaseSlideCache()
+    expect(readSlideHtml('r1')).toBeUndefined()
+    expect(readSlidePlan('r1')).toBeUndefined()
+    expect(slideCacheMetrics()).toEqual({ pages: 0, bytes: 0, limit: 60 })
   })
 })

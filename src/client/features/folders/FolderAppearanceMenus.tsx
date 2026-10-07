@@ -3,6 +3,7 @@ import { Check, FolderClosed, Search, Settings2 } from 'lucide-react';
 import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
 import { t, useLocale } from '../../lib/i18n';
+import { usePinyinVersion } from '../../lib/pinyin';
 import {
     ICON_MAX_CODE_UNITS,
     EMOJI_ICON_CATEGORIES,
@@ -120,6 +121,7 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
 }) {
     const [query, setQuery] = useState('');
     const locale = useLocale();
+    const pinyinVersion = usePinyinVersion();
     const { recentIcons } = useFolderPreferences();
     const trimmed = query.trim();
     const typed = useMemo(() => firstGrapheme(query), [query]);
@@ -145,7 +147,7 @@ export function FolderIconMenu({ icon, onSelectIcon }: {
         for (const entry of searchEmoji(trimmed))
             found.set(entry.char, entry);
         return [...found.values()].slice(0, ICON_RESULT_LIMIT);
-    }, [trimmed, locale]);
+    }, [trimmed, locale, pinyinVersion]);
     const pick = (char: string) => {
         pushRecentIcon(char);
         onSelectIcon(char);

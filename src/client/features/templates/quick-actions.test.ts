@@ -73,10 +73,16 @@ async function render(props: Parameters<typeof TemplateQuickActions>[0] = {}) {
   })
 }
 
-async function click(node: Element | undefined) {
+async function click(node: Element | undefined, type = 'click') {
   expect(node, 'the trigger to click is missing').toBeDefined()
   await act(async () => {
-    node?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    const init: MouseEventInit = { bubbles: true, cancelable: true }
+    if (type === 'pointerenter') {
+      // React derives onPointerEnter from the bubbled pointerover, so drive that.
+      node?.dispatchEvent(new PointerEvent('pointerover', { ...init, pointerId: 1 } as PointerEventInit))
+    } else {
+      node?.dispatchEvent(type === 'pointerdown' ? new PointerEvent('pointerdown', init) : new MouseEvent(type, init))
+    }
     await Promise.resolve()
   })
 }
@@ -167,11 +173,82 @@ describe('the template quick actions', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it('reads the library for the signed-in account, so the menu works before the gallery is opened', async () => {
+  it('waits for intent or idle before reading the library, then reads it for the signed-in account', async () => {
     const hydrate = vi.fn(async () => {})
     useNoteTemplates.setState({ hydrated: false, owner: null, hydrate } as never)
     useSession.setState({ user: { id: 'u-9', name: 'me' } as unknown as PublicUser } as never)
     await render()
+    expect(hydrate, 'boot must not pay for a library the visitor may never open').not.toHaveBeenCalled()
+    await click(buttonNamed(t('templates.new_note_from_favorites')), 'pointerdown')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     expect(hydrate).toHaveBeenCalledWith('u-9')
+  })
+
+  it('hovering the favorites button is enough intent to read the library', async () => {
+    const hydrate = vi.fn(async () => {})
+    useNoteTemplates.setState({ hydrated: false, owner: null, hydrate } as never)
+    useSession.setState({ user: { id: 'u-9', name: 'me' } as unknown as PublicUser } as never)
+    await render()
+    expect(hydrate).not.toHaveBeenCalled()
+    await click(buttonNamed(t('templates.new_note_from_favorites')), 'pointerenter')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(hydrate).toHaveBeenCalledWith('u-9')
+  })
+
+  it('arms the read from requestIdleCallback when the browser offers one', async () => {
+    let idleCallback: (() => void) | null = null
+    const win = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }
+    const timerFallback = vi.spyOn(window, 'setTimeout')
+    win.requestIdleCallback = (cb) => {
+      idleCallback = cb
+      return 7
+    }
+    const hydrate = vi.fn(async () => {})
+    useNoteTemplates.setState({ hydrated: false, owner: null, hydrate } as never)
+    useSession.setState({ user: { id: 'u-9', name: 'me' } as unknown as PublicUser } as never)
+    await render()
+    expect(idleCallback, 'the component must register an idle callback, not only a timer').toBeTypeOf('function')
+    expect(timerFallback.mock.calls.filter((call) => typeof call[1] === 'number' && call[1] >= 1000)).toEqual([])
+    expect(hydrate).not.toHaveBeenCalled()
+    await act(async () => {
+      idleCallback?.()
+      await Promise.resolve()
+    })
+    expect(hydrate).toHaveBeenCalledWith('u-9')
+    delete win.requestIdleCallback
+    vi.restoreAllMocks()
+  })
+
+  it('says the library is still being read instead of claiming nothing is starred', async () => {
+    useNoteTemplates.setState({ hydrated: false, templates: [] } as never)
+    await render()
+    await click(buttonNamed(t('templates.new_note_from_favorites')))
+    const items = menuItems()
+    expect(items.length).toBe(1)
+    expect(items[0].disabled).toBe(true)
+    expect(items[0].textContent?.trim()).toBe(t('templates.favorites_loading'))
+  })
+
+  it('reads the library on its own once the page goes idle', async () => {
+    vi.useFakeTimers()
+    try {
+      const hydrate = vi.fn(async () => {})
+      useNoteTemplates.setState({ hydrated: false, owner: null, hydrate } as never)
+      useSession.setState({ user: { id: 'u-9', name: 'me' } as unknown as PublicUser } as never)
+      await act(async () => {
+        root.render(createElement(TemplateQuickActions, {}))
+      })
+      expect(hydrate).not.toHaveBeenCalled()
+      await act(async () => {
+        vi.advanceTimersByTime(1600)
+      })
+      expect(hydrate).toHaveBeenCalledWith('u-9')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

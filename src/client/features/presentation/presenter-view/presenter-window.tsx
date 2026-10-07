@@ -7,8 +7,8 @@ import { Tooltip } from '../../../components/overlay'
 import { PresenterSlidePreview } from './presenter-slide-preview'
 import { formatDeckPosition, type DeckPosition } from '../deck-position'
 import { hasBackwardMove, hasForwardMove } from '../presentation-state'
-import { PresenterNextSlidePane, PresenterSpeakerNotesPane } from './presenter-panes'
-import { usePresenterTimer } from './use-presenter-timer'
+import { PresenterNextSlidePane, PresenterOutlinePane, PresenterSpeakerNotesPane } from './presenter-panes'
+import { usePresenterTimer, useSlideTimings, type SlideTimings } from './use-presenter-timer'
 import {
   formatClock,
   formatElapsed,
@@ -45,7 +45,14 @@ export function PresenterWindow({ initialState, onCommand }: PresenterWindowProp
     <div className='flex h-screen flex-col overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)] select-none'>
       <PresenterHeader state={state} connected={connected} sendCommand={sendCommand} />
       <div className='flex min-h-0 flex-1 gap-[var(--sp-3)] p-[var(--sp-3)]'>
-        <PresenterCurrentSlidePane state={state} />
+        {/* The page on screen and what the speaker has to say about it share a column: the notes are read
+            while the slide is up, so they belong under the slide the eye is already on rather than across
+            the window from it (PR-M14). The freed column holds what comes next and the whole deck by name,
+            which is where "go back to the numbers slide" stops being a hunt. */}
+        <div className='flex flex-[3] min-w-0 flex-col gap-[var(--sp-3)]'>
+          <PresenterCurrentSlidePane state={state} />
+          <PresenterSpeakerNotesPane notes={state.notes} slideIndex={state.slideIndex} onEdit={(slide, text) => sendCommand({ editNotes: { slide, text } })} />
+        </div>
         <div className='flex flex-[2] min-w-0 flex-col gap-[var(--sp-3)]'>
           <PresenterNextSlidePane
             nextSource={state.nextSlideSource}
@@ -55,7 +62,7 @@ export function PresenterWindow({ initialState, onCommand }: PresenterWindowProp
             nextStep={state.nextStep}
             font={state.proseFont}
           />
-          <PresenterSpeakerNotesPane notes={state.notes} />
+          <PresenterOutlinePane titles={state.slideTitles} slideIndex={state.slideIndex} onJump={(index) => sendCommand({ jump: index })} />
         </div>
       </div>
     </div>
@@ -70,7 +77,7 @@ function presenterDeckPosition(state: PresenterSlideState): DeckPosition {
 
 function PresenterCurrentSlidePane({ state }: { state: PresenterSlideState }) {
   return (
-    <div data-presenter-current-pane className='flex flex-[3] min-w-0 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
+    <div data-presenter-current-pane className='flex flex-[1.7] min-h-0 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
       <div className='flex items-center justify-between border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)] text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]'>
         <span>{t('workspace.presentation_current_slide')}</span>
         <span data-presenter-position className='tabular text-[var(--text-tertiary)]'>{formatDeckPosition(presenterDeckPosition(state))}</span>
@@ -102,6 +109,7 @@ function PresenterHeader({
   // The show ending is heard as the channel closing, not as a final message: the last page the room
   // saw stays on screen as a record, and so does the time it took (L-6).
   const timer = usePresenterTimer(state.startedAt, !connected)
+  const timings = useSlideTimings(state.slideIndex, timer.elapsedSeconds)
 
   return (
     <header className='flex h-[var(--sp-12)] shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-[var(--sp-4)]'>
@@ -115,7 +123,7 @@ function PresenterHeader({
         <ConnectionBadge connected={connected} />
       </div>
 
-      <PresenterHeaderTimer timer={timer} clock={clock} frozen={!connected} />
+      <PresenterHeaderTimer timer={timer} clock={clock} frozen={!connected} timings={timings} />
       <PresenterHeaderStepper state={state} sendCommand={sendCommand} />
     </header>
   )
@@ -125,16 +133,35 @@ function PresenterHeaderTimer({
   timer,
   clock,
   frozen,
+  timings,
 }: {
   timer: ReturnType<typeof usePresenterTimer>
   clock: string
   frozen: boolean
+  timings: SlideTimings
 }) {
   return (
     <div className='flex items-center gap-[var(--sp-4)]'>
       <div className='flex items-center gap-[var(--sp-2)]'>
-        <span data-presenter-clock className='tabular font-mono text-[length:var(--text-16)] font-semibold text-[var(--accent)]'>
+        {/* The accent is the one colour on this bar that means "look, something is off": a running
+            clock is the normal state of a talk and painting it in it reads as overtime (PR-L4).
+            It goes loud only when the timer is paused, and quiet once the show is over. */}
+        <span
+          data-presenter-clock
+          className={cn(
+            'tabular font-mono text-[length:var(--text-16)] font-semibold',
+            frozen ? 'text-[var(--text-tertiary)]' : timer.isPaused ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]',
+          )}
+        >
           {formatElapsed(timer.elapsedSeconds)}
+        </span>
+        {/* The number a rehearsal is actually about: not how long the talk has been running, but how
+            long this page has held the room — and, once the show is over, what the whole run cost
+            across how many pages (PR-M9). */}
+        <span data-presenter-slide-timing className='tabular text-[length:var(--text-12)] text-[var(--text-tertiary)]'>
+          {frozen
+            ? t('workspace.presentation_rehearsal_summary', { value0: timings.visited, value1: formatElapsed(timer.elapsedSeconds) })
+            : t('workspace.presentation_slide_elapsed', { value0: formatElapsed(timings.currentSeconds) })}
         </span>
         <Tooltip label={timer.isPaused ? t('workspace.presentation_timer_resume') : t('workspace.presentation_timer_pause')}>
           <IconButton

@@ -26,6 +26,7 @@ import { createPortal } from 'react-dom';
 import { popoverPosition, type AnchorRect } from './outline-float';
 import { cn } from '../../lib/cn';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
+import { usePinyinVersion } from '../../lib/pinyin'
 import {
     changeHeadingLevel,
     changeSectionLevels,
@@ -327,7 +328,8 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
 
     const hidden = useMemo(() => computeHiddenByCollapse(tree, collapsed), [tree, collapsed]);
     const searching = query.trim().length > 0;
-    const filter = useMemo(() => filterTree(tree, query, useRegex), [tree, query, useRegex]);
+    const pinyinVersion = usePinyinVersion()
+    const filter = useMemo(() => filterTree(tree, query, useRegex), [tree, query, useRegex, pinyinVersion]);
     const drawn = tree.filter((_, index) => filter.visible[index] !== false && (searching || hidden[index] !== true));
 
     const locatedSlug = useMemo(() => {

@@ -272,3 +272,23 @@ describe('SlideOverviewGrid — taking a page', () => {
     view.unmount()
   })
 })
+
+// PR-M2: a seven-page deck used to sit in one row at the top of a screen that was otherwise empty,
+// which reads as a broken layout rather than as seven pages, and nothing on the layer said what it
+// was or how to leave it.
+describe('SlideOverviewGrid — what the layer says about itself', () => {
+  it('names how many pages are laid out, in the header the matrix needs', () => {
+    const view = renderElement(createElement(SlideOverviewGrid, gridProps()))
+    const header = view.container.querySelector('[data-presentation-overview] p')
+    expect(header?.textContent).toContain('3')
+    view.unmount()
+  })
+
+  it('centers the matrix in the room it has instead of parking it at the top', () => {
+    const view = renderElement(createElement(SlideOverviewGrid, gridProps()))
+    const matrix = view.container.querySelector('[data-presentation-overview] .grid')
+    expect(matrix?.className).toContain('content-center')
+    expect(matrix?.className).toContain('min-h-full')
+    view.unmount()
+  })
+})

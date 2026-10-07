@@ -1,4 +1,5 @@
 import type { Heading } from '../../lib/markdown/renderer';
+import { matchesQuery } from '../../lib/fuzzy'
 
 export interface OutlineNode {
     heading: Heading;
@@ -71,8 +72,7 @@ export function computeHiddenByCollapse(tree: OutlineNode[], collapsed: Readonly
  */
 export function compileFilter(query: string, useRegex: boolean): (text: string) => boolean {
     if (!useRegex) {
-        const needle = query.toLowerCase();
-        return (text) => text.toLowerCase().includes(needle);
+        return (text) => matchesQuery(text, query);
     }
     let rule: RegExp;
     try {

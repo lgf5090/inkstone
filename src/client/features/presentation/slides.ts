@@ -370,6 +370,105 @@ export function splitIntoSlidesWithNotes(source: string): { slides: string[]; no
   return { slides, notes }
 }
 
+/**
+ * One slide's speaker note, rewritten where it is written (PR-M8).
+ *
+ * The cue lives in the note's own body, so editing it is editing the document, and the danger is the one
+ * every live-editing surface has: a change to a private line must not move the public ones. The claim is
+ * made checkable rather than argued — the rewrite is applied, the deck is split again, and unless the
+ * slide count and every slide's text come back byte-identical, nothing is returned at all. A caller told
+ * `null` says "that could not be saved" instead of quietly reprinting the talk behind the speaker.
+ */
+export function replaceSpeakerNote(source: string, slideIndex: number, text: string): string | null {
+  const before = buildDeck(source)
+  if (!Number.isInteger(slideIndex) || slideIndex < 0 || slideIndex >= before.slides.length) return null
+  const lines = source.split(/\r?\n/)
+  // The document's own line endings: a note written with CRLF keeps its CRLF rather than gaining one
+  // mixed line where the cue went in.
+  const eol = source.includes('\r\n') ? '\r\n' : '\n'
+  const starts = lineStartOffsets(lines, eol)
+  const from = lineAt(starts, before.starts[slideIndex]!)
+  const to = slideIndex + 1 < before.starts.length ? lineAt(starts, before.starts[slideIndex + 1]!) : lines.length
+  const span = lines.slice(from, to)
+  const cue = spanCueLines(span)
+  if (!cue) return null
+  const kept = span.filter((_, index) => !cue.has(index))
+  const body = text.replace(/\r\n?/g, eol).trim()
+  const content = trimTrailingBlanks(kept)
+  const hadGap = content.length < kept.length
+  const out = [...content]
+  if (body) {
+    // A comment has to start a block of its own: flush against the last line of prose it would be
+    // swallowed into that paragraph, and the slide would change shape on the projector.
+    if (out.length > 0 && out[out.length - 1]!.trim() !== '') out.push('')
+    out.push(...(body.includes('\n')
+      ? ['<!-- note:', ...body.split(eol), '-->']
+      : [`<!-- note: ${body} -->`]))
+  }
+  // One blank line at the end, if the slide had one: that is the space the separator or the next
+  // heading was sitting in, and a `---` pressed against the text above it is a heading underline.
+  if (hadGap) out.push('')
+  const joined = [...lines.slice(0, from), ...out, ...lines.slice(to)].join(eol)
+  const after = buildDeck(joined)
+  if (after.slides.length !== before.slides.length) return null
+  for (let index = 0; index < before.slides.length; index++) {
+    // Trailing blanks are not a change to a slide: they are what the spacing above moves around.
+    if (after.slides[index].replace(/\s+$/, '') !== before.slides[index].replace(/\s+$/, '')) return null
+  }
+  if (after.notes[slideIndex] !== body) return null
+  return joined
+}
+
+/** The character offset each line starts at, which is the unit `buildDeck` counts slide starts in. */
+function lineStartOffsets(lines: string[], eol: string): number[] {
+  const offsets: number[] = []
+  let at = 0
+  for (const line of lines) {
+    offsets.push(at)
+    at += line.length + eol.length
+  }
+  return offsets
+}
+
+function lineAt(offsets: number[], offset: number): number {
+  let index = 0
+  while (index + 1 < offsets.length && offsets[index + 1]! <= offset) index++
+  return index
+}
+
+function trimTrailingBlanks(lines: string[]): string[] {
+  let end = lines.length
+  while (end > 0 && lines[end - 1]!.trim() === '') end--
+  return lines.slice(0, end)
+}
+
+/**
+ * Which lines of a slide hold its cue, or `null` when the span cannot be answered with certainty: an
+ * unclosed comment has no end to cut at, and a guess there is a guess about somebody's document.
+ */
+function spanCueLines(span: string[]): Set<number> | null {
+  const found = new Set<number>()
+  let open = -1
+  for (let index = 0; index < span.length; index++) {
+    const line = span[index]
+    if (open >= 0) {
+      found.add(index)
+      if (line.includes(NOTE_END)) open = -1
+      continue
+    }
+    const opener = NOTE_OPEN.exec(line)
+    if (opener) {
+      found.add(index)
+      if (!line.slice(opener[0].length).includes(NOTE_END)) open = index
+      continue
+    }
+    // Any other comment may run over lines the way a cue does, and the only safe reading of "may" is to
+    // leave the document alone.
+    if (/^ {0,3}<!--/.test(line) && !line.includes('-->')) return null
+  }
+  return open >= 0 ? null : found
+}
+
 function readLayoutLine(text: string): SlideLayout | undefined {
   const value = LAYOUT_LINE.exec(text)?.[1]?.toLowerCase()
   return value ? LAYOUT_VALUES[value] : undefined

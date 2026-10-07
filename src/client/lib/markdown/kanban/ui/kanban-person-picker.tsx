@@ -4,6 +4,7 @@ import { useClickOutside, useEscape } from '../../../../components/overlay'
 import { t } from '../../../i18n'
 import { kanbanPersonInitials, kanbanPersonName } from '../person'
 import type { RefObject } from 'react'
+import { matchesQuery } from '../../../fuzzy'
 
 /**
  * The one way a person is drawn. The cards, the list rows and the gallery footer all showed the
@@ -31,9 +32,9 @@ interface KanbanPersonPickerProps {
 }
 
 function matches(query: string, candidates: string[]): string[] {
-  const needle = query.trim().toLowerCase()
+  const needle = query.trim()
   if (!needle) return candidates
-  return candidates.filter((name) => name.toLowerCase().includes(needle))
+  return candidates.filter((name) => matchesQuery(name, needle))
 }
 
 function canAdd(query: string, candidates: string[]): boolean {

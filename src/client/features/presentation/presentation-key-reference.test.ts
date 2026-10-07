@@ -55,6 +55,7 @@ describe('the narrow-screen door and the key reference', () => {
       'presenter',
       'laser',
       'spotlight',
+      'ink',
       'blackout',
       'whiteout',
       'follow',

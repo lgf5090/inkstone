@@ -289,8 +289,9 @@ function shouldNotifyOtherTabs(path: string): boolean {
 }
 
 
-/** What the owner's own question answers: nothing, or where the show is and how long it may run. */
-export type PresenceStatus = { running: false } | { running: true, expiresAt: number, presence: PublicSharePresence }
+/** What the owner's own question answers: nothing, or where the show is and how long it may run — and in
+ * either case how many browsers have been reading it lately (PR-M7). */
+export type PresenceStatus = { running: false, viewers: number } | { running: true, expiresAt: number, presence: PublicSharePresence, viewers: number }
 
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
@@ -558,7 +559,7 @@ export const api = {
     start: (noteId: string) =>
       request<SharePresenceSession>(`/api/share/${noteId}/present/start`, { method: 'POST', body: {} }),
     publish: (noteId: string, position: SharePresencePosition) =>
-      request<{ updatedAt: number }>(`/api/share/${noteId}/present`, { method: 'POST', body: position }),
+      request<{ updatedAt: number, viewers: number }>(`/api/share/${noteId}/present`, { method: 'POST', body: position }),
     stop: (noteId: string) =>
       request<{ stopped: true }>(`/api/share/${noteId}/present/stop`, { method: 'POST', body: {} }),
     status: (noteId: string, signal?: AbortSignal) =>

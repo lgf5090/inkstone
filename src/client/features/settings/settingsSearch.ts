@@ -1,4 +1,4 @@
-import { fuzzyMatch } from '../../lib/fuzzy'
+import { fuzzyMatch, matchesReading } from '../../lib/fuzzy'
 import { getLocale, getLocaleResources, localizedTexts, t, type MessageKey } from '../../lib/i18n'
 import { SECTION_LABEL_KEYS, type SettingsSection } from './sections'
 
@@ -62,6 +62,9 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.outline_keep_search', detailKey: 'settings.outline_keep_search_description' },
   { section: 'editor', titleKey: 'settings.outline_locate_by_cursor', detailKey: 'settings.outline_locate_by_cursor_description' },
   { section: 'editor', titleKey: 'settings.link_hover_preview', detailKey: 'settings.link_hover_preview_description' },
+  { section: 'editor', titleKey: 'settings.context_menu', detailKey: 'settings.context_menu_description' },
+  { section: 'editor', titleKey: 'settings.context_menu_toolbar', detailKey: 'settings.context_menu_toolbar_description' },
+  { section: 'editor', titleKey: 'settings.context_menu_search', detailKey: 'settings.context_menu_search_description' },
   { section: 'editor', titleKey: 'settings.link_hover_delay' },
   { section: 'editor', titleKey: 'settings.link_preview_length', termKeys: ['settings.characters'] },
   { section: 'editor', titleKey: 'settings.presentation_slide_list', detailKey: 'settings.presentation_slide_list_description', termKeys: ['workspace.presentation_mode', 'workspace.presentation_slides'] },
@@ -155,11 +158,15 @@ function lowerVariants(key: MessageKey): string[] {
 }
 
 function bestTier(term: string, titles: string[], extras: string[], sectionText: string[]): number {
-  if (titles.some((value) => value.includes(term)))
+  // The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the
+  // top of a settings list. Only the reading of the Chinese is added here, so the initials of a
+  // Chinese label reach it while `sa` still cannot reach a latin label that merely starts with them.
+  const found = (values: string[]) => values.some((value) => value.includes(term) || matchesReading(value, term))
+  if (found(titles))
     return TIER_TITLE
-  if (extras.some((value) => value.includes(term)))
+  if (found(extras))
     return TIER_TERM
-  return sectionText.some((value) => value.includes(term)) ? TIER_SECTION : 0
+  return found(sectionText) ? TIER_SECTION : 0
 }
 
 function prepareIndex(): PreparedEntry[] {

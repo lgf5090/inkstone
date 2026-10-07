@@ -18,6 +18,29 @@ import type { ProseFont } from '@shared/types'
 /** How much of the window the control bar takes, so the page fits the space that is left. */
 const DECK_HTML_BAR = 64
 
+/**
+ * What the file a stranger double-clicks is allowed to reach out and touch.
+ *
+ * The markup it carries has been through the same sanitizer the projector uses, so this is the second
+ * wall rather than the first: it says that a deck may load its own pictures and fonts and nothing else
+ * — no form to post to, no plugin, no `<base>` to re-point every relative URL at another host, and no
+ * `fetch` to carry the note's text somewhere once the file is open on somebody else's machine. The
+ * navigation script is inline and stays that way (a hash cannot be computed by a synchronous builder,
+ * and a `data:` subresource is a worse portability bet on `file://` than the script it would replace),
+ * which is the one allowance this policy has to make.
+ */
+const DECK_HTML_CSP = [
+  "default-src 'none'",
+  "img-src data: https: http:",
+  "font-src data: https: http:",
+  "style-src 'unsafe-inline'",
+  "script-src 'unsafe-inline'",
+  "connect-src 'none'",
+  "form-action 'none'",
+  "object-src 'none'",
+  "base-uri 'none'",
+].join('; ')
+
 export interface DeckHtmlLabels {
   previous: string
   next: string
@@ -50,6 +73,7 @@ export function buildDeckHtmlDocument(input: DeckHtmlInput): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${DECK_HTML_CSP}">
 <title>${escapeHtml(title)}</title>
 <style>${css}${geometry}</style>
 </head>

@@ -53,6 +53,13 @@ const mulberry32 = (seed: number) => {
 
 const FUZZ_TITLES = ['Shared', 'Untitled', 'Diary', 'Project', 'Scratch']
 
+// Three cases below build or rebuild a vault of thousands of notes, and the work is synchronous: idle
+// this file costs ~1.7 s a case, and the suite runs one file per core, so a busy machine stretches that
+// past the default five-second budget without anything being wrong with the projection. The budget is
+// stated here rather than paid for by a smaller vault — the coverage is the point of these cases. The
+// same shape as `kanban-render-budget.test.ts`'s `HEAVY_BOARD`.
+const HEAVY_VAULT = { timeout: 30_000 }
+
 // One random op against the map, mirroring the differential fuzz test's branch
 // probabilities; rand() is consumed in exactly the same order per step.
 const randomStep = (rand: () => number, notes: Record<string, NoteSummary>, step: number): Record<string, NoteSummary> => {
@@ -102,7 +109,7 @@ const normalize = (byDay: Map<string, { id: string; title: string; updatedAt: nu
 }
 
 describe('buildActivityProjectionCached — cold build and identity', () => {
-  it('matches a fresh rebuild over a 19.8k-vault cold build', () => {
+  it('matches a fresh rebuild over a 19.8k-vault cold build', HEAVY_VAULT, () => {
     const notes: Record<string, NoteSummary> = {}
     for (let i = 0; i < 19_800; i++) {
       const ts = day(2024 + (i % 5), 1 + (i % 12), 1 + (i % 28), 1 + (i % 23))
@@ -251,7 +258,7 @@ describe('buildActivityProjectionCached — tombstones and sweeps', () => {
 })
 
 describe('buildActivityProjectionCached — differential fuzz', () => {
-  it('stays equal to the naive rebuild through a seeded random op sequence', () => {
+  it('stays equal to the naive rebuild through a seeded random op sequence', HEAVY_VAULT, () => {
     const rand = mulberry32(20260902)
     const notes: Record<string, NoteSummary> = {}
     for (let i = 0; i < 5_000; i++) {
@@ -271,7 +278,7 @@ describe('buildActivityProjectionCached — differential fuzz', () => {
 })
 
 describe('calendar projection benchmark', () => {
-  it('measures cold build, incremental commits, and identity stability on a 19.8k vault (CI gated)', () => {
+  it('measures cold build, incremental commits, and identity stability on a 19.8k vault (CI gated)', HEAVY_VAULT, () => {
     const notes: Record<string, NoteSummary> = {}
     const start = Date.UTC(2024, 8, 3)
     const dayMs = 86_400_000

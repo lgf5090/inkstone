@@ -1,4 +1,4 @@
-import { act, createElement } from 'react'
+import { act, createElement, type RefObject } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, stubWideShow } from '../../lib/test-render'
@@ -6,7 +6,8 @@ import { noteSummary } from './note-fixture'
 import { useNotes } from '../../store/notes'
 import { usePresentation } from '../../store/presentation'
 import { useUi } from '../../store/ui'
-import { SlidePreparationNotice } from './presentation-stage'
+import { PresentationStage, SlidePreparationNotice } from './presentation-stage'
+import { readSlideHtml, rememberSlideHtml, type SlideMarkup } from './slide-html'
 import { PresentationOverlay } from './presentation-overlay'
 
 function pressExportImages() {
@@ -329,6 +330,51 @@ const pressKey = (key: string, target: EventTarget = window) => {
 
 const keyCard = () => document.querySelector('[data-presentation-key-guide]')
 
+// PR-M13: the marker is a tool the presenter reaches for mid-sentence, so the key, the layer over the
+// slide, and the bar that takes marks away have to be one gesture apart.
+const inkLayer = () => document.querySelector<HTMLElement>('[data-presentation-ink]')
+
+describe('PresentationOverlay — the marker', () => {
+  it('comes up on its own key and goes away on the same press', () => {
+    const view = renderElement(createElement(PresentationOverlay))
+    expect(inkLayer()?.getAttribute('data-presentation-ink')).toBe('off')
+    expect(document.querySelector('[data-presentation-ink-bar]')).toBeNull()
+
+    pressKey('m')
+    expect(inkLayer()?.getAttribute('data-presentation-ink')).toBe('on')
+    const bar = document.querySelector('[data-presentation-ink-bar]')
+    expect(bar).toBeTruthy()
+    expect(bar?.querySelector('button')?.disabled, 'a page with nothing on it has nothing to take back').toBe(true)
+
+    pressKey('m')
+    expect(document.querySelector('[data-presentation-ink-bar]'), 'the bar goes with the tool').toBeNull()
+    view.unmount()
+  })
+
+  it('draws a mark on the page and erases it again from the bar', () => {
+    const view = renderElement(createElement(PresentationOverlay))
+    pressKey('m')
+    const layer = inkLayer()
+    if (!layer) throw new Error('the marker came up without its layer')
+    layer.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    const stroke = (type: string, x: number, y: number) => {
+      act(() => {
+        layer.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }))
+      })
+    }
+    expect(layer.querySelector('path')).toBeNull()
+    stroke('pointerdown', 100, 100)
+    stroke('pointermove', 300, 250)
+    stroke('pointerup', 300, 250)
+    expect(layer.querySelector('path'), 'the stroke is still on the glass after the pointer lifts').toBeTruthy()
+
+    const undo = document.querySelector<HTMLButtonElement>(`[data-presentation-ink-bar] button[aria-label="${t('workspace.presentation_ink_undo')}"]`)
+    act(() => { undo?.click() })
+    expect(layer.querySelector('path'), 'one press takes the last mark back').toBeNull()
+    view.unmount()
+  })
+})
+
 describe('PresentationOverlay — the key card', () => {
   it('opens on ? and puts the card away on Escape before it costs the show', () => {
     const view = renderElement(createElement(PresentationOverlay))
@@ -402,12 +448,65 @@ describe('PresentationOverlay — the show in a phone window', () => {
     act(() => {
       document.querySelector<HTMLElement>('[data-presentation-overflow]')?.click()
     })
-    const rows = [...document.querySelectorAll('[role="menu"] button')].map((row) => row.textContent?.trim() ?? '')
+    const group = [...document.querySelectorAll<HTMLElement>('[role="menu"] [aria-haspopup="menu"]')].find((row) => row.textContent?.includes(t('workspace.presentation_modes')))
+    if (!group) throw new Error('the door has no presentation-modes row')
+    act(() => { group.click() })
+    const rows = [...document.querySelectorAll('[role="group"] [role="menuitem"], [role="group"] [role="menuitemcheckbox"]')].map((row) => row.textContent?.trim() ?? '')
     for (const label of [t('workspace.presentation_laser'), t('workspace.presentation_spotlight'), t('workspace.presentation_blackout'), t('workspace.presentation_whiteout')]) {
       expect(rows.some((row) => row.includes(label)), label).toBe(true)
     }
     // The list belongs to the projector it opened from: painted beside the dialog it would sit under it.
     expect(document.querySelector('[role="dialog"] [role="menu"]')).toBeTruthy()
+    view.unmount()
+  })
+})
+
+describe('the corner position readout', () => {
+  const metrics = { scale: 1, designWidth: 1280, designHeight: 720, contentWidth: 1200, contentHeight: 640 }
+
+  function drawStage(chromeHidden: boolean) {
+    const stageRef = { current: null } as unknown as RefObject<HTMLDivElement | null>
+    return renderElement(createElement(PresentationStage, {
+      stageRef,
+      metrics,
+      cacheKey: 'corner',
+      source: '# One\n\nBody',
+      subPage: 0,
+      step: 0,
+      steps: 0,
+      pageCount: 1,
+      index: 0,
+      count: 3,
+      onPlan: () => {},
+      onPrev: () => {},
+      onNext: () => {},
+      occluded: false,
+      chromeHidden,
+    }))
+  }
+
+  it('is the bar’s alone while the bar is up', () => {
+    const view = drawStage(false)
+    expect(view.container.querySelectorAll('[data-deck-position]').length).toBe(0)
+    view.unmount()
+  })
+
+  it('stands in for the bar once it has faded', () => {
+    const view = drawStage(true)
+    expect(view.container.querySelector('[data-deck-position]')?.textContent?.trim()).toBe('1 / 3')
+    view.unmount()
+  })
+})
+
+describe('the pages a show prepared', () => {
+  it('are given back when the show ends', () => {
+    const view = renderElement(createElement(PresentationOverlay))
+    rememberSlideHtml('held', { html: '<p>held</p>', fences: {} as SlideMarkup['fences'], prepared: true, flags: 'mdc' })
+    expect(readSlideHtml('held'), 'nothing was staged').toBeTruthy()
+    act(() => {
+      usePresentation.setState({ open: false, noteId: null, snapshot: '' })
+    })
+    expect(readSlideHtml('held'), 'the show closed and is still holding its markup').toBeUndefined()
     view.unmount()
   })
 })

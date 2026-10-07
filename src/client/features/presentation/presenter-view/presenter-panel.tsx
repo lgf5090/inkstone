@@ -15,6 +15,8 @@ export interface PresenterPanelProps {
   /** The grid, a cover or the context menu is on top of the slide surface, so this is out of reach. */
   occluded: boolean
   onClose: () => void
+  /** The notes box writes back through the show, which is the only side holding the document (PR-M8). */
+  onEditNotes: (slide: number, text: string) => void
 }
 
 // The console the speaker gets when the browser will not hand over a second window: the next page,
@@ -23,7 +25,7 @@ export interface PresenterPanelProps {
 // than a panel hung off the control toolbar, because the toolbar it would hang from is the one this
 // panel replaces, and a strip that grows the header pushes that button out from under the pointer —
 // the shape the AGENTS.md toolbar-expansion rule rules out.
-export function PresenterPanel({ state, chromeHidden, occluded, onClose }: PresenterPanelProps) {
+export function PresenterPanel({ state, chromeHidden, occluded, onClose, onEditNotes }: PresenterPanelProps) {
   const timer = usePresenterTimer(state.startedAt)
 
   return (
@@ -61,7 +63,7 @@ export function PresenterPanel({ state, chromeHidden, occluded, onClose }: Prese
         nextStep={state.nextStep}
         font={state.proseFont}
       />
-      <PresenterSpeakerNotesPane notes={state.notes} />
+      <PresenterSpeakerNotesPane notes={state.notes} slideIndex={state.slideIndex} onEdit={onEditNotes} />
     </aside>
   )
 }

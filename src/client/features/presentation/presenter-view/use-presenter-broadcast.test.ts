@@ -14,11 +14,18 @@ const DECK = ['# A', '# B', '# C']
 const NOTES = ['note for A', 'note for B', 'note for C']
 const PLANS: PresenterBroadcasterOptions['plans'] = {}
 
+// The outline is compared by identity, like every other array the payload carries: a host that hands a
+// fresh `[]` per render has a show that re-broadcasts on every chrome redraw. The session memoises it off
+// the deck, and this harness keeps one array for the same reason.
+const NO_EDIT = () => {}
+const NO_TITLES: string[] = []
+
 function options(slide: number): PresenterBroadcasterOptions {
   return {
     open: true,
     token: 'tok-1',
     noteTitle: 'Broadcast Economy',
+    slideTitles: NO_TITLES,
     slideIndex: slide,
     subPage: 0,
     step: 0,
@@ -31,6 +38,7 @@ function options(slide: number): PresenterBroadcasterOptions {
     goNext: vi.fn(),
     goPrev: vi.fn(),
     jumpTo: vi.fn(),
+    editSpeakerNote: NO_EDIT,
   }
 }
 

@@ -27,6 +27,17 @@ export interface SharePresencePosition {
   step: number
 }
 
+/**
+ * How far back the audience count looks (PR-M7).
+ *
+ * The window has to sit above the backoff ceiling a backgrounded tab falls to (16 polls, so ~32 s), or a
+ * room that switched apps for a minute reads as empty; and below the length of a pause in a talk, or a
+ * room that left keeps being counted after it went. It counts *browsers that asked*, which is the only
+ * thing this channel can know: two people behind one address are one viewer, and nothing here is
+ * identified beyond the address the request already carried.
+ */
+export const SHARE_PRESENCE_AUDIENCE_WINDOW_MS = 60_000
+
 /** What a viewer gets back: the position, when the presenter wrote it, and what is being shown. */
 export interface PublicSharePresence extends SharePresencePosition {
   updatedAt: number

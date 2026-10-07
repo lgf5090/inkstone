@@ -155,6 +155,18 @@ export function EditorSettings() {
           <Switch checked={preview.outlineLocateByCursor} onChange={(outlineLocateByCursor) => void update({ preview: { outlineLocateByCursor } })} label={t("settings.outline_locate_by_cursor")}/>
         </SettingRow>}
 
+        <SettingRow title={t("settings.context_menu")} description={t("settings.context_menu_description")}>
+          <Switch checked={preview.contextMenu} onChange={(contextMenu) => void update({ preview: { contextMenu } })} label={t("settings.context_menu")}/>
+        </SettingRow>
+
+        {preview.contextMenu && <SettingRow title={t("settings.context_menu_toolbar")} description={t("settings.context_menu_toolbar_description")}>
+          <Switch checked={preview.contextMenuToolbar} onChange={(contextMenuToolbar) => void update({ preview: { contextMenuToolbar } })} label={t("settings.context_menu_toolbar")}/>
+        </SettingRow>}
+
+        {preview.contextMenu && <SettingRow title={t("settings.context_menu_search")} description={t("settings.context_menu_search_description")}>
+          <Switch checked={preview.contextMenuSearch} onChange={(contextMenuSearch) => void update({ preview: { contextMenuSearch } })} label={t("settings.context_menu_search")}/>
+        </SettingRow>}
+
         <SettingRow title={t("settings.link_hover_preview")} description={t("settings.link_hover_preview_description")}>
           <Switch checked={preview.linkHover} onChange={(linkHover) => void update({ preview: { linkHover } })} label={t("settings.link_hover_preview")}/>
         </SettingRow>

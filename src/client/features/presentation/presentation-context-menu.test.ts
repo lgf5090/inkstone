@@ -29,6 +29,7 @@ describe('buildPresentationMenuItems — item composition', () => {
       'presenter',
       'laser',
       'spotlight',
+      'ink',
       'blackout',
       'whiteout',
       'follow',

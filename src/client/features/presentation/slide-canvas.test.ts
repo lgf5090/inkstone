@@ -359,3 +359,54 @@ describe('applySlidePage — the blocks a step has not reached yet', () => {
     expect(children.map((child) => child.style.visibility)).toEqual(['hidden', 'hidden', ''])
   })
 })
+
+// PR-M10: the projector should arrive on a new page the way the exported file does. The page element
+// is reused from turn to turn, so this is the only place that can tell "a new page" from "the same
+// page re-rendered" — and a stylesheet cannot tell it at all.
+describe('the arrival of a page', () => {
+  const animate = vi.fn()
+  const originalAnimate = HTMLElement.prototype.animate
+  const originalMatchMedia = window.matchMedia
+
+  const canvasProps = (overrides: Record<string, unknown> = {}) => ({
+    cacheKey: CACHED_KEY,
+    source: CACHED_SOURCE,
+    subPage: 0,
+    onPlan: () => {},
+    contentWidth: 1120,
+    contentHeight: 630,
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    animate.mockClear()
+    HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate
+  })
+  afterEach(() => {
+    HTMLElement.prototype.animate = originalAnimate
+    window.matchMedia = originalMatchMedia
+    vi.unstubAllGlobals()
+  })
+
+  it('fades the page in when it arrives, and not when it is merely redrawn', () => {
+    const view = renderElement(createElement(SlideCanvas, canvasProps()))
+    expect(animate).toHaveBeenCalledTimes(1)
+    view.rerender(createElement(SlideCanvas, canvasProps({ subPage: 1 })))
+    expect(animate).toHaveBeenCalledTimes(2)
+    view.rerender(createElement(SlideCanvas, canvasProps({ subPage: 1 })))
+    expect(animate, 'a re-render of the same page is not a new arrival').toHaveBeenCalledTimes(2)
+    view.unmount()
+  })
+
+  it('gives no motion to a reader who asked for none', () => {
+    window.matchMedia = ((query: string) => ({
+      matches: /prefers-reduced-motion/.test(query),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+    const view = renderElement(createElement(SlideCanvas, canvasProps()))
+    expect(animate).not.toHaveBeenCalled()
+    view.unmount()
+  })
+})

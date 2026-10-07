@@ -2,7 +2,7 @@ import { getCookie } from 'hono/cookie'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import type { D1Database } from '@cloudflare/workers-types'
-import { SHARE_PRESENCE_TTL_MS, type PublicSharePresence, type SharePresencePosition, type SharePresenceSession } from '@shared/share-presence'
+import { SHARE_PRESENCE_AUDIENCE_WINDOW_MS, SHARE_PRESENCE_TTL_MS, type PublicSharePresence, type SharePresencePosition, type SharePresenceSession } from '@shared/share-presence'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidSlug } from '../lib/id'
@@ -19,7 +19,8 @@ import { consumeAttemptBudget, ThrottleError } from '../lib/throttle'
  * authenticated share route; the public half is the one that has to be careful — it is reachable by a
  * stranger, so it answers with a capability token rather than a session, and it never writes a visitor
  * row: the position is not a view, and counting every heartbeat would turn "how many people opened
- * this link" into "how many seconds they sat there".
+ * this link" into "how many seconds they sat there". The audience number the presenter sees (PR-M7) is
+ * read out of the read budget that is already being spent, so it costs no write and no new table.
  */
 
 /** A row of `share_presence`, shaped the way D1 hands it back. */
@@ -128,7 +129,9 @@ function registerSharePresenceWriteRoute(shareManageRoutes: Hono<AppBindings>): 
       .bind(share.slug, body.slide, body.page, body.step, now, presenceExpiry(share.expires_at, now), share.user_id)
       .run()
     if (!updated.meta.changes) throw ApiError.notFound('The presentation is not running')
-    return c.json({ updatedAt: now }, 200, { 'Cache-Control': 'no-store' })
+    // The turn of a page is also how the speaker hears that the room is there: the count rides back on the
+    // answer they already waited for, so an audience costs no extra request to notice.
+    return c.json({ updatedAt: now, viewers: await countAudienceViewers(c.env.DB, share.slug, now) }, 200, { 'Cache-Control': 'no-store' })
   })
 }
 
@@ -148,10 +151,17 @@ function registerSharePresenceStopRoute(shareManageRoutes: Hono<AppBindings>): v
 function registerSharePresenceStatusRoute(shareManageRoutes: Hono<AppBindings>): void {
   shareManageRoutes.get('/:noteId/present', async (c) => {
     const share = await loadPresentableShare(c.env.DB, c.get('userId'), c.req.param('noteId'))
+    // The owner asking whether they are on air is also the moment their finished shows get cleaned
+    // up: a row whose lease ran out answers nothing (every read filters on `expires_at`), so it is
+    // only ever left behind by a browser that never sent the stop press.
+    await c.env.DB.prepare(`DELETE FROM share_presence WHERE user_id = ?1 AND expires_at <= ?2`)
+      .bind(share.user_id, Date.now())
+      .run()
     const row = await loadPresenceRow(c.env.DB, share.slug)
-    if (!row) return c.json({ running: false }, 200, { 'Cache-Control': 'no-store' })
+    const viewers = await countAudienceViewers(c.env.DB, share.slug, Date.now())
+    if (!row) return c.json({ running: false, viewers }, 200, { 'Cache-Control': 'no-store' })
     const running: PublicSharePresence = { slide: row.slide, page: row.page, step: row.step, updatedAt: row.updated_at, title: share.title }
-    return c.json({ running: true, expiresAt: row.expires_at, presence: running }, 200, { 'Cache-Control': 'no-store' })
+    return c.json({ running: true, expiresAt: row.expires_at, presence: running, viewers }, 200, { 'Cache-Control': 'no-store' })
   })
 }
 
@@ -217,6 +227,27 @@ async function enforcePresenceReadBudget(c: Context<AppBindings>, slug: string):
 async function tokenMatches(row: SharePresenceRow, token: string): Promise<boolean> {
   if (!isSessionToken(token)) return false
   return await hashToken(token) === row.token_hash
+}
+
+/**
+ * How many browsers have been reading this show (PR-M7).
+ *
+ * The audience is already counted, by accident: every public read spends a budget attempt keyed by the
+ * show's slug and the reader's address, and the row it writes carries the time of that read. Counting
+ * those rows is the whole signal — no per-viewer table (ADR-0006 refuses one), no second write, and
+ * nothing new for a viewer to send.
+ *
+ * The range is spelled as `>= / <` rather than `LIKE` because a slug is data: a `_` in it would otherwise
+ * stand for "any character" and count somebody else's room.
+ */
+async function countAudienceViewers(db: D1Database, slug: string, now: number): Promise<number> {
+  const prefix = `share-present:view:${slug}:ip:`
+  const row = await db.prepare(
+    `SELECT COUNT(*) AS viewers FROM login_attempts WHERE key >= ?1 AND key < ?2 AND last_fail_at >= ?3`,
+  )
+    .bind(prefix, `${prefix}\u007f`, now - SHARE_PRESENCE_AUDIENCE_WINDOW_MS)
+    .first<{ viewers: number }>()
+  return Number(row?.viewers ?? 0)
 }
 
 /** A show lives at most `SHARE_PRESENCE_TTL_MS`, and never past the link it rides on. */

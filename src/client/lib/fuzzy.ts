@@ -1,5 +1,5 @@
 
-
+import { pinyinKeysOf } from './pinyin'
 
 export interface FuzzyMatch {
   score: number
@@ -47,7 +47,45 @@ export function fuzzyMatch(text: string, query: string): FuzzyMatch | null {
     return { score, ranges: [[direct, direct + needle.length]] }
   }
 
+  const subsequence = subsequenceMatch(text, haystack, needle)
+  const pinyin = pinyinMatch(text, needle)
+  if (pinyin && (!subsequence || pinyin.score > subsequence.score)) return pinyin
+  return subsequence
+}
 
+/**
+ * A reading-based hit is reported without ranges: the letters the user typed are not characters in
+ * the label, so there is nothing to underline. `splitByRanges` renders such a match as plain text.
+ *
+ * A haystack too long to be a label is still read by its first line, because the note listing
+ * concatenates a title with the body it belongs to: typing the initials of a title has to find that
+ * note even though the body behind it is far too long to have initials of its own.
+ *
+ * It outranks a scattered subsequence — a Chinese label matched by its own initials is the answer the
+ * reader meant, while an accidental letter-by-letter crawl through some other title is not — but never
+ * a literal substring, which the early return above keeps ahead of it.
+ */
+function pinyinMatch(text: string, needle: string): FuzzyMatch | null {
+  // Spaces are ignored, exactly as the letter crawl below ignores them: `q x` means the same query.
+  const signal = needle.replace(/\s+/g, '')
+  if (!signal || !/^[a-z0-9]+$/.test(signal)) return null
+  const subject = pinyinKeysOf(text) ? text : firstLine(text)
+  const keys = pinyinKeysOf(subject)
+  if (!keys) return null
+  const penalty = Math.floor(subject.length / 12)
+  if (keys.initials.startsWith(signal)) return { score: 520 - penalty, ranges: [] }
+  if (keys.full.startsWith(signal)) return { score: 460 - penalty, ranges: [] }
+  if (keys.initials.includes(signal)) return { score: 380 - penalty, ranges: [] }
+  if (keys.full.includes(signal)) return { score: 300 - penalty, ranges: [] }
+  return null
+}
+
+function firstLine(text: string): string {
+  const breakAt = text.indexOf('\n')
+  return breakAt < 0 ? text : text.slice(0, breakAt)
+}
+
+function subsequenceMatch(text: string, haystack: string, needle: string): FuzzyMatch | null {
   const ranges: [number, number][] = []
   let ti = 0
   let score = 0
@@ -132,4 +170,32 @@ export function fuzzyFilter<T>(
   }
   scored.sort((a, b) => b.match.score - a.match.score)
   return scored.slice(0, limit)
+}
+
+/**
+ * Whether a plain-letter query is the reading of the Chinese in a label — and nothing else.
+ *
+ * A scorer that ranks a hit by *where* it was found cannot take `matchesQuery`, because a
+ * letter-by-letter crawl would promote an unrelated label to the top tier. This is the reading test
+ * on its own, for the places that keep a literal substring ranking and only need to stop missing the
+ * Chinese.
+ */
+export function matchesReading(text: string, query: string): boolean {
+  return pinyinMatch(text, query.trim().toLowerCase()) !== null
+}
+
+/**
+ * Whether a query is about a piece of text, by any of the three ways a listing reads one: a literal
+ * substring, a letter-by-letter crawl through it, or the reading of the Chinese it is written in.
+ *
+ * The surfaces that only have to keep or drop a row — the outline's filter, a folder picker, the
+ * board's search box — call this instead of writing their own `.toLowerCase().includes(...)`, which
+ * is the one form of search that silently stops working the moment a note is written in the language
+ * the app is mostly used in.
+ */
+export function matchesQuery(text: string, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  if (text.toLowerCase().includes(needle)) return true
+  return fuzzyMatch(text, needle) !== null
 }
