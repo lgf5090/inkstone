@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_NEW_NOTE_TEMPLATE } from './constants'
-import { extractTags } from './markdown-utils'
-import { interpolateNewNoteTemplate, renderNewNoteTemplate, yamlSafeScalar } from './note-template-render'
+import { extractTags, parseFrontMatter } from './markdown-utils'
+import { interpolateNewNoteTemplate, renderNewNoteTemplate, yamlFlowItem, yamlSafeScalar } from './note-template-render'
 
 const NOON = new Date(2026, 9, 7, 13, 4, 9)
 
@@ -78,12 +78,12 @@ describe('new-note template interpolation', () => {
 
 describe('yamlSafeScalar', () => {
   it('quotes what YAML would not read back as the same string', () => {
-    for (const value of ['', ' x', 'x ', '12', '1.5', 'true', 'No', '~', 'null', '#tag', 'a: b', '- x', '? x', '[a]', '{a}', 'a\nb', '5%'])
+    for (const value of ['', ' x', 'x ', '12', '1.5', 'true', 'No', '~', 'null', '#tag', 'a: b', '- x', '? x', '[a]', '{a}', 'a\nb', '1e3', 'a:', 'x #y'])
       expect(yamlSafeScalar(value)).not.toBe(value)
   })
 
   it('leaves an ordinary title alone', () => {
-    for (const value of ['Reading list', 'a-b', '2026 年度计划', 'snake_case'])
+    for (const value of ['Reading list', 'a-b', '2026 年度计划', 'snake_case', '5%', 'a, b', 'a]b', '2026-10-07 13:04:09'])
       expect(yamlSafeScalar(value)).toBe(value)
   })
 })
@@ -110,5 +110,118 @@ describe('renderNewNoteTemplate tag merge', () => {
   it('leaves a template without front matter untouched', () => {
     const { content } = renderNewNoteTemplate('# {{title}}\n', context(), ['daily'])
     expect(content).toBe('# Reading list\n')
+  })
+})
+
+const NASTY_NAMES = [
+  '工作: 项目',
+  '- 草稿',
+  'a]b',
+  '[x',
+  '{y}',
+  '#c',
+  '"q"',
+  "'s'",
+  'a: b: c',
+  '中文 名称',
+  'true',
+  'null',
+  '~',
+  '1e3',
+  '5%',
+  '&a',
+  '*b',
+  '!c',
+  '|d',
+  '>e',
+  '@f',
+  '`g',
+  '---',
+  '...',
+  '%p',
+  '  x',
+  'x  ',
+  '',
+]
+
+describe('front matter survives any folder a note can live in', () => {
+  it.each(NASTY_NAMES)('quotes a whole-value folder named %j', (folder) => {
+    const { content } = interpolateNewNoteTemplate('---\ntitle: {{title}}\nfolder: {{folder}}\n---\n# {{title}}\n', context({ folder }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.data.folder).toBe(folder)
+    expect(parsed.data.title).toBe('Reading list')
+  })
+
+  it.each(NASTY_NAMES)('keeps a flow folder item named %j readable', (folder) => {
+    const { content } = interpolateNewNoteTemplate('---\ntags: [{{folder}}]\n---\n', context({ folder }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    if (!folder.includes(',')) expect(parsed.data.tags).toEqual(folder === '' ? [] : [folder])
+  })
+
+  it.each(NASTY_NAMES)('repairs a folder named %j that shares a line with other text', (folder) => {
+    const { content } = interpolateNewNoteTemplate('---\nfolder: /{{folder}}/x\n---\n', context({ folder }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.data.folder).toBe(`/${folder}/x`)
+  })
+
+  it('still expands a comma separated tag list into several flow items', () => {
+    const { content } = interpolateNewNoteTemplate('---\ntags: [{{tags}}]\n---\n', context({ tags: 'daily, reading' }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.data.tags).toEqual(['daily', 'reading'])
+  })
+
+  it('splits a comma separated value into items and quotes only the unsafe one', () => {
+    const { content } = interpolateNewNoteTemplate('---\ntags: [{{tags}}]\n---\n', context({ tags: 'x]y, 工作: 项目, plain' }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.data.tags).toEqual(['x]y', '工作: 项目', 'plain'])
+  })
+
+  it('drops empty items a trailing comma would have produced', () => {
+    const { content } = interpolateNewNoteTemplate('---\ntags: [{{tags}}]\n---\n', context({ tags: 'a, ,b,' }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.data.tags).toEqual(['a', 'b'])
+  })
+
+  it('leaves a placeholder outside front matter as plain text', () => {
+    const { content } = interpolateNewNoteTemplate('---\ntitle: x\n---\n# {{folder}}\n\n{{folder}} inline\n', context({ folder: '工作: 项目' }))
+    expect(content).toBe('---\ntitle: x\n---\n# 工作: 项目\n\n工作: 项目 inline\n')
+  })
+
+  it('leaves an author-written flow list alone when the template has no placeholder there', () => {
+    const { content } = interpolateNewNoteTemplate('---\ntags: [daily, reading]\nfolder: {{folder}}\n---\n', context({ folder: 'Notes' }))
+    const parsed = parseFrontMatter(content)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.data.tags).toEqual(['daily', 'reading'])
+    expect(content).toContain('tags: [daily, reading]')
+  })
+
+  it('reports a caret that survived the repair pass', () => {
+    const { content, cursor } = interpolateNewNoteTemplate('---\nfolder: /{{folder}}/\n---\n{{cursor}}body', context({ folder: 'a: b' }))
+    expect(parseFrontMatter(content).errors).toEqual([])
+    expect(content.slice(cursor!)).toBe('body')
+    expect(content.slice(0, cursor!)).toBe('---\nfolder: "/a: b/"\n---\n')
+  })
+
+  it('does not run the repair pass when the plain render already parses', () => {
+    const { content } = interpolateNewNoteTemplate('---\nfolder: {{folder}}\n---\n', context({ folder: 'Plain name' }))
+    expect(content).toBe('---\nfolder: Plain name\n---\n')
+  })
+})
+
+describe('yamlFlowItem', () => {
+  it('quotes only what a flow parser would not read back', () => {
+    for (const value of ['x]y', '[x', '{y}', 'a: b', '工作: 项目', '#c', '"q"', 'true', '1e3', '', '- x', 'a,b'])
+      expect(yamlFlowItem(value)).not.toBe(value)
+  })
+
+  it('leaves a plain tag alone', () => {
+    for (const value of ['daily', 'reading', '中文', 'a-b', '2026 年度计划'])
+      expect(yamlFlowItem(value)).toBe(value)
   })
 })

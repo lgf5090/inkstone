@@ -10,7 +10,8 @@ import {
   type BuiltinTemplateDef,
   type TemplateLibraryExport,
 } from '@shared/note-templates'
-import { localDb, type TemplateLibraryData } from '../lib/db'
+import { CLIENT_ID } from '../lib/api'
+import { createBroadcast, localDb, publishBroadcast, type TemplateLibraryData } from '../lib/db'
 import { randomLocalId } from '../lib/random-id'
 import { t } from '../lib/i18n'
 
@@ -40,6 +41,10 @@ interface TemplateLibraryState {
   importTemplates: (data: TemplateLibraryExport) => { imported: number; skipped: number }
   toggleTemplatePin: (id: string) => void
   toggleTemplateStar: (id: string) => void
+  /** One write for a whole selection; the patch returns null to leave a template alone. */
+  applyBatch: (ids: readonly string[], patchFor: (template: NoteTemplate) => Partial<NoteTemplate> | null) => number
+  /** One write for a whole selection of removals; built-ins are refused. */
+  removeTemplates: (ids: readonly string[]) => number
 }
 
 const NAME_MAX = TEMPLATE_IMPORT_LIMITS.maxNameLength
@@ -203,6 +208,25 @@ type SetTemplateState = StoreApi<TemplateLibraryState>['setState']
 
 let hydrateChain: Promise<void> = Promise.resolve()
 let hydrateRequested: string | null = null
+let tabWatcher: { close: () => void } | null = null
+
+/**
+ * Re-read the library when another tab says it wrote one.
+ *
+ * The read replaces the in-memory copy instead of merging into it: the other tab
+ * wrote the whole record, so anything this tab still holds that is not in that
+ * record was never written anywhere.
+ */
+function watchOtherTabs(): void {
+  if (tabWatcher) return
+  tabWatcher = createBroadcast((payload) => {
+    if (payload.type !== 'template-library-changed' || payload.clientId === CLIENT_ID) return
+    const { owner } = useNoteTemplates.getState()
+    if (!owner) return
+    useNoteTemplates.setState({ hydrated: false })
+    void useNoteTemplates.getState().hydrate(owner)
+  })
+}
 
 export const useNoteTemplates = create<TemplateLibraryState>((set, get) => ({
   categories: [],
@@ -221,6 +245,8 @@ export const useNoteTemplates = create<TemplateLibraryState>((set, get) => ({
   importTemplates: (data) => importTemplatesImpl(set, data),
   toggleTemplatePin: (id) => toggleTemplateFlag(set, id, 'isPinned'),
   toggleTemplateStar: (id) => toggleTemplateFlag(set, id, 'isStarred'),
+  applyBatch: (ids, patchFor) => applyBatchImpl(set, ids, patchFor),
+  removeTemplates: (ids) => removeTemplatesImpl(set, ids),
 }))
 
 /**
@@ -235,6 +261,7 @@ function hydrateImpl(
   owner: string,
 ): Promise<void> {
   if (!owner) return Promise.resolve()
+  watchOtherTabs()
   if (get().hydrated && get().owner === owner) return Promise.resolve()
   const run = async (): Promise<void> => {
     if (get().hydrated && get().owner === owner) return
@@ -258,6 +285,11 @@ function hydrateImpl(
 
 function persist(templates: NoteTemplate[], categories: NoteTemplateCategory[]): void {
   void localDb.saveTemplateLibrary({ categories, templates, seedVersion: TEMPLATE_SEED_VERSION })
+  // A whole-library write from this tab makes every other tab's copy stale, and
+  // each of them writes its own copy back on its next mutation. Saying so is what
+  // keeps two tabs open in one browser from erasing each other. Seeding on read
+  // writes through `localDb` directly and stays quiet, so this cannot echo back.
+  publishBroadcast({ type: 'template-library-changed', clientId: CLIENT_ID })
 }
 
 function nextPositionIn(templates: NoteTemplate[], categoryId: string | null): number {
@@ -513,4 +545,51 @@ function toggleTemplateFlag(
     persist(templates, state.categories)
     return { templates }
   })
+}
+
+/**
+ * Apply a patch to a whole selection in one write.
+ *
+ * The per-template store methods each re-serialize the library, so a loop over
+ * them costs N writes of the whole record: at the 2000-template import ceiling a
+ * select-all star took sixteen seconds of blocked main thread. Selections are the
+ * common case, so the batch is the primitive and the loop is not.
+ */
+function applyBatchImpl(
+  set: SetTemplateState,
+  ids: readonly string[],
+  patchFor: (template: NoteTemplate) => Partial<NoteTemplate> | null,
+): number {
+  const targets = new Set(ids)
+  let changed = 0
+  set((state) => {
+    const now = Date.now()
+    const templates = state.templates.map((item) => {
+      if (!targets.has(item.id)) return item
+      const patch = patchFor(item)
+      if (!patch) return item
+      changed += 1
+      return { ...item, ...patch, updatedAt: now }
+    })
+    if (changed === 0) return state
+    persist(templates, state.categories)
+    return { templates }
+  })
+  return changed
+}
+
+function removeTemplatesImpl(set: SetTemplateState, ids: readonly string[]): number {
+  const targets = new Set(ids)
+  let removed = 0
+  set((state) => {
+    const templates = state.templates.filter((item) => {
+      if (!targets.has(item.id) || item.builtin) return true
+      removed += 1
+      return false
+    })
+    if (removed === 0) return state
+    persist(templates, state.categories)
+    return { templates }
+  })
+  return removed
 }

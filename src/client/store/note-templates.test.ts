@@ -3,17 +3,35 @@ import { BUILTIN_TEMPLATE_DEFS, TEMPLATE_SEED_VERSION } from '@shared/note-templ
 import { DEFAULT_NEW_NOTE_TEMPLATE } from '@shared/constants'
 import type { NoteTemplate } from '@shared/types'
 import { initI18n, t } from '../lib/i18n'
+import { CLIENT_ID } from '../lib/api'
 import { compareTemplates, templateOrderValue, useNoteTemplates } from './note-templates'
 import type { TemplateLibraryData } from '../lib/db'
 
 const stored = vi.hoisted((): { value: TemplateLibraryData | null } => ({ value: null }))
+const bus = vi.hoisted(() => ({
+  saves: 0,
+  loads: 0,
+  published: [] as Array<{ type: string; clientId: string }>,
+  listeners: [] as Array<(payload: { type: string; clientId: string }) => void>,
+}))
 
 vi.mock('../lib/db', () => ({
   localDb: {
-    loadTemplateLibrary: async () => stored.value,
+    loadTemplateLibrary: async () => {
+      bus.loads += 1
+      return stored.value
+    },
     saveTemplateLibrary: async (data: TemplateLibraryData) => {
+      bus.saves += 1
       stored.value = JSON.parse(JSON.stringify(data)) as TemplateLibraryData
     },
+  },
+  publishBroadcast: (payload: { type: string; clientId: string }) => {
+    bus.published.push(payload)
+  },
+  createBroadcast: (onMessage: (payload: { type: string; clientId: string }) => void) => {
+    bus.listeners.push(onMessage)
+    return { post: () => {}, close: () => {} }
   },
 }))
 
@@ -48,6 +66,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   stored.value = null
+  bus.saves = 0
+  bus.published = []
   useNoteTemplates.setState({ categories: [], templates: [], hydrated: false, owner: '' })
   await fresh().hydrate('user-a')
 })
@@ -309,5 +329,122 @@ describe('the shipped default template', () => {
   it('is what a fresh account starts with', () => {
     expect(DEFAULT_NEW_NOTE_TEMPLATE.startsWith('---\n')).toBe(true)
     expect(DEFAULT_NEW_NOTE_TEMPLATE).toContain('{{title}}')
+  })
+})
+
+describe('batch primitives', () => {
+  function makeMany(count: number) {
+    const ids: string[] = []
+    for (let index = 0; index < count; index += 1)
+      ids.push(fresh().createTemplate({ name: `t${index}`, content: 'body' })!)
+    return ids
+  }
+
+  it('writes the library once for a whole batch', () => {
+    const ids = makeMany(200)
+    bus.saves = 0
+    expect(fresh().applyBatch(ids, () => ({ isStarred: true }))).toBe(200)
+    expect(bus.saves).toBe(1)
+    expect(fresh().templates.filter((item) => item.isStarred)).toHaveLength(200)
+  })
+
+  it('counts only the templates a patch actually changed', () => {
+    const ids = makeMany(3)
+    bus.saves = 0
+    expect(fresh().applyBatch(ids, (item) => (item.name === 't1' ? null : { isPinned: true }))).toBe(2)
+    expect(bus.saves).toBe(1)
+    expect(fresh().templates.find((item) => item.id === ids[1])?.isPinned).toBe(false)
+  })
+
+  it('does not write at all when nothing in the batch changed', () => {
+    const ids = makeMany(2)
+    bus.saves = 0
+    expect(fresh().applyBatch(ids, () => null)).toBe(0)
+    expect(bus.saves).toBe(0)
+  })
+
+  it('removes a whole selection in one write and refuses built-ins', () => {
+    const ids = makeMany(5)
+    const builtin = fresh().templates.find((item) => item.builtin)!.id
+    bus.saves = 0
+    expect(fresh().removeTemplates([...ids, builtin])).toBe(5)
+    expect(bus.saves).toBe(1)
+    expect(fresh().templates.some((item) => ids.includes(item.id))).toBe(false)
+    expect(fresh().templates.some((item) => item.id === builtin)).toBe(true)
+  })
+
+  it('leaves an unknown id alone instead of throwing', () => {
+    const ids = makeMany(1)
+    expect(fresh().applyBatch([...ids, 'tpl-missing'], () => ({ isStarred: true }))).toBe(1)
+    expect(fresh().removeTemplates(['tpl-missing'])).toBe(0)
+  })
+})
+
+describe('cross-tab library coherence', () => {
+  function receive(clientId: string) {
+    const listener = bus.listeners.at(-1)
+    expect(listener).toBeTypeOf('function')
+    listener!({ type: 'template-library-changed', clientId })
+  }
+
+  function foreignTemplate(): NoteTemplate {
+    return {
+      ...template({ id: 'tpl-other-tab', name: 'From the other tab', content: 'other' }),
+    }
+  }
+
+  it('announces a library change once per mutation', () => {
+    fresh().createTemplate({ name: 'announced', content: 'x' })
+    expect(bus.published.filter((item) => item.type === 'template-library-changed')).toHaveLength(1)
+  })
+
+  it('takes in a template another tab wrote instead of overwriting it', async () => {
+    const before = fresh().templates.length
+    stored.value = {
+      ...library(),
+      templates: [...library().templates, foreignTemplate()],
+    }
+    receive('other-client')
+    await vi.waitFor(() => {
+      expect(fresh().templates).toHaveLength(before + 1)
+    })
+    expect(fresh().templates.some((item) => item.id === 'tpl-other-tab')).toBe(true)
+  })
+
+  it('does not answer a remote change with a write of its own', async () => {
+    stored.value = { ...library(), templates: [...library().templates, foreignTemplate()], seedVersion: 0 }
+    bus.saves = 0
+    bus.published = []
+    receive('other-client')
+    await vi.waitFor(() => {
+      expect(fresh().templates.some((item) => item.id === 'tpl-other-tab')).toBe(true)
+    })
+    expect(bus.published).toHaveLength(0)
+    expect(bus.saves).toBeGreaterThan(0)
+  })
+
+  it('ignores its own announcement', async () => {
+    const loads = bus.loads
+    const before = fresh().templates.length
+    stored.value = { ...library(), templates: [...library().templates, foreignTemplate()] }
+    receive(CLIENT_ID)
+    await new Promise((resolve) => { setTimeout(resolve, 40) })
+    expect(bus.loads).toBe(loads)
+    expect(fresh().templates).toHaveLength(before)
+    expect(fresh().owner).toBe('user-a')
+  })
+
+  it('refuses to re-read for an account that is not signed in', async () => {
+    const before = fresh().templates.length
+    const loads = bus.loads
+    useNoteTemplates.setState({ owner: '', hydrated: false })
+    stored.value = { ...library(), templates: [...library().templates, foreignTemplate()] }
+    bus.saves = 0
+    receive('other-client')
+    await new Promise((resolve) => { setTimeout(resolve, 40) })
+    expect(bus.loads).toBe(loads)
+    expect(fresh().templates).toHaveLength(before)
+    expect(fresh().templates.some((item) => item.id === 'tpl-other-tab')).toBe(false)
+    expect(bus.saves).toBe(0)
   })
 })

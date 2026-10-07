@@ -102,6 +102,18 @@ const allowedHanFragments = new Map([
         '\u6bcf\u65e5',
         '\u6bcf\u65e5',
         '\u5e74\u5ea6\u8ba1\u5212',
+        '\u5e74\u5ea6\u8ba1\u5212',
+        // YAML-hostile folder names, which only exist in the language users type them in.
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u5de5\u4f5c: \u9879\u76ee',
+        '\u4e2d\u6587 \u540d\u79f0',
+        '\u4e2d\u6587',
+        '\u8349\u7a3f',
     ]],
 ]);
 /**

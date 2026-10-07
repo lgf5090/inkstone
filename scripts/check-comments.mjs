@@ -30,6 +30,7 @@ const allowed = new Map([
     "// fragment, so the tag is named as many times as the fixture spells it.",
     "// A tag view is the case that matters for the merge, and the built-in catalog tags in Han,",
     "// so the fixture spells the tag twice: once going in, once coming back out.",
+    "// YAML-hostile folder names, which only exist in the language users type them in.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -654,6 +655,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/gallery-actions.ts", [
     "/**\n * Batch actions apply one store write per template. Each write re-serializes the\n * whole library, so the count reported back is the number that actually changed\n * rather than the size of the selection.\n */",
+    "/**\n * Batch actions take the store's batch primitives, so a selection costs one\n * library write instead of one per card. The count reported back is the number\n * that actually changed, not the size of the selection.\n */",
   ]],
   ["src/client/features/templates/gallery-export.ts", [
     "/** Built-ins are re-seeded by the app, so an export carries only what the user made. */",
@@ -3819,6 +3821,14 @@ const allowed = new Map([
     "// Category ids survive when they exist locally (custom categories",
     "// imported in the same batch included); unknown ids fall back to",
     "// uncategorized instead of dangling.",
+    "/** One write for a whole selection; the patch returns null to leave a template alone. */",
+    "/** One write for a whole selection of removals; built-ins are refused. */",
+    "/**\n * Re-read the library when another tab says it wrote one.\n *\n * The read replaces the in-memory copy instead of merging into it: the other tab\n * wrote the whole record, so anything this tab still holds that is not in that\n * record was never written anywhere.\n */",
+    "// A whole-library write from this tab makes every other tab's copy stale, and",
+    "// each of them writes its own copy back on its next mutation. Saying so is what",
+    "// keeps two tabs open in one browser from erasing each other. Seeding on read",
+    "// writes through `localDb` directly and stays quiet, so this cannot echo back.",
+    "/**\n * Apply a patch to a whole selection in one write.\n *\n * The per-template store methods each re-serialize the library, so a loop over\n * them costs N writes of the whole record: at the 2000-template import ceiling a\n * select-all star took sixteen seconds of blocked main thread. Selections are the\n * common case, so the batch is the primitive and the loop is not.\n */",
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
@@ -3947,10 +3957,15 @@ const allowed = new Map([
     "/** Contextual values a caller supplies per note; both render verbatim, see `renderNewNoteTemplate`. */",
     "/** Offset for the editor caret, or null when the template had no `{{cursor}}`. */",
     "/**\n * Half-open span of the front matter *values*, i.e. the lines between the two\n * `---` fences. Placeholders inside it are quoted for YAML; the same\n * placeholder in the body is written as plain text, because a heading such as\n * `# {{title}}` must not gain JSON quotes.\n */",
-    "/**\n * Quote a scalar only when YAML would read it as something else: a leading\n * indicator, a structural character, surrounding whitespace, a line break, or a\n * spelling YAML resolves to a number, date or boolean.\n */",
     "/** A value that lands inside front matter must not carry a line break. */",
-    "/**\n * Fill the template's placeholders for one note.\n *\n * `folder` and `tags` are inserted verbatim rather than quoted, because\n * `{{tags}}` conventionally expands into a flow list (`tags: [a, b]`) that\n * quoting would destroy. Both are flattened to a single line first.\n */",
     "/**\n * Render a new-note template into final content and merge the tags a note was\n * created under into its front matter.\n *\n * Interpolation runs before the merge on purpose: the YAML round trip the merge\n * performs would parse a raw `{{tags}}` as a flow mapping and leave it behind in\n * the note. The caret offset is then shifted by however many characters the\n * merge added ahead of it.\n */",
+    "/**\n * Quote a scalar only when YAML would read it as something else.\n *\n * The test is what a *block* parser sees, not which characters appear: `a, b` and\n * `a]b` come back unchanged, while a leading indicator, a `: ` sequence or a\n * spelling that resolves to a number, date or boolean does not.\n */",
+    "/**\n * Quote what a *flow* parser (`[a, b]`) would not read back as the same string.\n *\n * Narrower than `yamlSafeScalar` on purpose: `5%` and `a-b` are ordinary flow\n * items, while `x]y` and `a: b` would silently end the list or turn the item\n * into a mapping.\n */",
+    "/** Where a placeholder sits inside a front matter line, which decides how its value must be written. */",
+    "/**\n * `key: {{x}}` is a whole scalar and gets quoted; `key: [{{x}}, y]` is a list\n * item and must stay unquoted unless YAML itself would misread it; anything else\n * (`key: /{{x}}/`) is left alone and handled by the repair pass, because the\n * quoting that would fix it has to wrap the whole value, not the placeholder.\n */",
+    "/** Turn a contextual value into the text YAML will read back unchanged. */",
+    "/**\n * Quote the value of one front matter line, in place, as far as `at` reaches it.\n *\n * This is the repair for a placeholder that shared its line with other text: the\n * line is a whole scalar now, so the block rule applies to all of it. Returns the\n * new text and how much the line grew, which is what the caret has to be shifted by.\n */",
+    "/**\n * Fill the template's placeholders for one note.\n *\n * Values inside front matter are written so YAML reads them back unchanged: a\n * whole-value placeholder is quoted when it would otherwise be misread, and a\n * flow list item is quoted only when the flow parser itself would misread it, so\n * `tags: [{{tags}}]` still expands into several tags. `folder` and `tags` arrive\n * comma separated from the caller, which is why both are flattened to one line.\n */",
   ]],
   ["src/shared/note-templates.ts", [
     "/**\n * Built-in template library catalog.\n *\n * The gallery is seeded per user from this catalog on first run. Names,\n * descriptions and Markdown bodies live in the locale resources (one entry per\n * language), so the catalog only references message keys. Bump\n * `TEMPLATE_SEED_VERSION` when adding or changing built-in entries: hydration\n * merges the missing/updated entries into existing user libraries without\n * touching user-created templates or user edits.\n */",

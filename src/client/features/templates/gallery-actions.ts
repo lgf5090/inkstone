@@ -146,6 +146,31 @@ export function useGallerySelectActions(state: GalleryLocalState, visible: NoteT
  * whole library, so the count reported back is the number that actually changed
  * rather than the size of the selection.
  */
+/**
+ * Batch actions take the store's batch primitives, so a selection costs one
+ * library write instead of one per card. The count reported back is the number
+ * that actually changed, not the size of the selection.
+ */
+export function runBatchStar(templates: readonly NoteTemplate[], starred: boolean): number {
+  return useNoteTemplates.getState().applyBatch(
+    templates.map((item) => item.id),
+    (item) => (item.isStarred === starred ? null : { isStarred: starred }),
+  )
+}
+
+export function runBatchMove(templates: readonly NoteTemplate[], categoryId: string | null): number {
+  return useNoteTemplates.getState().applyBatch(
+    templates.map((item) => item.id),
+    (item) => (item.categoryId === categoryId ? null : { categoryId }),
+  )
+}
+
+export function runBatchDelete(templates: readonly NoteTemplate[]): number {
+  return useNoteTemplates.getState().removeTemplates(
+    templates.filter((item) => !item.builtin).map((item) => item.id),
+  )
+}
+
 export function useGalleryBatchActions(
   state: GalleryLocalState,
   selectedTemplates: NoteTemplate[],
@@ -153,27 +178,15 @@ export function useGalleryBatchActions(
 ) {
   const { setSelectedIds, setIsBatchMoving } = state
   const batchToggleStar = useCallback(() => {
-    const store = useNoteTemplates.getState()
     const star = !allSelectedStarred
-    let changed = 0
-    for (const template of selectedTemplates) {
-      if (template.isStarred !== star) {
-        store.toggleTemplateStar(template.id)
-        changed++
-      }
-    }
+    const changed = runBatchStar(selectedTemplates, star)
     useUi.getState().toast({
       title: t(star ? 'templates.batch_starred_value0' : 'templates.batch_unstarred_value0', { value0: changed }),
       tone: 'success',
     })
   }, [allSelectedStarred, selectedTemplates])
   const batchMove = useCallback((categoryId: string | null) => {
-    const store = useNoteTemplates.getState()
-    let moved = 0
-    for (const template of selectedTemplates) {
-      if (template.categoryId !== categoryId && store.updateTemplate(template.id, { categoryId }))
-        moved++
-    }
+    const moved = runBatchMove(selectedTemplates, categoryId)
     setSelectedIds(new Set())
     setIsBatchMoving(false)
     useUi.getState().toast({ title: t('templates.batch_moved_value0', { value0: moved }), tone: 'success' })
@@ -187,12 +200,7 @@ export function useGalleryBatchActions(
       tone: 'danger',
     })
     if (!ok) return
-    const store = useNoteTemplates.getState()
-    let deleted = 0
-    for (const template of deletable) {
-      if (store.deleteTemplate(template.id))
-        deleted++
-    }
+    const deleted = runBatchDelete(selectedTemplates)
     setSelectedIds(new Set())
     useUi.getState().toast({ title: t('templates.batch_deleted_value0', { value0: deleted }), tone: 'success' })
   }, [selectedTemplates, setSelectedIds])
