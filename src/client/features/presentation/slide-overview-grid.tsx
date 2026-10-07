@@ -6,7 +6,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardE
 import type { ProseFont } from '@shared/types'
 import { t } from '../../lib/i18n'
 import { entryIndexOf, overviewMove, railEntries } from './presentation-state'
-import { presentationCommand } from './presentation-keys'
+import { presentationCommand, presentationKeyCombo } from './presentation-keys'
 import type { SlidePlan } from './slide-pagination'
 import { extractSlideHeading, pageLabel, SlideThumb, ThumbRootContext, useCachedSlideHtml, useNearViewport, usePageHtml, useThumbView, type ThumbView } from './slide-thumb'
 
@@ -49,7 +49,14 @@ export function SlideOverviewGrid({ deck, cacheKeys, plans, index, sub, designWi
         onKeyDown={onKeyDown}
         className='absolute inset-0 z-[var(--z-popover)] overflow-y-auto bg-[var(--bg-base)] px-[var(--sp-6)] py-[var(--sp-5)]'
       >
-        <div className='grid items-start justify-items-center gap-[var(--sp-4)]' style={{ gridTemplateColumns: OVERVIEW_GRID }}>
+        {/* A short deck used to sit in one row at the top of a screen that was mostly empty, which
+            reads as a broken layout rather than as seven pages. The count says what is on screen,
+            and the key says how to leave — neither of which the matrix itself can tell a person who
+            just pressed `G` and found a wall of cards. */}
+        <p className='mb-[var(--sp-3)] text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]'>
+          {t('workspace.presentation_overview_count', { value0: entries.length, value1: presentationKeyCombo('overview') })}
+        </p>
+        <div className='grid min-h-full content-center items-start justify-items-center gap-[var(--sp-4)]' style={{ gridTemplateColumns: OVERVIEW_GRID }}>
           {entries.map((entry, item) => (
             <OverviewCard
               key={`${entry.slide}-${entry.sub}`}

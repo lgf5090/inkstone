@@ -181,6 +181,69 @@ export interface SyncSettings {
 
 export interface NotesSettings {
   todoTag: string
+  /**
+   * Inserted at the top of every new note. Empty or whitespace-only yields a
+   * blank note. Capped by `NEW_NOTE_TEMPLATE_MAX_LENGTH`, which is also the
+   * limit the server applies when persisting settings.
+   */
+  newNoteTemplate: string
+  /** Rewrite the front matter `title` property whenever the note title changes. */
+  syncTitleToFrontMatter: boolean
+  /** Adopt a changed front matter `title` property as the note title. */
+  syncFrontMatterTitle: boolean
+}
+
+export interface NoteTemplateCategory {
+  id: string
+  name: string
+  /** True for categories shipped with the app; they cannot be renamed or deleted. */
+  builtin: boolean
+  position: number
+  createdAt: number
+  /** Appearance is optional because stored libraries predate it; absent means "derive it". */
+  icon?: string | null
+  color?: string | null
+}
+
+export interface NoteTemplate {
+  id: string
+  categoryId: string | null
+  name: string
+  description: string
+  content: string
+  /** True for templates shipped with the app; they can be edited but not deleted. */
+  builtin: boolean
+  isPinned: boolean
+  isStarred: boolean
+  /** Free-form labels shown in the gallery and used as a filter. */
+  tags: string[]
+  /** Manual sort position within the category; falls back to recency when absent. */
+  position?: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CommunityTemplate {
+  id: string
+  authorId: string
+  authorName: string
+  name: string
+  description: string
+  content: string
+  tags: string[]
+  category: string
+  /** How many other accounts added this template to their own library. */
+  uses: number
+  createdAt: number
+}
+
+export interface CommunityTemplateInput {
+  id?: string
+  name: string
+  description: string
+  content: string
+  tags: string[]
+  category: string
 }
 
 export interface UserSettings {

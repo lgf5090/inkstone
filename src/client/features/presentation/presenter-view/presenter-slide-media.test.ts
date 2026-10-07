@@ -8,6 +8,7 @@ import type { PresenterSlideState } from './use-presenter-channel'
 
 const SLIDE_STATE: PresenterSlideState = {
   noteTitle: 'Project Architecture',
+  slideTitles: [],
   slideIndex: 1,
   subPage: 0,
   step: 0,

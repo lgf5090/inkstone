@@ -52,6 +52,23 @@ export function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+// The exported file fades each page in over `--dur-base`; the projector now arrives the same way
+// (PR-M10). It is driven from here rather than from a stylesheet because the page element is reused
+// from turn to turn — React swaps its children — so a CSS animation would run once on mount and
+// never again, which is exactly what the first version of this did.
+const DECK_ARRIVAL_MS = 220
+
+function usePageArrival(hostRef: RefObject<HTMLElement | null>, motionless: boolean, token: string): void {
+  useEffect(() => {
+    if (motionless) return
+    const host = hostRef.current
+    if (!host || typeof host.animate !== 'function') return
+    host.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: DECK_ARRIVAL_MS, easing: 'ease-out' })
+    // The token is the whole input: it names the slide, the page of it, and the reveal within that
+    // page, which is what "a new page arrived" means to the projector.
+  }, [token])
+}
+
 // The design canvas is laid out at its design size and scaled, so the slide image
 // matches the stage box exactly and the browser does the scaling on the compositor.
 export function SlideViewport({ metrics, cacheKey, source, subPage, step, onPlan, instantCharts }: { metrics: StageMetrics } & Omit<SlideCanvasProps, 'contentWidth' | 'contentHeight'>) {
@@ -99,6 +116,7 @@ export function SlideCanvas({ cacheKey, source, subPage, step, contentWidth, con
   const { plan, measured } = useSlideLayout(hostRef, html, requestedLayout, shown.steps, subPage, step, contentWidth, contentHeight, diagrams.version)
   const prefersMotion = prefersReducedMotion()
   const effectiveInstantCharts = instantCharts || prefersMotion
+  usePageArrival(hostRef, prefersMotion, `${cacheKey}:${subPage}:${step}`)
   useSlideDiagrams({ hostRef, html, dark, onRendered: diagrams.onRendered, onSettled: diagrams.onSettled, instantCharts: effectiveInstantCharts, mermaid: preview.mermaid, chart: preview.chart })
   useSlideFenceBodies(hostRef, html, fences)
   useFontLoadedMeasure(diagrams.onRendered)

@@ -46,6 +46,31 @@ const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = 
     'zh-CN': () => import('@shared/locales/zh-CN').then((m) => m.ZH_CN_MESSAGES as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
+/**
+ * The built-in template bodies are the one part of the catalog a reader may never
+ * open, so they arrive on demand instead of riding the start-up locale chunk.
+ * Registering them mutates the same table `t()` reads, which keeps lookups, the
+ * language switch and the `resourcesVersion` signal exactly as they were.
+ */
+const noteTemplateBodyLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = {
+    'en-US': () => import('@shared/locales/en-US-note-template-content').then((m) => m.EN_US_NOTE_TEMPLATE_CONTENT as unknown as Record<string, string>),
+    'zh-CN': () => import('@shared/locales/zh-CN-note-template-content').then((m) => m.ZH_CN_NOTE_TEMPLATE_CONTENT as unknown as Record<string, string>),
+};
+const loadedNoteTemplateBodies = new Set<AppLocale>();
+async function ensureNoteTemplateBodiesLoaded(target: AppLocale): Promise<void> {
+    if (loadedNoteTemplateBodies.has(target)) return;
+    loadedNoteTemplateBodies.add(target);
+    const bodies = await noteTemplateBodyLoaders[target]();
+    messages[target] = { ...messages[target], ...bodies };
+    if (target === 'en-US')
+        enMessagesCache = { ...(enMessagesCache ?? {}), ...bodies };
+    resourcesVersion += 1;
+    listeners.forEach((listener) => listener());
+}
+export function ensureNoteTemplateContentLoaded(): Promise<void> {
+    return Promise.all([ensureNoteTemplateBodiesLoaded('en-US'), ensureNoteTemplateBodiesLoaded(locale)])
+        .then(() => undefined);
+}
 async function ensureLocaleLoaded(target: AppLocale): Promise<void> {
     if (loadedLocales.has(target)) return;
     const data = await localeLoaders[target]();

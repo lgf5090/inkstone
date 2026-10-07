@@ -20,6 +20,7 @@ import {
   insertImage,
   insertLink,
   insertMathBlock,
+  insertNoteTemplate,
   insertRunnableJsBlock,
   insertTable,
   insertTabs,
@@ -119,6 +120,7 @@ export function noteMenuItems(run: RunEditorCommand): MenuItem[] {
     { id: 'tag', label: t('workspace.insert_tag'), onSelect: () => run(insertTag) },
     { id: 'block-id', label: t('workspace.block_id'), onSelect: () => run(insertBlockId) },
     { id: 'front-matter', label: t('workspace.front_matter'), separatorBefore: true, onSelect: () => run(insertFrontMatter) },
+    { id: 'note-template', label: t('editor.insert_note_template'), onSelect: () => run(insertNoteTemplate) },
     { id: 'comment', label: t('workspace.hidden_comment'), combo: editorCombo('comment'), separatorBefore: true, onSelect: () => run(toggleComment) },
   ]
 }

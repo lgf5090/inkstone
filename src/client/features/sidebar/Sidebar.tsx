@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -23,6 +23,7 @@ import { SidebarTags } from '../tags/SidebarTags';import { t, useLocale } from "
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
+import { TemplateQuickActions } from '../templates/quick-actions';
 import { useTreeChildrenMount } from './useTreeChildrenMount';
 import { CalendarTree, InboxTree, isDropBlockedTarget, TodoTree } from './virtual-tree';
 import { SidebarCalendar } from './sidebar-calendar';
@@ -80,6 +81,8 @@ function SidebarRail({ onExpand }: {
     onExpand?: () => void;
 }) {
     const view = useUi((s) => !s.listCollapsed && !s.searchList ? s.view : null);
+    const panel = useUi((s) => s.panel);
+    const togglePanel = useUi((s) => s.togglePanel);
     const openView = useUi((s) => s.openView);
     return (<aside className="flex h-full min-h-0 flex-col items-center bg-[var(--bg-sunken)]">
       <div className="flex h-11 w-full shrink-0 items-center justify-center border-b border-[var(--border-subtle)]">
@@ -96,6 +99,7 @@ function SidebarRail({ onExpand }: {
         <RailButton label={t("navigation.favorites")} active={view === 'starred'} icon={<Star size={16}/>} onClick={() => openView('starred')}/>
         <RailButton label={t("navigation.trash")} active={view === 'trash'} icon={<Trash2 size={16}/>} onClick={() => openView('trash')}/>
         <div className="my-1 h-px w-6 bg-[var(--border-subtle)]"/>
+        <RailButton label={t("templates.new_note_from_template")} combo={APP_SHORTCUTS.templates} icon={<LayoutTemplate size={16}/>} active={panel === 'templates'} onClick={() => togglePanel('templates')}/>
         <RailButton label={t("common.new_note")} combo={APP_SHORTCUTS.newNote} accent icon={<FilePlus2 size={16}/>} onClick={() => void createContextualNote()}/>
       </div>
 
@@ -479,6 +483,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             <Settings2 size={13}/>
           </IconButton>
         </Tooltip>
+        <TemplateQuickActions iconSize={13}/>
         <Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
           <IconButton label={t("common.new_note")} size="sm" onClick={() => void createContextualNote()}><FilePlus2 size={13}/></IconButton>
         </Tooltip>

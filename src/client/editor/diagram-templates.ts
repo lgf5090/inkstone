@@ -1,4 +1,4 @@
-import type { MessageKey } from '@shared/locales/en-US';
+import type { BaseMessageKey } from '@shared/locales/en-US';
 
 /**
  * The starter bodies behind the editor toolbar's diagram submenus, as data: one row per entry, each
@@ -10,7 +10,7 @@ import type { MessageKey } from '@shared/locales/en-US';
  */
 export interface DiagramTemplate {
     id: string;
-    labelKey: MessageKey;
+    labelKey: BaseMessageKey;
     body: string;
 }
 

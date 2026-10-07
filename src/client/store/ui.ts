@@ -15,9 +15,9 @@ export type PanelName =
   | 'shortcuts'
   | 'graph'
   | 'folders'
+  | 'templates'
   | 'versions'
   | 'share'
-  | 'info'
 
 export type WorkspacePane = 'primary' | 'secondary'
 
@@ -35,6 +35,13 @@ export interface ToastItem {
 
 /** What a caller may say about a toast; the store supplies the id, the tone default and the timing. */
 export type ToastInput = Omit<ToastItem, 'id' | 'duration' | 'tone'> & { tone?: ToastItem['tone']; duration?: number }
+
+/** Rendered template text the workspace editor should insert for one note. */
+export interface TemplateInsert {
+  noteId: string
+  content: string
+  cursor: number | null
+}
 
 interface UiState {
 
@@ -126,6 +133,14 @@ interface UiState {
   toggleLocalGraph: () => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
+  /**
+   * A template the gallery asked the open editor to swallow. The gallery is a panel
+   * over the workspace, so it has no view of its own; the workspace applies this and
+   * clears it, which keeps the one-transaction undo contract in the editor.
+   */
+  templateInsert: TemplateInsert | null
+  requestTemplateInsert: (insert: TemplateInsert) => void
+  clearTemplateInsert: () => void
   toast: (input: ToastInput) => string
   dismissToast: (id: string) => void
   applyAppearance: (patch: { theme?: ThemePref; accent?: AccentName; background?: BackgroundName; fontScale?: number }) => void
@@ -377,6 +392,7 @@ export const useUi = create<UiState>((set, get) => ({
   localGraphOpen: false,
   toasts: [],
   lightbox: null,
+  templateInsert: null as TemplateInsert | null,
   mobilePane: 'list',
   searchList: false,
   searchQuery: '',
@@ -573,6 +589,9 @@ export const useUi = create<UiState>((set, get) => ({
   toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
   showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
+
+  requestTemplateInsert: (templateInsert) => set({ templateInsert }),
+  clearTemplateInsert: () => set({ templateInsert: null }),
 
   toast: (input) => {
     const id = `t${++toastSeq}`

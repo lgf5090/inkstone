@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, NoteSummary } from '@shared/types';
+import { DEFAULT_SETTINGS } from '@shared/constants';
 import { ORGANIZER_COLORS } from '@shared/organizer-colors';
 import { initI18n, t } from '../../lib/i18n';
 import { installTestGlobals } from '../../lib/test-render';
@@ -621,9 +622,9 @@ describe('virtual folder filtering', () => {
             plain: { ...note, id: 'plain', tags: ['archive'] },
         };
         useNotes.setState({ notes });
-        useSession.setState({ settings: { ...useSession.getState().settings, notes: { todoTag: 'chore' } } });
+        useSession.setState({ settings: { ...useSession.getState().settings, notes: { ...DEFAULT_SETTINGS.notes, todoTag: 'chore' } } });
         expect(await visibleFor('todo')).toEqual(['tagged']);
-        useSession.setState({ settings: { ...useSession.getState().settings, notes: { todoTag: 'chore,reading' } } });
+        useSession.setState({ settings: { ...useSession.getState().settings, notes: { ...DEFAULT_SETTINGS.notes, todoTag: 'chore,reading' } } });
         expect((await visibleFor('todo')).sort()).toEqual(['other', 'tagged']);
     });
 

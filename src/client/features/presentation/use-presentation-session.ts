@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { ProseFont } from '@shared/types'
 import { useBreakpoint } from '../../lib/hooks'
 import { randomLocalId } from '../../lib/random-id'
@@ -7,18 +7,22 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { type DeckHandoutPayload, type DeckSheetPayload, useDeckExport } from './deck-export'
 import type { DeckExportProgress } from './deck-print'
-import { backwardMove, clampSlideIndex, deckProgress, forwardMove, railOpenFor } from './presentation-state'
+import { backwardMove, clampSlideIndex, deckProgress, exitAsk, forwardMove, railOpenFor } from './presentation-state'
 import { useChromeAutoHide } from './use-chrome-auto-hide'
 import { useAudienceFollow } from './use-audience-follow'
 import { useDialogBehavior } from './use-dialog-behavior'
 import { useIsDarkTheme } from './presentation-theme'
-import { slideSettingFlags } from './slide-html'
+import { releaseSlideCache, slideSettingFlags } from './slide-html'
 import { planPageSteps, type SlidePlan } from './slide-pagination'
+import { extractSlideHeading } from './slide-thumb'
 import { useSlidePlans } from './use-slide-plans'
 import { type PreflightProgress, type SlidePreflightProps } from './slide-preflight'
 import { type StageMetrics, useStageMetrics } from './slide-stage'
 import { useShowDeck, useSlideCacheKeys } from './use-show-deck'
 import { openPresenterWindow, usePresenterBroadcaster, usePresenterSlideState, type PresenterSlideState, type PresenterStateSource } from './presenter-view/use-presenter-channel'
+import { replaceSpeakerNote } from './slides'
+import { useNotes } from '../../store/notes'
+import { usePresentation } from '../../store/presentation'
 import { usePresentedNote } from './use-presented-note'
 import { usePresentationKeys } from './use-presentation-keys'
 import { useFullscreenToggle } from './use-fullscreen-toggle'
@@ -89,7 +93,21 @@ export interface PresentationSession {
   /** Which page of the deck the running image export has written, or null while nothing is being written. */
   imageProgress: DeckExportProgress | null
   /** Everything the idle deck-measuring pass needs, grouped so the dialog can spread it. */
+  /** Everything the idle deck-measuring pass needs, grouped so the dialog can spread it. */
   preflight: SlidePreflightProps
+  /**
+   * Asking to leave. With an audience following this show it does not close the show — it asks first
+   * (PR-L3), because a keystroke that strands a room is not a keystroke anyone meant to press.
+   */
+  requestClose: () => void
+  /** A note typed on a console surface, written back into the document as that slide's cue (PR-M8). */
+  editSpeakerNote: (slide: number, text: string) => void
+  /** The ask is on screen. */
+  exitAsked: boolean
+  /** The answer that ends it: the show goes, and the audience link with it. */
+  closeNow: () => void
+  /** The answer that keeps it: the question goes away and nothing else moves. */
+  keepPresenting: () => void
   screenCover: 'black' | 'white' | null
   clearCover: () => void
   toggleBlackout: () => void
@@ -103,8 +121,13 @@ export interface PresentationSession {
   spotlight: boolean
   clearSpotlight: () => void
   toggleSpotlight: () => void
+  ink: boolean
+  clearInk: () => void
+  toggleInk: () => void
   /** An audience is following this show, and the link is out there (N-34). */
   audienceFollowing: boolean
+  /** How many browsers have read the show's position lately (PR-M7). */
+  audienceViewers: number
   /** Starts or ends that — the link is handed to the presenter's clipboard on the way in. */
   toggleAudience: () => void
   /** Whether the whole deck is laid out on top of the slide surface. */
@@ -150,6 +173,16 @@ function usePresenterFallback(open: boolean) {
   return { panelOpen, openPanel, closePanel }
 }
 
+// A show that has ended is not going to draw those pages again, and a prepared page carries its whole
+// inline picture, so the markup is given back on the way out rather than held until the next talk
+// evicts it — which may never happen.
+function useReleasePreparedPages(open: boolean): void {
+  useEffect(() => {
+    if (open) return
+    releaseSlideCache()
+  }, [open])
+}
+
 function useSessionPresenter(options: {
   open: boolean
   noteTitle: string
@@ -158,8 +191,9 @@ function useSessionPresenter(options: {
   notes: string[]
   proseFont?: ProseFont
   startedAt: number
+  editSpeakerNote: (slide: number, text: string) => void
 }) {
-  const { open, noteTitle, nav, deck, notes, proseFont, startedAt } = options
+  const { open, noteTitle, nav, deck, notes, proseFont, startedAt, editSpeakerNote } = options
   // Minted per click rather than per show: the token reaches the presenter window through its route, so
   // a document that never went through this button — a hand-typed `?presenter=1`, another tab — has no
   // channel name to speak on, and cannot ask for the speaker notes or move the projector.
@@ -170,6 +204,10 @@ function useSessionPresenter(options: {
     setPresenterToken(token)
     if (!openPresenterWindow(token)) fallback.openPanel()
   }, [fallback.openPanel])
+  // One label per slide for the console's outline. Taken per deck rather than per page turn: the list is
+  // the same list whatever the show is standing on, and reading every slide's first line on every press
+  // is a cost the talk pays in the middle of a talk.
+  const slideTitles = useMemo(() => deck.map(extractSlideHeading), [deck])
   const source: PresenterStateSource = {
     noteTitle,
     slideIndex: nav.index,
@@ -179,12 +217,13 @@ function useSessionPresenter(options: {
     pageCount: nav.pageCount,
     deck,
     notes,
+    slideTitles,
     plans: nav.plans,
     startedAt,
     proseFont,
   }
   const presenterState = usePresenterSlideState(source)
-  usePresenterBroadcaster({ ...source, open, token: presenterToken, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo })
+  usePresenterBroadcaster({ ...source, open, token: presenterToken, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo, editSpeakerNote })
   const presenterPanel: PresenterSlideState | null = fallback.panelOpen ? presenterState : null
   return { openPresenter, presenterPanel, closePresenterPanel: fallback.closePanel }
 }
@@ -201,12 +240,26 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
   const cacheKeys = useSlideCacheKeys(hashes, dark, metrics)
   const exports = useDeckExport({ deck, cacheKeys, plans: nav.plans, metrics, flags, dark, title: noteTitle, notes, proseFont })
   const { listProgress, onProgress } = useListProgress()
-  const presenter = useSessionPresenter({ open, noteTitle, nav, deck, notes, proseFont, startedAt })
   const audience = useSessionAudience(open, noteId, nav)
+  const presenter = useSessionPresenter({ open, noteTitle, nav, deck, notes, proseFont, startedAt, editSpeakerNote: (slide, text) => editSpeakerNote(noteId, presentedContent, slide, text) })
+  const [exitAsked, setExitAsked] = useState(false)
+  // A show with a room following it ends on a second, deliberate press: the link is out there, and
+  // the presenter is the only one who knows whether leaving was the plan.
+  const requestClose = useCallback(() => {
+    if (exitAsk({ audienceFollowing: audience.audienceFollowing }) === 'ask') setExitAsked(true)
+    else onClose()
+  }, [audience.audienceFollowing, onClose])
+  const keepPresenting = useCallback(() => setExitAsked(false), [])
+  // The question belongs to the show it asks about: whatever closes the talk puts it away, so a reopened
+  // show never opens on an answer the presenter already gave.
+  useEffect(() => {
+    if (!open) setExitAsked(false)
+  }, [open])
   const contextMenu = usePresentationContextMenu(open)
   const mode = usePresentationKeys({ open, slideCount: deck.length, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo, toggleFullscreen, toggleRail, toggleFollowing, openPresenter: presenter.openPresenter, isMenuOpen: Boolean(contextMenu.contextPoint) })
-  useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide })
+  useDialogBehavior({ open, panelRef, isFullscreen, toggleFullscreen, onClose: requestClose, laserOn: mode.laser, clearLaser: mode.clearLaser, overviewOn: mode.overview, clearOverview: mode.clearOverview, spotlightOn: mode.spotlight, clearSpotlight: mode.clearSpotlight, inkOn: mode.ink, clearInk: mode.clearInk, keyGuideOn: mode.keyGuide, clearKeyGuide: mode.clearKeyGuide, exitConfirmOn: exitAsked, clearExitConfirm: keepPresenting })
   const slideUnprepared = useSlideHtml({ open, deck, hashes, index: nav.index, content: presentedContent, noteTitle, dark, metrics })
+  useReleasePreparedPages(open)
   // The union of the pieces above, spread rather than unpacked key by key; explicit is only what this
   // file decides — `nav` is the position, `mode` what the keys own, `exports` what the controls ask for.
   return {
@@ -230,7 +283,12 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
     toggleRail,
     toggleFollowing,
     ...presenter,
-    occluded: mode.overview || Boolean(mode.screenCover) || Boolean(contextMenu.contextPoint),
+    occluded: mode.overview || Boolean(mode.screenCover) || Boolean(contextMenu.contextPoint) || exitAsked,
+    requestClose,
+    editSpeakerNote: (slide: number, text: string) => editSpeakerNote(noteId, presentedContent, slide, text),
+    exitAsked,
+    closeNow: onClose,
+    keepPresenting,
     ...nav,
     ...audience,
     ...mode,
@@ -246,7 +304,27 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
  */
 function useSessionAudience(open: boolean, noteId: string | null, nav: ReturnType<typeof usePresentationNav>) {
   const audience = useAudienceFollow({ open, noteId, position: { slide: nav.index, page: nav.sub, step: nav.step } })
-  return { audienceFollowing: audience.on, toggleAudience: audience.toggle }
+  return { audienceFollowing: audience.on, audienceViewers: audience.viewers, toggleAudience: audience.toggle }
+}
+
+/**
+ * A note typed during the talk, written back where notes live: in the document, as a cue (PR-M8).
+ *
+ * Only the window that owns the note store can do this, which is why the presenter console asks rather
+ * than saves. The rewrite is refused unless the deck splits back into the same slides it was before —
+ * that is what makes it safe to type while the projector is live — and a refusal is said out loud, since
+ * the words are sitting on the screen and did not go anywhere.
+ */
+function editSpeakerNote(noteId: string | null, content: string, slide: number, text: string): void {
+  if (!noteId) return
+  const next = replaceSpeakerNote(content, slide, text)
+  if (next === null) {
+    useUi.getState().toast({ title: t('workspace.presentation_note_refused'), tone: 'warning' })
+    return
+  }
+  if (next === content) return
+  useNotes.getState().editContent(noteId, next)
+  usePresentation.getState().capture(next)
 }
 
 /**

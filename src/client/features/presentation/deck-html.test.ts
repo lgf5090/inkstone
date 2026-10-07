@@ -126,6 +126,26 @@ describe('buildDeckHtmlDocument — what the file says about itself', () => {
     expect(file).not.toContain('ink-preview-container')
   })
 
+  // The file leaves this app in somebody else's hands, so it says what it may reach for: its own
+  // pictures and nothing else — no form to post to, no plugin, no `<base>` to re-point every
+  // relative URL at another host, and no `fetch` to carry the note's text away.
+  it('tells a stranger’s browser what the file may not reach for', () => {
+    const file = document_of('<p>two</p>')
+    const policy = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(file)?.[1]
+    expect(policy, 'the exported file carries no policy').toBeTruthy()
+    const directives = new Map((policy ?? '').split('; ').map((part) => {
+      const split = part.indexOf(' ')
+      return [part.slice(0, split), part.slice(split + 1)]
+    }))
+    expect(directives.get('default-src')).toBe("'none'")
+    expect(directives.get('connect-src')).toBe("'none'")
+    expect(directives.get('form-action')).toBe("'none'")
+    expect(directives.get('object-src')).toBe("'none'")
+    expect(directives.get('base-uri')).toBe("'none'")
+    expect(directives.get('img-src')).toContain('data:')
+    expect(file).toContain('<script>')
+  })
+
   it('escapes what a note title is not allowed to become', () => {    const file = document_of('<p>two</p>').replace('<title>Quarterly Review</title>', '<title>x</title>')
     const hostile = buildDeckHtmlDocument({
       pages: [],

@@ -14,6 +14,8 @@ import type {
   BackupTargetInput,
   BackupTargetPatchInput,
   Backlink,
+  CommunityTemplate,
+  CommunityTemplateInput,
   Folder,
   GraphResponse,
   ImportResult,
@@ -287,8 +289,9 @@ function shouldNotifyOtherTabs(path: string): boolean {
 }
 
 
-/** What the owner's own question answers: nothing, or where the show is and how long it may run. */
-export type PresenceStatus = { running: false } | { running: true, expiresAt: number, presence: PublicSharePresence }
+/** What the owner's own question answers: nothing, or where the show is and how long it may run — and in
+ * either case how many browsers have been reading it lately (PR-M7). */
+export type PresenceStatus = { running: false, viewers: number } | { running: true, expiresAt: number, presence: PublicSharePresence, viewers: number }
 
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
@@ -485,6 +488,23 @@ export const api = {
     stats: () => request<Record<string, number>>('/api/settings/stats'),
   },
 
+  communityTemplates: {
+    list: (before?: string, limit = 50) =>
+      request<{ templates: CommunityTemplate[]; hasMore: boolean; nextCursor: string | null }>(
+        `/api/templates/community?limit=${encodeURIComponent(String(limit))}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
+      ),
+    publish: (body: CommunityTemplateInput) =>
+      request<{ template: CommunityTemplate }>('/api/templates/community', { method: 'POST', body }),
+    remove: (id: string) => request<{ ok: true }>(`/api/templates/community/${id}`, { method: 'DELETE' }),
+    use: (id: string) => request<{ uses: number }>(`/api/templates/community/${id}/use`, { method: 'POST' }),
+  },
+
+  templateLibrary: {
+    load: () => request<{ savedAt: number; library: unknown }>('/api/templates/library'),
+    save: (library: string) =>
+      request<{ savedAt: number }>('/api/templates/library', { method: 'PUT', body: { library } }),
+  },
+
   mcp: {
     get: () => request<McpSettingsInfo>('/api/mcp'),
     save: (body: {
@@ -539,7 +559,7 @@ export const api = {
     start: (noteId: string) =>
       request<SharePresenceSession>(`/api/share/${noteId}/present/start`, { method: 'POST', body: {} }),
     publish: (noteId: string, position: SharePresencePosition) =>
-      request<{ updatedAt: number }>(`/api/share/${noteId}/present`, { method: 'POST', body: position }),
+      request<{ updatedAt: number, viewers: number }>(`/api/share/${noteId}/present`, { method: 'POST', body: position }),
     stop: (noteId: string) =>
       request<{ stopped: true }>(`/api/share/${noteId}/present/stop`, { method: 'POST', body: {} }),
     status: (noteId: string, signal?: AbortSignal) =>

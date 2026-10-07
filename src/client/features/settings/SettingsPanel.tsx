@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BrainCircuit, Cloud, Database, Info, Keyboard, Link2, Palette, RefreshCw, Search, Type, UserRound, X, } from 'lucide-react';
+import { BrainCircuit, Cloud, Database, FilePlus2, Info, Keyboard, Link2, Palette, RefreshCw, Search, Type, UserRound, X, } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
@@ -27,6 +27,7 @@ export const SECTIONS: {
 }[] = [
     { id: 'appearance', label: () => t("settings.appearance"), icon: <Palette size={14}/> },
     { id: 'editor', label: () => t("settings.editor"), icon: <Type size={14}/> },
+    { id: 'notes', label: () => t("settings.new_notes"), icon: <FilePlus2 size={14}/> },
     { id: 'backup', label: () => t("settings.backup"), icon: <Cloud size={14}/> },
     { id: 'sync', label: () => t("settings.sync"), icon: <RefreshCw size={14}/> },
     { id: 'mcp', label: () => t("settings.mcp"), icon: <BrainCircuit size={14}/> },

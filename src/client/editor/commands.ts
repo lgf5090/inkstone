@@ -2,10 +2,12 @@ import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange
 import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
 import { markdownToMindmapOutline } from '../lib/markdown/mindmap/outline';
+import { interpolateNewNoteTemplate } from '@shared/note-template-render';
 import { enclosingFence } from '../lib/markdown/fence-edit';
 import { parseFenceInfo } from '../lib/markdown/fence-info';
 import { CODE_FORMAT_FAILURE_MESSAGES, formatCodeResult } from '../lib/markdown/code-formatter';
 import { useSession } from '../store/session';
+import { useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
 
 // The view that is on screen right now. A show opens on the slide under the cursor, and the key that
@@ -567,6 +569,44 @@ export const insertFrontMatter: StateCommand = ({ state, dispatch }) => {
 export const insertTable: StateCommand = (target) => {
     const template = [t("editor.column_1_column_2_column_3"), '| --- | --- | --- |', '|  |  |  |', ''].join('\n');
     return insertPrefixedBlock(template, 2)(target);
+};
+/**
+ * Replace the selection with already-rendered text and put the caret where the
+ * template asked for it. One transaction, so one undo takes the block back.
+ */
+export function insertRenderedTemplate(content: string, cursor: number | null): StateCommand {
+    return ({ state, dispatch }) => {
+        if (!content)
+            return false;
+        const changes = state.changeByRange((range) => ({
+            changes: { from: range.from, to: range.to, insert: content },
+            range: EditorSelection.cursor(range.from + (cursor ?? content.length)),
+        }));
+        dispatch(state.update(changes, { scrollIntoView: true, userEvent: 'input.insert' }));
+        return true;
+    };
+}
+/**
+ * Insert the configured new-note template at each caret.
+ *
+ * This interpolates only: the note already exists, so merging its front matter
+ * tags would fight the properties the author wrote. `{{folder}}` and `{{tags}}`
+ * are filled from the note being edited, and `{{cursor}}` lands the caret
+ * inside the inserted text.
+ */
+export const insertNoteTemplate: StateCommand = (target) => {
+    const template = useSession.getState().settings.notes?.newNoteTemplate ?? '';
+    if (!template.trim())
+        return false;
+    const notes = useNotes.getState();
+    const summary = useUi.getState().activeNoteId ? notes.notes[useUi.getState().activeNoteId!] : null;
+    const folder = summary?.folderId ? notes.folders.find((item) => item.id === summary.folderId) : null;
+    const rendered = interpolateNewNoteTemplate(template, {
+        title: summary?.title || t('common.new_note'),
+        folder: folder?.name ?? '',
+        tags: (summary?.tags ?? []).join(', '),
+    });
+    return insertRenderedTemplate(rendered.content, rendered.cursor)(target);
 };
 export const insertCodeBlock: StateCommand = ({ state, dispatch }) => {
     const changes = state.changeByRange((range) => {

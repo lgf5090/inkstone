@@ -27,6 +27,12 @@ export interface PresentationStageProps {
   onNext: () => void
   /** The overview grid is drawn over the slide, so nothing in the slide can be reached. */
   occluded: boolean
+  /**
+   * Whether the control bar has faded. The corner readout exists only for that moment: while the bar
+   * is up it prints the same numbers beside the buttons that change them, and two copies of one
+   * figure on one screen read as two facts that could disagree (PR-M4).
+   */
+  chromeHidden?: boolean
 }
 
 export interface StageSessionSource {
@@ -43,6 +49,7 @@ export interface StageSessionSource {
   goPrev: () => void
   goNext: () => void
   occluded: boolean
+  chromeHidden?: boolean
 }
 
 export function stageProps(stageRef: RefObject<HTMLDivElement | null>, session: StageSessionSource): PresentationStageProps {
@@ -62,6 +69,7 @@ export function stageProps(stageRef: RefObject<HTMLDivElement | null>, session: 
     onPrev: session.goPrev,
     onNext: session.goNext,
     occluded: session.occluded,
+    chromeHidden: session.chromeHidden,
   }
 }
 
@@ -109,7 +117,7 @@ function useStageGestures({
 }
 
 export function PresentationStage(props: PresentationStageProps) {
-  const { stageRef, metrics, cacheKey, source, subPage, step, steps, pageCount = 1, instantCharts = false, index, count, onPlan, onPrev, onNext, occluded } = props
+  const { stageRef, metrics, cacheKey, source, subPage, step, steps, pageCount = 1, instantCharts = false, index, count, onPlan, onPrev, onNext, occluded, chromeHidden = false } = props
   const { handleClick, handleTouchStart, handleTouchEnd } = useStageGestures({ stageRef, onPrev, onNext, occluded })
 
   return (
@@ -122,11 +130,13 @@ export function PresentationStage(props: PresentationStageProps) {
       className='relative flex min-h-0 min-w-0 flex-1 select-none items-center justify-center overflow-hidden'
     >
       <SlideViewport metrics={metrics} cacheKey={cacheKey} source={source} subPage={subPage} step={step} onPlan={onPlan} instantCharts={instantCharts} />
-      {count > 0 && (
-        // This chip used to fade itself to 35% opacity, which composites its text to 1.67:1 against the
-        // slide — the axe `color-contrast` violation L-1 has been carrying. AA is the floor, so it now
-        // paints at the tier's own colour; muting it further would need a token that still clears
-        // contrast on this surface, not an opacity applied on top of one that already does.
+      {count > 0 && chromeHidden && (
+        // Only while the bar has faded, which is the one moment nothing else on screen says where
+        // the talk is. This chip used to fade itself to 35% opacity, which composites its text to
+        // 1.67:1 against the slide — the axe `color-contrast` violation L-1 has been carrying. AA is
+        // the floor, so it now paints at the tier's own colour; muting it further would need a token
+        // that still clears contrast on this surface, not an opacity applied on top of one that
+        // already does.
         <div
           className='pointer-events-none absolute bottom-[var(--sp-4)] right-[var(--sp-4)] z-[var(--z-sticky)] select-none rounded-[var(--r-full)] bg-[var(--bg-overlay)] px-[var(--sp-2)] py-[var(--sp-0-5)] text-[length:var(--text-11)] font-mono text-[var(--text-tertiary)] shadow-[var(--shadow-xs)]'
           aria-hidden='true'

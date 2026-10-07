@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement } from '../../../lib/test-render'
 import { PresenterWindow, type PresenterWindowProps } from './presenter-window'
-import { usePresenterTimer } from './use-presenter-timer'
+import { usePresenterTimer, useSlideTimings } from './use-presenter-timer'
 import type { PresenterSlideState } from './use-presenter-channel'
 import { planSlidePages, type SlideBlock } from '../slide-pagination'
 
@@ -28,6 +28,7 @@ function renderPresenter(props: PresenterWindowProps = {}) {
 
 const mockSlideState: PresenterSlideState = {
   noteTitle: 'Project Architecture',
+  slideTitles: ['Opening', 'Core Pillars', 'Roadmap', 'Closing'],
   slideIndex: 1,
   subPage: 0,
   step: 0,
@@ -61,7 +62,9 @@ describe('PresenterWindow — layout and rendering', () => {
   it('renders fallback when current slide has no speaker notes', () => {
     const emptyNotesState: PresenterSlideState = { ...mockSlideState, notes: '' }
     const { container } = renderPresenter({ initialState: emptyNotesState })
-    expect(container.textContent).toContain(t('workspace.presentation_no_notes'))
+    const box = container.querySelector('[data-speaker-notes]')
+    expect(box?.getAttribute('placeholder'), 'an empty box says nothing about being empty').toBe(t('workspace.presentation_no_notes'))
+    expect(box?.textContent).toBe('')
   })
 
   it('renders end-of-deck notice when on the final slide', () => {
@@ -79,6 +82,43 @@ describe('PresenterWindow — layout and rendering', () => {
     }
     const { container } = renderPresenter({ initialState: multiPageState })
     expect(container.textContent).toContain(t('workspace.presentation_next_slide'))
+  })
+})
+
+describe('PresenterWindow — the outline the console reads from (PR-M14)', () => {
+  const rows = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>('[data-presenter-outline-row]')]
+  const label = (row: Element) => [...row.querySelectorAll('span')].map((part) => part.textContent?.trim() ?? '').filter(Boolean).join(' ')
+
+  it('names every slide and marks the one the projector is standing on', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const found = rows(container)
+    expect(found.map(label)).toEqual(['1 Opening', '2 Core Pillars', '3 Roadmap', '4 Closing'])
+    expect(found[1]?.getAttribute('aria-current')).toBe('true')
+    expect(found[0]?.hasAttribute('aria-current'), 'only the page on screen is marked').toBe(false)
+  })
+
+  it('keeps a row for a slide with nothing to name, so the numbers still line up', () => {
+    const { container } = renderPresenter({ initialState: { ...mockSlideState, slideTitles: ['Opening', '', 'Closing'] } })
+    expect(rows(container).map(label)).toEqual(['1 Opening', '2', '3 Closing'])
+  })
+
+  it('asks the projector to jump to the row that was pressed', () => {
+    const onCommand = vi.fn()
+    const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
+    act(() => { rows(container)[2]?.click() })
+    expect(onCommand).toHaveBeenCalledTimes(1)
+    expect(onCommand).toHaveBeenCalledWith({ jump: 2 })
+  })
+
+  // The rule the round was about: the notes belong under the slide they are read against, and the other
+  // column is what comes next plus the way back. Nothing in the markup says so unless it is asserted.
+  it('puts the notes in the same column as the slide they belong to', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const column = container.querySelector('[data-presenter-current-pane]')?.parentElement
+    expect(column).toBeTruthy()
+    expect(column?.contains(container.querySelector('[data-speaker-notes]') ?? null)).toBe(true)
+    expect(column?.contains(container.querySelector('[data-presenter-next-pane]') ?? null), 'the next page is the other column').toBe(false)
+    expect(column?.parentElement?.contains(container.querySelector('[data-presenter-outline]') ?? null)).toBe(true)
   })
 })
 
@@ -160,21 +200,27 @@ describe('PresenterWindow — keyboard focus guards', () => {
     expect(onCommand).not.toHaveBeenCalledWith('next')
   })
 
-  it('leaves vertical scrolling keys to speaker notes pane when focused', () => {
+  // The note box is typed in during the talk (PR-M8), so every roaming key belongs to the caret while the
+  // box has focus. The page still turns from anywhere else in the window, which the second case says.
+  it('leaves every roaming key to the note box while it is being typed in', () => {
     const onCommand = vi.fn()
     const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
 
     const notesPane = container.querySelector('[data-speaker-notes]')
-    for (const key of ['PageDown', 'PageUp', 'Home', 'End', ' ', 'ArrowDown', 'ArrowUp']) {
+    expect(notesPane?.tagName, 'the notes are not a box the presenter can type in').toBe('TEXTAREA')
+    for (const key of ['PageDown', 'PageUp', 'Home', 'End', ' ', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft']) {
       notesPane?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-      expect(onCommand).not.toHaveBeenCalled()
+      expect(onCommand, `${key} turned the page from inside the note box`).not.toHaveBeenCalled()
     }
+  })
 
-    notesPane?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+  it('turns the page with the arrows from the rest of the window', () => {
+    const onCommand = vi.fn()
+    renderPresenter({ initialState: mockSlideState, onCommand })
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
     expect(onCommand).toHaveBeenCalledWith('next')
-
-    notesPane?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
-    expect(onCommand).toHaveBeenCalledWith('prev')
   })
 })
 
@@ -207,6 +253,26 @@ describe('PresenterWindow — timer interactions', () => {
 
     act(() => resetBtn?.click())
     expect(container.textContent).toContain('00:00')
+  })
+})
+
+// PR-L4: the accent is the one colour on this bar that means “look, something is off”. A clock that
+// is simply running wore it, so every presenter view opened looking like the talk had overrun.
+describe('the elapsed clock’s colour', () => {
+  const clockIn = (container: HTMLElement) => container.querySelector('[data-presenter-clock]')
+
+  it('stays out of the alarm colour while the talk is running', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const clock = clockIn(container)
+    expect(clock?.className).not.toContain('--accent')
+    expect(clock?.className).toContain('--text-primary')
+  })
+
+  it('goes to the accent only once the timer is paused', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const pause = [...container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === t('workspace.presentation_timer_pause'))
+    act(() => { pause?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(clockIn(container)?.className).toContain('--accent')
   })
 })
 
@@ -360,5 +426,119 @@ describe('PresenterWindow — a page the room watches arrive in stages', () => {
     const { container } = renderPresenter({ initialState: { ...STEPPED_STATE, slideIndex: 0, subPage: 0, slideCount: 1, pageCount: 1, step: 3, steps: 3 } })
     const next = container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)
     expect(next?.disabled).toBe(true)
+  })
+})
+
+// PR-M9: a rehearsal is about the pages, not only the wall clock. The timings are read off the show's
+// own elapsed number, so a paused room is not charged to the page that was up.
+describe('useSlideTimings', () => {
+  let timings!: ReturnType<typeof useSlideTimings>
+
+  function Host(props: { slide: number; elapsed: number }) {
+    timings = useSlideTimings(props.slide, props.elapsed)
+    return createElement('span')
+  }
+
+  it('counts the current page from the moment it arrived', () => {
+    const view = renderElement(createElement(Host, { slide: 0, elapsed: 5 }))
+    expect(timings.currentSeconds).toBe(5)
+    view.rerender(createElement(Host, { slide: 0, elapsed: 12 }))
+    expect(timings.currentSeconds).toBe(12)
+    view.unmount()
+  })
+
+  it('charges each page for the stretch it held the room', () => {
+    const view = renderElement(createElement(Host, { slide: 0, elapsed: 0 }))
+    view.rerender(createElement(Host, { slide: 0, elapsed: 10 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 10 }))
+    expect(timings.bySlide[0]).toBe(10)
+    expect(timings.currentSeconds).toBe(0)
+    view.rerender(createElement(Host, { slide: 1, elapsed: 25 }))
+    expect(timings.bySlide).toEqual({ 0: 10, 1: 15 })
+    expect(timings.visited).toBe(2)
+    view.unmount()
+  })
+
+  it('adds to a page the presenter went back to rather than restarting it', () => {
+    const view = renderElement(createElement(Host, { slide: 0, elapsed: 0 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 20 }))
+    view.rerender(createElement(Host, { slide: 0, elapsed: 30 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 40 }))
+    view.rerender(createElement(Host, { slide: 1, elapsed: 50 }))
+    expect(timings.bySlide[0], 'the first page was held for 20s and again for 10s').toBe(30)
+    expect(timings.bySlide[1], 'the second page held 10s, and is still up for 10 more').toBe(20)
+    expect(timings.currentSeconds).toBe(10)
+    expect(timings.visited).toBe(2)
+    view.unmount()
+  })
+})
+
+describe('the presenter’s per-page clock', () => {
+  it('says how long this page has held the room while the talk runs', () => {
+    const view = renderPresenter({ initialState: mockSlideState })
+    const timing = view.container.querySelector('[data-presenter-slide-timing]')
+    expect(timing, 'the header has no per-page clock').toBeTruthy()
+    expect(timing!.textContent).toContain(t('workspace.presentation_slide_elapsed', { value0: '' }).trim())
+    expect(timing!.textContent).toMatch(/\d[:]\d\d$/)
+    view.unmount()
+  })
+
+})
+
+// PR-M8: the note box is where the presenter writes what they have not said yet, during the talk. What
+// it owes is that the words reach the document, that a visit to the box changes nothing, and that a page
+// turn does not carry an unfinished sentence onto the next slide's note.
+describe('PresenterWindow — typing a note during the talk', () => {
+  const writeIn = (box: HTMLTextAreaElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    if (!setter) throw new Error('jsdom has stopped giving textareas a value setter')
+    act(() => {
+      setter.call(box, value)
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const leave = (box: HTMLTextAreaElement) => {
+    act(() => {
+      box.focus()
+      box.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    })
+  }
+  const boxOf = (container: HTMLElement) => container.querySelector<HTMLTextAreaElement>('[data-speaker-notes]')
+
+  it('hands the note back to the projector when the box loses focus', () => {
+    const onCommand = vi.fn()
+    const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
+    const box = boxOf(container)
+    if (!box) throw new Error('the console has no note box to type in')
+    writeIn(box, 'typed during the talk')
+    expect(onCommand, 'a save per keystroke is an undo history per keystroke').not.toHaveBeenCalled()
+    leave(box)
+    expect(onCommand).toHaveBeenCalledWith({ editNotes: { slide: 1, text: 'typed during the talk' } })
+  })
+
+  it('says nothing when the box was only visited', () => {
+    const onCommand = vi.fn()
+    const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
+    const box = boxOf(container)
+    if (!box) throw new Error('the console has no note box to type in')
+    leave(box)
+    expect(onCommand, 'focusing and leaving is not an edit').not.toHaveBeenCalled()
+    writeIn(box, mockSlideState.notes)
+    leave(box)
+    expect(onCommand, 'the same words back are not an edit either').not.toHaveBeenCalled()
+  })
+
+  it('gives up the draft when the show turns to another page', () => {
+    const onCommand = vi.fn()
+    const view = renderPresenter({ initialState: mockSlideState, onCommand })
+    const box = boxOf(view.container)
+    if (!box) throw new Error('the console has no note box to type in')
+    writeIn(box, 'half a sentence')
+    act(() => {
+      view.rerender(createElement(PresenterWindow, { initialState: { ...mockSlideState, slideIndex: 2, notes: 'what the next page needs' }, onCommand }))
+    })
+    leave(box)
+    expect(onCommand, 'a sentence started on the page above must not land on this one').not.toHaveBeenCalled()
+    expect(box.value).toBe('what the next page needs')
   })
 })

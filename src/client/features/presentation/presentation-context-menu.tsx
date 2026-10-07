@@ -11,6 +11,7 @@ import {
   Minimize,
   Moon,
   PanelLeft,
+  Pen,
   Presentation,
   Radio,
   Snowflake,
@@ -56,6 +57,9 @@ export interface PresentationMenuItemsOptions {
   onToggleAudience: () => void
   onOpenPresenter: () => void
   onToggleLaser: () => void
+  /** The marker over the slide (PR-M13): whether it is on, and the two ways to take marks away. */
+  inkOn: boolean
+  onToggleInk: () => void
   onToggleSpotlight: () => void
   onToggleBlackout: () => void
   onToggleWhiteout: () => void
@@ -189,6 +193,14 @@ function buildToolItems(options: PresentationMenuItemsOptions): MenuItem[] {
       icon: <Sun size={14} />,
       checked: options.spotlight,
       onSelect: options.onToggleSpotlight,
+    },
+    {
+      id: 'ink',
+      label: t('workspace.presentation_ink'),
+      combo: presentationKeyCombo('ink'),
+      icon: <Pen size={14} />,
+      checked: options.inkOn,
+      onSelect: options.onToggleInk,
     },
     {
       id: 'blackout',

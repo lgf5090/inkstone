@@ -339,6 +339,21 @@ describe('extractSlideHeading', () => {
   it('returns empty string if nothing recognizable is present', () => {
     expect(extractSlideHeading('```\ncode\n```\n<!-- note: hello -->\n---')).toBe('')
   })
+
+  it('says what the heading says rather than how it was marked up', () => {
+    expect(extractSlideHeading('## **Bold** and `code` and [link](https://a.example)')).toBe('Bold and code and link')
+  })
+
+  it('lifts the block marker off a slide that has no heading', () => {
+    expect(extractSlideHeading('> “Content, not tools.”')).toBe('“Content, not tools.”')
+  })
+
+  it('never lets a label paint a picture or run a script', () => {
+    const label = extractSlideHeading('## Title <img src="https://a.example/x.png" onerror="alert(1)">')
+    expect(label).not.toContain('img')
+    expect(label).not.toContain('alert')
+    expect(label).toContain('Title')
+  })
 })
 
 describe('pageLabel', () => {

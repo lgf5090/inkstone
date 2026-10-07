@@ -8,7 +8,7 @@
 import { t, type MessageKey } from '../../lib/i18n'
 import { prettyCombo } from '../../lib/hotkeys'
 
-export type PresentationCommand = 'next' | 'prev' | 'first' | 'last' | 'fullscreen' | 'slideList' | 'follow' | 'blackout' | 'whiteout' | 'laser' | 'spotlight' | 'overview' | 'presenter' | 'keyGuide'
+export type PresentationCommand = 'next' | 'prev' | 'first' | 'last' | 'fullscreen' | 'slideList' | 'follow' | 'blackout' | 'whiteout' | 'laser' | 'spotlight' | 'ink' | 'overview' | 'presenter' | 'keyGuide'
 
 /** A binding the reference prints: what the keys can run, plus `Escape`, which the dialog owns. */
 export type PresentationKeyCommand = PresentationCommand | 'exit'
@@ -78,6 +78,7 @@ const TOOL_KEYS: Record<string, PresentationCommand> = {
   f: 'fullscreen',
   l: 'follow',
   c: 'laser',
+  m: 'ink',
   t: 'spotlight',
   k: 'spotlight',
   s: 'slideList',
@@ -103,6 +104,7 @@ const KEY_REFERENCE: Record<PresentationKeyCommand, { keys: string[]; labelKey: 
   presenter: { keys: ['p'], labelKey: 'workspace.presentation_presenter' },
   follow: { keys: ['l'], labelKey: 'workspace.presentation_follow' },
   laser: { keys: ['c'], labelKey: 'workspace.presentation_laser' },
+  ink: { keys: ['m'], labelKey: 'workspace.presentation_ink' },
   spotlight: { keys: ['t', 'k'], labelKey: 'workspace.presentation_spotlight' },
   blackout: { keys: ['b', '.'], labelKey: 'workspace.presentation_blackout' },
   whiteout: { keys: ['w', ','], labelKey: 'workspace.presentation_whiteout' },

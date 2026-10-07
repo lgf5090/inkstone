@@ -21,6 +21,7 @@ vi.mock('./presenter-view/use-presenter-channel', async (importOriginal) => ({
 function state(startedAt: number): PresenterSlideState {
   return {
     noteTitle: 'Quarterly Review',
+    slideTitles: [],
     slideIndex: 1,
     subPage: 0,
     step: 0,

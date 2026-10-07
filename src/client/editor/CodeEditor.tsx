@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Annotation, Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, drawSelection, dropCursor, keymap, lineNumbers, placeholder as placeholderExt, rectangularSelection, } from '@codemirror/view';
 import { foldGutter, indentOnInput, indentUnit, } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -19,6 +19,7 @@ import { livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import type { EditorContext } from '../features/workspace/context-menu/types';
 import { detectEditorContext } from '../features/workspace/context-menu/detect-editor';
+import { takePendingEditorCursor } from '../store/new-note';
 import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
@@ -192,6 +193,13 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         view.contentDOM.spellcheck = settings.spellcheck;
         viewRef.current = view;
         setActiveEditorView(view);
+        const pendingCursor = noteId ? takePendingEditorCursor(noteId) : null;
+        if (pendingCursor !== null) {
+            view.dispatch({
+                selection: EditorSelection.cursor(Math.min(pendingCursor, view.state.doc.length)),
+                scrollIntoView: true,
+            });
+        }
         onReady?.(view);
         return () => {
             onReady?.(null);
