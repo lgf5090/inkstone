@@ -177,6 +177,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     codeBlockCollapse: true,
     codeBlockCollapseLines: 24,
     codeFormatButton: true,
+    tableBubbleMenu: true,
     linkHover: true,
     linkHoverDelayMs: 320,
     linkPreviewLength: 4000,
@@ -395,6 +396,7 @@ export function mergeSettings(partial: unknown): UserSettings {
     base.preview.codeBlockCollapseLines,
   )
   base.preview.codeFormatButton = booleanValue(preview.codeFormatButton, base.preview.codeFormatButton)
+  base.preview.tableBubbleMenu = booleanValue(preview.tableBubbleMenu, base.preview.tableBubbleMenu)
   base.preview.linkHover = booleanValue(preview.linkHover, base.preview.linkHover)
   base.preview.linkHoverDelayMs = integerInRange(
     preview.linkHoverDelayMs,

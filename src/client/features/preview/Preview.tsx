@@ -50,6 +50,10 @@ import { EditorContextMenu } from '../workspace/context-menu/EditorContextMenu'
 import { detectPreviewContext } from '../workspace/context-menu/detect-preview'
 import { useLongPress } from '../workspace/context-menu/use-long-press'
 import type { ContextMenuHost, PreviewContext } from '../workspace/context-menu/types'
+import { TableBubbleLayer } from './table-bubble/TableBubbleLayer'
+import { useTableBubble } from './table-bubble/use-table-bubble'
+import { joinLines, splitLines } from '../../lib/markdown/fence-edit'
+import type { ParsedTable } from '../../lib/markdown/table-editor'
 import { openTagPageByName, wantsTagPage } from '../tags/tagMutations'
 import { beginTagDrag, endTagDrag } from '../tags/tagDrag'
 import { preferredScrollBehavior } from '../../lib/motion'
@@ -342,6 +346,52 @@ export const Preview = memo(function Preview({
   })
 
   /**
+   * The table bubble's write route: the same guard every preview toolbar uses, because rewriting a
+   * fence the preview no longer shows would land the edit on a different block. Pure — the hook reads
+   * it while rendering to decide whether a table is addressable, and says the "try again" part itself
+   * when a press finds the preview behind.
+   */
+  const tableBubbleTarget = useCallback((): { noteId: string, source: string } | null => {
+    if (!sourceNoteId) return null
+    if (content !== committedSourceRef.current) return null
+    return { noteId: sourceNoteId, source: committedSourceRef.current }
+  }, [content, sourceNoteId])
+
+  const tableBubble = useTableBubble({
+    hostRef,
+    scrollerRef,
+    enabled: preview.tableBubbleMenu && Boolean(contextMenu),
+    getTarget: tableBubbleTarget,
+    onEditContent: editContent,
+    onToast: toast,
+  })
+
+  const tableBubbleSource = (table: ParsedTable): string => {
+    const { lines } = splitLines(tableBubbleTarget()?.source ?? '')
+    return lines.slice(table.startLine, table.endLine + 1).join('\n')
+  }
+
+  const tableBubbleDelete = (table: ParsedTable) => {
+    const target = tableBubbleTarget()
+    if (!target) {
+      toast({ title: t('preview.the_preview_is_updating_try_again_in_a_moment'), tone: 'warning' })
+      return
+    }
+    const { lines, eol, trailingNewline } = splitLines(target.source)
+    lines.splice(table.startLine, table.endLine - table.startLine + 1)
+    editContent(target.noteId, joinLines(lines, eol, trailingNewline))
+  }
+
+  const copyPreviewText = (text: string) => {
+    if (!text) return
+    if (!navigator.clipboard?.writeText) {
+      toast({ title: t('preview.could_not_copy'), tone: 'danger' })
+      return
+    }
+    void navigator.clipboard.writeText(text).catch(() => toast({ title: t('preview.could_not_copy'), tone: 'danger' }))
+  }
+
+  /**
    * The rendered block's own controls, reached through the hooks that already own them. A menu row
    * that opened a mind map in full screen by rebuilding the session would disagree with the block's
    * button the moment either side learned something new, so it calls the same opener instead.
@@ -603,6 +653,15 @@ export const Preview = memo(function Preview({
         <KanbanFullscreen session={kanban.fullscreen.session} onClose={kanban.closeFullscreen}/>
       )}
       <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
+      {contextMenu && (
+        <TableBubbleLayer
+          view={tableBubble}
+          onJumpToLine={contextMenu.onJumpToLine}
+          onCopyText={copyPreviewText}
+          tableSource={tableBubbleSource}
+          onDeleteTable={tableBubbleDelete}
+        />
+      )}
       {contextMenu && previewMenu && (
         <EditorContextMenu
           point={previewMenu}

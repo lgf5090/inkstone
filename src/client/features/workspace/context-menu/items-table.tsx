@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
-import { AlignCenter, ArrowDownUp, ArrowUpAZ, ArrowDownAZ, Copy, CopyPlus, Eraser, FileSpreadsheet, Minus, Pencil, Plus, Rows, Trash2 } from 'lucide-react'
+import { AlignCenter, ArrowDown, ArrowDownUp, ArrowLeft, ArrowRight, ArrowUp, ArrowUpAZ, ArrowDownAZ, Copy, CopyPlus, Eraser, FileSpreadsheet, Minus, Pencil, Plus, Rows, Trash2 } from 'lucide-react'
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t, type MessageKey } from '../../../lib/i18n'
 import {
+  clearTableColumn,
   clearTableCell,
   clearTableRow,
   deleteTableColumn,
@@ -10,6 +11,8 @@ import {
   duplicateTableRow,
   insertTableColumn,
   insertTableRow,
+  moveTableColumn,
+  moveTableRow,
   parseMarkdownTable,
   setColumnAlignment,
   sortTableRowByColumn,
@@ -57,13 +60,18 @@ export function tableMenuItems(table: ParsedTable, apply: (next: ParsedTable) =>
     { id: 'insert-row-below', label: t('contextmenu.table_insert_row_below'), icon: <Rows size={14} />, onSelect: () => apply(insertTableRow(table, row, 'below')) },
     { id: 'duplicate-row', label: t('contextmenu.table_duplicate_row'), icon: <CopyPlus size={14} />, disabled: row < 0, onSelect: () => apply(duplicateTableRow(table, row)) },
     { id: 'delete-row', label: t('contextmenu.table_delete_row'), icon: <Trash2 size={14} />, disabled: row < 0 && table.rows.length === 0, onSelect: () => apply(deleteTableRow(table, row)) },
+    { id: 'move-row-up', label: t('contextmenu.table_move_row_up'), icon: <ArrowUp size={14} />, disabled: row <= 0, onSelect: () => apply(moveTableRow(table, row, row - 1)) },
+    { id: 'move-row-down', label: t('contextmenu.table_move_row_down'), icon: <ArrowDown size={14} />, disabled: row < 0 || row >= table.rows.length - 1, onSelect: () => apply(moveTableRow(table, row, row + 1)) },
     { id: 'insert-col-left', label: t('contextmenu.table_insert_col_left'), icon: <Plus size={14} />, separatorBefore: true, onSelect: () => apply(insertTableColumn(table, column, 'left')) },
     { id: 'insert-col-right', label: t('contextmenu.table_insert_col_right'), icon: <Plus size={14} />, onSelect: () => apply(insertTableColumn(table, column, 'right')) },
     { id: 'delete-col', label: t('contextmenu.table_delete_col'), icon: <Trash2 size={14} />, disabled: table.columnCount <= 1, onSelect: () => apply(deleteTableColumn(table, column)) },
+    { id: 'move-col-left', label: t('contextmenu.table_move_col_left'), icon: <ArrowLeft size={14} />, disabled: column === 0, onSelect: () => apply(moveTableColumn(table, column, column - 1)) },
+    { id: 'move-col-right', label: t('contextmenu.table_move_col_right'), icon: <ArrowRight size={14} />, disabled: column >= table.columnCount - 1, onSelect: () => apply(moveTableColumn(table, column, column + 1)) },
     { id: 'align', label: t('contextmenu.table_align'), icon: <AlignCenter size={14} />, separatorBefore: true, subItems: alignItems, submenu: submenuFor(alignItems) },
     { id: 'sort', label: t('contextmenu.table_sort'), icon: <ArrowDownUp size={14} />, subItems: sortItems, submenu: submenuFor(sortItems) },
     { id: 'clear-cell', label: t('contextmenu.table_clear_cell'), icon: <Eraser size={14} />, separatorBefore: true, onSelect: () => apply(clearTableCell(table, row, column)) },
     { id: 'clear-row', label: t('contextmenu.table_clear_row'), icon: <Eraser size={14} />, onSelect: () => apply(clearTableRow(table, row)) },
+    { id: 'clear-col', label: t('contextmenu.table_clear_col'), icon: <Eraser size={14} />, onSelect: () => apply(clearTableColumn(table, column)) },
     { id: 'format', label: t('contextmenu.table_format'), icon: <FileSpreadsheet size={14} />, separatorBefore: true, onSelect: () => apply({ ...table }) },
     { id: 'copy-csv', label: t('contextmenu.table_copy_csv'), icon: <Copy size={14} />, onSelect: () => copyCsv(tableToCsv(table)) },
     ...extras,
