@@ -39,7 +39,7 @@ const naive = (notes: Record<string, NoteSummary>) => {
       noteIdByTitle.set(item.title, item.id)
   }
   for (const list of notesByDay.values())
-    list.sort((a, b) => b.updatedAt - a.updatedAt)
+    list.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
   return { counts, noteIdByTitle, notesByDay, latestEditKey: latest === 0 ? null : dateKey(new Date(latest)) }
 }
 
@@ -269,6 +269,43 @@ describe('buildActivityProjectionCached — tombstones and sweeps', () => {
     expect(second.notesByDay.get('2026-07-02')).toBeUndefined()
     expect(second.notesByDay.get('2026-07-01')).toEqual([{ id: 'a', title: 'Note', updatedAt: day(2026, 7, 1) }])
     void _removed
+  })
+})
+
+describe('buildActivityProjectionCached — incremental equals the fresh build', () => {
+  it('gives a shared title to the earlier note after a rename', () => {
+    const map = asRecord([
+      note({ id: 'k1', title: 'Alpha', updatedAt: day(2026, 7, 1) }),
+      note({ id: 'k2', title: 'Diary', updatedAt: day(2026, 7, 2) }),
+    ])
+    buildActivityProjectionCached(map)
+    const renamed = { ...map, k1: { ...map.k1!, title: 'Diary' } }
+    const incremental = buildActivityProjectionCached(renamed)
+    expect(incremental.noteIdByTitle.get('Diary')).toBe('k1')
+    expect(incremental.noteIdByTitle).toEqual(naive(renamed).noteIdByTitle)
+  })
+
+  it('orders a same-millisecond tie the same way in both paths', () => {
+    const at = day(2026, 7, 2)
+    const map = asRecord([note({ id: 'a', updatedAt: at }), note({ id: 'c', updatedAt: at }), note({ id: 'b', updatedAt: at })])
+    const first = buildActivityProjectionCached(map)
+    expect(first.notesByDay.get('2026-07-02')!.map((item) => item.id)).toEqual(['a', 'b', 'c'])
+    const moved = { ...map, c: { ...map.c!, updatedAt: day(2026, 7, 3) } }
+    buildActivityProjectionCached(moved)
+    const back = { ...moved, c: { ...map.c! } }
+    const third = buildActivityProjectionCached(back)
+    expect(third.notesByDay.get('2026-07-02')!.map((item) => item.id))
+      .toEqual(naive(back).notesByDay.get('2026-07-02')!.map((item) => item.id))
+  })
+
+  it('orders a same-millisecond tie by id on the cold path, not by insertion order', () => {
+    const at = day(2026, 7, 2)
+    const vault = { a: note({ id: 'a', updatedAt: at }), c: note({ id: 'c', updatedAt: at }), b: note({ id: 'b', updatedAt: at }) }
+    // The cached entry point repairs once a slot exists, so it never reaches this sort again; the
+    // cold build is called directly here because that is the path a first paint takes.
+    expect(buildActivityProjectionFresh(vault).notesByDay.get('2026-07-02')!.map((item) => item.id)).toEqual(['a', 'b', 'c'])
+    expect(buildActivityProjectionFresh(vault).notesByDay.get('2026-07-02')!.map((item) => item.id))
+      .toEqual(naive(vault).notesByDay.get('2026-07-02')!.map((item) => item.id))
   })
 })
 

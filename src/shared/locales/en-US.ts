@@ -1938,6 +1938,7 @@ export const EN_US_MESSAGES = {
     "sidebar.calendar_gap_banner_ahead_value0": "newest edit is {value0} days after this range — click to jump to it",
     "sidebar.calendar_gap_banner_value0": "newest edit is {value0} days before this range — click to jump to it",
     "sidebar.calendar_gap_click_follow": "click to jump to the newest edit",
+    "sidebar.calendar_heat_legend": "Heat from no notes to the busiest day",
     "sidebar.calendar_jump_to_day": "Show this day in the month view",
     "sidebar.calendar_less": "Less",
     "sidebar.calendar_month_grid_aria": "Month grid: {value0}",

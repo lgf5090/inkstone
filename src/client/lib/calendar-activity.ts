@@ -1,5 +1,6 @@
 import type { NoteSummary } from '@shared/types'
 import { dateKey } from './time'
+import { isActiveNote, isDeleted } from './note-visibility'
 
 // The activity-heatmap calendar derives three whole-vault structures from each
 // note (per-day updatedAt counts, first-note-per-title lookup, per-day note
@@ -29,6 +30,10 @@ interface ActivityEntry {
   key: string
   title: string
   counted: boolean
+  // Where the id sits in the record's own order: the fresh build gives a title to the first note
+  // that carries it, so an incremental repair can only hand a slot over to a note that comes
+  // earlier than the current owner.
+  order: number
 }
 
 
@@ -37,18 +42,15 @@ interface ActivityProjectionSlot extends ActivityProjection {
   byId: Map<string, ActivityEntry>
   titleCounts: Map<string, number>
   latestUpdatedAt: number
+  lastOrder: number
 }
 
 // Two tiers of visibility, because the calendar asks two different questions. The day
 // slices answer "how active was this day", which has to agree with what the note list
-// shows, so archived notes are out. The title slots answer "which note is this day's
-// diary", and an archived diary must still be found there or clicking its date would
-// file a second note for the same day.
-export function isActivityNote(note: Pick<NoteSummary, 'deletedAt' | 'isArchived'>): boolean {
-  return !note.deletedAt && !note.isArchived
-}
-
-const isAliveNote = (note: Pick<NoteSummary, 'deletedAt'>): boolean => !note.deletedAt
+// shows, so archived notes are out (isActiveNote). The title slots answer "which note is
+// this day's diary", and an archived diary must still be found there or clicking its date
+// would file a second note for the same day.
+const isAliveNote = (note: NoteSummary): boolean => !isDeleted(note)
 
 let activityProjectionSlot: ActivityProjectionSlot | null = null
 
@@ -78,13 +80,15 @@ export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>)
   const byId = new Map<string, ActivityEntry>()
   const titleCounts = new Map<string, number>()
   let latestUpdatedAt = 0
+  let position = 0
   for (const id in notes) {
+    const order = position++
     const note = notes[id]!
     if (!isAliveNote(note))
       continue
     const key = dateKey(new Date(note.updatedAt))
-    const counted = isActivityNote(note)
-    byId.set(id, { ref: note, key, title: note.title, counted })
+    const counted = isActiveNote(note)
+    byId.set(id, { ref: note, key, title: note.title, counted, order })
     titleCounts.set(note.title, (titleCounts.get(note.title) ?? 0) + 1)
     if (!noteIdByTitle.has(note.title))
       noteIdByTitle.set(note.title, id)
@@ -101,8 +105,8 @@ export function buildActivityProjectionFresh(notes: Record<string, NoteSummary>)
       notesByDay.set(key, [item])
   }
   for (const list of notesByDay.values())
-    list.sort((a, b) => b.updatedAt - a.updatedAt)
-  return { notes, counts, noteIdByTitle, notesByDay, byId, titleCounts, latestUpdatedAt, latestEditKey: latestEditKeyOf(latestUpdatedAt) }
+    list.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+  return { notes, counts, noteIdByTitle, notesByDay, byId, titleCounts, latestUpdatedAt, latestEditKey: latestEditKeyOf(latestUpdatedAt), lastOrder: position - 1 }
 }
 
 // First-wins over insertion order, matching the naive rebuild: the map holds
@@ -166,7 +170,7 @@ function upsertInDay(byDay: Map<string, ActivityDayNote[]>, key: string, item: A
   const copy = list ? list.map((entry) => (entry.id === item.id ? item : entry)) : []
   if (!copy.some((entry) => entry.id === item.id))
     copy.push(item)
-  copy.sort((a, b) => b.updatedAt - a.updatedAt)
+  copy.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
   byDay.set(key, copy)
 }
 
@@ -184,6 +188,7 @@ interface ProjectionCtx {
   oldTitles: Map<string, string>
   oldByDay: Map<string, ActivityDayNote[]>
   next: Record<string, NoteSummary>
+  order: number
   latestUpdatedAt: number
   latestMayHaveDropped: boolean
 }
@@ -212,6 +217,19 @@ function trackLatestUpdatedAt(ctx: ProjectionCtx, from: number | null, to: numbe
     ctx.latestMayHaveDropped = true
 }
 
+// The fresh build hands a title to the first note in record order that carries it, so a
+// repair may only move a slot to a note that comes earlier than the current owner.
+function claimTitle(ctx: ProjectionCtx, title: string, id: string, order: number): void {
+  const owner = ctx.titles.get(title)
+  if (owner === undefined || owner === id) {
+    ctx.titles.set(title, id)
+    return
+  }
+  const current = ctx.byId.get(owner)
+  if (!current || order < current.order)
+    ctx.titles.set(title, id)
+}
+
 function applyTombstone(ctx: ProjectionCtx, id: string, prev: ActivityEntry): void {
   ctx.byId.delete(id)
   if (prev.counted) {
@@ -233,10 +251,9 @@ function applyInsert(ctx: ProjectionCtx, id: string, note: NoteSummary, key: str
     upsertInDay(ctx.byDay, key, { id, title: note.title, updatedAt: note.updatedAt })
   }
   ensureTitlesWritable(ctx)
-  if (ctx.titles.get(note.title) === undefined)
-    ctx.titles.set(note.title, id)
+  claimTitle(ctx, note.title, id, ctx.order)
   ctx.titleCounts.set(note.title, (ctx.titleCounts.get(note.title) ?? 0) + 1)
-  ctx.byId.set(id, { ref: note, key, title: note.title, counted })
+  ctx.byId.set(id, { ref: note, key, title: note.title, counted, order: ctx.order++ })
   if (counted)
     trackLatestUpdatedAt(ctx, null, note.updatedAt)
 }
@@ -274,11 +291,10 @@ function applyChange(ctx: ProjectionCtx, id: string, note: NoteSummary, prev: Ac
   if (prev.title !== note.title) {
     ensureTitlesWritable(ctx)
     dropTitleClaim(ctx.titleCounts, ctx.titles, ctx.next, prev.title, id)
-    if (ctx.titles.get(note.title) === undefined)
-      ctx.titles.set(note.title, id)
+    claimTitle(ctx, note.title, id, prev.order)
     ctx.titleCounts.set(note.title, (ctx.titleCounts.get(note.title) ?? 0) + 1)
   }
-  ctx.byId.set(id, { ref: note, key, title: note.title, counted })
+  ctx.byId.set(id, { ref: note, key, title: note.title, counted, order: prev.order })
   // Archiving retires the newest edit without changing its timestamp, and un-archiving
   // can hand it back, so either tier crossing has to be reported — but a note that sits
   // outside the counted tier on both sides never touched the maximum.
@@ -305,7 +321,7 @@ function sweepVanishedIds(ctx: ProjectionCtx): void {
   }
 }
 
-export function updateActivityProjection(slot: ActivityProjectionSlot, next: Record<string, NoteSummary>): ActivityProjectionSlot {
+function updateActivityProjection(slot: ActivityProjectionSlot, next: Record<string, NoteSummary>): ActivityProjectionSlot {
   const ctx: ProjectionCtx = {
     byId: slot.byId,
     titleCounts: slot.titleCounts,
@@ -316,6 +332,7 @@ export function updateActivityProjection(slot: ActivityProjectionSlot, next: Rec
     oldTitles: slot.noteIdByTitle,
     oldByDay: slot.notesByDay,
     next,
+    order: slot.lastOrder + 1,
     latestUpdatedAt: slot.latestUpdatedAt,
     latestMayHaveDropped: false,
   }
@@ -334,14 +351,14 @@ export function updateActivityProjection(slot: ActivityProjectionSlot, next: Rec
       applyTombstone(ctx, id, prev)
       continue
     }
-    const counted = isActivityNote(note)
+    const counted = isActiveNote(note)
     const key = dateKey(new Date(note.updatedAt))
     if (prev && prev.key === key && prev.title === note.title && prev.counted === counted && prev.ref.updatedAt === note.updatedAt) {
       // A commit that touched fields this projection does not read
       // (excerpt, tags, pin, ...): keep every output identity stable.
       // updatedAt feeds both the day key and the day-list sort, so it
       // must match down to the millisecond for the slice to be skipped.
-      ctx.byId.set(id, { ref: note, key, title: note.title, counted })
+      ctx.byId.set(id, { ref: note, key, title: note.title, counted, order: prev.order })
       continue
     }
     if (!prev) {
@@ -363,6 +380,7 @@ export function updateActivityProjection(slot: ActivityProjectionSlot, next: Rec
     titleCounts: ctx.titleCounts,
     latestUpdatedAt: ctx.latestUpdatedAt,
     latestEditKey: latestEditKeyOf(ctx.latestUpdatedAt),
+    lastOrder: ctx.order - 1,
   }
 }
 

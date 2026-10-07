@@ -3,6 +3,7 @@ import { act, createElement, useState } from 'react'
 import { buildStripWeeks, buildYearHeatMeta, HEAT_PERCENTS, monthRangeToKeys, yearHeatLevel, DAY_NOTE_LIMIT, ActivityCalendar } from './activity-calendar'
 import type { ActivityCalendarProps } from './activity-calendar/props'
 import { renderElement } from '../lib/test-render'
+import { dateKey } from '../lib/time'
 
 function stripOptions(overrides: Partial<Parameters<typeof buildStripWeeks>[1]> = {}): Parameters<typeof buildStripWeeks>[1] {
   return {
@@ -748,5 +749,72 @@ describe('focus after a jump', () => {
     expect(target).toBe('2026-09-02')
     expect(props.selects).toContain('2026-09-02')
     unmount()
+  })
+})
+
+describe('the week column contract', () => {
+  const withZone = (zone: string, run: () => void) => {
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    if (!env)
+      throw new Error('the suite needs a process env to move the clock zone')
+    const saved = env.TZ
+    env.TZ = zone
+    try {
+      run()
+    }
+    finally {
+      env.TZ = saved
+    }
+  }
+
+  it('marks the selected week without stacking two button semantics', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props, {
+      view: 'weeks',
+      counts: new Map([['2026-09-02', 2]]),
+      selectedRange: { start: '2026-08-31', end: '2026-09-06' },
+    })
+    const weeks = [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')]
+    expect(weeks.length).toBeGreaterThan(0)
+    for (const week of weeks) expect(week.hasAttribute('aria-pressed'), week.getAttribute('aria-label') ?? '').toBe(false)
+    expect(weeks.some((week) => week.getAttribute('aria-current') === 'true')).toBe(true)
+    expect([...container.querySelectorAll('.sr-only')].map((el) => el.textContent).join('')).toContain('sidebar.calendar_week_notes_value0')
+    unmount()
+  })
+
+  it('describes the heat ramp instead of hiding five unlabelled swatches', () => {
+    const props = spy()
+    const { container, unmount } = interactive(props)
+    const ramp = container.querySelector('[role="img"]')
+    expect(ramp, 'the legend needs one accessible node for the five levels').not.toBeNull()
+    expect(ramp?.getAttribute('aria-label')).toContain('sidebar.calendar_heat_legend')
+    expect(ramp?.children).toHaveLength(5)
+    for (const swatch of [...ramp!.children]) expect(swatch.hasAttribute('aria-hidden'), 'a labelled image already hides its children').toBe(false)
+    unmount()
+  })
+
+  it('lays out the window without a gap or a doubled day, even where whole days vanish', () => {
+    const zones: [string, Date][] = [
+      ['Pacific/Apia', new Date(2011, 11, 31)],
+      ['Pacific/Kiritimati', new Date(1994, 11, 31)],
+      ['America/Santiago', new Date(2026, 8, 6)],
+      ['UTC', new Date(2026, 8, 2)],
+    ]
+    for (const [zone, anchor] of zones) {
+      withZone(zone, () => {
+        const weeks = buildStripWeeks(new Map(), { now: anchor, weekStart: 1, todayKey: dateKey(anchor) })
+        const flat = weeks.flat().map((cell) => cell.key)
+        // A zone that deleted a calendar date really does step by two keys there; what must never
+        // break is the row shape: sixteen rows, each opening on the configured weekday, ending at
+        // today, with no day printed twice.
+        expect(weeks.length, zone).toBe(16)
+        expect(new Set(flat).size, zone).toBe(flat.length)
+        for (const week of weeks) {
+          expect(week).toHaveLength(7)
+          expect(new Date(`${week[0]!.key}T12:00`).getDay(), `${zone} row start`).toBe(1)
+        }
+        expect(flat, zone).toContain(dateKey(anchor))
+      })
+    }
   })
 })
