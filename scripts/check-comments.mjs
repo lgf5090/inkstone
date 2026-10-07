@@ -2989,6 +2989,11 @@ const allowed = new Map([
     "// Renaming a non-owner leaves the slot untouched.",
     "// A late map-order note sharing a title never steals the slot.",
     "// Reviving re-adds the note everywhere with its new timeline position.",
+    "// Three cases below build or rebuild a vault of thousands of notes, and the work is synchronous: idle",
+    "// this file costs ~1.7 s a case, and the suite runs one file per core, so a busy machine stretches that",
+    "// past the default five-second budget without anything being wrong with the projection. The budget is",
+    "// stated here rather than paid for by a smaller vault — the coverage is the point of these cases. The",
+    "// same shape as `kanban-render-budget.test.ts`'s `HEAVY_BOARD`.",
   ]],
   ["src/client/lib/calendar-activity.ts", [
     "// The activity-heatmap calendar derives three whole-vault structures from each",
