@@ -2985,18 +2985,25 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
 // per note: the old predicate built a Date and a `YYYY-MM-DD` string for every row.
 // The upper bound is the start of the day AFTER `end`, so a 23-hour DST day cannot
 // shave the closing hour off the range the way a fixed day length would.
-interface DayWindow {
+// Exported so the day-boundary contract is testable per time zone: a fixed day length
+// and the next local midnight only disagree where a day is not 24 hours long, and the
+// suite has to be able to visit such a zone explicitly.
+// The upper edge is asked of the Date constructor as `day + 1`, never read off a parsed
+// end-of-range Date and nudged with `setDate`: where a zone puts the clock forward at
+// midnight (America/Santiago 2026-09-06 has no 00:00), the parsed date has already
+// normalised to 01:00 and `setDate` carries that hour onto the next day, widening the
+// window by an hour the reader never selected.
+export interface DayWindow {
     from: number;
     to: number;
 }
-function dayWindow(range: DateRangeFilter | null): DayWindow | null {
+export function dayWindow(range: DateRangeFilter | null): DayWindow | null {
     if (!range)
         return null;
-    const until = parseDateKey(range.end);
-    until.setDate(until.getDate() + 1);
-    return { from: parseDateKey(range.start).getTime(), to: until.getTime() };
+    const [endYear, endMonth, endDay] = range.end.split('-').map(Number);
+    return { from: parseDateKey(range.start).getTime(), to: new Date(endYear, endMonth - 1, endDay + 1).getTime() };
 }
-function inDayWindow(note: NoteSummary, days: DayWindow | null): boolean {
+export function inDayWindow(note: NoteSummary, days: DayWindow | null): boolean {
     if (!days)
         return true;
     return note.updatedAt >= days.from && note.updatedAt < days.to;
