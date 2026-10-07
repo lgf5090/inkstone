@@ -1,3 +1,6 @@
+import type { EditorView } from '@codemirror/view'
+import type { EditorLayout } from '@shared/types'
+import type { BlockToast } from '../../preview/block-overlay'
 import type { ParsedTable } from '../../../lib/markdown/table-editor'
 
 /**
@@ -109,4 +112,90 @@ export function fenceContextKind(language: string): ContextKind {
   if (family === 'example') return 'example'
   if (family) return family
   return 'codeblock'
+}
+
+/**
+ * Everything a menu item can read or trigger, assembled once per menu and handed to the per-kind
+ * builders so each of them stays a pure function of the menu's state.
+ *
+ * `editorView` is present only when the menu was opened on the note's own text. A split view has a
+ * live editor while the pointer is in the preview pane, which is why the builders ask `preview`
+ * first: running a CodeMirror command against the editor's cursor would edit whatever the cursor
+ * happens to be on, not the block that was clicked.
+ */
+export interface MenuCtx {
+  editorView: EditorView | null
+  editor: EditorContext | null
+  preview: PreviewContext | null
+  content: string
+  noteId: string | null
+  onEditContent: (next: string) => void
+  /** Move the editor's cursor to a 0-based source line and scroll it into view. */
+  onJumpToLine: (line: number) => void
+  onCopyText: (text: string) => void
+  onCut: () => void
+  onPaste: () => void
+  onUndo: () => void
+  onRedo: () => void
+  canUndo: boolean
+  canRedo: boolean
+  runCommand: (command: (target: EditorView) => boolean) => void
+  /** Replace a table the editor is looking at, in one transaction. */
+  replaceTable: (previous: ParsedTable, next: ParsedTable) => void
+  /** Edit a table the preview is showing, by rewriting the note's lines. */
+  modifyTable: (sourceLine: number, edit: (table: ParsedTable) => ParsedTable) => void
+  onPickImage: () => void
+  onPickFile: () => void
+  onSwitchLayout: (layout: EditorLayout) => void
+  layout: EditorLayout
+  onExport: (format: 'md' | 'html' | 'pdf') => void
+  onPresent: () => void
+  onOpenNote: (id: string) => void
+  onCreateNote: (input: { title: string; open?: boolean }) => void
+  onOpenInSecondary: (id: string) => void
+  onToast: BlockToast
+  onLightbox: (image: { src: string; alt: string }) => void
+  /** The rendered block's own controls, when the preview pane has them wired up. */
+  onBlockAction: (name: 'mindmap-fullscreen' | 'mindmap-theme' | 'kanban-fullscreen' | 'mermaid-rerender', target: HTMLElement) => void
+  previewScroller: HTMLElement | null
+}
+
+/** True when the menu was opened on the note's text rather than on the rendered document. */
+export function isSourceMenu(ctx: MenuCtx): boolean {
+  return Boolean(ctx.editorView && !ctx.preview)
+}
+
+/** The fence the menu is acting on, from whichever side it was opened. */
+export function menuFence(ctx: MenuCtx): FenceInfoData | null {
+  return ctx.editor?.fence ?? ctx.preview?.fence ?? null
+}
+
+/** The 0-based source line of the block the menu is acting on, from either side. */
+export function menuLine(ctx: MenuCtx): number | null {
+  if (ctx.preview?.line !== undefined) return ctx.preview.line
+  if (ctx.editor) return ctx.editor.line - 1
+  return null
+}
+
+/**
+ * What a host must offer for its note to have a context menu at all.
+ *
+ * The preview pane is drawn by share pages and pinned windows too, where there is no editor to jump
+ * to and nobody holding the export and presentation commands. Those hosts simply pass nothing, and
+ * the pane keeps the browser's own menu.
+ */
+export interface ContextMenuHost {
+  /** Move the editor's cursor to a 0-based source line, and make the editor visible if it is not. */
+  onJumpToLine: (line: number) => void
+  onSwitchLayout: (layout: EditorLayout) => void
+  layout: EditorLayout
+  onExport: (format: 'md' | 'html' | 'pdf') => void
+  onPresent: () => void
+  onOpenInSecondary: (id: string) => void
+  onPickImage: () => void
+  onPickFile: () => void
+  /** The clipboard and history strip above the rows. */
+  showToolbar: boolean
+  /** The filter box that narrows the rows to what the query matches. */
+  searchable: boolean
 }

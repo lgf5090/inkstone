@@ -45,6 +45,9 @@ import { NoteProperties } from './NoteProperties'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 import { useLinkHoverHost } from './link-hover-host'
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../tags/TagContextMenuAt'
+import { EditorContextMenu } from '../workspace/context-menu/EditorContextMenu'
+import { detectPreviewContext } from '../workspace/context-menu/detect-preview'
+import type { ContextMenuHost, PreviewContext } from '../workspace/context-menu/types'
 import { openTagPageByName, wantsTagPage } from '../tags/tagMutations'
 import { beginTagDrag, endTagDrag } from '../tags/tagDrag'
 import { preferredScrollBehavior } from '../../lib/motion'
@@ -59,6 +62,8 @@ export interface PreviewProps {
   onInitialRender?: (scroller: HTMLDivElement) => void
   onScroll?: (scroller: HTMLDivElement) => void
   className?: string
+  /** The note's context menu, which only an editing host can supply. */
+  contextMenu?: ContextMenuHost
 }
 
 export const Preview = memo(function Preview({
@@ -71,6 +76,7 @@ export const Preview = memo(function Preview({
   onInitialRender,
   onScroll,
   className,
+  contextMenu,
 }: PreviewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const internalScrollerRef = useRef<HTMLDivElement>(null)
@@ -110,6 +116,7 @@ export const Preview = memo(function Preview({
   const wikiScrollCleanupRef = useRef<() => void>(() => {})
   const [mermaidEpoch, setMermaidEpoch] = useState(0)
   const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null)
+  const [previewMenu, setPreviewMenu] = useState<{ x: number; y: number; context: PreviewContext } | null>(null)
   // The markup the host is *holding*, not the markup about to be drawn: a board is a React root and
   // can only be mounted into the live tree. It also carries the fence bodies, because with the bodies
   // out of the attributes an edit to a board leaves the markup string identical — so the markup alone
@@ -331,6 +338,27 @@ export const Preview = memo(function Preview({
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
   })
 
+  /**
+   * The rendered block's own controls, reached through the hooks that already own them. A menu row
+   * that opened a mind map in full screen by rebuilding the session would disagree with the block's
+   * button the moment either side learned something new, so it calls the same opener instead.
+   */
+  const handleBlockAction = (name: 'mindmap-fullscreen' | 'mindmap-theme' | 'kanban-fullscreen' | 'mermaid-rerender', target: HTMLElement) => {
+    if (name === 'mindmap-fullscreen') mindmap.openFullscreen(target)
+    else if (name === 'mindmap-theme') mindmap.openThemeMenu(target)
+    else if (name === 'kanban-fullscreen') kanban.openFullscreen(target)
+    else if (name === 'mermaid-rerender') {
+      const block = target.closest<HTMLElement>('[data-mermaid]')
+      if (!block) return
+      const scroller = scrollerRef.current
+      const host = hostRef.current
+      const snapshot = scroller && host ? capturePreviewViewport(scroller, host) : null
+      resetMermaidNode(block)
+      if (snapshot && scroller && host) restorePreviewViewport(scroller, host, snapshot)
+      startMermaidRender()
+    }
+  }
+
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
 
@@ -531,10 +559,16 @@ export const Preview = memo(function Preview({
         onKeyDown={onKeyDown}
         onContextMenu={(event) => {
           const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY)
-          if (!request) return
+          if (request) {
+            event.preventDefault()
+            event.stopPropagation()
+            setTagMenu(request)
+            return
+          }
+          if (!contextMenu || !(event.target instanceof HTMLElement)) return
           event.preventDefault()
           event.stopPropagation()
-          setTagMenu(request)
+          setPreviewMenu({ x: event.clientX, y: event.clientY, context: detectPreviewContext(event.target) })
         }}
         onDragStart={(event) => {
           const source = (event.target as HTMLElement).closest<HTMLElement>('[data-tag]')
@@ -554,6 +588,34 @@ export const Preview = memo(function Preview({
         <KanbanFullscreen session={kanban.fullscreen.session} onClose={kanban.closeFullscreen}/>
       )}
       <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
+      {contextMenu && previewMenu && (
+        <EditorContextMenu
+          point={previewMenu}
+          onClose={() => setPreviewMenu(null)}
+          editorView={null}
+          editor={null}
+          preview={previewMenu.context}
+          content={content}
+          noteId={sourceNoteId ?? null}
+          onEditContent={(next) => sourceNoteId && editContent(sourceNoteId, next)}
+          onJumpToLine={contextMenu.onJumpToLine}
+          onPickImage={contextMenu.onPickImage}
+          onPickFile={contextMenu.onPickFile}
+          onSwitchLayout={contextMenu.onSwitchLayout}
+          layout={contextMenu.layout}
+          onExport={contextMenu.onExport}
+          onPresent={contextMenu.onPresent}
+          onOpenNote={(id) => void openNote(id)}
+          onCreateNote={(input) => void createNote(input)}
+          onOpenInSecondary={contextMenu.onOpenInSecondary}
+          onToast={toast}
+          onLightbox={setLightbox}
+          onBlockAction={handleBlockAction}
+          previewScroller={scrollerRef.current}
+          showToolbar={contextMenu.showToolbar}
+          searchable={contextMenu.searchable}
+        />
+      )}
       {mindmap.fullscreen && (
         <MindmapFullscreen session={mindmap.fullscreen.session} onClose={mindmap.closeFullscreen}/>
       )}

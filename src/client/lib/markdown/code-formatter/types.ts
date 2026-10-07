@@ -167,3 +167,10 @@ export const MAX_INDENT_LEVEL = 24
 export function padAt(indent: string, level: number): string {
   return indent.repeat(Math.min(MAX_INDENT_LEVEL, Math.max(0, level)))
 }
+
+/**
+ * Every language the formatter recognises, aliases included. The context menu's "change language"
+ * list is built from this rather than a second hand-picked set, so a language the formatter learned
+ * yesterday is offerable today.
+ */
+export const FORMATTABLE_LANGUAGES: string[] = Object.keys(CATEGORY_MAP).sort()

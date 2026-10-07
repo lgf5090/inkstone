@@ -257,7 +257,7 @@ export function insertTableColumn(table: ParsedTable, colIndex: number, position
 export function deleteTableColumn(table: ParsedTable, colIndex: number): ParsedTable {
   if (table.columnCount <= 1) return table
   const columnCount = table.columnCount - 1
-  const drop = (cells: string[]) => cells.filter((_, idx) => idx !== colIndex)
+  const drop = <T,>(cells: T[]) => cells.filter((_, idx) => idx !== colIndex)
   return {
     ...table,
     headerRow: drop(table.headerRow),

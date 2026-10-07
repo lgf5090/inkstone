@@ -17,6 +17,8 @@ import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorVie
 import { editorKeymap } from './shortcuts';
 import { livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
+import type { EditorContext } from '../features/workspace/context-menu/types';
+import { detectEditorContext } from '../features/workspace/context-menu/detect-editor';
 import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
@@ -37,6 +39,8 @@ export interface CodeEditorProps {
     onReady?: (view: EditorView | null) => void;
     onScroll?: (view: EditorView) => void;
     onCursorLine?: (line: number) => void;
+    /** Ask the host to open the note's context menu at a pointer position. */
+    onRequestContextMenu?: (request: { x: number; y: number; editor: EditorContext }) => void;
     placeholder?: string;
     className?: string;
 }
@@ -48,15 +52,15 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onRequestContextMenu, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const tagMenuRef = useRef<(request: TagMenuRequest | null) => void>(() => {});
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
-    const cbRef = useRef({ onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle });
-    cbRef.current = { onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle };
+    const cbRef = useRef({ onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu });
+    cbRef.current = { onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const dark = useThemeDark();
     const hoverRef = useRef({ propose: hover.propose, card: hover.card, hideNow: hover.hideNow });
@@ -137,12 +141,20 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                 scroll(_event, view) {
                     cbRef.current.onScroll?.(view);
                 },
-                contextmenu(event) {
+                contextmenu(event, view) {
+                    // A tag keeps its own menu: it is the one span the source editor decorates with a
+                    // datum, and the menu that reads that datum is already wired on both panes.
                     const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY);
-                    if (!request)
-                        return false;
+                    if (request) {
+                        event.preventDefault();
+                        tagMenuRef.current(request);
+                        return true;
+                    }
+                    const ask = cbRef.current.onRequestContextMenu;
+                    if (!ask) return false;
                     event.preventDefault();
-                    tagMenuRef.current(request);
+                    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+                    ask({ x: event.clientX, y: event.clientY, editor: detectEditorContext(view.state, pos ?? view.state.selection.main.head) });
                     return true;
                 },
             }),

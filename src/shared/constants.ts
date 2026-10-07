@@ -119,6 +119,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlineDragEdits: false,
     outlineKeepSearch: false,
     outlineLocateByCursor: false,
+    contextMenu: true,
+    contextMenuToolbar: true,
+    contextMenuSearch: true,
     math: true,
     mermaid: true,
     chart: true,
@@ -276,6 +279,9 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.outlineShowReadingTime = booleanValue(preview.outlineShowReadingTime, base.preview.outlineShowReadingTime)
   base.preview.outlineReadingSpeed = integerInRange(preview.outlineReadingSpeed, 50, 1000, base.preview.outlineReadingSpeed)
   base.preview.outlineLocateByCursor = booleanValue(preview.outlineLocateByCursor, base.preview.outlineLocateByCursor)
+  base.preview.contextMenu = booleanValue(preview.contextMenu, base.preview.contextMenu)
+  base.preview.contextMenuToolbar = booleanValue(preview.contextMenuToolbar, base.preview.contextMenuToolbar)
+  base.preview.contextMenuSearch = booleanValue(preview.contextMenuSearch, base.preview.contextMenuSearch)
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)
   base.preview.chart = booleanValue(preview.chart, base.preview.chart)

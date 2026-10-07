@@ -12,6 +12,8 @@ import { useBreakpoint, useRelativeTime } from '../../lib/hooks';
 import { prettyCombo } from '../../lib/hotkeys';
 import { Button, IconButton } from '../../components/primitives';
 import { Drawer, Menu, Tooltip, type MenuItem } from '../../components/overlay';
+import { EditorContextMenu } from './context-menu/EditorContextMenu';
+import type { ContextMenuHost, EditorContext } from './context-menu/types';
 import { Segmented } from '../../components/form';
 import { EditorSkeleton, Empty } from '../../components/feedback';
 import { DeferredCodeEditor } from '../../editor/CodeEditor';
@@ -33,7 +35,7 @@ import { createContextualNote, useActiveNote, useNotes } from '../../store/notes
 import { folderPathLabel, openFolderView } from '../../lib/folders';
 import { useSyncScroll } from './sync-scroll';
 import { captureReadingPosition, readReadingPosition, readingPositionKey, restoreReadingPosition, writeReadingPosition } from './reading-position';
-import { t, useLocale } from "../../lib/i18n";
+import { getLocale, t, useLocale } from "../../lib/i18n";
 import { preferredScrollBehavior } from '../../lib/motion';
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
 const SPLIT_HANDLE_WIDTH = 1;
@@ -56,6 +58,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const tags = useNotes((s) => s.tags);
     const folders = useNotes((s) => s.folders);
     const toast = useUi((s) => s.toast);
+    const setLightbox = useUi((s) => s.setLightbox);
     const locale = useLocale();
     const openPanel = useUi((s) => s.openPanel);
     const outlineOpen = useUi((s) => s.outlineOpen);
@@ -138,6 +141,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const [containerWidth, setContainerWidth] = useState(0);
     const [outlineHovered, setOutlineHovered] = useState(false);
     const [cursorLine, setCursorLine] = useState<number | null>(null);
+    const [editorMenu, setEditorMenu] = useState<{ x: number; y: number; editor: EditorContext } | null>(null);
+    const pendingFileKind = useRef<'image' | 'file'>('image');
     const isMobile = breakpoint === 'mobile';
     const paneActive = !grouped || pane === 'active' || activeWorkspacePane === pane;
     const mobilePane = useUi((s) => s.mobilePane);
@@ -204,13 +209,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         observer.observe(container);
         return () => observer.disconnect();
     }, [loaded, note?.id]);
-    const setEditorLayout = (next: EditorLayout) => {
+    const setEditorLayout = useCallback((next: EditorLayout) => {
         if (grouped && pane !== 'active') {
             setWorkspacePaneLayout(pane, next);
             return;
         }
         void updateSettings({ preview: { layout: next } });
-    };
+    }, [grouped, pane, setWorkspacePaneLayout, updateSettings]);
     const sources = useMemo(() => ({
         notes: () => Object.values(useNotes.getState().notes ?? {})
             .filter((n) => !n.deletedAt && n.id !== note?.id)
@@ -256,12 +261,76 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             return;
         editContent(note.id, next);
     }, [note, editContent]);
+    // A jump has to leave the pane visible: in reading mode the editor is hidden, and moving a cursor
+    // nobody can see would read as the menu having done nothing at all.
+    const jumpToLine = useCallback((line: number) => {
+        if (!view)
+            return;
+        const target = Math.max(1, Math.min(view.state.doc.lines, line + 1));
+        const from = view.state.doc.line(target).from;
+        view.dispatch({ selection: { anchor: from, head: from }, scrollIntoView: true });
+        view.focus();
+    }, [view]);
+    const openInSecondary = useCallback((id: string) => {
+        useUi.getState().setWorkspaceNote('secondary', id, true);
+    }, []);
+    const pickWithFileInput = useCallback((kind: 'image' | 'file') => {
+        pendingFileKind.current = kind;
+        fileInputRef.current?.click();
+    }, []);
+    // The context menu is handed to `Preview`, which is memoised, so its host object has to keep its
+    // identity across the re-renders the cursor causes. These two read the note through a ref rather
+    // than closing over it, which is what lets the callbacks be stable.
+    const exportTarget = useRef<{ id: string; title: string; content: string } | null>(null);
+    const exportNoteStable = useCallback(async (format: 'md' | 'html' | 'pdf') => {
+        const target = exportTarget.current;
+        if (!target)
+            return;
+        if (format === 'md') {
+            exportNoteAsMarkdown(target);
+            return;
+        }
+        try {
+            if (format === 'html')
+                await exportNoteAsHtml(target, getLocale());
+            else
+                await exportNoteAsPdf(target, getLocale());
+        }
+        catch (err) {
+            useUi.getState().toast({
+                title: t("workspace.export_failed"),
+                description: err instanceof Error ? err.message : String(err),
+                tone: 'danger',
+            });
+        }
+    }, []);
+    const presentStable = useCallback(() => {
+        const target = exportTarget.current;
+        if (target)
+            void import('../presentation').then((module) => module.startPresentationFromNote(target.id));
+    }, []);
     const runEditorCommand = useCallback((command: (target: EditorView) => boolean) => {
         if (!view)
             return;
         command(view);
         view.focus();
     }, [view]);
+    exportTarget.current = note ? { id: note.id, title: note.title, content } : null;
+    const contextMenu = useMemo<ContextMenuHost>(() => ({
+        onJumpToLine: jumpToLine,
+        onSwitchLayout: setEditorLayout,
+        layout,
+        onExport: (format) => void exportNoteStable(format),
+        onPresent: presentStable,
+        onOpenInSecondary: openInSecondary,
+        onPickImage: () => pickWithFileInput('image'),
+        onPickFile: () => pickWithFileInput('file'),
+        showToolbar: previewSettings.contextMenuToolbar,
+        searchable: previewSettings.contextMenuSearch,
+    }), [
+        jumpToLine, setEditorLayout, layout, exportNoteStable, presentStable, openInSecondary,
+        pickWithFileInput, previewSettings.contextMenuToolbar, previewSettings.contextMenuSearch,
+    ]);
     const invalidateSyncAnchors = useSyncScroll(view, previewScrollerRef, previewSettings.syncScroll && showSplit);
     // Headings arrive in document order, so the cursor's heading is the last one at or above it.
     const outlineCursorActive = useMemo(() => {
@@ -558,17 +627,17 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         </div>
       </header>
 
-      {editorSettings.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => fileInputRef.current?.click()}/>)}
+      {editorSettings.showToolbar && showEditor && (<EditorToolbar runCommand={runEditorCommand} mobile={isMobile} onPickImage={() => pickWithFileInput('image')}/>)}
 
       <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
-            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine}/>
+            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}
 
         {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
-            <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1"/>
+            <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1" contextMenu={previewSettings.contextMenu ? contextMenu : undefined}/>
             {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection}/>)}
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection}/>}
@@ -607,12 +676,31 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         <span className={cn('hidden', grouped ? '2xl:inline' : 'lg:inline')}>{t("common.created")}{fullTime(note.createdAt)}</span>
       </footer>
 
-      <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={async (event) => {
+      <input ref={fileInputRef} type="file" multiple hidden accept={pendingFileKind.current === 'image' ? 'image/*' : undefined} onChange={async (event) => {
             const files = [...(event.target.files ?? [])];
             event.target.value = '';
             if (view && files.length)
                 await insertFiles(view, files, handlers);
         }}/>
+      {editorMenu && (
+        <EditorContextMenu
+          point={editorMenu}
+          onClose={() => setEditorMenu(null)}
+          editorView={view}
+          editor={editorMenu.editor}
+          preview={null}
+          content={content}
+          noteId={note.id}
+          onEditContent={(next) => editContent(note.id, next)}
+          onOpenNote={(id) => void useNotes.getState().openNote(id, pane === 'active' ? undefined : { pane, activate: paneActive })}
+          onCreateNote={(input) => void useNotes.getState().createNote(input)}
+          onToast={toast}
+          onLightbox={setLightbox}
+          onBlockAction={() => undefined}
+          previewScroller={previewScrollerRef.current}
+          {...contextMenu}
+        />
+      )}
     </div>);
 }
 function NoNoteSelected({ onCreate }: {
