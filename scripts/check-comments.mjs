@@ -2643,6 +2643,9 @@ const allowed = new Map([
   ["src/client/features/preview/NoteProperties.tsx", [
     "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
     "// cached copy here would silently overwrite whatever was typed in the last few frames.",
+    "// One interaction can write several properties (removing a cover drops its shape and position",
+    "// too), and each write has to build on the last instead of on the content this render read —",
+    "// the store only settles between the two, so a second write off `content` would undo the first.",
   ]],
   ["src/client/features/preview/Outline.test.ts", [
     "/** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */",
@@ -3953,6 +3956,7 @@ const allowed = new Map([
     "// the React board, and a surface that only draws a still must not pull 24k lines of UI into its chunk.",
     "/**\n     * How this surface treats ```kanban blocks. A board is a React root that needs a host to live in,\n     * so 'live' means \"someone else mounts it\" and enhance touches nothing; 'snapshot' draws the still\n     * that a serialized or printed surface can carry; 'source' leaves the fence's own text, which is\n     * what a surface that can do neither must show rather than a placeholder that never resolves.\n     */",
     "/**\n     * Which still `snapshot` draws. The list is what a card and a share page can carry in the room they\n     * have; a surface that is read from across a room — a projector — owes the reader which column a\n     * card sits in, because that is part of what the card says. Only read when `kanban` is 'snapshot',\n     * so the channel answer stays the one `tests/kanban-render-channel.test.ts` checks.\n     */",
+    "/**\n * The prose whitelist strips inline styles, so the geometry a reader configured arrives as data\n * attributes and is painted here. An export keeps the stylesheet defaults instead.\n */",
   ]],
   ["src/client/lib/markdown/external-images.ts", [
     "/**\n * The one answer to \"does this URL leave this origin?\" that the board reads for a cover, an\n * attachment preview and an attachment link.\n *\n * A note can be shared, so a file served by whoever wrote it is a different trust case from one this\n * app stored: an attachment link wearing `download` would navigate the app's own tab away rather than\n * save the file, and a preview of it is a fetch to somewhere the reader never chose.\n */",
@@ -6628,6 +6632,7 @@ const allowed = new Map([
     "// run belongs to the container syntax rather than to anybody's name.",
     "/**\n * The document pipeline, on its own purify instance so the one exemption below cannot reach the\n * outline label or the Mermaid SVG through the shared hooks.\n *\n * A colour the toolbar wrote is the only inline style a note may carry: one declaration, one plain\n * hex, on a tag that holds text. Everything else — a `url()`, a second declaration, a `position` —\n * is still dropped, so the blanket ban on `style` in {@link PURIFY_CONFIG} keeps its teeth.\n */",
     "/**\n * Turn a table cell's alignment into a class.\n *\n * markdown-it writes the alignment an author asked for as `style=\"text-align:…\"`, and `style` is on\n * the sanitizer's forbid list on purpose — a note can hold anything, so no inline declaration from\n * note text reaches the page. Without this swap the `:-:` of a delimiter row was parsed, honored by\n * the tokenizer and then thrown away, so every aligned column rendered flush-left. A class costs\n * nothing to allow and is styled by the prose sheet beside the table rules.\n */",
+    "/** One property value rendered as inline Markdown through the document's own whitelist. */",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",
@@ -6926,6 +6931,9 @@ const allowed = new Map([
   ]],
   ["src/client/styles/presentation.css", [
     "/* The printed page is the design canvas, and every sheet stamps these with its own numbers on\n   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a\n   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide\n   one, and so the token gate can see a definition for a name the sheet writes from a template. */",
+  ]],
+  ["src/client/styles/properties.css", [
+    "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
   ]],
   ["src/client/styles/prose.css", [
     "/* A row split has no definite height to divide, so the ratio caps each panel rather than\n     sizing its track: a generous pane scrolls into its share, a short one costs nothing. */",

@@ -8,6 +8,10 @@ import anchor from 'markdown-it-anchor';
 import mark from 'markdown-it-mark';
 import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
+import { coverWidthFor, readNoteDecorations } from '@shared/property-decorations';
+import type { DecorationDefaults, NotePropertyNames, PropertyImageValue } from '@shared/property-decorations';
+import { resolveProperties } from '@shared/property-style';
+import type { PropertyResolveContext, PropertyStyleSettings, ResolvedProperty, ResolvedPropertyItem } from '@shared/property-style';
 import { getLocale, t, type MessageKey } from '../i18n';
 import { parseEmbedSize, splitAltSize } from './attachments';
 import { blockLine, colonFenceMark, findColonFenceEnd, scanRenderBody, type ColonLineSource } from './colon-fence';
@@ -66,9 +70,27 @@ interface RenderEnvironment {
     mindmapSequence: number;
     docId: string;
     hideFrontMatter?: boolean;
+    properties?: PropertyRenderOptions;
     emojiShortcodes: boolean;
     fences: FenceBodies;
 }
+export interface PropertyRenderOptions {
+    style: PropertyStyleSettings;
+    names: NotePropertyNames;
+    defaults: DecorationDefaults;
+    revealHidden: boolean;
+    iconInline: boolean;
+    iconSize: number;
+    bannerHeight: number;
+    bannerFade: boolean;
+    coverWidths: { width1: number, width2: number, width3: number };
+    locale: string;
+    now?: number;
+    tagColorOf?: (name: string) => string | null;
+}
+
+const PILL_TINT_ALPHA = '2b';
+
 export interface WikiTarget {
     raw: string;
     noteTitle: string;
@@ -125,8 +147,11 @@ md.renderer.rules.front_matter = (tokens, index, _options, env) => {
         return `<aside class="frontmatter-error" data-line="0"><strong>${escapeHtml(t("markdown.invalid_front_matter"))}</strong><ul>${details}</ul></aside>`;
     }
     const entries = Object.entries(meta.data);
+    const properties = renderEnv(env).properties;
     if (!entries.length || renderEnv(env).hideFrontMatter)
         return '';
+    if (properties?.style.enabled)
+        return prettyFrontMatter(meta.data, properties);
     const rows = entries
         .map(([key, value]) => `<div class="frontmatter-row"><dt>${escapeHtml(key)}</dt><dd>${renderFrontMatterValue(value)}</dd></div>`)
         .join('');
@@ -996,10 +1021,19 @@ export function renderOutlineLabel(source: string): string {
     return DOMPurify.sanitize(md.renderInline(stripObsidianComments(source), env), OUTLINE_LABEL_CONFIG);
 }
 
+/** One property value rendered as inline Markdown through the document's own whitelist. */
+export function renderInlineProperty(source: string, emojiShortcodes = true): string {
+    const env = emptyEnvironment();
+    env.emojiShortcodes = emojiShortcodes;
+    return sanitizeDocument(md.renderInline(stripObsidianComments(source), env));
+}
+
 /** Parse once with the full document environment so reference links retain their targets. */
-export function renderMarkdownBlocks(source: string, options?: { emojiShortcodes?: boolean }): { blocks: MarkdownBlock[]; headings: Heading[]; fences: FenceBodies } {
+export function renderMarkdownBlocks(source: string, options?: { emojiShortcodes?: boolean, hideFrontMatter?: boolean, properties?: PropertyRenderOptions }): { blocks: MarkdownBlock[]; headings: Heading[]; fences: FenceBodies } {
     const env = emptyEnvironment();
     env.emojiShortcodes = options?.emojiShortcodes ?? true;
+    env.hideFrontMatter = options?.hideFrontMatter === true;
+    env.properties = options?.properties;
     const tokens = md.parse(stripObsidianComments(source), env);
     const groups: Array<{ startLine: number; endLine: number; raw: string }> = [];
     let tail = '';
@@ -1038,9 +1072,10 @@ export function renderMarkdownBlocks(source: string, options?: { emojiShortcodes
     return { blocks, headings: env.headings, fences: env.fences };
 }
 
-export function renderMarkdown(source: string, options?: { hideFrontMatter?: boolean, emojiShortcodes?: boolean }): RenderResult {
+export function renderMarkdown(source: string, options?: { hideFrontMatter?: boolean, emojiShortcodes?: boolean, properties?: PropertyRenderOptions }): RenderResult {
     const env = emptyEnvironment();
     env.hideFrontMatter = options?.hideFrontMatter === true;
+    env.properties = options?.properties;
     env.emojiShortcodes = options?.emojiShortcodes ?? true;
     const raw = md.render(stripObsidianComments(source), env);
     const sanitized = sanitizeDocument(raw);
@@ -1197,6 +1232,76 @@ function materializeTrustedTasks(html: string, nonce: string): string {
     });
     return template.innerHTML;
 }
+const HEX_ONLY = /^#[0-9a-f]{6}$/i;
+
+function prettyColorStyle(color: string, property: 'color' | 'background-color'): string {
+    if (!HEX_ONLY.test(color))
+        return '';
+    const value = property === 'color' ? color : `${color}${PILL_TINT_ALPHA}`;
+    return `style="${property}:${value}"`;
+}
+
+function prettyValueSpan(inner: string, item: ResolvedPropertyItem, row: ResolvedProperty): string {
+    const text = item.textSlot === 'color' && item.textColor
+        ? (HEX_ONLY.test(item.textColor)
+            ? `<span ${prettyColorStyle(item.textColor, 'color')}>${inner}</span>`
+            : `<span class="pp-text-token">${inner}</span>`)
+        : inner;
+    if (item.pillSlot === 'transparent')
+        return `<span class="frontmatter-chip pp-pill pp-pill-transparent">${text}</span>`;
+    if (item.pillSlot === 'color' && item.pill) {
+        const style = prettyColorStyle(item.pill, 'background-color');
+        return `<span class="frontmatter-chip pp-pill"${style ? ` ${style}` : ''}${style ? '' : ' data-pp-token="accent"'}>${text}</span>`;
+    }
+    return row.kind === 'tags' || row.kind === 'array'
+        ? `<span class="frontmatter-chip">${text}</span>`
+        : text;
+}
+
+function prettyRow(row: ResolvedProperty): string {
+    const values = row.items.map(item => prettyValueSpan(row.markdown ? renderInlineProperty(item.raw) : escapeHtml(item.display), item, row)).join(' ');
+    const progress = row.progress
+        ? (row.progress.variant === 'circle'
+            ? `<span class="pp-progress-circle" role="img" data-pp-percent="${row.progress.percent}%" aria-label="${escapeAttr(`${row.progress.value}/${row.progress.max}`)}"></span>`
+            : `<progress class="pp-progress" max="${escapeAttr(String(row.progress.max))}" value="${escapeAttr(String(row.progress.value))}" aria-label="${escapeAttr(`${row.progress.percent}%`)}"></progress>`)
+        : '';
+    const date = row.dateShape ? ` data-relative-date="${row.relative}"` : '';
+    return `<div class="frontmatter-row pp-row${row.hidden ? ' pp-row-hidden' : ''}" data-property-key="${escapeAttr(row.key)}"${date}><dt>${escapeHtml(row.key)}</dt><dd>${progress}${values || `<span class="frontmatter-empty">—</span>`}</dd></div>`;
+}
+
+function prettyImageMarkup(image: PropertyImageValue, className: string): string {
+    const alt = escapeAttr(image.alt);
+    if (image.source.kind === 'url')
+        return `<img class="${className}" src="${escapeAttr(image.source.url)}" alt="${alt}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+    return `<div class="note-embed loading" data-embed-target="${escapeAttr(encodeDataValue(image.source.name))}"><span class="note-embed-head">${escapeHtml(image.source.name)}</span><div class="note-embed-body" aria-busy="true">${escapeHtml(t('common.loading'))}</div></div>`;
+}
+
+function prettyFrontMatter(data: Record<string, unknown>, options: PropertyRenderOptions): string {
+    const context: PropertyResolveContext = {
+        locale: options.locale,
+        now: options.now ?? Date.now(),
+        tagColorOf: options.tagColorOf,
+    };
+    const rows = resolveProperties(data, options.style, context).filter(row => options.revealHidden || !row.hidden);
+    const decorations = readNoteDecorations(data, options.names, options.defaults);
+    const body = rows.map(prettyRow).join('');
+    const icon = decorations.icon
+        ? (decorations.icon.icon.kind === 'glyph'
+            ? `<span class="pp-icon ${options.iconInline ? 'is-inline' : 'is-block'}" data-pp-icon-size="${options.iconSize}">${escapeHtml(decorations.icon.icon.text)}</span>`
+            : `<span class="pp-icon ${options.iconInline ? 'is-inline' : 'is-block'}" data-pp-icon-size="${options.iconSize}">${prettyImageMarkup(decorations.icon.icon.image, 'pp-icon-image')}</span>`)
+        : '';
+    const summary = `<summary>${icon}<span class="pp-title">${escapeHtml(t('markdown.properties'))}</span><span class="pp-count">${rows.length}</span></summary>`;
+    const block = `<details class="frontmatter-properties pp" data-line="0" open>${summary}<dl>${body || `<p class="frontmatter-empty">${escapeHtml(t('properties.empty'))}</p>`}</dl></details>`;
+    const cover = decorations.cover
+        ? `<div class="pp-cover is-${decorations.cover.position} is-${decorations.cover.shape}" data-pp-cover-width="${coverWidthFor(options.coverWidths, decorations.cover.shape)}">${prettyImageMarkup(decorations.cover.image, 'pp-cover-image')}</div>`
+        : '';
+    const banner = decorations.banner && decorations.banner.image.source.kind === 'url'
+        ? `<div class="pp-banner" data-pp-banner-height="${options.bannerHeight}" data-pp-banner-position="${decorations.banner.positionPercent}"><img class="pp-banner-image" src="${escapeAttr(decorations.banner.image.source.url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">${options.bannerFade ? '<span class="pp-banner-fade" aria-hidden="true"></span>' : ''}</div>`
+        : '';
+    const layout = `<div class="pp-layout" data-cover-position="${decorations.cover?.position ?? options.defaults.coverPosition}">${cover}${block}</div>`;
+    return `<section class="pp-block" data-line="0">${banner}${layout}</section>`;
+}
+
 function renderFrontMatterValue(value: unknown): string {
     if (value == null)
         return '<span class="frontmatter-empty">—</span>';

@@ -1,0 +1,339 @@
+.pp-shell {
+  --pp-gap: var(--sp-3);
+  position: relative;
+  container-type: inline-size;
+}
+
+.pp-shell-quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.pp-layout {
+  display: flex;
+  gap: var(--pp-gap);
+  align-items: flex-start;
+}
+
+.pp-layout[data-cover-position="top"],
+.pp-layout[data-cover-position="bottom"] {
+  flex-direction: column;
+}
+
+.pp-layout[data-cover-position="bottom"] .pp-cover {
+  order: 2;
+}
+
+.pp-column {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pp-icon-row {
+  padding: var(--sp-2) var(--sp-2-5) 0;
+}
+
+.pp-banner {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: var(--sp-2);
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+}
+
+.pp-banner-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pp-banner-fade {
+  position: absolute;
+  inset: auto 0 0;
+  height: 40%;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg-surface));
+}
+
+.pp-banner-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-11-5);
+  color: var(--text-quaternary);
+}
+
+.pp-cover {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--pp-cover-width, 200px);
+  max-width: 100%;
+}
+
+.pp-cover.is-top,
+.pp-cover.is-bottom {
+  width: 100%;
+}
+
+.pp-cover-hit {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-inset);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.pp-cover-hit:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.pp-cover-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pp-cover-empty {
+  display: flex;
+  aspect-ratio: 3 / 4;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  font-size: var(--text-11);
+  color: var(--text-quaternary);
+}
+
+.pp-cover.is-initial .pp-cover-image,
+.pp-cover.is-initial-2 .pp-cover-image,
+.pp-cover.is-initial-3 .pp-cover-image {
+  height: auto;
+  object-fit: contain;
+}
+
+.pp-cover.is-vertical-cover .pp-cover-hit,
+.pp-cover.is-vertical-contain .pp-cover-hit {
+  aspect-ratio: 2 / 3;
+}
+
+.pp-cover.is-vertical-cover .pp-cover-image {
+  object-fit: cover;
+}
+
+.pp-cover.is-vertical-contain .pp-cover-image {
+  object-fit: contain;
+}
+
+.pp-cover.is-horizontal-cover .pp-cover-hit,
+.pp-cover.is-horizontal-contain .pp-cover-hit {
+  aspect-ratio: 16 / 9;
+  width: min(100%, calc(var(--pp-cover-width, 200px) * 1.6));
+}
+
+.pp-cover.is-horizontal-cover .pp-cover-image {
+  object-fit: cover;
+}
+
+.pp-cover.is-horizontal-contain .pp-cover-image {
+  object-fit: contain;
+}
+
+.pp-cover.is-square .pp-cover-hit {
+  aspect-ratio: 1 / 1;
+}
+
+.pp-cover.is-square .pp-cover-image {
+  object-fit: cover;
+}
+
+.pp-cover.is-circle .pp-cover-hit {
+  aspect-ratio: 1 / 1;
+  border-radius: 9999px;
+}
+
+.pp-cover.is-circle .pp-cover-image {
+  object-fit: cover;
+}
+
+.pp-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pp-icon-size, 64px);
+  height: var(--pp-icon-size, 64px);
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-ring);
+}
+
+.pp-icon.is-inline {
+  width: calc(var(--pp-icon-size, 64px) * 0.42);
+  height: calc(var(--pp-icon-size, 64px) * 0.42);
+  font-size: calc(var(--pp-icon-size, 64px) * 0.3);
+}
+
+.pp-icon.is-block {
+  margin: 0 auto;
+  border: 1px solid var(--border-subtle);
+}
+
+.pp-icon-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pp-icon-glyph {
+  line-height: 1;
+  font-size: calc(var(--pp-icon-size, 64px) * 0.55);
+}
+
+.pp-icon.is-inline .pp-icon-glyph {
+  font-size: inherit;
+}
+
+.pp-icon-missing {
+  color: var(--text-quaternary);
+}
+
+.pp-row-hidden {
+  opacity: 0.45;
+  background: var(--bg-inset);
+}
+
+.pp-progress {
+  appearance: none;
+  width: 74px;
+  height: 6px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+
+.pp-progress::-webkit-progress-bar {
+  background: var(--bg-inset);
+}
+
+.pp-progress::-webkit-progress-value {
+  background: var(--accent);
+}
+
+.pp-progress::-moz-progress-bar {
+  background: var(--accent);
+}
+
+.pp-progress-circle {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background:
+    radial-gradient(closest-side, var(--bg-surface) 68%, transparent 70%),
+    conic-gradient(var(--accent) var(--pp-percent, 0%), var(--bg-inset) 0);
+}
+
+.pp-markdown,
+.pp-markdown p {
+  margin: 0;
+  font-size: var(--text-12);
+}
+
+.pp-markdown img {
+  max-height: 3.2em;
+  border-radius: var(--r-sm);
+}
+
+/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */
+@container (max-width: 700px) {
+  .pp-layout {
+    flex-direction: column;
+  }
+
+  .pp-layout .pp-cover {
+    order: -1;
+  }
+
+  .pp-layout[data-cover-position="bottom"] .pp-cover {
+    order: 2;
+  }
+
+  .pp-cover {
+    width: min(100%, calc(var(--pp-cover-width, 200px) + 60px));
+  }
+
+  .pp-icon.is-block {
+    margin: 0;
+  }
+}
+
+.pp-block {
+  margin: 0 0 var(--sp-4);
+  container-type: inline-size;
+}
+
+.pp-block > .pp-layout {
+  margin-top: 0;
+}
+
+.ink-prose .frontmatter-properties.pp {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+.ink-prose .frontmatter-properties.pp > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1-5);
+  cursor: default;
+}
+
+.pp-count {
+  margin-left: auto;
+  color: var(--text-quaternary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-pill-transparent {
+  background: transparent;
+}
+
+.pp-text-token {
+  color: var(--accent);
+}
+
+.pp-row-hidden {
+  opacity: 0.45;
+}
+
+.pp-cover > .pp-cover-image {
+  display: block;
+  width: 100%;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-subtle);
+  object-fit: cover;
+}
+
+.pp-cover.is-circle > .pp-cover-image {
+  border-radius: 9999px;
+}
+
+.pp-cover .note-embed {
+  width: 100%;
+}
+
+.pp-icon .pp-cover-image,
+.pp-icon .note-embed {
+  width: 100%;
+  height: 100%;
+}
+
+.pp-summary-icon {
+  flex: 0 0 auto;
+}

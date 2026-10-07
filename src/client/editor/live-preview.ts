@@ -7,6 +7,7 @@ import { registerFenceBodies, type FenceBodies } from '../lib/markdown/fence-bod
 import { enhancePreview, renderPendingCharts, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
 import { resolveNoteEmbeds } from '../lib/markdown/embeds';
 import { useSession } from '../store/session';
+import { buildPropertyRenderOptions } from '../lib/property-view';
 import { t } from '../lib/i18n';
 import { decodeDataValue } from '../lib/markdown/data-attr';
 import { findNoteByTitle, useNotes } from '../store/notes';
@@ -230,15 +231,19 @@ function decorate(state: EditorState, live: LiveState, title: string): Decoratio
     return Decoration.set(ranges, true);
 }
 
-function emojiOptions(): { emojiShortcodes: boolean } {
-    return { emojiShortcodes: useSession.getState().settings.preview.emojiShortcodes };
+function blockOptions(): { emojiShortcodes: boolean, properties: ReturnType<typeof buildPropertyRenderOptions> } {
+    const session = useSession.getState().settings;
+    return {
+        emojiShortcodes: session.preview.emojiShortcodes,
+        properties: buildPropertyRenderOptions(session.properties, useNotes.getState().tags),
+    };
 }
 
 /** Decorations change presentation only; all editing, undo, search and saving use Markdown. */
 export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle: () => string = () => ''): Extension {
     const field = StateField.define<LiveState>({
         create(state) {
-            const result = renderMarkdownBlocks(state.doc.toString(), emojiOptions());
+            const result = renderMarkdownBlocks(state.doc.toString(), blockOptions());
             const value: LiveState = { ...result, decorations: Decoration.none, focused: false, revision: 0 };
             value.decorations = decorate(state, value, getTitle());
             return value;
@@ -259,7 +264,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
                     html: delta ? block.html.replace(/(data-(?:task-)?line=")(\d+)(")/g, (_, before, line, after) => `${before}${Number(line) + delta}${after}`) : block.html,
                     endLine: tr.state.doc.lineAt(tr.changes.mapPos(to, -1)).number }];
             }) : value.blocks;
-            const next = { ...value, blocks: mapped, ...(refreshed ? renderMarkdownBlocks(tr.state.doc.toString(), emojiOptions()) : {}),
+            const next = { ...value, blocks: mapped, ...(refreshed ? renderMarkdownBlocks(tr.state.doc.toString(), blockOptions()) : {}),
                 focused: focused ? focused.value : value.focused, revision: value.revision + (refreshed?.value ? 1 : 0) };
             next.decorations = decorate(tr.state, next, getTitle());
             return next;
@@ -285,6 +290,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
                     || state.settings.preview.math !== previous.settings.preview.math
                     || state.settings.preview.mermaid !== previous.settings.preview.mermaid
                     || state.settings.preview.chart !== previous.settings.preview.chart
+                    || state.settings.properties !== previous.settings.properties
                     || state.settings.appearance.proseFont !== previous.settings.appearance.proseFont) refreshView();
             });
             queueMicrotask(() => { const value = view.state.field(field, false); if (value) onHeadings(value.headings); });

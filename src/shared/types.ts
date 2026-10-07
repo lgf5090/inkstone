@@ -1,6 +1,8 @@
 
 
 
+import type { CoverPosition, CoverShape } from './property-decorations'
+
 export type UserRole = 'owner' | 'member'
 
 export interface PublicUser {
@@ -201,11 +203,72 @@ export interface PreviewSettings {
   presentationAutoHideChrome: boolean
 }
 
+export interface PropertyColorChoice {
+  pill?: string | null
+  text?: string | null
+}
+
+export interface PropertyProgressChoice {
+  max?: number | null
+  maxProperty?: string | null
+  variant?: 'bar' | 'circle'
+}
+
+export interface PropertyFormatChoice {
+  template?: string | null
+  markdown?: boolean
+}
+
+export type PropertyQuickSearchKey = 'off' | 'ctrl' | 'alt' | 'meta'
+
+export interface PropertySettings {
+  enabled: boolean
+  showBanner: boolean
+  showCover: boolean
+  showIcon: boolean
+  bannerProperty: string
+  iconProperty: string
+  coverProperties: string[]
+  coverShapeProperty: string
+  coverPositionProperty: string
+  bannerPositionProperty: string
+  coverShape: CoverShape
+  coverPosition: CoverPosition
+  coverWidth: number
+  coverWidth2: number
+  coverWidth3: number
+  coverMaxHeight: number
+  bannerHeight: number
+  bannerFade: boolean
+  bannerPosition: number
+  iconSize: number
+  iconInline: boolean
+  coloredValues: boolean
+  hideHeader: boolean
+  hideAddButton: boolean
+  hideWholeBlockWhenEmpty: boolean
+  revealHidden: boolean
+  hidden: string[]
+  hiddenWhenEmpty: string[]
+  hideAllEmpty: boolean
+  colors: Record<string, Record<string, PropertyColorChoice>>
+  useCustomDateFormats: boolean
+  dateFormat: string
+  dateTimeFormat: string
+  relativeDateColors: boolean
+  datePastColor: string | null
+  datePresentColor: string | null
+  dateFutureColor: string | null
+  progress: Record<string, PropertyProgressChoice>
+  formats: Record<string, PropertyFormatChoice>
+  selectOptions: Record<string, string[]>
+  quickSearchKey: PropertyQuickSearchKey
+}
+
 export interface BackupSettings {
   schedule: BackupSchedule
   retentionCount: number
 }
-
 export interface SyncSettings {
   realtime: boolean
   pollIntervalMs: number
@@ -282,6 +345,7 @@ export interface UserSettings {
   appearance: AppearanceSettings
   editor: EditorSettings
   preview: PreviewSettings
+  properties: PropertySettings
   backup: BackupSettings
   sync: SyncSettings
   notes: NotesSettings
