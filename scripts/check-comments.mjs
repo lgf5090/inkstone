@@ -38,6 +38,8 @@ const allowed = new Map([
     "// the two languages would be proven against each other only for the keys that happen",
     "// to sit in the main file.",
     "// Icon search has to answer in the language the user types it in, so the probe words are Han.",
+    "// The width converter is defined by the characters it swaps, so every case is written in the",
+    "// script under test. Each fragment is listed once per place it is spelled.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -244,6 +246,8 @@ const allowed = new Map([
     "// The filter box owns the caret while the query is being typed; stealing it for a row would",
     "// send every following keystroke to the menu instead of the field.",
     "// The filter field handles its own keys; a Space typed there is a character, not a press.",
+    "/**\n     * Keep the spaces the user typed. A line prefix or a numbering template is often made of them,\n     * and the default trim would turn `{n}. ` into `{n}.` and glue the number to the text.\n     */",
+    "/**\n     * How tall {@link header} actually is. The panel is placed before it is measured, so a header the\n     * row arithmetic cannot see — a colour grid, say — has to state its own height or the menu will\n     * open believing it is 44px and never flip up out of the way of the viewport edge.\n     */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -314,6 +318,7 @@ const allowed = new Map([
     "/**\n * The one insertion behind every diagram submenu entry: `opening` is the fence's own first line —\n * ```kanban, or ```chart style=table when the format has to be stated — and `body` is the template's\n * text. A selection is wrapped rather than replaced, so nothing the author wrote is thrown away, and\n * which format the block turns out to be stays the fence's own business: every one of these readers\n * (`detectKanbanMode`, `detectChartMode`, `detectMindmapMode`) works it back out of the body.\n */",
     "/**\n * Replace the selection with already-rendered text and put the caret where the\n * template asked for it. One transaction, so one undo takes the block back.\n */",
     "/**\n * Insert the configured new-note template at each caret.\n *\n * This interpolates only: the note already exists, so merging its front matter\n * tags would fight the properties the author wrote. `{{folder}}` and `{{tags}}`\n * are filled from the note being edited, and `{{cursor}}` lands the caret\n * inside the inserted text.\n */",
+    "/**\n * The word under a collapsed caret, which is what every inline wrapper takes as its target: pressing\n * bold in the middle of a word is how you bold that word.\n */",
   ]],
   ["src/client/editor/completion.ts", [
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
@@ -340,6 +345,7 @@ const allowed = new Map([
     "/** The context menu's single Insert row: every block the editor can write, one level deeper. */",
     "// The dropdown is for producing something new. Formatting the block the cursor is already in is an",
     "// action on an existing block, so it stays on the toolbar's own button and out of this list.",
+    "/**\n * Everything the toolbar has no room for a button of its own: the tag-wrapping formats, the case and\n * width rewriters, and the line tidy-up. The two colour channels sit next to this on the toolbar\n * because they need a palette, not a list.\n */",
   ]],
   ["src/client/editor/emoji-completion.test.ts", [
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
@@ -376,6 +382,26 @@ const allowed = new Map([
     "// A rendered table stamps only the line it starts on, so the row under the pointer is read",
     "// from the table's own shape: the header line, then the delimiter row, then one line per",
     "// body row. Without this a row's menu would edit the header row instead.",
+  ]],
+  ["src/client/editor/text-format.test.ts", [
+    "/** Every case below reads as \"select the whole note, press the button\". */",
+  ]],
+  ["src/client/editor/text-format.ts", [
+    "/**\n * The two colour channels a note can carry. Each is one HTML tag pair, so the markup survives the\n * share page and any other markdown reader, and each is written per line rather than around a whole\n * multi-line selection: that is what stops a tag opening in one paragraph and closing in the next.\n */",
+    "/** How a normalised `#rrggbb` actually lands inside the tag, which is what a re-press is read back as. */",
+    "/**\n * A highlight is a wash, not a block: the alpha is what keeps the theme's own text colour readable on\n * top of it, which a solid background does not — a light pastel under light theme text is invisible.\n */",
+    "// One shared global regex per family: `replace` and `matchAll` both start at zero, so building a",
+    "// fresh one would cost a compile for every line the selection touches.",
+    "/** `#abc`, `abc` and `#AABBCC` all resolve to the one lower-case six-digit form written to a note. */",
+    "/** The `- ` / `> ` / `## ` a line starts with: a wrapper has to sit behind it, not around it. */",
+    "/** A character rewriter must not re-case or re-width the markup itself. */",
+    "/**\n * Code, maths, comments, URLs and link targets, lifted out of a line so a transform cannot see them\n * and put back afterwards. They are taken out rather than skipped span by span because a wrapper can\n * sit *around* one — `**[site](https://ex.com)**` has to lose its asterisks on both sides at once.\n * `keepTags` adds the markup itself, which the case and width rewriters must not rewrite either.\n */",
+    "/**\n * One edit per line the selection touches, and the caret's own line when it touches none.\n */",
+    "/** Pairs whose inside survives: the marker goes, the words stay. Each has exactly one capture. */",
+    "/** Bare tags go on their own, so an unbalanced one left behind cannot strand its partner. */",
+    "/**\n * Inline decoration only. Code spans, maths and `%%` comments keep their own markers: dropping the\n * backticks of `` `a*b` `` would hand the asterisks to the emphasis rules and change what the text\n * says, and a comment is content the author chose to hide.\n */",
+    "/**\n * Width, not typography: the reference plugin's converter also guesses the language from the\n * selection's CJK ratio and rewrites every full stop it finds, which turns an ordered list marker\n * into a sentence terminator. These two commands only swap a character for its counterpart at the\n * other width.\n */",
+    "/** `template` fronts every line; `{n}` stands for the running number, which a blank line never spends. */",
   ]],
   ["src/client/features/auth/LoginPage.tsx", [
     "// Only the OAuth consent page may be resumed after sign-in, so a crafted ?next",
@@ -3115,14 +3141,26 @@ const allowed = new Map([
     "// (cursor) no longer refetches, and stale links stay visible until the",
     "// fresh payload arrives.",
   ]],
+  ["src/client/features/workspace/EditorColorMenu.tsx", [
+    "/** The colour painted behind the panel, which is what a pick has to stand out from. */",
+    "// Holding the field's focus down means a half-typed hex cannot commit underneath this click:",
+    "// the swatch the user aimed at is the newer intent, and a blur here would apply the other one.",
+    "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
+    "// One commit per appearance. Committing closes the panel, and tearing a focused field down",
+    "// fires its blur — a second offer of the half-typed value would land on top of this pick.",
+    "// Enter hands the field over rather than offering itself: the panel is about to",
+    "// unmount, and a second offer of the same colour would read as the toggle-off.",
+  ]],
   ["src/client/features/workspace/EditorToolbar.test.ts", [
     "/** A row of whichever menu or submenu is currently open — a submenu is portalled, so it is not under the toolbar. */",
     "// The two boards differ only in the body they start from, and which one a fence is stays the fence's",
     "// own business — so the pair is worth pinning: an outline board and a JSON board are different notes.",
+    "/** Mount the toolbar over a document whose whole body is selected. */",
   ]],
   ["src/client/features/workspace/EditorToolbar.tsx", [
     "// The dropdown closes before the command runs, so a menu still holding the pointer cannot keep",
     "// the focus the command is about to hand back to the editor.",
+    "/**\n * The palette is a menu header, and a header is placed before it is measured. These are what the\n * panel actually is, so the maths that flips a menu away from the viewport edge can see it.\n */",
   ]],
   ["src/client/features/workspace/VersionsPanel.tsx", [
     "// The middle is only materialized when the LCS actually needs it; the unchanged head and",
@@ -3184,6 +3222,8 @@ const allowed = new Map([
     "/** Rewrite the heading marker on the note's own line, so the block that was clicked is the one that moves. */",
     "/** The properties panel and the raw front matter block answer with the same rows. */",
     "/** The text between the two `---` rules, or '' when the note has no front matter. */",
+    "// Only the editor's own selection: a format command runs wherever the CodeMirror cursor is, which",
+    "// in a split view is not the text that was just right-clicked in the preview.",
   ]],
   ["src/client/features/workspace/context-menu/items-table.tsx", [
     "/**\n * The table menu, built once for both panes.\n *\n * The source knows which cell the cursor is in from the character offset; the preview knows from the\n * `td` that was clicked. Both end up as a row and column index, so the rows below are the same list\n * and only the writer differs — a CodeMirror transaction against the block's lines, or a rewrite of\n * the note's text through the same parser.\n */",
@@ -3475,6 +3515,11 @@ const allowed = new Map([
     "// no enhancer, so the one hand the header's `1fr 2fr` has to be given to the stylesheet here.",
     "// A board is a React root, and an exported document has no script to mount one with, so the fence",
     "// is drawn as a still here the way the preview pane draws one for a card and a share page.",
+  ]],
+  ["src/client/lib/format-colors.ts", [
+    "/**\n * Highlights are painted as a wash, so what matters here is the hue: each of these is saturated\n * enough to still read at {@link HIGHLIGHT_ALPHA} over a light page or a dark one.\n */",
+    "/** The colour a swatch must show so the panel and the page agree, wash and all. */",
+    "/**\n * Whether a picked colour will show up on the page it is being picked for. A highlight is judged on\n * its own hue rather than the composited wash: at a fixed alpha the two move together, so a hue too\n * close to the page is the only way the wash can come out invisible. An unresolvable surface reads\n * as usable, the same way the folder guard reads it.\n */",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",
@@ -6411,6 +6456,7 @@ const allowed = new Map([
     "// answer this parse gives is the literal text; the version signal re-renders once it lands.",
     "// That is what keeps `12:30:00` and `1:100:1` a clock and a ratio, and a colon inside a `:::`",
     "// run belongs to the container syntax rather than to anybody's name.",
+    "/**\n * The document pipeline, on its own purify instance so the one exemption below cannot reach the\n * outline label or the Mermaid SVG through the shared hooks.\n *\n * A colour the toolbar wrote is the only inline style a note may carry: one declaration, one plain\n * hex, on a tag that holds text. Everything else — a `url()`, a second declaration, a `position` —\n * is still dropped, so the blanket ban on `style` in {@link PURIFY_CONFIG} keeps its teeth.\n */",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",

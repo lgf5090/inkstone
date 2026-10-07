@@ -128,6 +128,18 @@ const allowedHanFragments = new Map([
         'plane \u98de\u673a',
         '\u7ea2 \u70b9',
     ]],
+    [path.resolve('src/client/editor/text-format.test.ts'), [
+        // The width converter is defined by the characters it swaps, so every case is written in the
+        // script under test. Each fragment is listed once per place it is spelled.
+        '1. buy\uff08a\uff0cb\uff09',
+        '\u4f60\u597d\uff0c\u4e16\u754c.',
+        '\u4f60\u597d\uff0c\u4e16\u754c\u3002',
+        '\uff21\uff11\uff08\uff58\uff09\u3000\uff31',
+        '\u7b2c\u4e09\u3002\u3001\u7ae0',
+        '\u7b2c\u4e09.,\u7ae0',
+        '`\uff0c\u3002` $\uff0c$ %%\uff0c%% [[\uff0c]] [\uff0c](https://ex.com/\uff0c) \uff0c',
+        '`\uff0c\u3002` $\uff0c$ %%\uff0c%% [[\uff0c]] [\uff0c](https://ex.com/\uff0c) ,',
+    ]],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.
@@ -135,7 +147,7 @@ const allowedHanFragments = new Map([
  * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these
  * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen
@@ -254,7 +266,7 @@ function placeholders(value) {
     return [...value.matchAll(/\{[A-Za-z0-9_]+\}/g)].map((match) => match[0]).sort().join('|');
 }
 function isTechnicalPlaceholder(name, value) {
-    return name === 'placeholder' && (/^(?:https?:\/\/|[a-z0-9_.-]+\/?$)/i.test(value) || value === '…');
+    return name === 'placeholder' && (/^(?:https?:\/\/|[a-z0-9_.-]+\/?$)/i.test(value) || value === '…' || value === '#rrggbb');
 }
 function isTextSource(file) {
     return /\.(?:css|html|js|jsx|json|md|mjs|svg|toml|ts|tsx)$/.test(file);

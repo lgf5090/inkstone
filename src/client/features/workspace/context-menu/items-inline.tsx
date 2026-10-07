@@ -1,8 +1,9 @@
-import { CheckSquare, Copy, ExternalLink, FileText, Heading, List, Maximize2, Network, Pencil, Plus, Sigma, Trash2 } from 'lucide-react'
+import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, List, Maximize2, Network, Pencil, Plus, Sigma, Trash2 } from 'lucide-react'
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { findNoteByTitle } from '../../../store/notes'
 import { updateTaskAtSourceLine } from '../../../editor/commands'
+import { formatMenuItems } from '../../../editor/editorMenus'
 import { joinLines, splitLines } from '../../../lib/markdown/fence-edit'
 import { containerRangeInText, isSafeExternalUrl, setHeadingLevelInText, taskToBulletInText } from './line-edits'
 import type { MenuCtx } from './types'
@@ -352,5 +353,11 @@ export function buildSelectionItems(ctx: MenuCtx): MenuItem[] | null {
       onSelect: () => ctx.onCreateNote({ title: text.trim().slice(0, 200), open: true }),
     },
   )
+  // Only the editor's own selection: a format command runs wherever the CodeMirror cursor is, which
+  // in a split view is not the text that was just right-clicked in the preview.
+  if (isSourceMenu(ctx)) {
+    const format = formatMenuItems(command => ctx.runCommand(command))
+    items.push({ id: 'format', label: t('workspace.more_formats'), icon: <CaseUpper size={14} />, separatorBefore: true, subItems: format, submenu: submenuFor(format, 200) })
+  }
   return items
 }

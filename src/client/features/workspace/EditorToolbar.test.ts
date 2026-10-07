@@ -1,11 +1,13 @@
-import { act, createElement } from 'react'
+import { act, createElement, Fragment } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
+import { PromptHost } from '../../components/overlay'
 import { EditorToolbar } from './EditorToolbar'
 import { editorCombo } from '../../editor/shortcuts'
 import { prettyCombo } from '../../lib/hotkeys'
+import { FORMAT_COLOR_STORAGE_KEY } from '../../lib/format-colors'
 
 let root: Root
 let container: HTMLDivElement
@@ -167,5 +169,142 @@ describe('editor toolbar interactions', () => {
     expect(state.doc.toString()).toBe('$$\nx^2\n$$\n')
     expect(state.sliceDoc(state.selection.main.from, state.selection.main.to)).toBe('x^2')
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+/** Mount the toolbar over a document whose whole body is selected. */
+function mountWith(doc: string, selection: { anchor: number; head: number }) {
+  let state = EditorState.create({ doc, selection: EditorSelection.range(selection.anchor, selection.head) })
+  const view = {
+    get state() { return state },
+    dispatch: (update: { state: EditorState }) => { state = update.state },
+    focus: vi.fn(),
+  }
+  return {
+    state: () => state,
+    props: { onPickImage: vi.fn(), runCommand: (command: (target: never) => boolean) => command(view as never) },
+  }
+}
+
+function paletteButton(label: string) {
+  const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === label)
+  expect(button, `no control labelled ${label}`).not.toBeUndefined()
+  return button!
+}
+
+function typeInto(input: HTMLInputElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+describe('text formatting controls', () => {
+  beforeEach(() => {
+    localStorage.removeItem(FORMAT_COLOR_STORAGE_KEY)
+  })
+
+  it('underlines the selection from its own button', async () => {
+    const editor = mountWith('water', { anchor: 0, head: 5 })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    await act(() => toolbarButton(t('common.underline')).click())
+    expect(editor.state().doc.toString()).toBe('<u>water</u>')
+  })
+
+  it('paints the selection with the colour picked from the palette and closes the panel', async () => {
+    const editor = mountWith('water', { anchor: 0, head: 5 })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    const trigger = toolbarButton(t('workspace.text_color'))
+    await act(() => trigger.click())
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    await act(() => paletteButton(t('color.rose')).click())
+    expect(editor.state().doc.toString()).toBe('<font color="#e11d48">water</font>')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it('keeps the highlight button on == and puts the wash behind its chevron', async () => {
+    const plain = mountWith('water', { anchor: 0, head: 5 })
+    await act(() => root.render(createElement(EditorToolbar, plain.props)))
+    await act(() => toolbarButton(t('common.highlight')).click())
+    expect(plain.state().doc.toString()).toBe('==water==')
+  })
+
+  it('paints a translucent wash so the theme text stays readable on it', async () => {
+    const editor = mountWith('water', { anchor: 0, head: 5 })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    await act(() => toolbarButton(t('workspace.highlight_color')).click())
+    await act(() => paletteButton('#FACC15').click())
+    expect(editor.state().doc.toString()).toBe('<mark style="background:#facc1559">water</mark>')
+  })
+
+  it('remembers the colour just picked and offers it again on the button', async () => {
+    const editor = mountWith('water', { anchor: 0, head: 5 })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    await act(() => toolbarButton(t('workspace.text_color')).click())
+    await act(() => paletteButton(t('color.teal')).click())
+    expect(editor.state().doc.toString()).toBe('<font color="#0d9488">water</font>')
+    await act(() => toolbarButton(t('workspace.text_color')).click())
+    expect(paletteButton(t('color.teal')).getAttribute('aria-pressed')).toBe('true')
+    const stored = JSON.parse(localStorage.getItem(FORMAT_COLOR_STORAGE_KEY) ?? '{}') as { text?: string[] }
+    expect(stored.text?.[0]).toBe('#0d9488')
+  })
+
+  it('carries the tag formats and the case list in the more-formats menu', async () => {
+    const editor = mountWith('hello world', { anchor: 0, head: 11 })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    await act(() => toolbarButton(t('workspace.more_formats')).click())
+    await act(() => menuRow(t('workspace.superscript')).click())
+    expect(editor.state().doc.toString()).toBe('<sup>hello world</sup>')
+
+    await act(() => toolbarButton(t('workspace.more_formats')).click())
+    await act(() => menuRow(t('workspace.case_change')).click())
+    await act(() => menuRow(t('workspace.case_upper')).click())
+    expect(editor.state().doc.toString()).toBe('<sup>HELLO WORLD</sup>')
+  })
+
+  it('lets the swatch a user aimed at win over a half-typed value', async () => {
+    const editor = mountWith('water', { anchor: 0, head: 5 })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    await act(() => toolbarButton(t('workspace.text_color')).click())
+    const field = document.querySelector<HTMLInputElement>('[role="menu"] input[type="text"]')!
+    await act(() => { field.focus(); typeInto(field, '#123456') })
+    await act(() => { paletteButton(t('color.red')).click() })
+    expect(editor.state().doc.toString()).toBe('<font color="#dc2626">water</font>')
+  })
+
+  it('keeps the spacing a numbering template asked for', async () => {
+    const editor = mountWith('one\ntwo\n', { anchor: 0, head: 8 })
+    await act(() => root.render(createElement(Fragment, null,
+      createElement(PromptHost),
+      createElement(EditorToolbar, editor.props))))
+    await act(() => toolbarButton(t('workspace.more_formats')).click())
+    await act(() => menuRow(t('workspace.line_tidy')).click())
+    await act(() => menuRow(t('workspace.number_lines')).click())
+    const field = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    expect(field, 'the numbering command never asked for a template').not.toBeNull()
+    expect(field.value).toBe('{n}. ')
+    await act(() => {
+      typeInto(field, '{n}) ')
+    })
+    await act(() => {
+      [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+        .find(button => button.textContent?.trim() === t('overlay.confirm'))!
+        .click()
+    })
+    expect(editor.state().doc.toString()).toBe('1) one\n2) two\n')
+  })
+
+  it('clears the decoration the menu wrote, and tidies the lines it is pointed at', async () => {
+    const doc = '<sup>hello</sup> and **bold**'
+    const editor = mountWith(doc, { anchor: 0, head: doc.length })
+    await act(() => root.render(createElement(EditorToolbar, editor.props)))
+    await act(() => toolbarButton(t('workspace.more_formats')).click())
+    await act(() => menuRow(t('workspace.clear_formatting')).click())
+    expect(editor.state().doc.toString()).toBe('hello and bold')
+
+    const second = mountWith('a  \nb  \n', { anchor: 0, head: 4 })
+    await act(() => root.render(createElement(EditorToolbar, second.props)))
+    await act(() => toolbarButton(t('workspace.more_formats')).click())
+    await act(() => menuRow(t('workspace.line_tidy')).click())
+    await act(() => menuRow(t('workspace.trim_line_ends')).click())
+    expect(second.state().doc.toString()).toBe('a\nb  \n')
   })
 })

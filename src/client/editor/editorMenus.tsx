@@ -1,8 +1,19 @@
 import type { EditorView } from '@codemirror/view'
 import type { MenuItem } from '../components/overlay'
-import { submenuFor } from '../components/overlay'
+import { prompt, submenuFor } from '../components/overlay'
 import { t } from '../lib/i18n'
 import { editorCombo } from './shortcuts'
+import {
+  clearInlineFormatting,
+  convertCase,
+  convertWidth,
+  lineTool,
+  numberLines,
+  toggleSubscript,
+  toggleSuperscript,
+  toggleUnderline,
+  wrapLines,
+} from './text-format'
 import {
   generateMindmapFromOutline,
   formatCodeBlock,
@@ -44,7 +55,7 @@ import {
 } from './commands'
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
 import { openEmojiPicker } from '../store/emoji-picker'
-import { AlignCenter, Bold, Braces, ChevronDown, Code, Columns3, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, Strikethrough, Table as TableIcon } from 'lucide-react'
+import { AlignCenter, AlignLeft, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Eraser, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, Strikethrough, Subscript, Superscript, Table as TableIcon, Underline } from 'lucide-react'
 
 /**
  * The editor's command lists in one place.
@@ -78,14 +89,68 @@ export function headingMenuItems(run: RunEditorCommand): MenuItem[] {
   ]
 }
 
+/**
+ * Everything the toolbar has no room for a button of its own: the tag-wrapping formats, the case and
+ * width rewriters, and the line tidy-up. The two colour channels sit next to this on the toolbar
+ * because they need a palette, not a list.
+ */
 export function formatMenuItems(run: RunEditorCommand): MenuItem[] {
+  const caseItems: MenuItem[] = ([
+    ['upper', 'workspace.case_upper'],
+    ['lower', 'workspace.case_lower'],
+    ['title', 'workspace.case_title'],
+    ['sentence', 'workspace.case_sentence'],
+    ['inverse', 'workspace.case_inverse'],
+  ] as const).map(([mode, key]) => ({ id: `case-${mode}`, label: t(key), onSelect: () => run(convertCase(mode)) }))
+  const tidyItems: MenuItem[] = [
+    { id: 'trim-line-ends', label: t('workspace.trim_line_ends'), onSelect: () => run(lineTool('trim-end')) },
+    { id: 'trim-whole-lines', label: t('workspace.trim_whole_lines'), onSelect: () => run(lineTool('trim-lines')) },
+    { id: 'compress-spaces', label: t('workspace.compress_spaces'), onSelect: () => run(lineTool('compress-spaces')) },
+    { id: 'join-lines', label: t('workspace.join_lines'), separatorBefore: true, onSelect: () => run(lineTool('join-lines')) },
+    { id: 'blank-lines-between', label: t('workspace.blank_lines_between'), onSelect: () => run(lineTool('blank-lines-between')) },
+    { id: 'remove-blank-lines', label: t('workspace.remove_blank_lines'), onSelect: () => run(lineTool('remove-blank-lines')) },
+    { id: 'dedupe-lines', label: t('workspace.dedupe_lines'), onSelect: () => run(lineTool('dedupe-lines')) },
+    {
+      id: 'number-lines',
+      label: t('workspace.number_lines'),
+      separatorBefore: true,
+      onSelect: () => {
+        void prompt({ title: t('workspace.number_lines'), description: t('workspace.number_lines_prompt'), defaultValue: '{n}. ', placeholder: '{n}. ', preserveSpaces: true }).then((template) => {
+          if (template !== null)
+            run(numberLines(template));
+        });
+      },
+    },
+    {
+      id: 'prefix-suffix',
+      label: t('workspace.prefix_suffix'),
+      onSelect: () => {
+        void prompt({ title: t('workspace.prefix_suffix'), description: t('workspace.prefix_prompt'), placeholder: '- ', preserveSpaces: true }).then((prefix) => {
+          if (prefix === null)
+            return;
+          void prompt({ title: t('workspace.prefix_suffix'), description: t('workspace.suffix_prompt'), placeholder: ' :' , preserveSpaces: true }).then((suffix) => {
+            if (suffix !== null)
+              run(wrapLines(prefix, suffix));
+          });
+        });
+      },
+    },
+  ]
   return [
     { id: 'bold', label: t('common.bold'), icon: <Bold size={13} />, combo: editorCombo('bold'), onSelect: () => run(toggleBold) },
     { id: 'italic', label: t('common.italic'), icon: <Italic size={13} />, combo: editorCombo('italic'), onSelect: () => run(toggleItalic) },
+    { id: 'underline', label: t('common.underline'), icon: <Underline size={13} />, combo: editorCombo('underline'), onSelect: () => run(toggleUnderline) },
     { id: 'strikethrough', label: t('common.strikethrough'), icon: <Strikethrough size={13} />, combo: editorCombo('strikethrough'), onSelect: () => run(toggleStrikethrough) },
+    { id: 'superscript', label: t('workspace.superscript'), icon: <Superscript size={13} />, onSelect: () => run(toggleSuperscript) },
+    { id: 'subscript', label: t('workspace.subscript'), icon: <Subscript size={13} />, onSelect: () => run(toggleSubscript) },
     { id: 'highlight', label: t('common.highlight'), icon: <Highlighter size={13} />, onSelect: () => run(toggleHighlight) },
     { id: 'inline-code', label: t('common.inline_code'), icon: <Code size={13} />, combo: editorCombo('inline-code'), onSelect: () => run(toggleInlineCode) },
     { id: 'inline-math', label: t('workspace.inline_math'), icon: <Sigma size={13} />, onSelect: () => run(toggleInlineMath) },
+    { id: 'clear-formatting', label: t('workspace.clear_formatting'), icon: <Eraser size={13} />, separatorBefore: true, onSelect: () => run(clearInlineFormatting) },
+    { id: 'case', label: t('workspace.case_change'), icon: <CaseUpper size={13} />, subItems: caseItems, submenu: submenuFor(caseItems, 168) },
+    { id: 'width-full', label: t('workspace.width_full'), separatorBefore: true, onSelect: () => run(convertWidth('full')) },
+    { id: 'width-half', label: t('workspace.width_half'), onSelect: () => run(convertWidth('half')) },
+    { id: 'tidy', label: t('workspace.line_tidy'), icon: <AlignLeft size={13} />, separatorBefore: true, subItems: tidyItems, submenu: submenuFor(tidyItems, 196) },
   ]
 }
 
