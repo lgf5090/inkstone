@@ -43,6 +43,7 @@ import {
   toggleWikiLink,
 } from './commands'
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
+import { openEmojiPicker } from '../store/emoji-picker'
 import { AlignCenter, Bold, Braces, ChevronDown, Code, Columns3, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, Strikethrough, Table as TableIcon } from 'lucide-react'
 
 /**
@@ -117,6 +118,10 @@ export function imageMenuItems(run: RunEditorCommand, pickImage: () => void): Me
 
 export function noteMenuItems(run: RunEditorCommand): MenuItem[] {
   return [
+    { id: 'emoji', label: t('emoji.insert'), onSelect: () => run(() => {
+          openEmojiPicker();
+          return true;
+        }) },
     { id: 'tag', label: t('workspace.insert_tag'), onSelect: () => run(insertTag) },
     { id: 'block-id', label: t('workspace.block_id'), onSelect: () => run(insertBlockId) },
     { id: 'front-matter', label: t('workspace.front_matter'), separatorBefore: true, onSelect: () => run(insertFrontMatter) },

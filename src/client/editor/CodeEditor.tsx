@@ -11,7 +11,7 @@ import { cn } from '../lib/cn';
 import { useThemeDark } from '../lib/hooks';
 import { editorTheme } from './theme';
 import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } from './decorations';
-import { codeFenceSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
+import { codeFenceSource, emojiSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
 import { editorKeymap } from './shortcuts';
@@ -135,6 +135,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     tagSource(() => cbRef.current.sources),
                     codeFenceSource,
                     containerDirectiveSource,
+                    emojiSource,
                 ],
                 activateOnTyping: true,
                 closeOnBlur: true,

@@ -1,12 +1,16 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
+import { Button } from '../../components/primitives';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
-import type { CodeFormatKeywordCase, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName } from '@shared/types';
+import { clearRecentEmojis, RECENT_EMOJI_LIMIT, useEmojiPreferences } from '../../lib/emoji-prefs';
+import { EMOJI_TONE_LABEL_KEYS, EMOJI_TONE_SLOTS, emojiToneHand } from '../../lib/emoji-unicode';
+import type { CodeFormatKeywordCase, EmojiInsertFormat, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, SkinTone } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
     const notes = useSession((s) => s.settings.notes);
     const update = useSession((s) => s.updateSettings);
+    const { recentEmojis } = useEmojiPreferences();
     return (<div className="space-y-6">
       <section>
         <SettingRow title={t("settings.editor_font")}>
@@ -48,6 +52,44 @@ export function EditorSettings() {
 
         <SettingRow title={t("settings.focus_mode")} description={t("settings.fade_content_outside_the_current_paragraph")}>
           <Switch checked={editor.focusMode} onChange={(focusMode) => void update({ editor: { focusMode } })} label={t("settings.focus_mode")}/>
+        </SettingRow>
+      </section>
+
+      <section>
+        <h3 className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.emoji")}</h3>
+
+        <SettingRow title={t("settings.emoji_button")} description={t("settings.emoji_button_description")}>
+          <Switch checked={editor.emojiToolbarButton} onChange={(emojiToolbarButton) => void update({ editor: { emojiToolbarButton } })} label={t("settings.emoji_button")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.emoji_insert_format")} description={t("settings.emoji_insert_format_description")}>
+          <Segmented<EmojiInsertFormat> label={t("settings.emoji_insert_format")} value={editor.emojiInsertFormat} onChange={(emojiInsertFormat) => void update({ editor: { emojiInsertFormat } })} options={[
+            { value: 'native', label: t("settings.emoji_insert_native") },
+            { value: 'shortcode', label: t("settings.emoji_insert_shortcode") },
+          ]}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.emoji_skin_tone")} description={t("settings.emoji_skin_tone_description")}>
+          <Segmented<string> label={t("settings.emoji_skin_tone")} value={String(editor.emojiSkinTone)} onChange={(value) => void update({ editor: { emojiSkinTone: Number(value) as SkinTone } })} options={EMOJI_TONE_SLOTS.map((slot) => ({
+            value: String(slot),
+            title: t(EMOJI_TONE_LABEL_KEYS[slot]!),
+            label: <span aria-hidden="true" className="text-[15px] leading-none">{emojiToneHand(slot)}</span>,
+          }))}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.emoji_shortcodes")} description={t("settings.emoji_shortcodes_description")}>
+          <Switch checked={preview.emojiShortcodes} onChange={(emojiShortcodes) => void update({ preview: { emojiShortcodes } })} label={t("settings.emoji_shortcodes")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.emoji_recent")} description={t("settings.emoji_recent_description")}>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-right text-[15px] leading-none text-[var(--text-quaternary)]" aria-label={t("settings.emoji_recent")}>
+              {recentEmojis.length ? recentEmojis.slice(0, 12).join(' ') : `${recentEmojis.length}/${RECENT_EMOJI_LIMIT}`}
+            </span>
+            <Button variant="ghost" size="sm" disabled={!recentEmojis.length} onClick={() => clearRecentEmojis()}>
+              {t("common.clear")}
+            </Button>
+          </div>
         </SettingRow>
       </section>
 

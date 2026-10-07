@@ -4,6 +4,9 @@ import { normalizeLinkKey } from '@shared/markdown-utils';
 import { truncateText } from '@shared/text-utils';
 import { fuzzyMatch } from '../lib/fuzzy';
 import { LAYOUT_CONTAINER_WORDS } from '../lib/markdown/panel-options';
+import { emojiUnicodeIsLoaded, emojiWithTone, loadEmojiUnicode, requestEmojiUnicode, searchEmojiUnicode } from '../lib/emoji-unicode';
+import { pushRecentEmoji } from '../lib/emoji-prefs';
+import { useSession } from '../store/session';
 import { t } from "../lib/i18n";
 export interface CompletionSources {
     notes: () => {
@@ -136,4 +139,54 @@ export function codeFenceSource(context: CompletionContext): CompletionResult | 
         options: LANGUAGES.map((lang) => ({ label: lang, type: 'type' })),
         validFor: /^[a-zA-Z0-9+#-]*$/,
     };
+}
+
+const EMOJI_TRIGGER_RE = /:[A-Za-z0-9+-][A-Za-z0-9_+-]{1,29}$/;
+const EMOJI_COMPLETION_LIMIT = 12;
+
+/**
+ * `:smi` → the emoji it names. The colon has to be the start of a word, so `https:` and `data:`
+ * and the `:::` a container opens with stay out of the way, and the set is a lazy chunk, so the
+ * first keystroke that wants it gets the list a moment later rather than nothing.
+ */
+export function emojiSource(context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null {
+    const before = context.matchBefore(EMOJI_TRIGGER_RE);
+    if (!before)
+        return null;
+    const previous = before.from > 0 ? context.state.sliceDoc(before.from - 1, before.from) : '';
+    if (/[\w:]/.test(previous))
+        return null;
+    const query = before.text.slice(1);
+    const build = (): CompletionResult | null => {
+        const hits = searchEmojiUnicode(query, EMOJI_COMPLETION_LIMIT);
+        if (!hits.length)
+            return null;
+        const { emojiInsertFormat, emojiSkinTone } = useSession.getState().settings.editor;
+        return {
+            from: before.from,
+            options: hits.map((hit) => ({
+                label: emojiWithTone(hit.entry, emojiSkinTone),
+                detail: `:${hit.entry.code}:`,
+                info: hit.entry.name,
+                boost: hit.score / 10,
+                apply: (view: EditorView) => {
+                    const glyph = emojiWithTone(hit.entry, emojiSkinTone);
+                    pushRecentEmoji(glyph);
+                    const text = emojiInsertFormat === 'shortcode' ? `:${hit.entry.code}:` : glyph;
+                    view.dispatch({
+                        changes: { from: before.from, to: context.pos, insert: text },
+                        selection: { anchor: before.from + text.length },
+                        scrollIntoView: true,
+                        userEvent: 'input.complete',
+                    });
+                },
+            })),
+            filter: false,
+            validFor: /^:[A-Za-z0-9_+-]*$/,
+        };
+    };
+    if (emojiUnicodeIsLoaded())
+        return build();
+    requestEmojiUnicode();
+    return loadEmojiUnicode().then(() => (context.aborted ? null : build()));
 }

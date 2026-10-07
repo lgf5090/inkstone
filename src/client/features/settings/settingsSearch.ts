@@ -76,6 +76,11 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.autosave_delay', detailKey: 'settings.delay_before_uploading_after_you_stop_typing_shorter_makes_more_requests' },
   { section: 'editor', titleKey: 'settings.indent_width', termKeys: ['settings.lines'] },
   { section: 'editor', titleKey: 'settings.writing_mode', termKeys: ['settings.typewriter_mode', 'settings.focus_mode'] },
+  { section: 'editor', titleKey: 'settings.emoji_button', detailKey: 'settings.emoji_button_description', termKeys: ['emoji.insert', 'emoji.picker'] },
+  { section: 'editor', titleKey: 'settings.emoji_insert_format', detailKey: 'settings.emoji_insert_format_description', termKeys: ['settings.emoji_insert_native', 'settings.emoji_insert_shortcode', 'emoji.picker'] },
+  { section: 'editor', titleKey: 'settings.emoji_skin_tone', detailKey: 'settings.emoji_skin_tone_description', termKeys: ['emoji.tone.default', 'emoji.tone.light', 'emoji.tone.dark', 'emoji.skin_tone'] },
+  { section: 'editor', titleKey: 'settings.emoji_shortcodes', detailKey: 'settings.emoji_shortcodes_description', termKeys: ['common.preview', 'emoji.picker'] },
+  { section: 'editor', titleKey: 'settings.emoji_recent', detailKey: 'settings.emoji_recent_description', termKeys: ['common.clear', 'emoji.recent'] },
 
   { section: 'notes', titleKey: 'settings.new_note_template', detailKey: 'settings.new_note_template_description', termKeys: ['settings.restore_default_template', 'settings.new_note_template_characters', 'settings.new_notes'] },
   { section: 'notes', titleKey: 'settings.new_note_template_preview', termKeys: ['settings.template_preview_title', 'settings.template_preview_folder', 'settings.template_preview_tag', 'settings.template_preview_context'] },

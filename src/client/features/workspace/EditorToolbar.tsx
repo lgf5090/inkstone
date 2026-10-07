@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Sparkles, Strikethrough, Table } from 'lucide-react';
+import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Smile, Sparkles, Strikethrough, Table } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -8,15 +8,20 @@ import { formatCodeBlock, insertCodeBlock, insertLink, insertTable, toggleBold, 
 import { blockMenuItems, codeMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
+import { APP_SHORTCUTS } from '../../lib/shortcuts';
+import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 
 type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block';
 
-export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }: {
+export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, showEmoji = true }: {
     runCommand?: (command: (target: EditorView) => boolean) => void;
     view?: EditorView | null;
     onPickImage: () => void;
     mobile?: boolean;
+    showEmoji?: boolean;
 }) {
+    const emojiRef = useRef<HTMLButtonElement>(null);
+    const emojiOpen = useEmojiPicker((state) => state.open && state.anchor !== null);
     const headingRef = useRef<HTMLButtonElement>(null);
     const referenceRef = useRef<HTMLButtonElement>(null);
     const imageRef = useRef<HTMLButtonElement>(null);
@@ -78,6 +83,12 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
       {menuButton('reference', <Link2 size={14}/>, { label: t('workspace.link'), combo: editorCombo('link'), onClick: () => run(insertLink()) })}
       {menuButton('image', <ImageIcon size={14}/>, { label: t('workspace.upload_image'), onClick: pickImage })}
       {menuButton('note', <FileText size={14}/>)}
+      {showEmoji && (<ToolButton buttonRef={emojiRef} label={t('emoji.insert')} combo={APP_SHORTCUTS.emoji} expanded={emojiOpen} popup="dialog" onClick={() => {
+                if (isEmojiPickerOpen())
+                    closeEmojiPicker();
+                else
+                    openEmojiPicker(emojiRef.current);
+            }}><Smile size={14}/></ToolButton>)}
       <Divider />
       {menuButton('code', <Braces size={14}/>, { label: t('workspace.code_block'), onClick: () => run(insertCodeBlock) })}
       <ToolButton label={t('command.format_code_block')} combo={editorCombo('format-code')} onClick={() => run(formatCodeBlock)}><Sparkles size={14}/></ToolButton>
@@ -103,14 +114,17 @@ function MenuButton({ buttonRef, label, open, onClick, children, mobile = false 
     </Tooltip>);
 }
 
-function ToolButton({ label, combo, onClick, children }: {
+function ToolButton({ label, combo, onClick, children, buttonRef, expanded, popup }: {
     label: string;
     combo?: string;
     onClick: () => void;
     children: ReactNode;
+    buttonRef?: RefObject<HTMLButtonElement | null>;
+    expanded?: boolean;
+    popup?: 'dialog' | 'menu';
 }) {
     return (<Tooltip label={label} combo={combo}>
-      <IconButton label={label} size="sm" onClick={onClick} className="size-9 shrink-0 md:size-7">{children}</IconButton>
+      <IconButton ref={buttonRef} label={label} size="sm" onClick={onClick} aria-expanded={expanded} aria-haspopup={popup} className="size-9 shrink-0 md:size-7">{children}</IconButton>
     </Tooltip>);
 }
 

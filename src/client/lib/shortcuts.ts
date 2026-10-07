@@ -13,6 +13,7 @@ export const APP_SHORTCUTS = {
   save: 'mod+s',
   star: 'mod+alt+s',
   outline: 'mod+alt+o',
+  emoji: 'mod+alt+e',
   // A show starts on the slide under the editor cursor, so the key has to reach into the editor;
   // `mod+shift+p` is already the command palette.
   present: 'mod+alt+p',

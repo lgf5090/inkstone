@@ -1,4 +1,4 @@
-import type { AccentName, CodeFormatKeywordCase, UserSettings, ViewKind } from './types'
+import type { AccentName, CodeFormatKeywordCase, EmojiInsertFormat, SkinTone, UserSettings, ViewKind } from './types'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
@@ -133,6 +133,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     tabSize: 2,
     autoSaveDelay: 500,
     codeFormatKeywordCase: 'upper',
+    emojiToolbarButton: true,
+    emojiInsertFormat: 'native',
+    emojiSkinTone: 0,
   },
   preview: {
     layout: 'live',
@@ -158,6 +161,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     math: true,
     mermaid: true,
     chart: true,
+    emojiShortcodes: true,
     codeBlockCollapse: true,
     codeBlockCollapseLines: 24,
     codeFormatButton: true,
@@ -222,6 +226,8 @@ const OUTLINE_AUTO_EXPANDS = ['off', 'ancestors'] as const
 const OUTLINE_TEXT_DIRECTIONS = ['system', 'text'] as const
 const OUTLINE_TOOLTIP_SIDES = ['left', 'right'] as const
 const CODE_FORMAT_KEYWORD_CASES: CodeFormatKeywordCase[] = ['upper', 'lower', 'keep']
+const EMOJI_INSERT_FORMATS: EmojiInsertFormat[] = ['native', 'shortcode']
+export const EMOJI_SKIN_TONE_MAX = 5
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
 
@@ -302,6 +308,18 @@ export function mergeSettings(partial: unknown): UserSettings {
     CODE_FORMAT_KEYWORD_CASES,
     base.editor.codeFormatKeywordCase,
   )
+  base.editor.emojiToolbarButton = booleanValue(editor.emojiToolbarButton, base.editor.emojiToolbarButton)
+  base.editor.emojiInsertFormat = enumValue(
+    editor.emojiInsertFormat,
+    EMOJI_INSERT_FORMATS,
+    base.editor.emojiInsertFormat,
+  )
+  base.editor.emojiSkinTone = integerInRange(
+    editor.emojiSkinTone,
+    0,
+    EMOJI_SKIN_TONE_MAX,
+    base.editor.emojiSkinTone,
+  ) as SkinTone
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
@@ -326,6 +344,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.math = booleanValue(preview.math, base.preview.math)
   base.preview.mermaid = booleanValue(preview.mermaid, base.preview.mermaid)
   base.preview.chart = booleanValue(preview.chart, base.preview.chart)
+  base.preview.emojiShortcodes = booleanValue(preview.emojiShortcodes, base.preview.emojiShortcodes)
   base.preview.codeBlockCollapse = booleanValue(preview.codeBlockCollapse, base.preview.codeBlockCollapse)
   base.preview.codeBlockCollapseLines = integerInRange(
     preview.codeBlockCollapseLines,

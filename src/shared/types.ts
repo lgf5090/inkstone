@@ -115,9 +115,18 @@ export interface EditorSettings {
   tabSize: number
   autoSaveDelay: number
   codeFormatKeywordCase: CodeFormatKeywordCase
+  emojiToolbarButton: boolean
+  emojiInsertFormat: EmojiInsertFormat
+  emojiSkinTone: SkinTone
 }
 
 export type CodeFormatKeywordCase = 'upper' | 'lower' | 'keep'
+
+/** 0 draws the glyph as the set ships it; 1-5 are the Fitzpatrick modifiers, light to dark. */
+export type SkinTone = 0 | 1 | 2 | 3 | 4 | 5
+
+/** What picking an emoji writes: the glyph itself, or the `:code:` that stands for it. */
+export type EmojiInsertFormat = 'native' | 'shortcode'
 
 export type PinnedWindowSizeName = 'small' | 'medium' | 'large' | 'custom'
 export type OutlineModeName = 'sidebar' | 'floating-always' | 'floating-hover' | 'floating-circle'
@@ -151,6 +160,7 @@ export interface PreviewSettings {
   math: boolean
   mermaid: boolean
   chart: boolean
+  emojiShortcodes: boolean
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
   codeFormatButton: boolean
