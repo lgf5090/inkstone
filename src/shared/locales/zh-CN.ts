@@ -2493,6 +2493,7 @@ console.log(\`Hello, \${name}!\`)
     "templates.duplicate_template": "复制模板",
     "templates.edit_template": "编辑模板",
     "templates.favorites": "收藏",
+    "templates.favorites_loading": "正在读取模板库…",
     "templates.lines_count": "{value0} 行",
     "templates.move_to_category": "移动到分类",
     "templates.name_required": "请填写名称",
