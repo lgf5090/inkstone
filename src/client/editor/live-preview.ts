@@ -12,6 +12,10 @@ import { decodeDataValue } from '../lib/markdown/data-attr';
 import { findNoteByTitle, useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
 import { selectMarkdownTab, moveMarkdownTabFocus } from '../features/preview/markdown-tabs';
+import { enhanceMediaLayouts } from '../features/preview/media-layout';
+import { attachMediaLayoutHost } from '../features/preview/media-layout-drag';
+import type { MediaSurface } from '../features/preview/media-layout-drag';
+import type { MediaEdit } from '../lib/markdown/media-layout-source';
 
 const focusChanged = StateEffect.define<boolean>();
 const refresh = StateEffect.define<boolean>();
@@ -53,10 +57,12 @@ class RenderedBlock extends WidgetType {
         blockViews.set(host, view);
         const observer = getSharedBlockResizeObserver();
         observer.observe(host);
+        const detachMediaHost = attachMediaLayoutHost(host, () => mediaSurfaceFor(view), true);
         cleanup.set(host, () => {
             alive = false;
             observer.unobserve(host);
             blockViews.delete(host);
+            detachMediaHost();
         });
         const settings = useSession.getState().settings.preview;
         const dark = document.documentElement.dataset.theme === 'dark';
@@ -64,6 +70,9 @@ class RenderedBlock extends WidgetType {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
             await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', mindmap: 'snapshot', dark, codeBlockCollapseLines: 0 });
+            // A layout block is the one rendered block the reader edits with the pointer, so its settings
+            // bar and its drag edges are built here too — on this host, which is the live tree.
+            if (settings.mediaToolbar) enhanceMediaLayouts(host, { chart: settings.chart, mediaToolbar: true });
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
             if (alive && settings.chart) await renderPendingCharts(host, dark);
             if (alive) view.requestMeasure();
@@ -119,6 +128,17 @@ class RenderedBlock extends WidgetType {
             if (pos !== null && pos >= line.from && pos <= view.state.doc.line(Math.min(this.block.endLine, view.state.doc.lines)).to)
                 view.dispatch({ selection: { anchor: pos }, userEvent: 'select.pointer' });
         });
+        host.addEventListener('dblclick', (event) => {
+            // A picture in a layout is there to be looked at: the reading view already opens the lightbox
+            // on a click, and the live surface would otherwise only ever move the caret.
+            if (event.target instanceof HTMLElement && event.target.closest('.markdown-media-cell')) {
+                const image = event.target.closest('img') ?? event.target.closest('.markdown-media-cell')?.querySelector('img');
+                if (image?.src) {
+                    event.preventDefault();
+                    useUi.getState().setLightbox({ src: image.src, alt: image.alt });
+                }
+            }
+        });
         host.addEventListener('keydown', (event) => {
             const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]');
             if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); moveMarkdownTabFocus(tab, event.key); }
@@ -147,6 +167,49 @@ class RenderedBlock extends WidgetType {
 }
 const cleanup = new WeakMap<HTMLElement, () => void>();
 const blockViews = new WeakMap<Element, EditorView>();
+
+/**
+ * The layout block's write path through the editor, rather than through the saved note.
+ *
+ * A line range becomes one CodeMirror change over exactly those lines, so a drag is a single undo step and
+ * the caret, the selection and the search all keep their place — and the paragraph being resized is never
+ * written from a document the page has not re-rendered yet, because the range is read back off the live
+ * doc. A range that has run off the end is refused instead of guessed at.
+ */
+function mediaSurfaceFor(view: EditorView): MediaSurface {
+    return {
+        source: () => view.state.doc.toString(),
+        commit: (edit: MediaEdit): boolean => {
+            const doc = view.state.doc;
+            const startLine = edit.start + 1;
+            const endLine = edit.end + 1;
+            if (startLine < 1 || endLine > doc.lines) return false;
+            if (edit.end < edit.start) {
+                const at = doc.line(Math.min(startLine, doc.lines)).from;
+                view.dispatch({ changes: { from: at, insert: `${edit.lines.join('\n')}\n` }, userEvent: 'input.layout' });
+                view.requestMeasure();
+                return true;
+            }
+            const from = doc.line(startLine).from;
+            const to = doc.line(endLine).to;
+            view.dispatch({ changes: { from, to, insert: edit.lines.join('\n') }, userEvent: 'input.layout' });
+            view.requestMeasure();
+            return true;
+        },
+        replaceDocument: (next: string) => {
+            const doc = view.state.doc;
+            const head = view.state.selection.main.head;
+            view.dispatch({
+                changes: { from: 0, to: doc.length, insert: next },
+                selection: { anchor: Math.min(head, next.length) },
+                userEvent: 'input.layout',
+                scrollIntoView: false,
+            });
+            view.requestMeasure();
+        },
+        toast: (title: string, tone?: 'default' | 'success' | 'warning' | 'danger') => useUi.getState().toast({ title, tone }),
+    };
+}
 let sharedBlockResizeObserver: ResizeObserver | null = null;
 
 function getSharedBlockResizeObserver(): ResizeObserver {
@@ -266,6 +329,7 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
                     || state.settings.preview.math !== previous.settings.preview.math
                     || state.settings.preview.mermaid !== previous.settings.preview.mermaid
                     || state.settings.preview.chart !== previous.settings.preview.chart
+                    || state.settings.preview.mediaToolbar !== previous.settings.preview.mediaToolbar
                     || state.settings.appearance.proseFont !== previous.settings.appearance.proseFont) refreshView();
             });
             queueMicrotask(() => { const value = view.state.field(field, false); if (value) onHeadings(value.headings); });

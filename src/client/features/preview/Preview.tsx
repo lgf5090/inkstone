@@ -38,6 +38,8 @@ import { previewSourceAnchors } from './preview-anchors'
 import { moveMarkdownTabFocus, revealPreviewTarget, selectMarkdownTab } from './markdown-tabs'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
 import { closeBlockToolbarOverlay, enhanceBlockToolbars, handleBlockToolbarClick } from './block-actions'
+import { attachMediaLayoutHost } from './media-layout-drag'
+import { applyMediaEdit } from '../../lib/markdown/media-layout-source'
 import type { BlockActionContext } from './block-overlay'
 import { MindmapFullscreen } from './mindmap-fullscreen'
 import { MindmapThemeMenu } from './mindmap-theme-menu'
@@ -115,6 +117,10 @@ export const Preview = memo(function Preview({
   const mermaidRevisionRef = useRef(0)
   const initialRenderRestoredRef = useRef(false)
   const copyResetTimersRef = useRef(new Map<HTMLElement, number>())
+  // The pointer surface is attached once per host and must not be torn down mid-drag by a keystroke, so it
+  // reads the note's current text and identity through these rather than closing over a render's props.
+  const liveContentRef = useRef(content)
+  const liveNoteIdRef = useRef(sourceNoteId)
   const wikiNavigationRef = useRef(0)
   const wikiScrollCleanupRef = useRef<() => void>(() => {})
   const [mermaidEpoch, setMermaidEpoch] = useState(0)
@@ -153,6 +159,14 @@ export const Preview = memo(function Preview({
   useEffect(() => {
     onHeadings?.(rendered.headings)
   }, [rendered.headings, onHeadings])
+
+  useEffect(() => {
+    liveContentRef.current = content
+  }, [content])
+
+  useEffect(() => {
+    liveNoteIdRef.current = sourceNoteId
+  }, [sourceNoteId])
 
 
   useEffect(() => {
@@ -245,6 +259,7 @@ export const Preview = memo(function Preview({
       // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
       enhanceBlockToolbars(staging, {
         chart: preview.chart,
+        mediaToolbar: preview.mediaToolbar,
         codeFormat: {
           enabled: preview.codeFormatButton,
           tabSize: editorSettings.tabSize,
@@ -306,6 +321,7 @@ export const Preview = memo(function Preview({
     preview.codeBlockCollapse,
     preview.codeBlockCollapseLines,
     preview.codeFormatButton,
+    preview.mediaToolbar,
     editorSettings.tabSize,
     editorSettings.codeFormatKeywordCase,
     theme,
@@ -340,6 +356,35 @@ export const Preview = memo(function Preview({
     },
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
   })
+
+  /**
+   * The layout block's pointer surface, on the host rather than on each block.
+   *
+   * One delegated listener answers for every block in the note and survives the child patching the
+   * preview does on each typing pause, which a per-block listener would not. The surface reads the note
+   * through the same committed-source guard the toolbars use: a drag that ended while the preview was
+   * showing an older document would otherwise move a row that is no longer there.
+   */
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || !preview.mediaToolbar) return
+    return attachMediaLayoutHost(host, () => {
+      const noteIdFor = liveNoteIdRef.current
+      if (!noteIdFor) return null
+      return {
+        source: () => (liveContentRef.current === committedSourceRef.current ? committedSourceRef.current : null),
+        commit: (edit) => {
+          const current = committedSourceRef.current
+          if (liveContentRef.current !== current) return false
+          const next = applyMediaEdit(current, edit)
+          if (next === current) return true
+          useNotes.getState().editContent(noteIdFor, next)
+          return true
+        },
+        toast: (title, tone) => useUi.getState().toast({ title, tone }),
+      }
+    })
+  }, [preview.mediaToolbar])
 
   /**
    * The rendered block's own controls, reached through the hooks that already own them. A menu row

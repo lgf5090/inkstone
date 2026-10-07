@@ -140,6 +140,11 @@ const allowedHanFragments = new Map([
         '`\uff0c\u3002` $\uff0c$ %%\uff0c%% [[\uff0c]] [\uff0c](https://ex.com/\uff0c) \uff0c',
         '`\uff0c\u3002` $\uff0c$ %%\uff0c%% [[\uff0c]] [\uff0c](https://ex.com/\uff0c) ,',
     ]],
+    // The layout block's fixtures are the reference plugin's own demo line, copied verbatim so the
+    // alternate embed spellings and a Han label are exercised the way an author writes them.
+    [path.resolve('src/client/lib/markdown/media-layout.test.ts'), ['\u8bbe\u8ba1\u8349\u56fe', '\u8bbe\u8ba1\u8349\u56fe', '\u8bbe\u8ba1\u8349\u56fe']],
+    [path.resolve('src/client/lib/markdown/media-block.test.ts'), ['\u8bbe\u8ba1\u8349\u56fe']],
+    [path.resolve('src/client/lib/markdown/media-layout-source.test.ts'), ['\u8bbe\u8ba1\u8349\u56fe']],
 ]);
 /**
  * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.

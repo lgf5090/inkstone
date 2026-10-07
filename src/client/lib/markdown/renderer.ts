@@ -15,6 +15,9 @@ import { effectiveTabsPosition, isVerticalTabsPosition, matchPanelHeader, parseT
 import type { TabsOptions } from './panel-options';
 import { findColonTabSegments, renderAlignContainer, renderColsContainer } from './panels';
 import type { TabSegment } from './panels';
+import { emptyFigureRegistry, mediaBlockAttributes, mediaCellAttributes, mediaCellCaption, mediaRowAttributes, readFigureReference, renderMediaContainer } from './media-block';
+import type { MediaCellToken, MediaFigureRegistry, MediaRowToken } from './media-block';
+import type { MediaBlockOptions } from './media-layout';
 import { encodeDataValue } from './data-attr';
 import { parseFenceInfo } from './fence-info';
 import { readCodeOptions } from './code-options';
@@ -64,6 +67,8 @@ interface RenderEnvironment {
     exampleSequence: number;
     /** Counts the mind map blocks in this document, so each one can name itself. */
     mindmapSequence: number;
+    /** The `::: media` figures this document has numbered, and what each `@fig:` name resolves to. */
+    mediaFigures: MediaFigureRegistry;
     docId: string;
     hideFrontMatter?: boolean;
     emojiShortcodes: boolean;
@@ -159,6 +164,8 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
     if (panel) {
         if (panel.kind === 'align')
             renderAlignContainer(state, startLine, end, nextLine, panel.align);
+        else if (panel.kind === 'media')
+            renderMediaContainer(state, startLine, end, nextLine, panel.media, renderEnv(state.env).mediaFigures);
         else
             renderColsContainer(state, startLine, end, nextLine, panel.cols);
     }
@@ -284,6 +291,43 @@ md.renderer.rules.panel_col_open = (tokens, index) => `<div class="markdown-col"
     index: number;
 }).index}">`;
 md.renderer.rules.panel_col_close = () => '</div>';
+/**
+ * The `::: media` layout block: one grid per source line, one cell per picture.
+ *
+ * Nothing here is a `style` attribute — the prose whitelist strips those — so every number travels as a
+ * `data-media-*` value that the enhancer reads back into a CSS custom property after sanitization.
+ */
+function mediaFigureLabel(figure: number): string {
+    return `${t("markdown.figure")} ${figure}`;
+}
+md.renderer.rules.media_open = (tokens, index) => {
+    const meta = tokens[index]!.meta as {
+        options: MediaBlockOptions;
+        numbered: boolean;
+        rows: number;
+    };
+    const line = tokens[index]!.map?.[0];
+    return `<div ${mediaBlockAttributes(meta, escapeAttr)}${line === undefined ? '' : ` data-line="${line}"`}>`;
+};
+md.renderer.rules.media_close = () => '</div>';
+md.renderer.rules.media_row_open = (tokens, index) => `<div ${mediaRowAttributes(tokens[index]!.meta as MediaRowToken, escapeAttr)}>`;
+md.renderer.rules.media_row_close = () => '</div>';
+md.renderer.rules.media_cell_open = (tokens, index) => `<div ${mediaCellAttributes(tokens[index]!.meta as MediaCellToken, escapeAttr)}>`;
+md.renderer.rules.media_cell_close = (tokens, index) => {
+    const meta = tokens[index]!.meta as MediaCellToken;
+    const label = meta.figure === null ? null : mediaFigureLabel(meta.figure);
+    return `${mediaCellCaption(meta, label, escapeHtml)}</div>`;
+};
+md.renderer.rules.figure_ref = (tokens, index, _options, env) => {
+    const name = tokens[index]!.content;
+    const figure = renderEnv(env).mediaFigures.figures.get(name);
+    // A reference to a figure the note never named says so in the author's own spelling rather than
+    // inventing a number, because a wrong figure number is a claim about somebody else's document.
+    if (figure === undefined)
+        return escapeHtml(`@fig:${name}`);
+    const anchor = `fig-${name}`;
+    return `<a class="figure-reference" data-block-ref="${escapeAttr(anchor)}" href="#%5E${escapeAttr(anchor)}">${escapeHtml(mediaFigureLabel(figure))}</a>`;
+};
 const TIMELINE_STATUS_KEYS: Record<TimelineStatus, MessageKey> = {
     todo: 'markdown.todo',
     doing: 'markdown.timeline_doing',
@@ -376,6 +420,7 @@ md.renderer.rules.math_block = (tokens, index) => {
 const WIKI_RE = /^\[\[([^\[\]\n]{1,400})\]\]/;
 const EMBED_RE = /^!\[\[([^\[\]\n]{1,400})\]\]/;
 const BLOCK_REF_RE = /^\(\(([A-Za-z0-9][A-Za-z0-9_-]{0,63})\)\)/;
+const FIGURE_REF_RE = /^@fig:([A-Za-z0-9][A-Za-z0-9_-]{0,63})/;
 const TAG_RE = /^#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/u;
 const EMOJI_CODE_RE = /^:([A-Za-z0-9_+-]{2,30}):/;
 md.inline.ruler.before('image', 'note_embed', (state, silent) => {
@@ -415,6 +460,25 @@ md.inline.ruler.before('text', 'block_reference', (state, silent) => {
         return false;
     if (!silent) {
         const token = state.push('block_reference', 'a', 0);
+        token.content = match[1]!;
+    }
+    state.pos += match[0].length;
+    return true;
+});
+// A figure reference names the picture it points at, the way pandoc-crossref spells it, so the `:` is
+// what tells `@fig:beach` from an at-handle somebody typed. The guard keeps it out of the middle of a
+// word and out of an e-mail, where a reference would be a surprise rather than a spelling.
+md.inline.ruler.before('text', 'figure_ref', (state, silent) => {
+    if (!state.src.startsWith('@fig:', state.pos))
+        return false;
+    const previous = state.pos > 0 ? state.src[state.pos - 1]! : ' ';
+    if (/[\w@/.-]/.test(previous))
+        return false;
+    const match = FIGURE_REF_RE.exec(state.src.slice(state.pos));
+    if (!match || !readFigureReference(match[1]!))
+        return false;
+    if (!silent) {
+        const token = state.push('figure_ref', 'a', 0);
         token.content = match[1]!;
     }
     state.pos += match[0].length;
@@ -1124,6 +1188,7 @@ function emptyEnvironment(): RenderEnvironment {
         tabSequence: 0,
         exampleSequence: 0,
         mindmapSequence: 0,
+        mediaFigures: emptyFigureRegistry(),
         docId: `ink-${nonce}`,
         emojiShortcodes: true,
         fences: createFenceBodies(),

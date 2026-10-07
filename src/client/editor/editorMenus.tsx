@@ -31,6 +31,7 @@ import {
   insertImage,
   insertLink,
   insertMathBlock,
+  insertMediaLayout,
   insertNoteTemplate,
   insertRunnableJsBlock,
   insertTable,
@@ -52,6 +53,8 @@ import {
   toggleStrikethrough,
   toggleTaskList,
   toggleWikiLink,
+  unwrapMediaLayoutHere,
+  wrapLinesAsMediaLayout,
 } from './commands'
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
 import { openEmojiPicker } from '../store/emoji-picker'
@@ -228,12 +231,27 @@ export function blockMenuItems(run: RunEditorCommand): MenuItem[] {
     label: t(ALIGN_KEYS[value]),
     onSelect: () => run(insertAlign(value)),
   }))
+  // One block, three ways in: an empty frame to fill, the lines already chosen, and the frame the cursor
+  // is inside. The reference plugin offers the first two as commands and the third as a menu row.
+  const mediaLayoutItems: MenuItem[] = [
+    { id: 'media-layout-insert', label: t('command.media_layout_insert'), onSelect: () => run(insertMediaLayout) },
+    { id: 'media-layout-wrap', label: t('command.media_layout_wrap'), onSelect: () => run(wrapLinesAsMediaLayout) },
+    { id: 'media-layout-unwrap', label: t('command.media_layout_unwrap'), onSelect: () => run(unwrapMediaLayoutHere) },
+  ]
   return [
     { id: 'table', label: t('workspace.table'), icon: <TableIcon size={13} />, onSelect: () => run(insertTable) },
     { id: 'callout', label: t('workspace.callout'), icon: <Quote size={13} />, onSelect: () => run(insertCallout) },
     { id: 'details', label: t('workspace.details_block'), icon: <ChevronDown size={13} />, onSelect: () => run(insertDetails) },
     { id: 'tabs', label: t('common.tabs'), icon: <ListTree size={13} />, onSelect: () => run(insertTabs) },
     { id: 'columns', label: t('workspace.columns'), icon: <Columns3 size={13} />, onSelect: () => run(insertColumns) },
+    {
+      id: 'media-layout',
+      label: t('workspace.media_layout'),
+      icon: <ImageIcon size={13} />,
+      onSelect: () => run(insertMediaLayout),
+      subItems: mediaLayoutItems,
+      submenu: submenuFor(mediaLayoutItems),
+    },
     { id: 'timeline', label: t('workspace.timeline'), icon: <GitCommitVertical size={13} />, onSelect: () => run(insertTimeline) },
     {
       id: 'align',

@@ -124,6 +124,18 @@ export function EditorSettings() {
           <Switch checked={preview.codeFormatButton} onChange={(codeFormatButton) => void update({ preview: { codeFormatButton } })} label={t("settings.code_format_button")}/>
         </SettingRow>
 
+        <SettingRow title={t("settings.media_toolbar")} description={t("settings.media_toolbar_description")}>
+          <Switch checked={preview.mediaToolbar} onChange={(mediaToolbar) => void update({ preview: { mediaToolbar } })} label={t("settings.media_toolbar")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.media_auto_bundle")} description={t("settings.media_auto_bundle_description")}>
+          <Switch checked={preview.mediaAutoBundle} onChange={(mediaAutoBundle) => void update({ preview: { mediaAutoBundle } })} label={t("settings.media_auto_bundle")}/>
+        </SettingRow>
+
+        {preview.mediaAutoBundle && <SettingRow title={t("settings.media_default_wrap")} description={t("settings.media_default_wrap_description")}>
+          <Switch checked={preview.mediaAutoBundleWrap} onChange={(mediaAutoBundleWrap) => void update({ preview: { mediaAutoBundleWrap } })} label={t("settings.media_default_wrap")}/>
+        </SettingRow>}
+
         <SettingRow title={t("settings.show_outline_by_default")}>
           <Switch checked={preview.showToc} onChange={(showToc) => void update({ preview: { showToc } })} label={t("settings.show_outline_by_default")}/>
         </SettingRow>

@@ -1,4 +1,6 @@
 import { infoFlag, infoOption, infoTokens } from './info-string';
+import { parseMediaOptions } from './media-layout';
+import type { MediaBlockOptions } from './media-layout';
 
 /**
  * The header vocabulary of the `:::` layout blocks.
@@ -32,7 +34,7 @@ const ALIGN_WORDS: Record<string, AlignValue> = {
  * writes the matching closer, the title-and-excerpt reader — names this set separately, so it is
  * stated once here rather than four times that can drift.
  */
-export const LAYOUT_CONTAINER_WORDS = ['cols', 'left', 'center', 'right', 'justify'] as const;
+export const LAYOUT_CONTAINER_WORDS = ['cols', 'media', 'left', 'center', 'right', 'justify'] as const;
 
 const GAP_WORDS: Record<string, ColsGap> = {
   narrow: 'narrow',
@@ -100,7 +102,8 @@ export const COLS_OPTION_DEFAULTS: ColsOptions = { tracks: null, fixedCount: nul
 
 export type PanelHeaderMatch =
   | { kind: 'align'; align: AlignValue; markerLength: number }
-  | { kind: 'cols'; cols: ColsOptions; markerLength: number };
+  | { kind: 'cols'; cols: ColsOptions; markerLength: number }
+  | { kind: 'media'; media: MediaBlockOptions; markerLength: number };
 
 function parseTrackTokens(tokens: string[]): string | null {
   if (tokens.length < 2 || tokens.length > MAX_PANEL_COLUMNS) return null;
@@ -160,6 +163,7 @@ export function matchPanelHeader(source: string): PanelHeaderMatch | null {
   const legacyCount = /^([2-6])cols$/i.exec(keyword);
   if (legacyCount) return { kind: 'cols', markerLength, cols: parseCols(`${legacyCount[1]} ${rest}`) };
   if (keyword.toLowerCase() === 'cols') return { kind: 'cols', markerLength, cols: parseCols(rest) };
+  if (keyword.toLowerCase() === 'media') return { kind: 'media', markerLength, media: parseMediaOptions(rest) };
   const align = ALIGN_WORDS[keyword.toLowerCase()];
   if (align) return { kind: 'align', markerLength, align };
   return null;

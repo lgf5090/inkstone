@@ -3,6 +3,7 @@ import { EditorView } from '@codemirror/view';
 import { truncateText } from '@shared/text-utils';
 import { t } from "../lib/i18n";
 import { randomLocalId } from '../lib/random-id';
+import { useSession } from '../store/session';
 
 
 export interface PasteHandlers {
@@ -93,12 +94,34 @@ export function pasteExtension(handlers: PasteHandlers) {
     });
 }
 export async function insertFiles(view: EditorView, files: File[], handlers: PasteHandlers): Promise<void> {
-
+    // Two or more pictures pasted together become one layout block, each upload sitting on its own row line
+    // inside it. The block is written first and each placeholder keeps the marker the replacement looks for,
+    // so bundling changes nothing about how an individual upload lands or what a failure says.
+    const bundled = shouldBundleUploads(files);
+    if (bundled) {
+        const range = view.state.selection.main;
+        const line = view.state.doc.lineAt(range.head);
+        const breakBefore = line.text.trim() ? '\n\n' : '';
+        const body = files
+            .map((file) => `${t("editor.uploading_value0", { value0: escapeMarkdownLabel(file.name) })}${uploadMarker()}`)
+            .join('\n');
+        const insert = `${breakBefore}${mediaBundleHeader()}\n${body}\n:::\n`;
+        view.dispatch({
+            changes: { from: range.from, to: range.to, insert },
+            selection: EditorSelection.cursor(range.from + insert.length),
+            userEvent: 'input.paste',
+        });
+        const pending = files.map((file, index) => ({
+            file,
+            placeholder: body.split('\n')[index]!,
+        }));
+        await settleUploads(view, pending, handlers);
+        return;
+    }
 
     const pending = files.map((file) => {
         const range = view.state.selection.main;
-        const marker = `<!-- inkstone-upload:${uploadId()} -->`;
-        const placeholder = `${t("editor.uploading_value0", { value0: escapeMarkdownLabel(file.name) })}${marker}`;
+        const placeholder = `${t("editor.uploading_value0", { value0: escapeMarkdownLabel(file.name) })}${uploadMarker()}`;
         view.dispatch({
             changes: { from: range.from, to: range.to, insert: placeholder },
             selection: EditorSelection.cursor(range.from + placeholder.length),
@@ -106,6 +129,31 @@ export async function insertFiles(view: EditorView, files: File[], handlers: Pas
         });
         return { file, placeholder };
     });
+    await settleUploads(view, pending, handlers);
+}
+
+/** The anchor a finished upload is found by, spelled in the one place both paths write it. */
+function uploadMarker(): string {
+    return `<!-- inkstone-upload:${uploadId()} -->`;
+}
+
+/** A bundle is two or more *pictures*; a stray file or a single drop stays an ordinary line. */
+function shouldBundleUploads(files: File[]): boolean {
+    if (files.length < 2) return false;
+    if (!files.every((file) => file.type.startsWith('image/'))) return false;
+    return useSession.getState().settings.preview.mediaAutoBundle;
+}
+
+function mediaBundleHeader(): string {
+    return useSession.getState().settings.preview.mediaAutoBundleWrap ? '::: media wrap=left width=40%' : '::: media';
+}
+
+/** Every upload's own replacement pass: the marker is the anchor, so a re-ordered note still resolves. */
+async function settleUploads(
+    view: EditorView,
+    pending: Array<{ file: File, placeholder: string }>,
+    handlers: PasteHandlers,
+): Promise<void> {
     await Promise.all(pending.map(async ({ file, placeholder }) => {
         let result: Awaited<ReturnType<PasteHandlers['uploadFile']>> = null;
         try {

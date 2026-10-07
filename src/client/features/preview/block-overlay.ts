@@ -129,6 +129,8 @@ export interface BlockToolbarOptions {
    * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.
    */
   tabScope?: TabScope
+  /** Whether a layout block is allowed its settings bar and drag edges; the block always still renders. */
+  mediaToolbar?: boolean
 }
 
 export interface BlockToolbarModule {
