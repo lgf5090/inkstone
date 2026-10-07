@@ -21,6 +21,7 @@ const STEPPED_DECK = ['# One\n\nfirst\n\nsecond\n\nthird\n\nfourth', '# Two']
 function steppedState(step: number, subPage = 0): PresenterSlideState {
   return buildPresenterSlideState({
     noteTitle: 'Stepped Deck',
+    slideTitles: [],
     slideIndex: 0,
     subPage,
     step,
@@ -59,6 +60,7 @@ describe('buildPresenterSlideState — a page the room watches arrive in stages'
   it('has nothing to preview past the last reveal of the last slide', () => {
     const state = buildPresenterSlideState({
       noteTitle: 'One Page',
+      slideTitles: [],
       slideIndex: 1,
       subPage: 0,
       step: 0,
@@ -80,6 +82,7 @@ describe('usePresenterSlideState — the payload follows the step', () => {
   // for a reason that has nothing to do with the step.
   const PAYLOAD_SOURCE: PresenterStateSource = {
     noteTitle: 'Stepped Deck',
+    slideTitles: [],
     slideIndex: 0,
     subPage: 0,
     step: 0,

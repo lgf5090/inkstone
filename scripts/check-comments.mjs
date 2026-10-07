@@ -1095,6 +1095,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/presentation/presenter-view/presenter-panes.tsx", [
     "/** Which reveal the next press lands on, so the preview is that state and not the finished page. */",
+    "/**\n * The deck as one line per slide, with the row the projector is standing on marked (PR-M14).\n *\n * Labels rather than thumbnails: the console is where a presenter looks for \"which one was the numbers\n * one\", a wall of pictures costs a scroll to read and a render per turn to draw, and the labels are the\n * same ones the slide list and the overview print. A slide with no heading in it contributes its number\n * alone, which is what the rail does with the same case.\n */",
   ]],
   ["src/client/features/presentation/presenter-view/presenter-slide-media.test.ts", [
     "// A presenter reads the slide the room reads, so a diagram, a formula, a chart or a board has to",
@@ -1133,6 +1134,8 @@ const allowed = new Map([
     "// is simply running wore it, so every presenter view opened looking like the talk had overrun.",
     "// PR-M9: a rehearsal is about the pages, not only the wall clock. The timings are read off the show's",
     "// own elapsed number, so a paused room is not charged to the page that was up.",
+    "// The rule the round was about: the notes belong under the slide they are read against, and the other",
+    "// column is what comes next plus the way back. Nothing in the markup says so unless it is asserted.",
   ]],
   ["src/client/features/presentation/presenter-view/presenter-window.tsx", [
     "// The console reads the show's own position: the same derivation, so the number the speaker sees is the",
@@ -1143,6 +1146,7 @@ const allowed = new Map([
     "// `togglePause` would count the silence since the room left as if the talk were running.",
     "/* The accent is the one colour on this bar that means \"look, something is off\": a running\n            clock is the normal state of a talk and painting it in it reads as overtime (PR-L4).\n            It goes loud only when the timer is paused, and quiet once the show is over. */",
     "/* The number a rehearsal is actually about: not how long the talk has been running, but how\n            long this page has held the room — and, once the show is over, what the whole run cost\n            across how many pages (PR-M9). */",
+    "/* The page on screen and what the speaker has to say about it share a column: the notes are read\n            while the slide is up, so they belong under the slide the eye is already on rather than across\n            the window from it (PR-M14). The freed column holds what comes next and the whole deck by name,\n            which is where \"go back to the numbers slide\" stops being a hunt. */",
   ]],
   ["src/client/features/presentation/presenter-view/use-presenter-broadcast.test.ts", [
     "// What the show puts on the channel is the author's private notes and the deck's source, so the",
@@ -1165,6 +1169,9 @@ const allowed = new Map([
     "// ones every render, and they are not part of what the presenter reads.",
     "// The economy must not cost freshness: waiting for the handshake is only correct if what comes back",
     "// is where the show is now, not where it was when the projector mounted.",
+    "// The outline is compared by identity, like every other array the payload carries: a host that hands a",
+    "// fresh `[]` per render has a show that re-broadcasts on every chrome redraw. The session memoises it off",
+    "// the deck, and this harness keeps one array for the same reason.",
   ]],
   ["src/client/features/presentation/presenter-view/use-presenter-channel-steps.test.ts", [
     "// N-31: the console previews what the next press brings, and on a page that arrives in stages the next",
@@ -1183,6 +1190,14 @@ const allowed = new Map([
     "// the show \"nobody is listening\" is the one thing that does not go out — and the talk then keeps",
     "// reciting one message per turn into a document that no longer exists (L-7). `pagehide` is the hook the",
     "// browser does promise, so that is where the goodbye lives now.",
+    "// Compared by identity like every array the payload carries, so the harness hands out one array rather",
+    "// than a fresh literal on every render. Everything but `titles` is shared here: a rerender that quietly",
+    "// replaced the deck too would rebuild the payload whatever the dependency list says.",
+    "// The outline row carries its own number, and the channel is the only thing between a click in the",
+    "// console and the projector's position.",
+    "// The outline is a field of the payload like any other, and the dep list in `usePresenterSlideState` is",
+    "// where a new field quietly freezes: a console that keeps the titles of the show it first met looks like",
+    "// a stale list rather than a broken hook, which is the worst kind of wrong.",
   ]],
   ["src/client/features/presentation/presenter-view/use-presenter-channel.ts", [
     "/** The channel of one presenter session. A `BroadcastChannel` reaches every same-origin document that\n * knows its name, and the payload carries the author's private speaker notes and the note's source, so\n * the name has to be the capability: a document that was never handed the token cannot name this\n * channel, ask for that state, or move the projector. */",
@@ -1207,6 +1222,10 @@ const allowed = new Map([
     "// Already closed",
     "// Best-effort broadcast",
     "// Channel initialization",
+    "/** What the console can ask the projector to do. `jump` is the one that carries a number: it is the\n * outline row the presenter clicked, and the show lands on that slide rather than one step over. */",
+    "/** One label per slide, in deck order, for the console's outline. Built where the deck is, so a page\n   * turn does not re-read every slide's markup just to print the same list again. */",
+    "// The one command that carries a number, and the show's own clamp is what makes a hand-typed message",
+    "// on the channel no better than a click.",
   ]],
   ["src/client/features/presentation/presenter-view/use-presenter-slide-media.ts", [
     "/**\n * The presenter reads the slide the room reads, so a diagram, a formula, a chart or a board has to\n * arrive as a picture in this document too. The channel carries markdown rather than rendered pages,\n * so the enhancement runs here — the same chain the projector and the printed deck run, with the\n * board and map channels set to `snapshot` because a presenter's pane is a display, not an editor.\n *\n * `fences` is the set this markup was rendered from: a snapshot reads its content out of it, so a\n * slide whose bodies were left behind draws empty fences rather than its board (P-01).\n */",
@@ -2142,6 +2161,9 @@ const allowed = new Map([
     "// the presenter is the only one who knows whether leaving was the plan.",
     "// The question belongs to the show it asks about: whatever closes the talk puts it away, so a reopened",
     "// show never opens on an answer the presenter already gave.",
+    "// One label per slide for the console's outline. Taken per deck rather than per page turn: the list is",
+    "// the same list whatever the show is standing on, and reading every slide's first line on every press",
+    "// is a cost the talk pays in the middle of a talk.",
   ]],
   ["src/client/features/presentation/use-presented-note.ts", [
     "// Followed edits land on the projector, but a re-split per keystroke would remount",

@@ -2342,6 +2342,7 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_popup_blocked": "浏览器拦截了演讲者窗口，已改在本窗口内显示演讲者面板",
     "workspace.presentation_current_slide": "当前幻灯片",
     "workspace.presentation_next_slide": "下一页预览",
+    "workspace.presentation_outline": "幻灯片大纲",
     "workspace.presentation_speaker_notes": "演讲备忘录",
     "workspace.presentation_no_notes": "当前页无备忘录",
     "workspace.presentation_timer_pause": "暂停计时",

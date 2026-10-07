@@ -16,6 +16,7 @@ afterEach(() => {
 
 const STATE: PresenterSlideState = {
   noteTitle: 'Project Architecture',
+  slideTitles: [],
   slideIndex: 1,
   subPage: 0,
   step: 0,

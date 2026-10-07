@@ -28,6 +28,7 @@ function renderPresenter(props: PresenterWindowProps = {}) {
 
 const mockSlideState: PresenterSlideState = {
   noteTitle: 'Project Architecture',
+  slideTitles: ['Opening', 'Core Pillars', 'Roadmap', 'Closing'],
   slideIndex: 1,
   subPage: 0,
   step: 0,
@@ -79,6 +80,43 @@ describe('PresenterWindow — layout and rendering', () => {
     }
     const { container } = renderPresenter({ initialState: multiPageState })
     expect(container.textContent).toContain(t('workspace.presentation_next_slide'))
+  })
+})
+
+describe('PresenterWindow — the outline the console reads from (PR-M14)', () => {
+  const rows = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>('[data-presenter-outline-row]')]
+  const label = (row: Element) => [...row.querySelectorAll('span')].map((part) => part.textContent?.trim() ?? '').filter(Boolean).join(' ')
+
+  it('names every slide and marks the one the projector is standing on', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const found = rows(container)
+    expect(found.map(label)).toEqual(['1 Opening', '2 Core Pillars', '3 Roadmap', '4 Closing'])
+    expect(found[1]?.getAttribute('aria-current')).toBe('true')
+    expect(found[0]?.hasAttribute('aria-current'), 'only the page on screen is marked').toBe(false)
+  })
+
+  it('keeps a row for a slide with nothing to name, so the numbers still line up', () => {
+    const { container } = renderPresenter({ initialState: { ...mockSlideState, slideTitles: ['Opening', '', 'Closing'] } })
+    expect(rows(container).map(label)).toEqual(['1 Opening', '2', '3 Closing'])
+  })
+
+  it('asks the projector to jump to the row that was pressed', () => {
+    const onCommand = vi.fn()
+    const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
+    act(() => { rows(container)[2]?.click() })
+    expect(onCommand).toHaveBeenCalledTimes(1)
+    expect(onCommand).toHaveBeenCalledWith({ jump: 2 })
+  })
+
+  // The rule the round was about: the notes belong under the slide they are read against, and the other
+  // column is what comes next plus the way back. Nothing in the markup says so unless it is asserted.
+  it('puts the notes in the same column as the slide they belong to', () => {
+    const { container } = renderPresenter({ initialState: mockSlideState })
+    const column = container.querySelector('[data-presenter-current-pane]')?.parentElement
+    expect(column).toBeTruthy()
+    expect(column?.contains(container.querySelector('[data-speaker-notes]') ?? null)).toBe(true)
+    expect(column?.contains(container.querySelector('[data-presenter-next-pane]') ?? null), 'the next page is the other column').toBe(false)
+    expect(column?.parentElement?.contains(container.querySelector('[data-presenter-outline]') ?? null)).toBe(true)
   })
 })
 

@@ -7,7 +7,7 @@ import { Tooltip } from '../../../components/overlay'
 import { PresenterSlidePreview } from './presenter-slide-preview'
 import { formatDeckPosition, type DeckPosition } from '../deck-position'
 import { hasBackwardMove, hasForwardMove } from '../presentation-state'
-import { PresenterNextSlidePane, PresenterSpeakerNotesPane } from './presenter-panes'
+import { PresenterNextSlidePane, PresenterOutlinePane, PresenterSpeakerNotesPane } from './presenter-panes'
 import { usePresenterTimer, useSlideTimings, type SlideTimings } from './use-presenter-timer'
 import {
   formatClock,
@@ -45,7 +45,14 @@ export function PresenterWindow({ initialState, onCommand }: PresenterWindowProp
     <div className='flex h-screen flex-col overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)] select-none'>
       <PresenterHeader state={state} connected={connected} sendCommand={sendCommand} />
       <div className='flex min-h-0 flex-1 gap-[var(--sp-3)] p-[var(--sp-3)]'>
-        <PresenterCurrentSlidePane state={state} />
+        {/* The page on screen and what the speaker has to say about it share a column: the notes are read
+            while the slide is up, so they belong under the slide the eye is already on rather than across
+            the window from it (PR-M14). The freed column holds what comes next and the whole deck by name,
+            which is where "go back to the numbers slide" stops being a hunt. */}
+        <div className='flex flex-[3] min-w-0 flex-col gap-[var(--sp-3)]'>
+          <PresenterCurrentSlidePane state={state} />
+          <PresenterSpeakerNotesPane notes={state.notes} />
+        </div>
         <div className='flex flex-[2] min-w-0 flex-col gap-[var(--sp-3)]'>
           <PresenterNextSlidePane
             nextSource={state.nextSlideSource}
@@ -55,7 +62,7 @@ export function PresenterWindow({ initialState, onCommand }: PresenterWindowProp
             nextStep={state.nextStep}
             font={state.proseFont}
           />
-          <PresenterSpeakerNotesPane notes={state.notes} />
+          <PresenterOutlinePane titles={state.slideTitles} slideIndex={state.slideIndex} onJump={(index) => sendCommand({ jump: index })} />
         </div>
       </div>
     </div>
@@ -70,7 +77,7 @@ function presenterDeckPosition(state: PresenterSlideState): DeckPosition {
 
 function PresenterCurrentSlidePane({ state }: { state: PresenterSlideState }) {
   return (
-    <div data-presenter-current-pane className='flex flex-[3] min-w-0 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
+    <div data-presenter-current-pane className='flex flex-[1.7] min-h-0 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
       <div className='flex items-center justify-between border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)] text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]'>
         <span>{t('workspace.presentation_current_slide')}</span>
         <span data-presenter-position className='tabular text-[var(--text-tertiary)]'>{formatDeckPosition(presenterDeckPosition(state))}</span>

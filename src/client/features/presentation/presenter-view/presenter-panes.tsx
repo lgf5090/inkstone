@@ -1,5 +1,6 @@
-import { FileText } from 'lucide-react'
+import { FileText, List } from 'lucide-react'
 import type { ProseFont } from '@shared/types'
+import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { PresenterSlidePreview } from './presenter-slide-preview'
 import type { SlidePlan } from '../slide-pagination'
@@ -46,8 +47,7 @@ export function PresenterNextSlidePane({
   )
 }
 
-export function PresenterSpeakerNotesPane({ notes }: { notes: string }) {
-  return (
+export function PresenterSpeakerNotesPane({ notes }: { notes: string }) {  return (
     <div className='flex min-h-0 flex-[1.2] flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
       <div className='flex items-center gap-[var(--sp-1)] border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)] text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]'>
         <FileText size={13} />
@@ -66,6 +66,45 @@ export function PresenterSpeakerNotesPane({ notes }: { notes: string }) {
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The deck as one line per slide, with the row the projector is standing on marked (PR-M14).
+ *
+ * Labels rather than thumbnails: the console is where a presenter looks for "which one was the numbers
+ * one", a wall of pictures costs a scroll to read and a render per turn to draw, and the labels are the
+ * same ones the slide list and the overview print. A slide with no heading in it contributes its number
+ * alone, which is what the rail does with the same case.
+ */
+export function PresenterOutlinePane({ titles, slideIndex, onJump }: {
+  titles: string[]
+  slideIndex: number
+  onJump: (index: number) => void
+}) {
+  return (
+    <div data-presenter-outline className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
+      <div className='flex items-center gap-[var(--sp-1)] border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)] text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]'>
+        <List size={13} />
+        <span>{t('workspace.presentation_outline')}</span>
+      </div>
+      <ol tabIndex={0} className='min-h-0 flex-1 overflow-y-auto p-[var(--sp-2)] outline-none'>
+        {titles.map((title, index) => (
+          <li key={index}>
+            <button
+              type='button'
+              data-presenter-outline-row={index}
+              aria-current={index === slideIndex ? 'true' : undefined}
+              onClick={() => onJump(index)}
+              className={cn('flex w-full items-baseline gap-[var(--sp-2)] rounded-[var(--r-sm)] px-[var(--sp-2)] py-[var(--sp-1)] text-left text-[length:var(--text-14)]', index === slideIndex ? 'bg-[var(--bg-active)] font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}
+            >
+              <span className='tabular shrink-0 text-[var(--text-tertiary)]'>{index + 1}</span>
+              <span className='truncate'>{title}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }

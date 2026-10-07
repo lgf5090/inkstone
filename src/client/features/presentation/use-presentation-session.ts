@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { ProseFont } from '@shared/types'
 import { useBreakpoint } from '../../lib/hooks'
 import { randomLocalId } from '../../lib/random-id'
@@ -14,6 +14,7 @@ import { useDialogBehavior } from './use-dialog-behavior'
 import { useIsDarkTheme } from './presentation-theme'
 import { releaseSlideCache, slideSettingFlags } from './slide-html'
 import { planPageSteps, type SlidePlan } from './slide-pagination'
+import { extractSlideHeading } from './slide-thumb'
 import { useSlidePlans } from './use-slide-plans'
 import { type PreflightProgress, type SlidePreflightProps } from './slide-preflight'
 import { type StageMetrics, useStageMetrics } from './slide-stage'
@@ -192,6 +193,10 @@ function useSessionPresenter(options: {
     setPresenterToken(token)
     if (!openPresenterWindow(token)) fallback.openPanel()
   }, [fallback.openPanel])
+  // One label per slide for the console's outline. Taken per deck rather than per page turn: the list is
+  // the same list whatever the show is standing on, and reading every slide's first line on every press
+  // is a cost the talk pays in the middle of a talk.
+  const slideTitles = useMemo(() => deck.map(extractSlideHeading), [deck])
   const source: PresenterStateSource = {
     noteTitle,
     slideIndex: nav.index,
@@ -201,6 +206,7 @@ function useSessionPresenter(options: {
     pageCount: nav.pageCount,
     deck,
     notes,
+    slideTitles,
     plans: nav.plans,
     startedAt,
     proseFont,

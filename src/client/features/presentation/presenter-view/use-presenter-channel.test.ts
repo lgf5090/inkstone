@@ -95,19 +95,28 @@ function setupPresenterHarness(broadcasterProps: PresenterBroadcasterOptions) {
   }
 }
 
-function TestBroadcaster({ slide, token = 'tok-1' }: { slide: number, token?: string | null }) {
+// Compared by identity like every array the payload carries, so the harness hands out one array rather
+// than a fresh literal on every render. Everything but `titles` is shared here: a rerender that quietly
+// replaced the deck too would rebuild the payload whatever the dependency list says.
+const NO_TITLES: string[] = []
+const TEST_DECK = ['# A', '# B', '# C']
+const TEST_NOTES = ['', '', '']
+const TEST_PLANS = {}
+
+function TestBroadcaster({ slide, token = 'tok-1', titles = NO_TITLES }: { slide: number, token?: string | null, titles?: string[] }) {
   usePresenterBroadcaster({
     open: true,
     token,
     noteTitle: 'Channel Test',
+    slideTitles: titles,
     slideIndex: slide,
     subPage: 0,
     step: 0,
     slideCount: 3,
     pageCount: 1,
-    deck: ['# A', '# B', '# C'],
-    notes: ['', '', ''],
-    plans: {},
+    deck: TEST_DECK,
+    notes: TEST_NOTES,
+    plans: TEST_PLANS,
     startedAt: 1000,
     goNext: vi.fn(),
     goPrev: vi.fn(),
@@ -132,6 +141,7 @@ describe('usePresenterBroadcaster — sync and unmount', () => {
       open: true,
       token: 'tok-1',
       noteTitle: 'Keynote Demo',
+      slideTitles: [],
       slideIndex: 1,
       subPage: 0,
       step: 0,
@@ -167,6 +177,7 @@ describe('usePresenterReceiver — inbound commands', () => {
       open: true,
       token: 'tok-1',
       noteTitle: 'Demo',
+      slideTitles: [],
       slideIndex: 1,
       subPage: 0,
       step: 0,
@@ -194,6 +205,11 @@ describe('usePresenterReceiver — inbound commands', () => {
 
     act(() => h.sendCommand('last'))
     await vi.waitFor(() => expect(jumpTo).toHaveBeenCalledWith(2))
+
+    // The outline row carries its own number, and the channel is the only thing between a click in the
+    // console and the projector's position.
+    act(() => h.sendCommand({ jump: 1 }))
+    await vi.waitFor(() => expect(jumpTo).toHaveBeenCalledWith(1))
 
     act(() => {
       h.broadcaster.unmount()
@@ -243,6 +259,7 @@ const channelOptions: PresenterBroadcasterOptions = {
   open: true,
   token: 'tok-1',
   noteTitle: 'Demo',
+  slideTitles: [],
   slideIndex: 1,
   subPage: 0,
   step: 0,
@@ -345,11 +362,41 @@ const subpageTestPlans = {
   },
 }
 
+// The outline is a field of the payload like any other, and the dep list in `usePresenterSlideState` is
+// where a new field quietly freezes: a console that keeps the titles of the show it first met looks like
+// a stale list rather than a broken hook, which is the worst kind of wrong.
+describe('the outline the console is sent (PR-M14)', () => {
+  it('rides with the page, and rebuilds when only the outline moves', async () => {
+    const held: { current: PresenterSlideState | null } = { current: null }
+    function Receiver() {
+      const { state } = usePresenterReceiver('tok-1')
+      useEffect(() => {
+        if (state) held.current = state
+      }, [state])
+      return null
+    }
+
+    const broadcaster = renderElement(createElement(TestBroadcaster, { slide: 0, titles: ['Opening'] }))
+    const receiver = renderElement(createElement(Receiver))
+    await vi.waitFor(() => expect(held.current?.slideTitles).toEqual(['Opening']))
+
+    act(() => { broadcaster.rerender(createElement(TestBroadcaster, { slide: 0, titles: ['Opening', 'Numbers'] })) })
+    await vi.waitFor(() => expect(held.current?.slideTitles).toEqual(['Opening', 'Numbers']))
+    expect(held.current?.slideIndex, 'the page did not move, so nothing else should have either').toBe(0)
+
+    act(() => {
+      broadcaster.unmount()
+      receiver.unmount()
+    })
+  })
+})
+
 describe('buildPresenterSlideState — subpage calculation', () => {
 
   it('previews next subpage when current slide has remaining subpages', () => {
     const state = buildPresenterSlideState({
       noteTitle: 'Multi-page Deck',
+      slideTitles: [],
       slideIndex: 0,
       subPage: 0,
       step: 0,
@@ -369,6 +416,7 @@ describe('buildPresenterSlideState — subpage calculation', () => {
   it('previews next slide when on the last subpage of current slide', () => {
     const state = buildPresenterSlideState({
       noteTitle: 'Multi-page Deck',
+      slideTitles: [],
       slideIndex: 0,
       subPage: 1,
       step: 0,
@@ -389,6 +437,7 @@ describe('buildPresenterSlideState — end of deck', () => {
   it('sets nextSlideSource to null on the final slide and subpage', () => {
     const state = buildPresenterSlideState({
       noteTitle: 'End Deck',
+      slideTitles: [],
       slideIndex: 1,
       subPage: 0,
       step: 0,

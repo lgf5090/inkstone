@@ -20,7 +20,9 @@ export function presenterTokenFromLocation(search: string): string | null {
   return new URLSearchParams(search).get('presenter') || null
 }
 
-export type PresenterInboundCommand = 'next' | 'prev' | 'first' | 'last'
+/** What the console can ask the projector to do. `jump` is the one that carries a number: it is the
+ * outline row the presenter clicked, and the show lands on that slide rather than one step over. */
+export type PresenterInboundCommand = 'next' | 'prev' | 'first' | 'last' | { jump: number }
 
 export interface PresenterSlideState {
   noteTitle: string
@@ -33,6 +35,9 @@ export interface PresenterSlideState {
   steps: number
   slideCount: number
   pageCount: number
+  /** One label per slide, in deck order, for the console's outline. Built where the deck is, so a page
+   * turn does not re-read every slide's markup just to print the same list again. */
+  slideTitles: string[]
   currentSlideSource: string
   currentLayout?: SlideLayout
   nextSlideSource: string | null
@@ -92,6 +97,7 @@ export interface PresenterStateSource {
   pageCount: number
   deck: string[]
   notes: string[]
+  slideTitles: string[]
   plans: Record<number, SlidePlan>
   startedAt: number
   proseFont?: ProseFont
@@ -123,7 +129,7 @@ function nextPresenterPage(source: { deck: string[]; plans: Record<number, Slide
 }
 
 export function buildPresenterSlideState(options: PresenterStateSource): PresenterSlideState {
-  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont } = options
+  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont } = options
   const currentPlan = plans[slideIndex]
   // The step total is read off the plan rather than sent: the payload already carries the plan it came
   // from, and a total that disagreed with it would print a page number the projector never showed.
@@ -136,6 +142,7 @@ export function buildPresenterSlideState(options: PresenterStateSource): Present
     steps,
     slideCount,
     pageCount,
+    slideTitles,
     currentSlideSource: deck[slideIndex] ?? '',
     currentLayout: currentPlan?.layout,
     ...nextPresenterPage({ deck, plans, slideIndex, subPage, step, steps, pageCount }),
@@ -153,10 +160,10 @@ export function buildPresenterSlideState(options: PresenterStateSource): Present
  * page. A field added to `PresenterStateSource` has to join this list, or the payload starts freezing
  * while the show moves on. */
 export function usePresenterSlideState(source: PresenterStateSource): PresenterSlideState {
-  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont } = source
+  const { noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont } = source
   return useMemo(
-    () => buildPresenterSlideState({ noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont }),
-    [noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, plans, startedAt, proseFont],
+    () => buildPresenterSlideState({ noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont }),
+    [noteTitle, slideIndex, subPage, step, slideCount, pageCount, deck, notes, slideTitles, plans, startedAt, proseFont],
   )
 }
 
@@ -234,6 +241,9 @@ export function usePresenterBroadcaster(options: PresenterBroadcasterOptions): v
 }
 
 function handleInboundCommand(command: PresenterInboundCommand, nav: { goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number }) {
+  // The one command that carries a number, and the show's own clamp is what makes a hand-typed message
+  // on the channel no better than a click.
+  if (typeof command !== 'string') return nav.jumpTo(command.jump)
   switch (command) {
     case 'next':
       return nav.goNext()
