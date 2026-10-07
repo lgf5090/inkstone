@@ -26,5 +26,7 @@
       "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/worker/**/*", "src/shared/**/*", "package.json"]
+  "include": ["src/worker/**/*", "src/shared/**/*", "package.json"],
+  // Same scratch-probe exclusion as tsconfig.client.json; see tests/no-scratch-test-files.test.ts.
+  "exclude": ["**/*.tmp.*"]
 }
