@@ -14,35 +14,53 @@ const TAG_RE = /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\
 const WIKI_RE = /\[\[[^[\]\n]{1,200}\]\]/g
 const TASK_DONE_RE = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[[xX]\][ \t]+)(.*)$/
 
-function buildDecorations(view: EditorView): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>()
+export interface MarkRange {
+  from: number
+  to: number
+  deco: Decoration
+}
+
+/**
+ * The marks the visible text carries, in the order `RangeSetBuilder` demands.
+ *
+ * Every visible range contributes to one list that is sorted once, because a viewport boundary
+ * usually falls *inside* a wrapped line: two adjacent ranges then both claim that line, and
+ * re-emitting its marks after the builder has already been handed a later one walks `from`
+ * backwards — which CodeMirror answers by throwing and dropping the whole plugin. `seen` is what
+ * makes a shared line contribute once.
+ */
+export function collectMarkDecorations(view: EditorView, ranges: readonly { from: number, to: number }[]): MarkRange[] {
   const tree = syntaxTree(view.state)
+  const doc = view.state.doc
+  const marks: MarkRange[] = []
+  if (ranges.length === 0) return marks
+  const seen = new Set<number>()
 
-  for (const { from, to } of view.visibleRanges) {
+  const fenced: { from: number; to: number }[] = []
+  tree.iterate({
+    from: ranges[0]!.from,
+    to: ranges[ranges.length - 1]!.to,
+    enter(node) {
+      if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
+        fenced.push({ from: node.from, to: node.to })
+      }
+    },
+  })
 
-    const fenced: { from: number; to: number }[] = []
-    tree.iterate({
-      from,
-      to,
-      enter(node) {
-        if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
-          fenced.push({ from: node.from, to: node.to })
-        }
-      },
-    })
-
-    const markDecorations: { from: number; to: number; deco: Decoration }[] = []
-    const startLine = view.state.doc.lineAt(from).number
-    const endLine = view.state.doc.lineAt(to).number
+  for (const { from, to } of ranges) {
+    const startLine = doc.lineAt(from).number
+    const endLine = doc.lineAt(to).number
 
     for (let n = startLine; n <= endLine; n++) {
-      const line = view.state.doc.line(n)
+      if (seen.has(n)) continue
+      seen.add(n)
+      const line = doc.line(n)
       if (fenced.some((b) => line.from >= b.from && line.to <= b.to)) continue
       const text = line.text
 
       const done = TASK_DONE_RE.exec(text)
       if (done && done[2]) {
-        markDecorations.push({
+        marks.push({
           from: line.from + done[1]!.length,
           to: line.to,
           deco: taskDone,
@@ -52,7 +70,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       TAG_RE.lastIndex = 0
       for (const match of text.matchAll(TAG_RE)) {
         const offset = (match.index ?? 0) + (match[1]?.length ?? 0)
-        markDecorations.push({
+        marks.push({
           from: line.from + offset,
           to: line.from + offset + 1 + match[2]!.length,
           deco: tagMarkFor(match[2]!),
@@ -61,22 +79,23 @@ function buildDecorations(view: EditorView): DecorationSet {
 
       WIKI_RE.lastIndex = 0
       for (const match of text.matchAll(WIKI_RE)) {
-        markDecorations.push({
+        marks.push({
           from: line.from + (match.index ?? 0),
           to: line.from + (match.index ?? 0) + match[0].length,
           deco: wikiMark,
         })
       }
     }
-
-
-    const all = [
-      ...markDecorations.map((d) => ({ ...d, line: false })),
-    ].sort((a, b) => a.from - b.from || (a.line === b.line ? 0 : a.line ? -1 : 1))
-
-    for (const item of all) builder.add(item.from, item.to, item.deco)
   }
 
+  return marks.sort((left, right) => left.from - right.from)
+}
+
+function buildDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const mark of collectMarkDecorations(view, view.visibleRanges)) {
+    builder.add(mark.from, mark.to, mark.deco)
+  }
   return builder.finish()
 }
 

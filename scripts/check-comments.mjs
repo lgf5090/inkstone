@@ -324,9 +324,13 @@ const allowed = new Map([
     "/**\n * closeBrackets() already paired the `[[` the user typed, so the caret usually sits in front of\n * a `]]` that is already there; appending another one produced `[[Title]]]]`.\n */",
     "/**\n * `:smi` → the emoji it names. The colon has to be the start of a word, so `https:` and `data:`\n * and the `:::` a container opens with stay out of the way, and the set is a lazy chunk, so the\n * first keystroke that wants it gets the list a moment later rather than nothing.\n */",
   ]],
+  ["src/client/editor/decorations.test.ts", [
+    "/** Two visible ranges whose boundary falls inside the anchor line, as a wrapped viewport does. */",
+  ]],
   ["src/client/editor/decorations.ts", [
     "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
     "// and the hover and context-menu paths both identify a hashtag by that datum.",
+    "/**\n * The marks the visible text carries, in the order `RangeSetBuilder` demands.\n *\n * Every visible range contributes to one list that is sorted once, because a viewport boundary\n * usually falls *inside* a wrapped line: two adjacent ranges then both claim that line, and\n * re-emitting its marks after the builder has already been handed a later one walks `from`\n * backwards — which CodeMirror answers by throwing and dropping the whole plugin. `seen` is what\n * makes a shared line contribute once.\n */",
   ]],
   ["src/client/editor/diagram-templates.test.ts", [
     "// A slice chart's value-column name has nowhere to live in its config, so the table → JSON → table",
