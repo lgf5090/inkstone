@@ -59,32 +59,58 @@ export interface PresentationControlsProps {
   onClose: () => void
 }
 
+// How long a gesture that only woke the bar may keep ownership of its own click. A touch reports no
+// move before the tap, so the control that appears under the finger would otherwise be pressed by the
+// very gesture that revealed it — and the click arrives after React has already drawn the bar back.
+const GHOST_CLICK_MS = 700
+
 export function PresentationControls({ slideIndex, slideCount, subPage, pageCount, step, steps, isFullscreen, railOpen, overview, following, followLost, audienceFollowing, chromeHidden, occluded, compact, overflowItems, exporting, onPrev, onNext, onToggleRail, onToggleOverview, onToggleFollowing, onToggleFullscreen, onOpenPresenter, onToggleAudience, onExport, onExportImages, onExportHandout, onExportHtml, onClose }: PresentationControlsProps) {
+  const wokeByThisGesture = useRef(0)
   return (
+    // A faded bar is `inert` *and* `invisible`, and both make the browser's hit test walk straight
+    // past it to the stage behind — so the first tap where the controls are became a page turn in
+    // front of the room (PR-H1, measured on a 420px touch window). This wrapper owns the bar's
+    // rectangle and never fades, so the gesture that brings the controls back is only that. It takes
+    // no space of its own: the bar is its only child and paints exactly over it.
     <div
-      data-presentation-chrome
-      inert={chromeHidden || occluded ? true : undefined}
-      className={cn(
-        'absolute bottom-[var(--sp-4)] left-1/2 flex -translate-x-1/2 items-center gap-[var(--sp-0-5)] rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] p-[var(--sp-1)] shadow-[var(--shadow-pop)]',
-        'transition-opacity duration-[var(--dur-base)] ease-[var(--ease-out)]',
-        chromeHidden && 'pointer-events-none opacity-0 invisible',
-      )}
+      data-presentation-chrome-guard
+      className='absolute bottom-[var(--sp-4)] left-1/2 -translate-x-1/2'
+      onPointerDownCapture={() => {
+        if (chromeHidden) wokeByThisGesture.current = Date.now()
+      }}
+      onClickCapture={(event) => {
+        if (Date.now() - wokeByThisGesture.current > GHOST_CLICK_MS) return
+        // Same gesture, revealed control: the press is spent on bringing the bar back.
+        wokeByThisGesture.current = 0
+        event.stopPropagation()
+        event.preventDefault()
+      }}
     >
-      <SlideStepper slideIndex={slideIndex} slideCount={slideCount} subPage={subPage} pageCount={pageCount} step={step} steps={steps} onPrev={onPrev} onNext={onNext} />
-      <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
-      {compact
-        ? <ViewDoor items={[...overflowItems, ...exportMenuItems({ onExport, onExportImages, onExportHandout, onExportHtml })]} exporting={exporting} />
-        : <>
-          <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
-          <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
-          <ExportControls exporting={exporting} onExport={onExport} onExportImages={onExportImages} onExportHandout={onExportHandout} onExportHtml={onExportHtml} />
-        </>}
-      <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
-      <Tooltip label={t('workspace.presentation_exit')} combo={presentationKeyCombo('exit')} side='top'>
-        <IconButton label={t('workspace.presentation_exit')} size='sm' onClick={onClose}>
-          <X size={15} />
-        </IconButton>
-      </Tooltip>
+      <div
+        data-presentation-chrome
+        inert={chromeHidden || occluded ? true : undefined}
+        className={cn(
+          'flex items-center gap-[var(--sp-0-5)] rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] p-[var(--sp-1)] shadow-[var(--shadow-pop)]',
+          'transition-opacity duration-[var(--dur-base)] ease-[var(--ease-out)]',
+          chromeHidden && 'pointer-events-none opacity-0 invisible',
+        )}
+      >
+        <SlideStepper slideIndex={slideIndex} slideCount={slideCount} subPage={subPage} pageCount={pageCount} step={step} steps={steps} onPrev={onPrev} onNext={onNext} />
+        <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
+        {compact
+          ? <ViewDoor items={[...overflowItems, ...exportMenuItems({ onExport, onExportImages, onExportHandout, onExportHtml })]} exporting={exporting} />
+          : <>
+            <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
+            <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
+            <ExportControls exporting={exporting} onExport={onExport} onExportImages={onExportImages} onExportHandout={onExportHandout} onExportHtml={onExportHtml} />
+          </>}
+        <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
+        <Tooltip label={t('workspace.presentation_exit')} combo={presentationKeyCombo('exit')} side='top'>
+          <IconButton label={t('workspace.presentation_exit')} size='sm' onClick={onClose}>
+            <X size={15} />
+          </IconButton>
+        </Tooltip>
+      </div>
     </div>
   )
 }

@@ -475,3 +475,89 @@ describe('PresentationControls — the door and the exports', () => {
   })
 })
 
+// PR-H1: a faded bar is `inert` *and* `invisible`, and the browser's hit test walks past both to the
+// stage behind — so the first tap a presenter makes where the controls are turns the page instead of
+// bringing them back. jsdom does no hit testing, so what is pinned here is the shape the fix needs to
+// have: a target that is not faded, sized to the bar's own rectangle, standing between the two.
+describe('PresentationControls — the first tap on a faded bar', () => {
+  it('stands a hit target where the faded bar is', () => {
+    const { container } = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true })))
+    const guard = container.querySelector('[data-presentation-chrome-guard]')
+    const bar = container.querySelector('[data-presentation-chrome]')
+    expect(guard, 'nothing covers the bar’s rectangle while it is faded').toBeTruthy()
+    expect(bar?.hasAttribute('inert'), 'the bar itself stays out of the tab order').toBe(true)
+    expect(guard?.hasAttribute('inert')).toBe(false)
+    expect(guard?.contains(bar ?? null)).toBe(true)
+  })
+
+  it('takes none of the fade itself', () => {
+    const { container } = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true })))
+    const guard = container.querySelector('[data-presentation-chrome-guard]')
+    const bar = container.querySelector('[data-presentation-chrome]')
+    expect(guard?.className).not.toMatch(/invisible|opacity-0|pointer-events-none/)
+    expect(bar?.className).toMatch(/invisible/)
+  })
+
+  it('still hands a press to the control once the bar is up', () => {
+    const onNext = vi.fn()
+    const { container } = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+    const bar = container.querySelector('[data-presentation-chrome]')
+    expect(bar?.hasAttribute('inert')).toBe(false)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+    expect(onNext).toHaveBeenCalledTimes(1)
+  })
+
+  it('spends the waking gesture on waking, not on the control that appeared under it', () => {
+    const onNext = vi.fn()
+    const view = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true, onNext })))
+    const guard = view.container.querySelector<HTMLElement>('[data-presentation-chrome-guard]')
+    if (!guard) throw new Error('no guard to press')
+    act(() => { guard.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })) })
+    view.rerender(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+    act(() => {
+      view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+    })
+    expect(onNext, 'the tap that only brought the bar back pressed a button too').not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it('pays the debt once: the press right behind the waking one is not also swallowed', () => {
+    const onNext = vi.fn()
+    const view = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true, onNext })))
+    const guard = view.container.querySelector<HTMLElement>('[data-presentation-chrome-guard]')
+    if (!guard) throw new Error('no guard to press')
+    act(() => { guard.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })) })
+    view.rerender(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+    const next = () => view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)
+    act(() => { next()?.click() })
+    expect(onNext, 'the waking gesture pressed the button').not.toHaveBeenCalled()
+    act(() => { next()?.click() })
+    expect(onNext, 'a thumb that taps again at once is not still being refused').toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+
+  it('forgets that debt for the next press, which is a real one', () => {
+    vi.useFakeTimers()
+    try {
+      const onNext = vi.fn()
+      const view = renderElement(createElement(PresentationControls, chromeProps({ chromeHidden: true, onNext })))
+      const guard = view.container.querySelector<HTMLElement>('[data-presentation-chrome-guard]')
+      if (!guard) throw new Error('no guard to press')
+      act(() => { guard.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })) })
+      view.rerender(createElement(PresentationControls, chromeProps({ chromeHidden: false, onNext })))
+      act(() => {
+        view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+      })
+      expect(onNext).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(900)
+      act(() => {
+        view.container.querySelector<HTMLButtonElement>(`[aria-label="${t('workspace.presentation_next')}"]`)?.click()
+      })
+      expect(onNext).toHaveBeenCalledTimes(1)
+      view.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
