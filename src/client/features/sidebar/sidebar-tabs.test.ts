@@ -184,7 +184,7 @@ describe('link tabs', () => {
     });
 
     it('grows the backlinks panel to the column instead of docking it under an editor', async () => {
-        const spy = vi.spyOn(api.notes, 'backlinks').mockResolvedValue({ backlinks: [{ id: 'tgt', title: 'Target note', context: 'points here' }] });
+        const spy = vi.spyOn(api.notes, 'backlinks').mockResolvedValue({ backlinks: [{ id: 'tgt', title: 'Target note', context: 'points here' }], unlinked: [] });
         await openTab('backlinks');
         await vi.waitFor(() => expect(container.textContent).toContain('points here'), { timeout: 4000 });
         const section = container.querySelector('[role="tabpanel"] section')!;
@@ -256,5 +256,48 @@ describe('history tab', () => {
         await openTab('graph');
         expect(container.textContent).toContain(t('graph.local_graph'));
         expect(container.textContent).toContain(t('sidebar.graph_no_note'));
+    });
+});
+
+describe('backlinks panel mentions section', () => {
+    const noteA = summary('a', 'Note A');
+
+    beforeEach(() => {
+        useNotes.setState({ notes: { a: noteA }, contents: { a: 'text' } });
+        useUi.setState({ activeNoteId: 'a', sidebarTab: 'backlinks' });
+    });
+
+    it('lists the notes that only mention the title, apart from the linked ones', async () => {
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({
+            backlinks: [{ id: 'l1', title: 'Linked note', context: 'a link here' }],
+            unlinked: [{ id: 'm1', title: 'Mentioning note', context: 'says the title in passing' }],
+        });
+        await act(() => root.render(createElement(Sidebar)));
+        await vi.waitFor(() => expect(container.textContent).toContain('says the title in passing'), { timeout: 4000 });
+        expect(container.textContent).toContain(t('workspace.mentions_here'));
+        expect(container.textContent).toContain('a link here');
+    });
+
+    it('leaves the mentions heading out when nothing mentions the note', async () => {
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({
+            backlinks: [{ id: 'l1', title: 'Linked note', context: 'a link here' }],
+            unlinked: [],
+        });
+        await act(() => root.render(createElement(Sidebar)));
+        await vi.waitFor(() => expect(container.textContent).toContain('a link here'), { timeout: 4000 });
+        expect(container.textContent).not.toContain(t('workspace.mentions_here'));
+    });
+
+    it('opens the note a mention was clicked on', async () => {
+        const openNote = vi.fn(async () => {});
+        useNotes.setState({ openNote });
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({
+            backlinks: [],
+            unlinked: [{ id: 'm1', title: 'Mentioning note', context: 'says the title in passing' }],
+        });
+        await act(() => root.render(createElement(Sidebar)));
+        await vi.waitFor(() => expect(container.textContent).toContain('Mentioning note'), { timeout: 4000 });
+        await act(async () => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Mentioning note'))?.click());
+        expect(openNote).toHaveBeenCalledWith('m1');
     });
 });

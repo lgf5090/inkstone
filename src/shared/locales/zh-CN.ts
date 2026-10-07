@@ -2263,6 +2263,7 @@ export const ZH_CN_MESSAGES = {
     "workspace.could_not_load_backlinks": "无法加载反向链接",
     "workspace.could_not_load_version": "无法加载这个版本",
     "workspace.could_not_load_version_history": "无法加载版本历史",
+    "workspace.mentions_here": "提到当前文件名",
     "workspace.no_notes_link_here_yet_write": "还没有笔记链接到这里。在别的笔记里写",
     "workspace.no_version_history_yet": "还没有历史版本",
     "workspace.note_embed": "笔记嵌入",

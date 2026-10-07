@@ -2263,6 +2263,7 @@ export const EN_US_MESSAGES = {
     "workspace.could_not_load_backlinks": "Could not load backlinks",
     "workspace.could_not_load_version": "Could not load this version",
     "workspace.could_not_load_version_history": "Could not load version history",
+    "workspace.mentions_here": "Mentions of this file name",
     "workspace.no_notes_link_here_yet_write": "No notes link here yet. Write ",
     "workspace.no_version_history_yet": "No version history yet",
     "workspace.note_embed": "Note embed",
