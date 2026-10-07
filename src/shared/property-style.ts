@@ -85,6 +85,10 @@ function storedColor(value: string | null | undefined): { color: string | null; 
   return { color: value, slot: 'color' }
 }
 
+export const ACCENT_COLOR_TOKEN = 'accent'
+
+export const DEFAULT_PILL_ALPHA = '2b';
+
 
 export function settingKey(name: string): string {
   return name.trim().toLocaleLowerCase()

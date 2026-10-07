@@ -2577,6 +2577,9 @@ const allowed = new Map([
   ["src/client/features/preview/NoteProperties.tsx", [
     "// Read the live buffer rather than taking the rendered text as a prop: a debounced or",
     "// cached copy here would silently overwrite whatever was typed in the last few frames.",
+    "// One interaction can write several properties (removing a cover drops its shape and position",
+    "// too), and each write has to build on the last instead of on the content this render read —",
+    "// the store only settles between the two, so a second write off `content` would undo the first.",
   ]],
   ["src/client/features/preview/Outline.test.ts", [
     "/** jsdom loads no locale bundle, so t() falls back to the key; tests match on that. */",
@@ -6457,6 +6460,7 @@ const allowed = new Map([
     "// That is what keeps `12:30:00` and `1:100:1` a clock and a ratio, and a colon inside a `:::`",
     "// run belongs to the container syntax rather than to anybody's name.",
     "/**\n * The document pipeline, on its own purify instance so the one exemption below cannot reach the\n * outline label or the Mermaid SVG through the shared hooks.\n *\n * A colour the toolbar wrote is the only inline style a note may carry: one declaration, one plain\n * hex, on a tag that holds text. Everything else — a `url()`, a second declaration, a `position` —\n * is still dropped, so the blanket ban on `style` in {@link PURIFY_CONFIG} keeps its teeth.\n */",
+    "/** One property value rendered as inline Markdown through the document's own whitelist. */",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",

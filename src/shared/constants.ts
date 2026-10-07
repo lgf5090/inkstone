@@ -288,7 +288,7 @@ function propertyColorValue(value: unknown): string | null | undefined {
   if (typeof value !== 'string')
     return undefined
   const text = value.trim()
-  if (text === 'default' || text === 'none')
+  if (text === 'default' || text === 'none' || text === 'accent')
     return text
   return HEX_COLOR.test(text) ? text.toLocaleLowerCase() : undefined
 }

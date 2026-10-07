@@ -971,6 +971,13 @@ export function renderOutlineLabel(source: string): string {
     return DOMPurify.sanitize(md.renderInline(stripObsidianComments(source), env), OUTLINE_LABEL_CONFIG);
 }
 
+/** One property value rendered as inline Markdown through the document's own whitelist. */
+export function renderInlineProperty(source: string, emojiShortcodes = true): string {
+    const env = emptyEnvironment();
+    env.emojiShortcodes = emojiShortcodes;
+    return sanitizeDocument(md.renderInline(stripObsidianComments(source), env));
+}
+
 /** Parse once with the full document environment so reference links retain their targets. */
 export function renderMarkdownBlocks(source: string, options?: { emojiShortcodes?: boolean }): { blocks: MarkdownBlock[]; headings: Heading[]; fences: FenceBodies } {
     const env = emptyEnvironment();
