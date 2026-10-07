@@ -121,6 +121,20 @@ export function EditorSettings() {
       </section>
 
       <section>
+        <SettingRow title={t("settings.presentation_slide_list")} description={t("settings.presentation_slide_list_description")}>
+          <Switch checked={preview.presentationSlideList} onChange={(presentationSlideList) => void update({ preview: { presentationSlideList } })} label={t("settings.presentation_slide_list")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.presentation_chart_animation")} description={t("settings.presentation_chart_animation_description")}>
+          <Switch checked={preview.presentationChartAnimation} onChange={(presentationChartAnimation) => void update({ preview: { presentationChartAnimation } })} label={t("settings.presentation_chart_animation")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.presentation_auto_hide")} description={t("settings.presentation_auto_hide_description")}>
+          <Switch checked={preview.presentationAutoHideChrome} onChange={(presentationAutoHideChrome) => void update({ preview: { presentationAutoHideChrome } })} label={t("settings.presentation_auto_hide")}/>
+        </SettingRow>
+      </section>
+
+      <section>
         <SettingRow title={t("settings.autosave_delay")} description={t("settings.delay_before_uploading_after_you_stop_typing_shorter_makes_more_requests")}>
           <Slider label={t("settings.autosave_delay")} className="w-[200px]" value={editor.autoSaveDelay} min={200} max={3000} step={100} onChange={(autoSaveDelay) => void update({ editor: { autoSaveDelay } })} suffix="ms"/>
         </SettingRow>

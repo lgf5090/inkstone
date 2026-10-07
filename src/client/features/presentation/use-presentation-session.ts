@@ -94,6 +94,8 @@ export interface PresentationSession {
   clearCover: () => void
   toggleBlackout: () => void
   toggleWhiteout: () => void
+  /** Whether charts on the projector arrive already drawn, per the account's own setting. */
+  instantCharts: boolean
   /** Whether the show is drawing its own pointer. */
   laser: boolean
   clearLaser: () => void
@@ -191,10 +193,10 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
   const { open, noteId, snapshot, following, storedTitle, panelRef, stageRef, onClose, initialSlideIndex = 0, startedAt } = options
   const { content: presentedContent, title: liveTitle, followLost, toggleFollowing } = usePresentedNote({ open, noteId, snapshot, following })
   const { deck, notes, hashes, fingerprint } = useShowDeck(presentedContent)
-  const { dark, flags, proseFont } = useShowSettings()
+  const { dark, flags, proseFont, slideList, chartAnimation, autoHideChrome } = useShowSettings()
   const nav = usePresentationNav(deck, hashes, initialSlideIndex)
-  const { isFullscreen, toggleFullscreen, metrics, chromeHidden } = useShowStage({ open, panelRef, stageRef })
-  const { railOpen, toggleRail, compact } = useShowRoom(open)
+  const { isFullscreen, toggleFullscreen, metrics, chromeHidden } = useShowStage({ open, panelRef, stageRef, autoHideChrome })
+  const { railOpen, toggleRail, compact } = useShowRoom(open, slideList)
   const noteTitle = liveTitle ?? storedTitle
   const cacheKeys = useSlideCacheKeys(hashes, dark, metrics)
   const exports = useDeckExport({ deck, cacheKeys, plans: nav.plans, metrics, flags, dark, title: noteTitle, notes, proseFont })
@@ -220,6 +222,7 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
     isFullscreen,
     metrics,
     proseFont,
+    instantCharts: !chartAnimation,
     noteTitle,
     listProgress,
     slideUnprepared,
@@ -255,11 +258,12 @@ function useShowStage(options: {
   open: boolean
   panelRef: RefObject<HTMLDivElement | null>
   stageRef: RefObject<HTMLDivElement | null>
+  autoHideChrome: boolean
 }): { isFullscreen: boolean, toggleFullscreen: () => void, metrics: StageMetrics, chromeHidden: boolean } {
-  const { open, panelRef, stageRef } = options
+  const { open, panelRef, stageRef, autoHideChrome } = options
   const { isFullscreen, toggleFullscreen } = useFullscreenToggle(open, panelRef)
   const metrics = useStageMetrics(open, stageRef)
-  return { isFullscreen, toggleFullscreen, metrics, chromeHidden: useChromeAutoHide(open && isFullscreen) }
+  return { isFullscreen, toggleFullscreen, metrics, chromeHidden: useChromeAutoHide(open && isFullscreen && autoHideChrome) }
 }
 
 function usePresentationContextMenu(open: boolean) {
@@ -299,7 +303,14 @@ function useShowSettings() {
   // drawn under, and reading the fields apart would let them disagree with what the page holds.
   const preview = useSession((s) => s.settings.preview)
   const proseFont = useSession((s) => s.settings.appearance.proseFont)
-  return { dark, flags: slideSettingFlags(preview), proseFont }
+  return {
+    dark,
+    flags: slideSettingFlags(preview),
+    proseFont,
+    slideList: preview.presentationSlideList,
+    chartAnimation: preview.presentationChartAnimation,
+    autoHideChrome: preview.presentationAutoHideChrome,
+  }
 }
 
 // What the room the show sits in allows, read once: a window with room for the list opens it by
@@ -307,13 +318,16 @@ function useShowSettings() {
 // narrow for eleven controls gets the bar that fits it. Both are the same measurement, so both come
 // from the same call — the overlay outlives a single show now that the shell hosts it, which is why
 // the room is followed live rather than frozen at app start.
-function useShowRoom(open: boolean): { railOpen: boolean; toggleRail: () => void; compact: boolean } {
+function useShowRoom(open: boolean, wanted: boolean): { railOpen: boolean; toggleRail: () => void; compact: boolean } {
   const [choice, setChoice] = useState<boolean | null>(null)
+  // The account says whether a show should start with the list beside it; the room says whether
+  // there is anywhere to put it. Either answer being 'no' closes it, and neither is a reason to
+  // tell the presenter their setting is wrong — the toggle stays live for this show.
   const fitsViewport = useBreakpoint() !== 'mobile'
   useLayoutEffect(() => {
     if (open) setChoice(null)
   }, [open])
-  const railOpen = railOpenFor(choice, fitsViewport)
+  const railOpen = railOpenFor(choice, fitsViewport && wanted)
   const toggleRail = useCallback(() => setChoice(!railOpen), [railOpen])
   return { railOpen, toggleRail, compact: !fitsViewport }
 }

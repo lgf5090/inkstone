@@ -2236,4 +2236,9 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_cover_on": "放映画面已被遮挡：{value0}",
     "workspace.presentation_cover_off": "遮挡已解除",
     "workspace.presentation_context_menu": "演示控制菜单",
-    "workspace.presentation_link_copy": "复制链接地址",} as const satisfies Record<MessageKey, string>;
+    "settings.presentation_slide_list": "放映时默认显示幻灯片列表",
+    "settings.presentation_slide_list_description": "开放映时就把每一页列在旁边，方便跳页。屏幕放不下时不会出现；放映途中用 S 键临时开关不受它影响。",
+    "settings.presentation_chart_animation": "放映里的图表播放入场动画",
+    "settings.presentation_chart_animation_description": "关掉后图表一翻页就已经画好，适合需要立刻讲数据的场合；开着则和预览里一样，看着它长出来。",
+    "settings.presentation_auto_hide": "全屏放映时空闲隐藏工具条",
+    "settings.presentation_auto_hide_description": "指针静止一段时间后隐藏控制条与幻灯片列表，动一下指针就回来。关掉后它们一直显示。",    "workspace.presentation_link_copy": "复制链接地址",} as const satisfies Record<MessageKey, string>;

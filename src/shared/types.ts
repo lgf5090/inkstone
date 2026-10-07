@@ -135,6 +135,13 @@ export interface PreviewSettings {
   pinnedWindowSize: PinnedWindowSizeName
   pinnedWindowWidth: number
   pinnedWindowHeight: number
+  /** Whether a show opens with the slide list already beside it. The room still
+   * decides the ceiling: a phone never gets one it has no space for. */
+  presentationSlideList: boolean
+  /** Whether a chart plays its entrance on the projector, or arrives drawn. */
+  presentationChartAnimation: boolean
+  /** Whether the controls and the list fade out while the presenter is idle. */
+  presentationAutoHideChrome: boolean
 }
 
 export interface BackupSettings {

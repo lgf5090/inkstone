@@ -115,6 +115,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     pinnedWindowSize: 'medium',
     pinnedWindowWidth: 460,
     pinnedWindowHeight: 520,
+    presentationSlideList: true,
+    presentationChartAnimation: true,
+    presentationAutoHideChrome: true,
   },
   backup: {
     schedule: 'sixHourly',
@@ -265,6 +268,9 @@ export function mergeSettings(partial: unknown): UserSettings {
     PINNED_WINDOW_WIDTH_RANGE[1],
     base.preview.pinnedWindowWidth,
   )
+  base.preview.presentationSlideList = booleanValue(preview.presentationSlideList, base.preview.presentationSlideList)
+  base.preview.presentationChartAnimation = booleanValue(preview.presentationChartAnimation, base.preview.presentationChartAnimation)
+  base.preview.presentationAutoHideChrome = booleanValue(preview.presentationAutoHideChrome, base.preview.presentationAutoHideChrome)
   base.preview.pinnedWindowHeight = integerInRange(
     preview.pinnedWindowHeight,
     PINNED_WINDOW_HEIGHT_RANGE[0],

@@ -2235,5 +2235,10 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "workspace.presentation_cover_on": "The projector is covered: {value0}",
     "workspace.presentation_cover_off": "The cover is lifted",
     "workspace.presentation_context_menu": "Presentation menu",
-    "workspace.presentation_link_copy": "Copy link address",} as const;
+    "settings.presentation_slide_list": "Show the slide list when a show opens",
+    "settings.presentation_slide_list_description": "Lists every page beside the projector from the start, so a jump is one click. A room too small for one never shows it; the S key still toggles it during the talk.",
+    "settings.presentation_chart_animation": "Play chart entrance animations while presenting",
+    "settings.presentation_chart_animation_description": "Off, a chart is already drawn when the page arrives, which suits talking over the numbers. On, it grows the way it does in the preview.",
+    "settings.presentation_auto_hide": "Hide the controls when a full-screen show is idle",
+    "settings.presentation_auto_hide_description": "After a moment without pointer or keyboard the controls and the slide list fade away, and come back on the next move. Off, they stay up.",    "workspace.presentation_link_copy": "Copy link address",} as const;
 export type MessageKey = keyof typeof EN_US_MESSAGES;

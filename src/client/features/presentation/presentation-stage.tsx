@@ -18,6 +18,8 @@ export interface PresentationStageProps {
   /** How many reveals this page holds — zero when it arrives all at once. */
   steps: number
   pageCount?: number
+  /** Charts arrive already drawn when the account turned their animation off. */
+  instantCharts?: boolean
   index: number
   count: number
   onPlan: (plan: SlidePlan) => void
@@ -36,6 +38,7 @@ export interface StageSessionSource {
   step: number
   steps: number
   pageCount: number
+  instantCharts: boolean
   handlePlan: (plan: SlidePlan) => void
   goPrev: () => void
   goNext: () => void
@@ -52,6 +55,7 @@ export function stageProps(stageRef: RefObject<HTMLDivElement | null>, session: 
     step: session.step,
     steps: session.steps,
     pageCount: session.pageCount,
+    instantCharts: session.instantCharts,
     index: session.index,
     count: session.deck.length,
     onPlan: session.handlePlan,
@@ -105,7 +109,7 @@ function useStageGestures({
 }
 
 export function PresentationStage(props: PresentationStageProps) {
-  const { stageRef, metrics, cacheKey, source, subPage, step, steps, pageCount = 1, index, count, onPlan, onPrev, onNext, occluded } = props
+  const { stageRef, metrics, cacheKey, source, subPage, step, steps, pageCount = 1, instantCharts = false, index, count, onPlan, onPrev, onNext, occluded } = props
   const { handleClick, handleTouchStart, handleTouchEnd } = useStageGestures({ stageRef, onPrev, onNext, occluded })
 
   return (
@@ -117,7 +121,7 @@ export function PresentationStage(props: PresentationStageProps) {
       inert={occluded ? true : undefined}
       className='relative flex min-h-0 min-w-0 flex-1 select-none items-center justify-center overflow-hidden'
     >
-      <SlideViewport metrics={metrics} cacheKey={cacheKey} source={source} subPage={subPage} step={step} onPlan={onPlan} />
+      <SlideViewport metrics={metrics} cacheKey={cacheKey} source={source} subPage={subPage} step={step} onPlan={onPlan} instantCharts={instantCharts} />
       {count > 0 && (
         // This chip used to fade itself to 35% opacity, which composites its text to 1.67:1 against the
         // slide — the axe `color-contrast` violation L-1 has been carrying. AA is the floor, so it now

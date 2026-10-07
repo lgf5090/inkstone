@@ -75,6 +75,10 @@ export function AudienceView({ slug, token, source }: {
     step: wheel.step,
     steps: wheel.steps,
     pageCount: wheel.pageCount,
+    // A follower's page arrives already drawn: the beat that moves them on to the next page is not
+    // a moment they chose to watch a chart grow, and a chart that replays its entrance on every
+    // beat would be re-replaying it while the speaker is still talking over the last one.
+    instantCharts: true,
     handlePlan: wheel.handlePlan,
     goPrev: wheel.goPrev,
     goNext: wheel.goNext,
