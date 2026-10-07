@@ -2020,6 +2020,7 @@ export const EN_US_MESSAGES = {
     "sidebar.links_no_note": "Open a note to see its links.",
     "sidebar.tab_history": "History",
     "sidebar.versions_no_note": "Open a note to see its versions.",
+    "sidebar.graph_no_note": "Open a note to see how it connects.",
     "sidebar.versions_empty": "No snapshot of this note has been saved yet.",
     "sidebar.versions_error": "Could not read the version history.",
     "sidebar.version_restore": "Restore this version",

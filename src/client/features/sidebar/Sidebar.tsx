@@ -84,10 +84,10 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
         {sidebarTab === 'recent' && <SidebarRecent />}
         {sidebarTab === 'backlinks' && (activeNoteId
           ? <BacklinksPanel noteId={activeNoteId} fill/>
-          : <NoNotePanel label={t("common.backlinks")}/>)}
+          : <NoNotePanel label={t("common.backlinks")} message={t("sidebar.links_no_note")}/>)}
         {sidebarTab === 'outlinks' && <SidebarOutlinks />}
         {sidebarTab === 'history' && <SidebarVersions />}
-        {sidebarTab === 'graph' && (activeNoteId ? (<Suspense fallback={<PanelLoading/>}><LocalGraphPanel noteId={activeNoteId} fill onOpenFullGraph={() => openPanel('graph')}/></Suspense>) : <NoNotePanel label={t("graph.local_graph")}/>)}
+        {sidebarTab === 'graph' && (activeNoteId ? (<Suspense fallback={<PanelLoading/>}><LocalGraphPanel noteId={activeNoteId} fill onOpenFullGraph={() => openPanel('graph')}/></Suspense>) : <NoNotePanel label={t("graph.local_graph")} message={t("sidebar.graph_no_note")}/>)}
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">
@@ -101,10 +101,13 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
         </aside>)}
     </>);
 }
-function NoNotePanel({ label }: { label: string }) {
+function NoNotePanel({ label, message }: {
+    label: string;
+    message: string;
+}) {
     return (<>
       <SectionLabel>{label}</SectionLabel>
-      <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t("sidebar.links_no_note")}</p>
+      <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{message}</p>
     </>);
 }
 function PanelLoading() {

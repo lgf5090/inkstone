@@ -2020,6 +2020,7 @@ export const ZH_CN_MESSAGES = {
     "sidebar.links_no_note": "打开一篇笔记才能看到它的链接。",
     "sidebar.tab_history": "版本历史",
     "sidebar.versions_no_note": "打开一篇笔记才能看到它的历史。",
+    "sidebar.graph_no_note": "打开一篇笔记才能看到它的关系图。",
     "sidebar.versions_empty": "还没有为这篇笔记存过快照。",
     "sidebar.versions_error": "读不到版本历史。",
     "sidebar.version_restore": "恢复这个版本",

@@ -255,6 +255,6 @@ describe('history tab', () => {
         useUi.setState({ activeNoteId: null });
         await openTab('graph');
         expect(container.textContent).toContain(t('graph.local_graph'));
-        expect(container.textContent).toContain(t('sidebar.links_no_note'));
+        expect(container.textContent).toContain(t('sidebar.graph_no_note'));
     });
 });
