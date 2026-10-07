@@ -98,6 +98,18 @@ describe('detectPreviewContext blocks', () => {
     expect(block.math).toMatchObject({ formula: 'y = x', block: true })
     clear()
   })
+
+  it('answers from an SVG shape inside a diagram, which is not an HTMLElement', () => {
+    const root = host('```mermaid\ngraph TD;A-->B;\n```\n')
+    const block = at(root, '[data-mermaid]')
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const shape = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    svg.append(shape)
+    block.append(svg)
+    expect(detectPreviewContext(shape).kind).toBe('mermaid')
+    expect(detectPreviewContext(svg).kind).toBe('mermaid')
+    clear()
+  })
 })
 
 describe('detectPreviewContext inline', () => {

@@ -150,6 +150,40 @@ describe('detectEditorContext inline spans', () => {
   })
 })
 
+describe('detectEditorContext display math', () => {
+  const doc = 'lead\n\n$$\ny = x + 1\n$$\n\nafter\n'
+
+  it('reads the formula body from a line inside the block', () => {
+    expect(at(doc, 'y = x').math).toMatchObject({ formula: 'y = x + 1', block: true })
+  })
+
+  it('answers the opening rule as the same block', () => {
+    expect(at(doc, '$$\ny').kind).toBe('math')
+  })
+
+  it('spans the two rules, so a delete takes the whole block', () => {
+    const math = at(doc, 'y = x').math!
+    expect(doc.slice(math.from, math.to)).toBe('$$\ny = x + 1\n$$')
+  })
+
+  it('leaves the lines outside the block alone', () => {
+    expect(at(doc, 'after').kind).toBe('empty')
+    expect(at(doc, 'lead').kind).toBe('empty')
+  })
+
+  it('runs an unclosed block to the end of the note', () => {
+    const math = at('$$\nx = 1\n', 'x = 1').math!
+    expect(math.block).toBe(true)
+    expect(math.formula).toBe('x = 1')
+  })
+
+  it('does not treat a second block as part of the first', () => {
+    const two = '$$\na\n$$\n\ntext\n\n$$\nb\n$$\n'
+    expect(at(two, 'b').math?.formula).toBe('b')
+    expect(at(two, 'text').kind).toBe('empty')
+  })
+})
+
 describe('detectEditorContext selection', () => {
   it('wins over whatever the highlighted text happens to sit on', () => {
     const doc = '# Heading\n'
@@ -166,5 +200,11 @@ describe('detectEditorContext selection', () => {
 
   it('treats an empty selection as no selection', () => {
     expect(selectionOver('plain\n', 0, 0).kind).toBe('empty')
+  })
+})
+
+describe('detectEditorContext container scan', () => {
+  it('reports nothing for a note that never uses a colon fence', () => {
+    expect(at('plain text\nmore text\n', 'plain').container).toBeUndefined()
   })
 })

@@ -20,7 +20,7 @@ function sourceLine(el: Element | null): number | undefined {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
-function detectSelection(target: HTMLElement): PreviewContext | null {
+function detectSelection(target: Element): PreviewContext | null {
   const selection = window.getSelection()
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
   // `Selection.containsNode` is a Gecko-only API, and where it exists it answers for partial
@@ -32,12 +32,12 @@ function detectSelection(target: HTMLElement): PreviewContext | null {
   return { kind: 'selection', target, selectedText: text, line: sourceLine(target) }
 }
 
-function detectFrontmatter(target: HTMLElement): PreviewContext | null {
+function detectFrontmatter(target: Element): PreviewContext | null {
   if (!target.closest('[data-note-properties], .frontmatter-properties, .frontmatter-error')) return null
   return { kind: 'frontmatter', target, line: 0 }
 }
 
-function detectExample(target: HTMLElement): PreviewContext | null {
+function detectExample(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('.markdown-example[data-example-family]')
   if (!el) return null
   const language = el.dataset.exampleFamily === 'js' ? 'javascript-example' : 'md-example'
@@ -51,7 +51,7 @@ function detectExample(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectMermaid(target: HTMLElement): PreviewContext | null {
+function detectMermaid(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-mermaid]')
   if (!el) return null
   return {
@@ -62,7 +62,7 @@ function detectMermaid(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectChart(target: HTMLElement): PreviewContext | null {
+function detectChart(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-chart]')
   if (!el) return null
   return {
@@ -73,7 +73,7 @@ function detectChart(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectMindmap(target: HTMLElement): PreviewContext | null {
+function detectMindmap(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-mindmap]')
   if (!el) return null
   const ref = mindmapFenceRef(el)
@@ -85,7 +85,7 @@ function detectMindmap(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectKanban(target: HTMLElement): PreviewContext | null {
+function detectKanban(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-kanban]')
   if (!el) return null
   const ref = kanbanFenceRef(el)
@@ -97,7 +97,7 @@ function detectKanban(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectMath(target: HTMLElement): PreviewContext | null {
+function detectMath(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('.math-block, .math-inline, .katex-display, .katex')
   if (!el) return null
   const holder = el.closest<HTMLElement>('[data-math]') ?? el
@@ -114,8 +114,8 @@ function detectMath(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectTable(target: HTMLElement): PreviewContext | null {
-  const cell = target.closest<HTMLTableCellElement>('td, th')
+function detectTable(target: Element): PreviewContext | null {
+  const cell = target.closest('td, th') as HTMLTableCellElement | null
   if (!cell) return null
   const table = cell.closest('table')
   const row = cell.closest('tr')
@@ -131,19 +131,19 @@ function detectTable(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectTag(target: HTMLElement): PreviewContext | null {
+function detectTag(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-tag]')
   if (!el) return null
   return { kind: 'tag', target, line: sourceLine(el), tag: { name: decodeDataValue(el.dataset.tag) } }
 }
 
-function detectEmbed(target: HTMLElement): PreviewContext | null {
+function detectEmbed(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-embed-target]')
   if (!el) return null
   return { kind: 'embed', target, line: sourceLine(el), embed: { target: decodeDataValue(el.dataset.embedTarget) } }
 }
 
-function detectWikiLink(target: HTMLElement): PreviewContext | null {
+function detectWikiLink(target: Element): PreviewContext | null {
   const el = target.closest<HTMLElement>('[data-wikilink]')
   if (!el) return null
   const title = decodeDataValue(el.dataset.wikilink).split('|')[0]!.trim()
@@ -151,13 +151,13 @@ function detectWikiLink(target: HTMLElement): PreviewContext | null {
   return { kind: 'wikilink', target, line: sourceLine(el), wikiLink: { target: title, alias: label === title ? '' : label } }
 }
 
-function detectImage(target: HTMLElement): PreviewContext | null {
-  const img = target.closest<HTMLImageElement>('img')
+function detectImage(target: Element): PreviewContext | null {
+  const img = target.closest('img')
   if (!img?.src) return null
   return { kind: 'image', target, line: sourceLine(img), image: { src: img.src, alt: img.alt } }
 }
 
-function detectCodeBlock(target: HTMLElement): PreviewContext | null {
+function detectCodeBlock(target: Element): PreviewContext | null {
   const block = target.closest<HTMLElement>('.code-block')
   if (!block) return null
   const language = (block.dataset.lang ?? '').toLowerCase()
@@ -169,7 +169,7 @@ function detectCodeBlock(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectTask(target: HTMLElement): PreviewContext | null {
+function detectTask(target: Element): PreviewContext | null {
   const item = target.closest<HTMLElement>('li[data-task-line]')
     ?? (target.closest('input[type="checkbox"]') ? target.closest('li') : null)
   if (!item) return null
@@ -184,8 +184,8 @@ function detectTask(target: HTMLElement): PreviewContext | null {
   }
 }
 
-function detectLink(target: HTMLElement): PreviewContext | null {
-  const link = target.closest<HTMLAnchorElement>('a[href]')
+function detectLink(target: Element): PreviewContext | null {
+  const link = target.closest('a[href]') as HTMLAnchorElement | null
   if (!link || link.hasAttribute('data-wikilink') || link.hasAttribute('data-tag')) return null
   const href = link.getAttribute('href') ?? ''
   if (!href || href.startsWith('#')) return null
@@ -207,7 +207,7 @@ const CONTAINERS: Array<{ selector: string; directive: (el: HTMLElement) => stri
   },
 ]
 
-function detectContainer(target: HTMLElement): PreviewContext | null {
+function detectContainer(target: Element): PreviewContext | null {
   for (const { selector, directive } of CONTAINERS) {
     const el = target.closest<HTMLElement>(selector)
     if (!el) continue
@@ -216,8 +216,8 @@ function detectContainer(target: HTMLElement): PreviewContext | null {
   return null
 }
 
-function detectHeading(target: HTMLElement): PreviewContext | null {
-  const el = target.closest<HTMLHeadingElement>('h1, h2, h3, h4, h5, h6')
+function detectHeading(target: Element): PreviewContext | null {
+  const el = target.closest('h1, h2, h3, h4, h5, h6')
   if (!el) return null
   return {
     kind: 'heading',
@@ -232,7 +232,7 @@ function detectHeading(target: HTMLElement): PreviewContext | null {
  * `.code-block` it is drawn inside, because a menu that read a board's markup as plain text would
  * offer the code block's actions on the block the note actually owns.
  */
-const DETECTORS: Array<(target: HTMLElement) => PreviewContext | null> = [
+const DETECTORS: Array<(target: Element) => PreviewContext | null> = [
   detectSelection,
   detectFrontmatter,
   detectExample,
@@ -253,7 +253,7 @@ const DETECTORS: Array<(target: HTMLElement) => PreviewContext | null> = [
   detectHeading,
 ]
 
-export function detectPreviewContext(target: HTMLElement): PreviewContext {
+export function detectPreviewContext(target: Element): PreviewContext {
   for (const detect of DETECTORS) {
     const found = detect(target)
     if (found) return found

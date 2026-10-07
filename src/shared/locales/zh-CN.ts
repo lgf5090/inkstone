@@ -988,6 +988,7 @@ export const ZH_CN_MESSAGES = {
     "contextmenu.math_to_block": "改为独立公式块",
     "contextmenu.math_to_inline": "改为行内公式",
     "contextmenu.already_formatted": "这段代码已经是格式化后的样子",
+    "contextmenu.format_code": "格式化代码",
     "contextmenu.change_language": "切换语言",
     "contextmenu.copy": "复制",
     "contextmenu.copy_example_source": "复制示例正文",

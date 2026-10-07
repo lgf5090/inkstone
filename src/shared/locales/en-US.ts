@@ -987,6 +987,7 @@ export const EN_US_MESSAGES = {
     "contextmenu.math_to_block": "Set as a display formula",
     "contextmenu.math_to_inline": "Set as an inline formula",
     "contextmenu.already_formatted": "This code is already formatted",
+    "contextmenu.format_code": "Format the code",
     "contextmenu.change_language": "Change language",
     "contextmenu.copy": "Copy",
     "contextmenu.copy_example_source": "Copy the example text",

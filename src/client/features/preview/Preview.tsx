@@ -47,6 +47,7 @@ import { useLinkHoverHost } from './link-hover-host'
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../tags/TagContextMenuAt'
 import { EditorContextMenu } from '../workspace/context-menu/EditorContextMenu'
 import { detectPreviewContext } from '../workspace/context-menu/detect-preview'
+import { useLongPress } from '../workspace/context-menu/use-long-press'
 import type { ContextMenuHost, PreviewContext } from '../workspace/context-menu/types'
 import { openTagPageByName, wantsTagPage } from '../tags/tagMutations'
 import { beginTagDrag, endTagDrag } from '../tags/tagDrag'
@@ -359,6 +360,16 @@ export const Preview = memo(function Preview({
     }
   }
 
+  const longPress = useLongPress((point, target) => {
+    if (!contextMenu) return
+    const tag = tagMenuRequestFrom(target, point.x, point.y)
+    if (tag) {
+      setTagMenu(tag)
+      return
+    }
+    setPreviewMenu({ x: point.x, y: point.y, context: detectPreviewContext(target) })
+  })
+
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
 
@@ -565,7 +576,8 @@ export const Preview = memo(function Preview({
             setTagMenu(request)
             return
           }
-          if (!contextMenu || !(event.target instanceof HTMLElement)) return
+          if (!contextMenu || !(event.target instanceof Element)) return
+          if (longPress.justLongPressed()) return
           event.preventDefault()
           event.stopPropagation()
           setPreviewMenu({ x: event.clientX, y: event.clientY, context: detectPreviewContext(event.target) })
@@ -580,6 +592,7 @@ export const Preview = memo(function Preview({
         onMouseLeave={onMouseLeave}
         onFocus={onFocus}
         onBlur={onBlur}
+        {...longPress.handlers}
         data-font={appearance.proseFont}
         data-preview-content
         className="ink-prose"

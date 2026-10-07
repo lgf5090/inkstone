@@ -2713,6 +2713,8 @@ const allowed = new Map([
     "/**\n * The inline span of `text` whose character range covers `offset`. Sticky regexes stepped across the\n * line, so a match is asked for at each start position rather than collected first — that is what lets\n * `![alt](url)` win the same characters `![` and `[` would otherwise fight over.\n *\n * Hashtags are deliberately absent: the source editor already marks them with `data-tag`, and the\n * menu that owns a tag is read off that mark rather than matched a second time here.\n */",
     "/** The line spans a fenced block covers, so a `:::` written as a sample is never a container. */",
     "/**\n * The innermost `:::` container holding the line. The closing line is found by the block rules' own\n * `findColonClose`, so a container can never be delimited one way for the menu and another way for\n * the renderer that draws it.\n */",
+    "/** The rule that opens or closes a display formula, on a line of its own. */",
+    "/**\n * A display formula, which is its own block rather than a fence: the renderer reads `$$` on a line of\n * its own, so a menu that did not would report the formula as the plain line it happens to sit on.\n * An unclosed block runs to the end of the note, the same way the renderer carries it.\n */",
   ]],
   ["src/client/features/workspace/context-menu/detect-preview.test.ts", [
     "/** The rendered document, with the fence bodies registered the way the preview host does it. */",
@@ -2731,6 +2733,9 @@ const allowed = new Map([
     "/**\n * The chart family's own row. The conversion is the preview toolbar's function, called with the same\n * arguments, so the two surfaces can never drift into offering different conversions of one body.\n */",
     "/**\n * The mind map's format swap belongs to the live canvas, which holds edits that have not been written\n * back yet. The block's own button is therefore the only correct way to ask for it, and that button\n * exists in the preview — a source-only note gets the row disabled rather than a second conversion.\n */",
     "/** Every fenced family's builder, indexed by the kind the detectors report. */",
+    "// The format the block is *read* as, which the fence can state outright with `style=`. Asking the",
+    "// body alone would name the opposite conversion for a block the renderer is already drawing as a",
+    "// table from a body too broken for inference to have recognised.",
   ]],
   ["src/client/features/workspace/context-menu/items-canvas.tsx", [
     "/**\n * The rows that belong to no block: the note as a whole, and the pane it is being read in.\n *\n * On the source side this is the insert list and the two note-wide commands. On the preview side it\n * is the layout switch, the exports and the scroll jumps — the things a reader asks of a page they\n * are not editing.\n */",
@@ -2758,6 +2763,8 @@ const allowed = new Map([
     "/** {@link taskToBullet} applied to one line of the note, refusing when the line has moved on. */",
     "/** The note with a line inserted after `line`, keeping the file's own end-of-line style. */",
     "/**\n * The line span a `:::` container occupies, starting from the line the renderer stamped it with.\n * The block rules decide where it ends, so a menu and the renderer cannot disagree about the span,\n * and a container whose closer has been deleted reports nothing rather than eating the rest of the\n * note.\n */",
+    "/**\n * The schemes a note may send the browser to.\n *\n * The preview is safe to open from because the sanitizer already rewrote its anchors; the source\n * pane's menu reads the URL straight out of the note's text, where a `javascript:` target is just\n * characters. The row is disabled rather than hidden, so the note is not silently edited around.\n */",
+    "// A reference with no scheme at all resolves inside the app, which is what a note link means.",
   ]],
   ["src/client/features/workspace/context-menu/toolbar.tsx", [
     "/**\n * The strip of clipboard and history buttons the context menu opens with.\n *\n * These are the actions a right-click is most often asked for and which no block kind owns, so they\n * sit above the list rather than repeating inside every branch of it. The same list is handed to the\n * search box separately: a row that only exists as a button would otherwise be unfindable by typing.\n */",
@@ -2788,11 +2795,22 @@ const allowed = new Map([
     "/** Move the editor's cursor to a 0-based source line, and make the editor visible if it is not. */",
     "/** The clipboard and history strip above the rows. */",
     "/** The filter box that narrows the rows to what the query matches. */",
+    "/** The node the pointer was on. A diagram's shapes are SVG, so this is not always an `HTMLElement`. */",
   ]],
   ["src/client/features/workspace/context-menu/use-context-menu.ts", [
     "/**\n * The menu's state, assembled once per open.\n *\n * The host supplies the note, the editor view and the callbacks; everything below turns those into\n * the single `MenuCtx` the builders read. Two things are derived here rather than in a builder\n * because they are shared: what \"copy\" means for the block under the pointer, and the table writers,\n * which need both the parser and the editor's line arithmetic.\n */",
     "/** What the copy button puts on the clipboard for the block the menu was opened on. */",
     "/** The kinds that are not a fenced block and not a table. */",
+  ]],
+  ["src/client/features/workspace/context-menu/use-long-press.test.ts", [
+    "// React's synthetic touch events read `touches` and `targetTouches` off the native event.",
+  ]],
+  ["src/client/features/workspace/context-menu/use-long-press.ts", [
+    "/** How long a finger has to stay down before the note treats it as \"open the menu\". */",
+    "/** How far it may wander in that time before the gesture was clearly a scroll, not a press. */",
+    "/**\n * A touch stand-in for the right button.\n *\n * A phone has no right-click, and the note's menu is where every per-block action lives, so a held\n * press opens it at the finger. A desktop browser answers a long press with its own `contextmenu`\n * event too; `lastLongPressRef` is how the caller tells the two apart and does not open the menu a\n * second time for the same gesture.\n */",
+    "/**\n   * A lift before the timer fires was a tap, and the tap has to do what it already does. A lift after\n   * the menu opened is the same gesture ending, so the click the browser would synthesise from it is\n   * swallowed — otherwise the press that opened the menu would also follow the link under the finger.\n   */",
+    "/** True for the `contextmenu` event that belongs to a long press the handler already served. */",
   ]],
   ["src/client/features/workspace/context-menu/writes.ts", [
     "/**\n * The door every block menu writes through.\n *\n * A fenced block is edited by patching the note's text, never the DOM or the editor buffer: the same\n * `applyFencePatchAtSource` the block toolbars use, so a menu and a toolbar on one block cannot\n * disagree about where the fence is or widen its markers differently. Both the source pane and the\n * preview take this route, which is also why an edit made after the note changed underneath the render\n * is refused rather than applied to whatever line moved into place.\n */",

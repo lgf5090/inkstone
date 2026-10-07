@@ -24,12 +24,48 @@ export function detectEditorContext(state: EditorState, pos: number): EditorCont
 
   return selection(state, at, number)
     ?? fenced(state, at, number, lines)
+    ?? mathBlock(lines, number, line.from, line.to, at)
     ?? frontMatter(doc, at, number)
     ?? table(lines, number, offset, at)
     ?? heading(text, line.from, line.to, at, number)
     ?? inline(text, offset, line.from, at, number)
     ?? container(lines, number, at)
     ?? { kind: 'empty', pos: at, line: number }
+}
+
+/** The rule that opens or closes a display formula, on a line of its own. */
+const MATH_FENCE = /^ {0,3}\$\$[ \t]*$/
+
+/**
+ * A display formula, which is its own block rather than a fence: the renderer reads `$$` on a line of
+ * its own, so a menu that did not would report the formula as the plain line it happens to sit on.
+ * An unclosed block runs to the end of the note, the same way the renderer carries it.
+ */
+function mathBlock(lines: string[], lineNumber: number, lineFrom: number, lineTo: number, pos: number): EditorContext | null {
+  const target = lineNumber - 1
+  for (let start = 0; start < lines.length; start++) {
+    if (!MATH_FENCE.test(lines[start] ?? '')) continue
+    let end = -1
+    for (let n = start + 1; n < lines.length; n++) {
+      if (MATH_FENCE.test(lines[n] ?? '')) { end = n; break }
+    }
+    const last = end === -1 ? lines.length - 1 : end
+    if (target >= start && target <= last) {
+      let from = lineFrom
+      for (let n = target - 1; n >= start; n--) from -= (lines[n] ?? '').length + 1
+      let to = lineTo
+      for (let n = target + 1; n <= last; n++) to += (lines[n] ?? '').length + 1
+      return {
+        kind: 'math',
+        pos,
+        line: lineNumber,
+        math: { formula: lines.slice(start + 1, last).join('\n'), block: true, from, to },
+      }
+    }
+    if (end === -1) break
+    start = end
+  }
+  return null
 }
 
 function selection(state: EditorState, pos: number, line: number): EditorContext | null {
@@ -210,6 +246,7 @@ interface ContainerSpan {
  */
 function container(lines: string[], lineNumber: number, pos: number): EditorContext | null {
   const target = lineNumber - 1
+  if (!lines.some((line) => /^ {0,3}:{3,}/.test(line))) return null
   const fences = fencedRanges(lines)
   let best: ContainerSpan | null = null
   for (let start = 0; start <= target; start++) {

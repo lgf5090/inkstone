@@ -80,3 +80,20 @@ export function containerRangeInText(content: string, startLine: number): { star
   if (found === -1) return null
   return { start: startLine, end: found }
 }
+
+/**
+ * The schemes a note may send the browser to.
+ *
+ * The preview is safe to open from because the sanitizer already rewrote its anchors; the source
+ * pane's menu reads the URL straight out of the note's text, where a `javascript:` target is just
+ * characters. The row is disabled rather than hidden, so the note is not silently edited around.
+ */
+const SAFE_URL_SCHEMES = /^(?:https?:|mailto:|tel:|ftp:|#|\/|\.\/|\.\.\/)/i
+
+export function isSafeExternalUrl(url: string): boolean {
+  const trimmed = url.trim()
+  if (!trimmed) return false
+  // A reference with no scheme at all resolves inside the app, which is what a note link means.
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return true
+  return SAFE_URL_SCHEMES.test(trimmed)
+}

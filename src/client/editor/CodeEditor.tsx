@@ -22,6 +22,7 @@ import { detectEditorContext } from '../features/workspace/context-menu/detect-e
 import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
+import { useLongPress } from '../features/workspace/context-menu/use-long-press';
 import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
@@ -62,10 +63,24 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     const cbRef = useRef({ onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu });
     cbRef.current = { onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
+    const longPress = useLongPress((point, target) => {
+        const tag = tagMenuRequestFrom(target, point.x, point.y);
+        if (tag) {
+            tagMenuRef.current(tag);
+            return;
+        }
+        const view = viewRef.current;
+        const ask = cbRef.current.onRequestContextMenu;
+        if (!view || !ask) return;
+        const pos = view.posAtCoords(point) ?? view.state.selection.main.head;
+        ask({ x: point.x, y: point.y, editor: detectEditorContext(view.state, pos) });
+    });
     const dark = useThemeDark();
     const hoverRef = useRef({ propose: hover.propose, card: hover.card, hideNow: hover.hideNow });
     hoverRef.current = { propose: hover.propose, card: hover.card, hideNow: hover.hideNow };
 
+    const longPressRef = useRef(longPress);
+    longPressRef.current = longPress;
     const liveCompartment = useRef(new Compartment());
     const lineNumbersCompartment = useRef(new Compartment());
     const tabSizeCompartment = useRef(new Compartment());
@@ -152,6 +167,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     }
                     const ask = cbRef.current.onRequestContextMenu;
                     if (!ask) return false;
+                    if (longPressRef.current.justLongPressed()) return false;
                     event.preventDefault();
                     const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
                     ask({ x: event.clientX, y: event.clientY, editor: detectEditorContext(view.state, pos ?? view.state.selection.main.head) });
@@ -250,7 +266,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         viewRef.current?.dispatch({ effects: setFocusMode.of(settings.focusMode) });
     }, [settings.focusMode]);
     return (<>
-      <div ref={hostRef} className={cn('ink-editor', className)} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter}/>
+      <div ref={hostRef} {...longPress.handlers} className={cn('ink-editor', className)} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter}/>
       <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
       {hover.card && (<WikiLinkHoverCard card={hover.card} path={hover.card.noteId ? [hover.card.noteId] : []} depth={1} dark={dark} onClose={hover.hideNow} onEnter={hover.clearPendingHide} onLeave={hover.armHide} onPin={handlePin}/>)}
     </>);

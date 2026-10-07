@@ -69,7 +69,8 @@ export interface EditorContext {
 
 export interface PreviewContext {
   kind: ContextKind
-  target: HTMLElement
+  /** The node the pointer was on. A diagram's shapes are SVG, so this is not always an `HTMLElement`. */
+  target: Element
   selectedText?: string
   /** The 0-based source line the block was stamped with, or the note's first for front matter. */
   line?: number

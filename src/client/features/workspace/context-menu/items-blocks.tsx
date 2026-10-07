@@ -4,7 +4,8 @@ import { t } from '../../../lib/i18n'
 import { formatCode } from '../../../lib/markdown/code-formatter'
 import { FORMATTABLE_LANGUAGES } from '../../../lib/markdown/code-formatter/types'
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES } from '../../../editor/diagram-templates'
-import { detectChartMode } from '../../../lib/markdown/chart/body'
+import { resolveChartMode } from '../../../lib/markdown/chart/body'
+import { parseStyleValue, readFenceStyle } from '../../../lib/markdown/chart/style'
 import { convertChartFence } from '../../preview/chart-block-toolbar'
 import { detectMindmapMode } from '../../../lib/markdown/mindmap/body'
 import type { ContextKind, MenuCtx, FenceInfoData } from './types'
@@ -85,7 +86,7 @@ function templateItem(ctx: MenuCtx, templates: typeof MERMAID_TEMPLATES): MenuIt
 function formatItem(ctx: MenuCtx, body: string, language: string): MenuItem {
   return {
     id: 'format-block',
-    label: t('command.format_code_block'),
+    label: t('contextmenu.format_code'),
     icon: <Sparkles size={14} />,
     onSelect: () => {
       const formatted = formatCode(body, language)
@@ -164,7 +165,10 @@ export function buildMermaidItems(ctx: MenuCtx): MenuItem[] | null {
 function chartConvertItem(ctx: MenuCtx): MenuItem | null {
   const at = currentFence(ctx)
   if (!at) return null
-  const toTable = detectChartMode(at.body) !== 'table'
+  // The format the block is *read* as, which the fence can state outright with `style=`. Asking the
+  // body alone would name the opposite conversion for a block the renderer is already drawing as a
+  // table from a body too broken for inference to have recognised.
+  const toTable = resolveChartMode(at.body, parseStyleValue(readFenceStyle(at.info)).style) !== 'table'
   return {
     id: 'chart-convert',
     label: t(toTable ? 'preview.chart_convert_to_table' : 'preview.chart_convert_to_json'),
@@ -222,13 +226,13 @@ export function buildMindmapItems(ctx: MenuCtx): MenuItem[] | null {
       label: t('preview.mindmap_fullscreen'),
       icon: <Maximize2 size={14} />,
       separatorBefore: true,
-      onSelect: () => ctx.onBlockAction('mindmap-fullscreen', ctx.preview!.target),
+      onSelect: () => ctx.onBlockAction('mindmap-fullscreen', ctx.preview!.target as HTMLElement),
     })
     items.push({
       id: 'mindmap-theme',
       label: t('preview.mindmap_theme'),
       icon: <Eye size={14} />,
-      onSelect: () => ctx.onBlockAction('mindmap-theme', ctx.preview!.target),
+      onSelect: () => ctx.onBlockAction('mindmap-theme', ctx.preview!.target as HTMLElement),
     })
   }
   items.push(copySourceItem(ctx))
@@ -250,7 +254,7 @@ export function buildKanbanItems(ctx: MenuCtx): MenuItem[] | null {
       label: t('preview.kanban_fullscreen'),
       icon: <Waypoints size={14} />,
       separatorBefore: true,
-      onSelect: () => ctx.onBlockAction('kanban-fullscreen', ctx.preview!.target),
+      onSelect: () => ctx.onBlockAction('kanban-fullscreen', ctx.preview!.target as HTMLElement),
     })
   }
   items.push(copySourceItem(ctx))

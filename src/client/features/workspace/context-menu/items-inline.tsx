@@ -4,7 +4,7 @@ import { t } from '../../../lib/i18n'
 import { findNoteByTitle } from '../../../store/notes'
 import { updateTaskAtSourceLine } from '../../../editor/commands'
 import { joinLines, splitLines } from '../../../lib/markdown/fence-edit'
-import { containerRangeInText, setHeadingLevelInText, taskToBulletInText } from './line-edits'
+import { containerRangeInText, isSafeExternalUrl, setHeadingLevelInText, taskToBulletInText } from './line-edits'
 import type { MenuCtx } from './types'
 import { isSourceMenu } from './types'
 
@@ -145,8 +145,9 @@ export function buildLinkItems(ctx: MenuCtx): MenuItem[] | null {
       id: 'open-link',
       label: t('contextmenu.link_open'),
       icon: <ExternalLink size={14} />,
+      disabled: !isSafeExternalUrl(link.url),
       onSelect: () => {
-        if (link.url) window.open(link.url, '_blank', 'noopener,noreferrer')
+        if (isSafeExternalUrl(link.url)) window.open(link.url, '_blank', 'noopener,noreferrer')
       },
     },
     copyItem(ctx, 'copy-link-url', t('contextmenu.copy_link'), link.url, true),
