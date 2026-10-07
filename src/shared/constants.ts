@@ -1,4 +1,15 @@
-import type { AccentName, CodeFormatKeywordCase, EmojiInsertFormat, SkinTone, UserSettings, ViewKind } from './types'
+import type {
+  AccentName,
+  CodeFormatKeywordCase,
+  EmojiInsertFormat,
+  PropertyColorChoice,
+  PropertyFormatChoice,
+  PropertyProgressChoice,
+  SkinTone,
+  UserSettings,
+  ViewKind,
+} from './types'
+import { COVER_POSITIONS, COVER_SHAPES } from './property-decorations'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
@@ -175,6 +186,49 @@ export const DEFAULT_SETTINGS: UserSettings = {
     presentationChartAnimation: true,
     presentationAutoHideChrome: true,
   },
+  properties: {
+    enabled: true,
+    showBanner: true,
+    showCover: true,
+    showIcon: true,
+    bannerProperty: 'banner',
+    iconProperty: 'icon',
+    coverProperties: ['cover'],
+    coverShapeProperty: 'cover_shape',
+    coverPositionProperty: 'cover_position',
+    bannerPositionProperty: 'banner_position',
+    coverShape: 'initial',
+    coverPosition: 'left',
+    coverWidth: 200,
+    coverWidth2: 250,
+    coverWidth3: 300,
+    coverMaxHeight: 500,
+    bannerHeight: 150,
+    bannerFade: true,
+    bannerPosition: 50,
+    iconSize: 70,
+    iconInline: false,
+    coloredValues: true,
+    hideHeader: false,
+    hideAddButton: false,
+    hideWholeBlockWhenEmpty: false,
+    revealHidden: false,
+    hidden: [],
+    hiddenWhenEmpty: [],
+    hideAllEmpty: false,
+    colors: {},
+    useCustomDateFormats: false,
+    dateFormat: '',
+    dateTimeFormat: '',
+    relativeDateColors: false,
+    datePastColor: null,
+    datePresentColor: null,
+    dateFutureColor: null,
+    progress: {},
+    formats: {},
+    selectOptions: {},
+    quickSearchKey: 'ctrl',
+  },
   backup: {
     schedule: 'sixHourly',
     retentionCount: 0,
@@ -192,6 +246,197 @@ export const DEFAULT_SETTINGS: UserSettings = {
 }
 
 export const TODO_TAG_LIST_MAX = 8
+
+export const PROPERTY_NAME_MAX = 60
+export const PROPERTY_LIST_MAX = 80
+export const PROPERTY_COVER_NAMES_MAX = 8
+export const PROPERTY_COLOR_RULES_MAX = 60
+export const PROPERTY_COLOR_VALUES_MAX = 40
+export const PROPERTY_COLOR_TEXT_MAX = 120
+export const PROPERTY_FORMAT_RULES_MAX = 60
+export const PROPERTY_TEMPLATE_MAX = 512
+export const PROPERTY_PROGRESS_RULES_MAX = 60
+export const PROPERTY_SELECT_RULES_MAX = 60
+export const PROPERTY_SELECT_OPTIONS_MAX = 24
+export const PROPERTY_DATE_PATTERN_MAX = 120
+export const PROPERTY_COVER_WIDTH_RANGE = [60, 900] as const
+export const PROPERTY_BANNER_HEIGHT_RANGE = [40, 600] as const
+export const PROPERTY_ICON_SIZE_RANGE = [16, 240] as const
+
+const QUICK_SEARCH_KEYS = ['off', 'ctrl', 'alt', 'meta'] as const
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+const PROPERTY_BUDGET_TOTAL = 8192
+
+interface SizeBudget {
+  remaining: number
+}
+
+function charge(budget: SizeBudget, size: number): boolean {
+  if (budget.remaining < size)
+    return false
+  budget.remaining -= size
+  return true
+}
+
+function propertyColorValue(value: unknown): string | null | undefined {
+  if (value === undefined)
+    return undefined
+  if (value === null)
+    return null
+  if (typeof value !== 'string')
+    return undefined
+  const text = value.trim()
+  if (text === 'default' || text === 'none')
+    return text
+  return HEX_COLOR.test(text) ? text.toLocaleLowerCase() : undefined
+}
+
+function propertyNameList(value: unknown, max: number, budget?: SizeBudget): string[] {
+  if (!Array.isArray(value))
+    return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string')
+      continue
+    const name = item.trim().slice(0, PROPERTY_NAME_MAX)
+    const key = name.toLocaleLowerCase()
+    if (!name || seen.has(key))
+      continue
+    if (budget && !charge(budget, name.length + 3))
+      break
+    seen.add(key)
+    out.push(name)
+    if (out.length === max)
+      break
+  }
+  return out
+}
+
+function propertyTextKey(value: unknown, max: number): string {
+  if (typeof value !== 'string')
+    return ''
+  const text = value.trim()
+  return text.length > max ? '' : text
+}
+
+function colorMap(value: unknown, budget: SizeBudget): Record<string, Record<string, PropertyColorChoice>> {
+  const out: Record<string, Record<string, PropertyColorChoice>> = {}
+  for (const [rawName, rawRules] of Object.entries(asRecord(value))) {
+    if (Object.keys(out).length === PROPERTY_COLOR_RULES_MAX)
+      break
+    const name = propertyTextKey(rawName, PROPERTY_NAME_MAX).toLocaleLowerCase()
+    if (!name)
+      continue
+    if (!charge(budget, name.length + 8))
+      break
+    const rules: Record<string, PropertyColorChoice> = {}
+    for (const [rawValue, rawChoice] of Object.entries(asRecord(rawRules))) {
+      if (Object.keys(rules).length === PROPERTY_COLOR_VALUES_MAX)
+        break
+      const key = propertyTextKey(rawValue, PROPERTY_COLOR_TEXT_MAX)
+      if (!key)
+        continue
+      const choice = asRecord(rawChoice)
+      const pill = propertyColorValue(choice.pill)
+      const text = propertyColorValue(choice.text)
+      if (pill === undefined && text === undefined)
+        continue
+      const entry: PropertyColorChoice = {}
+      if (pill !== undefined)
+        entry.pill = pill
+      if (text !== undefined)
+        entry.text = text
+      if (!charge(budget, key.length + 40))
+        break
+      rules[key] = entry
+    }
+    if (Object.keys(rules).length)
+      out[name] = rules
+  }
+  return out
+}
+
+function progressMap(value: unknown, budget: SizeBudget): Record<string, PropertyProgressChoice> {
+  const out: Record<string, PropertyProgressChoice> = {}
+  for (const [rawName, rawRule] of Object.entries(asRecord(value))) {
+    if (Object.keys(out).length === PROPERTY_PROGRESS_RULES_MAX)
+      break
+    const name = propertyTextKey(rawName, PROPERTY_NAME_MAX).toLocaleLowerCase()
+    if (!name)
+      continue
+    const rule = asRecord(rawRule)
+    const entry: PropertyProgressChoice = {}
+    const max = typeof rule.max === 'number' && Number.isFinite(rule.max) && rule.max !== 0
+      ? Math.min(1_000_000, Math.max(-1_000_000, rule.max))
+      : undefined
+    const maxProperty = typeof rule.maxProperty === 'string' ? propertyTextKey(rule.maxProperty, PROPERTY_NAME_MAX) : undefined
+    if (max !== undefined)
+      entry.max = max
+    if (maxProperty)
+      entry.maxProperty = maxProperty
+    if (rule.variant === 'circle')
+      entry.variant = 'circle'
+    if (entry.max === undefined && !entry.maxProperty)
+      entry.max = 100
+    if (!charge(budget, name.length + (entry.maxProperty?.length ?? 0) + 34))
+      break
+    out[name] = entry
+  }
+  return out
+}
+
+function formatMap(value: unknown, budget: SizeBudget): Record<string, PropertyFormatChoice> {
+  const out: Record<string, PropertyFormatChoice> = {}
+  for (const [rawName, rawRule] of Object.entries(asRecord(value))) {
+    if (Object.keys(out).length === PROPERTY_FORMAT_RULES_MAX)
+      break
+    const name = propertyTextKey(rawName, PROPERTY_NAME_MAX).toLocaleLowerCase()
+    if (!name)
+      continue
+    const rule = asRecord(rawRule)
+    const entry: PropertyFormatChoice = {}
+    if (typeof rule.template === 'string') {
+      const template = rule.template.slice(0, PROPERTY_TEMPLATE_MAX)
+      if (template.trim())
+        entry.template = template
+    }
+    if (rule.markdown === true)
+      entry.markdown = true
+    if (entry.template === undefined && !entry.markdown)
+      continue
+    if (!charge(budget, name.length + (entry.template?.length ?? 0) + 30))
+      break
+    out[name] = entry
+  }
+  return out
+}
+
+function optionsMap(value: unknown, budget: SizeBudget): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [rawName, rawOptions] of Object.entries(asRecord(value))) {
+    if (Object.keys(out).length === PROPERTY_SELECT_RULES_MAX)
+      break
+    const name = propertyTextKey(rawName, PROPERTY_NAME_MAX).toLocaleLowerCase()
+    if (!name)
+      continue
+    const options = propertyNameList(rawOptions, PROPERTY_SELECT_OPTIONS_MAX, budget)
+      .map(item => item.slice(0, PROPERTY_COLOR_TEXT_MAX))
+    if (options.length)
+      out[name] = options
+  }
+  return out
+}
+
+function hexOrNull(value: unknown): string | null {
+  return typeof value === 'string' && HEX_COLOR.test(value.trim()) ? value.trim().toLocaleLowerCase() : null
+}
+
+function trimmedText(value: unknown, max: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : ''
+}
 
 export const PINNED_WINDOW_PRESETS: Record<'small' | 'medium' | 'large', { width: number, height: number }> = {
   small: { width: 340, height: 380 },
@@ -237,6 +482,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const appearance = asRecord(src.appearance)
   const editor = asRecord(src.editor)
   const preview = asRecord(src.preview)
+  const properties = asRecord(src.properties)
   const backup = asRecord(src.backup)
   const sync = asRecord(src.sync)
   const notes = asRecord(src.notes)
@@ -383,6 +629,55 @@ export function mergeSettings(partial: unknown): UserSettings {
     base.preview.pinnedWindowHeight,
   )
 
+  base.properties.enabled = booleanValue(properties.enabled, base.properties.enabled)
+  base.properties.showBanner = booleanValue(properties.showBanner, base.properties.showBanner)
+  base.properties.showCover = booleanValue(properties.showCover, base.properties.showCover)
+  base.properties.showIcon = booleanValue(properties.showIcon, base.properties.showIcon)
+  base.properties.bannerProperty = trimmedText(properties.bannerProperty, PROPERTY_NAME_MAX) || base.properties.bannerProperty
+  base.properties.iconProperty = trimmedText(properties.iconProperty, PROPERTY_NAME_MAX) || base.properties.iconProperty
+  base.properties.coverShapeProperty = trimmedText(properties.coverShapeProperty, PROPERTY_NAME_MAX) || base.properties.coverShapeProperty
+  base.properties.coverPositionProperty = trimmedText(properties.coverPositionProperty, PROPERTY_NAME_MAX) || base.properties.coverPositionProperty
+  base.properties.bannerPositionProperty = trimmedText(properties.bannerPositionProperty, PROPERTY_NAME_MAX) || base.properties.bannerPositionProperty
+  base.properties.coverProperties = Array.isArray(properties.coverProperties)
+    ? propertyNameList(properties.coverProperties, PROPERTY_COVER_NAMES_MAX)
+    : base.properties.coverProperties
+  const propertyBudget: SizeBudget = { remaining: PROPERTY_BUDGET_TOTAL }
+  base.properties.coverShape = enumValue(properties.coverShape, COVER_SHAPES, base.properties.coverShape)
+  base.properties.coverPosition = enumValue(properties.coverPosition, COVER_POSITIONS, base.properties.coverPosition)
+  base.properties.coverWidth = integerInRange(properties.coverWidth, PROPERTY_COVER_WIDTH_RANGE[0], PROPERTY_COVER_WIDTH_RANGE[1], base.properties.coverWidth)
+  base.properties.coverWidth2 = integerInRange(properties.coverWidth2, PROPERTY_COVER_WIDTH_RANGE[0], PROPERTY_COVER_WIDTH_RANGE[1], base.properties.coverWidth2)
+  base.properties.coverWidth3 = integerInRange(properties.coverWidth3, PROPERTY_COVER_WIDTH_RANGE[0], PROPERTY_COVER_WIDTH_RANGE[1], base.properties.coverWidth3)
+  base.properties.coverMaxHeight = integerInRange(properties.coverMaxHeight, PROPERTY_COVER_WIDTH_RANGE[0], 1600, base.properties.coverMaxHeight)
+  base.properties.bannerHeight = integerInRange(properties.bannerHeight, PROPERTY_BANNER_HEIGHT_RANGE[0], PROPERTY_BANNER_HEIGHT_RANGE[1], base.properties.bannerHeight)
+  base.properties.bannerFade = booleanValue(properties.bannerFade, base.properties.bannerFade)
+  base.properties.bannerPosition = integerInRange(properties.bannerPosition, 0, 100, base.properties.bannerPosition)
+  base.properties.iconSize = integerInRange(properties.iconSize, PROPERTY_ICON_SIZE_RANGE[0], PROPERTY_ICON_SIZE_RANGE[1], base.properties.iconSize)
+  base.properties.iconInline = booleanValue(properties.iconInline, base.properties.iconInline)
+  base.properties.coloredValues = booleanValue(properties.coloredValues, base.properties.coloredValues)
+  base.properties.hideHeader = booleanValue(properties.hideHeader, base.properties.hideHeader)
+  base.properties.hideAddButton = booleanValue(properties.hideAddButton, base.properties.hideAddButton)
+  base.properties.hideWholeBlockWhenEmpty = booleanValue(properties.hideWholeBlockWhenEmpty, base.properties.hideWholeBlockWhenEmpty)
+  base.properties.revealHidden = booleanValue(properties.revealHidden, base.properties.revealHidden)
+  base.properties.hideAllEmpty = booleanValue(properties.hideAllEmpty, base.properties.hideAllEmpty)
+  base.properties.hidden = Array.isArray(properties.hidden)
+    ? propertyNameList(properties.hidden, PROPERTY_LIST_MAX, propertyBudget)
+    : base.properties.hidden
+  base.properties.hiddenWhenEmpty = Array.isArray(properties.hiddenWhenEmpty)
+    ? propertyNameList(properties.hiddenWhenEmpty, PROPERTY_LIST_MAX, propertyBudget)
+    : base.properties.hiddenWhenEmpty
+  base.properties.colors = colorMap(properties.colors, propertyBudget)
+  base.properties.useCustomDateFormats = booleanValue(properties.useCustomDateFormats, base.properties.useCustomDateFormats)
+  base.properties.dateFormat = trimmedText(properties.dateFormat, PROPERTY_DATE_PATTERN_MAX)
+  base.properties.dateTimeFormat = trimmedText(properties.dateTimeFormat, PROPERTY_DATE_PATTERN_MAX)
+  base.properties.relativeDateColors = booleanValue(properties.relativeDateColors, base.properties.relativeDateColors)
+  base.properties.datePastColor = hexOrNull(properties.datePastColor)
+  base.properties.datePresentColor = hexOrNull(properties.datePresentColor)
+  base.properties.dateFutureColor = hexOrNull(properties.dateFutureColor)
+  base.properties.progress = progressMap(properties.progress, propertyBudget)
+  base.properties.formats = formatMap(properties.formats, propertyBudget)
+  base.properties.selectOptions = optionsMap(properties.selectOptions, propertyBudget)
+  base.properties.quickSearchKey = enumValue(properties.quickSearchKey, QUICK_SEARCH_KEYS, base.properties.quickSearchKey)
+
   base.backup.schedule = enumValue(
     backup.schedule,
     BACKUP_SCHEDULES,
@@ -402,7 +697,7 @@ export function mergeSettings(partial: unknown): UserSettings {
 }
 
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'backup', 'sync', 'notes'] as const
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes'] as const
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -447,6 +742,16 @@ function cloneDefaultSettings(): UserSettings {
     appearance: { ...DEFAULT_SETTINGS.appearance },
     editor: { ...DEFAULT_SETTINGS.editor },
     preview: { ...DEFAULT_SETTINGS.preview },
+    properties: {
+      ...DEFAULT_SETTINGS.properties,
+      coverProperties: [...DEFAULT_SETTINGS.properties.coverProperties],
+      hidden: [...DEFAULT_SETTINGS.properties.hidden],
+      hiddenWhenEmpty: [...DEFAULT_SETTINGS.properties.hiddenWhenEmpty],
+      colors: {},
+      progress: {},
+      formats: {},
+      selectOptions: {},
+    },
     backup: { ...DEFAULT_SETTINGS.backup },
     sync: { ...DEFAULT_SETTINGS.sync },
     notes: { ...DEFAULT_SETTINGS.notes },
