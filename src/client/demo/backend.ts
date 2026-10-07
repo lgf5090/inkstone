@@ -927,12 +927,20 @@ export function createDemoBackend(): DemoBackend {
       content: body.content,
       tags: tags.map((tag) => tag.trim().slice(0, 30)).filter(Boolean),
       category: typeof body.category === 'string' ? body.category.slice(0, 120) : '',
+      uses: existing?.uses ?? 0,
       createdAt: existing?.createdAt ?? Date.now(),
     }
     const index = state.communityTemplates.findIndex((item) => item.id === id)
     if (index >= 0) state.communityTemplates[index] = template
     else state.communityTemplates.push(template)
     return c.json({ template })
+  })
+  app.post('/api/templates/community/:id/use', (c) => {
+    const id = c.req.param('id')
+    const existing = state.communityTemplates.find((item) => item.id === id)
+    if (!existing) return apiError(404, 'not_found', 'Community template not found')
+    if (existing.authorId !== state.user.id) existing.uses += 1
+    return c.json({ uses: existing.uses })
   })
   app.delete('/api/templates/community/:id', (c) => {
     const id = c.req.param('id')

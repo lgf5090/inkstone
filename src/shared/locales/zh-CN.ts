@@ -2466,6 +2466,8 @@ console.log(\`Hello, \${name}!\`)
     "templates.community_sort_newest": "最新",
     "templates.community_sort_name": "名称",
     "templates.community_sort_author": "作者",
+    "templates.community_sort_popular": "最多人用",
+    "templates.community_uses": "{value0} 人采用",
     "templates.community_only_mine": "只看我的",
     "template.tag.decision": "决策",
     "template.tag.meeting": "会议",

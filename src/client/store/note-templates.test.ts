@@ -203,6 +203,25 @@ describe('categories', () => {
     expect(fresh().categories.find((item) => item.id === 'tasks')?.name).toBe(t('template.category.tasks'))
   })
 
+  it('dresses a user category in one write and leaves built-ins alone', () => {
+    const categoryId = fresh().createCategory('Recipes')!
+    const writes = bus.saves
+    expect(fresh().renameCategory(categoryId, 'Recipes', '🍲', '#0891b2')).toBe(true)
+    expect(fresh().categories.find((item) => item.id === categoryId)).toMatchObject({ icon: '🍲', color: '#0891b2' })
+    expect(bus.saves).toBe(writes + 1)
+    expect(fresh().renameCategory('tasks', 'Nope', '🚫', '#64748b')).toBe(false)
+    expect(bus.saves).toBe(writes + 1)
+    expect(fresh().categories.find((item) => item.id === 'tasks')?.color).not.toBe('#64748b')
+  })
+
+  it('seeds the built-in categories with their own icon and colour', () => {
+    const tasks = fresh().categories.find((item) => item.id === 'tasks')
+    expect(tasks?.icon).toBeTruthy()
+    expect(tasks?.color).toBeTruthy()
+    const icons = new Set(fresh().categories.filter((item) => item.builtin).map((item) => item.icon))
+    expect(icons.size).toBe(8)
+  })
+
   it('moves an orphaned template to uncategorized when its category goes', () => {
     const categoryId = fresh().createCategory('Temp')!
     const templateId = fresh().createTemplate({ name: 'Kept', content: 'body', categoryId })!
@@ -579,6 +598,24 @@ describe('account sync of the template library', () => {
       vi.useRealTimers()
     }
     expect(bus.pushes).toHaveLength(0)
+  })
+
+  it('adopts the account copy after a restore, even with a push still queued', async () => {
+    const snapshot = buildTemplateLibraryExport(
+      [{ id: 'cat-1', name: 'Mine', builtin: false, position: 0, createdAt: 10 }],
+      [template({ id: 'tpl-restored', name: 'From the backup', content: 'x' })],
+    )
+    stored.value = null
+    bus.remote = { savedAt: 9000, library: snapshot }
+    useNoteTemplates.setState({ categories: [], templates: [], hydrated: false, owner: '' })
+    await fresh().hydrate('user-b')
+    const localOnly = fresh().createTemplate({ name: 'Typed after the restore', content: 'y' })!
+    expect(library().pendingPush).toBe(true)
+    bus.remote = { savedAt: 20000, library: snapshot }
+    await fresh().reloadFromAccount('user-b')
+    expect(fresh().templates.some((item) => item.id === localOnly)).toBe(false)
+    expect(fresh().templates.some((item) => item.id === 'tpl-restored')).toBe(true)
+    expect(library().pendingPush).toBe(false)
   })
 })
 

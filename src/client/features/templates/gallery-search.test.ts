@@ -48,10 +48,14 @@ describe('templateMatchesQuery', () => {
 
 describe('sortCommunityItems', () => {
   const rows = [
-    { name: 'Sprint board', authorName: 'Bo', createdAt: 30, id: 'c' },
-    { name: 'apple pie', authorName: 'Ana', createdAt: 10, id: 'a' },
-    { name: 'Banana log', authorName: 'Cai', createdAt: 20, id: 'b' },
+    { name: 'Sprint board', authorName: 'Bo', createdAt: 30, id: 'c', uses: 2 },
+    { name: 'apple pie', authorName: 'Ana', createdAt: 10, id: 'a', uses: 9 },
+    { name: 'Banana log', authorName: 'Cai', createdAt: 20, id: 'b', uses: 9 },
   ]
+
+  it('sorts by how many accounts adopted it, newest id breaking a tie', () => {
+    expect(sortCommunityItems(rows, 'popular').map((item) => item.id)).toEqual(['b', 'a', 'c'])
+  })
 
   it('defaults to newest first', () => {
     expect(sortCommunityItems(rows, 'newest').map((item) => item.id)).toEqual(['c', 'b', 'a'])

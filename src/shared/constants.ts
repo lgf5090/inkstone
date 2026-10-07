@@ -46,6 +46,7 @@ export const LIMITS = {
   communityTemplateContentMaxLength: 6 * 1024,
   communityTemplatesMaxPerUser: 100,
   communityTemplatesPerHour: 10,
+  communityTemplateUsesPerHour: 120,
   communityTemplatesPageSizeMax: 200,
   backupRunsKept: 50,
   backupTargetsMax: 12,

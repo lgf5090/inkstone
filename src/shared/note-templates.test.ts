@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { ORGANIZER_COLORS } from './organizer-colors'
+import { LIMITS } from './constants'
 import { EN_US_MESSAGES } from './locales/en-US'
 import { ZH_CN_MESSAGES } from './locales/zh-CN'
 import { EN_US_NOTE_TEMPLATE_CONTENT } from './locales/en-US-note-template-content'
@@ -16,7 +18,7 @@ import {
 import type { NoteTemplate, NoteTemplateCategory } from './types'
 
 function category(id: string, builtin = false): NoteTemplateCategory {
-  return { id, name: `Category ${id}`, builtin, position: 0, createdAt: 1 }
+  return { id, name: `Category ${id}`, builtin, position: 0, createdAt: 1, icon: null, color: null }
 }
 
 function template(id: string, overrides: Partial<NoteTemplate> = {}): NoteTemplate {
@@ -57,6 +59,16 @@ describe('built-in template catalog', () => {
     expect(BUILTIN_TEMPLATE_CATEGORIES.map((def) => def.position)).toEqual(
       BUILTIN_TEMPLATE_CATEGORIES.map((_, index) => index),
     )
+  })
+
+  it('dresses every built-in category with an icon and its own palette colour', () => {
+    for (const def of BUILTIN_TEMPLATE_CATEGORIES) {
+      expect(def.icon, def.id).toBeTruthy()
+      expect([...def.icon].length, def.id).toBeLessThanOrEqual(LIMITS.organizerIconMaxLength)
+      expect(ORGANIZER_COLORS as readonly string[], def.id).toContain(def.color)
+    }
+    const colours = new Set(BUILTIN_TEMPLATE_CATEGORIES.map((def) => def.color))
+    expect(colours.size).toBe(BUILTIN_TEMPLATE_CATEGORIES.length)
   })
 
   it('keys each tag label after a tag the catalog actually uses', () => {
@@ -148,11 +160,32 @@ describe('parseTemplateLibraryExport', () => {
     expect(parsed.data?.templates[0]).toMatchObject({ isPinned: false, isStarred: false })
   })
 
-  it('keeps pin and star flags for the account\x27s own snapshot', () => {
+  it('keeps pin and star flags for the account snapshot itself', () => {
     const parsed = parseTemplateLibraryExport(exportJson({
       templates: [template('tpl-1', { isPinned: true, isStarred: true })],
     }), { keepFlags: true })
     expect(parsed.data?.templates[0]).toMatchObject({ isPinned: true, isStarred: true })
+  })
+
+  it('carries a category icon and colour through the export round trip', () => {
+    const parsed = parseTemplateLibraryExport(JSON.stringify(buildTemplateLibraryExport(
+      [{ ...category('cat-1'), icon: '🎯', color: '#059669' }],
+      [template('tpl-1')],
+    )))
+    expect(parsed.data?.categories[0]).toMatchObject({ icon: '🎯', color: '#059669' })
+    expect(parsed.dropped).toBe(0)
+  })
+
+  it('treats an appearance it cannot recognise as nothing', () => {
+    const oddColour = parseTemplateLibraryExport(exportJson({
+      categories: [{ id: 'cat-1', name: 'One', builtin: false, position: 0, createdAt: 1, icon: '🎯', color: '#123456' }],
+    }))
+    expect(oddColour.data?.categories[0]).toMatchObject({ icon: '🎯', color: null })
+    const hugeIcon = parseTemplateLibraryExport(exportJson({
+      categories: [{ id: 'cat-1', name: 'One', builtin: false, position: 0, createdAt: 1, icon: 'x'.repeat(200), color: '#059669' }],
+    }))
+    expect([...(hugeIcon.data?.categories[0]?.icon ?? '')].length).toBe(LIMITS.organizerIconMaxLength)
+    expect(hugeIcon.data?.categories[0]?.color).toBe('#059669')
   })
 
   it('clamps an over-long name, description and body', () => {

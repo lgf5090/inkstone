@@ -363,6 +363,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     content TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]',
     category TEXT NOT NULL DEFAULT '',
+    uses INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_community_templates_created
@@ -664,6 +665,7 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          content TEXT NOT NULL,
          tags TEXT NOT NULL DEFAULT '[]',
          category TEXT NOT NULL DEFAULT '',
+         uses INTEGER NOT NULL DEFAULT 0,
          created_at INTEGER NOT NULL
        )`,
       `CREATE INDEX IF NOT EXISTS idx_community_templates_created
@@ -680,6 +682,15 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'users', column: 'template_library' },
     statements: [
       `ALTER TABLE users ADD COLUMN template_library TEXT`,
+    ],
+  },
+  {
+    // How many accounts adopted each published template. `skipIfColumnExists` because a
+    // fresh database already gets the column from SCHEMA_STATEMENTS and from version 26.
+    version: 28,
+    skipIfColumnExists: { table: 'community_templates', column: 'uses' },
+    statements: [
+      `ALTER TABLE community_templates ADD COLUMN uses INTEGER NOT NULL DEFAULT 0`,
     ],
   },
 ]
@@ -732,7 +743,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at', 'attempts', 'next_retry_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
-  community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'created_at'],
+  community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'uses', 'created_at'],
 } as const
 
 const REQUIRED_TABLES = [

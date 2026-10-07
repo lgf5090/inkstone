@@ -218,6 +218,50 @@ describe('listing', () => {
   })
 })
 
+describe('the author name and the use count', () => {
+  it('reads the author name from the account, not from the row it published', async () => {
+    insert({ id: 'live-name' })
+    const before = await bodyOf(await request('')) as { templates: Array<{ authorName: string }> }
+    expect(before.templates[0]?.authorName).toBe('Display Name')
+    sqlite.prepare('UPDATE users SET name = ?1 WHERE id = ?2').run('Renamed Author', AUTHOR)
+    const after = await bodyOf(await request('')) as { templates: Array<{ authorName: string }> }
+    expect(after.templates[0]?.authorName).toBe('Renamed Author')
+  })
+
+  it('falls back to the login when the account cleared its display name', async () => {
+    insert({ id: 'no-name' })
+    sqlite.prepare('UPDATE users SET name = ?1 WHERE id = ?2').run('', AUTHOR)
+    const { templates } = await bodyOf(await request('')) as { templates: Array<{ authorName: string }> }
+    expect(templates[0]?.authorName).toBe('author')
+  })
+
+  it('counts a use by somebody else and refuses to let an author boost their own row', async () => {
+    const id = newId()
+    insert({ id })
+    expect((await request(`/${id}/use`, { method: 'POST' }, STRANGER)).status).toBe(200)
+    expect((await bodyOf(await request(`/${id}/use`, { method: 'POST' }, STRANGER))).uses).toBe(2)
+    const boosted = await request(`/${id}/use`, { method: 'POST' }, AUTHOR)
+    expect(boosted.status).toBe(200)
+    expect((await bodyOf(boosted)).uses).toBe(2)
+    const { templates } = await bodyOf(await request('')) as { templates: Array<{ id: string; uses: number }> }
+    expect(templates.find((item) => item.id === id)?.uses).toBe(2)
+  })
+
+  it('starts a fresh publish at zero and keeps the count through an update', async () => {
+    const id = newId()
+    const created = await bodyOf(await publish({ id })) as { template: { uses: number } }
+    expect(created.template.uses).toBe(0)
+    await request(`/${id}/use`, { method: 'POST' }, STRANGER)
+    const updated = await bodyOf(await publish({ id, name: 'Renamed row' })) as { template: { uses: number } }
+    expect(updated.template.uses).toBe(1)
+  })
+
+  it('refuses an unknown id and a malformed one', async () => {
+    expect((await request(`/${newId()}/use`, { method: 'POST' }, STRANGER)).status).toBe(404)
+    expect((await request('/not-an-id/use', { method: 'POST' }, STRANGER)).status).toBe(400)
+  })
+})
+
 describe('unpublishing', () => {
   it('removes the author’s own row', async () => {
     const id = newId()

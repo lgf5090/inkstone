@@ -137,6 +137,7 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       title: id ? t('templates.community_imported') : t('common.action_failed'),
       tone: id ? 'success' : 'danger',
     })
+    if (id) void api.communityTemplates.use(item.id).catch(() => {})
   }, [categories])
   const useCommunityTemplate = useCallback((item: CommunityTemplate) => {
     void (async () => {

@@ -64,6 +64,7 @@ export function CommunityPanel({ items, query, loading, isError, hasMore, myId, 
         onChange={setSort}
         options={[
           { value: 'newest', label: t('templates.community_sort_newest') },
+          { value: 'popular', label: t('templates.community_sort_popular') },
           { value: 'name', label: t('templates.community_sort_name') },
           { value: 'author', label: t('templates.community_sort_author') },
         ]}/>
@@ -113,6 +114,7 @@ function CommunityCard({ item, mine, onUse, onImport, onUnpublish }: {
       <span className='truncate text-[10.5px] text-[var(--text-quaternary)]'>{item.authorName}</span>
       {item.category && <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>· {item.category}</span>}
       <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>· {t('templates.lines_count', { value0: lineCount })} · {date}</span>
+      {item.uses > 0 && <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>· {t('templates.community_uses', { value0: item.uses })}</span>}
     </div>
     <div className='mt-2 flex items-center gap-1.5'>
       <Button size='sm' variant='primary' icon={<FilePlus2 size={13}/>} onClick={onUse} className='min-w-0 flex-1'>{t('templates.use_template')}</Button>

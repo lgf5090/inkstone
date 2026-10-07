@@ -172,6 +172,9 @@ export interface NoteTemplateCategory {
   builtin: boolean
   position: number
   createdAt: number
+  /** Appearance is optional because stored libraries predate it; absent means "derive it". */
+  icon?: string | null
+  color?: string | null
 }
 
 export interface NoteTemplate {
@@ -201,6 +204,8 @@ export interface CommunityTemplate {
   content: string
   tags: string[]
   category: string
+  /** How many other accounts added this template to their own library. */
+  uses: number
   createdAt: number
 }
 

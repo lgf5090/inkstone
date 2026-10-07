@@ -8,6 +8,7 @@
  * merges the missing/updated entries into existing user libraries without
  * touching user-created templates or user edits.
  */
+import { normalizeOrganizerIcon, organizerColorOrNull } from './organizer-colors'
 import type { MessageKey } from './locales/en-US'
 import type { NoteTemplate, NoteTemplateCategory } from './types'
 
@@ -16,6 +17,8 @@ interface BuiltinTemplateCategoryDef {
   id: string
   nameKey: MessageKey
   position: number
+  icon: string
+  color: string
 }
 
 /**
@@ -79,14 +82,14 @@ export interface BuiltinTemplateDef {
 export const TEMPLATE_SEED_VERSION = 2
 
 export const BUILTIN_TEMPLATE_CATEGORIES: BuiltinTemplateCategoryDef[] = [
-  { id: 'productivity', nameKey: 'template.category.productivity', position: 0 },
-  { id: 'tasks', nameKey: 'template.category.tasks', position: 1 },
-  { id: 'learning', nameKey: 'template.category.learning', position: 2 },
-  { id: 'work', nameKey: 'template.category.work', position: 3 },
-  { id: 'life', nameKey: 'template.category.life', position: 4 },
-  { id: 'health', nameKey: 'template.category.health', position: 5 },
-  { id: 'writing', nameKey: 'template.category.writing', position: 6 },
-  { id: 'industry', nameKey: 'template.category.industry', position: 7 },
+  { id: 'productivity', nameKey: 'template.category.productivity', position: 0, icon: '🚀', color: '#0891b2' },
+  { id: 'tasks', nameKey: 'template.category.tasks', position: 1, icon: '🗂️', color: '#dc2626' },
+  { id: 'learning', nameKey: 'template.category.learning', position: 2, icon: '📚', color: '#4f46e5' },
+  { id: 'work', nameKey: 'template.category.work', position: 3, icon: '💼', color: '#ca8a04' },
+  { id: 'life', nameKey: 'template.category.life', position: 4, icon: '☕', color: '#059669' },
+  { id: 'health', nameKey: 'template.category.health', position: 5, icon: '✨', color: '#65a30d' },
+  { id: 'writing', nameKey: 'template.category.writing', position: 6, icon: '📝', color: '#9333ea' },
+  { id: 'industry', nameKey: 'template.category.industry', position: 7, icon: '🛠️', color: '#ea580c' },
 ]
 
 export const BUILTIN_TEMPLATE_DEFS: BuiltinTemplateDef[] = [
@@ -963,6 +966,8 @@ function normalizeExportCategory(value: NoteTemplateCategory): NoteTemplateCateg
     ...value,
     id: clampText(value.id, TEMPLATE_IMPORT_LIMITS.maxIdLength),
     name: clampText(value.name, TEMPLATE_IMPORT_LIMITS.maxNameLength),
+    icon: normalizeOrganizerIcon(value.icon ?? null),
+    color: organizerColorOrNull(value.color),
   }
 }
 

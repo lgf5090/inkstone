@@ -40,14 +40,14 @@ export function galleryEmptyState(filter: GalleryFilter, query: string): Gallery
   return 'library'
 }
 
-export type CommunitySort = 'newest' | 'name' | 'author'
+export type CommunitySort = 'newest' | 'popular' | 'name' | 'author'
 
 /**
  * Ordering the directory cannot do for you: the server only ever answers "newest",
  * so a reader who wants to find a name in the list has to be given the sort here.
  * Ties fall back to the other fields so the order is stable across re-renders.
  */
-export function sortCommunityItems<T extends { name: string; authorName: string; createdAt: number; id: string }>(
+export function sortCommunityItems<T extends { name: string; authorName: string; createdAt: number; id: string; uses: number }>(
   items: readonly T[],
   sort: CommunitySort,
 ): T[] {
@@ -55,6 +55,7 @@ export function sortCommunityItems<T extends { name: string; authorName: string;
   return [...items].sort((a, b) => {
     if (sort === 'name') return collator.compare(a.name, b.name) || collator.compare(a.id, b.id)
     if (sort === 'author') return collator.compare(a.authorName, b.authorName) || collator.compare(a.name, b.name)
+    if (sort === 'popular') return b.uses - a.uses || collator.compare(b.id, a.id)
     return b.createdAt - a.createdAt || collator.compare(a.id, b.id)
   })
 }

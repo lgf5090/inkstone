@@ -13,6 +13,7 @@ import {
   type TemplateLibraryExport,
 } from '@shared/note-templates'
 import { api, CLIENT_ID } from '../lib/api'
+import { normalizeOrganizerIcon, organizerColorOrNull } from '@shared/organizer-colors'
 import { createBroadcast, localDb, publishBroadcast, type TemplateLibraryData } from '../lib/db'
 import { randomLocalId } from '../lib/random-id'
 import { ensureNoteTemplateContentLoaded, t } from '../lib/i18n'
@@ -43,8 +44,10 @@ interface TemplateLibraryState {
   /** Account the hydrated library belongs to; a change forces a re-read. */
   owner: string
   hydrate: (owner: string) => Promise<void>
-  createCategory: (name: string) => string | null
-  renameCategory: (id: string, name: string) => boolean
+  /** Take the account's copy as it stands: what a backup restore just wrote. */
+  reloadFromAccount: (owner: string) => Promise<void>
+  createCategory: (name: string, icon?: string | null, color?: string | null) => string | null
+  renameCategory: (id: string, name: string, icon?: string | null, color?: string | null) => boolean
   deleteCategory: (id: string) => boolean
   createTemplate: (input: TemplateInput) => string | null
   updateTemplate: (id: string, patch: Partial<TemplateInput>) => boolean
@@ -122,6 +125,8 @@ function buildBuiltinLibrary(): TemplateLibraryData {
       builtin: true,
       position: index,
       createdAt: now,
+      icon: def.icon,
+      color: def.color,
     })),
     templates: BUILTIN_TEMPLATE_DEFS.map((def, index) => builtinTemplate(def, index, now)),
     seedVersion: TEMPLATE_SEED_VERSION,
@@ -192,6 +197,8 @@ function missingBuiltinCategories(existingIds: Set<string>, now: number): NoteTe
       builtin: true,
       position: def.position,
       createdAt: now,
+      icon: def.icon,
+      color: def.color,
     })
   }
   return added
@@ -313,8 +320,17 @@ export const useNoteTemplates = create<TemplateLibraryState>((set, get) => ({
   undoable: null,
   owner: '',
   hydrate: (owner) => hydrateImpl(set, get, owner),
-  createCategory: (name) => createCategoryImpl(set, name),
-  renameCategory: (id, name) => renameCategoryImpl(set, get, id, name),
+  reloadFromAccount: async (owner) => {
+    if (!owner) return
+    const stored = await localDb.loadTemplateLibrary()
+    if (stored?.pendingPush) {
+      await localDb.saveTemplateLibrary({ ...stored, pendingPush: false })
+    }
+    useNoteTemplates.setState({ hydrated: false })
+    await get().hydrate(owner)
+  },
+  createCategory: (name, icon, color) => createCategoryImpl(set, name, icon, color),
+  renameCategory: (id, name, icon, color) => renameCategoryImpl(set, get, id, name, icon, color),
   deleteCategory: (id) => deleteCategoryImpl(set, get, id),
   createTemplate: (input) => createTemplateImpl(set, input),
   updateTemplate: (id, patch) => updateTemplateImpl(set, get, id, patch),
@@ -393,7 +409,12 @@ function nextPositionIn(templates: NoteTemplate[], categoryId: string | null): n
     : 0
 }
 
-function createCategoryImpl(set: SetTemplateState, name: string): string | null {
+function createCategoryImpl(
+  set: SetTemplateState,
+  name: string,
+  icon: string | null = null,
+  color: string | null = null,
+): string | null {
   const trimmed = name.trim()
   if (!trimmed) return null
   const id = randomLocalId('cat')
@@ -405,6 +426,8 @@ function createCategoryImpl(set: SetTemplateState, name: string): string | null 
       builtin: false,
       position: state.categories.length,
       createdAt: now,
+      icon: normalizeOrganizerIcon(icon),
+      color: organizerColorOrNull(color),
     }]
     persist(state.templates, categories)
     return { categories: orderedCategories(categories) }
@@ -417,13 +440,17 @@ function renameCategoryImpl(
   get: () => TemplateLibraryState,
   id: string,
   name: string,
+  icon?: string | null,
+  color?: string | null,
 ): boolean {
   const trimmed = name.trim()
   const current = get().categories.find((item) => item.id === id)
   if (!current || current.builtin || !trimmed) return false
+  const nextIcon = icon === undefined ? (current.icon ?? null) : normalizeOrganizerIcon(icon)
+  const nextColor = color === undefined ? (current.color ?? null) : organizerColorOrNull(color)
   set((state) => {
     const categories = state.categories.map((item) => item.id === id
-      ? { ...item, name: trimmed.slice(0, NAME_MAX) }
+      ? { ...item, name: trimmed.slice(0, NAME_MAX), icon: nextIcon, color: nextColor }
       : item)
     persist(state.templates, categories)
     return { categories }

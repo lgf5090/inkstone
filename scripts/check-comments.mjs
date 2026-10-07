@@ -669,7 +669,8 @@ const allowed = new Map([
     "/**\n * What a click on a card means. In select mode every click is a tick; the star keeps\n * its gesture only where the grid is showing something other than a selection.\n */",
   ]],
   ["src/client/features/templates/gallery-controls.tsx", [
-    "/**\n * A category's colour, derived rather than stored: the eight built-in categories get\n * the first eight palette entries in their own order, and anything the user makes gets\n * a stable pick from its id. Template categories have no colour field to read, and a\n * hash is enough to tell eight sidebar rows apart.\n */",
+    "/**\n * A category's colour: what the row stores if it stores anything, otherwise the\n * built-in catalog's own pick, and for a user category a stable hash of its id.\n */",
+    "/**\n * The glyph in front of a category row. A library seeded before categories grew an\n * icon field still gets the catalog's own, because that row is not the user's to restyle.\n */",
   ]],
   ["src/client/features/templates/gallery-derived.ts", [
     "/**\n * One query, one rule: the gallery grid and the community list are the same\n * search over the same four fields, because a search box that only works in one\n * of the two is a control that lies about what the view can do.\n */",
@@ -3865,6 +3866,7 @@ const allowed = new Map([
     "/**\n   * The library as it was before the last destructive action, kept in memory only.\n   * One step deep, because that is all a toast's undo button promises.\n   */",
     "// The snapshot only ever carries what the user made, so it has not been",
     "// seeded: claiming the current version here would drop the built-in catalog.",
+    "/** Take the account's copy as it stands: what a backup restore just wrote. */",
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
@@ -3943,6 +3945,9 @@ const allowed = new Map([
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
     "/* The leading every dense UI stack shares, so a card and its column header agree. */",
+  ]],
+  ["src/shared/backup-format.ts", [
+    "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -4046,6 +4051,8 @@ const allowed = new Map([
     "/** True for templates shipped with the app; they can be edited but not deleted. */",
     "/** Free-form labels shown in the gallery and used as a filter. */",
     "/** Manual sort position within the category; falls back to recency when absent. */",
+    "/** Appearance is optional because stored libraries predate it; absent means \"derive it\". */",
+    "/** How many other accounts added this template to their own library. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
@@ -4127,6 +4134,8 @@ const allowed = new Map([
     "// The account's own template library, so it survives a cleared browser and travels",
     "// between devices the way `settings` does. `skipIfColumnExists` because a fresh",
     "// database already gets the column from SCHEMA_STATEMENTS.",
+    "// How many accounts adopted each published template. `skipIfColumnExists` because a",
+    "// fresh database already gets the column from SCHEMA_STATEMENTS and from version 26.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -4272,6 +4281,8 @@ const allowed = new Map([
     "// `created_at` is deliberately absent from the UPDATE list: re-publishing an",
     "// existing template refreshes its text but must not jump it back to the top",
     "// of the directory.",
+    "/**\n * `author_name` is read from the account rather than the copy frozen into the row\n * at publish time, so an author who changes their display name is credited with the\n * name readers should see today.\n */",
+    "/**\n * One account adopting a template into its own library is the only signal worth\n * counting, so the author's own copy never adds to it. The budget is per account\n * and generous: it stops a script, not a person browsing the directory.\n */",
   ]],
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",

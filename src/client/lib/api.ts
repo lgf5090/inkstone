@@ -468,6 +468,7 @@ export const api = {
     publish: (body: CommunityTemplateInput) =>
       request<{ template: CommunityTemplate }>('/api/templates/community', { method: 'POST', body }),
     remove: (id: string) => request<{ ok: true }>(`/api/templates/community/${id}`, { method: 'DELETE' }),
+    use: (id: string) => request<{ uses: number }>(`/api/templates/community/${id}/use`, { method: 'POST' }),
   },
 
   templateLibrary: {

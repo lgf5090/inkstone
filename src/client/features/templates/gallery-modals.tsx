@@ -7,6 +7,7 @@ import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
+import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useUi } from '../../store/ui'
 import { t, useLocale } from '../../lib/i18n'
@@ -137,7 +138,10 @@ export function CategoryDialog({ dialog, onClose }: {
   dialog: { mode: 'create' } | { mode: 'rename'; category: NoteTemplateCategory }
   onClose: () => void
 }) {
-  const [name, setName] = useState(dialog.mode === 'rename' ? dialog.category.name : '')
+  const existing = dialog.mode === 'rename' ? dialog.category : null
+  const [name, setName] = useState(existing?.name ?? '')
+  const [icon, setIcon] = useState<string | null>(existing?.icon ?? null)
+  const [color, setColor] = useState<string | null>(existing?.color ?? null)
   const [isError, setIsError] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => { inputRef.current?.focus() }, [])
@@ -147,8 +151,8 @@ export function CategoryDialog({ dialog, onClose }: {
       return
     }
     const store = useNoteTemplates.getState()
-    if (dialog.mode === 'rename') store.renameCategory(dialog.category.id, name)
-    else store.createCategory(name)
+    if (existing) store.renameCategory(existing.id, name, icon, color)
+    else store.createCategory(name, icon, color)
     onClose()
   }
   return (<Modal open onClose={onClose} title={dialog.mode === 'rename' ? t('templates.rename_category') : t('templates.new_category')} width={NARROW_MODAL_WIDTH} footer={<>
@@ -161,6 +165,10 @@ export function CategoryDialog({ dialog, onClose }: {
         setIsError(false)
       }} onKeyDown={(event) => { if (event.key === 'Enter') save(); }} placeholder={t('templates.category_name')}/>
     </Field>
+    <div className='flex flex-wrap gap-2 pt-1'>
+      <FolderIconMenu icon={icon} onSelectIcon={(value) => setIcon(value)}/>
+      <FolderColorMenu color={color} onSelectColor={setColor}/>
+    </div>
   </Modal>)
 }
 

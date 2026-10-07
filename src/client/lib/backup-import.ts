@@ -22,6 +22,7 @@ interface BackupSelection {
   manifest: MarkdownBackupManifest
   attachments: SelectedBackupFile<MarkdownBackupAttachmentEntry>[]
   notes: SelectedBackupFile<MarkdownBackupNoteEntry>[]
+  templates: { file: File; path: string } | null
   warning: string | null
 }
 
@@ -48,6 +49,11 @@ export async function restoreMarkdownBackupFolder(
 
   for (const selected of selection.attachments) await verifySelectedFile(selected)
   for (const selected of selection.notes) await verifySelectedFile(selected)
+  if (selection.templates) {
+    const { file, path } = selection.templates
+    if (file.size !== selection.manifest.templates!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
+    if (await sha256File(file) !== selection.manifest.templates!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
+  }
 
   let attachmentBatch: SelectedBackupFile<MarkdownBackupAttachmentEntry>[] = []
   let attachmentBatchBytes = 0
@@ -113,6 +119,16 @@ export async function restoreMarkdownBackupFolder(
     batchBytes += selected.file.size
   }
   await flush()
+  if (selection.templates) {
+    mergeResult(
+      result,
+      await send(
+        [selection.templates.file],
+        manifestSlice(selection.manifest, [], []),
+        [selection.templates.path],
+      ),
+    )
+  }
   return result
 }
 
@@ -202,6 +218,14 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       manifest,
       attachments: manifest.attachments.map(resolve),
       notes: manifest.notes.map(resolve),
+      templates: manifest.templates
+        ? (() => {
+          const path = manifest.templates!.path
+          const file = byPath.get(`${rootPrefix}${path}`.toLowerCase())
+          if (!file) throw new Error(t('settings.backup_missing_file', { value0: path }))
+          return { file, path }
+        })()
+        : null,
       warning: skipped.length
         ? t('settings.backup_newer_snapshot_skipped', { value0: skipped[0] })
         : null,
