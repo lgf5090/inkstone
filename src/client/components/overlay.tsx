@@ -574,8 +574,11 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         });
     }, [submenu]);
     useEffect(() => {
-        if (submenu?.focus)
-            submenuRef.current?.focus({ preventScroll: true });
+        if (!submenu?.focus)
+            return;
+        const panel = submenuRef.current;
+        const first = panel?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])');
+        (first ?? panel)?.focus({ preventScroll: true });
     }, [submenu]);
     useEscape(open, () => {
         if (submenu) {
@@ -615,6 +618,13 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         if (open && searchable)
             searchRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
     }, [open, searchable]);
+    const reanchorSubmenu = () => {
+        if (!submenu || submenuIndex < 0)
+            return;
+        const row = menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${submenuIndex}"]`);
+        if (row)
+            setSubmenu((current) => current ? { ...current, rect: row.getBoundingClientRect() } : current);
+    };
     const openSubmenuFor = (index: number, focus: boolean) => {
         const row = menuRef.current?.querySelector<HTMLElement>(`[data-menu-index="${index}"]`);
         const item = visibleItems[index];
@@ -749,7 +759,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
               <X size={12}/>
             </IconButton>)}
         </div>)}
-      <div className="min-h-0 flex-1 overflow-y-auto" onScroll={() => setSubmenu(null)}>
+      <div className="min-h-0 flex-1 overflow-y-auto" onScroll={reanchorSubmenu}>
         {visibleItems.map((item, index) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {

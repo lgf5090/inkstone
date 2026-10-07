@@ -11,13 +11,14 @@ import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
-import { folderDescendantIds, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
+import { folderMoveExclusions, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { setInboxFolderId, useFolderPreferences } from '../../lib/folder-prefs';
 import { saveCalendarPrefs, useCalendarTreePreferences } from '../../lib/calendar-prefs';
 import { exportFolderAsZip } from '../../lib/export-folder';
 import { FOLDER_DRAG_TYPE, isNoteDrag, leftDropTarget, moveNotesToFolder, readDraggedNoteIds, restoreNoteFolders } from '../../lib/note-drag';
 import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
+import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
 import { SidebarTags } from '../tags/SidebarTags';import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
@@ -360,19 +361,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         }
     };
     const movingFolder = movingId ? folders.find((folder) => folder.id === movingId) ?? null : null;
-    const excludedMoveTargets = useMemo(() => {
-        if (!movingId)
-            return undefined;
-        const excluded = folderDescendantIds(folders, movingId);
-        const movingDepth = Math.max(0, folderPath(folders, movingId).length - 1);
-        const relativeSubtreeDepth = Math.max(0, ...[...excluded].map((id) => Math.max(0, folderPath(folders, id).length - 1 - movingDepth)));
-        for (const candidate of folders) {
-            const movedRootDepth = folderPath(folders, candidate.id).length;
-            if (movedRootDepth + relativeSubtreeDepth >= LIMITS.folderDepthMax)
-                excluded.add(candidate.id);
-        }
-        return excluded;
-    }, [folders, movingId]);
+    const excludedMoveTargets = useMemo(() => movingId ? folderMoveExclusions(folders, movingId) : undefined, [folders, movingId]);
     const parentFolderIds = useMemo(() => folders
         .filter((folder) => folders.some((child) => child.parentId === folder.id))
         .map((folder) => folder.id), [folders]);
@@ -501,7 +490,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         {tree.length === 0 ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
           <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
         <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
-          {tree.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
+          {tree.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={tree} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} rootTree={tree} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)}/>))}
         </div>
       </section>
       <FolderPicker open={Boolean(movingFolder)} title={t("folders.choose_parent")} folders={folders} currentId={movingFolder?.parentId ?? null} excludedIds={excludedMoveTargets} onSelect={(parentId) => {
@@ -512,7 +501,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
       {headerMenu.point && (<Menu anchor={headerMenu.point} open onClose={headerMenu.close} items={headerMenuItems}/>)}
     </>);
 }
-function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, onChooseParent, onSortSiblings, onExportZip, onDropNotes, onToggleInbox, createdFolderId, renamingId, onStartRename, onFinishRename, }: {
+function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index, parentNode, parentSiblings, onCreateChild, onMove, onChooseParent, rootTree, onSortSiblings, onExportZip, onDropNotes, onToggleInbox, createdFolderId, renamingId, onStartRename, onFinishRename, }: {
     node: FolderNode;
     notesByFolder: Map<string | null, NoteSummary[]>;
     mobile: boolean;
@@ -524,6 +513,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     onCreateChild: (parentId: string | null) => void;
     onMove: (id: string, parentId: string | null, beforeId: string | null) => boolean;
     onChooseParent: (id: string) => void;
+    rootTree: FolderNode[];
     onSortSiblings: (siblings: FolderNode[]) => void;
     onExportZip: (node: FolderNode) => void;
     onDropNotes: (noteIds: string[], folderId: string | null) => void;
@@ -629,7 +619,10 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                 closeMenu();
             }}/>) },
         { id: 'inbox', label: isInbox ? t("folders.unset_inbox") : t("folders.set_as_inbox"), icon: <Inbox size={13}/>, onSelect: () => onToggleInbox(node) },
-        { id: 'move-to', label: t("folders.move_to"), icon: <FolderInput size={13}/>, separatorBefore: true, onSelect: () => onChooseParent(node.id) },
+        { id: 'move-to', label: t("folders.move_to"), icon: <FolderInput size={13}/>, separatorBefore: true, ...(mobile ? { onSelect: () => onChooseParent(node.id) } : { submenu: ({ closeMenu }) => (<FolderMoveMenu tree={rootTree} subject={node} currentParentId={node.parentId} excludedIds={folderMoveExclusions(folders, node.id)} onSelect={(parentId) => {
+                    void onMove(node.id, parentId, null);
+                    closeMenu();
+                }}/>) }) },
         { id: 'move-earlier', label: t("sidebar.move_earlier"), icon: <ArrowUp size={13}/>, disabled: index === 0, onSelect: moveEarlier },
         { id: 'move-later', label: t("sidebar.move_later"), icon: <ArrowDown size={13}/>, disabled: index === siblings.length - 1, onSelect: moveLater },
         { id: 'move-out', label: t("sidebar.move_out_one_level"), icon: <CornerUpLeft size={13}/>, disabled: !parentNode, onSelect: moveOut },
@@ -770,7 +763,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
 
       {childrenMounted && (<div role="group" aria-hidden={!childrenVisible} inert={!childrenVisible} className={cn('folder-children-grid', childrenVisible && 'is-expanded')}>
           <div className="min-h-0 space-y-px overflow-hidden">
-            {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} onSortSiblings={onSortSiblings} onExportZip={onExportZip} onDropNotes={onDropNotes} onToggleInbox={onToggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
+            {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} rootTree={rootTree} onSortSiblings={onSortSiblings} onExportZip={onExportZip} onDropNotes={onDropNotes} onToggleInbox={onToggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename}/>))}
             {notesByFolder.get(node.id)?.map((note) => <ExplorerNote key={note.id} note={note} depth={node.depth + 1} canOpenToSide={canOpenToSide}/>)}
           </div>
         </div>)}

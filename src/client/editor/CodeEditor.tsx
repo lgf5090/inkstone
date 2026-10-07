@@ -15,7 +15,7 @@ import { codeFenceSource, containerDirectiveSource, tagSource, wikiLinkSource, t
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
 import { editorKeymap } from './shortcuts';
-import { livePreview } from './live-preview';
+import { liveBlockContextMenu, livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import type { EditorContext } from '../features/workspace/context-menu/types';
 import { detectEditorContext } from '../features/workspace/context-menu/detect-editor';
@@ -82,6 +82,27 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
 
     const longPressRef = useRef(longPress);
     longPressRef.current = longPress;
+    // One menu for both places a right-click can land: the editor's own DOM answers through
+    // `domEventHandlers`, and a rendered block — which swallows event forwarding and whose pixels are
+    // not characters — asks us directly with the source line it was rendered from.
+    const contextMenuRef = useRef<(event: MouseEvent, view: EditorView, lineStart?: number) => boolean>(() => false);
+    contextMenuRef.current = (event, view, lineStart) => {
+        // A tag keeps its own menu: it is the one span the source editor decorates with a datum, and
+        // the menu that reads that datum is already wired on both panes.
+        const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY);
+        if (request) {
+            event.preventDefault();
+            tagMenuRef.current(request);
+            return true;
+        }
+        const ask = cbRef.current.onRequestContextMenu;
+        if (!ask) return false;
+        if (longPressRef.current.justLongPressed()) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? lineStart ?? view.state.selection.main.head;
+        ask({ x: event.clientX, y: event.clientY, editor: detectEditorContext(view.state, pos) });
+        return true;
+    };
     const liveCompartment = useRef(new Compartment());
     const lineNumbersCompartment = useRef(new Compartment());
     const tabSizeCompartment = useRef(new Compartment());
@@ -158,22 +179,11 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     cbRef.current.onScroll?.(view);
                 },
                 contextmenu(event, view) {
-                    // A tag keeps its own menu: it is the one span the source editor decorates with a
-                    // datum, and the menu that reads that datum is already wired on both panes.
-                    const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY);
-                    if (request) {
-                        event.preventDefault();
-                        tagMenuRef.current(request);
-                        return true;
-                    }
-                    const ask = cbRef.current.onRequestContextMenu;
-                    if (!ask) return false;
-                    if (longPressRef.current.justLongPressed()) return false;
-                    event.preventDefault();
-                    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-                    ask({ x: event.clientX, y: event.clientY, editor: detectEditorContext(view.state, pos ?? view.state.selection.main.head) });
-                    return true;
+                    return contextMenuRef.current(event, view);
                 },
+            }),
+            liveBlockContextMenu.of((event, view, lineStart) => {
+                contextMenuRef.current(event, view, lineStart);
             }),
             linkHoverExtension(),
             linkHoverFacet.of({
