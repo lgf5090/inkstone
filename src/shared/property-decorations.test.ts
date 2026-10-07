@@ -67,6 +67,19 @@ describe('parsePropertyImage', () => {
     expect(parsePropertyImage('')).toBe(null)
     expect(parsePropertyImage(7)).toBe(null)
   })
+
+  it('refuses a scheme no matter how it is capitalised or padded', () => {
+    expect(parsePropertyImage('JAVaScript:alert(1)')).toBe(null)
+    expect(parsePropertyImage('![x](Vbscript:alert(1))')).toBe(null)
+    expect(parsePropertyImage('![x](\n javascript:alert(1)\n)')).toBe(null)
+    expect(parsePropertyImage('blob:https://example.com/uuid')).toBe(null)
+    expect(parsePropertyImage('![[javascript:alert(1)]]')?.source).toEqual({ kind: 'attachment', name: 'javascript:alert(1)' })
+  })
+
+  it('reads a markdown link that carries a title', () => {
+    expect(parsePropertyImage('![alt](https://example.com/a.png "the title")')).toEqual({ source: { kind: 'url', url: 'https://example.com/a.png' }, alt: 'alt' })
+    expect(parsePropertyImage('![[a.png|alt with | pipe]]')?.source).toEqual({ kind: 'attachment', name: 'a.png' })
+  })
 })
 
 describe('cover and banner option readers', () => {

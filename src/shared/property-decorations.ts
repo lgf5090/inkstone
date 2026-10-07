@@ -87,7 +87,11 @@ export function parsePropertyImage(raw: unknown): PropertyImageValue | null {
   return null
 }
 
-function resolveTarget(target: string): { source: PropertyImageSource } | null {
+const LINK_TITLE = /\s+["'(][^"')]*["')]$/
+
+
+function resolveTarget(raw: string): { source: PropertyImageSource } | null {
+  const target = raw.replace(LINK_TITLE, '').trim()
   if (!target)
     return null
   if (SCHEMED.test(target) && !HTTP_URL.test(target))
