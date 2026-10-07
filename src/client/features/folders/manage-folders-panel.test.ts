@@ -154,6 +154,7 @@ describe('manage folders panel', () => {
         const field = row(dialog(), 'Alpha').querySelector<HTMLInputElement>('input')!;
         await type(field, 'rocket');
         expect(patchFolder).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(row(dialog(), 'Alpha').textContent).toContain('🚀'), { timeout: 5000 });
         await click(byLabel(row(dialog(), 'Alpha'), '🚀'));
         expect(patchFolder).toHaveBeenCalledExactlyOnceWith('p', { icon: '🚀' });
         expect(row(dialog(), 'Alpha').querySelector('input')).toBeNull();
