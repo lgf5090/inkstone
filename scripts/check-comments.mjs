@@ -1823,6 +1823,8 @@ const allowed = new Map([
     "// The reason this lives in a live region rather than in the button: covering the screen and uncovering",
     "// it are the two things a flat colour cannot show, and the button is gone by the time the second one",
     "// happens.",
+    "// PR-M6: what a phone held upright is shown. The stage is the only place that decides how big the type",
+    "// ends up, and the whole claim of the narrow canvas is that the same glass carries bigger words.",
   ]],
   ["src/client/features/presentation/slide-stage.ts", [
     "// Slides are laid out on a fixed standard 16:9 design canvas and scaled to the stage, so",
@@ -1830,6 +1832,12 @@ const allowed = new Map([
     "// `active` matters: the overlay keeps its hooks mounted while closed, so an",
     "// effect that only ran on mount would attach its observer while the stage is",
     "// still absent and never see the real stage afterwards.",
+    "/** The canvas a phone held upright gets: half the projector's width, so the same glass carries type\n * twice as large. Only the width changes — the stylesheet's sizes are design units either way. */",
+    "/** How much taller than wide a stage has to be before it stops being a window and starts being a phone\n * held up: 6:5, which is above every laptop panel and below every portrait handset. */",
+    "// A stage taller than it is wide is a phone held up, and a 16:9 canvas on that glass is a slide whose",
+    "// body lands at nine pixels (PR-M6). The answer is the other canvas the same stylesheet draws: half",
+    "// the design width, so the type is twice as tall, and a page as long as the glass, which the existing",
+    "// pagination then turns into more pages to walk instead of one page to squint at.",
   ]],
   ["src/client/features/presentation/slide-thumb.test.ts", [
     "// A thumbnail that shows a slide's placeholders looks exactly like a slide whose diagrams failed to",
