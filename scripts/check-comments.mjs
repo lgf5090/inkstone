@@ -358,6 +358,9 @@ const allowed = new Map([
     "// stylesheets without the attributes has the rules and none of the colours.",
     "// The parser resolves `http:/broken` against *nothing* and hands back `http://broken/`, so a",
     "// reference that already carries a scheme is a stop signal for the rewrite, not input to it.",
+    "// The typeface a deck is read in is carried by `.ink-prose[data-font]` on this fork — not by a",
+    "// wrapper class, which the reference had and this project never defined a rule for. Put the",
+    "// attribute on the wrong element and the exported file silently loses the reader's serif choice.",
   ]],
   ["src/client/features/presentation/deck-html.ts", [
     "// N-33: the deck as a file someone else can play. The other two exports hand over pictures of the",

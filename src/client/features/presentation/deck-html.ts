@@ -133,7 +133,7 @@ function deckHtmlPage(page: DeckPrintPage, index: number, font: ProseFont, metri
   const prose = `ink-prose relative${layout ? ` ${LAYOUT_CLASS[layout]}` : ''}`
   const proseStyle = layout === 'cover' ? ` style="min-height:${metrics.contentHeight}px"` : ''
   return `<section class="deck-print-page"${index === 0 ? ' data-current' : ''} data-position="${escapeAttribute(position)}">
-<div class="deck-print-body ink-slide"><div class="mx-auto" style="width:${metrics.contentWidth}px"><div class="ink-preview-container" data-font="${escapeAttribute(font)}"><div class="${prose}" data-slide-page${proseStyle}>${absolutizeDeckHtml(page.html, origin)}</div></div></div></div>
+<div class="deck-print-body ink-slide"><div class="mx-auto" style="width:${metrics.contentWidth}px"><div class="${prose}" data-font="${escapeAttribute(font)}" data-slide-page${proseStyle}>${absolutizeDeckHtml(page.html, origin)}</div></div></div>
 <span class="deck-print-page-number">${escapeHtml(position)}</span>
 </section>`
 }

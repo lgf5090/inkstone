@@ -107,8 +107,26 @@ describe('buildDeckHtmlDocument — what the file says about itself', () => {
     expect(file).toContain('<html lang="en-US" data-theme="dark" data-accent="cinnabar">')
   })
 
-  it('escapes what a note title is not allowed to become', () => {
-    const file = document_of('<p>two</p>').replace('<title>Quarterly Review</title>', '<title>x</title>')
+  // The typeface a deck is read in is carried by `.ink-prose[data-font]` on this fork — not by a
+  // wrapper class, which the reference had and this project never defined a rule for. Put the
+  // attribute on the wrong element and the exported file silently loses the reader's serif choice.
+  it('hands the typeface to the element the stylesheet reads it from', () => {
+    const file = buildDeckHtmlDocument({
+      pages: buildDeckPages(['<h2>One</h2>'], ['k0'], {}, METRICS, FLAGS),
+      metrics: METRICS,
+      css: '',
+      title: 'Typeface',
+      lang: 'en-US',
+      font: 'serif',
+      origin: ORIGIN,
+      rootAttributes: 'data-theme="dark"',
+      labels: { previous: 'P', next: 'N', deck: 'D' },
+    })
+    expect(file).toContain('class="ink-prose relative" data-font="serif"')
+    expect(file).not.toContain('ink-preview-container')
+  })
+
+  it('escapes what a note title is not allowed to become', () => {    const file = document_of('<p>two</p>').replace('<title>Quarterly Review</title>', '<title>x</title>')
     const hostile = buildDeckHtmlDocument({
       pages: [],
       metrics: METRICS,
