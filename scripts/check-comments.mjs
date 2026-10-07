@@ -3029,6 +3029,13 @@ const allowed = new Map([
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
     "// change re-renders every visible row in the explorer.",
   ]],
+  ["src/client/features/sidebar/SidebarRecent.tsx", [
+    "/**\n * The notes this device has opened, newest first. The order is the reader's own trail, so\n * nothing re-sorts it: a note that stops existing drops out of the list rather than\n * leaving a hole, and the rest keeps the sequence it was walked in.\n */",
+  ]],
+  ["src/client/features/sidebar/SidebarTabs.tsx", [
+    "/**\n * The strip's own order and set. `SIDEBAR_TABS` stays the authority for what is a legal\n * stored value, so a tab dropped from here still loads into the default rather than into\n * a blank body.\n */",
+    "/** What the strip actually offers; the store's `SIDEBAR_TABS` is the wider legal-value set. */",
+  ]],
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
   ]],
@@ -6743,6 +6750,7 @@ const allowed = new Map([
     "// A malformed key reaches Intl.DateTimeFormat as an Invalid Date, which throws inside the list",
     "// header and the error boundary answers by reloading the page forever. A reversed range is not",
     "// an error, just a drag the other way round.",
+    "/** Which panel the sidebar tab strip shows; only one is mounted at a time. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
@@ -6900,6 +6908,7 @@ const allowed = new Map([
     "/** How many other accounts added this template to their own library. */",
     "/** 0 draws the glyph as the set ships it; 1-5 are the Fitzpatrick modifiers, light to dark. */",
     "/** What picking an emoji writes: the glyph itself, or the `:code:` that stands for it. */",
+    "/** Which panel the sidebar's tab strip is showing. One panel owns the full height. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",

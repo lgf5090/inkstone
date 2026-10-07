@@ -21,6 +21,7 @@ import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenu
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
 import { SidebarTags } from '../tags/SidebarTags';
+import { SidebarRecent } from './SidebarRecent';
 import { SIDEBAR_PANEL_ID, SidebarTabStrip, tabId } from './SidebarTabs';
 import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
@@ -71,6 +72,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
           <FolderSection />
         </>)}
         {sidebarTab === 'tags' && <SidebarTags />}
+        {sidebarTab === 'recent' && <SidebarRecent />}
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">

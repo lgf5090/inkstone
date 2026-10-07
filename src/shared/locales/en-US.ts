@@ -2011,6 +2011,8 @@ export const EN_US_MESSAGES = {
     "sidebar.tab_library": "Files",
     "sidebar.tab_tags": "Tags",
     "sidebar.tabs_aria": "Sidebar panels",
+    "sidebar.tab_recent": "Recent files",
+    "sidebar.recent_empty": "Notes you open will appear here.",
     "settings.todo_tag": "Todo tag",
     "settings.todo_tag_hint": "Separate multiple tags with commas. Leave empty to use the language default.",
     "folders.top_level": "Top level",

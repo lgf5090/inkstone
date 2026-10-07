@@ -2011,6 +2011,8 @@ export const ZH_CN_MESSAGES = {
     "sidebar.tab_library": "文件列表",
     "sidebar.tab_tags": "标签",
     "sidebar.tabs_aria": "侧栏面板",
+    "sidebar.tab_recent": "最近文件",
+    "sidebar.recent_empty": "打开过的笔记会出现在这里。",
     "settings.todo_tag": "待办标签",
     "settings.todo_tag_hint": "多个标签用英文逗号分隔；留空则按界面语言使用默认标签。",
     "folders.top_level": "最外层",
