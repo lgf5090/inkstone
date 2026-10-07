@@ -60,34 +60,34 @@ describe('withColor', () => {
 describe('withProgressRule', () => {
     it('replaces, keeps the rest, and removes on null', () => {
         const base = settings({ progress: { pages: { max: 100 }, minutes: { max: 30 } } });
-        expect(withProgressRule(base, 'pages', { max: 250, variant: 'circle' })).toEqual({ pages: { max: 250, variant: 'circle' }, minutes: { max: 30 } });
-        expect(withProgressRule(base, 'pages', null)).toEqual({ minutes: { max: 30 } });
+        expect(withProgressRule(base.progress, 'pages', { max: 250, variant: 'circle' })).toEqual({ pages: { max: 250, variant: 'circle' }, minutes: { max: 30 } });
+        expect(withProgressRule(base.progress, 'pages', null)).toEqual({ minutes: { max: 30 } });
     });
 });
 
 describe('withFormatRule', () => {
     it('merges a markdown flag into an existing template rule', () => {
         const base = settings({ formats: { length: { template: '{{upper propertyValue}}' } } });
-        expect(withFormatRule(base, 'length', { markdown: true })).toEqual({ length: { template: '{{upper propertyValue}}', markdown: true } });
+        expect(withFormatRule(base.formats, 'length', { markdown: true })).toEqual({ length: { template: '{{upper propertyValue}}', markdown: true } });
     });
 
     it('drops a blank template but keeps the template when only markdown goes off', () => {
         const base = settings({ formats: { length: { template: '{{upper propertyValue}}', markdown: true } } });
-        expect(withFormatRule(base, 'length', { template: '   ' })).toEqual({ length: { markdown: true } });
-        expect(withFormatRule(base, 'length', { markdown: false })).toEqual({ length: { template: '{{upper propertyValue}}' } });
-        expect(withFormatRule(base, 'length', null)).toEqual({});
+        expect(withFormatRule(base.formats, 'length', { template: '   ' })).toEqual({ length: { markdown: true } });
+        expect(withFormatRule(base.formats, 'length', { markdown: false })).toEqual({ length: { template: '{{upper propertyValue}}' } });
+        expect(withFormatRule(base.formats, 'length', null)).toEqual({});
     });
 });
 
 describe('withSelectOptions', () => {
     it('trims, folds duplicates and keeps the order', () => {
-        const next = withSelectOptions(settings(), 'status', [' a ', 'A', 'b', '']);
+        const next = withSelectOptions(settings().selectOptions, 'status', [' a ', 'A', 'b', '']);
         expect(next.status).toEqual(['a', 'b']);
     });
 
     it('removes the rule for an empty list or null', () => {
         const base = settings({ selectOptions: { status: ['a'] } });
-        expect(withSelectOptions(base, 'status', [])).toEqual({});
-        expect(withSelectOptions(base, 'status', null)).toEqual({});
+        expect(withSelectOptions(base.selectOptions, 'status', [])).toEqual({});
+        expect(withSelectOptions(base.selectOptions, 'status', null)).toEqual({});
     });
 });

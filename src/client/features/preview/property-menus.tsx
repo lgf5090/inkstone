@@ -65,7 +65,7 @@ async function editTemplate(property: string, current: string | null | undefined
     });
     if (answer === null)
         return;
-    handlers.patch({ formats: withFormatRule(handlers.settings, property, { template: answer }) });
+    handlers.patch({ formats: withFormatRule(handlers.settings.formats, property, { template: answer }) });
 }
 
 async function editOptions(property: string, current: readonly string[], handlers: PropertyMenuHandlers): Promise<void> {
@@ -77,7 +77,7 @@ async function editOptions(property: string, current: readonly string[], handler
     });
     if (answer === null)
         return;
-    handlers.patch({ selectOptions: withSelectOptions(handlers.settings, property, answer.split(/[,\uFF0C]/)) });
+    handlers.patch({ selectOptions: withSelectOptions(handlers.settings.selectOptions, property, answer.split(/[,\uFF0C]/)) });
 }
 
 export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuHandlers): MenuItem[] {
@@ -116,13 +116,13 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
                 label: t('properties.progress_bar'),
                 icon: <BarChart3 size={14}/>,
                 separatorBefore: true,
-                onSelect: () => handlers.patch({ progress: withProgressRule(settings, row.key, { max: 100 }) }),
+                onSelect: () => handlers.patch({ progress: withProgressRule(settings.progress, row.key, { max: 100 }) }),
             });
             items.push({
                 id: 'progress-circle',
                 label: t('properties.progress_circle'),
                 icon: <Circle size={14}/>,
-                onSelect: () => handlers.patch({ progress: withProgressRule(settings, row.key, { max: 100, variant: 'circle' }) }),
+                onSelect: () => handlers.patch({ progress: withProgressRule(settings.progress, row.key, { max: 100, variant: 'circle' }) }),
             });
         }
         else {
@@ -132,7 +132,7 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
                     id: `progress-max-${name}`,
                     label: name,
                     checked: progress.maxProperty?.toLocaleLowerCase() === name.toLocaleLowerCase(),
-                    onSelect: () => handlers.patch({ progress: withProgressRule(settings, row.key, { maxProperty: name, variant: progress.variant }) }),
+                    onSelect: () => handlers.patch({ progress: withProgressRule(settings.progress, row.key, { maxProperty: name, variant: progress.variant }) }),
                 })),
                 {
                     id: 'progress-max-number',
@@ -145,14 +145,14 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
                         const parsed = Number(answer?.trim());
                         if (answer === null || !Number.isFinite(parsed) || parsed === 0)
                             return;
-                        handlers.patch({ progress: withProgressRule(settings, row.key, { max: parsed, variant: progress.variant }) });
+                        handlers.patch({ progress: withProgressRule(settings.progress, row.key, { max: parsed, variant: progress.variant }) });
                     },
                 },
                 {
                     id: 'progress-max-default',
                     label: t('properties.progress_max_percent'),
                     checked: progress.maxProperty === undefined && progress.max === 100,
-                    onSelect: () => handlers.patch({ progress: withProgressRule(settings, row.key, { max: 100, variant: progress.variant }) }),
+                    onSelect: () => handlers.patch({ progress: withProgressRule(settings.progress, row.key, { max: 100, variant: progress.variant }) }),
                 },
             ];
             items.push({
@@ -167,7 +167,7 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
                 id: 'progress-remove',
                 label: t('properties.progress_remove'),
                 icon: <BarChart3 size={14}/>,
-                onSelect: () => handlers.patch({ progress: withProgressRule(settings, row.key, null) }),
+                onSelect: () => handlers.patch({ progress: withProgressRule(settings.progress, row.key, null) }),
             });
         }
     }
@@ -184,7 +184,7 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
                 id: 'format-remove',
                 label: t('properties.format_remove'),
                 icon: <Sparkles size={14}/>,
-                onSelect: () => handlers.patch({ formats: withFormatRule(settings, row.key, null) }),
+                onSelect: () => handlers.patch({ formats: withFormatRule(settings.formats, row.key, null) }),
             });
         }
         items.push({
@@ -192,7 +192,7 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
             label: format?.markdown ? t('properties.markdown_off') : t('properties.markdown_on'),
             icon: <Type size={14}/>,
             checked: format?.markdown === true,
-            onSelect: () => handlers.patch({ formats: withFormatRule(settings, row.key, { markdown: format?.markdown !== true }) }),
+            onSelect: () => handlers.patch({ formats: withFormatRule(settings.formats, row.key, { markdown: format?.markdown !== true }) }),
         });
         items.push({
             id: 'options',
@@ -203,7 +203,7 @@ export function buildPropertyMenu(row: ResolvedProperty, handlers: PropertyMenuH
             items.push({
                 id: 'options-remove',
                 label: t('properties.options_remove'),
-                onSelect: () => handlers.patch({ selectOptions: withSelectOptions(settings, row.key, null) }),
+                onSelect: () => handlers.patch({ selectOptions: withSelectOptions(settings.selectOptions, row.key, null) }),
             });
         }
     }

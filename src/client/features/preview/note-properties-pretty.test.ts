@@ -6,6 +6,8 @@ import { parseFrontMatter } from '@shared/markdown-utils';
 import type { PropertySettings, UserSettings } from '@shared/types';
 import { initI18n, t } from '../../lib/i18n';
 import { PromptHost } from '../../components/overlay';
+import { PropertyDecorationHost } from './PropertyDecorationHost';
+import { clearPropertyDecoration } from '../../lib/property-commands';
 import { forgetPropertyImages } from '../../lib/property-images';
 
 const editContent = vi.fn();
@@ -51,7 +53,7 @@ const harness = vi.hoisted(() => {
 vi.mock('../../store/notes', async () => {
     const { useSyncExternalStore } = await import('react');
     return {
-        useNotes: (selector: (state: AppStore) => unknown) => useSyncExternalStore(harness.subscribe, () => selector(store), () => selector(store)),
+        useNotes: Object.assign((selector: (state: AppStore) => unknown) => useSyncExternalStore(harness.subscribe, () => selector(store), () => selector(store)), { getState: () => store }),
         findNoteByTitle: () => undefined,
     };
 });
@@ -104,6 +106,7 @@ async function renderPanel(): Promise<void> {
     await act(async () => {
         root.render(createElement(Fragment, null,
             createElement(PromptHost),
+            createElement(PropertyDecorationHost, null),
             createElement(NoteProperties, { noteId: 'n1' })));
         await Promise.resolve();
     });
@@ -213,6 +216,7 @@ beforeEach(async () => {
     byName.mockReset();
     listFiles.mockReset();
     forgetPropertyImages();
+    clearPropertyDecoration();
     byName.mockResolvedValue({ files: [{ id: 'a1', filename: 'Cover.png', mime: 'image/png', url: '/files/cover.png' }] });
     listFiles.mockResolvedValue({
         files: [{ id: 'a2', filename: 'Other.png', mime: 'image/png', url: '/files/other.png', noteId: null, usage: 0, size: 10, createdAt: 1 }],

@@ -20,6 +20,19 @@ export function readColorRule(settings: PropertySettings, property: string, valu
 }
 
 
+export function renamedRule<T>(rules: Record<string, T>, from: string, to: string, value: T): Record<string, T> {
+  const next: Record<string, T> = {}
+  const key = to.trim().toLocaleLowerCase()
+  for (const [name, rule] of Object.entries(rules)) {
+    if (name.toLocaleLowerCase() !== from.toLocaleLowerCase())
+      next[name] = rule
+  }
+  if (key)
+    next[to.trim().toLocaleLowerCase()] = value
+  return next
+}
+
+
 export function withColor(
   settings: PropertySettings,
   property: string,
@@ -58,8 +71,7 @@ export function withoutPropertyColors(settings: PropertySettings, property: stri
 }
 
 
-export function withName(list: readonly string[], name: string, on: boolean): string[] {
-  const trimmed = name.trim()
+export function withName(list: readonly string[], name: string, on: boolean): string[] {  const trimmed = name.trim()
   if (!trimmed)
     return [...list]
   const key = trimmed.toLocaleLowerCase()
@@ -76,14 +88,14 @@ export function readProgressRule(settings: PropertySettings, property: string): 
 
 
 export function withProgressRule(
-  settings: PropertySettings,
+  rules: PropertySettings['progress'],
   property: string,
   rule: PropertyProgressChoice | null,
 ): PropertySettings['progress'] {
   const key = colorPropertyKey(property)
-  const next = { ...settings.progress }
+  const next = { ...rules }
   if (!key)
-    return settings.progress
+    return rules
   if (rule === null)
     delete next[key]
   else
@@ -98,14 +110,14 @@ export function readFormatRule(settings: PropertySettings, property: string): Pr
 
 
 export function withFormatRule(
-  settings: PropertySettings,
+  rules: PropertySettings['formats'],
   property: string,
   patch: Partial<PropertyFormatChoice> | null,
 ): PropertySettings['formats'] {
   const key = colorPropertyKey(property)
-  const next = { ...settings.formats }
+  const next = { ...rules }
   if (!key)
-    return settings.formats
+    return rules
   if (patch === null) {
     delete next[key]
     return next
@@ -133,14 +145,14 @@ export function readSelectOptions(settings: PropertySettings, property: string):
 
 
 export function withSelectOptions(
-  settings: PropertySettings,
+  rules: PropertySettings['selectOptions'],
   property: string,
   options: readonly string[] | null,
 ): PropertySettings['selectOptions'] {
   const key = colorPropertyKey(property)
-  const next = { ...settings.selectOptions }
+  const next = { ...rules }
   if (!key)
-    return settings.selectOptions
+    return rules
   if (options === null) {
     delete next[key]
     return next

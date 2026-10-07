@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, FileText, FolderPlus, Hash, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -12,6 +12,7 @@ import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../compone
 import { useUi } from '../../store/ui';
 import { createContextualNote, useNotes } from '../../store/notes';
 import { folderPathLabel, openFolderView } from '../../lib/folders';
+import { requestPropertyDecoration } from '../../lib/property-commands';
 import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
 import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
@@ -146,6 +147,41 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
             },
             ...(activeNote
                 ? [
+                    {
+                        id: 'cmd-cover-image',
+                        kind: 'command' as const,
+                        label: t("command.select_cover_image"),
+                        icon: <ImagePlus size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => requestPropertyDecoration('cover', activeNote.id),
+                    },
+                    {
+                        id: 'cmd-banner-image',
+                        kind: 'command' as const,
+                        label: t("command.select_banner_image"),
+                        icon: <ImagePlus size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => requestPropertyDecoration('banner', activeNote.id),
+                    },
+                    {
+                        id: 'cmd-note-icon',
+                        kind: 'command' as const,
+                        label: t("command.select_icon"),
+                        icon: <Smile size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => requestPropertyDecoration('icon', activeNote.id),
+                    },
+                    {
+                        id: 'cmd-toggle-hidden-properties',
+                        kind: 'command' as const,
+                        label: useSession.getState().settings.properties.revealHidden ? t("command.hide_hidden_properties") : t("command.reveal_hidden_properties"),
+                        icon: <EyeOff size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => {
+                            const properties = useSession.getState().settings.properties;
+                            useSession.getState().updateSettings({ properties: { revealHidden: !properties.revealHidden } });
+                        },
+                    },
                     {
                         id: 'cmd-presentation-mode',
                         kind: 'command' as const,

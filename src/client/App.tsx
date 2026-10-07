@@ -5,6 +5,7 @@ import { Spinner } from './components/primitives'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoginPage } from './features/auth/LoginPage'
 import { dismissBootScreen } from './lib/boot'
+import { peekPropertyDecoration, subscribePropertyDecoration } from './lib/property-commands'
 import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup } from './store/pwa'
 import { usePresentation } from './store/presentation'
@@ -21,6 +22,9 @@ const PresentationOverlay = lazy(() =>
 )
 const PresenterWindow = lazy(() =>
   import('./features/presentation').then((module) => ({ default: module.PresenterWindow })),
+)
+const PropertyDecorationHost = lazy(() =>
+  import('./features/preview/PropertyDecorationHost').then((module) => ({ default: module.PropertyDecorationHost })),
 )
 
 export function App() {
@@ -103,6 +107,7 @@ export function App() {
           it. It is only mounted while a show is up, which is also what keeps the deck-splitting code
           out of the boot chunk for everyone who is not presenting. */}
       {status === 'authed' && <ShowOverlay />}
+      {status === 'authed' && <DecorationLayer />}
       <Toaster />
       <ConfirmHost />
       <PromptHost />
@@ -119,6 +124,19 @@ function PageFallback() {
     >
       <Spinner size={18} />
     </div>
+  )
+}
+
+function DecorationLayer() {
+  const [requested, setRequested] = useState(() => peekPropertyDecoration() !== null)
+  useEffect(() => subscribePropertyDecoration((next) => {
+    if (next) setRequested(true)
+  }), [])
+  if (!requested) return null
+  return (
+    <Suspense fallback={null}>
+      <PropertyDecorationHost />
+    </Suspense>
   )
 }
 

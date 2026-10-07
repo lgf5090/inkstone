@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { lazy, Suspense } from 'react';
 import type { CSSProperties } from 'react';
-import { ChevronDown, Eye, EyeOff, Palette, Plus, X } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, ImagePlus, Palette, Plus, Sparkles, X } from 'lucide-react';
 import { deleteFrontMatterValue, renameFrontMatterValue, replaceTagInContent, setFrontMatterValue } from '@shared/markdown-utils';
 import type { FrontMatterValue } from '@shared/markdown-utils';
 import type { MenuItem } from '../../components/overlay';
@@ -14,6 +14,8 @@ import { t } from '../../lib/i18n';
 import { encodeDataValue } from '../../lib/markdown/data-attr';
 import { renderInlineProperty } from '../../lib/markdown/renderer';
 import { usePropertySettings, usePropertyView } from '../../lib/property-view';
+import { requestPropertyDecoration } from '../../lib/property-commands';
+import type { PropertyDecorationKind } from '../../lib/property-commands';
 import { withName } from '../../lib/property-prefs';
 import { useNotes } from '../../store/notes';
 import { useSession } from '../../store/session';
@@ -25,8 +27,6 @@ import { propertyColorCss, propertyPillCss } from './property-colors';
 import { buildPillMenu, buildPropertyMenu, type PropertyMenuHandlers } from './property-menus';
 import { NoteBanner, NoteCover, NoteIcon } from './PropertyDecorations';
 import type { DecorationActions } from './PropertyDecorations';
-import { PropertyImagePicker } from './PropertyImagePicker';
-import type { ImagePickerRequest } from './PropertyImagePicker';
 
 interface AnchoredMenu {
     items: MenuItem[];
@@ -43,7 +43,8 @@ export function NoteProperties({ noteId, onLightbox }: {
     const [collapsed, setCollapsed] = useState(false);
     const [adding, setAdding] = useState(false);
     const [menu, setMenu] = useState<AnchoredMenu | null>(null);
-    const [picker, setPicker] = useState<ImagePickerRequest | null>(null);
+    const decorateRef = useRef<HTMLButtonElement>(null);
+    const [decorateOpen, setDecorateOpen] = useState(false);
     const [glyphRequest, setGlyphRequest] = useState<{ property: string; x: number; y: number } | null>(null);
     // Read the live buffer rather than taking the rendered text as a prop: a debounced or
     // cached copy here would silently overwrite whatever was typed in the last few frames.
@@ -73,12 +74,22 @@ export function NoteProperties({ noteId, onLightbox }: {
         write(next);
     };
     const isHidden = (name: string) => settings.hidden.some(item => item.toLocaleLowerCase() === name.toLocaleLowerCase());
+    const nameForKind = (kind: PropertyDecorationKind): string => {
+        if (kind === 'banner')
+            return settings.bannerProperty;
+        if (kind === 'icon')
+            return settings.iconProperty;
+        return settings.coverProperties.find(Boolean) ?? '';
+    };
     const hideProperty = (name: string) => patchSettings({ properties: { hidden: withName(settings.hidden, name, !isHidden(name)) } });
     const actions: DecorationActions = {
         setProperty,
         hideProperty,
         isHidden,
-        pickImage: (property, kind) => setPicker({ property, kind }),
+        pickImage: (_property, kind) => {
+            if (noteId)
+                requestPropertyDecoration(kind, noteId);
+        },
         pickIcon: (property, anchor) => setGlyphRequest({ property, x: anchor.x, y: anchor.y }),
         setSettings: patch => patchSettings({ properties: patch }),
     };
@@ -91,6 +102,11 @@ export function NoteProperties({ noteId, onLightbox }: {
         onDelete: () => {},
     };
     const rows = view.rows;
+    const decorateItems: MenuItem[] = [
+        { id: 'decorate-cover', label: t('properties.set_cover'), icon: <ImagePlus size={14}/>, onSelect: () => { if (noteId && nameForKind('cover')) requestPropertyDecoration('cover', noteId); } },
+        { id: 'decorate-banner', label: t('properties.set_banner'), icon: <ImagePlus size={14}/>, onSelect: () => { if (noteId && nameForKind('banner')) requestPropertyDecoration('banner', noteId); } },
+        { id: 'decorate-icon', label: t('properties.set_icon'), icon: <ImagePlus size={14}/>, onSelect: () => { if (noteId && nameForKind('icon')) requestPropertyDecoration('icon', noteId); } },
+    ];
     const hiddenCount = rows.filter(row => row.hidden).length;
     const shown = settings.revealHidden ? rows : rows.filter(row => !row.hidden);
     const hideWholeBlock = settings.hideWholeBlockWhenEmpty && shown.length === 0 && !readOnly && !adding;
@@ -113,6 +129,11 @@ export function NoteProperties({ noteId, onLightbox }: {
                   {settings.revealHidden ? <Eye size={12}/> : <EyeOff size={12}/>}
                   <span>{t('properties.hidden_count', { value0: hiddenCount })}</span>
                 </button>)}
+              {!collapsed && !readOnly && settings.enabled && (<Tooltip label={t('properties.decorate')} side="left">
+                  <button ref={decorateRef} type="button" aria-label={t('properties.decorate')} aria-expanded={decorateOpen} onClick={() => setDecorateOpen(value => !value)} className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+                    <Sparkles size={13}/>
+                  </button>
+                </Tooltip>)}
               {!collapsed && !readOnly && !settings.hideAddButton && (<button type="button" onClick={() => setAdding(true)} aria-label={t('properties.add')} className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
                   <Plus size={13}/>
                 </button>)}
@@ -140,7 +161,7 @@ export function NoteProperties({ noteId, onLightbox }: {
           </div>
         </div>)}
       {menu && (<Menu anchor={{ x: menu.x, y: menu.y }} open onClose={() => setMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
-      <PropertyImagePicker request={picker} noteId={noteId} onClose={() => setPicker(null)} onPick={(property, value) => setProperty(property, value)}/>
+      <Menu anchor={decorateRef} open={decorateOpen} onClose={() => setDecorateOpen(false)} items={decorateItems} width={200} label={t('properties.decorate')}/>
       <GlyphMenu request={glyphRequest} onClose={() => setGlyphRequest(null)} onPick={(property, glyph) => setProperty(property, glyph)}/>
     </section>);
 }
