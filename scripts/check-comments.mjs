@@ -1902,6 +1902,9 @@ const allowed = new Map([
     "// The audience half of N-34, seen from the presenter's seat: one press hands out a link, every turn",
     "// moves it, and nothing is left running after the show — a forgotten show that still answers for two",
     "// hours is a leak, not a convenience.",
+    "// The way a show actually ends: the overlay leaves the tree, so there is no render in which",
+    "// `open` goes false. A hook that only listens for that render leaves the row answering for the",
+    "// whole lease — the viewer keeps seeing \"following\" over a talk that is over.",
   ]],
   ["src/client/features/presentation/use-audience-follow.ts", [
     "/**\n * The presenter's side of an audience following along (N-34 / ADR-0006).\n *\n * One press asks the server for a show, hands out the link it mints, and every turn of the talk reports\n * where the show is. Everything here is per-show local state: a following audience belongs to the talk\n * that is happening, not to the account, and it must not survive the show — a link still answering an\n * hour after the room emptied is a leak, and the only thing standing between the two is this hook\n * stopping it.\n */",
@@ -1918,6 +1921,10 @@ const allowed = new Map([
     "// audience with it.",
     "// A note that was deleted takes its share, and therefore this show, down with it.",
     "/**\n * Ask for a show and put its link in the presenter's hands. The clipboard is the delivery, but a\n * clipboard that refuses has to hand the text over on screen rather than report a success nobody can use.\n */",
+    "// That effect only runs on a *render* in which `open` went false, and a show that closes because the",
+    "// overlay leaves the tree never gets that render: an unmount runs cleanups and nothing else. Without",
+    "// this half the row lives out its whole lease and the viewer keeps reading \"following this show\"",
+    "// over a talk that ended minutes ago, with the note's title and last page still served to it.",
   ]],
   ["src/client/features/presentation/use-audience-presence.test.ts", [
     "// The viewer's heartbeat (N-34 / ADR-0006). What a viewer must never do is make the talk look broken",

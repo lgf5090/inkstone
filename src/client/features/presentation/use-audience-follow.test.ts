@@ -140,6 +140,24 @@ describe('useAudienceFollow — the show moves, the audience moves with it', () 
     expect(api.presence.stop).toHaveBeenCalledWith('note-1')
     expect(held.current!.on).toBe(false)
     view.unmount()
+    expect(api.presence.stop, 'a show already ended by the open flip is not stopped twice').toHaveBeenCalledTimes(1)
+  })
+
+  // The way a show actually ends: the overlay leaves the tree, so there is no render in which
+  // `open` goes false. A hook that only listens for that render leaves the row answering for the
+  // whole lease — the viewer keeps seeing "following" over a talk that is over.
+  it('ends the audience show when the overlay is taken out of the tree', async () => {
+    const show = await mount()
+    await press(show.result)
+    expect(api.presence.stop).not.toHaveBeenCalled()
+    await act(async () => { show.unmount() })
+    expect(api.presence.stop, 'the show closed and the audience link is still live').toHaveBeenCalledWith('note-1')
+  })
+
+  it('hands nothing over when the presenter never handed out a link', async () => {
+    const show = await mount()
+    await act(async () => { show.unmount() })
+    expect(api.presence.stop).not.toHaveBeenCalled()
   })
 
   it('a second press stops it, and a lost position stops it too', async () => {

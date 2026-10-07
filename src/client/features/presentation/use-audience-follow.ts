@@ -65,6 +65,20 @@ export function useAudienceFollow(options: {
     if (!open && session && noteId) end(noteId)
   }, [open, session, noteId, end])
 
+  // That effect only runs on a *render* in which `open` went false, and a show that closes because the
+  // overlay leaves the tree never gets that render: an unmount runs cleanups and nothing else. Without
+  // this half the row lives out its whole lease and the viewer keeps reading "following this show"
+  // over a talk that ended minutes ago, with the note's title and last page still served to it.
+  const live = useRef<{ noteId: string, end: (note: string) => void } | null>(null)
+  useEffect(() => {
+    live.current = session && noteId ? { noteId, end } : null
+  })
+  useEffect(() => () => {
+    const running = live.current
+    live.current = null
+    if (running) running.end(running.noteId)
+  }, [])
+
   // A note that was deleted takes its share, and therefore this show, down with it.
   useEffect(() => {
     if (!noteId) setSession(null)
