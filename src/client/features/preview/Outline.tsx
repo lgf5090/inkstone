@@ -8,6 +8,8 @@ import {
     Heading5,
     Heading6,
     ChevronRight,
+    ChevronDown,
+    ChevronUp,
     Copy,
     Pencil,
     Trash2,
@@ -431,6 +433,16 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
         void navigator.clipboard.writeText(text);
         toast({ title: t('outline.copied'), tone: 'success' });
     };
+    const foldSlugs = (slugs: string[], fold: boolean) => {
+        setCollapsed((current) => {
+            const next = new Set(current);
+            for (const slug of slugs) {
+                if (fold) next.add(slug);
+                else next.delete(slug);
+            }
+            return next;
+        });
+    };
     const headingLines = (indices: number[]) => indices.map((i) => lines[headings[i]!.line] ?? '').join('\n');
     const buildMenu = (node: OutlineNode): MenuItem[] => {
         const index = node.index;
@@ -446,6 +458,11 @@ export function Outline({ headings, onSelect, scrollerRef, className, noteId, de
             items.push({ id: 'copy-content', label: t('outline.copy_with_content'), icon: <Copy size={13}/>, onSelect: () => copyText(lines.slice(range.start, range.end).join('\n')) });
         }
         items.push({ id: 'copy-siblings', label: t('outline.copy_with_siblings'), icon: <Copy size={13}/>, onSelect: () => copyText(headingLines(siblingIndices(headings, index))) });
+        const siblings = siblingIndices(headings, index).map((sibling) => headings[sibling]!.slug);
+        if (siblings.length > 1) {
+            items.push({ id: 'expand-siblings', label: t('outline.expand_siblings'), icon: <ChevronDown size={13}/>, onSelect: () => foldSlugs(siblings, false) });
+            items.push({ id: 'collapse-siblings', label: t('outline.collapse_siblings'), icon: <ChevronUp size={13}/>, onSelect: () => foldSlugs(siblings, true) });
+        }
         if (editable) {
             items.push({ id: 'sep-level', label: '', separatorBefore: true });
             items.push({ id: 'level-promote', label: t('outline.promote_level'), icon: <ChevronsUpDown size={13}/>, onSelect: () => applyLines(changeHeadingLevel(lines, node.heading, node.heading.level - 1)) });

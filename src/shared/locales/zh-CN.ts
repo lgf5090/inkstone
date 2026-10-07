@@ -558,6 +558,8 @@ export const ZH_CN_MESSAGES = {
     "outline.delete_section": "删除标题与整节",
     "outline.rename": "重命名标题",
     "outline.clear_filter": "清除大纲筛选",
+    "outline.collapse_siblings": "折叠同级标题",
+    "outline.expand_siblings": "展开同级标题",
     "outline.collapse_panel": "把大纲折回圆点",
     "outline.corner_top_left": "把面板停在左上角",
     "outline.corner_top_right": "把面板停在右上角",

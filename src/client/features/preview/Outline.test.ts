@@ -828,3 +828,52 @@ describe('Outline heading text direction', () => {
         unmount();
     });
 });
+
+describe('Outline sibling folding', () => {
+    const TREE: Heading[] = [
+        { level: 1, text: 'Alpha', slug: 'alpha', line: 0 },
+        { level: 2, text: 'Beta', slug: 'beta', line: 4 },
+        { level: 3, text: 'Gamma', slug: 'gamma', line: 8 },
+        { level: 2, text: 'Delta', slug: 'delta', line: 12 },
+        { level: 3, text: 'Epsilon', slug: 'epsilon', line: 16 },
+    ];
+    const DOC = '# Alpha\n\na\n\n## Beta\n\nb\n\n### Gamma\n\ng\n\n## Delta\n\nd\n\n### Epsilon\n\ne\n';
+
+    async function openMenu(slug: string): Promise<void> {
+        await act(async () => {
+            document.querySelector<HTMLButtonElement>(`button[data-slug="${slug}"]`)!
+                .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+        });
+    }
+    async function pick(label: string): Promise<void> {
+        const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) => node.textContent?.includes(label));
+        expect(item).toBeDefined();
+        await act(async () => { item!.click(); });
+    }
+
+    it('folds every sibling branch and nothing else', async () => {
+        const { unmount } = renderOutline(TREE, vi.fn(), { content: DOC, onContentChange: vi.fn() });
+        expect(slugs(document.body)).toEqual(['alpha', 'beta', 'gamma', 'delta', 'epsilon']);
+        await openMenu('beta');
+        await pick('outline.collapse_siblings');
+        expect(slugs(document.body)).toEqual(['alpha', 'beta', 'delta']);
+        await act(async () => { unmount(); });
+    });
+
+    it('opens the sibling branches back up', async () => {
+        const { container, unmount } = renderOutline(TREE, vi.fn(), { content: DOC, defaultLevel: 2 });
+        expect(slugs(container)).toEqual(['alpha', 'beta', 'delta']);
+        await openMenu('beta');
+        await pick('outline.expand_siblings');
+        expect(slugs(document.body)).toEqual(['alpha', 'beta', 'gamma', 'delta', 'epsilon']);
+        await act(async () => { unmount(); });
+    });
+
+    it('stays out of the menu when the row has no siblings', async () => {
+        const { unmount } = renderOutline([TREE[0]!], vi.fn(), { content: '# Alpha\n\na\n', onContentChange: vi.fn() });
+        await openMenu('alpha');
+        const labels = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent ?? '');
+        expect(labels.some((label) => label.includes('outline.collapse_siblings') || label.includes('outline.expand_siblings'))).toBe(false);
+        await act(async () => { unmount(); });
+    });
+});

@@ -557,6 +557,8 @@ export const EN_US_MESSAGES = {
     "outline.delete_section": "Delete heading and section",
     "outline.rename": "Rename heading",
     "outline.clear_filter": "Clear the outline filter",
+    "outline.collapse_siblings": "Collapse sibling headings",
+    "outline.expand_siblings": "Expand sibling headings",
     "outline.collapse_panel": "Fold the outline back to its dot",
     "outline.corner_top_left": "Park the panel in the top-left corner",
     "outline.corner_top_right": "Park the panel in the top-right corner",
