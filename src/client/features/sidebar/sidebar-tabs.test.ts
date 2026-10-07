@@ -1,4 +1,4 @@
-import { act, createElement } from 'react';
+import { act, createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, NoteSummary } from '@shared/types';
@@ -9,6 +9,7 @@ import { installTestGlobals } from '../../lib/test-render';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { Sidebar } from './Sidebar';
+import { ConfirmHost } from '../../components/overlay';
 import { SIDEBAR_PANEL_ID, SIDEBAR_TAB_IDS, tabId } from './SidebarTabs';
 
 const folder: Folder = { id: 'folder', name: 'Project', parentId: null, icon: null, color: null, position: 0, createdAt: 1, updatedAt: 1 };
@@ -189,5 +190,71 @@ describe('link tabs', () => {
         const section = container.querySelector('[role="tabpanel"] section')!;
         expect(section.className).not.toContain('max-h-[36%]');
         expect(spy).toHaveBeenCalledWith('src', expect.anything());
+    });
+});
+
+describe('history tab', () => {
+    const version = { id: 'v1', noteId: 'src', title: 'Source note', size: 120, createdAt: Date.now() - 60_000 };
+    type RestoreFn = (id: string, versionId: string, content: string, title?: string) => Promise<boolean>;
+    let restoreVersion: ReturnType<typeof vi.fn<RestoreFn>>;
+
+    beforeEach(() => {
+        restoreVersion = vi.fn<RestoreFn>(async () => true);
+        useNotes.setState({ notes: { src: summary('src', 'Source note') }, contents: { src: 'current text' }, restoreVersion });
+        useUi.setState({ activeNoteId: 'src', panel: null });
+        vi.spyOn(api.notes, 'versions').mockResolvedValue({ versions: [version] });
+        vi.spyOn(api.notes, 'version').mockResolvedValue({ ...version, content: 'older text' });
+    });
+
+    const openTab = async (tab: 'history' | 'graph') => {
+        await act(async () => useUi.getState().setSidebarTab(tab));
+    };
+
+    /** The dialog only answers when a host is mounted, and `confirm()` resolves false without one. */
+    const mountWithConfirmHost = async () => {
+        await act(() => root.unmount());
+        root = createRoot(container);
+        await act(() => root.render(createElement(Fragment, null, createElement(Sidebar), createElement(ConfirmHost))));
+    };
+
+    it('lists the saved snapshots of the note being read', async () => {
+        await openTab('history');
+        await vi.waitFor(() => expect(container.querySelectorAll('[data-version-id]').length).toBe(1), { timeout: 4000 });
+        const row = container.querySelector('[data-version-id="v1"]')!;
+        expect(row.textContent).toContain('120 B');
+    });
+
+    it('asks before putting an old snapshot back, then restores with the fetched body', async () => {
+        await openTab('history');
+        await vi.waitFor(() => expect(container.querySelectorAll('[data-version-id]').length).toBe(1), { timeout: 4000 });
+        await mountWithConfirmHost();
+        await vi.waitFor(() => expect(container.querySelector('[data-version-id="v1"] button')).toBeTruthy(), { timeout: 4000 });
+        await act(async () => container.querySelector<HTMLButtonElement>('[data-version-id="v1"] button')!.click());
+        await vi.waitFor(() => expect(document.body.textContent).toContain(t('sidebar.version_restore_title')), { timeout: 4000 });
+        const dialog = document.querySelector('[role="alertdialog"]') ?? document.body;
+        await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === t('common.restore'))?.click());
+        await vi.waitFor(() => expect(restoreVersion).toHaveBeenCalled(), { timeout: 4000 });
+        expect(api.notes.version).toHaveBeenCalledWith('src', 'v1');
+        expect(restoreVersion).toHaveBeenCalledWith('src', 'v1', 'older text', 'Source note');
+    });
+
+    it('leaves the note alone when the reader cancels', async () => {
+        await openTab('history');
+        await vi.waitFor(() => expect(container.querySelectorAll('[data-version-id]').length).toBe(1), { timeout: 4000 });
+        await mountWithConfirmHost();
+        await vi.waitFor(() => expect(container.querySelector('[data-version-id="v1"] button')).toBeTruthy(), { timeout: 4000 });
+        await act(async () => container.querySelector<HTMLButtonElement>('[data-version-id="v1"] button')!.click());
+        await vi.waitFor(() => expect(document.body.textContent).toContain(t('sidebar.version_restore_title')), { timeout: 4000 });
+        const dialog = document.querySelector('[role="alertdialog"]') ?? document.body;
+        await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === t('common.cancel'))?.click());
+        await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 250)); });
+        expect(restoreVersion).not.toHaveBeenCalled();
+    });
+
+    it('names the tab that needs a note without mounting the canvas', async () => {
+        useUi.setState({ activeNoteId: null });
+        await openTab('graph');
+        expect(container.textContent).toContain(t('graph.local_graph'));
+        expect(container.textContent).toContain(t('sidebar.links_no_note'));
     });
 });

@@ -362,7 +362,7 @@ export type ViewKind =
   | 'tag'
 
 /** Which panel the sidebar's tab strip is showing. One panel owns the full height. */
-export type SidebarTab = 'library' | 'tags' | 'recent' | 'backlinks' | 'outlinks'
+export type SidebarTab = 'library' | 'tags' | 'recent' | 'graph' | 'backlinks' | 'outlinks' | 'history'
 
 export type SortKey = 'updated' | 'created' | 'title'
 export type SortOrder = 'asc' | 'desc'

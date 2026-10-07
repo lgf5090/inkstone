@@ -16,11 +16,13 @@ import type { CanvasState, GraphCanvasControls } from './graph-panel/types'
 
 export interface LocalGraphPanelProps {
   noteId: string
-  onClose: () => void
+  /** Absent when the panel owns its column, as it does in the sidebar tab. */
+  onClose?: () => void
   onOpenFullGraph: () => void
+  fill?: boolean
 }
 
-export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph }: LocalGraphPanelProps) {
+export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false }: LocalGraphPanelProps) {
   const stateRef = useRef<CanvasState>(createGraphState())
   const controlsRef = useRef<GraphCanvasControls | null>(null)
   const stored = useMemo(() => loadPreferences(), [])
@@ -66,7 +68,7 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph }: LocalGraph
     }
   }, [request, reload])
 
-  return <section className="flex h-64 shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-base)]"
+  return <section className={fill ? 'flex min-h-0 flex-1 flex-col' : 'flex h-64 shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-base)]'}
     aria-label={t('graph.local_graph')}>
     <div className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-1 text-[11px] font-semibold tracking-[.04em] text-[var(--text-tertiary)]">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -98,11 +100,11 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph }: LocalGraph
             <ExternalLink size={12}/>
           </IconButton>
         </Tooltip>
-        <Tooltip label={t('common.close')}>
+        {onClose && <Tooltip label={t('common.close')}>
           <IconButton label={t('common.close')} size="sm" onClick={onClose}>
             <X size={13}/>
           </IconButton>
-        </Tooltip>
+        </Tooltip>}
       </div>
     </div>
     <div className="relative min-h-0 flex-1 overflow-hidden">

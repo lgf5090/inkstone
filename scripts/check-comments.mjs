@@ -431,6 +431,9 @@ const allowed = new Map([
   ["src/client/features/emoji/insert-emoji.ts", [
     "/**\n * Where a picked emoji goes: the editor on screen, and the clipboard when there is no editor to\n * write into (a note opened read-only, a phone in the preview tab). Silently dropping the pick is\n * the one answer that is never right.\n */",
   ]],
+  ["src/client/features/graph/LocalGraphPanel.tsx", [
+    "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
+  ]],
   ["src/client/features/graph/graph-panel/scene-search.test.ts", [
     "/**\n * The graph's own filter box, read through the matcher the panel shares with every other listing: a\n * reader who types the first letters of a Chinese note title has to land on that note, and the hit\n * count the panel prints is derived from exactly this set.\n */",
     "// huan-ying-shi-yong",
@@ -3029,6 +3032,10 @@ const allowed = new Map([
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
     "// change re-renders every visible row in the explorer.",
   ]],
+  ["src/client/features/sidebar/Sidebar.tsx", [
+    "// The graph canvas and its scene maths are only needed once a reader opens that tab, and the",
+    "// sidebar rides in the first bundle.",
+  ]],
   ["src/client/features/sidebar/SidebarOutlinks.tsx", [
     "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
   ]],
@@ -3038,6 +3045,9 @@ const allowed = new Map([
   ["src/client/features/sidebar/SidebarTabs.tsx", [
     "/**\n * The strip's own order and set. `SIDEBAR_TABS` stays the authority for what is a legal\n * stored value, so a tab dropped from here still loads into the default rather than into\n * a blank body.\n */",
     "/** What the strip actually offers; the store's `SIDEBAR_TABS` is the wider legal-value set. */",
+  ]],
+  ["src/client/features/sidebar/SidebarVersions.tsx", [
+    "/**\n * The saved snapshots of the note being read, newest first, with the one action that\n * matters from a narrow column: put one of them back. The diff view lives in the full\n * history panel because two note bodies do not fit side by side here.\n */",
   ]],
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
@@ -3066,6 +3076,9 @@ const allowed = new Map([
     "// sidebar re-render cannot re-run the header's formatting.",
     "// A diary keeps the title it was written under, so the lookup has to answer in",
     "// every shipped language: one per locale, current first.",
+  ]],
+  ["src/client/features/sidebar/sidebar-tabs.test.ts", [
+    "/** The dialog only answers when a host is mounted, and `confirm()` resolves false without one. */",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
