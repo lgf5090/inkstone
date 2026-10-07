@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { FileText, List } from 'lucide-react'
 import type { ProseFont } from '@shared/types'
 import { cn } from '../../../lib/cn'
@@ -47,12 +48,54 @@ export function PresenterNextSlidePane({
   )
 }
 
-export function PresenterSpeakerNotesPane({ notes }: { notes: string }) {  return (
+/**
+ * The speaker's own page of the console: read-only when nothing can be written, and a box to type in
+ * when the window holding the document is on the other end of the channel (PR-M8).
+ *
+ * The edit is handed over when the box loses focus rather than on every keystroke: the note is a line of
+ * the document, so a save per character would be an undo history per character, and a talk is typed in
+ * the middle of talking.
+ */
+export function PresenterSpeakerNotesPane({ notes, slideIndex, onEdit }: {
+  notes: string
+  slideIndex?: number
+  onEdit?: (slide: number, text: string) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const [held, setHeld] = useState(slideIndex)
+  if (held !== slideIndex) {
+    // The page moved under the box: whatever was being typed belongs to the slide it was typed on.
+    setHeld(slideIndex)
+    setDraft(null)
+  }
+  const editable = onEdit !== undefined && slideIndex !== undefined
+  const text = draft ?? notes
+  return (
     <div className='flex min-h-0 flex-[1.2] flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'>
       <div className='flex items-center gap-[var(--sp-1)] border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-2)] text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]'>
         <FileText size={13} />
         <span>{t('workspace.presentation_speaker_notes')}</span>
       </div>
+      {editable && (
+        <div className='border-b border-[var(--border-subtle)] px-[var(--sp-3)] py-[var(--sp-1)] text-[length:var(--text-12)] text-[var(--text-tertiary)]'>
+          {t('workspace.presentation_notes_edit_hint')}
+        </div>
+      )}
+      {editable ? (
+        <textarea
+          data-speaker-notes
+          data-speaker-notes-editable='true'
+          aria-label={t('workspace.presentation_speaker_notes')}
+          placeholder={t('workspace.presentation_no_notes')}
+          value={text}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            if (draft !== null && slideIndex !== undefined && onEdit && draft !== notes) onEdit(slideIndex, draft)
+            setDraft(null)
+          }}
+          className='min-h-0 flex-1 resize-none bg-transparent p-[var(--sp-4)] text-[length:var(--text-16)] leading-relaxed text-[var(--text-primary)] outline-none'
+        />
+      ) : (
       <div
         data-speaker-notes
         tabIndex={0}
@@ -66,6 +109,7 @@ export function PresenterSpeakerNotesPane({ notes }: { notes: string }) {  retur
           </p>
         )}
       </div>
+      )}
     </div>
   )
 }

@@ -38,6 +38,7 @@ function renderPanel(overrides: Partial<Parameters<typeof PresenterPanel>[0]> = 
     chromeHidden: false,
     occluded: false,
     onClose: vi.fn(),
+    onEditNotes: vi.fn(),
     ...overrides,
   }))
   return rendered

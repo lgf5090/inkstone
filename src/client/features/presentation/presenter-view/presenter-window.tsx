@@ -51,7 +51,7 @@ export function PresenterWindow({ initialState, onCommand }: PresenterWindowProp
             which is where "go back to the numbers slide" stops being a hunt. */}
         <div className='flex flex-[3] min-w-0 flex-col gap-[var(--sp-3)]'>
           <PresenterCurrentSlidePane state={state} />
-          <PresenterSpeakerNotesPane notes={state.notes} />
+          <PresenterSpeakerNotesPane notes={state.notes} slideIndex={state.slideIndex} onEdit={(slide, text) => sendCommand({ editNotes: { slide, text } })} />
         </div>
         <div className='flex flex-[2] min-w-0 flex-col gap-[var(--sp-3)]'>
           <PresenterNextSlidePane

@@ -20,6 +20,9 @@ import { type PreflightProgress, type SlidePreflightProps } from './slide-prefli
 import { type StageMetrics, useStageMetrics } from './slide-stage'
 import { useShowDeck, useSlideCacheKeys } from './use-show-deck'
 import { openPresenterWindow, usePresenterBroadcaster, usePresenterSlideState, type PresenterSlideState, type PresenterStateSource } from './presenter-view/use-presenter-channel'
+import { replaceSpeakerNote } from './slides'
+import { useNotes } from '../../store/notes'
+import { usePresentation } from '../../store/presentation'
 import { usePresentedNote } from './use-presented-note'
 import { usePresentationKeys } from './use-presentation-keys'
 import { useFullscreenToggle } from './use-fullscreen-toggle'
@@ -97,6 +100,8 @@ export interface PresentationSession {
    * (PR-L3), because a keystroke that strands a room is not a keystroke anyone meant to press.
    */
   requestClose: () => void
+  /** A note typed on a console surface, written back into the document as that slide's cue (PR-M8). */
+  editSpeakerNote: (slide: number, text: string) => void
   /** The ask is on screen. */
   exitAsked: boolean
   /** The answer that ends it: the show goes, and the audience link with it. */
@@ -183,8 +188,9 @@ function useSessionPresenter(options: {
   notes: string[]
   proseFont?: ProseFont
   startedAt: number
+  editSpeakerNote: (slide: number, text: string) => void
 }) {
-  const { open, noteTitle, nav, deck, notes, proseFont, startedAt } = options
+  const { open, noteTitle, nav, deck, notes, proseFont, startedAt, editSpeakerNote } = options
   // Minted per click rather than per show: the token reaches the presenter window through its route, so
   // a document that never went through this button — a hand-typed `?presenter=1`, another tab — has no
   // channel name to speak on, and cannot ask for the speaker notes or move the projector.
@@ -214,7 +220,7 @@ function useSessionPresenter(options: {
     proseFont,
   }
   const presenterState = usePresenterSlideState(source)
-  usePresenterBroadcaster({ ...source, open, token: presenterToken, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo })
+  usePresenterBroadcaster({ ...source, open, token: presenterToken, goNext: nav.goNext, goPrev: nav.goPrev, jumpTo: nav.jumpTo, editSpeakerNote })
   const presenterPanel: PresenterSlideState | null = fallback.panelOpen ? presenterState : null
   return { openPresenter, presenterPanel, closePresenterPanel: fallback.closePanel }
 }
@@ -231,8 +237,8 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
   const cacheKeys = useSlideCacheKeys(hashes, dark, metrics)
   const exports = useDeckExport({ deck, cacheKeys, plans: nav.plans, metrics, flags, dark, title: noteTitle, notes, proseFont })
   const { listProgress, onProgress } = useListProgress()
-  const presenter = useSessionPresenter({ open, noteTitle, nav, deck, notes, proseFont, startedAt })
   const audience = useSessionAudience(open, noteId, nav)
+  const presenter = useSessionPresenter({ open, noteTitle, nav, deck, notes, proseFont, startedAt, editSpeakerNote: (slide, text) => editSpeakerNote(noteId, presentedContent, slide, text) })
   const [exitAsked, setExitAsked] = useState(false)
   // A show with a room following it ends on a second, deliberate press: the link is out there, and
   // the presenter is the only one who knows whether leaving was the plan.
@@ -276,6 +282,7 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
     ...presenter,
     occluded: mode.overview || Boolean(mode.screenCover) || Boolean(contextMenu.contextPoint) || exitAsked,
     requestClose,
+    editSpeakerNote: (slide: number, text: string) => editSpeakerNote(noteId, presentedContent, slide, text),
     exitAsked,
     closeNow: onClose,
     keepPresenting,
@@ -295,6 +302,26 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
 function useSessionAudience(open: boolean, noteId: string | null, nav: ReturnType<typeof usePresentationNav>) {
   const audience = useAudienceFollow({ open, noteId, position: { slide: nav.index, page: nav.sub, step: nav.step } })
   return { audienceFollowing: audience.on, audienceViewers: audience.viewers, toggleAudience: audience.toggle }
+}
+
+/**
+ * A note typed during the talk, written back where notes live: in the document, as a cue (PR-M8).
+ *
+ * Only the window that owns the note store can do this, which is why the presenter console asks rather
+ * than saves. The rewrite is refused unless the deck splits back into the same slides it was before —
+ * that is what makes it safe to type while the projector is live — and a refusal is said out loud, since
+ * the words are sitting on the screen and did not go anywhere.
+ */
+function editSpeakerNote(noteId: string | null, content: string, slide: number, text: string): void {
+  if (!noteId) return
+  const next = replaceSpeakerNote(content, slide, text)
+  if (next === null) {
+    useUi.getState().toast({ title: t('workspace.presentation_note_refused'), tone: 'warning' })
+    return
+  }
+  if (next === content) return
+  useNotes.getState().editContent(noteId, next)
+  usePresentation.getState().capture(next)
 }
 
 /**

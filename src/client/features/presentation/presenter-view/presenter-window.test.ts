@@ -62,7 +62,9 @@ describe('PresenterWindow — layout and rendering', () => {
   it('renders fallback when current slide has no speaker notes', () => {
     const emptyNotesState: PresenterSlideState = { ...mockSlideState, notes: '' }
     const { container } = renderPresenter({ initialState: emptyNotesState })
-    expect(container.textContent).toContain(t('workspace.presentation_no_notes'))
+    const box = container.querySelector('[data-speaker-notes]')
+    expect(box?.getAttribute('placeholder'), 'an empty box says nothing about being empty').toBe(t('workspace.presentation_no_notes'))
+    expect(box?.textContent).toBe('')
   })
 
   it('renders end-of-deck notice when on the final slide', () => {
@@ -198,21 +200,27 @@ describe('PresenterWindow — keyboard focus guards', () => {
     expect(onCommand).not.toHaveBeenCalledWith('next')
   })
 
-  it('leaves vertical scrolling keys to speaker notes pane when focused', () => {
+  // The note box is typed in during the talk (PR-M8), so every roaming key belongs to the caret while the
+  // box has focus. The page still turns from anywhere else in the window, which the second case says.
+  it('leaves every roaming key to the note box while it is being typed in', () => {
     const onCommand = vi.fn()
     const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
 
     const notesPane = container.querySelector('[data-speaker-notes]')
-    for (const key of ['PageDown', 'PageUp', 'Home', 'End', ' ', 'ArrowDown', 'ArrowUp']) {
+    expect(notesPane?.tagName, 'the notes are not a box the presenter can type in').toBe('TEXTAREA')
+    for (const key of ['PageDown', 'PageUp', 'Home', 'End', ' ', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft']) {
       notesPane?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-      expect(onCommand).not.toHaveBeenCalled()
+      expect(onCommand, `${key} turned the page from inside the note box`).not.toHaveBeenCalled()
     }
+  })
 
-    notesPane?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+  it('turns the page with the arrows from the rest of the window', () => {
+    const onCommand = vi.fn()
+    renderPresenter({ initialState: mockSlideState, onCommand })
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
     expect(onCommand).toHaveBeenCalledWith('next')
-
-    notesPane?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
-    expect(onCommand).toHaveBeenCalledWith('prev')
   })
 })
 
@@ -475,4 +483,62 @@ describe('the presenter’s per-page clock', () => {
     view.unmount()
   })
 
+})
+
+// PR-M8: the note box is where the presenter writes what they have not said yet, during the talk. What
+// it owes is that the words reach the document, that a visit to the box changes nothing, and that a page
+// turn does not carry an unfinished sentence onto the next slide's note.
+describe('PresenterWindow — typing a note during the talk', () => {
+  const writeIn = (box: HTMLTextAreaElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    if (!setter) throw new Error('jsdom has stopped giving textareas a value setter')
+    act(() => {
+      setter.call(box, value)
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const leave = (box: HTMLTextAreaElement) => {
+    act(() => {
+      box.focus()
+      box.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    })
+  }
+  const boxOf = (container: HTMLElement) => container.querySelector<HTMLTextAreaElement>('[data-speaker-notes]')
+
+  it('hands the note back to the projector when the box loses focus', () => {
+    const onCommand = vi.fn()
+    const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
+    const box = boxOf(container)
+    if (!box) throw new Error('the console has no note box to type in')
+    writeIn(box, 'typed during the talk')
+    expect(onCommand, 'a save per keystroke is an undo history per keystroke').not.toHaveBeenCalled()
+    leave(box)
+    expect(onCommand).toHaveBeenCalledWith({ editNotes: { slide: 1, text: 'typed during the talk' } })
+  })
+
+  it('says nothing when the box was only visited', () => {
+    const onCommand = vi.fn()
+    const { container } = renderPresenter({ initialState: mockSlideState, onCommand })
+    const box = boxOf(container)
+    if (!box) throw new Error('the console has no note box to type in')
+    leave(box)
+    expect(onCommand, 'focusing and leaving is not an edit').not.toHaveBeenCalled()
+    writeIn(box, mockSlideState.notes)
+    leave(box)
+    expect(onCommand, 'the same words back are not an edit either').not.toHaveBeenCalled()
+  })
+
+  it('gives up the draft when the show turns to another page', () => {
+    const onCommand = vi.fn()
+    const view = renderPresenter({ initialState: mockSlideState, onCommand })
+    const box = boxOf(view.container)
+    if (!box) throw new Error('the console has no note box to type in')
+    writeIn(box, 'half a sentence')
+    act(() => {
+      view.rerender(createElement(PresenterWindow, { initialState: { ...mockSlideState, slideIndex: 2, notes: 'what the next page needs' }, onCommand }))
+    })
+    leave(box)
+    expect(onCommand, 'a sentence started on the page above must not land on this one').not.toHaveBeenCalled()
+    expect(box.value).toBe('what the next page needs')
+  })
 })

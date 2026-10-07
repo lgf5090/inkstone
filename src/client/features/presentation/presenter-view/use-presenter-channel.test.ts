@@ -16,6 +16,10 @@ import {
 } from './use-presenter-channel'
 import { MockBroadcastChannel, flushed, openChannelCount, openChannelNames, resetChannelRegistry, syncPostCount } from './presenter-channel.test-helpers'
 
+// The note half of the channel is asserted where the notes are handled; everything else here just needs
+// a host that does not throw when the console hands a note back.
+const NO_EDIT = () => {}
+
 describe('use-presenter-channel — formatElapsed and formatClock', () => {
   it('formats elapsed time correctly for seconds, minutes and hours', () => {
     expect(formatElapsed(0)).toBe('00:00')
@@ -121,6 +125,7 @@ function TestBroadcaster({ slide, token = 'tok-1', titles = NO_TITLES }: { slide
     goNext: vi.fn(),
     goPrev: vi.fn(),
     jumpTo: vi.fn(),
+    editSpeakerNote: NO_EDIT,
   })
   return null
 }
@@ -154,6 +159,7 @@ describe('usePresenterBroadcaster — sync and unmount', () => {
       goNext: vi.fn(),
       goPrev: vi.fn(),
       jumpTo: vi.fn(),
+    editSpeakerNote: NO_EDIT,
     })
 
     await vi.waitFor(() => {
@@ -172,6 +178,7 @@ describe('usePresenterReceiver — inbound commands', () => {
     const goNext = vi.fn()
     const goPrev = vi.fn()
     const jumpTo = vi.fn()
+    const editSpeakerNote = vi.fn()
 
     const h = setupPresenterHarness({
       open: true,
@@ -190,6 +197,7 @@ describe('usePresenterReceiver — inbound commands', () => {
       goNext,
       goPrev,
       jumpTo,
+      editSpeakerNote,
     })
 
     await vi.waitFor(() => expect(h.getConnected()).toBe(true))
@@ -210,6 +218,10 @@ describe('usePresenterReceiver — inbound commands', () => {
     // console and the projector's position.
     act(() => h.sendCommand({ jump: 1 }))
     await vi.waitFor(() => expect(jumpTo).toHaveBeenCalledWith(1))
+
+    // The note box on the console writes to the document the other window owns (PR-M8).
+    act(() => h.sendCommand({ editNotes: { slide: 2, text: 'typed during the talk' } }))
+    await vi.waitFor(() => expect(editSpeakerNote).toHaveBeenCalledWith(2, 'typed during the talk'))
 
     act(() => {
       h.broadcaster.unmount()
@@ -274,6 +286,7 @@ const channelOptions: PresenterBroadcasterOptions = {
   goNext: vi.fn(),
   goPrev: vi.fn(),
   jumpTo: vi.fn(),
+  editSpeakerNote: NO_EDIT,
 }
 
 function ShowHarness({ goNext }: { goNext: () => void }) {

@@ -21,8 +21,9 @@ export function presenterTokenFromLocation(search: string): string | null {
 }
 
 /** What the console can ask the projector to do. `jump` is the one that carries a number: it is the
- * outline row the presenter clicked, and the show lands on that slide rather than one step over. */
-export type PresenterInboundCommand = 'next' | 'prev' | 'first' | 'last' | { jump: number }
+ * outline row the presenter clicked, and the show lands on that slide rather than one step over.
+ * `editNotes` is the note box handed back to the window that owns the document (PR-M8). */
+export type PresenterInboundCommand = 'next' | 'prev' | 'first' | 'last' | { jump: number } | { editNotes: { slide: number, text: string } }
 
 export interface PresenterSlideState {
   noteTitle: string
@@ -110,6 +111,8 @@ export interface PresenterBroadcasterOptions extends PresenterStateSource {
   goNext: () => void
   goPrev: () => void
   jumpTo: (index: number) => void
+  /** The console's note box, applied to the document this window owns (PR-M8). */
+  editSpeakerNote: (slide: number, text: string) => void
 }
 
 /** The next press of the turn, which is what the console has to show: one block more while the page is
@@ -171,7 +174,7 @@ function useBroadcasterChannel(
   open: boolean,
   token: string | null,
   stateRef: React.RefObject<PresenterSlideState>,
-  navRef: React.RefObject<{ goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number }>,
+  navRef: React.RefObject<{ goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number; editSpeakerNote: (slide: number, text: string) => void }>,
   readyRef: React.RefObject<boolean>,
 ) {
   const channelRef = useRef<BroadcastChannel | null>(null)
@@ -217,9 +220,9 @@ function useBroadcasterChannel(
 }
 
 export function usePresenterBroadcaster(options: PresenterBroadcasterOptions): void {
-  const { open, token, slideCount, goNext, goPrev, jumpTo } = options
-  const navRef = useRef({ goNext, goPrev, jumpTo, slideCount })
-  navRef.current = { goNext, goPrev, jumpTo, slideCount }
+  const { open, token, slideCount, goNext, goPrev, jumpTo, editSpeakerNote } = options
+  const navRef = useRef({ goNext, goPrev, jumpTo, slideCount, editSpeakerNote })
+  navRef.current = { goNext, goPrev, jumpTo, slideCount, editSpeakerNote }
 
   const statePayload = usePresenterSlideState(options)
   const stateRef = useRef(statePayload)
@@ -240,10 +243,12 @@ export function usePresenterBroadcaster(options: PresenterBroadcasterOptions): v
   }, [open, statePayload, channelRef])
 }
 
-function handleInboundCommand(command: PresenterInboundCommand, nav: { goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number }) {
-  // The one command that carries a number, and the show's own clamp is what makes a hand-typed message
-  // on the channel no better than a click.
-  if (typeof command !== 'string') return nav.jumpTo(command.jump)
+function handleInboundCommand(command: PresenterInboundCommand, nav: { goNext: () => void; goPrev: () => void; jumpTo: (i: number) => void; slideCount: number; editSpeakerNote: (slide: number, text: string) => void }) {
+  if (typeof command !== 'string') {
+    // The show's own clamp is what makes a hand-typed message on the channel no better than a click.
+    if ('jump' in command) return nav.jumpTo(command.jump)
+    return nav.editSpeakerNote(command.editNotes.slide, command.editNotes.text)
+  }
   switch (command) {
     case 'next':
       return nav.goNext()
