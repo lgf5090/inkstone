@@ -148,6 +148,12 @@ function registerSharePresenceStopRoute(shareManageRoutes: Hono<AppBindings>): v
 function registerSharePresenceStatusRoute(shareManageRoutes: Hono<AppBindings>): void {
   shareManageRoutes.get('/:noteId/present', async (c) => {
     const share = await loadPresentableShare(c.env.DB, c.get('userId'), c.req.param('noteId'))
+    // The owner asking whether they are on air is also the moment their finished shows get cleaned
+    // up: a row whose lease ran out answers nothing (every read filters on `expires_at`), so it is
+    // only ever left behind by a browser that never sent the stop press.
+    await c.env.DB.prepare(`DELETE FROM share_presence WHERE user_id = ?1 AND expires_at <= ?2`)
+      .bind(share.user_id, Date.now())
+      .run()
     const row = await loadPresenceRow(c.env.DB, share.slug)
     if (!row) return c.json({ running: false }, 200, { 'Cache-Control': 'no-store' })
     const running: PublicSharePresence = { slide: row.slide, page: row.page, step: row.step, updatedAt: row.updated_at, title: share.title }

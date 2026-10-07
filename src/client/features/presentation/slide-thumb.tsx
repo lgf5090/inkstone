@@ -5,6 +5,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type RefObject } from 'react'
 import type { ProseFont } from '@shared/types'
 import { cn } from '../../lib/cn'
+import { renderOutlineLabel } from '../../lib/markdown/renderer'
 import { useSession } from '../../store/session'
 import type { RailEntry } from './presentation-state'
 import { describeDeckPosition } from './deck-position'
@@ -67,13 +68,24 @@ export function pageLabel(entry: RailEntry, deckLength: number): string {
   return describeDeckPosition({ index: entry.slide, count: deckLength, subPage: entry.sub, pageCount: entry.pageCount })
 }
 
+// A label is read out loud and looked at, so it says what the slide says rather than how the author
+// marked it up: the same engine that renders the outline's label flattens the inline markup, and the
+// block marker a fallback line carries is lifted here because an inline render would print it.
+const BLOCK_MARKER = /^(?:>[ \t]+|[-*+[ \t]]+|\d+[.)][ \t]+)/
+
+function plainLabel(text: string): string {
+  const template = document.createElement('template')
+  template.innerHTML = renderOutlineLabel(text.replace(BLOCK_MARKER, ''))
+  return (template.content.textContent ?? '').replace(/\s+/g, ' ').trim()
+}
+
 export function extractSlideHeading(source: string): string {
   const lines = source.split(/\r?\n/)
   for (const line of lines) {
     const trimmed = line.trim()
     const headingMatch = /^#{1,6}\s+(.+)$/.exec(trimmed)
     if (headingMatch?.[1]) {
-      return headingMatch[1].trim()
+      return plainLabel(headingMatch[1].trim())
     }
   }
   let inFence = false
@@ -85,7 +97,7 @@ export function extractSlideHeading(source: string): string {
     }
     if (inFence) continue
     if (trimmed && !trimmed.startsWith('<!--') && !trimmed.startsWith('---')) {
-      return trimmed.slice(0, 30)
+      return plainLabel(trimmed).slice(0, 30)
     }
   }
   return ''

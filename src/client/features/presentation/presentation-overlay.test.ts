@@ -1,4 +1,4 @@
-import { act, createElement } from 'react'
+import { act, createElement, type RefObject } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, stubBreakpoint, stubWideShow } from '../../lib/test-render'
@@ -6,7 +6,7 @@ import { noteSummary } from './note-fixture'
 import { useNotes } from '../../store/notes'
 import { usePresentation } from '../../store/presentation'
 import { useUi } from '../../store/ui'
-import { SlidePreparationNotice } from './presentation-stage'
+import { PresentationStage, SlidePreparationNotice } from './presentation-stage'
 import { readSlideHtml, rememberSlideHtml, type SlideMarkup } from './slide-html'
 import { PresentationOverlay } from './presentation-overlay'
 
@@ -409,6 +409,43 @@ describe('PresentationOverlay — the show in a phone window', () => {
     }
     // The list belongs to the projector it opened from: painted beside the dialog it would sit under it.
     expect(document.querySelector('[role="dialog"] [role="menu"]')).toBeTruthy()
+    view.unmount()
+  })
+})
+
+describe('the corner position readout', () => {
+  const metrics = { scale: 1, designWidth: 1280, designHeight: 720, contentWidth: 1200, contentHeight: 640 }
+
+  function drawStage(chromeHidden: boolean) {
+    const stageRef = { current: null } as unknown as RefObject<HTMLDivElement | null>
+    return renderElement(createElement(PresentationStage, {
+      stageRef,
+      metrics,
+      cacheKey: 'corner',
+      source: '# One\n\nBody',
+      subPage: 0,
+      step: 0,
+      steps: 0,
+      pageCount: 1,
+      index: 0,
+      count: 3,
+      onPlan: () => {},
+      onPrev: () => {},
+      onNext: () => {},
+      occluded: false,
+      chromeHidden,
+    }))
+  }
+
+  it('is the bar’s alone while the bar is up', () => {
+    const view = drawStage(false)
+    expect(view.container.querySelectorAll('[data-deck-position]').length).toBe(0)
+    view.unmount()
+  })
+
+  it('stands in for the bar once it has faded', () => {
+    const view = drawStage(true)
+    expect(view.container.querySelector('[data-deck-position]')?.textContent?.trim()).toBe('1 / 3')
     view.unmount()
   })
 })

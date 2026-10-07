@@ -275,4 +275,28 @@ describe('the owner asking whether a show is running', () => {
     expect(after.presence).toMatchObject({ slide: 2 })
     expect(JSON.stringify(after)).not.toContain(token)
   })
+
+  // PR-L5: the expiry index exists, so something has to answer for it. A browser that was closed
+  // mid-talk never sends the stop press, and the row it leaves behind answers nothing — every read
+  // filters on `expires_at` — so it is only ever debris. Asking "am I on air?" is the moment the
+  // owner's own debris gets cleared, on the indexed column, bounded to that owner.
+  it('takes the owner’s finished shows out of the table while asking', async () => {
+    await start()
+    sqlite.prepare('UPDATE share_presence SET expires_at = 1 WHERE user_id = ?').run(USER)
+    const answer = await (await call(`/api/share/${NOTE}/present`, {})).json()
+    expect(answer).toEqual({ running: false })
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM share_presence').get()).toMatchObject({ n: 0 })
+  })
+
+  it('leaves a show that is still on air alone while asking', async () => {
+    await start()
+    await call(`/api/share/${NOTE}/present`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ slide: 1, page: 0, step: 0 }),
+    })
+    const answer = await (await call(`/api/share/${NOTE}/present`, {})).json()
+    expect(answer.running).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM share_presence').get()).toMatchObject({ n: 1 })
+  })
 })

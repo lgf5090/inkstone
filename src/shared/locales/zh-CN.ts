@@ -2301,6 +2301,7 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_overview": "幻灯片全览",
     "workspace.presentation_show_overview": "显示幻灯片全览",
     "workspace.presentation_hide_overview": "隐藏幻灯片全览",
+    "workspace.presentation_overview_count": "共 {value0} 页 · 按 {value1} 关闭",
     "workspace.presentation_slide_number": "第 {value0} 张，共 {value1} 张",
     "workspace.presentation_slide_page_number": "第 {value0} 张，共 {value1} 张；第 {value2} 页，共 {value3} 页",
     "workspace.presentation_slide_step_number": "第 {value0} 张，共 {value1} 张；第 {value2} 步，共 {value3} 步",
