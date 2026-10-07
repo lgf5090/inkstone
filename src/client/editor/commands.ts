@@ -42,17 +42,7 @@ export function toggleWrap(open: string, close = open, options: { suggestWhenOpe
                 };
             }
 
-            let { from, to } = range;
-            if (from === to) {
-                const line = state.doc.lineAt(from);
-                const offset = from - line.from;
-                const wordStart = /[\p{L}\p{N}_]+$/u.exec(line.text.slice(0, offset));
-                const wordEnd = /^[\p{L}\p{N}_]+/u.exec(line.text.slice(offset));
-                if (wordStart || wordEnd) {
-                    from = line.from + offset - (wordStart?.[0].length ?? 0);
-                    to = line.from + offset + (wordEnd?.[0].length ?? 0);
-                }
-            }
+            let { from, to } = expandToWord(state, range);
             const text = state.sliceDoc(from, to);
 
             const contained = containedMarkers(text, open, close);
@@ -144,17 +134,7 @@ export const toggleBold = toggleWrap('**');
 export const toggleItalic = toggleWrap('*');
 export const toggleInlineCode: StateCommand = ({ state, dispatch }) => {
     const changes = state.changeByRange((range) => {
-        let { from, to } = range;
-        if (from === to) {
-            const line = state.doc.lineAt(from);
-            const offset = from - line.from;
-            const wordStart = /[\p{L}\p{N}_]+$/u.exec(line.text.slice(0, offset));
-            const wordEnd = /^[\p{L}\p{N}_]+/u.exec(line.text.slice(offset));
-            if (wordStart || wordEnd) {
-                from -= wordStart?.[0].length ?? 0;
-                to += wordEnd?.[0].length ?? 0;
-            }
-        }
+        const { from, to } = expandToWord(state, range);
         const selected = state.sliceDoc(from, to);
         const contained = codeSpanMarkers(selected);
         if (contained) {
@@ -919,6 +899,24 @@ function selectedLineBounds(state: EditorState, range: SelectionRange): {
     if (!range.empty && range.to === state.doc.line(endLine).from)
         endLine--;
     return { startLine, endLine };
+}
+export { selectedLineBounds };
+
+/**
+ * The word under a collapsed caret, which is what every inline wrapper takes as its target: pressing
+ * bold in the middle of a word is how you bold that word.
+ */
+export function expandToWord(state: EditorState, range: SelectionRange): { from: number; to: number } {
+    let { from, to } = range;
+    if (from !== to)
+        return { from, to };
+    const line = state.doc.lineAt(from);
+    const offset = from - line.from;
+    const wordStart = /[\p{L}\p{N}_]+$/u.exec(line.text.slice(0, offset));
+    const wordEnd = /^[\p{L}\p{N}_]+/u.exec(line.text.slice(offset));
+    if (!wordStart && !wordEnd)
+        return { from, to };
+    return { from: from - (wordStart?.[0].length ?? 0), to: to + (wordEnd?.[0].length ?? 0) };
 }
 
 function lineIndent(line: string): string {

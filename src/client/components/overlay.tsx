@@ -279,6 +279,11 @@ export interface PromptOptions {
     defaultValue?: string;
     confirmLabel?: string;
     cancelLabel?: string;
+    /**
+     * Keep the spaces the user typed. A line prefix or a numbering template is often made of them,
+     * and the default trim would turn `{n}. ` into `{n}.` and glue the number to the text.
+     */
+    preserveSpaces?: boolean;
 }
 interface PromptRequest {
     options: PromptOptions;
@@ -336,7 +341,7 @@ function PromptDialog({ request, finish }: { request: PromptRequest; finish: (re
     useEffect(() => {
         setValue(request.options.defaultValue ?? '');
     }, [request]);
-    const submit = value.trim();
+    const submit = request.options.preserveSpaces ? value : value.trim();
     return (<Modal open onClose={() => finish(request, null)} title={request.options.title} description={request.options.description} width={420} footer={<>
           <Button variant="ghost" onClick={() => finish(request, null)}>
             {request.options.cancelLabel ?? t("common.cancel")}
@@ -456,7 +461,7 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
-export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, header, searchable = false, searchPlaceholder = t('overlay.search_menu'), searchActions, }: {
+export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, header, headerHeight = 44, searchable = false, searchPlaceholder = t('overlay.search_menu'), searchActions, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
         y: number;
@@ -478,6 +483,12 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
     container?: HTMLElement | null;
     /** Pinned above the rows: the quick-action strip a context menu opens with. */
     header?: ReactNode;
+    /**
+     * How tall {@link header} actually is. The panel is placed before it is measured, so a header the
+     * row arithmetic cannot see — a colour grid, say — has to state its own height or the menu will
+     * open believing it is 44px and never flip up out of the way of the viewport edge.
+     */
+    headerHeight?: number;
     /** Shows the filter box and narrows the list to what the query matches. */
     searchable?: boolean;
     searchPlaceholder?: string;
@@ -524,7 +535,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             return;
         const margin = 8;
         const itemHeight = innerWidth < 768 ? 40 : 30;
-        const headHeight = (header ? 44 : 0) + (searchable ? 40 : 0);
+        const headHeight = (header ? headerHeight : 0) + (searchable ? 40 : 0);
         const height = Math.min(visibleItems.length * itemHeight + 12 + headHeight, 420);
         let top: number;
         let left: number;
@@ -546,7 +557,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         left = Math.min(Math.max(viewport.left + margin, left), viewport.right - menuWidth - margin);
         setPosition({ top, left, origin: `${flipUp ? 'bottom' : 'top'} ${align === 'end' ? 'right' : 'left'}` });
         setCursor(visibleItems.findIndex((i) => !i.disabled));
-    }, [open, visibleItems, align, menuWidth, anchorRef, point, header, searchable]);
+    }, [open, visibleItems, align, menuWidth, anchorRef, point, header, headerHeight, searchable]);
     useEffect(() => {
         if (!open)
             setSubmenu(null);

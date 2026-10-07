@@ -5,6 +5,7 @@ import type { MessageKey } from '../lib/i18n';
 import { IS_MAC } from '../lib/hotkeys';
 import { codeMirrorKey } from '../lib/shortcuts';
 import { insertLink, setHeading, toggleBold, toggleComment, toggleBulletList, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskDone, toggleTaskList, formatCodeBlock } from './commands';
+import { toggleUnderline } from './text-format';
 
 interface EditorShortcut {
     id: string;
@@ -17,6 +18,7 @@ interface EditorShortcut {
 export const EDITOR_SHORTCUTS: EditorShortcut[] = [
     { id: 'bold', combo: 'mod+b', label: 'common.bold', run: toggleBold },
     { id: 'italic', combo: 'mod+i', label: 'common.italic', run: toggleItalic },
+    { id: 'underline', combo: 'mod+u', label: 'common.underline', run: toggleUnderline },
     { id: 'inline-code', combo: 'mod+e', label: 'common.inline_code', run: toggleInlineCode },
     { id: 'strikethrough', combo: 'mod+shift+x', label: 'common.strikethrough', run: toggleStrikethrough },
     { id: 'link', combo: 'mod+k', label: 'workspace.link', run: insertLink() },

@@ -892,6 +892,27 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
         node.setAttribute('rel', 'noopener noreferrer');
     }
 });
+
+const COLOR_ONLY_STYLE = /^(?:color|background(?:-color)?):\s*#[0-9a-fA-F]{3,8}$/i;
+const COLOR_STYLE_TAGS = new Set(['FONT', 'MARK', 'SPAN', 'U', 'SUP', 'SUB']);
+
+/**
+ * The document pipeline, on its own purify instance so the one exemption below cannot reach the
+ * outline label or the Mermaid SVG through the shared hooks.
+ *
+ * A colour the toolbar wrote is the only inline style a note may carry: one declaration, one plain
+ * hex, on a tag that holds text. Everything else — a `url()`, a second declaration, a `position` —
+ * is still dropped, so the blanket ban on `style` in {@link PURIFY_CONFIG} keeps its teeth.
+ */
+const colorStylePurify = typeof window === 'undefined' ? DOMPurify : DOMPurify(window);
+colorStylePurify.addHook('uponSanitizeAttribute', (node, data) => {
+    if (data.attrName === 'style' && COLOR_STYLE_TAGS.has(node.nodeName) && COLOR_ONLY_STYLE.test(data.attrValue))
+        data.forceKeepAttr = true;
+});
+
+function sanitizeDocument(html: string): string {
+    return colorStylePurify.sanitize(html, PURIFY_CONFIG);
+}
 export interface MarkdownBlock {
     startLine: number;
     endLine: number;
@@ -944,7 +965,7 @@ export function renderMarkdownBlocks(source: string): { blocks: MarkdownBlock[];
         return { blocks, headings: env.headings, fences: env.fences };
     const marker = `${env.taskNonce}:`;
     const frame = document.createElement('template');
-    frame.innerHTML = materializeTrustedTasks(DOMPurify.sanitize(groups.map((group, index) => `<div data-render-group="${marker}${index}">${group.raw}</div>`).join(''), PURIFY_CONFIG), env.taskNonce);
+    frame.innerHTML = materializeTrustedTasks(sanitizeDocument(groups.map((group, index) => `<div data-render-group="${marker}${index}">${group.raw}</div>`).join('')), env.taskNonce);
     for (const child of Array.from(frame.content.children)) {
         const key = (child as HTMLElement).dataset?.renderGroup;
         if (typeof key !== 'string' || !key.startsWith(marker))
@@ -961,7 +982,7 @@ export function renderMarkdown(source: string, options?: { hideFrontMatter?: boo
     const env = emptyEnvironment();
     env.hideFrontMatter = options?.hideFrontMatter === true;
     const raw = md.render(stripObsidianComments(source), env);
-    const sanitized = DOMPurify.sanitize(raw, PURIFY_CONFIG);
+    const sanitized = sanitizeDocument(raw);
     const html = materializeTrustedTasks(sanitized, env.taskNonce);
     return {
         html,

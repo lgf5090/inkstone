@@ -1,15 +1,25 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Sparkles, Strikethrough, Table } from 'lucide-react';
+import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Sparkles, Strikethrough, Table, Type, Underline } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
 import { formatCodeBlock, insertCodeBlock, insertLink, insertTable, toggleBold, toggleBulletList, toggleHighlight, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskList } from '../../editor/commands';
-import { blockMenuItems, codeMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
+import { setFontColor, setHighlightColor, toggleUnderline } from '../../editor/text-format';
+import { EditorColorPanel } from './EditorColorMenu';
+import { useRecentColors } from '../../lib/format-colors';
+import { blockMenuItems, codeMenuItems, formatMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 
-type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block';
+type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'format' | 'text-color' | 'highlight-color';
+
+/**
+ * The palette is a menu header, and a header is placed before it is measured. These are what the
+ * panel actually is, so the maths that flips a menu away from the viewport edge can see it.
+ */
+const PALETTE_WIDTH = 242;
+const PALETTE_HEIGHT = 342;
 
 export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }: {
     runCommand?: (command: (target: EditorView) => boolean) => void;
@@ -24,7 +34,11 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
     const codeRef = useRef<HTMLButtonElement>(null);
     const mathRef = useRef<HTMLButtonElement>(null);
     const blockRef = useRef<HTMLButtonElement>(null);
+    const formatRef = useRef<HTMLButtonElement>(null);
+    const textColorRef = useRef<HTMLButtonElement>(null);
+    const highlightColorRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
+    const recent = useRecentColors();
     const toggleMenu = (menu: ToolbarMenu) => setToolbarMenu((current) => current === menu ? null : menu);
     // The dropdown closes before the command runs, so a menu still holding the pointer cannot keep
     // the focus the command is about to hand back to the editor.
@@ -50,15 +64,42 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
         { id: 'code', anchor: codeRef, label: t('workspace.code_and_diagrams'), items: codeMenuItems(run), width: 192 },
         { id: 'math', anchor: mathRef, label: t('workspace.math'), items: mathMenuItems(run), width: 176 },
         { id: 'block', anchor: blockRef, label: t('workspace.content_blocks'), items: blockMenuItems(run), width: 176 },
+        { id: 'format', anchor: formatRef, label: t('workspace.more_formats'), items: formatMenuItems(run), width: 200 },
     ] as const;
-    const menuButton = (id: ToolbarMenu, icon: ReactNode, primary?: { label: string; onClick: () => void; combo?: string }) => {
-        const menu = menus.find((item) => item.id === id)!;
-        return <div className="flex shrink-0 items-center rounded-[var(--r-md)]">
+    const anchors: Record<ToolbarMenu, RefObject<HTMLButtonElement | null>> = {
+        heading: headingRef,
+        reference: referenceRef,
+        image: imageRef,
+        note: noteRef,
+        code: codeRef,
+        math: mathRef,
+        block: blockRef,
+        format: formatRef,
+        'text-color': textColorRef,
+        'highlight-color': highlightColorRef,
+    };
+    const labels: Record<ToolbarMenu, string> = {
+        heading: t('workspace.title_level'),
+        reference: t('workspace.links_and_references'),
+        image: t('workspace.insert_image'),
+        note: t('workspace.note_tools'),
+        code: t('workspace.code_and_diagrams'),
+        math: t('workspace.math'),
+        block: t('workspace.content_blocks'),
+        format: t('workspace.more_formats'),
+        'text-color': t('workspace.text_color'),
+        'highlight-color': t('workspace.highlight_color'),
+    };
+    const menuButton = (id: ToolbarMenu, icon: ReactNode, primary?: { label: string; combo?: string; onClick: () => void }) => {
+        const lastUsed = id === 'text-color' ? recent.text[0] : id === 'highlight-color' ? recent.highlight[0] : undefined;
+        return (<div className="flex shrink-0 items-center rounded-[var(--r-md)]">
           {primary && <ToolButton label={primary.label} combo={primary.combo} onClick={primary.onClick}>{icon}</ToolButton>}
-          <MenuButton buttonRef={menu.anchor} label={menu.label} mobile={mobile} open={openMenu === id} onClick={() => toggleMenu(id)}>
+          <MenuButton buttonRef={anchors[id]} label={labels[id]} mobile={mobile} open={openMenu === id} onClick={() => toggleMenu(id)}>
             {!primary && icon}
+            {lastUsed && <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: lastUsed }}/>}
+            <ChevronDown size={10} className="opacity-60"/>
           </MenuButton>
-        </div>;
+        </div>);
     };
 
     return (<div aria-label={t('workspace.formatting_tools')} className={cn('editor-toolbar flex shrink-0 items-center overflow-x-auto border-b border-[var(--border-subtle)] px-2 no-scrollbar', mobile ? 'h-11 gap-1' : 'h-9 gap-0.5')}>
@@ -66,8 +107,10 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
       <Divider />
       <ToolButton label={t('common.bold')} combo={editorCombo('bold')} onClick={() => run(toggleBold)}><Bold size={14}/></ToolButton>
       <ToolButton label={t('common.italic')} combo={editorCombo('italic')} onClick={() => run(toggleItalic)}><Italic size={14}/></ToolButton>
+      <ToolButton label={t('common.underline')} combo={editorCombo('underline')} onClick={() => run(toggleUnderline)}><Underline size={14}/></ToolButton>
       <ToolButton label={t('common.strikethrough')} combo={editorCombo('strikethrough')} onClick={() => run(toggleStrikethrough)}><Strikethrough size={14}/></ToolButton>
-      <ToolButton label={t('common.highlight')} onClick={() => run(toggleHighlight)}><Highlighter size={14}/></ToolButton>
+      {menuButton('text-color', <Type size={14}/>)}
+      {menuButton('highlight-color', <Highlighter size={14}/>, { label: t('common.highlight'), onClick: () => run(toggleHighlight) })}
       <ToolButton label={t('common.inline_code')} combo={editorCombo('inline-code')} onClick={() => run(toggleInlineCode)}><Code size={14}/></ToolButton>
       <Divider />
       <ToolButton label={t('common.unordered_list')} combo={editorCombo('bullet-list')} onClick={() => run(toggleBulletList)}><List size={14}/></ToolButton>
@@ -84,7 +127,10 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false }:
       <ToolButton label={t('workspace.table')} onClick={() => run(insertTable)}><Table size={14}/></ToolButton>
       {menuButton('math', <Sigma size={14}/>)}
       {menuButton('block', <Blocks size={14}/>)}
+      {menuButton('format', <CaseUpper size={14}/>)}
       {menus.map((menu) => <Menu key={menu.id} anchor={menu.anchor} open={openMenu === menu.id} onClose={() => setToolbarMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
+      <Menu anchor={textColorRef} open={openMenu === 'text-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.text_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="text" current={recent.text[0]} onPick={color => run(setFontColor(color))}/>}/>
+      <Menu anchor={highlightColorRef} open={openMenu === 'highlight-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.highlight_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="highlight" current={recent.highlight[0]} onPick={color => run(setHighlightColor(color))}/>}/>
     </div>);
 }
 
@@ -98,7 +144,7 @@ function MenuButton({ buttonRef, label, open, onClick, children, mobile = false 
 }) {
     return (<Tooltip label={label}>
       <button ref={buttonRef} type="button" onClick={onClick} aria-label={label} aria-haspopup="menu" aria-expanded={open} className={cn('inline-flex shrink-0 items-center gap-0.5 rounded-[var(--r-md)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]', open && 'bg-[var(--bg-hover)] text-[var(--text-primary)]', mobile ? 'h-9' : 'h-7')}>
-        {children}<ChevronDown size={10} className="opacity-60"/>
+        {children}
       </button>
     </Tooltip>);
 }
