@@ -356,10 +356,6 @@ const allowed = new Map([
     "// whatever the warm-up has not reached yet.",
   ]],
   ["src/client/features/list/gap-indicator.ts", [
-    "/** Latest non-deleted note's edit date key (null when there are no notes). */",
-    "// The heatmap's gap banner and the list header both ask for the newest edit after every",
-    "// derived commit; memoizing by map identity makes one commit cost one O(n) scan, and the",
-    "// entry dies with the replaced map so nothing is retained strongly.",
     "/** Newest edit key with whole days it sits outside the selected window (null when it is inside or the inputs are empty). */",
   ]],
   ["src/client/features/presentation/audience-view.test.ts", [
@@ -3189,6 +3185,10 @@ const allowed = new Map([
     "// past the default five-second budget without anything being wrong with the projection. The budget is",
     "// stated here rather than paid for by a smaller vault — the coverage is the point of these cases. The",
     "// same shape as `kanban-render-budget.test.ts`'s `HEAVY_BOARD`.",
+    "// The scaling half of C-06: the newest-edit answer used to cost a second whole-vault",
+    "// `Object.values` scan per commit. Counting `updatedAt` reads pins the invariant the",
+    "// fix actually claims — a commit that only bumps the newest note must not look at the",
+    "// others — without depending on a wall-clock budget this shared machine cannot honour.",
   ]],
   ["src/client/lib/calendar-activity.ts", [
     "// The activity-heatmap calendar derives three whole-vault structures from each",
@@ -3218,6 +3218,11 @@ const allowed = new Map([
     "// (excerpt, tags, pin, ...): keep every output identity stable.",
     "// updatedAt feeds both the day key and the day-list sort, so it",
     "// must match down to the millisecond for the slice to be skipped.",
+    "/** Newest `updatedAt` among alive notes as a day key; null when the vault holds none. */",
+    "// The newest edit is the one field of this projection a repair can lose without",
+    "// noticing, so every path that lowers it raises this flag and one exact rescan",
+    "// settles the answer afterwards. `>=` against the running maximum is what makes a",
+    "// tie (two notes sharing the newest millisecond) rescan too.",
   ]],
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",

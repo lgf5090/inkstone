@@ -8,7 +8,6 @@ import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { ActivityCalendarMemo } from '../../components/activity-calendar';
 import { buildActivityProjectionCached } from '../../lib/calendar-activity';
-import { memoLatestEditKey } from '../list/gap-indicator';
 import { useYearGridColumns } from '../../lib/year-grid-prefs';
 import { CalendarView, loadCalendarPersist, saveCalendarPersist } from './calendar-persist';
 
@@ -85,9 +84,8 @@ export function SidebarCalendar() {
     const showTodayChip = view === 'year' ? cursor.year === now.getFullYear() : isCurrentMonth;
     const weekStart = weekStartFor(locale);
     const diaryTitle = useCallback((key: string) => t('sidebar.diary_title_value0', { value0: key }), []);
-    const { counts, noteIdByTitle, notesByDay } = useMemo(() => buildActivityProjectionCached(notes), [notes]);
+    const { counts, noteIdByTitle, notesByDay, latestEditKey } = useMemo(() => buildActivityProjectionCached(notes), [notes]);
     const getDiaryId = useCallback((key: string) => noteIdByTitle.get(diaryTitle(key)) ?? null, [diaryTitle, noteIdByTitle]);
-    const latestEditKey = useMemo(() => memoLatestEditKey(notes), [notes]);
     const monthTitle = useMemo(() => new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long' }).format(new Date(cursor.year, cursor.month, 1)), [cursor, locale]);
     const headerTitle = view === 'year' ? String(cursor.year) : monthTitle;
     const applyDateFilter = useCallback((range: DateRangeFilter | null) => {
