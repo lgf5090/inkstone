@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { computeLatestEditKey, latestEditOutsideWindow, memoLatestEditKey } from './gap-indicator'
+import { computeLatestEditKey, latestEditOutsideWindow } from './gap-indicator'
 
 describe('computeLatestEditKey', () => {
   const stamp = (iso: string) => new Date(iso).getTime()
-  const note = (updatedAt: number, deletedAt: number | null = null) => ({ updatedAt, deletedAt })
+  const note = (updatedAt: number, deletedAt: number | null = null, isArchived = false) => ({ updatedAt, deletedAt, isArchived })
 
   it('is null when there are no notes', () => {
     expect(computeLatestEditKey({})).toBeNull()
@@ -22,20 +22,14 @@ describe('computeLatestEditKey', () => {
   it('ignores only-deleted collections', () => {
     expect(computeLatestEditKey({ a: note(stamp('2026-09-01T10:00:00.000Z'), stamp('2026-09-01T11:00:00.000Z')) })).toBeNull()
   })
-})
 
-describe('memoLatestEditKey', () => {
-  const notes = { a: { updatedAt: new Date(2026, 8, 3, 9).getTime(), deletedAt: null } }
-
-  it('answers the same key as the scan', () => {
-    expect(memoLatestEditKey(notes)).toBe(computeLatestEditKey(notes))
-  })
-
-  it('reuses the cached key for an unchanged map and recomputes for a new one', () => {
-    const first = memoLatestEditKey(notes)
-    expect(memoLatestEditKey(notes)).toBe(first)
-    const later = { ...notes, b: { updatedAt: new Date(2026, 8, 4, 9).getTime(), deletedAt: null } }
-    expect(memoLatestEditKey(later)).toBe('2026-09-04')
+  it('skips archived notes so the banner never points at an empty list', () => {
+    const notes = {
+      live: note(stamp('2026-09-01T10:00:00.000Z')),
+      filed: note(stamp('2026-09-04T08:00:00.000Z'), null, true),
+    }
+    expect(computeLatestEditKey(notes)).toBe('2026-09-01')
+    expect(computeLatestEditKey({ filed: notes.filed })).toBeNull()
   })
 })
 

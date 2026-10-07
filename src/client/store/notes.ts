@@ -7,7 +7,7 @@ import { duplicateNoteTitle } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
 import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
-import { dateKey } from '../lib/time';
+import { parseDateKey } from '../lib/time';
 import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
 import { folderDescendantIds, isUnfiled, noteFolderOwner } from '../lib/folders';
@@ -2981,11 +2981,32 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
             return true;
     }
 }
-function inDateRange(note: NoteSummary, range: DateRangeFilter | null): boolean {
+// The window is resolved to two instants once per recompute rather than to a day key
+// per note: the old predicate built a Date and a `YYYY-MM-DD` string for every row.
+// The upper bound is the start of the day AFTER `end`, so a 23-hour DST day cannot
+// shave the closing hour off the range the way a fixed day length would.
+// Exported so the day-boundary contract is testable per time zone: a fixed day length
+// and the next local midnight only disagree where a day is not 24 hours long, and the
+// suite has to be able to visit such a zone explicitly.
+// The upper edge is asked of the Date constructor as `day + 1`, never read off a parsed
+// end-of-range Date and nudged with `setDate`: where a zone puts the clock forward at
+// midnight (America/Santiago 2026-09-06 has no 00:00), the parsed date has already
+// normalised to 01:00 and `setDate` carries that hour onto the next day, widening the
+// window by an hour the reader never selected.
+export interface DayWindow {
+    from: number;
+    to: number;
+}
+export function dayWindow(range: DateRangeFilter | null): DayWindow | null {
     if (!range)
+        return null;
+    const [endYear, endMonth, endDay] = range.end.split('-').map(Number);
+    return { from: parseDateKey(range.start).getTime(), to: new Date(endYear, endMonth - 1, endDay + 1).getTime() };
+}
+export function inDayWindow(note: NoteSummary, days: DayWindow | null): boolean {
+    if (!days)
         return true;
-    const key = dateKey(new Date(note.updatedAt));
-    return key >= range.start && key <= range.end;
+    return note.updatedAt >= days.from && note.updatedAt < days.to;
 }
 function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder, locale: AppLocale): number {
     if (a.isPinned !== b.isPinned)
@@ -3047,7 +3068,8 @@ export function useVisibleNotes(): NoteSummary[] {
     const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
     return useMemo(() => {
         const ctx = viewContext(view, folderId, tags, excludedTags, scopedFolders);
-        const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDateRange(n, dateFilter));
+        const days = dayWindow(dateFilter);
+        const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDayWindow(n, days));
         if (view === 'recent') {
             return list
                 .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))

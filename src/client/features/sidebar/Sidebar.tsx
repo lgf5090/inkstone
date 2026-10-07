@@ -461,17 +461,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             headerMenu.onContextMenu(event);
         }}>
         {mobile ? <button data-navigation-item type="button" onClick={() => useUi.getState().openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button> : <SectionLabel>{t("navigation.folder")}</SectionLabel>}
-        <div className="flex items-center">
-        {parentFolderIds.length > 0 && (<Tooltip label={allExpanded ? t("folders.collapse_all") : t("folders.expand_all")}>
-            <IconButton label={allExpanded ? t("folders.collapse_all") : t("folders.expand_all")} size="sm" onClick={toggleAllExpanded} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
-              {allExpanded ? <ChevronsDownUp size={13}/> : <ChevronsUpDown size={13}/>}
-            </IconButton>
-          </Tooltip>)}
-        <Tooltip label={t("folders.manage_folders")}>
-          <IconButton label={t("folders.manage_folders")} size="sm" onClick={() => openPanel('folders')} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
-            <Settings2 size={13}/>
-          </IconButton>
-        </Tooltip>
+        <div className="flex shrink-0 items-center">
         <TemplateQuickActions iconSize={13}/>
         <Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
           <IconButton label={t("common.new_note")} size="sm" onClick={() => void createContextualNote()}><FilePlus2 size={13}/></IconButton>
@@ -479,6 +469,11 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         <Tooltip label={t("common.new_folder")}>
           <IconButton label={t("common.new_folder")} size="sm" disabled={creating} onClick={() => void create(null)}>
             <FolderPlus size={13}/>
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t("common.more_actions")}>
+          <IconButton label={t("common.more_actions")} size="sm" onClick={() => setHeaderMenuOpen(true)} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
+            <MoreHorizontal size={13}/>
           </IconButton>
         </Tooltip>
         </div>

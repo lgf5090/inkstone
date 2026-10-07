@@ -11,7 +11,7 @@ import { useCalendarNav, useMonthGridHandlers, useRangeDragFinish, useRootKeyHan
 
 export type { CalendarState, FlashState, CalendarBase, MonthState, StripState, LatestState } from './types'
 
-function useCalendarState(): CalendarState {
+function useCalendarState(measureColumns: boolean): CalendarState {
   const [expandedWeek, setExpandedWeek] = useState<number | null>(null)
   const [expandedDay, setExpandedDay] = useState<string | null>(null)
   const [isExpandedWeekNotes, setIsExpandedWeekNotes] = useState(false)
@@ -20,28 +20,34 @@ function useCalendarState(): CalendarState {
   const [dragRange, setDragRange] = useState<DateRangeFilter | null>(null)
   const [yearRangeAnchor, setYearRangeAnchor] = useState<{ year: number; month: number } | null>(null)
   const [yearRangeHover, setYearRangeHover] = useState<number | null>(null)
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null)
   const lastExpandedWeek = useRef<number | null>(null)
   const lastExpandedDay = useRef<string | null>(null)
   const dragStartKey = useRef<string | null>(null)
   const dragHoverKey = useRef<string | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const [rootWidth, setRootWidth] = useState<number | null>(null)
+  // The width is kept as the answer it produces, never as a number: the navigation panel
+  // animates its width, so a raw `contentRect.width` reached this component as around twenty
+  // distinct fractions per deliberate change and each one re-rendered the whole heat grid.
+  const [measuredColumns, setMeasuredColumns] = useState<YearGridColumns | null>(null)
   useEffect(() => {
+    if (!measureColumns)
+      return
     const el = rootRef.current
     if (!el)
       return
-    setRootWidth(el.getBoundingClientRect().width)
+    setMeasuredColumns(yearGridColumns(el.getBoundingClientRect().width))
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries)
-        setRootWidth(entry.contentRect.width)
+        setMeasuredColumns(yearGridColumns(entry.contentRect.width))
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
-  return { expandedWeek, setExpandedWeek, expandedDay, setExpandedDay, isExpandedWeekNotes, setIsExpandedWeekNotes, focusedKey, setFocusedKey, focusedMonth, setFocusedMonth, dragRange, setDragRange, yearRangeAnchor, setYearRangeAnchor, yearRangeHover, setYearRangeHover, lastExpandedWeek, lastExpandedDay, dragStartKey, dragHoverKey, rootRef, rootWidth }
+  }, [measureColumns])
+  return { expandedWeek, setExpandedWeek, expandedDay, setExpandedDay, isExpandedWeekNotes, setIsExpandedWeekNotes, focusedKey, setFocusedKey, focusedMonth, setFocusedMonth, dragRange, setDragRange, yearRangeAnchor, setYearRangeAnchor, yearRangeHover, setYearRangeHover, pendingFocus, setPendingFocus, lastExpandedWeek, lastExpandedDay, dragStartKey, dragHoverKey, rootRef, measuredColumns }
 }
 
-function useCalendarFlash(jumpFlash: number, view: 'month' | 'weeks' | 'year'): FlashState {
+function useCalendarFlash(jumpFlash: number): FlashState {
   const monthFlashRef = useRef<HTMLDivElement | null>(null)
   const weekFlashRef = useRef<HTMLDivElement | null>(null)
   const [internalFlash, setInternalFlash] = useState(0)
@@ -51,7 +57,9 @@ function useCalendarFlash(jumpFlash: number, view: 'month' | 'weeks' | 'year'): 
     // Marks an external month jump (settings preview click) or an internal jump (week click, gap-cell follow, endpoint locate) with the same fade-in + receding accent ring.
     if (flashNonce <= 0)
       return
-    const el = view === 'month' ? monthFlashRef.current : view === 'weeks' ? weekFlashRef.current : null
+    // Only the mounted view keeps a live ref, so the flash belongs to the jump rather than to
+    // whichever view happens to be current when this effect re-runs.
+    const el = monthFlashRef.current ?? weekFlashRef.current
     if (!el || typeof el.animate !== 'function')
       return
     if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -61,7 +69,7 @@ function useCalendarFlash(jumpFlash: number, view: 'month' | 'weeks' | 'year'): 
       { opacity: 1, boxShadow: '0 0 0 9px rgba(0, 0, 0, 0)' },
     ], { duration: 1100, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' })
     return () => animation.cancel()
-  }, [flashNonce, view])
+  }, [flashNonce])
   return { monthFlashRef, weekFlashRef, flash, flashNonce }
 }
 
@@ -79,7 +87,7 @@ function useCalendarBase(props: ActivityCalendarProps, state: CalendarState): Ca
     const formatter = new Intl.DateTimeFormat(props.locale, { month: 'short' })
     return Array.from({ length: 12 }, (_, month) => formatter.format(new Date(props.cursor.year, month, 1)))
   }, [props.cursor.year, props.locale])
-  const yearColumns: YearGridColumns = props.columnsPreference !== 'auto' ? (props.columnsPreference === '4' ? 4 : 3) : (state.rootWidth === null ? YEAR_GRID_COLUMNS : yearGridColumns(state.rootWidth))
+  const yearColumns: YearGridColumns = props.columnsPreference !== 'auto' ? (props.columnsPreference === '4' ? 4 : 3) : (state.measuredColumns ?? YEAR_GRID_COLUMNS)
   const focusMonth = state.focusedMonth !== null && state.focusedMonth >= 0 && state.focusedMonth < 12
     ? state.focusedMonth
     : (isCurrentYear ? now.getMonth() : 0)
@@ -173,7 +181,7 @@ export interface MonthViewBundle {
   onGapDayClick: (key: string) => void
   onKeyDown: React.KeyboardEventHandler
   onMouseDown: React.MouseEventHandler
-  onMouseEnter: React.MouseEventHandler
+  onMouseOver: React.MouseEventHandler
   onActivateDay: (key: string, diaryId: string | null) => void
   onFocusDay: (key: string) => void
   flashRef: React.RefObject<HTMLDivElement | null>
@@ -188,8 +196,16 @@ function buildMonthView(props: ActivityCalendarProps, state: CalendarState, base
     gapAhead: latest.gapAhead, latestOutsideDays: latest.latestOutsideDays,
     latestOutsideKey: latest.latestEditOutsideKey, getDiaryId: props.getDiaryId,
     onGapDayClick: stripHandlers.handleGapDayClick, onKeyDown: monthHandlers.handleGridKeyDown,
-    onMouseDown: monthHandlers.handleGridMouseDown, onMouseEnter: monthHandlers.handleGridMouseEnter,
-    onActivateDay: stripHandlers.activateDay, onFocusDay: state.setFocusedKey,
+    onMouseDown: monthHandlers.handleGridMouseDown, onMouseOver: monthHandlers.handleGridMouseOver,
+    // A padding day is still a day the user can mean: take the cursor with it, then run the
+    // same diary flow, so the cell that answers is the one that stays on screen.
+    onActivateDay: (key: string, diaryId: string | null) => {
+      const [year, month] = key.split('-').map(Number)
+      if (year !== props.cursor.year || month - 1 !== props.cursor.month)
+        props.onCursorChange({ year, month: month - 1 })
+      stripHandlers.activateDay(key, diaryId)
+    },
+    onFocusDay: state.setFocusedKey,
     flashRef: flash.monthFlashRef,
   }
 }
@@ -280,8 +296,8 @@ interface CalendarHook {
 }
 
 export function useActivityCalendar(props: ActivityCalendarProps): CalendarHook {
-  const state = useCalendarState()
-  const flash = useCalendarFlash(props.jumpFlash ?? 0, props.view)
+  const state = useCalendarState(props.columnsPreference === 'auto')
+  const flash = useCalendarFlash(props.jumpFlash ?? 0)
   const base = useCalendarBase(props, state)
   const month = useCalendarMonth(props, state, base)
   const year = useCalendarYear(props, state)
@@ -292,6 +308,18 @@ export function useActivityCalendar(props: ActivityCalendarProps): CalendarHook 
   const yearHandlers = useYearGridHandlers(props, state, base, nav, flash)
   const stripHandlers = useStripHandlers(props, state, strip, latest, flash)
   useRangeDragFinish(props, state)
+  useEffect(() => {
+    state.setExpandedWeek(null)
+    state.setExpandedDay(null)
+    state.setIsExpandedWeekNotes(false)
+  }, [props.view])
+  useEffect(() => {
+    const key = state.pendingFocus
+    if (!key)
+      return
+    state.setPendingFocus(null)
+    state.rootRef.current?.querySelector<HTMLButtonElement>(`[data-day-key="${key}"]`)?.focus()
+  })
   return {
     view: props.view,
     onViewChange: props.onViewChange,

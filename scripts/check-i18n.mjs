@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import { walkSource } from './lib/scratch-files.mjs';
 const root = path.resolve('src/client');
 const localeRoot = path.resolve('src/shared/locales');
 const failures = [];
@@ -179,7 +180,7 @@ const englishOnlyPaths = [
     path.resolve('public'),
     path.resolve('.github'),
 ];
-for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walk(target)] : [])) {
+for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walkSource(target)] : [])) {
     if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file))
         continue;
     rejectHan(file);
@@ -199,7 +200,7 @@ for (const file of [
     if (fs.existsSync(target))
         rejectHan(target);
 }
-for (const file of walk(root)) {
+for (const file of walkSource(root)) {
     if (!/\.tsx?$/.test(file) || file.includes(`${path.sep}locales${path.sep}`) || file.endsWith(`${path.sep}i18n.ts`))
         continue;
     const sourceText = fs.readFileSync(file, 'utf8');
@@ -351,13 +352,4 @@ function unwrap(node) {
     while (ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isParenthesizedExpression(node))
         node = node.expression;
     return node;
-}
-function* walk(directory) {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-        const target = path.join(directory, entry.name);
-        if (entry.isDirectory())
-            yield* walk(target);
-        else
-            yield target;
-    }
 }

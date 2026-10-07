@@ -1,11 +1,23 @@
 import type { JSX, ReactNode } from 'react'
 import * as React from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronDown, FileText } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Tooltip } from '../overlay'
 import { type WeekCell } from './strip'
 import { heatCell } from './heat-cell'
+
+// A day with more notes than this gets a truncated list plus a way out. The panel below
+// the week strip used to mount every note of the last-shown week and day forever, so a
+// single busy day (a bulk import, a whole-vault restore) put thousands of buttons under a
+// collapsed surface. 50 is a row-count budget, not a data limit: the day filter still
+// shows all of them.
+export const DAY_NOTE_LIMIT = 50
+
+// `--dur-base` is 220ms and the collapse animates `grid-template-rows`, which needs its
+// children present for the whole run; unmounting any earlier would snap the panel shut.
+const REVEAL_UNMOUNT_MS = 240
 
 interface WeeksStripProps {
   stripWeeks: WeekCell[][]
@@ -38,13 +50,23 @@ interface DayInteractions {
   onActivateDay: (key: string, diaryId: string | null) => void
   onToggleDay: (key: string) => void
   onNoteClick: (noteId: string) => void
+  onJumpToDay: (key: string) => void
 }
 
 function Reveal({ open, children }: { open: boolean; children: ReactNode }) {
+  const [mounted, setMounted] = useState(open)
+  useEffect(() => {
+    if (open) {
+      setMounted(true)
+      return
+    }
+    const timer = window.setTimeout(() => setMounted(false), REVEAL_UNMOUNT_MS)
+    return () => window.clearTimeout(timer)
+  }, [open])
   return (
     <div className={cn('grid transition-[grid-template-rows] duration-[var(--dur-base)] ease-[var(--ease-out)]', open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
       <div aria-hidden={!open} inert={!open} className='min-h-0 overflow-hidden'>
-        {children}
+        {mounted ? children : null}
       </div>
     </div>
   )
@@ -135,6 +157,23 @@ function WeekHeatStrip({
   )
 }
 
+function DayNoteOverflow({ total, className, onShowAll }: { total: number; className: string; onShowAll: () => void }) {
+  const label = t('sidebar.calendar_show_day_all_value0', { value0: total })
+  if (total <= DAY_NOTE_LIMIT)
+    return null
+  return (
+    <button
+      type='button'
+      aria-label={label}
+      onClick={onShowAll}
+      className={cn('flex h-[var(--sp-6)] w-full items-center gap-[var(--sp-1-5)] rounded-[var(--r-sm)] text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]', className)}
+    >
+      <ChevronDown size={9} className='shrink-0 text-[var(--text-quaternary)]' />
+      <span className='min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--accent)]'>{label}</span>
+    </button>
+  )
+}
+
 function WeekNotesList({
   cell,
   weekdayLabel,
@@ -160,7 +199,7 @@ function WeekNotesList({
         <span className='tabular'>{dayNumber}</span>
         <span className='ml-auto tabular'>{cell.notes.length}</span>
       </button>
-      {cell.notes.map((note) => (
+      {cell.notes.slice(0, DAY_NOTE_LIMIT).map((note) => (
         <button
           key={note.id}
           type='button'
@@ -171,6 +210,7 @@ function WeekNotesList({
           <span className='min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--text-secondary)]'>{note.title}</span>
         </button>
       ))}
+      <DayNoteOverflow total={cell.notes.length} className="py-[var(--sp-0-5)] pr-[var(--sp-1-5)] pl-[var(--sp-5)]" onShowAll={() => onJumpToDay(cell.key)} />
     </div>
   )
 }
@@ -233,7 +273,7 @@ function DayNotesList({ cell, ix }: { cell: WeekCell; ix: DayInteractions }) {
     <Reveal open={ix.expandedDay === cell.key}>
       <div className='space-y-px py-[var(--sp-0-5)] pl-[var(--sp-3-5)] pr-[var(--sp-1)]'>
         {ix.shownDay === cell.key &&
-          cell.notes.map((note) => (
+          cell.notes.slice(0, DAY_NOTE_LIMIT).map((note) => (
             <button
               key={note.id}
               type='button'
@@ -244,6 +284,7 @@ function DayNotesList({ cell, ix }: { cell: WeekCell; ix: DayInteractions }) {
               <span className='min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--text-secondary)]'>{note.title}</span>
             </button>
           ))}
+        {ix.shownDay === cell.key && <DayNoteOverflow total={cell.notes.length} className='px-[var(--sp-1-5)]' onShowAll={() => ix.onJumpToDay(cell.key)} />}
       </div>
     </Reveal>
   )
@@ -317,6 +358,7 @@ function ExpandedWeekPanel(props: WeeksStripProps) {
     onActivateDay: props.onActivateDay,
     onToggleDay: props.onToggleDay,
     onNoteClick: props.onNoteClick,
+    onJumpToDay: props.onJumpToDay,
   }
   return (
     <Reveal open={props.expandedWeek !== null}>

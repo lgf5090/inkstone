@@ -2,37 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronDown } from 'lucide-react';
 import type { DateRangeFilter } from '@shared/types';
 import { cn } from '../../lib/cn';
-import { t, useLocale } from '../../lib/i18n';
+import { localizedParams, t, useLocale, useLocaleResources } from '../../lib/i18n';
+import { useNow } from '../../lib/hooks';
 import { weekStartFor } from '../../lib/time';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { ActivityCalendarMemo } from '../../components/activity-calendar';
 import { buildActivityProjectionCached } from '../../lib/calendar-activity';
-import { memoLatestEditKey } from '../list/gap-indicator';
 import { useYearGridColumns } from '../../lib/year-grid-prefs';
 import { CalendarView, loadCalendarPersist, saveCalendarPersist } from './calendar-persist';
-
-async function createDiaryNote(key: string, diaryTitle: (value: string) => string) {
-    const [year, month, day] = key.split('-').map(Number);
-    const time = new Date(year, month - 1, day);
-    time.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0);
-    const stamp = `${key} ${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`;
-    const title = diaryTitle(key);
-    const tag = t('sidebar.diary_tag');
-    const content = `---
-title: "${title}"
-createdAt: ${stamp}
-tags:
-  - ${tag}
-aliases:
-  - ''
----
-
-`;
-    const id = await useNotes.getState().createNote({ title, content, open: true });
-    if (id)
-        useUi.getState().toast({ title: t('sidebar.calendar_diary_created_value0', { value0: key }), tone: 'success' });
-}
+import { createDiaryNote } from './diary-note';
 
 function useCalendarPersist() {
     const calendarJump = useUi((s) => s.calendarJump);
@@ -51,6 +30,7 @@ function useCalendarPersist() {
             return;
         setView('month');
         setCursor({ year: calendarJump.year, month: calendarJump.month });
+        useUi.getState().consumeCalendarJump(calendarJump.nonce);
     }, [calendarJump]);
     return { collapsed, setCollapsed, view, setView, cursor, setCursor };
 }
@@ -71,25 +51,39 @@ function SidebarCalendarHeader({ headerTitle, showTodayChip, collapsed, onToggle
     </div>);
 }
 
-export function SidebarCalendar() {
-    const locale = useLocale();
+interface CalendarBodyProps {
+    locale: string;
+    now: Date;
+    view: CalendarView;
+    setView: (view: CalendarView) => void;
+    cursor: { year: number; month: number };
+    setCursor: (cursor: { year: number; month: number }) => void;
+}
+
+// The whole-vault projection, the diary lookup and every click handler live here so
+// that collapsing the block unmounts the derivation with it, and so an unrelated
+// sidebar re-render cannot re-run the header's formatting.
+function SidebarCalendarBody({ locale, now, view, setView, cursor, setCursor }: CalendarBodyProps) {
+    const localeResources = useLocaleResources();
     const notes = useNotes((s) => s.notes);
     const openNote = useNotes((s) => s.openNote);
     const toast = useUi((s) => s.toast);
     const dateFilter = useUi((s) => s.dateFilter);
     const yearGridColumns = useYearGridColumns();
     const calendarJumpNonce = useUi((s) => s.calendarJump?.nonce ?? 0);
-    const { collapsed, setCollapsed, view, setView, cursor, setCursor } = useCalendarPersist();
-    const now = useMemo(() => new Date(), []);
-    const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
-    const showTodayChip = view === 'year' ? cursor.year === now.getFullYear() : isCurrentMonth;
     const weekStart = weekStartFor(locale);
     const diaryTitle = useCallback((key: string) => t('sidebar.diary_title_value0', { value0: key }), []);
-    const { counts, noteIdByTitle, notesByDay } = useMemo(() => buildActivityProjectionCached(notes), [notes]);
-    const getDiaryId = useCallback((key: string) => noteIdByTitle.get(diaryTitle(key)) ?? null, [diaryTitle, noteIdByTitle]);
-    const latestEditKey = useMemo(() => memoLatestEditKey(notes), [notes]);
-    const monthTitle = useMemo(() => new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long' }).format(new Date(cursor.year, cursor.month, 1)), [cursor, locale]);
-    const headerTitle = view === 'year' ? String(cursor.year) : monthTitle;
+    const { counts, noteIdByTitle, notesByDay, latestEditKey } = useMemo(() => buildActivityProjectionCached(notes), [notes]);
+    const getDiaryId = useCallback((key: string) => {
+        // A diary keeps the title it was written under, so the lookup has to answer in
+        // every shipped language: one per locale, current first.
+        for (const title of localizedParams('sidebar.diary_title_value0', { value0: key })) {
+            const id = noteIdByTitle.get(title);
+            if (id)
+                return id;
+        }
+        return null;
+    }, [noteIdByTitle, localeResources]);
     const applyDateFilter = useCallback((range: DateRangeFilter | null) => {
         useUi.getState().setDateFilter(range);
     }, []);
@@ -113,8 +107,20 @@ export function SidebarCalendar() {
     const onNoteClick = useCallback((noteId: string) => {
         openNote(noteId);
     }, [openNote]);
+    return (<ActivityCalendarMemo counts={counts} notesByDay={notesByDay} getDiaryId={getDiaryId} locale={locale} weekStart={weekStart} today={now} selectedRange={dateFilter} latestEditKey={latestEditKey} view={view} onViewChange={setView} cursor={cursor} onCursorChange={setCursor} columnsPreference={yearGridColumns} jumpFlash={calendarJumpNonce} onDayClick={onDayClick} onDaySelect={onDaySelect} onRangeSelect={onRangeSelect} onGapDayClick={onGapDayClick} onNoteClick={onNoteClick}/>);
+}
+
+export function SidebarCalendar() {
+    const locale = useLocale();
+    const { collapsed, setCollapsed, view, setView, cursor, setCursor } = useCalendarPersist();
+    const nowStamp = useNow();
+    const now = useMemo(() => new Date(nowStamp), [nowStamp]);
+    const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
+    const showTodayChip = view === 'year' ? cursor.year === now.getFullYear() : isCurrentMonth;
+    const monthTitle = useMemo(() => new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long' }).format(new Date(cursor.year, cursor.month, 1)), [cursor, locale]);
+    const headerTitle = view === 'year' ? String(cursor.year) : monthTitle;
     return (<section aria-label={t('sidebar.calendar_title')} className="mb-[var(--sp-2-5)]">
         <SidebarCalendarHeader headerTitle={headerTitle} showTodayChip={showTodayChip} collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)}/>
-        {!collapsed && (<ActivityCalendarMemo counts={counts} notesByDay={notesByDay} getDiaryId={getDiaryId} locale={locale} weekStart={weekStart} today={now} selectedRange={dateFilter} latestEditKey={latestEditKey} view={view} onViewChange={setView} cursor={cursor} onCursorChange={setCursor} columnsPreference={yearGridColumns} jumpFlash={calendarJumpNonce} onDayClick={onDayClick} onDaySelect={onDaySelect} onRangeSelect={onRangeSelect} onGapDayClick={onGapDayClick} onNoteClick={onNoteClick}/>)}
+        {!collapsed && (<SidebarCalendarBody locale={locale} now={now} view={view} setView={setView} cursor={cursor} setCursor={setCursor}/>)}
     </section>);
 }
