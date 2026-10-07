@@ -22,6 +22,8 @@ import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
 import { SidebarTags } from '../tags/SidebarTags';
 import { SidebarRecent } from './SidebarRecent';
+import { SidebarOutlinks } from './SidebarOutlinks';
+import { BacklinksPanel } from '../workspace/BacklinksPanel';
 import { SIDEBAR_PANEL_ID, SidebarTabStrip, tabId } from './SidebarTabs';
 import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
@@ -39,6 +41,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
     const view = useUi((s) => !s.listCollapsed && !s.searchList ? s.view : null);
     const openView = useUi((s) => s.openView);
     const sidebarTab = useUi((s) => s.sidebarTab);
+    const activeNoteId = useUi((s) => s.activeNoteId);
     const counts = useNavigationCounts();
     return (<>
         {collapsed ? <SidebarRail onExpand={onCollapse}/> : (<aside className="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]">
@@ -73,6 +76,10 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
         </>)}
         {sidebarTab === 'tags' && <SidebarTags />}
         {sidebarTab === 'recent' && <SidebarRecent />}
+        {sidebarTab === 'backlinks' && (activeNoteId
+          ? <BacklinksPanel noteId={activeNoteId} fill/>
+          : <NoNoteLinks/>)}
+        {sidebarTab === 'outlinks' && <SidebarOutlinks />}
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">
@@ -84,6 +91,12 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
         <SidebarAccount />
       </div>
         </aside>)}
+    </>);
+}
+function NoNoteLinks() {
+    return (<>
+      <SectionLabel>{t("common.backlinks")}</SectionLabel>
+      <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t("sidebar.links_no_note")}</p>
     </>);
 }
 function SidebarRail({ onExpand }: {

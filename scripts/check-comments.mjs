@@ -3029,6 +3029,9 @@ const allowed = new Map([
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
     "// change re-renders every visible row in the explorer.",
   ]],
+  ["src/client/features/sidebar/SidebarOutlinks.tsx", [
+    "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
+  ]],
   ["src/client/features/sidebar/SidebarRecent.tsx", [
     "/**\n * The notes this device has opened, newest first. The order is the reader's own trail, so\n * nothing re-sorts it: a note that stops existing drops out of the list rather than\n * leaving a hole, and the rest keeps the sequence it was walked in.\n */",
   ]],
@@ -3147,6 +3150,7 @@ const allowed = new Map([
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
     "// fresh payload arrives.",
+    "/** In the sidebar tab the panel owns the column, so it grows instead of taking a slice of the editor. */",
   ]],
   ["src/client/features/workspace/EditorColorMenu.tsx", [
     "/** The colour painted behind the panel, which is what a pick has to stand out from. */",

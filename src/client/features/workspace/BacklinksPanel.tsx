@@ -6,8 +6,10 @@ import { Button } from '../../components/primitives';
 import { useNotes } from '../../store/notes';
 import { t } from "../../lib/i18n";
 
-export function BacklinksPanel({ noteId }: {
+export function BacklinksPanel({ noteId, fill = false }: {
     noteId: string;
+    /** In the sidebar tab the panel owns the column, so it grows instead of taking a slice of the editor. */
+    fill?: boolean;
 }) {
     const [links, setLinks] = useState<Backlink[] | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function BacklinksPanel({ noteId }: {
             controller.abort();
         };
     }, [noteId, rev, reload]);
-    return (<section className="max-h-[36%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-base)]">
+    return (<section className={fill ? 'min-h-0' : 'max-h-[36%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-base)]'}>
       <div className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
         <Link2 size={11}/>{t("common.backlinks")}{links && links.length > 0 && <span className="tabular">· {links.length}</span>}
       </div>

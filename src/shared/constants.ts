@@ -86,7 +86,7 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
 
 export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
 
-export const SIDEBAR_TABS: SidebarTab[] = ['library', 'tags', 'recent']
+export const SIDEBAR_TABS: SidebarTab[] = ['library', 'tags', 'recent', 'backlinks', 'outlinks']
 
 /**
  * The template inserted at the top of a new note. Keep the placeholders ASCII:

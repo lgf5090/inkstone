@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, NoteSummary } from '@shared/types';
 import { SIDEBAR_TABS } from '@shared/constants';
 import { initI18n, t } from '../../lib/i18n';
+import { api } from '../../lib/api';
 import { installTestGlobals } from '../../lib/test-render';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
@@ -134,5 +135,59 @@ describe('recent files tab', () => {
         expect(row.getAttribute('title')).toBe('Alpha');
         await act(() => row.click());
         expect(openNote).toHaveBeenCalledWith('a', undefined);
+    });
+});
+
+describe('link tabs', () => {
+    const source = summary('src', 'Source note');
+    const target = summary('tgt', 'Target note');
+    const gone = summary('gone', 'Trashed note', { deletedAt: 9 });
+
+    beforeEach(() => {
+        useNotes.setState({ notes: { src: source, tgt: target, gone }, contents: { src: 'x [[Target note|alias text]] y [[Target note]] z [[gone]] w [[No Such Note]]' } });
+        useUi.setState({ activeNoteId: 'src', recentNoteIds: ['src'] });
+    });
+
+    const openTab = async (tab: 'outlinks' | 'backlinks') => {
+        await act(async () => useUi.getState().setSidebarTab(tab));
+    };
+
+    it('lists each outgoing link once, resolving aliases and skipping the note itself', async () => {
+        await openTab('outlinks');
+        const ids = [...container.querySelectorAll('[data-outlink-id]')].map((e) => e.getAttribute('data-outlink-id'));
+        expect(ids).toEqual(['tgt']);
+        const row = container.querySelector('[data-outlink-id="tgt"]')!;
+        expect(row.textContent).toContain('Target note');
+        expect(row.textContent).toContain('alias text');
+    });
+
+    it('shows a trashed target as unresolved rather than openable', async () => {
+        await openTab('outlinks');
+        const gaps = [...container.querySelectorAll('[data-unresolved-list] [role="listitem"]')].map((e) => e.textContent?.trim());
+        expect(gaps).toEqual(['gone', 'No Such Note']);
+        expect([...container.querySelectorAll('[data-outlink-id]')].map((e) => e.getAttribute('data-outlink-id'))).toEqual(['tgt']);
+    });
+
+    it('opens the linked note when a row is clicked', async () => {
+        const openNote = vi.fn(async () => {});
+        useNotes.setState({ openNote });
+        await openTab('outlinks');
+        await act(async () => container.querySelector<HTMLButtonElement>('[data-outlink-id="tgt"]')?.click());
+        expect(openNote).toHaveBeenCalledWith('tgt');
+    });
+
+    it('asks for a note before showing backlinks', async () => {
+        useUi.setState({ activeNoteId: null });
+        await openTab('backlinks');
+        expect(container.textContent).toContain(t('sidebar.links_no_note'));
+    });
+
+    it('grows the backlinks panel to the column instead of docking it under an editor', async () => {
+        const spy = vi.spyOn(api.notes, 'backlinks').mockResolvedValue({ backlinks: [{ id: 'tgt', title: 'Target note', context: 'points here' }] });
+        await openTab('backlinks');
+        await vi.waitFor(() => expect(container.textContent).toContain('points here'), { timeout: 4000 });
+        const section = container.querySelector('[role="tabpanel"] section')!;
+        expect(section.className).not.toContain('max-h-[36%]');
+        expect(spy).toHaveBeenCalledWith('src', expect.anything());
     });
 });

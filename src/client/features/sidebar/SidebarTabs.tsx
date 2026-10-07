@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Clock, FolderClosed, Tags } from 'lucide-react';
+import { Clock, FolderClosed, Link, Link2, Tags } from 'lucide-react';
 import type { SidebarTab } from '@shared/types';
 import { SIDEBAR_TABS } from '@shared/constants';
 import { cn } from '../../lib/cn';
@@ -27,6 +27,8 @@ const TAB_SPECS: TabSpec[] = [
     { id: 'library', labelKey: 'sidebar.tab_library', icon: <FolderClosed size={14}/> },
     { id: 'tags', labelKey: 'sidebar.tab_tags', icon: <Tags size={14}/> },
     { id: 'recent', labelKey: 'sidebar.tab_recent', icon: <Clock size={14}/> },
+    { id: 'backlinks', labelKey: 'common.backlinks', icon: <Link2 size={14}/> },
+    { id: 'outlinks', labelKey: 'sidebar.tab_outlinks', icon: <Link size={14}/> },
 ];
 
 /** What the strip actually offers; the store's `SIDEBAR_TABS` is the wider legal-value set. */
