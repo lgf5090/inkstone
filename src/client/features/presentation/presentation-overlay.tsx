@@ -160,6 +160,7 @@ function controlProps(session: PresentationSession, onClose: () => void): Presen
     onToggleFullscreen: session.toggleFullscreen,
     onOpenPresenter: session.openPresenter,
     audienceFollowing: session.audienceFollowing,
+    audienceViewers: session.audienceViewers,
     onToggleAudience: session.toggleAudience,
     onExport: session.exportDeck,
     onExportHandout: session.exportHandout,

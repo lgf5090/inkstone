@@ -2314,6 +2314,7 @@ console.log(\`Hello, \${name}!\`)
     "workspace.presentation_audience_follow": "让观众跟随放映",
     "workspace.presentation_audience_stop": "停止让观众跟随",
     "workspace.presentation_audience_started": "观众链接已复制，发给一起看的人",
+    "workspace.presentation_audience_viewers": "最近一分钟有 {value0} 个浏览器在看",
     "workspace.presentation_audience_link": "观众链接：{value0}",
     "workspace.presentation_audience_failed": "观众链接创建失败",
     "workspace.presentation_audience_lost": "观众链接已停止",

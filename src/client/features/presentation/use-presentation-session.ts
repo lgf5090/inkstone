@@ -118,6 +118,8 @@ export interface PresentationSession {
   toggleSpotlight: () => void
   /** An audience is following this show, and the link is out there (N-34). */
   audienceFollowing: boolean
+  /** How many browsers have read the show's position lately (PR-M7). */
+  audienceViewers: number
   /** Starts or ends that — the link is handed to the presenter's clipboard on the way in. */
   toggleAudience: () => void
   /** Whether the whole deck is laid out on top of the slide surface. */
@@ -292,7 +294,7 @@ export function usePresentationSession(options: PresentationSessionOptions): Pre
  */
 function useSessionAudience(open: boolean, noteId: string | null, nav: ReturnType<typeof usePresentationNav>) {
   const audience = useAudienceFollow({ open, noteId, position: { slide: nav.index, page: nav.sub, step: nav.step } })
-  return { audienceFollowing: audience.on, toggleAudience: audience.toggle }
+  return { audienceFollowing: audience.on, audienceViewers: audience.viewers, toggleAudience: audience.toggle }
 }
 
 /**

@@ -55,6 +55,8 @@ export interface PresentationControlsProps {
   onExportHtml: () => void
   /** Whether an audience is following this show, and the press that changes it (N-34). */
   audienceFollowing: boolean
+  /** How many browsers have been reading the show lately (PR-M7). Zero while nobody is following. */
+  audienceViewers: number
   onToggleAudience: () => void
   onClose: () => void
 }
@@ -64,7 +66,7 @@ export interface PresentationControlsProps {
 // very gesture that revealed it — and the click arrives after React has already drawn the bar back.
 const GHOST_CLICK_MS = 700
 
-export function PresentationControls({ slideIndex, slideCount, subPage, pageCount, step, steps, isFullscreen, railOpen, overview, following, followLost, audienceFollowing, chromeHidden, occluded, compact, overflowItems, exporting, onPrev, onNext, onToggleRail, onToggleOverview, onToggleFollowing, onToggleFullscreen, onOpenPresenter, onToggleAudience, onExport, onExportImages, onExportHandout, onExportHtml, onClose }: PresentationControlsProps) {
+export function PresentationControls({ slideIndex, slideCount, subPage, pageCount, step, steps, isFullscreen, railOpen, overview, following, followLost, audienceFollowing, audienceViewers, chromeHidden, occluded, compact, overflowItems, exporting, onPrev, onNext, onToggleRail, onToggleOverview, onToggleFollowing, onToggleFullscreen, onOpenPresenter, onToggleAudience, onExport, onExportImages, onExportHandout, onExportHtml, onClose }: PresentationControlsProps) {
   const wokeByThisGesture = useRef(0)
   return (
     // A faded bar is `inert` *and* `invisible`, and both make the browser's hit test walk straight
@@ -100,7 +102,7 @@ export function PresentationControls({ slideIndex, slideCount, subPage, pageCoun
         {compact
           ? <ViewDoor items={doorItems(overflowItems, exportGroupItem({ onExport, onExportImages, onExportHandout, onExportHtml, exporting }))} exporting={exporting} />
           : <>
-            <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
+            <ViewControls railOpen={railOpen} overview={overview} following={following} followLost={followLost} audienceFollowing={audienceFollowing} audienceViewers={audienceViewers} isFullscreen={isFullscreen} onToggleRail={onToggleRail} onToggleOverview={onToggleOverview} onToggleFollowing={onToggleFollowing} onToggleAudience={onToggleAudience} onToggleFullscreen={onToggleFullscreen} onOpenPresenter={onOpenPresenter} />
             <span className='mx-[var(--sp-1)] h-[var(--sp-4)] w-px bg-[var(--border-subtle)]' aria-hidden='true' />
             <ExportControls exporting={exporting} onExport={onExport} onExportImages={onExportImages} onExportHandout={onExportHandout} onExportHtml={onExportHtml} />
           </>}
@@ -123,12 +125,13 @@ function followControlLabel({ following, followLost }: { following: boolean; fol
   return following ? t('workspace.presentation_freeze') : t('workspace.presentation_follow')
 }
 
-function ViewControls({ railOpen, overview, following, followLost, audienceFollowing, isFullscreen, onToggleRail, onToggleOverview, onToggleFollowing, onToggleAudience, onToggleFullscreen, onOpenPresenter }: {
+function ViewControls({ railOpen, overview, following, followLost, audienceFollowing, audienceViewers, isFullscreen, onToggleRail, onToggleOverview, onToggleFollowing, onToggleAudience, onToggleFullscreen, onOpenPresenter }: {
   railOpen: boolean
   overview: boolean
   following: boolean
   followLost: boolean
   audienceFollowing: boolean
+  audienceViewers: number
   isFullscreen: boolean
   onToggleRail: () => void
   onToggleOverview: () => void
@@ -165,10 +168,19 @@ function ViewControls({ railOpen, overview, following, followLost, audienceFollo
           offered in the demo edition at all: the demo's whole backend is a map inside this tab, so a link
           handed to another person would open a page that never heard of the talk. */}
       {!IS_DEMO_MODE && (
-        <Tooltip label={audienceLabel} side='top'>
-          <IconButton label={audienceLabel} size='sm' data-audience-toggle='true' active={audienceFollowing} onClick={onToggleAudience}>
-            <Users size={14} />
-          </IconButton>
+        <Tooltip label={audienceFollowing && audienceViewers > 0 ? `${audienceLabel} · ${t('workspace.presentation_audience_viewers', { value0: audienceViewers })}` : audienceLabel} side='top'>
+          <span className='relative inline-flex'>
+            <IconButton label={audienceLabel} size='sm' data-audience-toggle='true' active={audienceFollowing} onClick={onToggleAudience}>
+              <Users size={14} />
+            </IconButton>
+            {/* The number is a mark on the control, not a second control: a presenter reads it in the
+                half-second before the next page, and the buttons either side cannot give up their room. */}
+            {audienceFollowing && audienceViewers > 0 && (
+              <span data-audience-count aria-hidden='true' className='pointer-events-none absolute -right-[var(--sp-1)] -top-[var(--sp-1)] min-w-[var(--sp-4)] rounded-full bg-[var(--accent)] px-[2px] text-center text-[length:var(--text-12)] leading-[var(--sp-4)] text-[var(--accent-contrast)]'>
+                {audienceViewers > 99 ? '99+' : audienceViewers}
+              </span>
+            )}
+          </span>
         </Tooltip>
       )}
       <Tooltip label={followLabel} combo={followLost ? undefined : presentationKeyCombo('follow')} side='top'>

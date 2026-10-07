@@ -646,6 +646,8 @@ const allowed = new Map([
     "// A presenter who cannot tell whether people are already following will start a second show.",
     "// The row is a checkbox, not a command: a door that cannot tell the presenter they are already",
     "// letting people in is how a second show gets started by accident.",
+    "// PR-M7: the number belongs on the control that already speaks about the room, not on a fourth",
+    "// surface the presenter has to know to look at.",
   ]],
   ["src/client/features/presentation/presentation-controls-steps.test.ts", [
     "// N-31's echo: a page that arrives block by block has to say how far it has arrived, in the digits and",
@@ -742,6 +744,8 @@ const allowed = new Map([
     "/**\n * The door's own shape: the four screen modes and the four exports each collapse into one row.\n *\n * Fifteen rows measured 653px of content in the 419px panel a 420×860 phone gives a door, which left\n * the last row cut in half with nothing on screen saying there was more — and everything below the\n * fold unreachable (PR-M1). Nine rows fit. The group rows carry a mark when one of their children is\n * on, because a door that cannot show that the screen is blacked out has traded one problem for a\n * worse one, and the wide bar keeps every row on top level where there is room for them.\n */",
     "/**\n * The door's one export row.\n *\n * Four export rows at the tail of a fifteen-row list measured 653px of content in a 419px panel on a\n * 420×860 phone, which left the last row cut in half and every export below the fold with nothing on\n * screen saying there was more (PR-M1). Folded into a submenu the door is twelve rows, and the group\n * row is where the working state shows — a spinner on a row nobody can reach is not feedback.\n */",
     "/**\n * The one question a show with an audience asks before it ends (PR-L3).\n *\n * It is painted inside the projector's own dialog rather than handed to the app's confirm layer,\n * because the browser only ever paints the subtree of the element that has the full screen — a portal\n * on `document.body` would sit under the very show it is asking about, which is the mistake this\n * module has now made four times. Escape is not answered here: the show's own ladder puts the question\n * away, so the key that opened it cannot be the key that ends the talk, and a second handler for the\n * same key would be a second rule to keep in step. The safe answer carries the focus, as everywhere\n * else in the app that asks about something destructive.\n */",
+    "/** How many browsers have been reading the show lately (PR-M7). Zero while nobody is following. */",
+    "/* The number is a mark on the control, not a second control: a presenter reads it in the\n                half-second before the next page, and the buttons either side cannot give up their room. */",
   ]],
   ["src/client/features/presentation/presentation-deck-index.test.ts", [
     "// The slide level of the show's position, at the level a presenter feels it: the deck under the show",
@@ -1946,6 +1950,10 @@ const allowed = new Map([
     "// that sets `open` false, so a hook that reads `noteId` back to decide whether to end the audience is",
     "// handed nothing to end it with, and the row keeps answering for the whole lease.",
     "// The other way a show ends: the overlay leaves the tree, so there is no render in which",
+    "// PR-M7: the presenter is told how many browsers came in. Two ways the number arrives — on the answer to",
+    "// a page turn, and on the beat between turns — and one way it must stop: the show ending.",
+    "// Letting the room go has to stop the asking, not just empty the number: a beat that keeps running",
+    "// after the show is off the air asks about a talk nobody is giving.",
   ]],
   ["src/client/features/presentation/use-audience-follow.ts", [
     "/**\n * The presenter's side of an audience following along (N-34 / ADR-0006).\n *\n * One press asks the server for a show, hands out the link it mints, and every turn of the talk reports\n * where the show is. Everything here is per-show local state: a following audience belongs to the talk\n * that is happening, not to the account, and it must not survive the show — a link still answering an\n * hour after the room emptied is a leak, and the only thing standing between the two is this hook\n * stopping it.\n */",
@@ -1970,6 +1978,14 @@ const allowed = new Map([
     "// `open` went false — an unmount runs cleanups and nothing else. Without this the row lives out its",
     "// whole lease and the viewer keeps reading \"following this show\" over a talk that ended minutes ago,",
     "// with the note's title and last page still served to it.",
+    "/** How often a running show asks its own server who is still listening. */",
+    "/** How many browsers have been reading the show lately (PR-M7), as last heard by this client. */",
+    "// The answer to a page turn already carries the room: the presenter learns who showed up without",
+    "// asking a second question for it.",
+    "// A talk has pauses, and a pause is exactly when the speaker looks up to see whether the room is still",
+    "// there. The page turn carries the number for free; this is the beat for the minutes in between, and",
+    "// it stops with the show because a room that is gone has nothing left to count.",
+    "// A number that could not be asked for is not a reason to change the one on the screen.",
   ]],
   ["src/client/features/presentation/use-audience-presence.test.ts", [
     "// The viewer's heartbeat (N-34 / ADR-0006). What a viewer must never do is make the talk look broken",
@@ -2164,6 +2180,7 @@ const allowed = new Map([
     "// One label per slide for the console's outline. Taken per deck rather than per page turn: the list is",
     "// the same list whatever the show is standing on, and reading every slide's first line on every press",
     "// is a cost the talk pays in the middle of a talk.",
+    "/** How many browsers have read the show's position lately (PR-M7). */",
   ]],
   ["src/client/features/presentation/use-presented-note.ts", [
     "// Followed edits land on the projector, but a re-split per keystroke would remount",
@@ -2822,9 +2839,9 @@ const allowed = new Map([
     "// A 304 is not `ok` to fetch, so it has to be answered before the failure path below or every",
     "// \"nothing moved\" beat would surface as an error. It carries no body: the caller keeps what it",
     "// holds, and the ETag it already has is the one that just proved itself.",
-    "/** What the owner's own question answers: nothing, or where the show is and how long it may run. */",
     "/**\n   * The audience-follow channel: start a show, move its position, end it.\n   *\n   * `start` is the only call that ever returns the capability token — the server keeps a hash, so a\n   * refresh cannot recover it and a presenter who wants the link again starts a new show. The viewer's\n   * read is a public call with no session at all.\n   */",
     "/**\n     * The viewer's heartbeat. `undefined` means \"nothing moved since the last beat\" (a 304), which is\n     * why the caller keeps what it holds rather than treating it as a blank. `cache: 'no-store'`\n     * because a stored answer to \"where is the talk now\" is not a stale answer — it is a different\n     * question's.\n     */",
+    "/** What the owner's own question answers: nothing, or where the show is and how long it may run — and in\n * either case how many browsers have been reading it lately (PR-M7). */",
   ]],
   ["src/client/lib/async.ts", [
     "/**\n * Resolves when the work does or when it has had long enough, so a slow artifact delays what\n * comes next instead of hanging it. The timeout is the contract: the caller cannot wait\n * forever, and it must not learn about a failure it can do nothing about.\n */",
@@ -6086,6 +6103,7 @@ const allowed = new Map([
     "/** Where a show is, as the channel carries it: the same three axes the presenter's own session uses. */",
     "/** What a viewer gets back: the position, when the presenter wrote it, and what is being shown. */",
     "/** What starting a show hands back. The token appears in this response exactly once — after that the\n * server holds only its hash, and a speaker who loses the link has to start a new show. */",
+    "/**\n * How far back the audience count looks (PR-M7).\n *\n * The window has to sit above the backoff ceiling a backgrounded tab falls to (16 polls, so ~32 s), or a\n * room that switched apps for a minute reads as empty; and below the length of a pause in a talk, or a\n * room that left keeps being counted after it went. It counts *browsers that asked*, which is the only\n * thing this channel can know: two people behind one address are one viewer, and nothing here is\n * identified beyond the address the request already carried.\n */",
   ]],
   ["src/shared/text-utils.ts", [
     "/**\n * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and\n * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's\n * U+FFFD replacement.\n */",
@@ -6368,7 +6386,6 @@ const allowed = new Map([
     "// the search result set disagree about the same click.",
   ]],
   ["src/worker/routes/share-presence.ts", [
-    "/**\n * The audience-side show position: the presenter writes where the talk is, and a viewer on their own\n * device reads it and turns its own page.\n *\n * Two halves live here because they are one contract seen from both ends. The owner half is a normal\n * authenticated share route; the public half is the one that has to be careful — it is reachable by a\n * stranger, so it answers with a capability token rather than a session, and it never writes a visitor\n * row: the position is not a view, and counting every heartbeat would turn \"how many people opened\n * this link\" into \"how many seconds they sat there\".\n */",
     "/** A row of `share_presence`, shaped the way D1 hands it back. */",
     "/** The share a show needs: a live link, the note it points at, and the note's own title for the viewer. */",
     "/** A live link, the note it points at, and whether that note is behind a passcode. */",
@@ -6394,6 +6411,10 @@ const allowed = new Map([
     "// The owner asking whether they are on air is also the moment their finished shows get cleaned",
     "// up: a row whose lease ran out answers nothing (every read filters on `expires_at`), so it is",
     "// only ever left behind by a browser that never sent the stop press.",
+    "/**\n * The audience-side show position: the presenter writes where the talk is, and a viewer on their own\n * device reads it and turns its own page.\n *\n * Two halves live here because they are one contract seen from both ends. The owner half is a normal\n * authenticated share route; the public half is the one that has to be careful — it is reachable by a\n * stranger, so it answers with a capability token rather than a session, and it never writes a visitor\n * row: the position is not a view, and counting every heartbeat would turn \"how many people opened\n * this link\" into \"how many seconds they sat there\". The audience number the presenter sees (PR-M7) is\n * read out of the read budget that is already being spent, so it costs no write and no new table.\n */",
+    "// The turn of a page is also how the speaker hears that the room is there: the count rides back on the",
+    "// answer they already waited for, so an audience costs no extra request to notice.",
+    "/**\n * How many browsers have been reading this show (PR-M7).\n *\n * The audience is already counted, by accident: every public read spends a budget attempt keyed by the\n * show's slug and the reader's address, and the row it writes carries the time of that read. Counting\n * those rows is the whole signal — no per-viewer table (ADR-0006 refuses one), no second write, and\n * nothing new for a viewer to send.\n *\n * The range is spelled as `>= / <` rather than `LIKE` because a slug is data: a `_` in it would otherwise\n * stand for \"any character\" and count somebody else's room.\n */",
   ]],
   ["src/worker/routes/share.ts", [
     "/** Sweep at most once per window, and never let the map grow without a hard ceiling. */",
@@ -6685,6 +6706,10 @@ const allowed = new Map([
     "// mid-talk never sends the stop press, and the row it leaves behind answers nothing — every read",
     "// filters on `expires_at` — so it is only ever debris. Asking \"am I on air?\" is the moment the",
     "// owner's own debris gets cleared, on the indexed column, bounded to that owner.",
+    "// PR-M7: the presenter is told how many browsers have been reading the show. The number is read out of",
+    "// the read budget the public route already spends, so these cases vary only the address a read came",
+    "// from, how old it is, and which show it was aimed at.",
+    "// An address is only trusted behind the edge, so the harness has to say the request came through it.",
   ]],
   ["tests/slide-control-coverage.test.ts", [
     "// The projector turns a page by a click anywhere on it and leaves a click on an interactive element",

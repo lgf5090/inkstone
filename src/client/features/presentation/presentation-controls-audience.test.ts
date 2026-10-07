@@ -31,6 +31,7 @@ function props(overrides: Partial<PresentationControlsProps> = {}): Presentation
     following: false,
     followLost: false,
     audienceFollowing: false,
+    audienceViewers: 0,
     chromeHidden: false,
     occluded: false,
     compact: false,
@@ -90,5 +91,28 @@ describe('PresentationControls — letting an audience in', () => {
     expect(row.getAttribute('aria-checked'), 'the row does not report the running show').toBe('true')
     act(() => { row.click() })
     expect(onToggleAudience).toHaveBeenCalledTimes(1)
+  })
+
+  // PR-M7: the number belongs on the control that already speaks about the room, not on a fourth
+  // surface the presenter has to know to look at.
+  it('marks how many browsers came in, on the control that is already there', () => {
+    const { container } = renderElement(createElement(PresentationControls, props({ audienceFollowing: true, audienceViewers: 3, onToggleAudience: vi.fn() })))
+    expect(container.querySelector('[data-audience-count]')?.textContent).toBe('3')
+    expect(control(container, t('workspace.presentation_audience_stop')), 'the number does not become the control name').toBeTruthy()
+  })
+
+  it('says nothing while the room is empty, and nothing after the room is let go', () => {
+    const empty = renderElement(createElement(PresentationControls, props({ audienceFollowing: true, audienceViewers: 0, onToggleAudience: vi.fn() })))
+    expect(empty.container.querySelector('[data-audience-count]')).toBeNull()
+    empty.unmount()
+
+    const notFollowing = renderElement(createElement(PresentationControls, props({ audienceFollowing: false, audienceViewers: 4, onToggleAudience: vi.fn() })))
+    expect(notFollowing.container.querySelector('[data-audience-count]'), 'a number from a show that is not running is not a fact').toBeNull()
+    notFollowing.unmount()
+  })
+
+  it('caps the mark instead of widening the bar', () => {
+    const { container } = renderElement(createElement(PresentationControls, props({ audienceFollowing: true, audienceViewers: 120, onToggleAudience: vi.fn() })))
+    expect(container.querySelector('[data-audience-count]')?.textContent).toBe('99+')
   })
 })

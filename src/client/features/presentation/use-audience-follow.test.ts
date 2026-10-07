@@ -39,6 +39,7 @@ afterEach(() => {
 interface HookResult {
   on: boolean
   link: string | null
+  viewers: number
   toggle: () => void
 }
 
@@ -197,6 +198,73 @@ describe('useAudienceFollow — the show moves, the audience moves with it', () 
     await show.rerender({ slide: 3, page: 0, step: 0 })
     expect(toasts(), 'a position that cannot be delivered is said, not swallowed').toContain(t('workspace.presentation_audience_lost'))
     expect(show.result.on).toBe(false)
+    show.unmount()
+  })
+})
+
+// PR-M7: the presenter is told how many browsers came in. Two ways the number arrives — on the answer to
+// a page turn, and on the beat between turns — and one way it must stop: the show ending.
+describe('useAudienceFollow — who is in the room', () => {
+  it('takes the number off the page turn that carried it', async () => {
+    api.presence.publish.mockResolvedValue({ updatedAt: 1, viewers: 3 })
+    const show = await mount()
+    await press(show.result)
+    await show.rerender({ slide: 1, page: 0, step: 0 })
+    expect(show.result.viewers).toBe(3)
+    show.unmount()
+  })
+
+  it('keeps asking on its own beat while the show runs, and stops with it', async () => {
+    vi.useFakeTimers()
+    try {
+      api.presence.status.mockReset().mockResolvedValue({
+        running: true,
+        expiresAt: 9e14,
+        presence: { slide: 0, page: 0, step: 0, updatedAt: 1, title: 'Q3' },
+        viewers: 5,
+      })
+      const held: { current: HookResult | null } = { current: null }
+      const view = renderElement(createElement(Host, { noteId: 'note-1', position: { slide: 0, page: 0, step: 0 }, held }))
+      await act(async () => { await Promise.resolve() })
+      await press(held.current!)
+
+      expect(api.presence.status, 'the beat is armed by the show, not by the mount').not.toHaveBeenCalled()
+      await act(async () => {
+        vi.advanceTimersByTime(15_000)
+        await Promise.resolve()
+      })
+      expect(api.presence.status).toHaveBeenCalledTimes(1)
+      expect(held.current!.viewers).toBe(5)
+
+      // Letting the room go has to stop the asking, not just empty the number: a beat that keeps running
+      // after the show is off the air asks about a talk nobody is giving.
+      await act(async () => { held.current!.toggle() })
+      await act(async () => {
+        vi.advanceTimersByTime(30_000)
+        await Promise.resolve()
+      })
+      expect(api.presence.status, 'the beat stops with the show, not only with the window').toHaveBeenCalledTimes(1)
+
+      await act(async () => { view.unmount() })
+      await act(async () => {
+        vi.advanceTimersByTime(30_000)
+        await Promise.resolve()
+      })
+      expect(api.presence.status, 'a show that is over has nobody left to count').toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('puts the number back to zero when the room is emptied', async () => {
+    api.presence.publish.mockResolvedValue({ updatedAt: 1, viewers: 2 })
+    const show = await mount()
+    await press(show.result)
+    await show.rerender({ slide: 2, page: 0, step: 0 })
+    expect(show.result.viewers).toBe(2)
+    await act(async () => { show.result.toggle() })
+    expect(show.result.viewers, 'the link is back in the drawer, and so is the head count').toBe(0)
     show.unmount()
   })
 })
