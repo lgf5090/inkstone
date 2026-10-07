@@ -4,7 +4,7 @@ import type { NoteSummary } from '@shared/types'
 import { renderElement, type RenderedElement } from '../lib/test-render'
 import { buildActivityProjectionCached } from '../lib/calendar-activity'
 import { dateKey } from '../lib/time'
-import { useNotes, useVisibleNotes } from '../store/notes'
+import { dayWindow, inDayWindow, useNotes, useVisibleNotes } from '../store/notes'
 import { useUi } from '../store/ui'
 
 const stamp = (year: number, month: number, day: number) => new Date(year, month - 1, day, 12).getTime()
@@ -176,5 +176,81 @@ describe('the day filter compares instants, not day keys', () => {
       const expected = edgeStamps.filter((at) => byDayKey(at, start, end)).map((at) => `e${edgeStamps.indexOf(at)}`)
       expect(apply({ start, end })).toEqual(expected.sort())
     }
+  })
+})
+
+const stringForm = (updatedAt: number, range: { start: string; end: string }) => {
+  const key = dateKey(new Date(updatedAt))
+  return key >= range.start && key <= range.end
+}
+
+// Node re-reads the zone from `process.env.TZ`, so a case can visit a zone that actually
+// has a short day. The machine this repo is developed on is Asia/Shanghai, where no day is
+// short any more, so a fixed `+86_400_000` upper bound passes there and fails here.
+const withZone = (zone: string, run: () => void) => {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+  if (!env)
+    throw new Error('the suite needs a process env to move the clock zone')
+  const saved = env.TZ
+  env.TZ = zone
+  try {
+    run()
+  }
+  finally {
+    env.TZ = saved
+  }
+}
+
+describe('the numeric day window', () => {
+  const stamps = Array.from({ length: 240 }, (_, index) => new Date(2026, 2, 6 + Math.floor(index / 60), 0, 0, (index % 60) * 37).getTime())
+  const ranges = [
+    { start: '2026-03-07', end: '2026-03-08' },
+    { start: '2026-02-27', end: '2026-03-01' },
+    { start: '2026-10-31', end: '2026-11-01' },
+    { start: '2026-12-31', end: '2027-01-02' },
+  ]
+  const probe = (updatedAt: number) => ({ ...summary('probe', updatedAt), updatedAt })
+
+  it('selects exactly what the formatted-key comparison selects, in every zone tested', () => {
+    for (const zone of ['Asia/Shanghai', 'America/Santiago', 'Pacific/Apia', 'UTC']) {
+      withZone(zone, () => {
+        for (const range of ranges) {
+          const days = dayWindow(range)!
+          for (const stamp of stamps) {
+            expect(inDayWindow(probe(stamp), days), `${zone} ${range.start}..${range.end} @${new Date(stamp).toISOString()}`).toBe(stringForm(stamp, range))
+          }
+        }
+      })
+    }
+  })
+
+  it('ends the last day at the next local midnight, not 24 hours on', () => {
+    // Chile drops 00:00-01:00 on 2026-09-06, making that day 23 hours long.
+    withZone('America/Santiago', () => {
+      const days = dayWindow({ start: '2026-09-06', end: '2026-09-06' })!
+      expect(inDayWindow(probe(new Date(2026, 8, 6, 23, 30).getTime()), days)).toBe(true)
+      expect(inDayWindow(probe(new Date(2026, 8, 7, 0, 30).getTime()), days)).toBe(false)
+      expect(days.to).toBe(new Date(2026, 8, 7, 0, 0).getTime())
+      expect(days.to - days.from).toBeLessThan(86_400_000)
+    })
+  })
+
+  it('reports what the two forms cost over a 20k vault (benchmark, no threshold)', () => {
+    const vault = Array.from({ length: 20_000 }, (_, index) => ({ id: `n${index}`, updatedAt: new Date(2026, 2, 1 + (index % 700), index % 24).getTime() }))
+    const range = { start: '2026-04-02', end: '2026-04-20' }
+    const days = dayWindow(range)!
+    const median = (run: () => number) => {
+      const samples: number[] = []
+      for (let pass = 0; pass < 5; pass += 1) {
+        const start = performance.now()
+        run()
+        samples.push(performance.now() - start)
+      }
+      return samples.sort((left, right) => left - right)[2]
+    }
+    const stringMs = median(() => vault.filter((note) => stringForm(note.updatedAt, range)).length)
+    const windowMs = median(() => vault.filter((note) => inDayWindow(note as never, days)).length)
+    console.log(`[day window benchmark] 20,000 notes, one range: formatted keys ${stringMs.toFixed(2)}ms vs numeric window ${windowMs.toFixed(2)}ms (${(stringMs / Math.max(windowMs, 0.01)).toFixed(1)}x)`)
+    expect(vault.filter((note) => stringForm(note.updatedAt, range)).length).toBe(vault.filter((note) => inDayWindow(note as never, days)).length)
   })
 })
