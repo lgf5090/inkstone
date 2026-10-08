@@ -347,6 +347,64 @@ export interface CommunityTemplateInput {
   category: string
 }
 
+/**
+ * How far the local index bends to meet a mistyped word: `0` exact, `1` up to one edit on a long
+ * word, `2` up to two.
+ */
+export type OmnisearchFuzziness = '0' | '1' | '2'
+
+/** The window inside which a recently edited note is lifted in the ranking. */
+export type OmnisearchRecencyCutoff = 'disabled' | 'day' | 'week' | 'month'
+
+export interface SearchWeightProperty {
+  /** A front matter property whose values should lift the notes that carry them. */
+  name: string
+  weight: number
+}
+
+export interface SearchSettings {
+  /** Turning the local index off leaves the note list's server search untouched. */
+  enabled: boolean
+  /** Keep the built index between sessions instead of rebuilding it on every start. */
+  useCache: boolean
+  ribbonButton: boolean
+  showExcerpt: boolean
+  /** Strip Markdown markup from the excerpt instead of showing the source. */
+  plainExcerpt: boolean
+  renderLineReturnInExcerpts: boolean
+  showCreateButton: boolean
+  showPreviousQueryResults: boolean
+  /** How many embedded documents a result may pull in; `0` hides them. */
+  maxEmbeds: number
+  maxResults: number
+  fuzziness: OmnisearchFuzziness
+  /** Prefix only from three characters, which trades recall for speed on a big vault. */
+  simpleSearch: boolean
+  ignoreDiacritics: boolean
+  splitCamelCase: boolean
+  /** Index adjacent Han pairs, so a two-character word is found as a word. */
+  cjkBigrams: boolean
+  pinyinSearch: boolean
+  recencyBoost: OmnisearchRecencyCutoff
+  weightTitle: number
+  weightFolder: number
+  weightH1: number
+  weightH2: number
+  weightH3: number
+  weightTags: number
+  weightCustomProperties: SearchWeightProperty[]
+  /** Folder paths whose notes stay searchable but rank lower. */
+  downrankedFolders: string[]
+  /** Archived notes are usually noise: hide them instead of only ranking them lower. */
+  hideArchived: boolean
+  /** A front matter key, `#heading`, or empty for the note title. */
+  displayTitleProperty: string
+  maxIndexedNotes: number
+  maxContentChars: number
+  /** Ceiling on the note bodies kept on this device for excerpts. */
+  indexStorageMb: number
+}
+
 export interface UserSettings {
   appearance: AppearanceSettings
   editor: EditorSettings
@@ -355,6 +413,7 @@ export interface UserSettings {
   backup: BackupSettings
   sync: SyncSettings
   notes: NotesSettings
+  search: SearchSettings
 }
 
 
@@ -510,6 +569,25 @@ export interface SearchHit {
   note: NoteSummary
   snippet: string
   score: number
+}
+
+/** One note as the client-side index wants it: the body plus enough metadata to build a document. */
+export interface SearchDocumentItem {
+  id: string
+  title: string
+  updatedAt: number
+  archived: boolean
+  starred: boolean
+  folderId: string | null
+  content: string
+  /** The character count of the whole body, so a truncated one can be reported. */
+  chars: number
+}
+
+export interface SearchDocumentsResponse {
+  items: SearchDocumentItem[]
+  /** Requested ids that are gone, archived by the caller's own rules, or over the page budget. */
+  missing: string[]
 }
 
 export interface SearchResponse {
