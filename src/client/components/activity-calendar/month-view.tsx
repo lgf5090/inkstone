@@ -5,7 +5,8 @@ import { t } from '../../lib/i18n'
 import { Tooltip } from '../overlay'
 import { MonthGrid, type MonthGridCell } from '../calendar-grids'
 import { weekOrdinal, type WeekStartDay } from '../../lib/time'
-import { almanacOf, type AlmanacDay } from '../../lib/lunar/festivals'
+import { useAlmanac } from '../../lib/lunar/almanac-loader'
+import type { AlmanacDay } from '../../lib/lunar/festivals'
 import { HEAT_PERCENTS } from './strip'
 import type { MonthViewBundle } from './use-activity-calendar'
 
@@ -69,6 +70,7 @@ function almanacSuffix(almanac: AlmanacDay | null, display: MonthViewProps['disp
 
 export function MonthView({ cursor, weekStart, todayKey, weekdayLabels, gridTitle, cellMeta, focusKey, inRange, gapLabel, isLatestOutside, gapAhead, latestOutsideDays, latestOutsideKey, getDiaryId, onGapDayClick, onKeyDown, onMouseDown, onMouseOver, onActivateDay, onFocusDay, flashRef, display, onRangeSelect }: MonthViewProps): JSX.Element {
   const showAlmanac = display.lunar || display.festivals
+  const almanac = useAlmanac(showAlmanac)
   return (<>
     <div className='mt-[var(--sp-1-5)] px-[var(--sp-0-5)]'>
       {latestOutsideKey !== null && (<button type='button' aria-label={t(gapAhead ? 'sidebar.calendar_gap_banner_ahead_value0' : 'sidebar.calendar_gap_banner_value0', { value0: latestOutsideDays ?? 0 })} onClick={() => onGapDayClick(latestOutsideKey)} className='flex h-[var(--sp-6)] w-full items-center gap-[var(--sp-1-5)] rounded-[var(--r-sm)] border border-dashed border-[var(--accent)]/60 bg-[var(--accent-soft)]/60 px-[var(--sp-2)] text-[length:var(--text-10)] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]'>
@@ -96,8 +98,8 @@ export function MonthView({ cursor, weekStart, todayKey, weekdayLabels, gridTitl
         const diaryId = getDiaryId?.(cell.key) ?? null
         const selected = cell.inMonth && inRange(cell.key)
         const weekend = display.weekendTint && isWeekend(cell) && level === 0 && !selected
-        const almanac = showAlmanac && cell.inMonth ? almanacOf(cell.date) : null
-        const suffix = almanacSuffix(almanac, display)
+        const dayAlmanac = almanac !== null && cell.inMonth ? almanac.almanacOf(cell.date) : null
+        const suffix = almanacSuffix(dayAlmanac, display)
         const label = suffix ? `${gapLabel(cell.key)} · ${suffix}` : gapLabel(cell.key)
         return (<Tooltip label={label}>
           <button type='button' data-day-key={cell.key} data-day-gap={cell.inMonth ? undefined : ''} tabIndex={cell.key === focusKey ? 0 : -1} aria-pressed={selected} aria-label={label} onClick={() => {
@@ -105,7 +107,7 @@ export function MonthView({ cursor, weekStart, todayKey, weekdayLabels, gridTitl
             onActivateDay(cell.key, diaryId)
           }} className={cn('relative flex items-center justify-center rounded-[var(--r-xs)] text-[length:var(--text-9-5)] leading-none transition-colors', showAlmanac ? 'min-h-[var(--sp-7)] flex-col gap-[var(--sp-0-5)] py-[var(--sp-0-5)]' : 'aspect-square', 'hover:ring-1 hover:ring-inset hover:ring-[var(--accent-ring)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]', cell.today && 'ring-1 ring-inset ring-[var(--accent)]', cell.inMonth ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-quaternary)]', weekend && 'bg-[var(--bg-inset)]', count > 0 && 'font-semibold text-[var(--text-primary)]', isLatestOutside(cell.key) && 'border border-dashed border-[var(--accent)]/80')} style={level > 0 ? { backgroundColor: `color-mix(in oklab, var(--accent) ${HEAT_PERCENTS[level]}%, transparent)` } : undefined}>
             <span className='tabular'>{cell.day}</span>
-            {almanac !== null && (<DayCellLabel almanac={almanac} display={display}/>)}
+            {dayAlmanac !== null && (<DayCellLabel almanac={dayAlmanac} display={display}/>)}
             {diaryId && (<span aria-hidden='true' className={cn('absolute size-0.75 rounded-full bg-[var(--accent)]', showAlmanac ? 'right-[2px] top-[2px]' : 'bottom-[var(--sp-0-5)] left-1/2 -translate-x-1/2')}/>)}
             {selected && (<span aria-hidden='true' className='absolute inset-x-1 bottom-[1px] h-[var(--sp-0-5)] rounded-full bg-[var(--accent)]'/>)}
           </button>

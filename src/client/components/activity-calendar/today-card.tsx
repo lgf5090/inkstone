@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { dateKey, dayOfYear, daysInYear, weekOrdinal, type WeekStartDay } from '../../lib/time'
-import { almanacOf } from '../../lib/lunar/festivals'
+import { useAlmanac } from '../../lib/lunar/almanac-loader'
 
 interface TodayCardProps {
   today: Date
@@ -25,7 +25,8 @@ export function TodayCard({ today, locale, weekStart, showLunar, showFestival, s
   const dateLine = useMemo(() => new Intl.DateTimeFormat(locale, { month: 'long', day: 'numeric' }).format(today), [today, locale])
   const weekdayLine = useMemo(() => new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(today), [today, locale])
   const week = useMemo(() => weekOrdinal(today, weekStart), [today, weekStart])
-  const almanac = useMemo(() => (showLunar || showFestival) ? almanacOf(today) : null, [today, showLunar, showFestival])
+  const almanacApi = useAlmanac(showLunar || showFestival)
+  const almanac = useMemo(() => (almanacApi === null ? null : almanacApi.almanacOf(today)), [almanacApi, today])
   const year = today.getFullYear()
   const day = dayOfYear(today)
   const festival = showFestival ? almanac?.highlight ?? null : null

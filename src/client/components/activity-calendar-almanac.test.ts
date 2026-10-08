@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createElement } from 'react'
+import { act, createElement } from 'react'
 import { ActivityCalendar } from './activity-calendar'
 import type { ActivityCalendarProps } from './activity-calendar/props'
 import { DEFAULT_DISPLAY_VIEW } from './activity-calendar/props'
@@ -48,6 +48,18 @@ function render(overrides: Partial<ActivityCalendarProps> = {}) {
   return renderElement(createElement(ActivityCalendar, calendarProps(overrides)))
 }
 
+/**
+ * The almanac is a separate chunk now, so a label assertion has to let it arrive first. Polling
+ * rather than a fixed sleep keeps the suite honest on a loaded machine and on an idle one.
+ */
+async function settleAlmanac(container: HTMLElement) {
+  for (let i = 0; i < 60; i++) {
+    if (container.querySelector('[data-day-key] span[aria-hidden="true"]'))
+      return
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 5) }) })
+  }
+}
+
 function dayButton(container: HTMLElement, key: string): HTMLButtonElement | null {
   return container.querySelector<HTMLButtonElement>(`[data-day-key="${key}"]`)
 }
@@ -69,8 +81,9 @@ function weekCells(container: HTMLElement): HTMLButtonElement[] {
 }
 
 describe('month grid almanac labels', () => {
-  it('prints the lunar day under every number when the switch is on', () => {
+  it('prints the lunar day under every number when the switch is on', async () => {
     const { container, unmount } = render({ display: display({ lunar: true }) })
+    await settleAlmanac(container)
     expect(subLabel(container, '2026-09-02')).toContain(ALMANAC_WORDS.day21)
     expect(subLabel(container, '2026-09-11')).toContain(ALMANAC_WORDS.monthEight)
     expect(subLabel(container, '2026-09-25')).toContain(ALMANAC_WORDS.fifteen)
@@ -86,8 +99,9 @@ describe('month grid almanac labels', () => {
     container.remove()
   })
 
-  it('replaces the lunar day with the festival name, and only when festivals are on', () => {
+  it('replaces the lunar day with the festival name, and only when festivals are on', async () => {
     const { container, unmount } = render({ display: display({ lunar: true, festivals: true }) })
+    await settleAlmanac(container)
     expect(subLabel(container, '2026-09-25')).toContain(ALMANAC_WORDS.midAutumnCell)
     expect(subLabel(container, '2026-09-25')).not.toContain(ALMANAC_WORDS.fifteen)
     // The tile is squeezed to two characters; the accessible name keeps the whole one.
@@ -96,22 +110,25 @@ describe('month grid almanac labels', () => {
     container.remove()
 
     const lunarOnly = render({ display: display({ lunar: true, festivals: false }) })
+    await settleAlmanac(lunarOnly.container)
     expect(subLabel(lunarOnly.container, '2026-09-25')).toContain(ALMANAC_WORDS.fifteen)
     expect(subLabel(lunarOnly.container, '2026-09-25')).not.toContain(ALMANAC_WORDS.midAutumnCell)
     lunarOnly.unmount()
     lunarOnly.container.remove()
   })
 
-  it('carries the whole almanac line into the cell text and the accessible name', () => {
+  it('carries the whole almanac line into the cell text and the accessible name', async () => {
     const { container, unmount } = render({ display: display({ lunar: true }) })
+    await settleAlmanac(container)
     expect(subLabel(container, '2026-09-02')).toContain(ALMANAC_WORDS.day21)
     expect(dayButton(container, '2026-09-02')?.getAttribute('aria-label')).toContain(ALMANAC_WORDS.fullDay21)
     unmount()
     container.remove()
   })
 
-  it('leaves a padding day without an almanac label', () => {
+  it('leaves a padding day without an almanac label', async () => {
     const { container, unmount } = render({ display: display({ lunar: true }) })
+    await settleAlmanac(container)
     expect(subLabel(container, '2026-08-31')).toBe('')
     unmount()
     container.remove()
@@ -200,8 +217,9 @@ describe('month grid surface switches', () => {
 describe('today bar and stats', () => {
   const BAR = '[aria-label="sidebar.calendar_today_card_aria_value0"]'
 
-  it('mounts the today bar only when the switch asks for it', () => {
+  it('mounts the today bar only when the switch asks for it', async () => {
     const on = render({ display: display({ todayCard: true, lunar: true }) })
+    await settleAlmanac(on.container)
     expect(on.container.querySelector(BAR)?.textContent).toContain(ALMANAC_WORDS.fullDay21)
     on.unmount()
     on.container.remove()

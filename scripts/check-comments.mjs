@@ -101,6 +101,7 @@ const allowed = new Map([
     "// calls the row holding January 1st week 1. The reference calendar printed one ISO number",
     "// beside either grid, which is the disagreement this pins out.",
     "// The tile is squeezed to two characters; the accessible name keeps the whole one.",
+    "/**\n * The almanac is a separate chunk now, so a label assertion has to let it arrive first. Polling\n * rather than a fixed sleep keeps the suite honest on a loaded machine and on an idle one.\n */",
   ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
@@ -4192,6 +4193,10 @@ const allowed = new Map([
     "/**\n * Subscribes a component that calls {@link t} during render to the two things that change what `t`\n * answers: the active locale, and the resource version this locale's messages arrive under. A board\n * rendered outside the app's own locale-aware tree would otherwise keep last locale's copy after a\n * language switch, because React has no other reason to run its render again.\n */",
     "/**\n * The built-in template bodies are the one part of the catalog a reader may never\n * open, so they arrive on demand instead of riding the start-up locale chunk.\n * Registering them mutates the same table `t()` reads, which keeps lookups, the\n * language switch and the `resourcesVersion` signal exactly as they were.\n */",
     "/**\n * `localizedTexts` with its parameters filled in: a value that was written into a note\n * while the interface spoke another language is still the same string, so a lookup keyed\n * on display text has to answer in every shipped language at once.\n */",
+  ]],
+  ["src/client/lib/lunar/almanac-loader.ts", [
+    "/**\n * Downloads the almanac at most once, and only when something asks for it. A reader who switches\n * both lunar labels and festival names off never issues this request, so the 1900-2100 tables and\n * the term solver stay out of their transfer entirely.\n */",
+    "/** The almanac, or null while it is switched off or still arriving. */",
   ]],
   ["src/client/lib/lunar/festivals.ts", [
     "/** The whole lunar date, sexagenary year through day name. */",
@@ -8566,6 +8571,11 @@ const allowed = new Map([
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
+  ]],
+  ["tests/almanac-loader.test.ts", [
+    "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
+    "// This file owns the loader's module-level state: vitest gives every file a fresh registry, so the",
+    "// \"not loaded yet\" assertions here cannot be polluted by another suite warming the chunk.",
   ]],
   ["tests/backlink-mentions.test.ts", [
     "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",
