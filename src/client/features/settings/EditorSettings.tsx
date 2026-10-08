@@ -5,7 +5,7 @@ import { t } from "../../lib/i18n";
 import { clearRecentEmojis, RECENT_EMOJI_LIMIT, useEmojiPreferences } from '../../lib/emoji-prefs';
 import { EMOJI_TONE_LABEL_KEYS, EMOJI_TONE_SLOTS, emojiToneHand } from '../../lib/emoji-unicode';
 import { LINK_EDITOR_ALIAS_SEPARATOR_MAX } from '@shared/constants';
-import type { CodeFormatKeywordCase, EmojiInsertFormat, LinkEditorAliasMode, LinkEditorModifier, LinkEditorTrigger, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, SkinTone } from '@shared/types';
+import type { CodeFormatKeywordCase, EmojiInsertFormat, LinkEditorAliasMode, LinkEditorModifier, LinkEditorTrigger, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, PasteLinkNothing, SkinTone } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -120,6 +120,45 @@ export function EditorSettings() {
 
             <SettingRow title={t("settings.link_editor_pad_new")} description={t("settings.link_editor_pad_new_description")}>
               <Switch checked={editor.linkEditorPadNew} onChange={(linkEditorPadNew) => void update({ editor: { linkEditorPadNew } })} label={t("settings.link_editor_pad_new")}/>
+            </SettingRow>
+          </>}
+      </section>
+
+      <section>
+        <h3 data-setting-title={t("settings.paste_link_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.paste_link_group")}</h3>
+
+        <SettingRow title={t("settings.paste_link")} description={t("settings.paste_link_description")}>
+          <Switch checked={editor.pasteLink} onChange={(pasteLink) => void update({ editor: { pasteLink } })} label={t("settings.paste_link")}/>
+        </SettingRow>
+
+        {editor.pasteLink && <>
+            <SettingRow title={t("settings.paste_link_nothing")} description={t("settings.paste_link_nothing_description")}>
+              <Segmented<PasteLinkNothing> label={t("settings.paste_link_nothing")} value={editor.pasteLinkNothing} onChange={(pasteLinkNothing) => void update({ editor: { pasteLinkNothing } })} options={[
+                { value: 'plain', label: t("settings.paste_link_nothing_plain") },
+                { value: 'word', label: t("settings.paste_link_nothing_word") },
+                { value: 'inline', label: t("settings.paste_link_nothing_inline") },
+                { value: 'bare', label: t("settings.paste_link_nothing_bare") },
+            ]}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.paste_link_reverse")} description={t("settings.paste_link_reverse_description")}>
+              <Switch checked={editor.pasteLinkReverse} onChange={(pasteLinkReverse) => void update({ editor: { pasteLinkReverse } })} label={t("settings.paste_link_reverse")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.paste_link_image")} description={t("settings.paste_link_image_description")}>
+              <Switch checked={editor.pasteLinkImageEmbed} onChange={(pasteLinkImageEmbed) => void update({ editor: { pasteLinkImageEmbed } })} label={t("settings.paste_link_image")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.paste_link_bare_address")} description={t("settings.paste_link_bare_address_description")}>
+              <Switch checked={editor.pasteLinkBareAddress} onChange={(pasteLinkBareAddress) => void update({ editor: { pasteLinkBareAddress } })} label={t("settings.paste_link_bare_address")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.paste_link_internal_note")} description={t("settings.paste_link_internal_note_description")}>
+              <Switch checked={editor.pasteLinkInternalNote} onChange={(pasteLinkInternalNote) => void update({ editor: { pasteLinkInternalNote } })} label={t("settings.paste_link_internal_note")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.paste_link_retarget")} description={t("settings.paste_link_retarget_description")}>
+              <Switch checked={editor.pasteLinkRetarget} onChange={(pasteLinkRetarget) => void update({ editor: { pasteLinkRetarget } })} label={t("settings.paste_link_retarget")}/>
             </SettingRow>
           </>}
       </section>

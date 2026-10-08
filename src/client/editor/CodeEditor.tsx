@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Annotation, Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state';
+import { Annotation, Compartment, EditorSelection, EditorState, Prec, type Extension } from '@codemirror/state';
 import { EditorView, drawSelection, dropCursor, keymap, lineNumbers, placeholder as placeholderExt, rectangularSelection, } from '@codemirror/view';
 import { foldGutter, indentOnInput, indentUnit, } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -161,7 +161,10 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             liveCompartment.current.of(live ? livePreview((headings) => cbRef.current.onHeadings?.(headings), () => cbRef.current.noteTitle) : []),
             focusModePlugin,
             typewriterPlugin,
-            pasteExtension(cbRef.current.handlers),
+            // Ahead of the markdown language on purpose: `@codemirror/lang-markdown` installs its own
+            // paste handler that wraps a selected run with a pasted address, and the first handler that
+            // claims the event wins. Without this the editor's paste rules would never see a selection.
+            Prec.high(pasteExtension(cbRef.current.handlers)),
             keymap.of([
                 { key: 'Enter', run: (view) => completeCodeFenceOnEnter(view) || completeColonFenceOnEnter(view) || smartEnter(view) },
                 { key: 'Tab', run: (view) => acceptCompletion(view) || tableTab(view) },

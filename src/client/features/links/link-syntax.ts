@@ -200,16 +200,19 @@ export function serializeLink(match: LinkMatch, draft: LinkDraft): string {
   const target = draft.target.trim()
   if (!target) return ''
   const embed = match.embed || match.image
-  if (!isExternalTarget(target) && WIKI_SAFE.test(target)) return wikiSource(target, text, embed)
+  if (!isExternalTarget(target) && isWikiSafeTarget(target)) return wikiLink(target, text, embed)
   if (embed) return `![${escapeLabel(text)}](${formatDestination(target)})`
   if (!text || text === target) return target
   return `[${escapeLabel(text)}](${formatDestination(target)})`
 }
 
 /** A wiki target cannot carry brackets or the alias separator, so those shapes fall back to markdown. */
-const WIKI_SAFE = /^[^[\]|\n]+$/
+export function isWikiSafeTarget(target: string): boolean {
+  return /^[^[\]|\n]+$/.test(target)
+}
 
-function wikiSource(target: string, text: string, embed: boolean): string {
+/** The wiki shape for a target and the words to show for it; the alias is only written when it differs. */
+export function wikiLink(target: string, text: string, embed = false): string {
   if (!target) return ''
   const alias = text && text !== defaultWikiText(target) ? `|${text}` : ''
   return `${embed ? '!' : ''}[[${target}${alias}]]`
@@ -219,6 +222,10 @@ function escapeLabel(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/[[\]]/g, '\\$&')
 }
 
+/**
+ * A destination may only hold a bracket or an angle bracket inside `<...>`, which is also the shape
+ * that lets a URL keep its own parentheses.
+ */
 function formatDestination(target: string): string {
   return /[\s<>()]/.test(target) ? `<${target}>` : target
 }
@@ -234,7 +241,7 @@ export function copyAsMarkdown(match: LinkMatch, draft: LinkDraft): string {
 /** The clipboard shape this notebook resolves: a wiki link, whose label is only written when it differs. */
 export function copyAsWiki(match: LinkMatch, draft: LinkDraft): string {
   const text = draft.text.trim() || displayTextOf(match)
-  return wikiSource(draft.target.trim(), text, match.embed || match.image)
+  return wikiLink(draft.target.trim(), text, match.embed || match.image)
 }
 
 const BOUNDARY = /[\s.,;:!?)\]}>"'`/\uFF0C\u3002\uFF1B\uFF01\uFF1F\u3001\uFF09\u3011\u300B\u300D\u300F\u201D\u2019]/
