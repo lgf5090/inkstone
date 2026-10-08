@@ -27,6 +27,7 @@ import type {
   NoteVersion,
   NoteVersionMeta,
   PatchNoteBody,
+  SearchDocumentsResponse,
   PasswordLoginResult,
   PublicUser,
   PublicNote,
@@ -428,6 +429,15 @@ export const api = {
   search: (q: string, limit = 50, signal?: AbortSignal) =>
     request<SearchResponse>(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`, { signal }),
   reindex: () => request<{ ok: true; queued: number }>('/api/search/reindex', { method: 'POST' }),
+  /**
+   * Bodies for the local search index. Ids travel in the body, not the query string, so a page of 40
+   * note ids cannot outgrow the URL or land in an access log.
+   */
+  searchDocuments: (ids: readonly string[]) =>
+    request<SearchDocumentsResponse>('/api/search/documents', {
+      method: 'POST',
+      body: { ids: [...ids] },
+    }),
   graph: (params: import('@shared/types').GraphQuery = {}, signal?: AbortSignal) =>
     request<GraphResponse>(`/api/graph${toQuery({
       mode: params.mode,

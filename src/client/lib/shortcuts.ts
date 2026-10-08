@@ -3,6 +3,10 @@ import { IS_MAC } from './hotkeys'
 export const APP_SHORTCUTS = {
   command: 'mod+shift+p',
   search: 'mod+shift+f',
+  // The list search stays on `mod+shift+f`. Omnisearch is the index-backed prompt over every note,
+  // and `mod+alt+f` is already the editor's format-code command, so the pair lives on O.
+  omnisearch: 'mod+shift+o',
+  omnisearchInFile: 'mod+alt+shift+o',
   graph: 'mod+shift+g',
   newNote: IS_MAC ? 'mod+alt+shift+n' : 'mod+alt+n',
   templates: 'mod+shift+n',

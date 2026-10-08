@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, ScanSearch, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -17,6 +17,7 @@ import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
 import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
 import { openEmojiPicker } from '../../store/emoji-picker';
+import { openOmnisearch } from '../omnisearch/store';
 import { getActiveEditorView } from '../../editor/commands';
 import { openLinkAtCursor } from '../links/use-link-editor';
 import { pasteAsLinkFromClipboard } from '../../editor/paste-link';
@@ -140,6 +141,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 run: () => void createFolder(),
             },
             {
+                id: 'cmd-omnisearch',
+                kind: 'command',
+                label: t("shell.omnisearch"),
+                icon: <ScanSearch size={14}/>,
+                combo: APP_SHORTCUTS.omnisearch,
+                group: t("command.commands"),
+                run: () => openOmnisearch({ mode: 'vault' }),
+            },
+            {
                 id: 'cmd-emoji',
                 kind: 'command',
                 label: t("command.open_emoji_picker"),
@@ -211,6 +221,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                             const properties = useSession.getState().settings.properties;
                             useSession.getState().updateSettings({ properties: { revealHidden: !properties.revealHidden } });
                         },
+                    },
+                    {
+                        id: 'cmd-omnisearch-in-file',
+                        kind: 'command' as const,
+                        label: t("omnisearch.scope_file"),
+                        icon: <ScanSearch size={14}/>,
+                        combo: APP_SHORTCUTS.omnisearchInFile,
+                        group: t("common.current_note"),
+                        run: () => openOmnisearch({ mode: 'file', noteId: activeNote.id }),
                     },
                     {
                         id: 'cmd-presentation-mode',

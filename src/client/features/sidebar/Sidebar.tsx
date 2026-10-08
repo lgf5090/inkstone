@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Search, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, ScanSearch, Search, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -31,6 +31,8 @@ import { BacklinksPanel } from '../workspace/BacklinksPanel';
 import { SIDEBAR_PANEL_ID, SidebarTabStrip, tabId } from './SidebarTabs';
 import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
+import { OmnisearchEntry, useOmnisearchEntryEnabled } from '../omnisearch/OmnisearchEntry';
+import { openOmnisearch } from '../omnisearch/store';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
 import { TemplateQuickActions } from '../templates/quick-actions';
@@ -61,6 +63,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
             {t("common.product_name")}
           </span>
         </div>
+        <OmnisearchEntry onCollapse={Boolean(onCollapse)}/>
         {onCollapse && (<Tooltip label={t("sidebar.collapse_navigation")}>
             <IconButton label={t("sidebar.collapse_navigation")} size="sm" onClick={onCollapse}>
               <PanelLeftClose size={15}/>
@@ -135,6 +138,7 @@ function SidebarRail({ onExpand }: {
 
       <div className="flex w-full flex-col items-center gap-1 py-2">
         <SearchButton variant="icon" />
+        <OmnisearchRailButton/>
         <RailButton label={t("navigation.all_notes")} active={view === 'all'} icon={<FileText size={16}/>} onClick={() => openView('all')}/>
         <RailButton label={t("navigation.favorites")} active={view === 'starred'} icon={<Star size={16}/>} onClick={() => openView('starred')}/>
         <RailButton label={t("navigation.trash")} active={view === 'trash'} icon={<Trash2 size={16}/>} onClick={() => openView('trash')}/>
@@ -150,6 +154,19 @@ function SidebarRail({ onExpand }: {
       </div>
     </aside>);
 }
+/**
+ * The collapsed rail's Omnisearch entry. It has to be a `RailButton` so it lines up with the other
+ * icons, which is the one shape {@link OmnisearchEntry} does not draw.
+ */
+function OmnisearchRailButton() {
+  const enabled = useOmnisearchEntryEnabled();
+  if (!enabled) return null;
+  return <RailButton label={t('shell.omnisearch')} combo={APP_SHORTCUTS.omnisearch} icon={<ScanSearch size={16}/>} onClick={() => openOmnisearch({
+        mode: 'vault',
+    })}/>;
+
+}
+
 function RailButton({ label, combo, icon, active, accent, onClick, }: {
     label: string;
     combo?: string;

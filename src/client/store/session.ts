@@ -363,23 +363,19 @@ function mergeSettingsPatches(
 ): DeepPartial<UserSettings> | null {
   if (!first) return second
   if (!second) return first
-  return {
-    ...(first.appearance || second.appearance
-      ? { appearance: { ...first.appearance, ...second.appearance } }
-      : {}),
-    ...(first.editor || second.editor
-      ? { editor: { ...first.editor, ...second.editor } }
-      : {}),
-    ...(first.preview || second.preview
-      ? { preview: { ...first.preview, ...second.preview } }
-      : {}),
-    ...(first.backup || second.backup
-      ? { backup: { ...first.backup, ...second.backup } }
-      : {}),
-    ...(first.sync || second.sync
-      ? { sync: { ...first.sync, ...second.sync } }
-      : {}),
+  // Every group has to survive the merge. This used to list them by hand, and a group missing from
+  // the list was dropped when a second write arrived inside the debounce window — the queued PATCH
+  // went out as `{}`, and the server's stale value overwrote what the reader had just set.
+  const merged: Record<string, unknown> = { ...first }
+  for (const [key, value] of Object.entries(second)) {
+    const base = merged[key]
+    merged[key] = isPlainObject(base) && isPlainObject(value) ? { ...base, ...value } : value
   }
+  return merged as DeepPartial<UserSettings>
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function adopt(info: SessionInfo, set: (partial: Partial<SessionState>) => void): void {
