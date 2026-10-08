@@ -920,6 +920,77 @@ export function replaceWikiLinkTarget(content: string, from: string, to: string)
   return lines.join('\n')
 }
 
+/**
+ * Turns the first plain mention of `title` into a `[[wikilink]]`.
+ *
+ * This is the link the backlinks panel offers for its "mentions" half: the reader said
+ * the note's name in prose without wrapping it. Only one occurrence is taken per call,
+ * so pressing the button again links the next mention rather than rewriting the one the
+ * reader already dealt with.
+ *
+ * The scan skips the same regions `replaceWikiLinkTarget` refuses to touch — front matter,
+ * fenced and inline code — and additionally blanks existing wiki links, embeds and
+ * markdown links, so a title that only appears inside someone else's link text or alias
+ * is not mistaken for a bare mention. Latin neighbours are checked because `AI` should
+ * not be cut out of `AINT`; CJK has no such boundaries and needs none.
+ */
+export function linkFirstMention(content: string, title: string): string {
+  const needle = title.trim()
+  if (!needle) return content
+  // A case-insensitive regex rather than `toLowerCase()` on both sides: lowercasing can
+  // change a string's length (`İ` becomes two code units), and every index below has to
+  // mean the same position in the line as it does in the blanked copy of it.
+  const pattern = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  const boundaryAt = (text: string, index: number, end: number) => {
+    const before = index > 0 ? text[index - 1]! : ''
+    const after = end < text.length ? text[end]! : ''
+    if (/^[A-Za-z0-9]/.test(needle) && /[A-Za-z0-9]/.test(before)) return false
+    if (/[A-Za-z0-9]$/.test(needle) && /[A-Za-z0-9]/.test(after)) return false
+    return true
+  }
+  const frontMatter = parseFrontMatter(content)
+  const lines = content.split('\n')
+  let inFence = false
+  let fenceChar = ''
+  let fenceLength = 0
+  for (let index = frontMatter.lineOffset; index < lines.length; index++) {
+    const line = lines[index]!
+    const fence = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)
+    if (fence) {
+      const marker = fence[1]!
+      if (!inFence) {
+        inFence = true
+        fenceChar = marker[0]!
+        fenceLength = marker.length
+      } else if (marker[0] === fenceChar && marker.length >= fenceLength) {
+        inFence = false
+      }
+      continue
+    }
+    if (inFence) continue
+    const haystack = line
+      .replace(/!?\[\[[^\]\n]*\]\]/g, (value) => ' '.repeat(value.length))
+      .replace(/!?\[[^\]\n]*\]\([^)\n]*\)/g, (value) => ' '.repeat(value.length))
+      .replace(/`+[^`\n]*`+/g, (value) => ' '.repeat(value.length))
+    pattern.lastIndex = 0
+    for (let found = pattern.exec(haystack); found; found = pattern.exec(haystack)) {
+      const from = found.index
+      const end = from + found[0].length
+      if (!boundaryAt(haystack, from, end)) continue
+      const edited = line.slice(0, from) + `[[${needle}]]` + line.slice(end)
+      // Ask the link parser whether the text we just wrote really is a link to this note.
+      // A title holding a character the grammar reads as syntax (`]`, `|`, a heading `#`)
+      // would otherwise save a span that renders as prose, or points at some other note,
+      // and never counts as a backlink — the reader clicks a button that does nothing.
+      const landsHere = extractWikiLinks(edited).some((link) => link.target === needle && wikiNoteTarget(link.target) === needle)
+      if (!landsHere) return content
+      lines[index] = edited
+      return lines.join('\n')
+    }
+  }
+  return content
+}
+
 function stripContainerMarkers(text: string): string {
   return text
     .replace(/^[ \t]{0,3}:{3,}.*$/gm, (line) => {

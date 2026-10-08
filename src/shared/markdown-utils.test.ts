@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, mentionContext, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText, trimFrontMatterLead } from './markdown-utils'
+import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, linkFirstMention, mentionContext, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText, trimFrontMatterLead } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -292,5 +292,75 @@ describe('mention excerpts', () => {
 
   it('falls back to the head of the text when the needle is absent', () => {
     expect(mentionContext('no match at all', 'TARGET')).toBe('no match at all')
+  })
+})
+
+describe('linking a bare mention', () => {
+  it('wraps the first plain mention', () => {
+    expect(linkFirstMention('see Deep Research Notes today', 'Deep Research Notes'))
+      .toBe('see [[Deep Research Notes]] today')
+  })
+
+  it('leaves an already-linked title alone and takes the bare one', () => {
+    const content = 'first [[Deep Research Notes]] then Deep Research Notes again'
+    expect(linkFirstMention(content, 'Deep Research Notes'))
+      .toBe('first [[Deep Research Notes]] then [[Deep Research Notes]] again')
+  })
+
+  it('does not reach into inline code, fences, front matter or markdown links', () => {
+    expect(linkFirstMention('run `Deep Research Notes` now', 'Deep Research Notes'))
+      .toBe('run `Deep Research Notes` now')
+    expect(linkFirstMention('```\nDeep Research Notes\n```\n', 'Deep Research Notes'))
+      .toBe('```\nDeep Research Notes\n```\n')
+    expect(linkFirstMention('---\ntitle: Deep Research Notes\n---\nbody', 'Deep Research Notes'))
+      .toBe('---\ntitle: Deep Research Notes\n---\nbody')
+    expect(linkFirstMention('see [Deep Research Notes](https://x.test/y)', 'Deep Research Notes'))
+      .toBe('see [Deep Research Notes](https://x.test/y)')
+  })
+
+  it('will not cut a latin title out of a longer word', () => {
+    expect(linkFirstMention('that AINT right', 'AI')).toBe('that AINT right')
+    expect(linkFirstMention('that AI is right', 'AI')).toBe('that [[AI]] is right')
+  })
+
+  it('takes the next occurrence on the same line when the first is inside a word', () => {
+    expect(linkFirstMention('AINT and AI', 'AI')).toBe('AINT and [[AI]]')
+  })
+
+  it('links a chinese mention mid-sentence', () => {
+    const title = String.fromCodePoint(0x6DF1, 0x5EA6, 0x7814, 0x7A76, 0x7B14, 0x8BB0)
+    const about = String.fromCodePoint(0x5173, 0x4E8E)
+    const ideas = String.fromCodePoint(0x7684, 0x4E00, 0x4E9B, 0x60F3, 0x6CD5)
+    expect(linkFirstMention(about + title + ideas, title)).toBe(about + '[[' + title + ']]' + ideas)
+  })
+
+  it('links one more mention each time it is called', () => {
+    const once = linkFirstMention('Deep Research Notes and Deep Research Notes', 'Deep Research Notes')
+    expect(once).toBe('[[Deep Research Notes]] and Deep Research Notes')
+    expect(linkFirstMention(once, 'Deep Research Notes')).toBe('[[Deep Research Notes]] and [[Deep Research Notes]]')
+  })
+
+  it('matches case but writes the title as it is spelled', () => {
+    expect(linkFirstMention('about deep research notes here', 'Deep Research Notes'))
+      .toBe('about [[Deep Research Notes]] here')
+  })
+
+  it('returns the same string when there is nothing to link', () => {
+    const content = 'nothing relevant here\nsecond line'
+    expect(linkFirstMention(content, 'Deep Research Notes')).toBe(content)
+    expect(linkFirstMention('body', '')).toBe('body')
+  })
+
+  it('refuses a title the wikilink grammar cannot hold', () => {
+    for (const title of ['a]b', 'a|b', 'a#b']) {
+      const content = `see ${title} here`
+      expect(linkFirstMention(content, title), title).toBe(content)
+    }
+  })
+
+  it('keeps its place in a title whose lowercase form is longer than the title', () => {
+    const title = 'İstanbul'
+    expect(linkFirstMention(`notes about ${title} today`, title)).toBe(`notes about [[${title}]] today`)
+    expect(linkFirstMention(`see ${title} and ${title}`, title)).toBe(`see [[${title}]] and ${title}`)
   })
 })

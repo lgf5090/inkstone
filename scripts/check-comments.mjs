@@ -6679,6 +6679,7 @@ const allowed = new Map([
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
+    "/**\n * The link tests write to a note of their own. `dirty` is module state and outlives the\n * per-test `setState`, so a note an earlier test typed into is still unsaved here, and the\n * guard under test would trip for that reason instead of the one being measured.\n */",
   ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
@@ -6724,6 +6725,7 @@ const allowed = new Map([
     "// window by an hour the reader never selected.",
     "// The same window the list filters by: without it the editor can open on a note the list",
     "// does not contain, leaving nothing focused and the arrow keys without a position.",
+    "/**\n     * Wrap one bare mention of `targetId`'s title in a link inside `sourceId`.\n     *\n     * The source note can be open with keystrokes still in flight, so the write waits for\n     * those to reach the server first: a save queued behind us would land on the pre-link\n     * text and undo the click, and `adoptNote` below deliberately ignores the server copy\n     * while that note is still dirty. Whichever way it goes the reader is told, because\n     * the row they clicked may no longer mean what it said.\n     */",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",
@@ -6849,6 +6851,14 @@ const allowed = new Map([
     "/**\n * The text around a mention, for the panels that list one: `before` characters of\n * lead-in, `after` of tail, whitespace collapsed, and an ellipsis on whichever side\n * was cut. The worker reaches this through a SQL window instead, so both must keep the\n * same lead-in and tail or the same note reads differently in demo and in production.\n */",
     "// A front matter line opens a key, continues an indented value, or is a list item",
     "// under one; prose is none of those.",
+    "/**\n * Turns the first plain mention of `title` into a `[[wikilink]]`.\n *\n * This is the link the backlinks panel offers for its \"mentions\" half: the reader said\n * the note's name in prose without wrapping it. Only one occurrence is taken per call,\n * so pressing the button again links the next mention rather than rewriting the one the\n * reader already dealt with.\n *\n * The scan skips the same regions `replaceWikiLinkTarget` refuses to touch — front matter,\n * fenced and inline code — and additionally blanks existing wiki links, embeds and\n * markdown links, so a title that only appears inside someone else's link text or alias\n * is not mistaken for a bare mention. Latin neighbours are checked because `AI` should\n * not be cut out of `AINT`; CJK has no such boundaries and needs none.\n */",
+    "// Ask the link parser whether the text we just wrote really is a link to this note.",
+    "// A title holding a character the grammar reads as syntax (`]`, `|`, a heading `#`)",
+    "// would otherwise save a span that renders as prose, or points at some other note,",
+    "// and never counts as a backlink — the reader clicks a button that does nothing.",
+    "// A case-insensitive regex rather than `toLowerCase()` on both sides: lowercasing can",
+    "// change a string's length (`İ` becomes two code units), and every index below has to",
+    "// mean the same position in the line as it does in the blanked copy of it.",
   ]],
   ["src/shared/note-template-render.ts", [
     "/**\n * Renders a new-note template into note content.\n *\n * Placeholders are filled in a single left-to-right pass, so a value that\n * itself looks like a placeholder (`{{tags}}` inside a note title) is written\n * out literally instead of being expanded a second time.\n */",
@@ -7202,6 +7212,7 @@ const allowed = new Map([
     "// ?1 is the match expression only when the index is in play, so every later slot shifts.",
     "// The window is cut around the hit, so a hit near the top of a note reaches back into",
     "// the front matter; dropping that lead keeps the sentence the reader came for.",
+    "/**\n * Link one bare mention: the button beside a row of the panel's \"mentions\" half.\n *\n * The rewrite happens here rather than in the panel because the note being edited is\n * usually not the one being read — the client may not even hold its text, and whatever\n * copy it does hold can be older than the row the reader clicked. The write is a\n * compare-and-swap on `rev` and `content_hash`, retried against a fresh read, so a note\n * that changed underneath is reported instead of quietly overwritten. The text that was\n * there is kept as a version first, so the reader can take it back.\n */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -7452,6 +7463,11 @@ const allowed = new Map([
   ]],
   ["tests/kanban-view-live-fields.test.ts", [
     "/**\n * KanbanView is persisted fence data: a declared field nobody reads is a dead\n * contract (review #19 left seven of them behind). Every field of the\n * KanbanView interface must be accessed (`view.<field>`) somewhere in the\n * client outside types.ts, so the next config knob ships wired or not at all.\n */",
+  ]],
+  ["tests/link-mention-route.test.ts", [
+    "/**\n * The HTTP shape of \"turn this mention into a link\", which the function-level tests in\n * `backlink-mentions.test.ts` do not cover: which status the reader gets back, and what is\n * left untouched when the row they clicked has already moved on.\n */",
+    "// The route checks the source id against the note-id grammar before it looks anything up,",
+    "// so every id here has to be shaped like one.",
   ]],
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",

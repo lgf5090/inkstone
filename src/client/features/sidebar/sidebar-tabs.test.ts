@@ -300,4 +300,54 @@ describe('backlinks panel mentions section', () => {
         await act(async () => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Mentioning note'))?.click());
         expect(openNote).toHaveBeenCalledWith('m1');
     });
+
+    it('offers the link action on a mention row and not on a linked one', async () => {
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({
+            backlinks: [{ id: 'l1', title: 'Linked note', context: 'a link here' }],
+            unlinked: [{ id: 'm1', title: 'Mentioning note', context: 'says the title in passing' }],
+        });
+        await act(() => root.render(createElement(Sidebar)));
+        await vi.waitFor(() => expect(container.textContent).toContain('says the title in passing'), { timeout: 4000 });
+        const names = [...container.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? '');
+        expect(names.filter((name) => name.startsWith(t('workspace.link_the_mention'))))
+            .toEqual([`${t('workspace.link_the_mention')}: Mentioning note`]);
+    });
+
+    it('links the mention the reader clicked, then asks the server what is left', async () => {
+        const backlinks = vi.spyOn(api.notes, 'backlinks').mockResolvedValue({
+            backlinks: [],
+            unlinked: [{ id: 'm1', title: 'Mentioning note', context: 'says the title' }],
+        });
+        const linkMention = vi.fn(async () => 'linked' as const);
+        useNotes.setState({ linkMention });
+        await act(() => root.render(createElement(Sidebar)));
+        await vi.waitFor(() => expect(container.textContent).toContain('Mentioning note'), { timeout: 4000 });
+        const asked = backlinks.mock.calls.length;
+        const button = [...container.querySelectorAll('button')]
+            .find((b) => (b.getAttribute('aria-label') ?? '').startsWith(t('workspace.link_the_mention')))!;
+        await act(async () => button.click());
+        expect(linkMention).toHaveBeenCalledWith('a', 'm1');
+        await vi.waitFor(() => expect(backlinks.mock.calls.length).toBeGreaterThan(asked), { timeout: 4000 });
+    });
+
+    it('waits for the reader before a second mention goes in the same note', async () => {
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({
+            backlinks: [],
+            unlinked: [
+                { id: 'm1', title: 'First note', context: 'says it once' },
+                { id: 'm2', title: 'Second note', context: 'says it too' },
+            ],
+        });
+        let release: ((value: 'linked') => void) | null = null;
+        useNotes.setState({ linkMention: () => new Promise<'linked'>((resolve) => {
+            release = resolve;
+        }) });
+        await act(() => root.render(createElement(Sidebar)));
+        await vi.waitFor(() => expect(container.textContent).toContain('says it too'), { timeout: 4000 });
+        const buttons = () => [...container.querySelectorAll('button')].filter((b) => (b.getAttribute('aria-label') ?? '').startsWith(t('workspace.link_the_mention')));
+        await act(async () => buttons()[0].click());
+        expect(buttons().every((b) => b.disabled)).toBe(true);
+        await act(async () => release?.('linked'));
+        await vi.waitFor(() => expect(buttons().some((b) => !b.disabled)).toBe(true), { timeout: 4000 });
+    });
 });

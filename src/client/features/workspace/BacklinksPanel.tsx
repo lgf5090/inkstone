@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Link2, MessageSquareText } from 'lucide-react';
+import { ArrowUpRight, Link2, Link as LinkIcon, MessageSquareText } from 'lucide-react';
 import type { Backlink } from '@shared/types';
 import { api } from '../../lib/api';
 import { Button } from '../../components/primitives';
@@ -15,7 +15,9 @@ export function BacklinksPanel({ noteId, fill = false }: {
     const [mentions, setMentions] = useState<Backlink[]>([]);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [reload, setReload] = useState(0);
+    const [linking, setLinking] = useState<string | null>(null);
     const openNote = useNotes((s) => s.openNote);
+    const linkMention = useNotes((s) => s.linkMention);
     const rev = useNotes((s) => s.notes[noteId]?.rev ?? 0);
     useEffect(() => {
         setLinks(null);
@@ -47,9 +49,20 @@ export function BacklinksPanel({ noteId, fill = false }: {
             controller.abort();
         };
     }, [noteId, rev, reload]);
-    const rows = (items: Backlink[]) => (<ul className="p-2">
-      {items.map((link) => (<li key={link.id}>
-          <button type="button" onClick={() => void openNote(link.id)} className="group w-full rounded-[var(--r-md)] px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]">
+    const linkOne = (link: Backlink) => {
+        if (linking)
+            return;
+        setLinking(link.id);
+        void linkMention(noteId, link.id)
+            .then((outcome) => {
+                if (outcome !== 'error')
+                    setReload((value) => value + 1);
+            })
+            .finally(() => setLinking(null));
+    };
+    const rows = (items: Backlink[], onLink?: (link: Backlink) => void) => (<ul className="p-2">
+      {items.map((link) => (<li key={link.id} className="group flex items-center gap-1">
+          <button type="button" onClick={() => void openNote(link.id)} className="min-w-0 flex-1 rounded-[var(--r-md)] px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]">
             <div className="flex items-center gap-1.5">
               <span className="min-w-0 truncate text-[12.5px] font-medium text-[var(--text-primary)]">
                 {link.title}
@@ -60,6 +73,18 @@ export function BacklinksPanel({ noteId, fill = false }: {
               {link.context}
             </p>
           </button>
+          {onLink && (
+            <button
+              type="button"
+              onClick={() => onLink(link)}
+              disabled={linking !== null}
+              title={t("workspace.link_the_mention")}
+              aria-label={`${t("workspace.link_the_mention")}: ${link.title}`}
+              className="shrink-0 rounded-[var(--r-md)] p-1.5 text-[var(--text-quaternary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:!opacity-100 disabled:opacity-40"
+            >
+              <LinkIcon size={13} aria-hidden="true"/>
+            </button>
+          )}
         </li>))}
     </ul>);
 
@@ -75,7 +100,7 @@ export function BacklinksPanel({ noteId, fill = false }: {
           <div className="sticky top-0 z-10 flex items-center gap-1.5 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
             <MessageSquareText size={11} aria-hidden="true"/>{t("workspace.mentions_here")}<span className="tabular">· {mentions.length}</span>
           </div>
-          {rows(mentions)}
+          {rows(mentions, linkOne)}
         </>)}
     </section>);
 }

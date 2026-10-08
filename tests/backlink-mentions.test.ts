@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { segmentCJK } from '../src/shared/markdown-utils'
-import { findLinkedBacklinks, findUnlinkedMentions } from '../src/worker/routes/notes'
+import { countText, deriveExcerpt, segmentCJK } from '../src/shared/markdown-utils'
+import { findLinkedBacklinks, findUnlinkedMentions, linkMentionInNote } from '../src/worker/routes/notes'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -131,5 +131,66 @@ describe('linked backlinks', () => {
     note('gone', 'trashed', `[[${CN}]]`, { deletedAt: 7 })
     linkTo('gone', CN)
     expect(await linked()).toEqual([])
+  })
+})
+
+describe('linking a mention for real', () => {
+  const row = (id: string) => (sqlite.prepare('SELECT content, rev, updated_at, excerpt, word_count FROM notes WHERE id = ?')
+    .get(id) as { content: string; rev: number; updated_at: number; excerpt: string; word_count: number })
+  const savedVersions = (id: string) => (sqlite.prepare('SELECT content FROM note_versions WHERE note_id = ? ORDER BY created_at')
+    .all(id) as Array<{ content: string }>)
+
+  it('writes the link, moves the row to the backlinks, and keeps the old text', async () => {
+    const before = `notes about ${CN} and ideas`
+    note('src', 'source', before)
+    const outcome = await linkMentionInNote(db, USER, 'src', CN, true)
+    expect(outcome.status).toBe('linked')
+    expect(row('src').content).toBe(`notes about [[${CN}]] and ideas`)
+    expect(row('src').rev).toBe(2)
+    expect(row('src').updated_at).toBeGreaterThan(1)
+    expect(savedVersions('src')).toEqual([{ content: before }])
+    expect(ids(await mentions(CN))).toEqual([])
+    expect(ids(await findLinkedBacklinks(db, USER, { id: TARGET, title: CN }))).toEqual(['src'])
+  })
+
+  it('refreshes the derived columns, so the row is not left describing the old text', async () => {
+    note('src', 'source', `# diary\nnotes about ${CN} and ideas`)
+    await linkMentionInNote(db, USER, 'src', CN, true)
+    const after = row('src')
+    expect(after.excerpt).toBe(deriveExcerpt(after.content))
+    expect(after.excerpt).not.toBe('')
+    expect(after.word_count).toBe(countText(after.content).words)
+  })
+
+  it('takes one mention per call, so the reader can work down the note', async () => {
+    note('src', 'source', `${CN} then ${CN}`)
+    await linkMentionInNote(db, USER, 'src', CN, true)
+    await linkMentionInNote(db, USER, 'src', CN, true)
+    expect(row('src').content).toBe(`[[${CN}]] then [[${CN}]]`)
+    expect(row('src').rev).toBe(3)
+    expect(savedVersions('src')).toHaveLength(2)
+  })
+
+  it('reports no mention, without touching the note, when the row went stale', async () => {
+    note('src', 'source', 'nothing to do here')
+    expect((await linkMentionInNote(db, USER, 'src', CN, true)).status).toBe('no-mention')
+    expect(row('src').rev).toBe(1)
+    expect(savedVersions('src')).toEqual([])
+  })
+
+  it('refuses a note it does not own or that lives only in the trash', async () => {
+    note('foreign', 'mine but not yours', CN, { user: OTHER })
+    note('trashed', 'restoring soon', CN, { deletedAt: 9 })
+    expect((await linkMentionInNote(db, USER, 'foreign', CN, true)).status).toBe('missing')
+    expect((await linkMentionInNote(db, USER, 'trashed', CN, true)).status).toBe('missing')
+    expect((await linkMentionInNote(db, USER, 'absent', CN, true)).status).toBe('missing')
+    expect(row('foreign').rev).toBe(1)
+    expect(row('trashed').rev).toBe(1)
+  })
+
+  it('still links when the full-text index is off', async () => {
+    note('src', 'source', `notes about ${CN}`)
+    expect((await linkMentionInNote(db, USER, 'src', CN, false)).status).toBe('linked')
+    expect(row('src').content).toBe(`notes about [[${CN}]]`)
   })
 })

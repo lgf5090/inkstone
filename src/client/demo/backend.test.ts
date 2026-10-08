@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDemoBackend } from './backend'
-import type { ListNotesResponse, SearchResponse, SyncResponse, Tag } from '@shared/types'
+import type { ListNotesResponse, Note, SearchResponse, SyncResponse, Tag } from '@shared/types'
 import { LIMITS } from '@shared/constants'
 import { tagInScope } from '@shared/markdown-utils'
 
@@ -252,5 +252,60 @@ describe('demo search reads the same expressions', () => {
   it('requires the free text alongside the expressions', async () => {
     expect(await searchTitles('stranger tag:other')).toEqual(['expr stranger'])
     expect(await searchTitles('parent tag:other')).toEqual(['expr parent'])
+  })
+})
+
+describe('demo turns a mention into a link the way the worker does', () => {
+  const title = 'Quarterly Retro Notes'
+
+  async function makeNote(noteTitle: string, content: string) {
+    const created = await call('POST', '/api/notes', { title: noteTitle, content })
+    expect(created.status).toBe(201)
+    return await created.json() as Note
+  }
+
+  async function halves(targetId: string) {
+    const body = await (await call('GET', `/api/notes/${targetId}/backlinks`)).json() as
+      { backlinks: Array<{ id: string }>, unlinked: Array<{ id: string }> }
+    return { linked: body.backlinks.map((row) => row.id), mentioned: body.unlinked.map((row) => row.id) }
+  }
+
+  it('writes the link, keeps the old text as a version, and moves the row between halves', async () => {
+    const target = await makeNote(title, 'the note being pointed at')
+    const source = await makeNote('Somewhere else', `notes about ${title} and ideas`)
+    expect((await halves(target.id)).mentioned).toContain(source.id)
+    const response = await call('POST', `/api/notes/${target.id}/link-mention`, { sourceNoteId: source.id })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { status: string, note?: Note }
+    expect(body.status).toBe('linked')
+    expect(body.note?.content).toBe(`notes about [[${title}]] and ideas`)
+    expect(body.note?.rev).toBe(2)
+    const after = await halves(target.id)
+    expect(after.linked).toContain(source.id)
+    expect(after.mentioned).not.toContain(source.id)
+    const versions = await (await call('GET', `/api/notes/${source.id}/versions`)).json() as
+      { versions: Array<{ title: string }> }
+    expect(versions.versions.map((version) => version.title)).toEqual(['Somewhere else'])
+  })
+
+  it('says the mention is gone rather than writing anything', async () => {
+    const target = await makeNote(title, 'the note being pointed at')
+    const source = await makeNote('Somewhere else', 'no mention of it here')
+    const body = await (await call('POST', `/api/notes/${target.id}/link-mention`, { sourceNoteId: source.id })).json() as
+      { status: string }
+    expect(body.status).toBe('no-mention')
+    const after = await call('GET', `/api/notes/${source.id}`)
+    expect((await after.json() as Note).rev).toBe(1)
+  })
+
+  it('refuses a source it is not given, in either shape', async () => {
+    const target = await makeNote(title, 'the note being pointed at')
+    expect((await call('POST', `/api/notes/${target.id}/link-mention`, {})).status).toBe(400)
+    expect((await call('POST', `/api/notes/${target.id}/link-mention`,
+      { sourceNoteId: 'not-a-note' })).status).toBe(400)
+    expect((await call('POST', `/api/notes/${target.id}/link-mention`,
+      { sourceNoteId: 'z'.repeat(26) })).status).toBe(404)
+    expect((await call('POST', `/api/notes/${target.id}/link-mention`,
+      { sourceNoteId: target.id })).status).toBe(200)
   })
 })

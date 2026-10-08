@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, extractTags, likePattern, normalizeLinkKey, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, extractTags, likePattern, linkFirstMention, normalizeLinkKey, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
 import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
@@ -1112,6 +1112,119 @@ notesRoutes.get('/:id/backlinks', async (c) => {
     unlinked: await findUnlinkedMentions(c.env.DB, userId, note, ftsEnabled, LIMITS.mentionLimit),
   })
 })
+
+
+/**
+ * Link one bare mention: the button beside a row of the panel's "mentions" half.
+ *
+ * The rewrite happens here rather than in the panel because the note being edited is
+ * usually not the one being read — the client may not even hold its text, and whatever
+ * copy it does hold can be older than the row the reader clicked. The write is a
+ * compare-and-swap on `rev` and `content_hash`, retried against a fresh read, so a note
+ * that changed underneath is reported instead of quietly overwritten. The text that was
+ * there is kept as a version first, so the reader can take it back.
+ */
+notesRoutes.post('/:id/link-mention', async (c) => {
+  const userId = c.get('userId')
+  const targetId = c.req.param('id')
+  const body = await readJson<{ sourceNoteId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const sourceId = typeof body.sourceNoteId === 'string' ? body.sourceNoteId : ''
+  if (!isValidId(sourceId)) throw ApiError.badRequest('sourceNoteId must be a valid note id')
+  const { ftsEnabled } = c.get('database')
+  const target = await c.env.DB.prepare(
+    `SELECT title FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+  ).bind(targetId, userId).first<{ title: string }>()
+  if (!target) throw ApiError.notFound('Note not found')
+  const outcome = await linkMentionInNote(c.env.DB, userId, sourceId, target.title, ftsEnabled)
+  if (outcome.status === 'missing') throw ApiError.notFound('Note not found')
+  if (outcome.status === 'conflict') throw ApiError.conflict('That note changed while it was being linked; try again')
+  if (outcome.status === 'no-mention') return c.json({ status: outcome.status })
+  await broadcastCursor(c, outcome.cursor)
+  scheduleFtsDrain(c)
+  scheduleAiDrainForNote(c, userId)
+  return c.json({ status: outcome.status, note: toNote(outcome.row) })
+})
+
+
+export type LinkMentionOutcome =
+  | { status: 'linked'; row: NoteRow; cursor: number | undefined }
+  | { status: 'no-mention' }
+  | { status: 'missing' }
+  | { status: 'conflict' }
+
+export async function linkMentionInNote(
+  db: D1Database,
+  userId: string,
+  sourceNoteId: string,
+  title: string,
+  ftsEnabled: boolean,
+): Promise<LinkMentionOutcome> {
+  const load = () => db.prepare(
+    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+  ).bind(sourceNoteId, userId).first<NoteRow>()
+  let current = await load()
+  if (!current || current.deleted_at !== null) return { status: 'missing' }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const content = linkFirstMention(current.content, title)
+    if (content === current.content) return { status: 'no-mention' }
+    const hash = await sha256Hex(content)
+    const { words, chars } = countText(content)
+    const now = Math.max(Date.now(), current.updated_at + 1)
+    const nextRev = current.rev + 1
+    const guard = `EXISTS (SELECT 1 FROM notes
+      WHERE id = ?1 AND user_id = ?2 AND rev = ?3
+        AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
+    const guardValues = [current.id, userId, nextRev, hash, current.title, now] as const
+    const statements: D1PreparedStatement[] = [
+      db.prepare(
+        `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
+           content_hash = ?5, rev = ?6, updated_at = ?7
+          WHERE id = ?8 AND user_id = ?9 AND rev = ?10 AND content_hash = ?11`,
+      ).bind(content, deriveExcerpt(content), words, chars, hash, nextRev, now,
+        current.id, userId, current.rev, current.content_hash),
+      db.prepare(
+        `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${shiftSqlPlaceholders(guard, 7)}`,
+      ).bind(newId(), current.id, userId, current.title, current.content,
+        utf8ByteLength(current.content), now, ...guardValues),
+      db.prepare(
+        `DELETE FROM note_versions WHERE note_id = ?1
+           AND ${shiftSqlPlaceholders(guard, 1)}
+           AND id IN (SELECT id FROM note_versions WHERE note_id = ?1 ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?8)`,
+      ).bind(current.id, ...guardValues, LIMITS.versionsPerNote),
+    ]
+    statements.push(...buildNoteDerivedStatements({
+      db,
+      userId,
+      noteId: current.id,
+      title: current.title,
+      content,
+      ftsEnabled,
+      expectedRev: nextRev,
+      expectedContentHash: hash,
+      expectedTitle: current.title,
+      expectedUpdatedAt: now,
+    }).statements)
+    statements.push(noteIndexQueueStatement(db, userId, current.id, 'embed', now))
+    statements.push(
+      db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+         RETURNING seq`,
+      ).bind(userId, current.id, now, ...guardValues),
+    )
+    const results = await db.batch(statements)
+    if (results[0]?.meta.changes) {
+      const row = await load()
+      if (!row) return { status: 'missing' }
+      const change = results.at(-1)?.results?.[0] as { seq?: number } | undefined
+      return { status: 'linked', row, cursor: change?.seq }
+    }
+    current = await load()
+    if (!current || current.deleted_at !== null) return { status: 'missing' }
+  }
+  return { status: 'conflict' }
+}
 
 
 /**

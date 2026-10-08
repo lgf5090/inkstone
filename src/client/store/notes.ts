@@ -75,6 +75,7 @@ interface NotesState {
     deleteNote: (id: string) => Promise<void>;
     restoreNote: (id: string) => Promise<void>;
     restoreVersion: (id: string, versionId: string, content: string, title?: string) => Promise<boolean>;
+    linkMention: (targetId: string, sourceId: string) => Promise<'linked' | 'none' | 'error'>;
     purgeNote: (id: string) => Promise<void>;
     emptyTrash: () => Promise<number | null>;
     duplicateNote: (id: string) => Promise<void>;
@@ -933,6 +934,38 @@ export const useNotes = create<NotesState>((set, get) => ({
                 toastError(err, t("common.restore_failed"));
                 return false;
             }
+        });
+    },
+    /**
+     * Wrap one bare mention of `targetId`'s title in a link inside `sourceId`.
+     *
+     * The source note can be open with keystrokes still in flight, so the write waits for
+     * those to reach the server first: a save queued behind us would land on the pre-link
+     * text and undo the click, and `adoptNote` below deliberately ignores the server copy
+     * while that note is still dirty. Whichever way it goes the reader is told, because
+     * the row they clicked may no longer mean what it said.
+     */
+    async linkMention(targetId, sourceId) {
+        if (!(await saveDirtyBeforeDestructiveMutation(sourceId, set, get))) {
+            useUi.getState().toast({ title: t("workspace.mention_link_failed"), tone: 'danger' });
+            return 'error';
+        }
+        return enqueueNoteWrite(sourceId, async () => {
+            let result: Awaited<ReturnType<typeof api.notes.linkMention>>;
+            try {
+                result = await api.notes.linkMention(targetId, sourceId);
+            }
+            catch (err) {
+                toastError(err, t("workspace.mention_link_failed"));
+                return 'error';
+            }
+            if (result.status === 'no-mention') {
+                useUi.getState().toast({ title: t("workspace.mention_is_gone") });
+                return 'none';
+            }
+            adoptNote(result.note, set, get);
+            useUi.getState().toast({ title: t("workspace.mention_linked"), tone: 'success' });
+            return 'linked';
         });
     },
     async purgeNote(id) {

@@ -12,6 +12,7 @@ import {
   extractAttachmentIds,
   extractWikiLinks,
   isUsableTagName,
+  linkFirstMention,
   mentionContext,
   normalizeLinkKey,
   notesCarryAnyTag,
@@ -266,6 +267,24 @@ export function createDemoBackend(): DemoBackend {
       backlinks: linked.slice(0, 50).map(shape),
       unlinked: unlinked.slice(0, LIMITS.mentionLimit).map(shape),
     })
+  })
+  app.post('/api/notes/:id/link-mention', async (c) => {
+    const target = state.notes.get(c.req.param('id'))
+    if (!target || target.deletedAt) return apiError(404, 'not_found', 'Note not found')
+    const body = await jsonBody(c.req.raw)
+    if (typeof body.sourceNoteId !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(body.sourceNoteId)) {
+      return apiError(400, 'bad_request', 'sourceNoteId must be a valid note id')
+    }
+    const source = state.notes.get(body.sourceNoteId)
+    if (!source) return apiError(404, 'not_found', 'Note not found')
+    if (source.deletedAt) return apiError(404, 'not_found', 'Note not found')
+    const content = linkFirstMention(source.content, target.title)
+    if (content === source.content) return c.json({ status: 'no-mention' })
+    saveVersion(state, source)
+    const linked = refreshNote({ ...source, rev: source.rev + 1, updatedAt: Date.now() }, content)
+    state.notes.set(source.id, linked)
+    state.cursor++
+    return c.json({ status: 'linked', note: linked })
   })
   app.post('/api/notes/:id/restore', (c) => {
     const note = state.notes.get(c.req.param('id'))
