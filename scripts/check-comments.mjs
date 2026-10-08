@@ -4126,6 +4126,12 @@ const allowed = new Map([
     "/**\n * Answer the `$= …` lines under `root` with one worker for the whole document.\n *\n * The lines are collected before anything runs, so a note with six of them costs six serial runs in one\n * worker rather than six workers. A re-render of the same document with the same code and an index that\n * has not moved reuses the last batch instead of paying for it again. A mark that has left the document\n * by the time the answer comes back is dropped rather than written into a detached subtree.\n */",
     "// A reader who turned script blocks off has said they do not want a note running code, so the",
     "// inline form needs the same permission — the reference gates it the same two ways.",
+    "// A `FROM [[x]]` clause is answered from the server's link table, and until that round-trip lands the",
+    "// block is pending with no body to wait for — so the links are warmed here as well as by the",
+    "// workbench path that goes through `resolveRails`.",
+    "/** Link targets whose incoming set the server has not answered yet. */",
+    "// Only a window the snapshot could not fit says so. Bodies still on their way are not a short",
+    "// answer — the block re-runs when they land, and a line about the page ceiling would be a lie.",
   ]],
   ["src/client/lib/dataview/body.ts", [
     "/**\n * The fence-side half of a query block: what the Markdown renderer emits and how the block's own text\n * is found again in the note.\n *\n * The renderer's job here is deliberately small — an empty host that carries the query text — because\n * the answer depends on other notes, and those are behind a store and a throttled endpoint. Everything\n * that can be decided without them is decided here, in a string builder that runs inside the sanitizer\n * pass, so the host survives with its attributes intact and `blocks.ts` fills it in afterwards.\n */",
@@ -4166,6 +4172,9 @@ const allowed = new Map([
     "/**\n * A grouped row's id is the group itself; the key is what the reader recognises, and it is what\n * `GROUP BY` exists to produce.\n */",
     "/**\n * A `TASK` query runs over tasks, not notes: every task in a matched note becomes its own row, with\n * `row.source` naming the note it came from. Rows already carrying `text` are left alone, so a query\n * written against `FROM ... ` of task rows stays idempotent.\n */",
     "/**\n * What a `GROUP BY` row is made of. The list expression is evaluated per member when there is one, and a\n * member it cannot answer with is the note it came from — which is what the reader means by grouping.\n */",
+  ]],
+  ["src/client/lib/dataview/evaluate.test.ts", [
+    "// Truthiness is the value model's, so 0 and the empty string are as false as false.",
   ]],
   ["src/client/lib/dataview/expression.test.ts", [
     "// Written as escapes: the gate keeps Han text in the locale catalogs only, and the character",
@@ -4290,6 +4299,12 @@ const allowed = new Map([
     "/** `#project` matches a note tagged `#project/active`, which is how a reader expects tags to nest. */",
     "// The exact path first, because two notes may share a title in different folders and only the",
     "// path says which one a result stood for; the link lookup is the fallback for a partial spelling.",
+    "/**\n     * Every note the reader has, parsed or not, with the parsed ones first: a `dataviewjs` block gets the\n     * whole vault within its window rather than only what happened to be read, and a page that is still\n     * summary-only is worth less than one whose fields are known.\n     */",
+    "// This app has no attachment files, so a `csv(...)` source names a note, written either as",
+    "// its full path, as that path without the `.md` every note path carries, or with the `.md`",
+    "// spelled out.",
+    "/** The link targets whose incoming set this source still waits on. */",
+    "/**\n     * A note's page as far as the summary knows it, for the one reader that has to cover the whole vault\n     * without waiting on bodies: a `dataviewjs` snapshot. Identity, folder, tags, dates and counts are the\n     * real ones; what only a body can say — fields, lists, links — is the empty version of itself, and the\n     * block re-runs as those pages arrive.\n     */",
   ]],
   ["src/client/lib/dataview/inline.test.ts", [
     "/**\n * The inline layer: `[key:: value]` shown as a labelled chip, and a `= expression` line answered in\n * place. Both run over rendered prose, so the cases are about which text the pass may touch — inside a\n * code fence it must not, on a line that only looks like a field it must not, and a line that is a\n * query must be replaced exactly once.\n */",
@@ -4331,6 +4346,8 @@ const allowed = new Map([
     "/**\n * The DML API as a note's code sees it. This module runs inside the worker, so the cases are about the\n * values that cross the boundary and the shapes the main thread is asked to draw — not about the DOM.\n */",
     "// A cooled link carries its own `kind`, so reading it as a drawn node would have shown nothing.",
     "// `pages.file.name` is the shorthand real notes use, and it flattens one level.",
+    "// A query that parses but cannot answer a single row is a failure of its own, not an empty table.",
+    "// `file.tasks` carries the path rather than a source link, and a box drawn from it still writes.",
   ]],
   ["src/client/lib/dataview/js-api.ts", [
     "/**\n * The Dataview DML API, and the wire format it speaks.\n *\n * This module runs *inside* the worker that hosts a note's code, so it must stay free of the DOM: no\n * `document`, no store, no renderer. What it gets instead is a plain snapshot of the pages the main\n * thread already indexed, and what it gives back is a tree of JSON descriptors that the main thread\n * renders. A note's code therefore cannot reach a node, a cookie, or the network — the same wall the\n * runnable-example sandbox already has, with the same two-second stop for a loop that will not end.\n *\n * Values cross the boundary through `cool`/`warm`: a `Date`, a link and a duration are classes, and\n * `postMessage` would flatten them into objects with no behaviour. The marker is a single key with a\n * `\\u0000` in it, which no note can write by accident.\n */",
@@ -4365,6 +4382,10 @@ const allowed = new Map([
     "// The value a note passes to `dv.evaluate` is both the row and `this`, as in the reference.",
     "/** A pipe table cell: the bar is the delimiter, so it has to survive as text. */",
     "/**\n * One cell of an exported table. `allowHtmlInExports` keeps a list's or an object's shape as HTML, which\n * is what `dv.renderMarkdown` can draw, and the walk stops at the depth the page-side renderer stops at\n * so one note's nested property cannot make the export run away.\n */",
+    "// The canonical path a link target stands for, which is what both `[[x]]` comparisons and",
+    "// `dv.normalize` answer with. This app has no relative note paths, so an origin changes nothing.",
+    "/**\n     * Draw a DQL query where the note's code says to, which is what `dv.execute` means in the reference.\n     *\n     * The answer becomes the same descriptors `dv.table` and `dv.taskList` emit rather than a nested\n     * block host, so a query run from code looks like one run from a fence and cannot start a second\n     * render pass. `CALENDAR` has no descriptor of its own, so its days come out as a two-column table:\n     * the same answer in the shape the wire format has.\n     */",
+    "/** One expression, evaluated and drawn in place — the inline form of `dv.execute`. */",
   ]],
   ["src/client/lib/dataview/js.test.ts", [
     "/**\n * The page side of a DML run: what a snapshot contains, and what it does when the index has not read\n * every note yet. The worker itself is not started here — jsdom has no `Worker`, so the run is expected\n * to end with its own error text, which is the other half of the contract: a block never stalls.\n */",
@@ -4391,6 +4412,12 @@ const allowed = new Map([
     "// A snippet that overran its deadline leaves the worker busy, so the rest are reported rather",
     "// than queued behind it.",
     "/** One request, one reply, with the deadline that stops a snippet from hanging the batch. */",
+    "// A note the index has not read still has an identity, a folder and tags, and code that asks for",
+    "// `#book` deserves those rows now rather than after the next index move. The body is asked for as",
+    "// well, bounded by the reader's own `bodyLimit`, so a second run sees the fields too.",
+    "// A task the note's code read off a page can be ticked back into that page, exactly",
+    "// like a row of a TASK block — the payload is the same one the click handler reads.",
+    "/** The words a drawn subtree spells, which is what a write-back compares against. */",
   ]],
   ["src/client/lib/dataview/js.worker.ts", [
     "/**\n * The DML worker: a note's JavaScript, run where it cannot touch a page.\n *\n * The hardening is the runnable-example worker's — same shadowed names, same neutralised globals — and\n * the injection is the only extra door: `dv` plus the page snapshot. The code therefore has no element\n * to create, no `fetch`, no parent, and no way to answer a query the main thread did not already hand\n * over. What it produces is JSON: a list of descriptors the main thread draws.\n */",
@@ -4529,6 +4556,7 @@ const allowed = new Map([
     "// A notification that did not move the version must not spawn another run.",
     "/** Let queued microtasks and timers run, which is what a mounted block needs to settle. */",
     "// Different code on an index that has not moved is still new work.",
+    "// Let the block's own first load land before taking a row away, so the two draws cannot race.",
   ]],
   ["src/client/lib/db.ts", [
     "/** The store slices a shell snapshot is built from; identities decide whether to re-write. */",

@@ -13,10 +13,11 @@
 import { cool, type DvNode, type DvReply, type DvRequest, type DvSnapshotPage, DV_PAGE_LIMIT } from './js-api'
 import { dataviewIndex, querySettings } from './service'
 import { renderLinkNode } from './render'
-import { DvLink } from './value'
+import { DvLink, type DataObject } from './value'
 import DOMPurify from 'dompurify'
 import { t } from '../i18n'
 import { renderMarkdown, PURIFY_CONFIG } from '../markdown/renderer'
+import { encodeDataValue } from '../markdown/data-attr'
 
 export const DV_RUN_TIMEOUT_MS = 2000
 
@@ -176,18 +177,20 @@ interface DvSnapshot {
 }
 
 function snapshot(originNoteId: string | null): DvSnapshot {
-    const ids = dataviewIndex.allNoteIds()
+    const ids = dataviewIndex.universeIds()
     const window = ids.slice(0, DV_PAGE_LIMIT)
     const pages: DvSnapshotPage[] = []
     const missing: string[] = []
     let current: DvSnapshotPage | null = null
     for (const id of window) {
-        const data = dataviewIndex.serialize(id)
-        const path = dataviewIndex.pageOf(id)?.path
-        if (!data || !path) {
-            missing.push(id)
-            continue
-        }
+        // A note the index has not read still has an identity, a folder and tags, and code that asks for
+        // `#book` deserves those rows now rather than after the next index move. The body is asked for as
+        // well, bounded by the reader's own `bodyLimit`, so a second run sees the fields too.
+        const parsed = dataviewIndex.pageOf(id)
+        if (!parsed) missing.push(id)
+        const data = parsed ? dataviewIndex.serialize(id) : dataviewIndex.summaryPage(id)
+        const path = (data?.file as DataObject | undefined)?.path
+        if (!data || typeof path !== 'string') continue
         const page: DvSnapshotPage = { path, data: cool(data) }
         pages.push(page)
         if (id === originNoteId) current = page
@@ -236,14 +239,27 @@ function renderDvNode(node: DvNode): Node | null {
             for (const task of node.items) {
                 const row = document.createElement('div')
                 row.className = 'dataview-task'
-                const box = document.createElement('span')
+                const text = plainText(task.text)
+                const toggleable = typeof task.line === 'number' && typeof task.source === 'string' && text.length > 0
+                const box = document.createElement(toggleable ? 'input' : 'span')
+                if (toggleable) {
+                    // A task the note's code read off a page can be ticked back into that page, exactly
+                    // like a row of a TASK block — the payload is the same one the click handler reads.
+                    const input = box as HTMLInputElement
+                    input.type = 'checkbox'
+                    input.checked = task.completed
+                    input.setAttribute('aria-label', `${t('dataview.task_toggle')}: ${text.slice(0, 120)}`)
+                    input.dataset.dataviewTask = encodeDataValue(JSON.stringify({ path: task.source, line: task.line, text, completed: task.completed }))
+                } else {
+                    box.setAttribute('role', 'img')
+                    box.setAttribute('aria-label', task.completed ? t('dataview.task_done') : t('dataview.task_open'))
+                }
                 box.className = `dataview-task-checkbox${task.completed ? ' is-checked' : ''}`
-                box.setAttribute('role', 'img')
-                box.setAttribute('aria-label', task.completed ? t('dataview.task_done') : t('dataview.task_open'))
-                const text = document.createElement('span')
-                text.className = 'dataview-task-text'
-                appendChildren(text, task.text)
-                row.append(box, text)
+                const textNode = document.createElement('span')
+                textNode.className = 'dataview-task-text'
+                appendChildren(textNode, task.text)
+                if (task.completed) textNode.classList.add('is-done')
+                row.append(box, textNode)
                 if (task.source) {
                     const source = document.createElement('span')
                     source.className = 'dataview-task-source'
@@ -328,6 +344,11 @@ function renderDvNode(node: DvNode): Node | null {
         default:
             return null
     }
+}
+
+/** The words a drawn subtree spells, which is what a write-back compares against. */
+function plainText(nodes: DvNode[]): string {
+    return (nodes ?? []).map((node) => (node.kind === 'text' ? node.text : node.kind === 'link' ? (node.display ?? node.path) : '')).join('')
 }
 
 function appendChildren(target: HTMLElement, nodes: DvNode[]): void {

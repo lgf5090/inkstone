@@ -26,6 +26,20 @@ function run(expression: string, data: Record<string, Literal> = {}, pages?: Rec
 }
 
 describe('expression evaluation', () => {
+    it('combines truth values with the symbol and the word spelling', () => {
+        expect(run('true & false')).toBe(false)
+        expect(run('true and false')).toBe(false)
+        expect(run('true | false')).toBe(true)
+        expect(run('false or true')).toBe(true)
+        // Truthiness is the value model's, so 0 and the empty string are as false as false.
+        expect(run('1 and 2')).toBe(true)
+        expect(run('0 or 1')).toBe(true)
+        expect(run('1 & 0')).toBe(false)
+        expect(run('"" | "x"')).toBe(true)
+        expect(run('a & b', { a: 3, b: 'yes' })).toBe(true)
+        expect(run('a | b', { a: 0, b: '' })).toBe(false)
+    })
+
     it('runs arithmetic with precedence and string concatenation', () => {
         expect(run('1 + 2 * 3')).toBe(7)
         expect(run('(1 + 2) * 3')).toBe(9)

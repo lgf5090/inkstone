@@ -82,6 +82,19 @@ describe('index source resolution', () => {
         expect([...index.candidates(Sources.folder('Reading')).ids]).toEqual(['a'])
     })
 
+    it('matches a csv source by the three spellings a note path has', () => {
+        const state = fixture([
+            { id: 'a', title: 'Data.csv', folder: 'Reading' },
+            { id: 'b', title: 'Other', folder: '' },
+        ])
+        const index = indexFor(state)
+        index.sync()
+        expect([...index.candidates(Sources.csv('Reading/Data.csv')).ids]).toEqual(['a'])
+        expect([...index.candidates(Sources.csv('reading/data.csv.md')).ids]).toEqual(['a'])
+        expect([...index.candidates(Sources.csv('Reading/Data.csv.md')).ids]).toEqual(['a'])
+        expect([...index.candidates(Sources.csv('Missing.csv')).ids]).toEqual([])
+    })
+
     it('matches a tag and everything under it', () => {
         const state = fixture([
             { id: 'a', tags: ['project/active'] },
@@ -197,6 +210,29 @@ describe('index source resolution', () => {
         expect(index.noteIdForPath('Reading/Alpha')).toBe('a')
         expect(index.noteIdForPath('Writing/Alpha.md')).toBe('b')
         expect(index.noteIdForPath('Writing/Alpha')).toBe('b')
+    })
+
+    it('answers a page for a note whose body has never been read', () => {
+        const state = fixture([{ id: 'a', title: 'Alpha', folder: 'Reading', tags: ['book'], charCount: 20, wordCount: 4 }])
+        const index = indexFor(state)
+        index.sync()
+        const page = index.summaryPage('a')
+        const file = page?.file as Record<string, unknown>
+        expect(file.path).toBe('Reading/Alpha.md')
+        expect(file.name).toBe('Alpha')
+        expect(file.etags).toEqual(['book'])
+        expect(file.frontmatter).toEqual({})
+        expect(file.tasks).toEqual([])
+        expect(index.universeIds()).toEqual(['a'])
+        expect(index.summaryPage('nope')).toBeNull()
+    })
+
+    it('lists the parsed notes first so a cut window keeps the richer pages', () => {
+        const state = fixture([{ id: 'a' }, { id: 'b' }], { b: ALPHA })
+        state.opened.add('b')
+        const index = indexFor(state)
+        index.sync()
+        expect(index.universeIds()).toEqual(['b', 'a'])
     })
 })
 

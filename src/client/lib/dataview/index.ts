@@ -18,7 +18,8 @@
 import { normalizeLinkKey } from '@shared/markdown-utils'
 import type { Source } from './ast'
 import { DvLink, type DataObject } from './value'
-import { parseNote, pathOfNote, serializePage, type PageMetadata } from './metadata'
+import { parseNote, pathOfNote, serializePage, extractSubtags, type PageMetadata } from './metadata'
+import { stripTime } from './expression'
 import type { DataRail } from './engine'
 
 /** The per-note facts the store already keeps, plus its body when one is loaded. */
@@ -204,6 +205,18 @@ export class DataviewIndex {
         return [...this.pages.keys()]
     }
 
+    /**
+     * Every note the reader has, parsed or not, with the parsed ones first: a `dataviewjs` block gets the
+     * whole vault within its window rather than only what happened to be read, and a page that is still
+     * summary-only is worth less than one whose fields are known.
+     */
+    universeIds(): string[] {
+        const parsed: string[] = []
+        const rest: string[] = []
+        for (const note of this.snapshot) (this.pages.has(note.id) ? parsed : rest).push(note.id)
+        return [...parsed, ...rest]
+    }
+
     /** Resolve a link target to a note id: bare title first, then the folder-qualified path. */
     noteIdForLink(target: string): string | undefined {
         const plain = stripExtension(target.trim())
@@ -245,8 +258,16 @@ export class DataviewIndex {
                     return page !== undefined && [...page.tags].some((tag) => tagMatches(tag, wanted))
                 })
             }
-            case 'csv':
-                return this.fromSummary((note) => pathOfNote(note).toLocaleLowerCase().endsWith(source.path.toLocaleLowerCase()))
+            case 'csv': {
+                // This app has no attachment files, so a `csv(...)` source names a note, written either as
+                // its full path, as that path without the `.md` every note path carries, or with the `.md`
+                // spelled out.
+                const wanted = source.path.trim().toLocaleLowerCase()
+                return this.fromSummary((note) => {
+                    const path = pathOfNote(note).toLocaleLowerCase()
+                    return path === wanted || path === `${wanted}.md` || stripExtension(path) === wanted
+                })
+            }
             case 'link':
                 return this.resolveLink(source.file, source.direction)
             case 'negate': {
@@ -329,12 +350,18 @@ export class DataviewIndex {
 
     /** True when answering this source still owes a backlink round-trip. */
     linksPending(source: Source): boolean {
+        return this.pendingLinks(source).length > 0
+    }
+
+    /** The link targets whose incoming set this source still waits on. */
+    pendingLinks(source: Source): string[] {
+        const wanted: string[] = []
         for (const node of leaves(source)) {
             if (node.type !== 'link' || node.direction !== 'incoming') continue
             const id = this.noteIdForLink(node.file)
-            if (id && !this.incoming.has(id)) return true
+            if (id && !this.incoming.has(id) && !wanted.includes(node.file)) wanted.push(node.file)
         }
-        return false
+        return wanted
     }
 
     /** Warm the incoming-link set for one target; the answer lives until the next sync. */
@@ -411,6 +438,45 @@ export class DataviewIndex {
         }
         inlinks.sort((one, other) => one.path.localeCompare(other.path))
         return serializePage(cached.page, inlinks)
+    }
+
+    /**
+     * A note's page as far as the summary knows it, for the one reader that has to cover the whole vault
+     * without waiting on bodies: a `dataviewjs` snapshot. Identity, folder, tags, dates and counts are the
+     * real ones; what only a body can say — fields, lists, links — is the empty version of itself, and the
+     * block re-runs as those pages arrive.
+     */
+    summaryPage(noteId: string): DataObject | null {
+        const note = this.byId.get(noteId)
+        if (!note) return null
+        if (this.pages.has(noteId)) return this.serialize(noteId)
+        const path = pathOfNote(note)
+        return {
+            file: {
+                path,
+                name: note.title,
+                folder: note.folder,
+                link: DvLink.file(path),
+                outlinks: [],
+                inlinks: [],
+                etags: [...note.tags],
+                tags: [...new Set(note.tags.flatMap((tag) => extractSubtags(tag)))],
+                aliases: [],
+                lists: [],
+                tasks: [],
+                ctime: new Date(note.createdAt),
+                cday: stripTime(new Date(note.createdAt)),
+                mtime: new Date(note.updatedAt),
+                mday: stripTime(new Date(note.updatedAt)),
+                size: note.charCount,
+                starred: note.starred,
+                pinned: note.pinned,
+                archived: note.archived,
+                wordCount: note.wordCount,
+                frontmatter: {},
+                ext: 'md',
+            },
+        }
     }
 
     /** The `this` object for a block: the note it lives in, or null before that note has a body. */

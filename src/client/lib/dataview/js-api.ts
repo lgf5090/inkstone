@@ -30,7 +30,7 @@ export type DvNode =
     | { kind: 'heading'; level: number; children: DvNode[] }
     | { kind: 'paragraph'; children: DvNode[] }
     | { kind: 'list'; ordered: boolean; items: DvNode[] }
-    | { kind: 'task'; items: { text: DvNode[]; completed: boolean; source: string | null }[]; group: boolean }
+    | { kind: 'task'; items: { text: DvNode[]; completed: boolean; source: string | null; line: number | null }[]; group: boolean }
     | { kind: 'table'; header: DvNode[]; rows: DvNode[][] }
     | { kind: 'grid'; header: DvNode[]; rows: DvNode[][] }
     | { kind: 'element'; tag: string; class: string | null; attrs: Record<string, string>; children: DvNode[] }
@@ -513,8 +513,10 @@ export interface DvApi {
     settings: QueryRuntimeSettings
     version: string
     query(text: string, originFile?: string): DvQueryResult
-    execute(code: string): never
-    executeInline(code: string, source?: string): never
+    execute(text: unknown, originFile?: unknown): void
+    executeInline(text: unknown, originFile?: unknown): void
+    normalize(path: unknown): string
+    evaluateInline(expression: unknown, originFile?: unknown): { successful: boolean; value: Literal | null; error: string | null }
     header(level: number, text: unknown): void
     paragraph(text: unknown): void
     list(items: unknown): void
@@ -543,13 +545,17 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
     const current = request.current ? (warm(request.current.data) as DataObject) : {}
     const byPath = new Map(pages.map((page) => [page.path, page.data]))
 
+    // The canonical path a link target stands for, which is what both `[[x]]` comparisons and
+    // `dv.normalize` answer with. This app has no relative note paths, so an origin changes nothing.
+    const normalizePath = (path: string): string => (byPath.has(path) ? path : byPath.has(`${path}.md`) ? `${path}.md` : path)
+
     const context = new Context({
         linkHandler: {
             resolve: (path) => {
                 const found = byPath.get(path) ?? byPath.get(`${path}.md`)
                 return found ? (warm(found) as DataObject) : null
             },
-            normalize: (path) => (byPath.has(path) ? path : byPath.has(`${path}.md`) ? `${path}.md` : path),
+            normalize: normalizePath,
             exists: (path) => byPath.has(path) || byPath.has(`${path}.md`),
         },
         settings: request.settings,
@@ -665,6 +671,69 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
         }
     }
 
+    /**
+     * Draw a DQL query where the note's code says to, which is what `dv.execute` means in the reference.
+     *
+     * The answer becomes the same descriptors `dv.table` and `dv.taskList` emit rather than a nested
+     * block host, so a query run from code looks like one run from a fence and cannot start a second
+     * render pass. `CALENDAR` has no descriptor of its own, so its days come out as a two-column table:
+     * the same answer in the shape the wire format has.
+     */
+    const emitQuery = (text: unknown, originFile?: unknown) => {
+        const source = String(text ?? '')
+        const failure = (message: string) => emit({ kind: 'paragraph', children: [{ kind: 'text', text: `Dataview: ${message}` }] })
+        let executed: ReturnType<typeof executeQuery>
+        try {
+            const query = parseQuery(source)
+            executed = executeQuery(query, rowsForSource(query.source), context, originData(typeof originFile === 'string' ? originFile : undefined))
+        } catch (error) {
+            failure(error instanceof Error ? error.message : String(error))
+            return
+        }
+        if (!executed.ok) {
+            failure(executed.error)
+            return
+        }
+        const view = executed.value
+        if (view.kind === 'table') {
+            emit({ kind: 'table', header: view.names.flatMap((name) => nodes(name)), rows: view.rows.map((row) => [row.id, ...row.cells].flatMap((cell) => nodes(cell))) })
+            return
+        }
+        if (view.kind === 'list') {
+            emit({ kind: 'list', ordered: false, items: view.items.flatMap((item) => nodes(item.value ?? item.id)) })
+            return
+        }
+        if (view.kind === 'task') {
+            emit({
+                kind: 'task',
+                group: true,
+                items: view.tasks.map((entry) => ({
+                    text: nodes((entry.task as DataObject).text ?? ''),
+                    completed: (entry.task as DataObject).completed === true,
+                    source: Values.isLink(entry.source) ? entry.source.path : null,
+                    line: typeof (entry.task as DataObject).line === 'number' ? (entry.task as DataObject).line as number : null,
+                })),
+            })
+            return
+        }
+        emit({
+            kind: 'table',
+            header: [...nodes('Date'), ...nodes('Count')],
+            rows: view.days.map((day) => [...nodes(Values.toString(day.date, request.settings, request.settings.locale)), ...nodes(day.rows.length)]),
+        })
+    }
+
+    /** One expression, evaluated and drawn in place — the inline form of `dv.execute`. */
+    const emitInlineQuery = (text: unknown, originFile?: unknown) => {
+        const page = originFile === undefined ? undefined : originData(typeof originFile === 'string' ? originFile : undefined)
+        const answer = attemptEvaluate(String(text ?? ''), page)
+        if (!answer.successful) {
+            emit({ kind: 'paragraph', children: [{ kind: 'text', text: `Dataview: ${answer.error}` }] })
+            return
+        }
+        for (const node of nodes(answer.value)) emit(node)
+    }
+
     return {
         pages: (from = '') => DvArray.of(rowsOf(from).map((row) => row.data as Literal), request.settings),
         pagesByTag: (tag: string) => DvArray.of(rowsOf('#' + tag).map((row) => row.data as Literal), request.settings),
@@ -726,8 +795,13 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
         settings: request.settings,
         version: '0.1.0-inkstone',
         query: runQuery,
-        execute: () => { throw new Error('dv.execute is not available; use dv.query(text) instead') },
-        executeInline: () => { throw new Error('dv.executeInline is not available; use dv.tryEvaluate(expression) instead') },
+        execute: (text: unknown, originFile?: unknown) => emitQuery(text, originFile),
+        executeInline: (text: unknown, originFile?: unknown) => emitInlineQuery(text, originFile),
+        normalize: (path: unknown) => {
+            const literal = warm(path)
+            return normalizePath(literal instanceof DvLink ? literal.path : String(path ?? ''))
+        },
+        evaluateInline: (expression: unknown, originFile?: unknown) => attemptEvaluate(String(expression ?? ''), originData(typeof originFile === 'string' ? originFile : undefined)),
         header: (level: number, text: unknown) => emit({ kind: 'heading', level: clampLevel(level), children: nodes(text) }),
         paragraph: (text: unknown) => emit({ kind: 'paragraph', children: nodes(text) }),
         list: (items: unknown) => emit({ kind: 'list', ordered: false, items: asRawList(items).flatMap((item) => nodes(item)) }),
@@ -744,7 +818,8 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
                 return {
                     text: nodes(task.text ?? ''),
                     completed: task.completed === true,
-                    source: typeof source === 'string' ? source : Values.isLink(source) ? (source as DvLink).path : null,
+                    source: typeof source === 'string' ? source : Values.isLink(source) ? (source as DvLink).path : typeof task.path === 'string' ? task.path : null,
+                    line: typeof task.line === 'number' ? task.line : null,
                 }
             })
             emit({ kind: 'task', items, group: Boolean(groupByTask) })

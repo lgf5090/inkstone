@@ -26,7 +26,7 @@ const state = vi.hoisted(() => {
     const alpha = rail('Alpha', 5)
     const beta = rail('Beta', 6)
     alpha.data.file.tasks = [{ text: 'buy milk', line: 3, path: 'Reading/Alpha.md', completed: false, task: true, status: ' ' }]
-    return { alpha, beta, toggles: [] as string[], toggleResult: 'written', rails: [alpha] as unknown[], needBodies: [] as string[], pending: false, parsed: 1, total: 1, jsRuns: 0, batchRuns: 0, jsCodes: [] as string[], inlineJs: false, livePreviewChips: true, jsBlocks: true, railsCalls: 0, version: 0, defer: false, release: null as null | (() => void), liveRefresh: true, refuse: false, loaded: [] as string[], current: null as Record<string, unknown> | null, notify: null as null | (() => void) }
+    return { alpha, beta, toggles: [] as string[], toggleResult: 'written', rails: [alpha] as unknown[], needBodies: [] as string[], pendingLinks: [] as string[], linkPrepares: [] as string[], pending: false, parsed: 1, total: 1, jsRuns: 0, batchRuns: 0, jsCodes: [] as string[], inlineJs: false, livePreviewChips: true, jsBlocks: true, snapshotShort: false, railsCalls: 0, version: 0, defer: false, release: null as null | (() => void), liveRefresh: true, refuse: false, loaded: [] as string[], current: null as Record<string, unknown> | null, notify: null as null | (() => void) }
 })
 
 vi.mock('./service', () => ({
@@ -43,6 +43,8 @@ vi.mock('./service', () => ({
             return { rails: state.rails, needBodies: state.needBodies, pending: state.pending }
         },
         resolveRails: async () => ({ rails: state.rails, truncated: false }),
+        pendingLinks: () => state.pendingLinks,
+        prepareLinks: async (target: string) => { state.linkPrepares.push(target); state.pending = false },
         currentData: () => state.current as never,
         load: async (ids: readonly string[]) => {
             state.loaded.push(ids.join(','))
@@ -78,7 +80,7 @@ vi.mock('./js', () => ({
     DV_RUN_TIMEOUT_MS: 2000,
     runDataviewJs: async () => {
         state.jsRuns += 1
-        const reply = { nodes: [{ kind: 'text', text: `DML over ${state.rails.length}` }], errorText: '', logs: [], truncated: false, snapshotShort: false, snapshotOwes: state.parsed < state.total }
+        const reply = { nodes: [{ kind: 'text', text: `DML over ${state.rails.length}` }], errorText: '', logs: [], truncated: false, snapshotShort: state.snapshotShort, snapshotOwes: state.parsed < state.total }
         if (!state.defer) return reply
         return await new Promise((resolve) => { state.release = () => resolve(reply) })
     },
@@ -92,7 +94,7 @@ vi.mock('./js', () => ({
         state.jsCodes = codes
         return codes.map((code) => ({ nodes: [{ kind: 'text', text: `ran ${code}` }], errorText: '', logs: [], truncated: false, snapshotShort: false, snapshotOwes: false }))
     },
-    dvTruncatedNotice: () => document.createElement('div'),
+    dvTruncatedNotice: () => { const note = document.createElement('p'); note.className = 'dataview-truncated'; return note },
     dvLogPanel: () => null,
 }))
 
@@ -112,6 +114,8 @@ beforeEach(() => {
     state.loaded = []
     state.rails = [state.alpha]
     state.needBodies = []
+    state.pendingLinks = []
+    state.linkPrepares = []
     state.pending = false
     state.parsed = 1
     state.total = 1
@@ -121,6 +125,8 @@ beforeEach(() => {
     state.batchRuns = 0
     state.livePreviewChips = true
     state.jsBlocks = true
+    state.snapshotShort = false
+    state.jsRuns = 0
 })
 
 describe('the dataview fence', () => {
@@ -278,6 +284,25 @@ describe('the mount pass', () => {
         expect(root.querySelector('p')?.textContent).toBe('$= dv.paragraph("one")')
     })
 
+    it('says the snapshot was cut only when it actually was', async () => {
+        const { mountDataview } = await import('./blocks')
+        state.parsed = 1
+        state.total = 2
+        const owing = await host(renderMarkdown('```dataviewjs\ndv.paragraph("x")\n```').html)
+        mountDataview(owing, { originNoteId: null, editable: false })
+        await settle()
+        expect(owing.querySelector('.dataview-truncated')).toBeNull()
+
+        state.parsed = 1
+        state.total = 1
+        state.snapshotShort = true
+        const cut = await host(renderMarkdown('```dataviewjs\ndv.paragraph("x")\n```').html)
+        mountDataview(cut, { originNoteId: null, editable: false })
+        await settle()
+        await settle()
+        expect(cut.querySelector('.dataview-truncated')).not.toBeNull()
+    })
+
     it('takes the live-preview chip switch on the surface it names', async () => {
         state.livePreviewChips = false
         const { mountDataview } = await import('./blocks')
@@ -289,6 +314,21 @@ describe('the mount pass', () => {
         const read = await host('<p>Status [state:: shipped].</p>')
         mountDataview(read, { originNoteId: null, editable: false })
         expect(read.querySelector('.dataview-inline-field')?.textContent).toContain('shipped')
+    })
+
+    it('warms the backlink set a FROM [[x]] block is waiting on', async () => {
+        state.rails = []
+        state.pending = true
+        state.pendingLinks = ['Target Note']
+        const { mountDataview } = await import('./blocks')
+        const root = await host(renderMarkdown('```dataview\nTABLE rating FROM [[Target Note]]\n```').html)
+        mountDataview(root, { originNoteId: null, editable: false })
+        const block = root.querySelector('[data-dataview]')!
+        expect(block.classList.contains('loading')).toBe(true)
+        await settle()
+        expect(state.linkPrepares).toEqual(['Target Note'])
+        expect(block.querySelector('table.dataview-table')).not.toBeNull()
+        expect(block.classList.contains('loading')).toBe(false)
     })
 
     it('takes the source toggle without asking the surface to fold anything', async () => {
@@ -417,7 +457,9 @@ describe('a block drawn before the index finished', () => {
         const { mountDataview } = await import('./blocks')
         const root = await host(renderMarkdown('```dataview\nTABLE rating\n```').html)
         mountDataview(root, { originNoteId: null, editable: false })
-        expect(root.querySelectorAll('tbody tr')).toHaveLength(1)
+        // Let the block's own first load land before taking a row away, so the two draws cannot race.
+        await settle()
+        expect(root.querySelectorAll('tbody tr')).toHaveLength(2)
         state.rails = []
         state.needBodies = []
         state.pending = false

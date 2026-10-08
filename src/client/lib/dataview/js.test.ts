@@ -11,8 +11,10 @@ vi.mock('./service', () => ({
     querySettings: () => ({ renderNullAs: '—', dateFormat: 'yyyy-MM-dd', datetimeFormat: 'yyyy-MM-dd HH:mm', durationFormat: 'long', locale: 'en-US' }),
     dataviewIndex: {
         allNoteIds: () => [...state.ids],
-        pageOf: (id: string) => ({ path: `${id.toUpperCase()}.md` }),
+        universeIds: () => [...state.ids],
+        pageOf: (id: string) => (state.parsed.has(id) ? { path: `${id.toUpperCase()}.md` } : undefined),
         serialize: (id: string) => (state.parsed.has(id) ? { file: { name: id, path: `${id.toUpperCase()}.md`, etags: [], tags: [], inlinks: [], outlinks: [] } } : null),
+        summaryPage: (id: string) => ({ file: { name: id, path: `${id.toUpperCase()}.md`, etags: [`#${id}`], tags: [`#${id}`], inlinks: [], outlinks: [], lists: [], tasks: [], frontmatter: {} } }),
         load: async (ids: readonly string[]) => {
             state.loadCalls.push(ids.join(','))
             for (const id of ids) state.parsed.add(id)
@@ -51,5 +53,52 @@ describe('the DML snapshot', () => {
         const result = await runDataviewJs('dv.paragraph("x")', 'missing')
         expect(state.loadCalls).toEqual(['b'])
         expect(result.snapshotOwes).toBe(false)
+    })
+})
+
+describe('a task a script drew', () => {
+    const taskNode = (line: number | null) => ({
+        kind: 'task' as const,
+        group: true,
+        items: [{ text: [{ kind: 'text' as const, text: 'buy milk' }], completed: false, source: 'Reading/Alpha.md', line }],
+    })
+
+    it('carries a real checkbox when the task still names its line', async () => {
+        const { renderDvNodes } = await import('./js')
+        const drawn = renderDvNodes([taskNode(3) as never])
+        const host = document.createElement('div')
+        host.append(drawn)
+        const box = host.querySelector('input[data-dataview-task]') as HTMLInputElement
+        expect(box).not.toBeNull()
+        expect(box.type).toBe('checkbox')
+        expect(box.getAttribute('aria-label')).toContain('buy milk')
+        expect(box.dataset.dataviewTask?.startsWith('b64.')).toBe(true)
+    })
+
+    it('falls back to a static mark when the task has no line', async () => {
+        const { renderDvNodes } = await import('./js')
+        const host = document.createElement('div')
+        host.append(renderDvNodes([taskNode(null) as never]))
+        expect(host.querySelector('input')).toBeNull()
+        expect(host.querySelector('span.dataview-task-checkbox[role="img"]')).not.toBeNull()
+    })
+
+    it('spells a link inside the task text the same way the note wrote it', async () => {
+        const { renderDvNodes } = await import('./js')
+        const { decodeDataValue } = await import('../markdown/data-attr')
+        const node = {
+            kind: 'task',
+            group: true,
+            items: [{
+                text: [{ kind: 'text', text: 'read ' }, { kind: 'link', path: 'Dune.md', subpath: null, display: 'Dune', embed: false }],
+                completed: false,
+                source: 'Reading/Alpha.md',
+                line: 4,
+            }],
+        }
+        const host = document.createElement('div')
+        host.append(renderDvNodes([node as never]))
+        const box = host.querySelector('input[data-dataview-task]') as HTMLInputElement
+        expect(JSON.parse(decodeDataValue(box.dataset.dataviewTask ?? '')).text).toBe('read Dune')
     })
 })

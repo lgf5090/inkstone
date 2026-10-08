@@ -12,6 +12,7 @@ function page(path: string, data: Record<string, unknown>): DvSnapshotPage {
 }
 
 const nameOf = (value: unknown): string => (value as { file?: { name?: string } }).file?.name ?? ''
+const textOf = (node?: DvNode): string => (node?.kind === 'text' ? node.text : '')
 
 const book = page('Reading/Dune.md', {
     rating: 5,
@@ -146,12 +147,70 @@ describe('the rest of the dv surface', () => {
 
     it('keeps the doors this port does not open shut', () => {
         const { dv } = dvFor([book])
-        expect(() => dv.execute('x')).toThrow(/dv.query/)
-        expect(() => dv.executeInline('x')).toThrow(/tryEvaluate/)
+        expect(() => dv.io.load('x')).toThrow(/cannot read files/)
+        expect(() => dv.io.fetch('x')).toThrow(/cannot reach the network/)
+        expect(() => dv.barchart([])).toThrow(/not part of this port/)
     })
-})
 
-describe('what a note can ask to be drawn', () => {
+    it('draws a DQL query handed to dv.execute', () => {
+        const { dv, nodes } = dvFor([book, project])
+        dv.execute('TABLE rating FROM #book')
+        const table = nodes.find((node) => node.kind === 'table')
+        expect(table?.kind === 'table' && table.header.map(textOf)).toEqual(['File', 'rating'])
+        expect(table?.kind === 'table' && table.rows[0]?.map((cell) => cell.kind)).toEqual(['link', 'text'])
+        expect(table?.kind === 'table' && textOf(table.rows[0]?.[1])).toBe('5')
+
+        const list = dvFor([book, project])
+        list.dv.execute('LIST FROM #book')
+        const drawn = list.nodes.find((node) => node.kind === 'list')
+        expect(drawn?.kind === 'list' && drawn.items).toHaveLength(1)
+
+        const tasks = dvFor([page('Todo.md', { file: { name: 'Todo', path: 'Todo', link: DvLink.file('Todo'), tasks: [{ text: 'buy milk', completed: false, line: 1, path: 'Todo.md', task: true }] } })])
+        tasks.dv.execute('TASK')
+        const drawnTasks = tasks.nodes.find((node) => node.kind === 'task')
+        expect(drawnTasks?.kind === 'task' && drawnTasks.items.map((item) => item.text.map(textOf).join(''))).toEqual(['buy milk'])
+
+        const broken = dvFor([book])
+        broken.dv.execute('TABLE rating WHERE')
+        expect(broken.nodes.some((node) => node.kind === 'paragraph' && textOf(node.children[0]).startsWith('Dataview: '))).toBe(true)
+        // A query that parses but cannot answer a single row is a failure of its own, not an empty table.
+        const failed = dvFor([book])
+        failed.dv.execute('TABLE length(1) FROM #book')
+        expect(failed.nodes.some((node) => node.kind === 'paragraph' && textOf(node.children[0]).startsWith('Dataview: '))).toBe(true)
+        expect(failed.nodes.some((node) => node.kind === 'table')).toBe(false)
+    })
+
+    it('draws the value of an expression handed to dv.executeInline', () => {
+        const { dv, nodes } = dvFor([book, project])
+        dv.executeInline('2 + 2')
+        expect(nodes[0]).toEqual({ kind: 'text', text: '4' })
+        const link = dvFor([book, project])
+        link.dv.executeInline('this.file.link', 'Reading/Dune.md')
+        expect(link.nodes[0]?.kind).toBe('link')
+    })
+
+    it('normalizes a link target and answers an inline expression without drawing', () => {
+        const { dv } = dvFor([book, project])
+        expect(dv.normalize('Reading/Dune')).toBe('Reading/Dune.md')
+        expect(dv.normalize(DvLink.file('Site'))).toBe('Site.md')
+        expect(dv.normalize('Nope')).toBe('Nope')
+        const answer = dv.evaluateInline('this.file.name', 'Reading/Dune.md')
+        expect(answer.successful && answer.value).toBe('Dune')
+        const broken = dv.evaluateInline('this.(')
+        expect(broken.successful).toBe(false)
+    })
+
+    it('keeps the line a task came from so the drawn box can write back', () => {
+        const { dv, nodes } = dvFor([book, project])
+        dv.taskList([{ text: 'buy milk', completed: false, line: 7, source: DvLink.file('Reading/Dune') }])
+        const task = nodes.find((node) => node.kind === 'task')
+        expect(task?.kind === 'task' && task.items.map((item) => [item.line, item.source])).toEqual([[7, 'Reading/Dune']])
+        // `file.tasks` carries the path rather than a source link, and a box drawn from it still writes.
+        dv.taskList([{ text: 'book it', completed: true, line: 2, path: 'Reading/Dune.md' }])
+        const second = nodes.filter((node) => node.kind === 'task')[1]
+        expect(second?.kind === 'task' && second.items.map((item) => [item.line, item.source])).toEqual([[2, 'Reading/Dune.md']])
+    })
+
     it('takes rows from the wrapper its own map returns', () => {
         const { dv, nodes } = dvFor([book, project])
         dv.table(['Name', 'Rating'], dv.pages('#book').map((value) => [nameOf(value), (value as { rating?: unknown }).rating]))
@@ -250,14 +309,6 @@ describe('what a note can ask to be drawn', () => {
         const bad = dv.query('TABLE a WHERE')
         expect(bad.successful).toBe(false)
         expect(bad.errors[0]?.message).toContain('Expected')
-    })
-
-    it('keeps the doors this port does not open shut, with a readable reason', () => {
-        const { dv } = dvFor([book])
-        expect(() => dv.io.load('x')).toThrow(/cannot read files/)
-        expect(() => dv.io.fetch('x')).toThrow(/cannot reach the network/)
-        expect(() => dv.execute('x')).toThrow(/dv.query/)
-        expect(() => dv.barchart([])).toThrow(/not part of this port/)
     })
 
     it('formats a value with the reader settings rather than the machine locale', () => {

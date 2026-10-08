@@ -291,7 +291,9 @@ function drawJs(host: HTMLElement, mount: Mount, source: string, options: Datavi
         } else {
             host.classList.remove('is-error')
             mount.body.append(renderDvNodes(result.nodes))
-            if (result.snapshotShort || result.snapshotOwes) mount.body.append(dvTruncatedNotice())
+            // Only a window the snapshot could not fit says so. Bodies still on their way are not a short
+            // answer — the block re-runs when they land, and a line about the page ceiling would be a lie.
+            if (result.snapshotShort) mount.body.append(dvTruncatedNotice())
         }
         const logs = dvLogPanel(result.logs)
         if (logs) mount.body.append(logs)
@@ -349,7 +351,7 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
         host.classList.add('loading')
         pending.add(host)
         mount.body.append(renderNotice('empty', t('dataview.loading')))
-        boot(host, mount, source, options, answer.needBodies)
+        boot(host, mount, source, options, answer.needBodies, answer.needLinks)
         return
     }
     host.classList.remove('loading')
@@ -362,7 +364,7 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
     // A block that answered is still watched, because the row set can shrink as well as grow: archiving a
     // note or editing a tag away takes rows out, and only the index knows when that happened.
     pending.add(host)
-    if (answer.owingBodies) boot(host, mount, source, options, answer.needBodies)
+    if (answer.owingBodies) boot(host, mount, source, options, answer.needBodies, answer.needLinks)
     host.classList.remove('is-error')
     const rendered = renderResult(answer.result, { settings: querySettings(), originPath: currentPath(options), canToggle: true })
     mount.body.append(rendered)
@@ -377,12 +379,17 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
  * be one — so it drives its own first load. The rounds are capped because the index caps its own loads
  * and a body it was refused stays refused.
  */
-function boot(host: HTMLElement, mount: Mount, source: string, options: DataviewMountOptions, needBodies: string[]): void {
-    if (mount.bootLoads >= BOOT_LOAD_ROUNDS || !needBodies.length) return
+function boot(host: HTMLElement, mount: Mount, source: string, options: DataviewMountOptions, needBodies: string[], needLinks: string[]): void {
+    if (mount.bootLoads >= BOOT_LOAD_ROUNDS) return
     mount.bootLoads += 1
-    void dataviewIndex.load(needBodies).then(() => {
-        if (host.isConnected && mounts.get(host) === mount) draw(host, mount, source, options)
-    })
+    // A `FROM [[x]]` clause is answered from the server's link table, and until that round-trip lands the
+    // block is pending with no body to wait for — so the links are warmed here as well as by the
+    // workbench path that goes through `resolveRails`.
+    void Promise.all(needLinks.map((target) => dataviewIndex.prepareLinks(target)))
+        .then(() => dataviewIndex.load(needBodies))
+        .then(() => {
+            if (host.isConnected && mounts.get(host) === mount) draw(host, mount, source, options)
+        })
 }
 
 interface AnswerBase {
@@ -393,12 +400,14 @@ interface AnswerBase {
     /** Bodies this answer still waits on, so the row set can grow before the loading ends. */
     owingBodies: boolean
     needBodies: string[]
+    /** Link targets whose incoming set the server has not answered yet. */
+    needLinks: string[]
 }
 
 type Answer =
     | { kind: 'ok'; result: QueryResult } & AnswerBase
     | { kind: 'error'; title: string; detail: string }
-    | { kind: 'pending'; needBodies: string[] }
+    | { kind: 'pending'; needBodies: string[]; needLinks: string[] }
 
 /**
  * Parse, resolve and execute a query over what the index holds right now. `pending` means the answer is
@@ -418,7 +427,8 @@ function answerFor(source: string, options: DataviewMountOptions): Answer {
 
     const settings = dataviewSettings()
     const resolved = dataviewIndex.rails(query.source)
-    if (!resolved.rails.length && resolved.pending) return { kind: 'pending', needBodies: resolved.needBodies }
+    const needLinks = dataviewIndex.pendingLinks(query.source)
+    if (!resolved.rails.length && resolved.pending) return { kind: 'pending', needBodies: resolved.needBodies, needLinks }
 
     const context = new Context({ linkHandler, settings: querySettings() })
     const rows = capRows(resolved.rails, query, settings.maxRows)
@@ -433,6 +443,7 @@ function answerFor(source: string, options: DataviewMountOptions): Answer {
         truncatedBodies: resolved.pending || dataviewIndex.getStatus().truncated,
         owingBodies: resolved.pending,
         needBodies: resolved.needBodies,
+        needLinks,
     }
 }
 
