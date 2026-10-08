@@ -73,7 +73,7 @@ export function SidebarTabStrip() {
         event.preventDefault();
     };
 
-    return (<div ref={ref} role="tablist" aria-label={t('sidebar.tabs_aria')} onKeyDown={onKeyDown} className="flex shrink-0 items-center gap-0.5 border-b border-[var(--border-subtle)] px-1.5 py-1">
+    return (<div ref={ref} role="tablist" aria-label={t('sidebar.tabs_aria')} onKeyDown={onKeyDown} className="flex shrink-0 items-center gap-0.5 border-t border-[var(--border-subtle)] px-1.5 py-1">
       {TAB_SPECS.map((spec) => {
         const label = t(spec.labelKey);
         const selected = spec.id === active;

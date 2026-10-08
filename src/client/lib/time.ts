@@ -162,6 +162,31 @@ export function fullTime(ts: number): string {
 }
 
 
+/**
+ * How long ago, as a compact duration rather than a sentence: `5 min`, `2 hr`, `3 days`.
+ *
+ * A list column has no room for a full "3 days ago" beside every row, and the reader already
+ * knows the number counts backwards because the column sits under the note's title. Same
+ * thresholds as `relativeTime`, so the two never disagree about which unit a moment is worth.
+ */
+export function shortSince(ts: number, now = Date.now()): string {
+  if (!Number.isFinite(ts) || !ts || !Number.isFinite(now)) return '—'
+  const distance = Math.abs(now - ts)
+  if (distance < MINUTE) return t("time.just_now")
+  const unit = distance < HOUR ? ['minute', MINUTE] as const
+    : distance < DAY ? ['hour', HOUR] as const
+      : distance < 30 * DAY ? ['day', DAY] as const
+        : distance < 365 * DAY ? ['month', 30 * DAY] as const
+          : ['year', 365 * DAY] as const
+  return new Intl.NumberFormat(localeTag(), {
+    style: 'unit',
+    unit: unit[0],
+    unitDisplay: 'short',
+    maximumFractionDigits: 0,
+  }).format(Math.floor(distance / unit[1]))
+}
+
+
 export function relativeTime(ts: number, now = Date.now()): string {
   if (!Number.isFinite(ts) || !ts) return '—'
   const diff = now - ts

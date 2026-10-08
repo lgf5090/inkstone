@@ -34,7 +34,7 @@ export const ExplorerNote = memo(ExplorerNoteRow);
 
 // Every explorer row subscribes to several store slices; without memoising the row, a note
 // change re-renders every visible row in the explorer.
-function ExplorerNoteRow({ note, depth, canOpenToSide }: { note: NoteSummary; depth: number; canOpenToSide: boolean }) {
+function ExplorerNoteRow({ note, depth, canOpenToSide, trailing }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode }) {
     const active = useUi((s) => s.activeNoteId === note.id);
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);
@@ -74,6 +74,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide }: { note: NoteSummary; de
             }} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[12.5px]">
                 {note.title || t('common.untitled_note')}
             </button>
+            {trailing}
             <IconButton label={t('common.more_actions')} size="sm" onClick={() => { contextMenu.close(); setMenuOpen(true); }} className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"><MoreHorizontal size={13}/></IconButton>
         </div>
         <Menu anchor={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} items={items}/>

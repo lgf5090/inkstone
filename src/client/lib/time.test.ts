@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateKey, isDateKey, weekStartFor } from './time'
+import { dateKey, isDateKey, relativeTime, shortSince, weekStartFor } from './time'
 
 describe('dateKey', () => {
   it('writes a four digit year for every date the range comparisons can meet', () => {
@@ -95,5 +95,45 @@ describe('weekStartFor', () => {
       // @ts-expect-error restoring the real constructor
       Intl.Locale = Real
     }
+  })
+})
+
+describe('shortSince', () => {
+  const MINUTE = 60_000
+  const HOUR = 60 * MINUTE
+  const DAY = 24 * HOUR
+  // A fixed `now`, so a run at 23:59 cannot disagree with a run at 00:01.
+  const now = Date.UTC(2026, 9, 8, 12)
+  const since = (ms: number) => shortSince(now - ms, now)
+  const startsWith = (text: string, digits: string) => text.startsWith(digits)
+
+  it('holds the first minute back as "just now" rather than a zero', () => {
+    expect(since(1000)).toBe(since(59_000))
+    expect(since(90_000)).not.toBe(since(30_000))
+  })
+
+  it('names the largest unit that has fully passed, and floors it', () => {
+    expect(startsWith(since(59 * MINUTE), '59')).toBe(true)
+    expect(startsWith(since(61 * MINUTE), '1')).toBe(true)
+    expect(startsWith(since(23 * HOUR), '23')).toBe(true)
+    expect(startsWith(since(25 * HOUR), '1')).toBe(true)
+    expect(startsWith(since(29 * DAY), '29')).toBe(true)
+    expect(startsWith(since(31 * DAY), '1')).toBe(true)
+    expect(startsWith(since(364 * DAY), '12')).toBe(true)
+    expect(startsWith(since(400 * DAY), '1')).toBe(true)
+  })
+
+  it('counts a stamp still in the future by the same distance', () => {
+    expect(since(-2 * HOUR)).toBe(since(2 * HOUR))
+  })
+
+  it('is a duration, not the sentence relativeTime writes', () => {
+    expect(since(3 * DAY)).not.toBe(relativeTime(now - 3 * DAY, now))
+  })
+
+  it('answers with a dash when there is no stamp to measure', () => {
+    expect(shortSince(0, now)).toBe('—')
+    expect(shortSince(Number.NaN, now)).toBe('—')
+    expect(shortSince(now, Number.NaN)).toBe('—')
   })
 })

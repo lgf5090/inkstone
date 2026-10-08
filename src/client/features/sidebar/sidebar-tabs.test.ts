@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Folder, NoteSummary } from '@shared/types';
 import { SIDEBAR_TABS } from '@shared/constants';
 import { initI18n, t } from '../../lib/i18n';
+import { fullTime, shortSince } from '../../lib/time';
 import { api } from '../../lib/api';
 import { installTestGlobals } from '../../lib/test-render';
 import { useNotes } from '../../store/notes';
@@ -57,6 +58,27 @@ describe('sidebar tab strip', () => {
         expect(container.querySelectorAll('[data-folder-drop-target]').length).toBe(1);
         expect(panel().getAttribute('aria-labelledby')).toBe(tabId('library'));
         expect(container.querySelector('[data-tag-row]')).toBeNull();
+    });
+
+    it('holds the calendar and the view rows outside the panel, above the strip', () => {
+        const fixed = container.querySelector<HTMLElement>('[data-sidebar-fixed]')!;
+        expect(fixed).toBeTruthy();
+        expect(fixed.contains(panel())).toBe(false);
+        expect(fixed.querySelector(`section[aria-label="${t('sidebar.calendar_title')}"]`)).toBeTruthy();
+        expect(fixed.textContent).toContain(t('navigation.all_notes'));
+        expect(fixed.textContent).toContain(t('navigation.unfiled'));
+        const strip = container.querySelector('[role="tablist"]')!;
+        expect(fixed.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(panel().compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    });
+
+    it('keeps the calendar and the view rows on screen whatever tab is open', async () => {
+        for (const id of ['tags', 'recent', 'backlinks', 'outlinks', 'history', 'graph']) {
+            await act(async () => tabs().find((tab) => tab.dataset.tab === id)?.click());
+            const fixed = container.querySelector<HTMLElement>('[data-sidebar-fixed]')!;
+            expect(fixed.textContent, `tab ${id} lost the view rows`).toContain(t('navigation.unfiled'));
+            expect(panel().textContent).not.toContain(t('navigation.all_notes'));
+        }
     });
 
     it('swaps the whole body when the tag tab is chosen', async () => {
@@ -349,5 +371,152 @@ describe('backlinks panel mentions section', () => {
         expect(buttons().every((b) => b.disabled)).toBe(true);
         await act(async () => release?.('linked'));
         await vi.waitFor(() => expect(buttons().some((b) => !b.disabled)).toBe(true), { timeout: 4000 });
+    });
+});
+
+const DAY = 86_400_000;
+
+async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+}
+
+describe('folder filter', () => {
+    const work: Folder = { id: 'f-work', name: 'Work', parentId: null, icon: null, color: null, position: 0, createdAt: 1, updatedAt: 1 };
+    const research: Folder = { id: 'f-research', name: 'Deep Research', parentId: 'f-work', icon: null, color: null, position: 1, createdAt: 2, updatedAt: 2 };
+    const games: Folder = { id: 'f-games', name: 'Games', parentId: null, icon: null, color: null, position: 2, createdAt: 3, updatedAt: 3 };
+    const filter = () => container.querySelector<HTMLInputElement>('input[data-folder-filter]');
+    const shownFolders = () => [...container.querySelectorAll(`[role="tree"][aria-label="${t('navigation.folder')}"] button[data-tree-row]`)].map((row) => row.getAttribute('aria-label'));
+
+    beforeEach(async () => {
+        useNotes.setState({ folders: [work, research, games] });
+        useUi.setState({ sidebarTab: 'library', expandedFolders: [] });
+        await act(() => root.render(createElement(Sidebar)));
+    });
+
+    it('offers the box once there is a folder to filter', () => {
+        expect(filter()).toBeTruthy();
+        expect(filter()!.getAttribute('aria-label')).toBe(t('folders.search'));
+    });
+
+    it('hides the box while the vault has no folders at all', async () => {
+        useNotes.setState({ folders: [] });
+        await act(() => root.render(createElement(Sidebar)));
+        expect(filter()).toBeNull();
+    });
+
+    it('shows every folder while the box is empty, nested ones only when opened', () => {
+        expect(shownFolders()).toEqual(['Work', 'Games']);
+    });
+
+    it('keeps the road to a match and reveals it without the reader opening anything', async () => {
+        await typeInto(filter()!, 'research');
+        expect(shownFolders()).toEqual(['Work', 'Deep Research']);
+        expect(container.querySelector('[data-folder-no-match]')).toBeNull();
+        expect(container.querySelector('[data-folder-match-count]')?.textContent).toBe(t('folders.match_count', { value0: 2 }));
+    });
+
+    it('drops the branches that hold no match', async () => {
+        await typeInto(filter()!, 'research');
+        expect(shownFolders()).not.toContain('Games');
+    });
+
+    it('keeps a matched folder whole, subfolders and all', async () => {
+        await typeInto(filter()!, 'work');
+        expect(shownFolders()).toEqual(['Work', 'Deep Research']);
+    });
+
+    it('says so when nothing is named that way, and recovers', async () => {
+        await typeInto(filter()!, 'zzqx');
+        expect(container.querySelector('[data-folder-no-match]')?.textContent).toBe(t('folders.no_match'));
+        expect(shownFolders()).toEqual([]);
+        await typeInto(filter()!, '');
+        expect(shownFolders()).toEqual(['Work', 'Games']);
+        expect(container.querySelector('[data-folder-match-count]')).toBeNull();
+    });
+
+    it('clears from the button beside the field', async () => {
+        await typeInto(filter()!, 'games');
+        expect(shownFolders()).toEqual(['Games']);
+        const clear = container.querySelector<HTMLButtonElement>(`button[aria-label="${t('notes.clear_filters')}"]`);
+        expect(clear).toBeTruthy();
+        await act(async () => clear!.click());
+        expect(filter()!.value).toBe('');
+        expect(shownFolders()).toEqual(['Work', 'Games']);
+    });
+
+    it('opens the first match on Enter', async () => {
+        await typeInto(filter()!, 'research');
+        await act(async () => {
+            filter()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        });
+        expect(useUi.getState().view).toBe('folder');
+        expect(useUi.getState().folderId).toBe('f-work');
+    });
+
+    it('opens a deep match with the road to it left open', async () => {
+        await typeInto(filter()!, 'research');
+        const deep = container.querySelector<HTMLElement>('button[aria-label="Deep Research"]');
+        expect(deep).toBeTruthy();
+        await act(async () => deep!.click());
+        expect(useUi.getState().view).toBe('folder');
+        expect(useUi.getState().folderId).toBe('f-research');
+    });
+
+    it('leaves the built-in rows out of the way while filtering', async () => {
+        expect(container.textContent).toContain(t('navigation.folder'));
+        await typeInto(filter()!, 'games');
+        expect(shownFolders()).toEqual(['Games']);
+    });
+});
+
+describe('recent file ages', () => {
+    const open = async () => {
+        await act(async () => useUi.getState().setSidebarTab('recent'));
+    };
+
+    it('says how long ago each note was last written', async () => {
+        const stamp = Date.now() - (3 * DAY + 5 * 60_000);
+        useNotes.setState({ notes: { a: summary('a', 'Alpha', { updatedAt: stamp }) } });
+        useUi.setState({ recentNoteIds: ['a'] });
+        await open();
+        const age = container.querySelector<HTMLElement>('[data-recent-age]');
+        expect(age).toBeTruthy();
+        expect(age!.textContent).toBe(shortSince(stamp, Date.now()));
+        expect(age!.getAttribute('title')).toBe(fullTime(stamp));
+    });
+
+    it('keeps the folder tree free of the age column', async () => {
+        useNotes.setState({ notes: { a: summary('a', 'Alpha', { updatedAt: Date.now() - 3 * DAY }) } });
+        useUi.setState({ recentNoteIds: ['a'], sidebarTab: 'library' });
+        await act(() => root.render(createElement(Sidebar)));
+        expect(container.querySelectorAll('[data-recent-age]').length).toBe(0);
+    });
+});
+
+describe('clearing the recent trail', () => {
+    it('offers the button only while there is something to clear', async () => {
+        useNotes.setState({ notes: { a: summary('a', 'Alpha') } });
+        useUi.setState({ recentNoteIds: ['a'], sidebarTab: 'recent' });
+        await act(() => root.render(createElement(Sidebar)));
+        expect(container.querySelector('[data-recent-clear]')).toBeTruthy();
+        useUi.setState({ recentNoteIds: [] });
+        await act(() => root.render(createElement(Sidebar)));
+        expect(container.querySelector('[data-recent-clear]')).toBeNull();
+    });
+
+    it('empties the list without touching the notes', async () => {
+        useNotes.setState({ notes: { a: summary('a', 'Alpha'), b: summary('b', 'Bravo') } });
+        useUi.setState({ recentNoteIds: ['a', 'b'], sidebarTab: 'recent', activeNoteId: 'a' });
+        await act(() => root.render(createElement(Sidebar)));
+        await act(async () => container.querySelector<HTMLButtonElement>('[data-recent-clear]')!.click());
+        expect(useUi.getState().recentNoteIds).toEqual([]);
+        expect(container.querySelector('[data-recent-list]')).toBeNull();
+        expect(container.textContent).toContain(t('sidebar.recent_empty'));
+        expect(useNotes.getState().notes.a).toBeTruthy();
+        expect(useUi.getState().activeNoteId).toBe('a');
     });
 });
