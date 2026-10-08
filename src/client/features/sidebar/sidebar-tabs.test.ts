@@ -86,6 +86,12 @@ describe('sidebar tab strip', () => {
         expect(useUi.getState().sidebarTab).toBe('tags');
         expect(container.querySelectorAll('[data-folder-drop-target]').length).toBe(0);
         expect(container.querySelector(`input[aria-label="${t('tags.filter')}"]`)).toBeTruthy();
+        await act(async () => {
+            const box = container.querySelector<HTMLInputElement>(`input[aria-label="${t('tags.filter')}"]`)!;
+            box.value = '/^demo$/';
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        expect(container.querySelectorAll('[data-tag-row]').length).toBe(1);
         expect(panel().getAttribute('aria-labelledby')).toBe(tabId('tags'));
     });
 
@@ -389,7 +395,7 @@ describe('folder filter', () => {
     const research: Folder = { id: 'f-research', name: 'Deep Research', parentId: 'f-work', icon: null, color: null, position: 1, createdAt: 2, updatedAt: 2 };
     const games: Folder = { id: 'f-games', name: 'Games', parentId: null, icon: null, color: null, position: 2, createdAt: 3, updatedAt: 3 };
     const filter = () => container.querySelector<HTMLInputElement>('input[data-folder-filter]');
-    const shownFolders = () => [...container.querySelectorAll(`[role="tree"][aria-label="${t('navigation.folder')}"] button[data-tree-row]`)].map((row) => row.getAttribute('aria-label'));
+    const shownFolders = () => [...container.querySelectorAll(`[role="tree"][aria-label="${t('navigation.folder')}"] button[data-tree-row]`)].map((row) => row.getAttribute('aria-label')).filter((label) => label !== null);
 
     beforeEach(async () => {
         useNotes.setState({ folders: [work, research, games] });
@@ -402,10 +408,20 @@ describe('folder filter', () => {
         expect(filter()!.getAttribute('aria-label')).toBe(t('folders.search'));
     });
 
-    it('hides the box while the vault has no folders at all', async () => {
-        useNotes.setState({ folders: [] });
+    it('hides the box while the vault holds neither a folder nor a note', async () => {
+        await act(async () => useNotes.setState({ folders: [], notes: {} }));
         await act(() => root.render(createElement(Sidebar)));
         expect(filter()).toBeNull();
+    });
+
+    it('still offers the box to a vault of unfiled notes', async () => {
+        await act(async () => useNotes.setState({ folders: [], notes: { n9: summary('n9', 'Loose sketch') } }));
+        await act(() => root.render(createElement(Sidebar)));
+        expect(filter()).toBeTruthy();
+        await typeInto(filter()!, 'sketch');
+        expect([...container.querySelectorAll('[data-unfiled-matches] [data-tree-note-id]')]).toHaveLength(1);
+        expect(container.querySelector('[data-unfiled-label]')?.textContent).toBe(t('navigation.unfiled'));
+        expect(container.querySelector('[data-folder-match-count]')?.textContent).toBe(t('folders.note_match_count', { value0: 0, value1: 1 }));
     });
 
     it('shows every folder while the box is empty, nested ones only when opened', () => {
@@ -470,6 +486,93 @@ describe('folder filter', () => {
         expect(container.textContent).toContain(t('navigation.folder'));
         await typeInto(filter()!, 'games');
         expect(shownFolders()).toEqual(['Games']);
+    });
+
+    const notesIn = () => [...container.querySelectorAll(`[role="tree"][aria-label="${t('navigation.folder')}"] [data-tree-note-id]`)].map((row) => row.getAttribute('data-tree-note-id'));
+    const filed = {
+        n1: summary('n1', 'Quarterly report', { folderId: 'f-research' }),
+        n2: summary('n2', 'Shopping list', { folderId: 'f-games' }),
+        n3: summary('n3', 'Standup notes', { folderId: 'f-work' }),
+        n4: summary('n4', 'Loose thought', { folderId: null }),
+    };
+    const withNotes = async () => {
+        await act(async () => useNotes.setState({ notes: filed }));
+    };
+
+    it('finds a note by its file name and shows the road to it', async () => {
+        await withNotes();
+        await typeInto(filter()!, 'report');
+        expect(shownFolders()).toEqual(['Work', 'Deep Research']);
+        expect(notesIn()).toEqual(['n1']);
+        expect(container.querySelector('[data-folder-match-count]')?.textContent).toBe(t('folders.note_match_count', { value0: 2, value1: 1 }));
+    });
+
+    it('underlines the letters a query reached inside a note title', async () => {
+        await withNotes();
+        await typeInto(filter()!, 'port');
+        const marks = [...container.querySelectorAll('[data-tree-note-id] span.font-semibold')].map((span) => span.textContent);
+        expect(marks).toEqual(['port']);
+        expect(notesIn()).toEqual(['n1']);
+    });
+
+    it('hides the notes of a folder the query only walks through', async () => {
+        await withNotes();
+        await typeInto(filter()!, 'report');
+        expect(notesIn()).not.toContain('n3');
+    });
+
+    it('keeps every note of a folder the query names', async () => {
+        await withNotes();
+        await typeInto(filter()!, 'work');
+        expect(shownFolders()).toEqual(['Work', 'Deep Research']);
+        expect(notesIn()).toEqual(['n1', 'n3']);
+    });
+
+    it('lists a matching note that lives in no folder', async () => {
+        await withNotes();
+        await typeInto(filter()!, 'loose');
+        expect(shownFolders()).toEqual([]);
+        expect(container.querySelector('[data-folder-no-match]')).toBeNull();
+        const loose = [...container.querySelectorAll('[data-unfiled-matches] [data-tree-note-id]')];
+        expect(loose.map((row) => row.getAttribute('data-tree-note-id'))).toEqual(['n4']);
+        expect(container.querySelector('[data-folder-match-count]')?.textContent).toBe(t('folders.note_match_count', { value0: 0, value1: 1 }));
+    });
+
+    it('opens an unfiled match on Enter', async () => {
+        const opened = vi.fn(async () => {});
+        await withNotes();
+        await act(async () => useNotes.setState({ openNote: opened }));
+        await typeInto(filter()!, 'loose');
+        await act(async () => {
+            filter()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        });
+        expect(opened).toHaveBeenCalledWith('n4');
+    });
+
+    it('answers an expression typed into the box', async () => {
+        await withNotes();
+        await typeInto(filter()!, '/^deep /');
+        expect(shownFolders()).toEqual(['Work', 'Deep Research']);
+        await typeInto(filter()!, '/report|shopping/');
+        expect(notesIn()).toEqual(['n1', 'n2']);
+    });
+
+    it('says in the box why a refused expression found nothing', async () => {
+        await typeInto(filter()!, '/(a+)+b/');
+        expect(filter()!.getAttribute('aria-invalid')).toBe('true');
+        expect(container.querySelector('[role="status"]')?.textContent).toBe(t('filter.regex_unsafe'));
+        expect(shownFolders()).toEqual([]);
+        expect(container.querySelector('[data-folder-no-match]')?.textContent).toBe(t('folders.no_match'));
+    });
+
+    it('clears from the keyboard before it gives up the focus', async () => {
+        await typeInto(filter()!, 'games');
+        expect(filter()!.value).toBe('games');
+        await act(async () => {
+            filter()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        });
+        expect(filter()!.value).toBe('');
+        expect(shownFolders()).toEqual(['Work', 'Games']);
     });
 });
 

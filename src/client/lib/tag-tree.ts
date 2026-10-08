@@ -1,4 +1,5 @@
-import { fuzzyMatch } from './fuzzy'
+import type { Query } from './query-match'
+import { queryMatches } from './query-match'
 import type { Tag } from '@shared/types'
 import { compareTagNames } from '@shared/markdown-utils'
 
@@ -117,12 +118,12 @@ export interface TagTreeSearch {
  * A parent that matches on its own keeps its whole subtree, so `work` still shows `work/meeting`;
  * a parent that only leads to a match is kept unhighlighted so the child stays reachable.
  */
-export function searchTagTree(nodes: readonly TagTreeNode[], query: string): TagTreeSearch {
+export function searchTagTree(nodes: readonly TagTreeNode[], query: Query): TagTreeSearch {
   const matched = new Set<string>()
-  if (!query.trim()) return { nodes: [...nodes], matchedPaths: matched, hitCount: 0 }
+  if (!query.text) return { nodes: [...nodes], matchedPaths: matched, hitCount: 0 }
 
   const visit = (node: TagTreeNode): TagTreeNode | null => {
-    const own = fuzzyMatch(node.name, query)
+    const own = queryMatches(query, node.name)
     if (own) {
       matched.add(node.fullPath)
       return { ...node, children: node.children.map(keepAll) }

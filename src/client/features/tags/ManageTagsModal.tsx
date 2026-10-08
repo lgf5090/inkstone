@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Hash, Palette, Pin, Search, X } from 'lucide-react';
+import { ArrowLeftRight, Hash, Palette, Pin, X } from 'lucide-react';
 import type { Tag } from '@shared/types';
 import { cn } from '../../lib/cn';
-import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
+import { splitByRanges } from '../../lib/fuzzy';
+import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
+import { FilterInput } from '../../components/FilterInput';
 import { buildTagTree, flattenTagTree, renameTagSegment } from '../../lib/tag-tree';
 import { Menu, Modal } from '../../components/overlay';
 import { commitOnEnter } from '../../components/form';
@@ -33,9 +35,10 @@ export function ManageTagsModal({ open, onClose }: {
         return flattenTagTree(tree, expanded);
     }, [tags]);
     const pinyinVersion = usePinyinVersion()
+    const filter = useMemo(() => compileQuery(query), [query]);
     const visible = useMemo(
-        () => query.trim() ? rows.filter((node) => fuzzyMatch(node.fullPath, query)) : rows,
-        [rows, query, pinyinVersion],
+        () => rows.filter((node) => queryMatches(filter, node.fullPath)),
+        [rows, filter, pinyinVersion],
     );
     const colorTag: Tag | null = colorFor ? tags.find((tag) => tag.id === colorFor) ?? null : null;
     const pickMergeTarget = (node: Tag) => {
@@ -52,10 +55,7 @@ export function ManageTagsModal({ open, onClose }: {
               <span className="min-w-0 flex-1 truncate">{t('tags.merge_target_value0', { value0: merging.name })}</span>
               <button type="button" onClick={() => setMerging(null)} className="shrink-0 text-[var(--accent)] hover:underline">{t('common.cancel')}</button>
             </div>)}
-          <div className="relative">
-            <Search size={13} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-            <input aria-label={t('tags.filter')} type="search" value={query} placeholder={t('tags.filter_placeholder')} onChange={(event) => setQuery(event.target.value)} className="h-9 w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] pr-3 pl-8 text-[12.5px] outline-none focus:border-[var(--accent)]"/>
-          </div>
+          <FilterInput value={query} onChange={setQuery} query={filter} label={t('tags.filter')} placeholder={t('tags.filter_placeholder')} size="panel"/>
           <p className="px-1 text-[11px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: visible.filter((node) => !node.isVirtual).length })}</p>
           <div className="max-h-[52vh] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]">
             {!visible.length && <p className="px-3 py-6 text-center text-[12px] text-[var(--text-quaternary)]">{t('tags.no_match')}</p>}
@@ -75,7 +75,7 @@ export function ManageTagsModal({ open, onClose }: {
                             if (!node.isVirtual)
                                 setRenamingId(node.tag.id);
                         }} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[var(--text-primary)] hover:text-[var(--accent)]">
-                      <ManagedTagName name={node.name} query={query}/>
+                      <ManagedTagName name={node.name} query={filter}/>
                     </button>)}
                 <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">{node.children.length ? node.totalCount : node.count || ''}</span>
                 {!node.isVirtual && !merging && (<div className="flex shrink-0 items-center gap-px">
@@ -111,9 +111,9 @@ export function ManageTagsModal({ open, onClose }: {
 }
 function ManagedTagName({ name, query }: {
     name: string;
-    query: string;
+    query: Query;
 }) {
-    const match = query.trim() ? fuzzyMatch(name, query) : null;
+    const match = queryMatches(query, name);
     if (!match)
         return name;
     return splitByRanges(name, match.ranges).map((part, index) => part.hit
