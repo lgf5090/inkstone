@@ -3551,6 +3551,7 @@ const allowed = new Map([
     "/**\n * Names and text in the app's other language: the list, the editor and the launcher all have to sort,\n * filter and echo them back, and `check-i18n.mjs` keeps such data in a named constant because\n * interface copy has to come from the catalog.\n */",
     "// The hint under the row shows today through that format; the expectation is built here, not by",
     "// calling the formatter the page is under test for.",
+    "// The cancellation notice is off until asked for, and the row is what turns it on.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
@@ -7516,6 +7517,9 @@ const allowed = new Map([
     "// second revision of its own. Ask the server what the note is at now, and write against that.",
     "/** Walk a slash path, creating the folders it names. Null when the path cannot be built. */",
     "/** Which choice an id names, looking inside groups as deep as the record allows. */",
+    "/**\n * What a finished run says about itself. Kept apart from the toast host so the four outcomes and the\n * two notice switches can be read, and tested, without a store or a screen in the way.\n */",
+    "// A cancel that carries a reason is a refusal the engine hit, and that always speaks up; a",
+    "// plain closed dialog is the reader's own doing, so only the opt-in notice mentions it.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -8047,6 +8051,7 @@ const allowed = new Map([
     "/** Ask which heading to insert under, from the target note's own headings, at run time. */",
     "/**\n * Read the `{ savedAt, version, library }` envelope an account stores in `users.quickadd` in the\n * shape a backup can carry. Junk, an unreadable library and an empty column all come back as null,\n * so a broken column never takes a whole export down with it.\n */",
     "/** Where a heading the ordering key cannot be read from belongs: the reference parks them at the\n * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */",
+    "/** Say that a run stopped because the reader closed the question, rather than saying nothing. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

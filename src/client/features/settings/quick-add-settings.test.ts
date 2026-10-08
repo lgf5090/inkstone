@@ -357,6 +357,12 @@ describe('the automation page', () => {
     // calling the formatter the page is under test for.
     const today = new Date()
     expect(bodyText()).toContain(CJK_CHOICE_FIXTURES.cjkDate(today.getFullYear(), today.getMonth() + 1, today.getDate()))
+    // The cancellation notice is off until asked for, and the row is what turns it on.
+    expect(useQuickAdd.getState().settings.cancelNotice).toBe(false)
+    click(control(t('settings.quickadd_cancel_notice')))
+    expect(useQuickAdd.getState().settings.cancelNotice).toBe(true)
+    click(control(t('settings.quickadd_cancel_notice')))
+    expect(useQuickAdd.getState().settings.cancelNotice).toBe(false)
   })
 
   it('adds, edits and removes a global variable', () => {

@@ -162,6 +162,8 @@ export interface QuickAddRecentRun {
 export interface QuickAddSettings {
   enabled: boolean
   notifications: boolean
+  /** Say that a run stopped because the reader closed the question, rather than saying nothing. */
+  cancelNotice: boolean
   selectionAsValue: boolean
   onePage: QuickAddOnePageMode
   drafts: boolean
@@ -210,6 +212,7 @@ export function defaultQuickAddSettings(): QuickAddSettings {
   return {
     enabled: true,
     notifications: true,
+    cancelNotice: false,
     selectionAsValue: true,
     onePage: 'auto',
     drafts: true,
@@ -686,6 +689,7 @@ export function normalizeQuickAddSettings(value: unknown, knownIds: ReadonlySet<
   return {
     enabled: boolOf(value.enabled, fallback.enabled),
     notifications: boolOf(value.notifications, fallback.notifications),
+    cancelNotice: boolOf(value.cancelNotice, fallback.cancelNotice),
     selectionAsValue: boolOf(value.selectionAsValue, fallback.selectionAsValue),
     onePage: pick(value.onePage, ['always', 'auto', 'never'] as const, fallback.onePage),
     drafts: boolOf(value.drafts, fallback.drafts),
