@@ -3645,6 +3645,7 @@ const allowed = new Map([
     "/**\n * Choice names in the language the app's other readers write in. The filter is a fuzzy + pinyin path,\n * so the test has to feed it Chinese names; `check-i18n.mjs` keeps Han literals out of `src/` because\n * interface copy belongs in the catalog, and a name the reader typed is not interface copy.\n */",
     "// A reorder changes `position` and leaves the array alone, so a list that trusted array order",
     "// would keep showing the old one.",
+    "/** Which row the filter is telling a screen reader is selected. */",
   ]],
   ["src/client/features/quickadd/launcher.tsx", [
     "/**\n * The launcher: one searchable list of the account's QuickAdd choices.\n *\n * This is the surface the reference plugin opens with `Ctrl+Shift+A` — a modal where the reader types a\n * choice's name, or `>` in the command palette, and runs it. Two things are Inkstone's own decision\n * rather than a port: a group drills into its children instead of flattening them into the list (a\n * journal group with six daily captures is not six rows the reader has to read past), and Shift+Enter\n * runs a choice with a chosen day, which is the portable half of the reference's \"pick a date\"\n * commands and covers the backfill-a-past-day case without a command per choice.\n *\n * The engines are not imported here: a run pulls `runner.ts` on demand, so opening the list never\n * parses the capture or macro code.\n */",
@@ -3661,6 +3662,8 @@ const allowed = new Map([
     "// be buried behind a worse one at this level.",
     "// A group the search surfaced from deeper down still names a place: open it where it lives",
     "// rather than running it or pushing it onto the path a second time.",
+    "// The caret stays in the filter while the arrows walk the list, so a screen reader only learns which",
+    "// row is selected from aria-activedescendant naming it.",
   ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
@@ -10080,6 +10083,8 @@ const allowed = new Map([
   ["src/worker/routes/quickadd.ts", [
     "/** Envelope stored in `users.quickadd`: when the account last saved, plus the library. */",
     "/** A property's values across the newest notes, for `{{FIELD:property}}` suggestions.\n *\n * The schema has no property index, so this reads note text and parses it. Two things bound the cost:\n * the scan stops at the newest few hundred notes, and `folder:` matches the note's own folder name\n * rather than walking the tree — a value list is a convenience, and a slow one is worse than the\n * author typing the word.\n */",
+    "/** What a `{{FIELD:property}}` suggestion asks for. */",
+    "/**\n * The values of one property across the newest notes, most-used first.\n *\n * Exported because the three bounds below ARE the behaviour, and a route handler is an awkward place\n * to prove them: the scan stops at the newest few hundred notes, the list stops at two hundred\n * values, and a value longer than two hundred characters is not a suggestion but a paragraph.\n */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -10426,6 +10431,13 @@ const allowed = new Map([
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
+  ]],
+  ["tests/quickadd-field-window.test.ts", [
+    "/** `stamp` is what \"newest\" is measured by, so the window under test is reproducible. */",
+    "// `mood: a, b` is one string to YAML, so a list has to be spelled as a list.",
+    "// 420 notes: the window is the newest 400, so stamps 0..19 fall outside it.",
+    "// The three bounds above are only worth having if the scan they cap is slow enough to notice. This",
+    "// is the measurement behind the round-5 ledger entry: a full window of realistic notes, timed.",
   ]],
   ["tests/register-setup-token.test.ts", [
     "// The server has required this token since S-04, but the console never learned to send",

@@ -83,6 +83,11 @@ function press(key: string, options: KeyboardEventInit = {}): void {
   })
 }
 
+/** Which row the filter is telling a screen reader is selected. */
+function announced(): string | null {
+  return filterInput().getAttribute('aria-activedescendant')
+}
+
 function clickRow(index: number, options: { shift?: boolean } = {}): void {
   const row = rows()[index]
   if (!row) throw new Error(`no launcher row at ${index}`)
@@ -347,5 +352,59 @@ describe('the filter reaching into groups', () => {
     type('meeting')
     expect(rows()).toHaveLength(0)
     expect(dialog().textContent).toContain(t('quickadd.launcher_no_match'))
+  })
+})
+
+describe('the launcher under a keyboard and a screen reader', () => {
+  const THREES = [
+    newTemplateChoice('c-third', 'Third thing', 2),
+    newCaptureChoice('c-first', 'First thing', 0),
+    newMacroChoice('c-second', 'Second thing', 1),
+  ]
+
+  it('names the row the arrows land on, so the reader hears the selection move', () => {
+    library(THREES)
+    openLauncher()
+    expect(filterInput().getAttribute('aria-controls'), 'the listbox is the thing being controlled')
+      .toBe(dialog().querySelector('[role="listbox"]')?.id)
+    expect(announced()).toBe(rows()[0]?.id)
+
+    press('ArrowDown')
+    expect(announced()).toBe(rows()[1]?.id)
+    expect(rows()[1]?.getAttribute('aria-selected')).toBe('true')
+    press('End')
+    expect(announced()).toBe(rows()[2]?.id)
+    press('Home')
+    expect(announced()).toBe(rows()[0]?.id)
+  })
+
+  it('keeps the announced row a real element in the list order', () => {
+    library(THREES)
+    openLauncher()
+    const ids = rows().map((row) => row.id)
+    expect(new Set(ids).size, 'two rows cannot share an announcement id').toBe(ids.length)
+    press('ArrowDown')
+    const target = document.getElementById(announced() ?? '')
+    expect(target, 'the announced id has to resolve to a row on screen').not.toBeNull()
+    expect(rows().indexOf(target as HTMLElement), 'and it has to be the row the highlight is on').toBe(1)
+    expect(rows().map((row) => Number(row.dataset.rowIndex)), 'the DOM order is the reading order')
+      .toEqual([0, 1, 2])
+  })
+
+  it('says nothing about a row when there is nothing to say', () => {
+    library([])
+    openLauncher()
+    expect(filterInput().hasAttribute('aria-activedescendant'), 'an empty list has no selected row').toBe(false)
+  })
+
+  it('hands focus back to the control that opened it', () => {
+    const trigger = document.createElement('button')
+    document.body.append(trigger)
+    trigger.focus()
+    expect(document.activeElement).toBe(trigger)
+    openLauncher()
+    expect(document.activeElement, 'opening moves the caret into the filter').toBe(filterInput())
+    rendered.unmount()
+    expect(document.activeElement, 'closing gives it back where it came from').toBe(trigger)
   })
 })
