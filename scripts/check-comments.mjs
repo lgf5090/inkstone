@@ -84,6 +84,7 @@ const allowed = new Map([
     "// handed a capability rather than an account session: it speaks on the BroadcastChannel and reads",
     "// nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.",
     "/* A show outlives the layout that started it: the shell swaps its whole workspace subtree\n          when the breakpoint moves, so the overlay is hosted above that switch rather than inside\n          it. It is only mounted while a show is up, which is also what keeps the deck-splitting code\n          out of the boot chunk for everyone who is not presenting. */",
+    "/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */",
   ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
@@ -3262,6 +3263,33 @@ const allowed = new Map([
     "// mark a palette the fence has since changed.",
     "/** Leaving the note (or the pane) writes the last edit and drops the instances. */",
     "/**\n * Clicking a node hands the map the DOM focus its shortcuts need — in a split\n * view the editor would otherwise swallow Tab, Delete and undo. The full screen\n * overlay is portaled outside this host, so it installs its own listener on the\n * modal body; both resolve the same entry and focus twice is harmless.\n */",
+  ]],
+  ["src/client/features/quickadd/prompt-gate.tsx", [
+    "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
+  ]],
+  ["src/client/features/quickadd/prompt-queue.ts", [
+    "/**\n * The asking side of a QuickAdd run: a promise queue the format engine pushes prompts into and the\n * host component pulls out of, plus the draft memory that hands a cancelled answer back on the next\n * run.\n *\n * The queue lives outside React on purpose. A run may be waiting on three prompts while the surface\n * that started it unmounts, and a cancelled or unmounted host must resolve them as \"no answer\"\n * rather than leave a promise — and therefore the whole capture — hanging forever.\n */",
+    "/** One page asks everything at once; otherwise each request gets its own dialog. */",
+    "/** Where the run is about to write, so a prompt can name its destination. */",
+    "/** Answers typed into a prompt that was cancelled, kept per choice so the next run can use them. */",
+    "/** A draft only fills a token that asked for no default of its own. */",
+    "/**\n * Ask a group of prompts and wait for the answers. A dialog dismissed without an answer contributes\n * `null` for each of its requests: the engine turns that into an empty substitution for an\n * `|optional` token, and the caller decides whether a missing required answer aborts the run.\n */",
+    "/** Deliver what the page answered. Requests left out of the map count as no answer. */",
+    "/** Cancel the active group, keeping whatever was typed in it as this choice's next default. */",
+    "/** Drop everything outstanding with no answer: used when the host unmounts or the account changes. */",
+    "/**\n * Identifies the group on screen. The host keys its dialogs on this, so answering one prompt and\n * promoting the next cannot inherit the typed text, the filter or the picker state of the previous\n * group — and a dialog whose request list changed shape cannot render a different hook count.\n */",
+  ]],
+  ["src/client/features/quickadd/prompts.test.ts", [
+    "// React keeps its own value tracker on the DOM node, so assigning `.value` and firing `input` is",
+    "// not enough: the write has to go through the native setter for React to see it as a change.",
+    "// An answered prompt clears its draft, so a third run starts from the token's own default.",
+  ]],
+  ["src/client/features/quickadd/prompts.tsx", [
+    "/**\n * The dialogs a QuickAdd run asks with: one per prompt, or a single page for a whole run, plus the\n * suggester list, the date shortcuts and the live arithmetic preview behind them.\n *\n * Everything here is Inkstone chrome — `Modal`, `Button`, `FIELD_BASE`, the command palette's row\n * classes — because a prompt that appears in the middle of typing into a note has to feel like the\n * note's own. The queue in `prompt-queue.ts` owns the promises; this file renders what the queue says\n * to render and answers back.\n */",
+    "/** What counts as an answer: a pick for a picker, text otherwise; `|optional` always allows empty. */",
+    "// A yes/no question needs an explicit press: closing the dialog is a cancelled run, not a \"No\".",
+    "// A one-press answer: a single-choice picker or a yes/no question has said everything the OK",
+    "// button would say, so waiting for a second click only slows the run down.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",

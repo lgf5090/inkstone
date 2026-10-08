@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { ConfirmHost, PromptHost } from './components/overlay'
+import { QuickAddPromptGate } from './features/quickadd/prompt-gate'
 import { Toaster } from './components/feedback'
 import { Spinner } from './components/primitives'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -111,6 +112,8 @@ export function App() {
       <Toaster />
       <ConfirmHost />
       <PromptHost />
+      {/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */}
+      {status === 'authed' && <QuickAddPromptGate />}
     </>
   )
 }
