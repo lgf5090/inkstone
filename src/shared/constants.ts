@@ -1,6 +1,14 @@
 import type {
   AccentName,
   CodeFormatKeywordCase,
+  DraggerBlockStyle,
+  DraggerColorMode,
+  DraggerGutterSide,
+  DraggerHandleIcon,
+  DraggerHandleVisibility,
+  DraggerMenuOrders,
+  DraggerMenuRootItemId,
+  DraggerSelectionStyle,
   EmojiInsertFormat,
   LinkEditorAliasMode,
   LinkEditorModifier,
@@ -190,6 +198,36 @@ export const DEFAULT_SETTINGS: UserSettings = {
     outlinerGuides: true,
     outlinerGuideClick: 'fold',
     outlinerDrag: true,
+    dragger: true,
+    draggerHandles: 'hover',
+    draggerHandleIcon: 'grip-dots',
+    draggerHandleGlyph: '⠿',
+    draggerHandleSize: 20,
+    draggerHandleOffset: 0,
+    draggerHandleSide: 'left',
+    draggerHandleColorMode: 'theme',
+    draggerHandleColor: '#8a8a8a',
+    draggerIndicatorColorMode: 'theme',
+    draggerIndicatorColor: '#7a7a7a',
+    draggerMultiSelect: true,
+    draggerMultiSelectMs: 700,
+    draggerMobileArmMs: 200,
+    draggerAutoScroll: true,
+    draggerAutoScrollEdge: 60,
+    draggerAutoScrollSpeed: 12,
+    draggerHighlight: true,
+    draggerSelectionStyle: 'subtle',
+    draggerMobileTextDrag: true,
+    draggerExitDragModeAfterDrop: true,
+    draggerMoveKeys: true,
+    draggerMenuOrders: {
+      root: ['paragraph', 'heading', 'list', 'quote', 'callout', 'code-block', 'math-block', 'custom'],
+      heading: ['heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5', 'heading-6'],
+      list: ['list-unordered', 'list-ordered', 'list-task'],
+      callout: ['callout-note', 'callout-tip', 'callout-warning'],
+      custom: [],
+    },
+    draggerBlockStyles: [],
   },
   preview: {
     layout: 'live',
@@ -558,6 +596,36 @@ const LINK_EDITOR_ALIAS_MODES: LinkEditorAliasMode[] = ['heading', 'note-then-he
 const PASTE_LINK_NOTTHINGS: PasteLinkNothing[] = ['plain', 'word', 'inline', 'bare']
 const OUTLINER_CURSOR_STICKS: OutlinerCursorStick[] = ['never', 'bullet', 'bullet-and-checkbox']
 const OUTLINER_GUIDE_CLICKS: OutlinerGuideClick[] = ['none', 'fold']
+const DRAGGER_HANDLE_VISIBILITIES: DraggerHandleVisibility[] = ['hover', 'always', 'hidden']
+const DRAGGER_HANDLE_ICONS: DraggerHandleIcon[] = ['dot', 'grip-dots', 'grip-lines', 'square', 'custom']
+const DRAGGER_GUTTER_SIDES: DraggerGutterSide[] = ['left', 'right']
+const DRAGGER_COLOR_MODES: DraggerColorMode[] = ['theme', 'custom']
+const DRAGGER_SELECTION_STYLES: DraggerSelectionStyle[] = ['outline', 'subtle', 'filled']
+export const DRAGGER_MENU_ROOT_IDS: DraggerMenuRootItemId[] = [
+  'paragraph', 'heading', 'list', 'quote', 'callout', 'code-block', 'math-block', 'custom',
+]
+export const DRAGGER_HEADING_ITEM_IDS = ['heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5', 'heading-6']
+export const DRAGGER_LIST_ITEM_IDS = ['list-unordered', 'list-ordered', 'list-task']
+export const DRAGGER_CALLOUT_ITEM_IDS = ['callout-note', 'callout-tip', 'callout-warning']
+export const DRAGGER_HANDLE_SIZE_RANGE = [12, 28] as const
+export const DRAGGER_HANDLE_OFFSET_RANGE = [-80, 80] as const
+export const DRAGGER_MOBILE_ARM_RANGE = [50, 800] as const
+export const DRAGGER_MULTI_SELECT_RANGE = [50, 2000] as const
+export const DRAGGER_AUTO_SCROLL_EDGE_RANGE = [20, 200] as const
+export const DRAGGER_AUTO_SCROLL_SPEED_RANGE = [4, 60] as const
+export const DRAGGER_HANDLE_GLYPH_MAX = 4
+export const DRAGGER_BLOCK_STYLES_MAX = 24
+export const DRAGGER_STYLE_LABEL_MAX = 40
+export const DRAGGER_STYLE_ICON_MAX = 8
+export const DRAGGER_STYLE_TEMPLATE_MAX = 400
+export const DRAGGER_STYLE_PREFIX_MAX = 8
+export const DRAGGER_STYLE_VARIABLES_MAX = 8
+export const DRAGGER_STYLE_NAME_MAX = 24
+export const DRAGGER_STYLE_VALUE_MAX = 120
+export const DRAGGER_CONTENT_TOKEN = '${content}'
+const DRAGGER_STYLE_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/
+const DRAGGER_VARIABLE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+
 export const EMOJI_SKIN_TONE_MAX = 5
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -710,6 +778,82 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.editor.outlinerGuides = booleanValue(editor.outlinerGuides, base.editor.outlinerGuides)
   base.editor.outlinerGuideClick = enumValue(editor.outlinerGuideClick, OUTLINER_GUIDE_CLICKS, base.editor.outlinerGuideClick)
   base.editor.outlinerDrag = booleanValue(editor.outlinerDrag, base.editor.outlinerDrag)
+  base.editor.dragger = booleanValue(editor.dragger, base.editor.dragger)
+  base.editor.draggerHandles = enumValue(editor.draggerHandles, DRAGGER_HANDLE_VISIBILITIES, base.editor.draggerHandles)
+  base.editor.draggerHandleIcon = enumValue(editor.draggerHandleIcon, DRAGGER_HANDLE_ICONS, base.editor.draggerHandleIcon)
+  base.editor.draggerHandleGlyph = draggerGlyph(
+    editor.draggerHandleGlyph,
+    base.editor.draggerHandleGlyph,
+    DRAGGER_HANDLE_GLYPH_MAX,
+  )
+  base.editor.draggerHandleSize = integerInRange(
+    editor.draggerHandleSize,
+    DRAGGER_HANDLE_SIZE_RANGE[0],
+    DRAGGER_HANDLE_SIZE_RANGE[1],
+    base.editor.draggerHandleSize,
+  )
+  base.editor.draggerHandleOffset = integerInRange(
+    editor.draggerHandleOffset,
+    DRAGGER_HANDLE_OFFSET_RANGE[0],
+    DRAGGER_HANDLE_OFFSET_RANGE[1],
+    base.editor.draggerHandleOffset,
+  )
+  base.editor.draggerHandleSide = enumValue(editor.draggerHandleSide, DRAGGER_GUTTER_SIDES, base.editor.draggerHandleSide)
+  base.editor.draggerHandleColorMode = enumValue(
+    editor.draggerHandleColorMode,
+    DRAGGER_COLOR_MODES,
+    base.editor.draggerHandleColorMode,
+  )
+  base.editor.draggerHandleColor = hexOrNull(editor.draggerHandleColor) ?? base.editor.draggerHandleColor
+  base.editor.draggerIndicatorColorMode = enumValue(
+    editor.draggerIndicatorColorMode,
+    DRAGGER_COLOR_MODES,
+    base.editor.draggerIndicatorColorMode,
+  )
+  base.editor.draggerIndicatorColor = hexOrNull(editor.draggerIndicatorColor) ?? base.editor.draggerIndicatorColor
+  base.editor.draggerMultiSelect = booleanValue(editor.draggerMultiSelect, base.editor.draggerMultiSelect)
+  base.editor.draggerMultiSelectMs = integerInRange(
+    editor.draggerMultiSelectMs,
+    DRAGGER_MULTI_SELECT_RANGE[0],
+    DRAGGER_MULTI_SELECT_RANGE[1],
+    base.editor.draggerMultiSelectMs,
+  )
+  base.editor.draggerMobileArmMs = integerInRange(
+    editor.draggerMobileArmMs,
+    DRAGGER_MOBILE_ARM_RANGE[0],
+    DRAGGER_MOBILE_ARM_RANGE[1],
+    base.editor.draggerMobileArmMs,
+  )
+  base.editor.draggerAutoScroll = booleanValue(editor.draggerAutoScroll, base.editor.draggerAutoScroll)
+  base.editor.draggerAutoScrollEdge = integerInRange(
+    editor.draggerAutoScrollEdge,
+    DRAGGER_AUTO_SCROLL_EDGE_RANGE[0],
+    DRAGGER_AUTO_SCROLL_EDGE_RANGE[1],
+    base.editor.draggerAutoScrollEdge,
+  )
+  base.editor.draggerAutoScrollSpeed = integerInRange(
+    editor.draggerAutoScrollSpeed,
+    DRAGGER_AUTO_SCROLL_SPEED_RANGE[0],
+    DRAGGER_AUTO_SCROLL_SPEED_RANGE[1],
+    base.editor.draggerAutoScrollSpeed,
+  )
+  base.editor.draggerHighlight = booleanValue(editor.draggerHighlight, base.editor.draggerHighlight)
+  base.editor.draggerSelectionStyle = enumValue(
+    editor.draggerSelectionStyle,
+    DRAGGER_SELECTION_STYLES,
+    base.editor.draggerSelectionStyle,
+  )
+  base.editor.draggerMobileTextDrag = booleanValue(editor.draggerMobileTextDrag, base.editor.draggerMobileTextDrag)
+  base.editor.draggerExitDragModeAfterDrop = booleanValue(
+    editor.draggerExitDragModeAfterDrop,
+    base.editor.draggerExitDragModeAfterDrop,
+  )
+  base.editor.draggerMoveKeys = booleanValue(editor.draggerMoveKeys, base.editor.draggerMoveKeys)
+  base.editor.draggerBlockStyles = draggerBlockStyles(editor.draggerBlockStyles)
+  base.editor.draggerMenuOrders = draggerMenuOrders(
+    editor.draggerMenuOrders,
+    base.editor.draggerBlockStyles.map((style) => style.id),
+  )
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
@@ -917,6 +1061,143 @@ function uniqueFolderPaths(value: readonly unknown[], max: number): string[] {
 }
 
 
+/**
+ * A handle's glyph or a style's icon: invisible code points go, because the glyph is painted into a
+ * fixed box where a control character would leave an empty handle the reader cannot find.
+ */
+function draggerGlyph(value: unknown, fallback: string, max: number): string {
+  if (typeof value !== 'string') return fallback
+  const kept = Array.from(value).filter((character) => !/[\p{Cc}\p{Cf}]/u.test(character)).slice(0, max).join('')
+  return kept === '' ? fallback : kept
+}
+
+/**
+ * A style's template keeps its line breaks — a multi-line block is the point of the field — but
+ * nothing else invisible survives, so a stored template cannot smuggle a tab-run or a control byte
+ * into a note.
+ */
+function draggerTemplate(value: unknown, max: number, keepLineBreaks: boolean): string {
+  if (typeof value !== 'string') return ''
+  return Array.from(value)
+    .filter((character) => keepLineBreaks && (character === '\n' || character === '\t')
+      || !/[\p{Cc}\p{Cf}]/u.test(character))
+    .slice(0, max)
+    .join('')
+}
+
+function draggerBlockStyles(value: unknown): DraggerBlockStyle[] {
+  const styles = sanitizeBlockStyles(value)
+  // A patch that left the editor alone is detected by comparing its keys by reference, so a stored
+  // list that is already in the shape the sanitizer would write goes back out as the same array.
+  return sameBlockStyles(value, styles) ? (value as DraggerBlockStyle[]) : styles
+}
+
+function sanitizeBlockStyles(value: unknown): DraggerBlockStyle[] {
+  if (!Array.isArray(value)) return []
+  const styles: DraggerBlockStyle[] = []
+  const seen = new Set<string>()
+  for (const entry of value.slice(0, DRAGGER_BLOCK_STYLES_MAX)) {
+    // A non-record reads as an empty one, and an empty record fails the id and token checks below.
+    const record = asRecord(entry)
+    const id = typeof record.id === 'string' ? record.id : ''
+    const template = draggerTemplate(record.template, DRAGGER_STYLE_TEMPLATE_MAX, true)
+    if (!DRAGGER_STYLE_ID.test(id) || seen.has(id)) continue
+    if (!template.includes(DRAGGER_CONTENT_TOKEN)) continue
+    const label = draggerTemplate(record.label, DRAGGER_STYLE_LABEL_MAX, false).trim()
+    if (label === '') continue
+    const style: DraggerBlockStyle = { id, label, icon: draggerGlyph(record.icon, '', DRAGGER_STYLE_ICON_MAX), template }
+    const linePrefix = draggerTemplate(record.linePrefix, DRAGGER_STYLE_PREFIX_MAX, false)
+    if (linePrefix !== '') style.linePrefix = linePrefix
+    const variables = draggerStyleVariables(record.variables)
+    if (Object.keys(variables).length > 0) style.variables = variables
+    seen.add(id)
+    styles.push(style)
+  }
+  return styles
+}
+
+function draggerStyleVariables(value: unknown): Record<string, string> {
+  const source = asRecord(value)
+  const kept: Record<string, string> = {}
+  for (const name of Object.keys(source).sort()) {
+    if (Object.keys(kept).length >= DRAGGER_STYLE_VARIABLES_MAX) break
+    if (name === 'content' || !DRAGGER_VARIABLE_NAME.test(name)) continue
+    kept[name] = draggerTemplate(source[name], DRAGGER_STYLE_VALUE_MAX, true)
+  }
+  return kept
+}
+
+/**
+ * One menu list: unknown, repeated, or non-string rows drop the whole list back to its default, so a
+ * tampered order cannot hide a command the reader still expects. Missing rows are re-appended in
+ * canonical order, which lets a new command join a list an older device already arranged.
+ */
+function draggerMenuOrder(value: unknown, expected: readonly string[], fallback: readonly string[]): string[] {
+  if (!Array.isArray(value)) return [...expected]
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !expected.includes(entry) || seen.has(entry)) return [...fallback]
+    seen.add(entry)
+  }
+  return [...value as string[], ...expected.filter((id) => !seen.has(id))]
+}
+
+function draggerMenuOrders(value: unknown, styleIds: readonly string[]): DraggerMenuOrders {
+  const source = asRecord(value)
+  const next: DraggerMenuOrders = {
+    root: draggerMenuOrder(source.root, DRAGGER_MENU_ROOT_IDS, DEFAULT_SETTINGS.editor.draggerMenuOrders.root) as DraggerMenuRootItemId[],
+    heading: draggerMenuOrder(source.heading, DRAGGER_HEADING_ITEM_IDS, DEFAULT_SETTINGS.editor.draggerMenuOrders.heading),
+    list: draggerMenuOrder(source.list, DRAGGER_LIST_ITEM_IDS, DEFAULT_SETTINGS.editor.draggerMenuOrders.list),
+    callout: draggerMenuOrder(source.callout, DRAGGER_CALLOUT_ITEM_IDS, DEFAULT_SETTINGS.editor.draggerMenuOrders.callout),
+    custom: draggerKnownStyleOrder(source.custom, styleIds),
+  }
+  return sameMenuOrders(value, next) ? (value as DraggerMenuOrders) : next
+}
+
+/** Every list in `value` spelled exactly as `next` spells it — same rows, same order. */
+function sameMenuOrders(value: unknown, next: DraggerMenuOrders): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const source = value as Record<string, unknown>
+  return (Object.keys(next) as (keyof DraggerMenuOrders)[]).every((key) => {
+    const stored = source[key]
+    return Array.isArray(stored) && stored.length === next[key].length
+      && next[key].every((id, index) => stored[index] === id)
+  })
+}
+
+/** Every style in `value` carrying the same fields, in the same order, as `next` writes them. */
+function sameBlockStyles(value: unknown, next: DraggerBlockStyle[]): boolean {
+  if (!Array.isArray(value) || value.length !== next.length) return false
+  return next.every((style, index) => {
+    const stored = asRecord(value[index])
+    const keys = ['id', 'label', 'icon', 'template', 'linePrefix', 'variables'] as const
+    return keys.every((key) => sameStyleField(stored[key], style[key]))
+  })
+}
+
+function sameStyleField(stored: unknown, wanted: unknown): boolean {
+  if (wanted === undefined) return stored === undefined || stored === null || stored === ''
+  if (wanted && typeof wanted === 'object') {
+    const source = asRecord(stored)
+    const keys = Object.keys(wanted as Record<string, unknown>)
+    return Object.keys(source).length === keys.length
+      && keys.every((key) => source[key] === (wanted as Record<string, unknown>)[key])
+  }
+  return stored === wanted
+}
+
+function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): string[] {
+  if (!Array.isArray(value)) return []
+  const kept: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !styleIds.includes(entry) || seen.has(entry)) continue
+    seen.add(entry)
+    kept.push(entry)
+  }
+  return kept
+}
+
 const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search'] as const
 
 export function normalizeTodoTags(value: unknown): string {
@@ -960,7 +1241,17 @@ export function mergeSettingsPatch(current: unknown, patch: unknown): UserSettin
 function cloneDefaultSettings(): UserSettings {
   return {
     appearance: { ...DEFAULT_SETTINGS.appearance },
-    editor: { ...DEFAULT_SETTINGS.editor },
+    editor: {
+      ...DEFAULT_SETTINGS.editor,
+      draggerMenuOrders: {
+        root: [...DEFAULT_SETTINGS.editor.draggerMenuOrders.root],
+        heading: [...DEFAULT_SETTINGS.editor.draggerMenuOrders.heading],
+        list: [...DEFAULT_SETTINGS.editor.draggerMenuOrders.list],
+        callout: [...DEFAULT_SETTINGS.editor.draggerMenuOrders.callout],
+        custom: [...DEFAULT_SETTINGS.editor.draggerMenuOrders.custom],
+      },
+      draggerBlockStyles: [],
+    },
     preview: { ...DEFAULT_SETTINGS.preview },
     properties: {
       ...DEFAULT_SETTINGS.properties,
