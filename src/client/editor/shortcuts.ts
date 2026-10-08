@@ -6,6 +6,7 @@ import { IS_MAC } from '../lib/hotkeys';
 import { codeMirrorKey } from '../lib/shortcuts';
 import { insertLink, setHeading, toggleBold, toggleComment, toggleBulletList, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskDone, toggleTaskList, formatCodeBlock } from './commands';
 import { outlinerFoldKey, outlinerMoveDown, outlinerMoveUp, outlinerUnfoldKey } from './outliner';
+import { draggerMoveDown, draggerMoveUp } from './dragger';
 import { toggleUnderline } from './text-format';
 import { pasteAsLinkFromClipboard } from './paste-link';
 import { openLinkAtCursor } from '../features/links/use-link-editor';
@@ -41,6 +42,8 @@ export const EDITOR_SHORTCUTS: EditorShortcut[] = [
     { id: 'move-line-down', combo: 'alt+arrowdown', label: 'command.move_line_down', run: moveLineDown },
     { id: 'move-list-up', combo: 'mod+shift+arrowup', label: 'command.move_list_up', run: outlinerMoveUp },
     { id: 'move-list-down', combo: 'mod+shift+arrowdown', label: 'command.move_list_down', run: outlinerMoveDown },
+    { id: 'move-block-up', combo: 'alt+shift+arrowup', label: 'command.move_block_up', run: draggerMoveUp },
+    { id: 'move-block-down', combo: 'alt+shift+arrowdown', label: 'command.move_block_down', run: draggerMoveDown },
     { id: 'fold-list', combo: 'mod+arrowup', label: 'command.fold_list', run: outlinerFoldKey },
     { id: 'unfold-list', combo: 'mod+arrowdown', label: 'command.unfold_list', run: outlinerUnfoldKey },
     { id: 'delete-line', combo: 'mod+shift+k', label: 'command.delete_line', run: deleteLine },

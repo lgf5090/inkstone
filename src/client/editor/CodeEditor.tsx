@@ -15,6 +15,7 @@ import { codeFenceSource, emojiSource, containerDirectiveSource, tagSource, wiki
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
 import { outlinerChrome, outlinerEnter, outlinerFoldSupport, outlinerNoteLine, outlinerOptionsChanged, outlinerOptionsFrom, outlinerShiftTab, outlinerTab } from './outliner';
+import { createDraggerHost, draggerExtensions, draggerOptionsChanged, draggerPaintKey, DraggerBlockMenuAt, DRAGGER_HANDLE_CLASS, isTouchPointer, type DraggerBlockMenuRequest } from './dragger';
 import { editorKeymap } from './shortcuts';
 import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
@@ -23,6 +24,7 @@ import { registerLinkEditorNote } from '../features/links/store';
 import type { EditorContext } from '../features/workspace/context-menu/types';
 import { detectEditorContext } from '../features/workspace/context-menu/detect-editor';
 import { takePendingEditorCursor } from '../store/new-note';
+import { useUi } from '../store/ui';
 import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
@@ -60,6 +62,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
 export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onRequestContextMenu, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
+    const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
     const tagMenuRef = useRef<(request: TagMenuRequest | null) => void>(() => {});
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
@@ -68,6 +71,15 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     cbRef.current = { onChange, onScroll, onCursorLine, sources, handlers, onHeadings, noteTitle, onRequestContextMenu };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const longPress = useLongPress((point, target) => {
+        // A long press on a handle is the phone's version of right-clicking it: the block's own menu,
+        // not the note's.
+        const handle = target.closest<HTMLElement>(`.${DRAGGER_HANDLE_CLASS}`);
+        if (handle) {
+            const startLine = Number(handle.getAttribute('data-block-start'));
+            const view = viewRef.current;
+            if (view && Number.isInteger(startLine) && startLine > 0) setBlockMenu({ view, line: startLine, ...point });
+            return;
+        }
         const tag = tagMenuRequestFrom(target, point.x, point.y);
         if (tag) {
             tagMenuRef.current(tag);
@@ -78,6 +90,10 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         if (!view || !ask) return;
         const pos = view.posAtCoords(point) ?? view.state.selection.main.head;
         ask({ x: point.x, y: point.y, editor: detectEditorContext(view.state, pos) });
+    }, {
+        // While drag mode holds the finger, the dragger answers the press and the note's menu keeps
+        // out of the way.
+        enabled: () => !(isTouchPointer() && useUi.getState().draggerDragMode),
     });
     const dark = useThemeDark();
     const hoverRef = useRef({ propose: hover.propose, card: hover.card, hideNow: hover.hideNow });
@@ -116,6 +132,10 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         return runRenderedLinkGesture(event, view, target, kind, current.settings, current.noteId);
     };
     const lineNumbersCompartment = useRef(new Compartment());
+    const blockMenuRef = useRef<(request: DraggerBlockMenuRequest | null) => void>(() => {});
+    blockMenuRef.current = setBlockMenu;
+    const draggerHost = useRef(createDraggerHost((view, line, point) => blockMenuRef.current({ view, line, ...point })));
+    const appliedDraggerPaint = useRef(draggerPaintKey(settings));
     const tabSizeCompartment = useRef(new Compartment());
     const placeholderCompartment = useRef(new Compartment());
     const outlinerFoldCompartment = useRef(new Compartment());
@@ -219,6 +239,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             linkHoverExtension(),
             outlinerFoldCompartment.current.of(outlinerFoldSupport),
             ...outlinerChrome(() => outlinerOptionsFrom(outlinerRef.current)),
+            draggerExtensions(draggerHost.current),
             linkHoverFacet.of({
                 propose: (link, options) => hoverRef.current.propose(link, options),
                 hide: () => {
@@ -284,6 +305,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         });
     }, [settings.tabSize]);
 
+
     const outlinerFoldOn = useRef(settings.outliner);
     useEffect(() => {
         const view = viewRef.current;
@@ -300,6 +322,15 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         if (outlinerPaint.current === next) return;
         outlinerPaint.current = next;
         view.dispatch({ effects: outlinerOptionsChanged.of(null) });
+    }, [settings]);
+
+    // The grip box is painted from these settings, and no document change announces them.
+    useEffect(() => {
+        const view = viewRef.current;
+        const next = draggerPaintKey(settings);
+        if (!view || next === appliedDraggerPaint.current) return;
+        appliedDraggerPaint.current = next;
+        view.dispatch({ effects: draggerOptionsChanged.of(null) });
     }, [settings]);
 
     useEffect(() => {
@@ -339,6 +370,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     return (<>
       <div ref={hostRef} {...longPress.handlers} className={cn('ink-editor', className)} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter}/>
       <TagContextMenuAt request={tagMenu} onClose={() => setTagMenu(null)}/>
+      <DraggerBlockMenuAt request={blockMenu} settings={settings} onClose={() => setBlockMenu(null)}/>
       {hover.card && (<WikiLinkHoverCard card={hover.card} path={hover.card.noteId ? [hover.card.noteId] : []} depth={1} dark={dark} onClose={hover.hideNow} onEnter={hover.clearPendingHide} onLeave={hover.armHide} onPin={handlePin}/>)}
     </>);
 }
