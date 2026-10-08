@@ -3360,6 +3360,9 @@ const allowed = new Map([
     "/**\n * Where the focused card goes for a keyboard reorder.\n *\n * Up and Down step inside the card's own category, which is what dragging does; Left\n * and Right move it into the neighbouring category of the sidebar order, keeping the\n * card where it was in the list. Returning the full target lets the caller refuse a\n * built-in category rename without duplicating that rule.\n */",
     "/**\n * Batch actions take the store's batch primitives, so a selection costs one\n * library write instead of one per card. The count reported back is the number\n * that actually changed, not the size of the selection.\n */",
   ]],
+  ["src/client/features/templates/gallery-controller.tsx", [
+    "/**\n * The two header buttons that disappear on a narrow phone have to land here instead, or the\n * compact layout would simply drop the features they open.\n */",
+  ]],
   ["src/client/features/templates/gallery-controls.tsx", [
     "/**\n * A category's colour: what the row stores if it stores anything, otherwise the\n * built-in catalog's own pick, and for a user category a stable hash of its id.\n */",
     "/**\n * The glyph in front of a category row. A library seeded before categories grew an\n * icon field still gets the catalog's own, because that row is not the user's to restyle.\n */",
@@ -3371,6 +3374,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/templates/gallery-export.ts", [
     "/** Built-ins are re-seeded by the app, so an export carries only what the user made. */",
+  ]],
+  ["src/client/features/templates/gallery-header-responsive.test.ts", [
+    "/** `useMediaQuery` reads `window.matchMedia`, which the global stub does not replace here. */",
+  ]],
+  ["src/client/features/templates/gallery-header.tsx", [
+    "/**\n * Below this width the header row cannot hold the title, the two meta buttons and a search box\n * that still reads as one, so those controls move into the overflow menu. The menu is built from\n * the same query: a control hidden by CSS with no menu twin is simply gone.\n */",
   ]],
   ["src/client/features/templates/gallery-keyboard.ts", [
     "/** Keyboard parity with dragging: Shift+Arrow moves the focused card. */",
@@ -7172,6 +7181,9 @@ const allowed = new Map([
     "// A malformed key reaches Intl.DateTimeFormat as an Invalid Date, which throws inside the list",
     "// header and the error boundary answers by reloading the page forever. A reversed range is not",
     "// an error, just a drag the other way round.",
+  ]],
+  ["src/client/styles/app.css", [
+    "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",
