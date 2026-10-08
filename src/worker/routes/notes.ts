@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, extractTags, likePattern, linkFirstMention, normalizeLinkKey, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, extractTags, foldCase, foldIndexOf, likePattern, linkFirstMention, normalizeLinkKey, plainLinkText, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
 import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
@@ -1234,20 +1234,88 @@ export async function linkMentionInNote(
  * The window is cut from `hit`, so the column has to survive the outer projection: it
  * did not, and every context came back empty until a test read the row keys.
  */
+/**
+ * The sentence around a mention, or `null` when the row does not actually carry one.
+ *
+ * Two reasons not to trust the index pass: SQLite's `lower()` folds ASCII characters only,
+ * so a mention written with an accented or Cyrillic capital gives `hit` 0 and leaves the
+ * window parked at the top of the note; and the full-text index matches token neighbours,
+ * not characters, so it can offer a note where the words only happen to sit next to each
+ * other. `foldIndexOf` is exact and length-preserving, so one check answers both.
+ */
+function mentionExcerpt(window: string, hit: number, len: number, needle: string): string | null {
+  const body = trimFrontMatterLead(window)
+  const found = foldIndexOf(body, needle)
+  if (found < 0) return null
+  const from = Math.max(0, found - 60)
+  const to = Math.min(body.length, found + needle.length + 90)
+  // `trimFrontMatterLead` only ever removes a prefix, so the difference in length is how
+  // much of the note the window already left behind.
+  const dropped = (hit > 0 ? Math.max(hit - 61, 0) : 0) + (window.length - body.length)
+  const headCut = dropped + from > 0
+  const tailCut = dropped + to < len
+  return (headCut ? '…' : '') + plainLinkText(body.slice(from, to)).replace(/\s+/g, ' ').trim() + (tailCut ? '…' : '')
+}
+
+/**
+ * How far into a note the retry scan looks for a mention the cheap index pass could not
+ * place. Sized to cover most notes whole, and applied only to the few rows per page that
+ * need it, so the panel never pulls a body at the content limit.
+ */
+const MENTION_RETRY_SCAN_CHARS = 4000
+
+function backlinkContext(window: string, hit: number, len: number, needle: string): string {
+  const located = mentionExcerpt(window, hit, len, needle)
+  // A backlink is known from the link table, so the row stays even when the excerpt could
+  // not be placed on it; the head of the note is the honest fallback.
+  return located ?? plainLinkText(truncateText(window, 120).replace(/\s+/g, ' ').trim())
+}
+
+/**
+ * The letters SQLite's `lower()` cannot fold, spelled out as `replace()` arguments.
+ *
+ * `lower()` covers ASCII; `foldCase` covers every letter with a single-code-unit lowercase.
+ * The gap between them is exactly this list, so folding the column with these pairs and the
+ * needle with `foldCase` leaves both sides in the same alphabet. Capped at twelve pairs: a
+ * title made of exotic letters would build a `replace()` chain longer than the scan is worth,
+ * and the caller's retry pass picks up what the cap drops.
+ */
+function caseFoldPairs(title: string): Array<[string, string]> {
+  const pairs: Array<[string, string]> = []
+  for (const char of title) {
+    const folded = foldCase(char)
+    if (folded.length !== 1) continue
+    for (const variant of [char, char.toUpperCase()]) {
+      if (variant.length !== 1 || variant === folded || variant.charCodeAt(0) < 0x80) continue
+      if (!pairs.some(([from]) => from === variant)) pairs.push([variant, folded])
+    }
+  }
+  return pairs.slice(0, 12)
+}
+
+/** `expression`, folded down to the alphabet `foldCase` reports for `title`. */
+function foldSql(expression: string, pairs: Array<[string, string]>, firstSlot: number): string {
+  return pairs.reduce(
+    (sql, _pair, index) => `replace(${sql}, ?${firstSlot + index * 2}, ?${firstSlot + index * 2 + 1})`,
+    expression,
+  )
+}
+
 export async function findLinkedBacklinks(
   db: D1Database,
   userId: string,
   target: { id: string; title: string },
 ): Promise<Array<{ id: string; title: string; context: string }>> {
-  const needle = `[[${target.title}`.toLowerCase()
-  // One lower() copy and one instr per row: SQLite does not share the repeated
-  // lower(n.content) subexpression across the three references below.
+  const needle = `[[${target.title}`
+  const pairs = caseFoldPairs(target.title)
+  // One fold and one instr per row: SQLite does not share the repeated subexpression
+  // across the references below.
   const { results } = await db.prepare(
     `SELECT id, title, hit, len,
        substr(content, MAX(hit - 60, 1), ?4) AS window
      FROM (
        SELECT n.id AS id, n.title AS title, n.content AS content,
-              instr(lower(n.content), ?3) AS hit, length(n.content) AS len
+              instr(${foldSql('lower(n.content)', pairs, 5)}, ?3) AS hit, length(n.content) AS len
          FROM links l
            JOIN notes n ON n.id = l.source_note_id
         WHERE l.user_id = ?1 AND l.target_note_id = ?2
@@ -1255,13 +1323,13 @@ export async function findLinkedBacklinks(
         ORDER BY n.updated_at DESC LIMIT 50
      )`,
   )
-    .bind(userId, target.id, needle, needle.length + 150)
+    .bind(userId, target.id, foldCase(needle), needle.length + 150, ...pairs.flat())
     .all<{ id: string; title: string; hit: number; len: number; window: string }>()
 
   return results.map((row) => ({
     id: row.id,
     title: row.title,
-    context: backlinkContext(row.window, row.hit, row.len, needle.length),
+    context: backlinkContext(row.window, row.hit, row.len, needle),
   }))
 }
 
@@ -1269,14 +1337,17 @@ export async function findLinkedBacklinks(
 /**
  * Notes that say the target's title in their text without linking to it.
  *
- * The full-text index finds the candidates and `instr` confirms the literal phrase:
+ * The full-text index finds the candidates and `mentionExcerpt` confirms the literal phrase:
  * the index is tokenised and case-folded, so it can offer a note where the words only
- * happen to sit next to each other, and a mention the reader cannot see is worse than
- * a shorter list. Notes that already carry a `[[title]]` are left to the linked half of
- * the panel, since a row would otherwise show up twice with two different meanings.
+ * happen to sit next to each other, and a mention the reader cannot see is worse than a
+ * shorter list. Notes that already carry a `[[title]]` are left to the linked half of the
+ * panel, since a row would otherwise show up twice with two different meanings.
  *
- * Without the index the same answer comes from scanning every body, which is what the
- * search endpoint already falls back to; the cap bounds the work either way.
+ * The index pass over-fetches by three because the confirmation drops rows the index should
+ * not have offered, and a candidate whose mention the first window missed gets one more look
+ * at its first `MENTION_RETRY_SCAN_CHARS` characters, which is where an accented or Cyrillic
+ * capital that SQLite could not fold usually lives. Without the index the same answer comes
+ * from scanning every body, which is what the search endpoint already falls back to.
  */
 export async function findUnlinkedMentions(
   db: D1Database,
@@ -1291,7 +1362,8 @@ export async function findUnlinkedMentions(
   const match = ftsEnabled ? buildFtsQuery([title]) : ''
   if (ftsEnabled && !match)
     return []
-  const needle = title.toLowerCase()
+  const needle = title
+  const pairs = caseFoldPairs(title)
   // ?1 is the match expression only when the index is in play, so every later slot shifts.
   const k = ftsEnabled ? 1 : 0
   const { results } = await db
@@ -1300,10 +1372,10 @@ export async function findUnlinkedMentions(
          substr(content, MAX(hit - 60, 1), ?${4 + k}) AS window
        FROM (
          SELECT n.id AS id, n.title AS title, n.content AS content,
-                instr(lower(n.content), ?${3 + k}) AS hit, length(n.content) AS len
+                instr(${foldSql('lower(n.content)', pairs, 6 + k)}, ?${3 + k}) AS hit, length(n.content) AS len
            ${ftsEnabled ? 'FROM notes_fts JOIN notes n ON n.id = notes_fts.note_id AND n.user_id = notes_fts.user_id' : 'FROM notes n'}
           ${ftsEnabled ? 'WHERE notes_fts MATCH ?1 AND notes_fts.user_id = ?2 AND n.user_id = ?2' : 'WHERE n.user_id = ?1'}
-            AND instr(lower(n.content), ?${3 + k}) > 0
+            ${ftsEnabled ? '' : `AND instr(${foldSql('lower(n.content)', pairs, 6 + k)}, ?${3 + k}) > 0`}
             AND n.deleted_at IS NULL
             AND n.id != ?${2 + k}
             AND NOT EXISTS (
@@ -1314,14 +1386,38 @@ export async function findUnlinkedMentions(
          LIMIT ?${5 + k}
        )`,
     )
-    .bind(...(ftsEnabled ? [match, userId, target.id, needle, needle.length + 150, limit] : [userId, target.id, needle, needle.length + 150, limit]))
+    .bind(...(ftsEnabled
+      ? [match, userId, target.id, foldCase(needle), needle.length + 150, limit * 3, ...pairs.flat()]
+      : [userId, target.id, foldCase(needle), needle.length + 150, limit * 3, ...pairs.flat()]))
     .all<{ id: string; title: string; hit: number; len: number; window: string }>()
 
-  return results.map((row) => ({
-    id: row.id,
-    title: row.title,
-    context: backlinkContext(row.window, row.hit, row.len, needle.length),
-  }))
+  const found = new Map<string, string>()
+  const missed: Array<{ id: string; len: number }> = []
+  for (const row of results) {
+    const context = mentionExcerpt(row.window, row.hit, row.len, needle)
+    if (context === null) missed.push({ id: row.id, len: row.len })
+    else found.set(row.id, context)
+  }
+
+  if (missed.length) {
+    const placeholders = missed.map((_, index) => `?${index + 3}`).join(', ')
+    const { results: heads } = await db.prepare(
+      `SELECT id, title, length(content) AS len, substr(content, 1, ?2) AS window
+         FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
+    ).bind(userId, MENTION_RETRY_SCAN_CHARS, ...missed.map((row) => row.id))
+      .all<{ id: string; title: string; len: number; window: string }>()
+    for (const head of heads) {
+      if (found.size >= limit) break
+      const context = mentionExcerpt(head.window, 0, head.len, needle)
+      if (context !== null) found.set(head.id, context)
+    }
+  }
+
+  const order = new Map(results.map((row, index) => [row.id, index]))
+  return [...found.entries()]
+    .sort((a, b) => (order.get(a[0]) ?? 0) - (order.get(b[0]) ?? 0))
+    .slice(0, limit)
+    .map(([id, context]) => ({ id, title: results.find((row) => row.id === id)?.title ?? '', context }))
 }
 
 
@@ -1336,16 +1432,6 @@ async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<
     .first<NoteRow>()
   if (!row) throw ApiError.notFound('Note not found')
   return row
-}
-
-function backlinkContext(window: string, hit: number, len: number, needleLen: number): string {
-  if (hit <= 0) return truncateText(window, 120).replace(/\s+/g, ' ').trim()
-  const start = hit > 61 ? hit - 61 : 0
-  const end = Math.min(len, (hit - 1) + needleLen + 90)
-  // The window is cut around the hit, so a hit near the top of a note reaches back into
-  // the front matter; dropping that lead keeps the sentence the reader came for.
-  const lead = trimFrontMatterLead(window.slice(0, Math.max(0, end - start)))
-  return (start > 0 ? '…' : '') + lead.replace(/\s+/g, ' ').trim() + (end < len ? '…' : '')
 }
 
 export async function rewriteInboundWikiLinks(

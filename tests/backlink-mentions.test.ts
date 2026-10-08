@@ -127,10 +127,77 @@ describe('linked backlinks', () => {
     expect(rows[0].context).toContain(CN)
   })
 
+  it('shows the link by its words, the way the reader says them', async () => {
+    note('src', 'source', `reading on I wrote [[${CN}]] so it continues`)
+    linkTo('src', CN)
+    expect((await linked())[0].context).toBe(`reading on I wrote ${CN} so it continues`)
+  })
+
+  it('places the excerpt around an accented link SQLite cannot fold', async () => {
+    const accented = 'Café Résumé'
+    note('src', 'source', `HEAD${'x'.repeat(200)}reading about [[CAFÉ RÉSUMÉ]] dailyTAILMARK`)
+    linkTo('src', accented)
+    const rows = await findLinkedBacklinks(db, USER, { id: TARGET, title: accented })
+    // Without the fold the scan reports no position and the excerpt falls back to the top
+    // of the note, which is the same string with the wrong sentence in it.
+    expect(rows[0].context).toContain('CAFÉ RÉSUMÉ')
+    expect(rows[0].context).toContain('TAILMARK')
+    expect(rows[0].context).not.toContain('HEAD')
+  })
+
   it('drops a source that went to the trash', async () => {
     note('gone', 'trashed', `[[${CN}]]`, { deletedAt: 7 })
     linkTo('gone', CN)
     expect(await linked()).toEqual([])
+  })
+})
+
+describe('mentions the cheap index pass cannot place', () => {
+  const CAFE = 'Café Résumé'
+  const CAFE_CAPS = 'CAFÉ RÉSUMÉ'
+  const mentioned = (title: string, fts = true) => findUnlinkedMentions(db, USER, { id: TARGET, title }, fts, 50)
+
+  it('lists a mention whose capitals SQLite leaves alone', async () => {
+    note('src', 'source', `notes about ${CAFE_CAPS} here`)
+    const rows = await mentioned(CAFE)
+    expect(ids(rows)).toEqual(['src'])
+    expect(rows[0].context).toContain(CAFE_CAPS)
+  })
+
+  it('finds one further in than the first window reaches', async () => {
+    note('src', 'source', `${'word '.repeat(150)}a line mentioning ${CAFE_CAPS} deep in the note`)
+    expect(ids(await mentioned(CAFE))).toEqual(['src'])
+  })
+
+  it('reaches a mention thousands of characters in, because the fold runs in the scan', async () => {
+    note('src', 'source', `${'word '.repeat(1200)}a line mentioning ${CAFE_CAPS} far away`)
+    const rows = await mentioned(CAFE)
+    expect(ids(rows)).toEqual(['src'])
+    expect(rows[0].context).toContain(CAFE_CAPS)
+  })
+
+  it('looks past an alias that only the front matter carries', async () => {
+    note('src', 'source', `---\ntitle: misc\naliases: [${CAFE}]\n---\n${'word '.repeat(120)}a line mentioning ${CAFE_CAPS} in the body`)
+    const rows = await mentioned(CAFE)
+    expect(ids(rows)).toEqual(['src'])
+    expect(rows[0].context).toContain(CAFE_CAPS)
+    expect(rows[0].context).not.toContain('aliases')
+  })
+
+  it('refuses words that only happen to sit next to each other', async () => {
+    note('src', 'source', 'notes about café  résumé here')
+    expect(ids(await mentioned('Café Résumé'))).toEqual([])
+    expect(ids(await mentioned('Café Résumé', false))).toEqual([])
+  })
+
+  it('refuses a title that lives only in the note front matter', async () => {
+    note('src', 'source', `---\ntitle: unrelated\naliases: [${CAFE}]\n---\nnothing to see here`)
+    expect(ids(await mentioned(CAFE))).toEqual([])
+  })
+
+  it('answers the same with and without the index for a plain latin mention', async () => {
+    note('src', 'source', `notes about ${CAFE_CAPS} here`)
+    expect(ids(await mentioned(CAFE, false))).toEqual(ids(await mentioned(CAFE, true)))
   })
 })
 

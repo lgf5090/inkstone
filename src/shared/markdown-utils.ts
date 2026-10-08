@@ -1075,11 +1075,51 @@ export function trimFrontMatterLead(text: string): string {
  */
 export function mentionContext(content: string, needle: string, before = 60, after = 90): string {
   const haystack = trimFrontMatterLead(content)
-  const hit = haystack.toLowerCase().indexOf(needle.toLowerCase())
+  const hit = foldIndexOf(haystack, needle)
   if (hit < 0) return truncateText(haystack, before + after).replace(/\s+/g, ' ').trim()
   const start = Math.max(0, hit - before)
   const end = Math.min(haystack.length, hit + needle.length + after)
-  return (start > 0 ? '…' : '') + haystack.slice(start, end).replace(/\s+/g, ' ').trim() + (end < haystack.length ? '…' : '')
+  return (start > 0 ? '…' : '') + plainLinkText(haystack.slice(start, end)).replace(/\s+/g, ' ').trim() + (end < haystack.length ? '…' : '')
+}
+
+/**
+ * Lowercase that never changes the string's length, so an index found in the folded text
+ * still points at the same character in the original.
+ *
+ * Neither built-in will do: SQLite's `lower()` folds ASCII only, so it misses every
+ * accented capital, and JavaScript's `toLowerCase()` can *grow* the string (`İ` becomes
+ * two code units), which would cut the text at the wrong place afterwards. A character
+ * whose lowercase form is longer is left alone, so it matches only itself — the same rule
+ * the case-insensitive wikilink search in `linkFirstMention` follows.
+ */
+export function foldCase(text: string): string {
+  return text.replace(/./gu, (char) => {
+    const lower = char.toLowerCase()
+    return lower.length === 1 ? lower : char
+  })
+}
+
+/**
+ * Where `needle` occurs in `haystack`, ignoring case the way a reader would.
+ *
+ * Both sides go through `foldCase`, so the returned index is usable on `haystack` itself.
+ */
+export function foldIndexOf(haystack: string, needle: string): number {
+  if (!needle) return -1
+  return foldCase(haystack).indexOf(foldCase(needle))
+}
+
+/**
+ * The text a reader sees where the markup is: a wiki link by its alias or target, a
+ * markdown link by its label, an embed by its file name.
+ *
+ * Excerpts are cut around a hit, so they used to carry the `[[…]]` the note happens to
+ * contain, which reads as noise in a panel whose whole job is to point at that sentence.
+ */
+export function plainLinkText(text: string): string {
+  return text
+    .replace(/!?\[\[([^[\]|\n]+)(?:\|([^[\]\n]*))?\]\]/g, (_all, target: string, alias?: string) => wikiLinkText(target, alias))
+    .replace(/\[([^\]\n]*)\]\([^)\n]*\)/g, (_all, label: string) => label)
 }
 
 // Same result as the /( ! )\[([^\]]*)\]\([^)]*\)/g pass, as one left-to-right scan:

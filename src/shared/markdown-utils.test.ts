@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, linkFirstMention, mentionContext, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText, trimFrontMatterLead } from './markdown-utils'
+import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, foldCase, foldIndexOf, isUsableTagName, linkFirstMention, mentionContext, plainLinkText, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText, trimFrontMatterLead } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -362,5 +362,64 @@ describe('linking a bare mention', () => {
     const title = 'İstanbul'
     expect(linkFirstMention(`notes about ${title} today`, title)).toBe(`notes about [[${title}]] today`)
     expect(linkFirstMention(`see ${title} and ${title}`, title)).toBe(`see [[${title}]] and ${title}`)
+  })
+})
+
+describe('folding case without moving the text', () => {
+  const accented = 'CafÉ RÉsumÉ'
+  const greek = 'ΟΔΟΣ ΑΘΗΝΑ'
+
+  it('never changes the length, so an index stays usable on the original', () => {
+    const cjk = String.fromCodePoint(0x6DF1, 0x5EA6, 0x7814, 0x7A76, 0x7B14, 0x8BB0)
+    for (const text of [accented, greek, 'İstanbul', cjk, 'mixed Å2 é', '']) {
+      expect(foldCase(text).length).toBe(text.length)
+    }
+    expect(foldCase('a'.repeat(5) + 'İ')).toBe('a'.repeat(5) + 'İ')
+  })
+
+  it('folds the letters SQLite cannot, without moving the text', () => {
+    expect(foldIndexOf('notes about CAFÉ RÉSUMÉ here', 'Café Résumé')).toBe(12)
+    expect(foldIndexOf('УЛИЦА АФИНЫ тут', 'Улица Афины')).toBe(0)
+    expect(foldIndexOf('οδός αθήνα εδώ', 'Αθήνα')).toBe(5)
+    expect(foldIndexOf('İSTANBUL burada', 'İstanbul')).toBe(0)
+    expect(foldIndexOf('notes about DEEP RESEARCH NOTES', 'Deep Research Notes')).toBe(12)
+  })
+
+  it('draws the line at case, so a letter that changed its accents is not a mention', () => {
+    // Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by
+    // an accent rather than by case. Folding it too would need a map that shortens code
+    // units, and the index would no longer point at the text it came from.
+    expect(foldIndexOf('οδός ΑΘΗΝΑ εδώ', 'Αθήνα')).toBe(-1)
+  })
+
+  it('reports the position in the text it was given, not in a longer folded copy', () => {
+    expect(foldIndexOf(`${'İ'}xxxxxneedle`, 'needle')).toBe(6)
+    expect(foldIndexOf('İstanbul', 'needle')).toBe(-1)
+  })
+})
+
+describe('reading an excerpt without the markup', () => {
+  it('shows each kind of link by the words the reader sees', () => {
+    expect(plainLinkText('see [[Deep Research Notes]] now')).toBe('see Deep Research Notes now')
+    expect(plainLinkText('see [[Deep Research Notes|the notes]] now')).toBe('see the notes now')
+    expect(plainLinkText('see [[Deep Research Notes#Ideas]] now')).toBe('see Deep Research Notes#Ideas now')
+    expect(plainLinkText('see [the docs](https://x.test/y) now')).toBe('see the docs now')
+    expect(plainLinkText('see [[img.png|300]] now')).toBe('see img.png now')
+  })
+
+  it('leaves a mention cut mid-link alone rather than guessing', () => {
+    expect(plainLinkText('cut off [[Deep Research')).toBe('cut off [[Deep Research')
+    expect(plainLinkText('plain text')).toBe('plain text')
+  })
+
+  it('points the excerpt at the sentence, not at the brackets', () => {
+    expect(mentionContext('A reader wrote [[Deep Research Notes]] about it', 'Deep Research Notes'))
+      .toBe('A reader wrote Deep Research Notes about it')
+  })
+
+  it('counts the lead-in in characters of the note, not of a folded copy', () => {
+    const needle = 'Deep Research Notes'
+    const content = `${'a'.repeat(100)}İ${'b'.repeat(100)}${needle} and more`
+    expect(mentionContext(content, needle)).toContain(`${'b'.repeat(60)}${needle}`)
   })
 })

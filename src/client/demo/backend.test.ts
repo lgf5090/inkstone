@@ -309,3 +309,45 @@ describe('demo turns a mention into a link the way the worker does', () => {
       { sourceNoteId: target.id })).status).toBe(200)
   })
 })
+
+describe('demo lists the mentions the worker lists', () => {
+  async function makeNote(noteTitle: string, content: string) {
+    const created = await call('POST', '/api/notes', { title: noteTitle, content })
+    expect(created.status).toBe(201)
+    return await created.json() as Note
+  }
+
+  async function mentioned(targetId: string) {
+    const body = await (await call('GET', `/api/notes/${targetId}/backlinks`)).json() as
+      { unlinked: Array<{ id: string, context: string }> }
+    return body.unlinked
+  }
+
+  it('finds a mention written in capitals SQLite cannot fold', async () => {
+    const target = await makeNote('Café Résumé', 'the note being pointed at')
+    const source = await makeNote('Somewhere else', 'notes about CAFÉ RÉSUMÉ here')
+    const rows = await mentioned(target.id)
+    expect(rows.map((row) => row.id)).toEqual([source.id])
+    expect(rows[0].context).toBe('notes about CAFÉ RÉSUMÉ here')
+  })
+
+  it('refuses words that only happen to sit next to each other', async () => {
+    const target = await makeNote('Café Résumé', 'the note being pointed at')
+    await makeNote('Somewhere else', 'notes about café  résumé here')
+    expect(await mentioned(target.id)).toEqual([])
+  })
+
+  it('refuses a title that only the front matter carries', async () => {
+    const target = await makeNote('Café Résumé', 'the note being pointed at')
+    await makeNote('Somewhere else', `---\ntitle: misc\naliases: [Café Résumé]\n---\nnothing to see here`)
+    expect(await mentioned(target.id)).toEqual([])
+  })
+
+  it('shows a linked note by its words, not its brackets', async () => {
+    const target = await makeNote('Café Résumé', 'the note being pointed at')
+    await makeNote('Somewhere else', 'reading about [[Café Résumé]] daily')
+    const body = await (await call('GET', `/api/notes/${target.id}/backlinks`)).json() as
+      { backlinks: Array<{ context: string }> }
+    expect(body.backlinks.map((row) => row.context)).toEqual(['reading about Café Résumé daily'])
+  })
+})

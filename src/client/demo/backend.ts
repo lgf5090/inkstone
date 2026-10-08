@@ -11,6 +11,7 @@ import {
   deriveTitle,
   extractAttachmentIds,
   extractWikiLinks,
+  foldIndexOf,
   isUsableTagName,
   linkFirstMention,
   mentionContext,
@@ -19,6 +20,7 @@ import {
   notesCarryEveryTag,
   replaceTagInContent,
   tagNamesEqual,
+  trimFrontMatterLead,
   wikiNoteTarget,
 } from '@shared/markdown-utils'
 import type {
@@ -259,9 +261,12 @@ export function createDemoBackend(): DemoBackend {
     const others = [...state.notes.values()].filter((note) => note.id !== target.id && !note.deletedAt)
     const linked = others.filter((note) => extractWikiLinks(note.content).some((link) => link.key === key))
     const title = target.title.trim()
+    // Same rule the worker applies: a mention has to be in the body (not the front matter)
+    // and case is folded the length-preserving way, so demo and a deployed site list the
+    // same notes for an accented or Greek title.
     const unlinked = Array.from(title).length < LIMITS.mentionMinChars
       ? []
-      : others.filter((note) => !linked.includes(note) && note.content.toLowerCase().includes(title.toLowerCase()))
+      : others.filter((note) => !linked.includes(note) && foldIndexOf(trimFrontMatterLead(note.content), title) >= 0)
     const shape = (note: Note) => ({ id: note.id, title: note.title, context: mentionContext(note.content, title) })
     return c.json({
       backlinks: linked.slice(0, 50).map(shape),
