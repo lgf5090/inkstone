@@ -192,6 +192,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     codeBlockCollapseLines: 24,
     codeFormatButton: true,
     tableBubbleMenu: true,
+    mediaToolbar: true,
+    mediaAutoBundle: false,
+    mediaAutoBundleWrap: false,
     linkHover: true,
     linkHoverDelayMs: 320,
     linkPreviewLength: 4000,
@@ -646,6 +649,9 @@ export function mergeSettings(partial: unknown): UserSettings {
   )
   base.preview.codeFormatButton = booleanValue(preview.codeFormatButton, base.preview.codeFormatButton)
   base.preview.tableBubbleMenu = booleanValue(preview.tableBubbleMenu, base.preview.tableBubbleMenu)
+  base.preview.mediaToolbar = booleanValue(preview.mediaToolbar, base.preview.mediaToolbar)
+  base.preview.mediaAutoBundle = booleanValue(preview.mediaAutoBundle, base.preview.mediaAutoBundle)
+  base.preview.mediaAutoBundleWrap = booleanValue(preview.mediaAutoBundleWrap, base.preview.mediaAutoBundleWrap)
   base.preview.linkHover = booleanValue(preview.linkHover, base.preview.linkHover)
   base.preview.linkHoverDelayMs = integerInRange(
     preview.linkHoverDelayMs,

@@ -7,6 +7,8 @@ import { exampleSplitTracks, isVerticalExampleLayout, parseExampleRatio } from '
 import { renderStaticKanbans, type KanbanSnapshotShape } from './kanban/static';
 import { showKanbanSourceAll } from './kanban/view';
 import { MAX_PANEL_COLUMNS, isTrackValue } from './panel-options';
+import { applyMediaLayouts } from './media-layout-view';
+export { applyMediaLayouts } from './media-layout-view';
 import { t, type MessageKey } from "../i18n";
 import { getLocale } from "../i18n";
 import { renderStaticMindmaps } from './mindmap/static';
@@ -1034,6 +1036,7 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     configureCodeBlockCollapsing(root, options.codeBlockCollapseLines ?? 24);
     applyExampleSplits(root);
     applyPanelColumnTracks(root);
+    applyMediaLayouts(root);
 }
 export function invalidateMermaidTheme(root: HTMLElement | null): void {
     root?.querySelectorAll<HTMLElement>('[data-mermaid]').forEach((node) => {

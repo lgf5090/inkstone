@@ -446,6 +446,18 @@
 .ink-editor .cm-live-block img { max-width: 100%; }
 .ink-editor .cm-live-block table { display: block; overflow-x: auto; }
 .ink-editor .cm-live-block pre { overflow-x: auto; }
+/* A floated layout floats the widget host, not the block inside it: the paragraphs beside it are
+   separate widgets, and a float that stays inside one host would push them below instead of beside. */
+.ink-editor .cm-live-block.cm-media-float-left { float: left; width: var(--cm-media-host-width, 40%); margin: 0 16px 8px 0; }
+.ink-editor .cm-live-block.cm-media-float-right { float: right; width: var(--cm-media-host-width, 40%); margin: 0 0 8px 16px; }
+.ink-editor .cm-live-block.cm-media-float-left > *,
+.ink-editor .cm-live-block.cm-media-float-right > * { width: 100%; }
+/* The same bargain the prose sheet makes on a phone: a floated frame stops floating and takes the line,
+   because beside-text-on-a-narrow-line is unreadable rather than compact. */
+@media (max-width: 640px) {
+  .ink-editor .cm-live-block.cm-media-float-left,
+  .ink-editor .cm-live-block.cm-media-float-right { float: none; width: 100%; margin-inline: 0; }
+}
 @media (max-width: 767px) {
   .ink-editor .cm-editor { font-size: max(16px, var(--editor-size, 15px)); }
   [data-editor-layout='split'] > div { min-height: 0; }

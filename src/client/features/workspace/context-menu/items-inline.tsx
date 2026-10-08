@@ -1,4 +1,4 @@
-import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, List, Maximize2, Network, Pencil, Plus, Sigma, SquarePen, Trash2 } from 'lucide-react'
+import { CaseUpper, CheckSquare, Copy, ExternalLink, FileText, Heading, Images, List, Maximize2, Network, Pencil, Plus, Sigma, SquarePen, Trash2 } from 'lucide-react'
 import { submenuFor, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { findNoteByTitle } from '../../../store/notes'
@@ -6,9 +6,15 @@ import { updateTaskAtSourceLine } from '../../../editor/commands'
 import { formatMenuItems } from '../../../editor/editorMenus'
 import { editLinkFromMenu } from '../../links/use-link-editor'
 import { joinLines, splitLines } from '../../../lib/markdown/fence-edit'
+import { MEDIA_BLOCK_DEFAULTS, parseMediaRow } from '../../../lib/markdown/media-layout'
+import type { MediaBlockOptions } from '../../../lib/markdown/media-layout'
+import { applyMediaEdit, editTakeCellOut, editUnwrapBlock, editWrapLines, findMediaBlockAt } from '../../../lib/markdown/media-layout-source'
+import type { MediaEdit } from '../../../lib/markdown/media-layout-source'
 import { containerRangeInText, isSafeExternalUrl, setHeadingLevelInText, taskToBulletInText } from './line-edits'
 import type { MenuCtx } from './types'
 import { isSourceMenu } from './types'
+
+const MEDIA_LAYOUT_DEFAULTS: MediaBlockOptions = { ...MEDIA_BLOCK_DEFAULTS }
 
 /**
  * The menus of the things that live inside a line: a heading, a task, a link, an image, a formula,
@@ -166,9 +172,80 @@ export function buildImageItems(ctx: MenuCtx): MenuItem[] | null {
     { id: 'preview-image', label: t('contextmenu.image_preview'), icon: <Maximize2 size={14} />, onSelect: () => ctx.onLightbox({ src, alt }) },
     copyItem(ctx, 'copy-image-md', t('contextmenu.copy_markdown'), `![${alt}](${src})`, true),
     copyItem(ctx, 'copy-image-url', t('contextmenu.copy_link'), src),
+    ...mediaImageItems(ctx),
   ]
   if (!isSourceMenu(ctx) && ctx.preview?.line !== undefined) items.push(jumpItem(ctx, ctx.preview.line))
   return withEditRow(items, ctx)
+}
+
+/**
+ * The layout rows on a picture's own menu: put it in a block, take it out, stop laying the block out.
+ *
+ * The line the picture sits on is what both halves of the editor can name, so the rows are written against
+ * it — from the reading view the element carries that line, from the note the cursor does. A picture that
+ * is already inside a block is never offered a second one, and one that is not is never offered a way out.
+ */
+function mediaImageItems(ctx: MenuCtx): MenuItem[] {
+  const line = isSourceMenu(ctx) ? (ctx.editor?.line ?? 1) - 1 : ctx.preview?.line
+  if (line === undefined || !Number.isInteger(line)) return []
+  const source = ctx.content
+  const block = findMediaBlockAt(source, line)
+  if (!block || block.isTextFrame) {
+    return [
+      {
+        id: 'media-wrap',
+        label: t('command.media_layout_wrap'),
+        icon: <Images size={14} />,
+        separatorBefore: true,
+        onSelect: () => writeLineEdit(ctx, editWrapLines(source, line, line, MEDIA_LAYOUT_DEFAULTS)),
+      },
+    ]
+  }
+  const cellIndex = cellIndexAt(ctx, source, line)
+  const items: MenuItem[] = [
+    {
+      id: 'media-unwrap',
+      label: t('preview.media_unwrap'),
+      icon: <Images size={14} />,
+      tone: 'danger',
+      separatorBefore: true,
+      onSelect: () => writeLineEdit(ctx, editUnwrapBlock(source, block.headerLine), t('preview.media_unwrap_done')),
+    },
+  ]
+  if (cellIndex !== null) {
+    items.unshift({
+      id: 'media-take-out',
+      label: t('preview.media_cell_out'),
+      icon: <Maximize2 size={14} />,
+      separatorBefore: true,
+      onSelect: () => writeLineEdit(ctx, editTakeCellOut(source, block.headerLine, line, cellIndex)),
+    })
+  }
+  return items
+}
+
+/** Which picture on the line the pointer is on, from the element or from the raw text the note gave. */
+function cellIndexAt(ctx: MenuCtx, source: string, line: number): number | null {
+  const cell = !isSourceMenu(ctx) ? (ctx.preview?.target instanceof Element ? ctx.preview.target.closest<HTMLElement>('.markdown-media-cell') : null) : null
+  if (cell) {
+    const index = Number(cell.dataset.mediaIndex)
+    return Number.isInteger(index) && index >= 0 ? index : null
+  }
+  const raw = isSourceMenu(ctx) ? ctx.editor?.image?.raw : undefined
+  if (!raw) return null
+  const row = parseMediaRow(source.split('\n')[line] ?? '')
+  if (!row) return null
+  const at = row.cells.findIndex((candidate) => raw.includes(candidate.raw) || candidate.raw.includes(raw))
+  return at < 0 ? null : at
+}
+
+function writeLineEdit(ctx: MenuCtx, edit: MediaEdit | null, done?: string): void {
+  if (edit === null) {
+    ctx.onToast({ title: t('preview.media_edit_unavailable'), tone: 'warning' })
+    return
+  }
+  ctx.onEditContent(applyMediaEdit(ctx.content, edit))
+  if (done) ctx.onToast({ title: done, tone: 'success' })
 }
 
 export function buildLinkItems(ctx: MenuCtx): MenuItem[] | null {

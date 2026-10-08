@@ -352,6 +352,8 @@ export const SLIDE_CONTROL_SELECTORS = [
   '[data-example-action]',
   '[data-panel-action]',
   '[data-tabs-action]',
+  '[data-media-action]',
+  '[data-media-handle]',
 ]
 
 /**

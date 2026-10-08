@@ -1,4 +1,4 @@
-import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange, type StateCommand } from '@codemirror/state';
+import { EditorSelection, type ChangeSpec, type EditorState, type SelectionRange, type StateCommand, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { t } from "../lib/i18n";
 import { markdownToMindmapOutline } from '../lib/markdown/mindmap/outline';
@@ -6,6 +6,10 @@ import { interpolateNewNoteTemplate } from '@shared/note-template-render';
 import { enclosingFence } from '../lib/markdown/fence-edit';
 import { parseFenceInfo } from '../lib/markdown/fence-info';
 import { CODE_FORMAT_FAILURE_MESSAGES, formatCodeResult } from '../lib/markdown/code-formatter';
+import { MEDIA_BLOCK_DEFAULTS } from '../lib/markdown/media-layout';
+import type { MediaBlockOptions } from '../lib/markdown/media-layout';
+import { editUnwrapBlock, editWrapLines, findMediaBlockAt, mediaBlockSkeleton } from '../lib/markdown/media-layout-source';
+import type { MediaEdit } from '../lib/markdown/media-layout-source';
 import { useSession } from '../store/session';
 import { useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
@@ -523,6 +527,91 @@ export const insertTimeline: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
+/**
+ * A line range, written back as one editor change.
+ *
+ * A layout's whole configuration lives on lines, so a gesture or a menu row can say "these lines, now
+ * these" and the editor keeps the caret, the selection and a single undo entry. Replacing the document
+ * instead would redo all three.
+ */
+function dispatchMediaEdit(state: EditorState, dispatch: (spec: TransactionSpec) => void, edit: MediaEdit): void {
+    const startLine = state.doc.line(Math.min(edit.start + 1, state.doc.lines));
+    if (edit.end < edit.start) {
+        dispatch({
+            changes: { from: startLine.from, insert: `${edit.lines.join('\n')}\n` },
+            scrollIntoView: true,
+            userEvent: 'input.layout',
+        });
+        return;
+    }
+    const endLine = state.doc.line(Math.min(edit.end + 1, state.doc.lines));
+    dispatch({
+        changes: { from: startLine.from, to: endLine.to, insert: edit.lines.join('\n') },
+        selection: { anchor: startLine.from + (edit.lines[0]?.length ?? 0) },
+        scrollIntoView: true,
+        userEvent: 'input.layout',
+    });
+}
+
+const MEDIA_LAYOUT_DEFAULTS: MediaBlockOptions = { ...MEDIA_BLOCK_DEFAULTS };
+
+/**
+ * Wrap the selected lines into a layout block.
+ *
+ * Whole lines are taken rather than the exact selection: a row is a line, and a block that began mid-word
+ * would be a block whose first row is a sentence fragment. Lines that are not made of embeds refuse the
+ * wrap and say so, instead of writing a block the page would render as ordinary paragraphs.
+ */
+export const wrapLinesAsMediaLayout: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const startLine = state.doc.lineAt(range.from).number - 1;
+    const endLine = state.doc.lineAt(range.to).number - 1;
+    const edit = editWrapLines(state.doc.toString(), startLine, endLine, MEDIA_LAYOUT_DEFAULTS);
+    if (edit === null) {
+        useUi.getState().toast({ title: t('command.media_layout_wrap_needs_embeds'), tone: 'warning' });
+        return true;
+    }
+    dispatchMediaEdit(state, (spec) => dispatch(state.update(spec)), edit);
+    return true;
+};
+
+/** An empty layout block, with the caret left on the row the reader is about to fill. */
+export const insertMediaLayout: StateCommand = ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const line = state.doc.lineAt(range.head);
+    const needsBreak = line.text.trim().length > 0;
+    const body = mediaBlockSkeleton(MEDIA_LAYOUT_DEFAULTS).join('\n');
+    const insert = `${needsBreak ? '\n\n' : ''}${body}\n`;
+    // The caret lands on the row line, one past whatever the header the defaults actually spell says.
+    const caret = (needsBreak ? line.to : range.from) + (needsBreak ? 2 : 0) + (body.split('\n')[0]?.length ?? 0) + 1;
+    dispatch(state.update({
+        changes: { from: needsBreak ? line.to : range.from, to: range.to, insert },
+        selection: EditorSelection.cursor(caret),
+        scrollIntoView: true,
+        userEvent: 'input.insert',
+    }));
+    return true;
+};
+
+/** Take the block the cursor sits inside apart, leaving its pictures as the ordinary lines they were. */
+export const unwrapMediaLayoutHere: StateCommand = ({ state, dispatch }) => {
+    const line = state.doc.lineAt(state.selection.main.head).number - 1;
+    const source = state.doc.toString();
+    const block = findMediaBlockAt(source, line);
+    if (!block) {
+        useUi.getState().toast({ title: t('command.media_layout_unwrap_none'), tone: 'warning' });
+        return true;
+    }
+    const edit = editUnwrapBlock(source, block.headerLine);
+    if (edit === null) {
+        useUi.getState().toast({ title: t('preview.media_edit_unavailable'), tone: 'warning' });
+        return true;
+    }
+    dispatchMediaEdit(state, (spec) => dispatch(state.update(spec)), edit);
+    useUi.getState().toast({ title: t('command.media_layout_unwrap_done'), tone: 'success' });
+    return true;
+};
+
 export function insertAlign(align: 'left' | 'center' | 'right' | 'justify'): StateCommand {
     return insertWrappedBlock(`::: ${align}`, ':::', '', `::: ${align}`.length + 1);
 }
@@ -696,7 +785,7 @@ export const completeCodeFenceOnEnter: StateCommand = ({ state, dispatch }) => {
     return true;
 };
 
-const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set|timeline|cols|left|center|right|justify)\}?(?![\w-])[ \t]*(.*)$/;
+const COLON_FENCE_RE = /^[ \t]{0,3}(:{3,})[ \t]*\{?(details|tabs|tab-item|tab-set|timeline|cols|media|left|center|right|justify)\}?(?![\w-])[ \t]*(.*)$/;
 const COLON_CLOSER_RE = /^[ \t]{0,3}(:{3,})[ \t]*$/;
 
 export const completeColonFenceOnEnter: StateCommand = ({ state, dispatch }) => {

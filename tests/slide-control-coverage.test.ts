@@ -58,6 +58,7 @@ function buttonAttributes(source: string): Set<string> {
 const CONTENT_OR_CONTAINER = new Set([
   'data-block-ref',
   'data-example-family',
+  'data-media',
   'data-mermaid',
   'data-tabs',
   'data-tag',
