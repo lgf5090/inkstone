@@ -188,6 +188,12 @@ export interface PreviewSettings {
   codeBlockCollapseLines: number
   codeFormatButton: boolean
   tableBubbleMenu: boolean
+  /** The settings bar and drag handles on a `::: media` layout block. */
+  mediaToolbar: boolean
+  /** Pictures dropped or pasted together are bundled into one layout block. */
+  mediaAutoBundle: boolean
+  /** A bundled block starts floated, so the note's text runs beside it. */
+  mediaAutoBundleWrap: boolean
   linkHover: boolean
   linkHoverDelayMs: number
   linkPreviewLength: number

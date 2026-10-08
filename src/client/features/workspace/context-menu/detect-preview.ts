@@ -196,6 +196,7 @@ const CONTAINERS: Array<{ selector: string; directive: (el: HTMLElement) => stri
   { selector: '[data-tabs]', directive: () => 'tabs' },
   { selector: '[data-align]', directive: (el) => `align ${el.dataset.align ?? ''}`.trim() },
   { selector: '.markdown-cols', directive: () => 'cols' },
+  { selector: '.markdown-media', directive: () => 'media' },
   { selector: '.markdown-timeline, [data-timeline]', directive: () => 'timeline' },
   {
     selector: '.markdown-details',

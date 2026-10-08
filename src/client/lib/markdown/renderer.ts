@@ -19,6 +19,11 @@ import { effectiveTabsPosition, isVerticalTabsPosition, matchPanelHeader, parseT
 import type { TabsOptions } from './panel-options';
 import { findColonTabSegments, renderAlignContainer, renderColsContainer } from './panels';
 import type { TabSegment } from './panels';
+import { emptyCrossrefRegistry, crossrefAnchor, crossrefLabel, lookupCrossref, nameCrossrefBlocks, readCrossrefName, splitCrossrefTail } from './crossref';
+import type { CrossrefKind, CrossrefRegistry, CrossrefTokenMeta } from './crossref';
+import { mediaBlockAttributes, mediaCellAttributes, mediaCellCaption, mediaRowAttributes, renderMediaContainer } from './media-block';
+import type { MediaCellToken, MediaRowToken } from './media-block';
+import type { MediaBlockOptions } from './media-layout';
 import { encodeDataValue } from './data-attr';
 import { parseFenceInfo } from './fence-info';
 import { readCodeOptions } from './code-options';
@@ -68,6 +73,8 @@ interface RenderEnvironment {
     exampleSequence: number;
     /** Counts the mind map blocks in this document, so each one can name itself. */
     mindmapSequence: number;
+    /** What `@fig:`, `@eq:` and `@tbl:` names resolve to, numbered in the order the document was written. */
+    crossrefs: CrossrefRegistry;
     docId: string;
     hideFrontMatter?: boolean;
     properties?: PropertyRenderOptions;
@@ -184,6 +191,8 @@ md.block.ruler.before('fence', 'modern_container', (state, startLine, endLine, s
     if (panel) {
         if (panel.kind === 'align')
             renderAlignContainer(state, startLine, end, nextLine, panel.align);
+        else if (panel.kind === 'media')
+            renderMediaContainer(state, startLine, end, nextLine, panel.media, renderEnv(state.env).crossrefs);
         else
             renderColsContainer(state, startLine, end, nextLine, panel.cols);
     }
@@ -309,6 +318,43 @@ md.renderer.rules.panel_col_open = (tokens, index) => `<div class="markdown-col"
     index: number;
 }).index}">`;
 md.renderer.rules.panel_col_close = () => '</div>';
+/**
+ * The `::: media` layout block: one grid per source line, one cell per picture.
+ *
+ * Nothing here is a `style` attribute — the prose whitelist strips those — so every number travels as a
+ * `data-media-*` value that the enhancer reads back into a CSS custom property after sanitization.
+ */
+function mediaFigureLabel(figure: number): string {
+    return `${t("markdown.figure")} ${figure}`;
+}
+md.renderer.rules.media_open = (tokens, index) => {
+    const meta = tokens[index]!.meta as {
+        options: MediaBlockOptions;
+        numbered: boolean;
+        rows: number;
+    };
+    const line = tokens[index]!.map?.[0];
+    return `<div ${mediaBlockAttributes(meta, escapeAttr)}${line === undefined ? '' : ` data-line="${line}"`}>`;
+};
+md.renderer.rules.media_close = () => '</div>';
+md.renderer.rules.media_row_open = (tokens, index) => `<div ${mediaRowAttributes(tokens[index]!.meta as MediaRowToken, escapeAttr)}>`;
+md.renderer.rules.media_row_close = () => '</div>';
+md.renderer.rules.media_cell_open = (tokens, index) => `<div ${mediaCellAttributes(tokens[index]!.meta as MediaCellToken, escapeAttr)}>`;
+md.renderer.rules.media_cell_close = (tokens, index) => {
+    const meta = tokens[index]!.meta as MediaCellToken;
+    const label = meta.figure === null ? null : mediaFigureLabel(meta.figure);
+    return `${mediaCellCaption(meta, label, escapeHtml)}</div>`;
+};
+md.renderer.rules.crossref_ref = (tokens, index, _options, env) => {
+    const { kind, name } = tokens[index]!.meta as CrossrefRefToken;
+    const entry = lookupCrossref(renderEnv(env).crossrefs, kind, name);
+    // A reference to a name the note never gave says so in the author's own spelling rather than inventing
+    // a number, because a wrong number is a claim about somebody else's document.
+    if (entry === null)
+        return escapeHtml(`@${kind}:${name}`);
+    const anchor = crossrefAnchor(kind, name);
+    return `<a class="figure-reference" data-block-ref="${escapeAttr(anchor)}" href="#%5E${escapeAttr(anchor)}">${escapeHtml(crossrefLabel(entry))}</a>`;
+};
 const TIMELINE_STATUS_KEYS: Record<TimelineStatus, MessageKey> = {
     todo: 'markdown.todo',
     doing: 'markdown.timeline_doing',
@@ -355,10 +401,13 @@ md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
     return true;
 });
 md.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
-    const line = blockLine(state, startLine);
-    if (!/^\$\$/.test(line))
+    // A name written after the closing `$$` is taken off the line before the fence is looked for, or the
+    // block would not be recognised at all and the author would read their own equation as a paragraph.
+    const opened = splitCrossrefTail(blockLine(state, startLine));
+    if (!/^\$\$/.test(opened.body))
         return false;
-    const firstLine = line.slice(2);
+    let marker = opened.marker;
+    const firstLine = opened.body.slice(2);
     let content = '';
     let next = startLine;
     let found = false;
@@ -368,9 +417,12 @@ md.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent)
     }
     else {
         while (!found && ++next < endLine) {
-            const text = blockLine(state, next);
+            const closed = splitCrossrefTail(blockLine(state, next));
+            const text = closed.body;
             if (text.trim().endsWith('$$')) {
                 content += text.slice(0, text.lastIndexOf('$$'));
+                if (closed.marker !== null)
+                    marker = closed.marker;
                 found = true;
             }
             else {
@@ -385,7 +437,7 @@ md.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent)
     if (silent)
         return true;
     const token = state.push('math_block', 'div', 0);
-    token.content = content.trim();
+    token.content = marker === null ? content.trim() : `${content.trim()} ${marker}`;
     token.map = [startLine, next + 1];
     token.markup = '$$';
     renderEnv(state.env).hasMath = true;
@@ -396,11 +448,23 @@ md.renderer.rules.math_inline = (tokens, index) => `<span class="math-inline" da
 md.renderer.rules.math_block = (tokens, index) => {
     const token = tokens[index]!;
     const line = token.map ? ` data-line="${token.map[0]}"` : '';
-    return `<div class="math-block"${line} data-math="${escapeAttr(encodeDataValue(token.content))}"></div>`;
+    const body = `<div class="math-block"${line} data-math="${escapeAttr(encodeDataValue(token.content))}"></div>`;
+    const entry = (token.meta as CrossrefTokenMeta | null)?.crossref;
+    if (entry === undefined)
+        return body;
+    // A named equation is the equation and its number on one line: the number is what every `@eq:` in the
+    // note says, so it is shown rather than kept as a target only a jump can find.
+    const anchor = crossrefAnchor('eq', entry.name);
+    return `<div class="math-equation" id="${escapeAttr(`^${anchor}`)}" data-block-id="${escapeAttr(anchor)}" data-crossref="${escapeAttr(entry.kind)}">${body}<span class="math-equation-number">${escapeHtml(crossrefLabel(entry))}</span></div>`;
 };
 const WIKI_RE = /^\[\[([^\[\]\n]{1,400})\]\]/;
 const EMBED_RE = /^!\[\[([^\[\]\n]{1,400})\]\]/;
 const BLOCK_REF_RE = /^\(\(([A-Za-z0-9][A-Za-z0-9_-]{0,63})\)\)/;
+const CROSSREF_REF_RE = /^@(fig|eq|tbl):([A-Za-z0-9][A-Za-z0-9_-]{0,63})/;
+interface CrossrefRefToken {
+    kind: CrossrefKind;
+    name: string;
+}
 const TAG_RE = /^#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/u;
 const EMOJI_CODE_RE = /^:([A-Za-z0-9_+-]{2,30}):/;
 md.inline.ruler.before('image', 'note_embed', (state, silent) => {
@@ -441,6 +505,27 @@ md.inline.ruler.before('text', 'block_reference', (state, silent) => {
     if (!silent) {
         const token = state.push('block_reference', 'a', 0);
         token.content = match[1]!;
+    }
+    state.pos += match[0].length;
+    return true;
+});
+// A cross-reference names the block it points at — a figure, an equation, a table — the way
+// pandoc-crossref spells it, so the `:` is what tells `@fig:beach` from an at-handle somebody typed. The
+// guard keeps it out of the middle of a word and out of an e-mail, where a reference would be a surprise
+// rather than a spelling.
+md.inline.ruler.before('text', 'crossref_ref', (state, silent) => {
+    if (state.src[state.pos] !== '@')
+        return false;
+    const previous = state.pos > 0 ? state.src[state.pos - 1]! : ' ';
+    if (/[\w@/.-]/.test(previous))
+        return false;
+    const match = CROSSREF_REF_RE.exec(state.src.slice(state.pos));
+    if (!match || !readCrossrefName(match[2]!))
+        return false;
+    if (!silent) {
+        const token = state.push('crossref_ref', 'a', 0);
+        token.markup = `@${match[1]!}:`;
+        token.meta = { kind: match[1] as CrossrefKind, name: match[2]! } satisfies CrossrefRefToken;
     }
     state.pos += match[0].length;
     return true;
@@ -511,6 +596,13 @@ md.renderer.rules.block_reference = (tokens, index) => {
     return `<a class="block-reference" data-block-ref="${escapeAttr(id)}" href="#%5E${escapeAttr(id)}">((${escapeHtml(id)}))</a>`;
 };
 md.renderer.rules.inline_tag = (tokens, index) => `<span class="inline-tag" data-tag="${escapeAttr(encodeDataValue(tokens[index]!.content))}" role="link" tabindex="0" draggable="true">#${escapeHtml(tokens[index]!.content)}</span>`;
+// Equations and tables name themselves here, after every block rule has had its turn and before a single
+// inline token is parsed: a `{#tbl:x}` line below a table is a paragraph until this takes it away, and a
+// reference above the thing it points at has to be able to resolve.
+md.core.ruler.before('inline', 'crossref_anchors', (state) => {
+    nameCrossrefBlocks(state.tokens, renderEnv(state.env).crossrefs);
+    return true;
+});
 md.core.ruler.before('github-task-lists', 'obsidian_blocks', (state) => {
     const seenBlockIds = new Set<string>();
     for (let index = 0; index < state.tokens.length; index++) {
@@ -802,8 +894,15 @@ function renderMindmapBlock(token: Token, line: string, rendererEnv: unknown): s
     ].join('');
 }
 md.renderer.rules.table_open = (tokens, index) => {
-    const line = tokens[index]!.map ? ` data-line="${tokens[index]!.map![0]}"` : '';
-    return `<div class="table-wrap"${line}><table>`;
+    const token = tokens[index]!;
+    const line = token.map ? ` data-line="${token.map[0]}"` : '';
+    const entry = (token.meta as CrossrefTokenMeta | null)?.crossref;
+    if (entry === undefined)
+        return `<div class="table-wrap"${line}><table>`;
+    // A named table is captioned with the number its references quote; the caption is the table's own, so
+    // a screen reader and a printed page both carry it without anybody having to write a paragraph.
+    const anchor = crossrefAnchor('tbl', entry.name);
+    return `<div class="table-wrap"${line} id="${escapeAttr(`^${anchor}`)}" data-block-id="${escapeAttr(anchor)}" data-crossref="${escapeAttr(entry.kind)}"><table><caption class="markdown-table-caption">${escapeHtml(crossrefLabel(entry))}</caption>`;
 };
 md.renderer.rules.table_close = () => '</table></div>';
 const CELL_ALIGNMENTS = new Set(['left', 'center', 'right']);
@@ -1184,6 +1283,7 @@ function emptyEnvironment(): RenderEnvironment {
         tabSequence: 0,
         exampleSequence: 0,
         mindmapSequence: 0,
+        crossrefs: emptyCrossrefRegistry(),
         docId: `ink-${nonce}`,
         emojiShortcodes: true,
         fences: createFenceBodies(),

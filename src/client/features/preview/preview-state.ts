@@ -2,6 +2,8 @@ import { toggleCodeBlockCollapse } from '../../lib/markdown/enhance'
 import { groupTabButtons, selectMarkdownTab } from './markdown-tabs'
 import { applyChartSourceStates, chartSourceStates } from './chart-block-toolbar'
 import { applyMindmapSourceStates, mindmapSourceStates } from './mindmap-block-toolbar'
+import { applyMediaPanelStates, mediaPanelStates } from './media-layout'
+import type { MediaPanelState } from './media-layout'
 
 export interface PreviewInteractionState {
   codeBlocks: Map<string, boolean>
@@ -9,6 +11,7 @@ export interface PreviewInteractionState {
   tabs: Map<string, string>
   chartSources: Map<string, boolean>
   mindmapSources: Map<string, boolean>
+  mediaPanels: MediaPanelState
 }
 
 export function capturePreviewInteractionState(root: HTMLElement | null): PreviewInteractionState {
@@ -18,6 +21,7 @@ export function capturePreviewInteractionState(root: HTMLElement | null): Previe
     tabs: new Map(),
     chartSources: chartSourceStates(root),
     mindmapSources: mindmapSourceStates(root),
+    mediaPanels: mediaPanelStates(root),
   }
   if (!root) return state
 
@@ -56,6 +60,7 @@ export function restorePreviewInteractionState(
   })
   applyChartSourceStates(root, state.chartSources)
   applyMindmapSourceStates(root, state.mindmapSources)
+  applyMediaPanelStates(root, state.mediaPanels)
 }
 
 function keyedElements(root: HTMLElement, selector: string): Array<[string, HTMLElement]> {
