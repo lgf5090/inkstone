@@ -29,3 +29,9 @@ declare module 'prismjs/components/prism-core' {
 }
 
 declare module 'prismjs/components/*'
+
+declare module 'moment-parseformat' {
+  /** Moment's format-detection: the pattern string a piece of text was written with. */
+  const parseFormat: (text: string) => string
+  export default parseFormat
+}
