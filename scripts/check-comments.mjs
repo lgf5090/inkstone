@@ -3595,6 +3595,7 @@ const allowed = new Map([
     "// the library, so an orphan is listed at the bottom where it can be moved or deleted. Hidden by a",
     "// collapsed ancestor is not the same thing: those rows are the group's own, and listing them here",
     "// would make the collapse control do nothing at all.",
+    "/* A group cannot be run, but its row keeps the run slot empty: without it every switch in\n              the list sits 26px further right than its neighbours'. */",
   ]],
   ["src/client/features/quickadd/launcher.test.ts", [
     "/**\n * Choice names in the language the app's other readers write in. The filter is a fuzzy + pinyin path,\n * so the test has to feed it Chinese names; `check-i18n.mjs` keeps Han literals out of `src/` because\n * interface copy belongs in the catalog, and a name the reader typed is not interface copy.\n */",
@@ -3684,6 +3685,8 @@ const allowed = new Map([
     "// calling the formatter the page is under test for.",
     "// The cancellation notice is off until asked for, and the row is what turns it on.",
     "// Reaching into groups is on until the reader says otherwise.",
+    "// The switch sits left of the action cluster, so its column only holds still while every row",
+    "// reserves the same slots — a group keeps an empty one where the run button would be.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
@@ -7545,6 +7548,7 @@ const allowed = new Map([
     "/** The reader cancelled a prompt, or a required answer was missing. */",
     "/** The run could not go ahead, and said why. */",
     "/** Strip what a title cannot carry, the way the app's own new-note flow does. */",
+    "/** Every template name in the library, for a choice that asks which one to use. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -7746,6 +7750,7 @@ const allowed = new Map([
     "// \"No template\" is a choice the editor offers, so it means a blank note. Only a template that was",
     "// deleted from under the choice is a failure worth a danger notice.",
     "/**\n * The choice's tags on the new note. `appendFrontMatterTag` deliberately only edits a note that\n * already has properties, so a body without front matter gets its block written here — a choice that\n * says \"tag this with #meeting\" must not quietly tag nothing.\n */",
+    "/** Which library template to use, when the choice says it asks each time. */",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",
@@ -8289,6 +8294,7 @@ const allowed = new Map([
     "/** Where a heading the ordering key cannot be read from belongs: the reference parks them at the\n * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */",
     "/** Say that a run stopped because the reader closed the question, rather than saying nothing. */",
     "/** The launcher's filter also looks inside groups and lists what it finds with its path. */",
+    "/** Use the template named on the choice, or pick one from the library every run. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

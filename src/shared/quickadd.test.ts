@@ -112,6 +112,18 @@ describe('the quickadd record', () => {
     expect(long.folderPath.split('/').length).toBeLessThanOrEqual(25)
   })
 
+  it('keeps a template pick legal and defaults the libraries that predate it', () => {
+    const asked = parse([{ ...templateChoice('qa-a', 'A'), templatePick: 'ask' } as QuickAddTemplateChoice])
+      .data?.choices[0] as QuickAddTemplateChoice
+    expect(asked.templatePick).toBe('ask')
+    const junk = parse([{ ...templateChoice('qa-b', 'B'), templatePick: 'sometimes' } as unknown as QuickAddTemplateChoice])
+      .data?.choices[0] as QuickAddTemplateChoice
+    expect(junk.templatePick, 'an unknown answer falls back to the named template').toBe('fixed')
+    const legacy = parse([{ ...templateChoice('qa-c', 'C'), templatePick: undefined } as unknown as QuickAddTemplateChoice])
+      .data?.choices[0] as QuickAddTemplateChoice
+    expect(legacy.templatePick, 'a library saved before the option existed keeps working').toBe('fixed')
+  })
+
   it('requires a modifier before it will store a hotkey', () => {
     const parsed = parse([
       { ...templateChoice('qa-a', 'A'), hotkey: 'Ctrl+Alt+J' } as QuickAddTemplateChoice,

@@ -94,7 +94,8 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     cursorHeadingPath: () => null,
     selection: () => selection,
     clipboard: async () => '',
-    templateBody: async (name) => (name === 'tpl-daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
+    templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
+    templateNames: () => ['Daily', 'Cleared'],
     fieldValues: async () => [],
     pickFileTitles: async () => [],
     knownNoteTitles: () => Object.keys(notes),
@@ -653,6 +654,43 @@ describe('creating a note from a template', () => {
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind, '“No template” is a choice the editor offers, not a broken reference').toBe('written')
     expect(fake.created[0]).toMatchObject({ title: '2026-10-08', content: '' })
+  })
+
+  it('asks which library template to use when the choice says so', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Picked', 0),
+      templateId: 'tpl-cleared',
+      templatePick: 'ask' as const,
+      nameFormat: { enabled: true, format: 'Picked note' },
+    }
+    answers.queue = [['Daily']]
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls[0], 'the template is the first thing asked').toEqual(['template'])
+    expect(fake.created[0].content, 'the answered name, not the stored id, picks the body').toBe('Daily body')
+  })
+
+  it('creates nothing when the template question is closed', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Picked', 0),
+      templatePick: 'ask' as const,
+      nameFormat: { enabled: true, format: 'Picked note' },
+    }
+    answers.queue = [null]
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('cancelled')
+    expect(fake.created).toEqual([])
+  })
+
+  it('says so when the library has no template to offer', async () => {
+    const fake = harness({})
+    fake.port.templateNames = () => []
+    const choice = { ...newTemplateChoice('qa-t', 'Picked', 0), templatePick: 'ask' as const }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    expect(fake.created).toEqual([])
   })
 
   it('says so when inserting an empty template at the caret writes nothing', async () => {

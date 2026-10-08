@@ -1,6 +1,9 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  ORGANIZER_COLORS,
+} from '@shared/organizer-colors'
+import {
   defaultQuickAddSettings,
   newCaptureChoice,
   newGroupChoice,
@@ -267,6 +270,26 @@ describe('the choice list', () => {
     await settle()
     expect(calls.runs).toEqual(['qa-a'])
   })
+
+  it('gives every row the same action slots, so the switches line up', () => {
+    seed({ choices: [newGroupChoice('qa-g', 'Outer', 0), newTemplateChoice('qa-t', 'Leaf', 1)] })
+    mount(QuickAddChoiceList)
+    const rows = [...document.querySelectorAll('li')]
+    expect(rows).toHaveLength(2)
+    // The switch sits left of the action cluster, so its column only holds still while every row
+    // reserves the same slots — a group keeps an empty one where the run button would be.
+    const slots = rows.map((row) => row.querySelector('div')?.childElementCount)
+    expect(slots).toEqual([6, 6])
+  })
+
+  it('keeps the header’s icon beside its label instead of above it', () => {
+    seed({ choices: [] })
+    mount(QuickAddChoiceList)
+    const add = control(t('quickadd.new_template_choice'))
+    expect(add).not.toBeNull()
+    expect(add?.firstElementChild?.tagName.toLowerCase(), 'the glyph has to be a flex child of the button').toBe('svg')
+    expect(add?.textContent?.trim()).toBe(t('quickadd.new_template_choice'))
+  })
 })
 
 describe('the choice editor', () => {
@@ -318,6 +341,52 @@ describe('the choice editor', () => {
     const values = [...(select as HTMLSelectElement).options].map((option) => option.value)
     expect(values).toContain('')
     expect(values, 'a group cannot live inside its own contents').not.toContain('qa-inner')
+  })
+
+  function colourGroup(): HTMLDivElement | null {
+    return document.querySelector<HTMLDivElement>(`[role="group"][aria-label="${t('quickadd.field_color')}"]`)
+  }
+
+  it('paints the palette as colours, not as their hex codes', async () => {
+    seed({ choices: [newTemplateChoice('qa-t', 'Alpha', 0)] })
+    editor(library()[0]!)
+    const group = colourGroup()
+    expect(group).not.toBeNull()
+    const swatches = [...group!.querySelectorAll('button')]
+    expect(swatches).toHaveLength(ORGANIZER_COLORS.length + 1)
+    for (const swatch of swatches.slice(1)) {
+      expect(swatch.textContent, 'a swatch must not print its own value').toBe('')
+      expect(swatch.getAttribute('aria-label') ?? '').not.toMatch(/^#/)
+    }
+    expect(swatches[0].getAttribute('aria-label')).toBe(t('quickadd.color_none'))
+    click(swatches[3])
+    await settle()
+    clickNamed(t('common.save'))
+    await settle()
+    expect(library()[0]!.color).toBe(ORGANIZER_COLORS[2])
+  })
+
+  it('keeps the step list’s add button on one line', () => {
+    const choice = newMacroChoice('qa-m', 'Routine', 0)
+    seed({ choices: [choice] })
+    editor(choice)
+    const add = control(t('quickadd.add_step'))
+    expect(add?.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+    expect(add?.textContent?.trim()).toBe(t('quickadd.add_step'))
+  })
+
+  it('retires the fixed template row once the run is told to ask', async () => {
+    const choice = newTemplateChoice('qa-t', 'Alpha', 0)
+    seed({ choices: [choice] })
+    editor(choice)
+    const templateSelect = () => document.querySelector(`select[aria-label="${t('quickadd.field_template')}"]`)
+    expect(templateSelect()).not.toBeNull()
+    selectNamed(t('quickadd.field_template_pick'), 'ask')
+    expect(templateSelect(), 'the named template is not used when the run asks').toBeNull()
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.templatePick).toBe('ask')
   })
 
   it('refuses to save an empty name', () => {
@@ -378,6 +447,14 @@ describe('the choice editor', () => {
 })
 
 describe('the automation page', () => {
+  it('keeps the global-variable add button on one line', () => {
+    seed()
+    mount(QuickAddSettings)
+    const add = control(t('settings.quickadd_add_var'))
+    expect(add?.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+    expect(add?.textContent?.trim()).toBe(t('settings.quickadd_add_var'))
+  })
+
   it('writes the master switch and the date format through the store', () => {
     seed()
     mount(QuickAddSettings)

@@ -141,7 +141,7 @@ export function QuickAddSettings() {
             <span className="w-[150px] shrink-0 truncate py-2 font-mono text-[12.5px] text-[var(--text-secondary)]" title={entry.name}>
               {entry.name}
             </span>
-            <Field label={t('quickadd.var_value')} className="flex-1">
+            <Field label={t('quickadd.var_value')} className="min-w-0 flex-1">
               <Input
                 aria-label={`${t('quickadd.var_value')} ${index + 1}`}
                 value={entry.value}
@@ -153,7 +153,7 @@ export function QuickAddSettings() {
             </IconButton>
           </div>
         ))}
-        <div className="flex items-end gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
+        <div className="flex flex-wrap items-end gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
           <Field label={t('quickadd.var_name')} className="w-[170px] shrink-0">
             <Input
               aria-label={t('quickadd.var_name')}
@@ -165,15 +165,15 @@ export function QuickAddSettings() {
           <Field
             label={t('quickadd.var_value')}
             hint={duplicateVar ? t('settings.quickadd_var_taken') : undefined}
-            className="min-w-0 flex-1">
+            className="min-w-[150px] flex-1">
             <Input
               aria-label={t('quickadd.var_value')}
               value={draftVar.value}
               maxLength={QUICKADD_LIMITS.maxFormatLength}
               onChange={(event) => setDraftVar({ ...draftVar, value: event.target.value })}/>
           </Field>
-          <Button size="sm" onClick={addVar} disabled={!canAddVar}>
-            <Plus size={13}/>{t('settings.quickadd_add_var')}
+          <Button size="sm" icon={<Plus size={13}/>} onClick={addVar} disabled={!canAddVar}>
+            {t('settings.quickadd_add_var')}
           </Button>
         </div>
       </section>

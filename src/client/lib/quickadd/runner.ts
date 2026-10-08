@@ -206,6 +206,12 @@ export const notePort: NotePort = {
     const found = store.templates.find((template) => template.id === name || template.name.trim().toLowerCase() === wanted)
     return found ? found.content : null
   },
+  templateNames() {
+    return useNoteTemplates.getState().templates
+      .map((template) => template.name.trim())
+      .filter((name) => name !== '')
+      .sort((a, b) => a.localeCompare(b))
+  },
   async fieldValues(name, filter) {
     try {
       const response = await api.quickadd.fieldValues({

@@ -31,6 +31,8 @@ export const QUICKADD_LIMITS = {
 export type QuickAddChoiceType = 'template' | 'capture' | 'macro' | 'group'
 export type QuickAddDateOrigin = 'run' | 'note' | 'ask'
 export type QuickAddTemplateMode = 'new-note' | 'insert-here'
+/** Use the template named on the choice, or pick one from the library every run. */
+export type QuickAddTemplatePick = 'fixed' | 'ask'
 export type QuickAddFolderMode = 'default' | 'fixed' | 'ask' | 'source'
 export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel'
 export type QuickAddCaptureTargetMode = 'active' | 'note'
@@ -66,6 +68,7 @@ export interface QuickAddChoiceBase {
 export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   type: 'template'
   templateId: string | null
+  templatePick: QuickAddTemplatePick
   mode: QuickAddTemplateMode
   folderMode: QuickAddFolderMode
   folderPath: string
@@ -252,6 +255,7 @@ export function newTemplateChoice(id: string, name: string, position: number): Q
     ...baseChoice({ id, name, position }),
     type: 'template',
     templateId: null,
+    templatePick: 'fixed',
     mode: 'new-note',
     folderMode: 'default',
     folderPath: '',
@@ -498,6 +502,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         ...base,
         type: 'template',
         templateId: normalizeRef(value.templateId),
+        templatePick: pick(value.templatePick, ['fixed', 'ask'] as const, 'fixed'),
         mode: pick(value.mode, ['new-note', 'insert-here'] as const, 'new-note'),
         folderMode: pick(value.folderMode, ['default', 'fixed', 'ask', 'source'] as const, 'default'),
         folderPath: normalizeFolderPath(value.folderPath),
