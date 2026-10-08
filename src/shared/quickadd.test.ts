@@ -16,7 +16,9 @@ import {
   parseQuickAddLibrary,
   parseQuickAddText,
   placeChoice,
+  type QuickAddCaptureChoice,
   type QuickAddChoice,
+  type QuickAddTemplateChoice,
 } from './quickadd'
 
 function templateChoice(id: string, name: string, parentId: string | null = null): QuickAddChoice {
@@ -39,16 +41,19 @@ describe('the quickadd record', () => {
   it('round-trips a library through the payload', () => {
     const settings = defaultQuickAddSettings()
     settings.globalVars = [{ name: 'author', value: 'Me' }]
-    const choices = [groupChoice('qa-g', 'Journal'), templateChoice('qa-t', 'Daily', 'qa-g')]
-    choices[1].folderPath = 'Journal/2026'
-    choices[1].tags = ['daily', 'Daily']
-
-    const text = JSON.stringify(buildQuickAddPayload(settings, choices))
+    const daily: QuickAddTemplateChoice = {
+      ...newTemplateChoice('qa-t', 'Daily', 0),
+      parentId: 'qa-g',
+      folderPath: 'Journal/2026',
+      tags: ['daily', 'Daily'],
+    }
+    const text = JSON.stringify(buildQuickAddPayload(settings, [groupChoice('qa-g', 'Journal'), daily]))
     const parsed = parseQuickAddText(text)
 
     expect(idsOf(flattenChoices(parsed.data?.choices ?? []))).toEqual(['qa-g', 'qa-t'])
     expect(parsed.data?.settings.globalVars).toEqual([{ name: 'author', value: 'Me' }])
-    expect(parsed.data?.choices[1]).toMatchObject({ parentId: 'qa-g', folderPath: 'Journal/2026' })
+    expect(parsed.data?.choices[1]).toMatchObject({ parentId: 'qa-g' })
+    expect((parsed.data?.choices[1] as QuickAddTemplateChoice).folderPath).toBe('Journal/2026')
     expect(parsed.dropped).toBe(0)
     expect(parsed.truncated).toBe(false)
   })
@@ -67,7 +72,7 @@ describe('the quickadd record', () => {
       templateChoice('', 'No id'),
       templateChoice('qa noname', 'Space in id'),
       { ...templateChoice('qa-x', ''), id: 'qa-blank' },
-      { id: 'qa-typetype', type: 'screenshot' as never },
+      { id: 'qa-typetype', type: 'screenshot' } as unknown as QuickAddChoice,
       { id: 'qa-dup', name: 'A' } as QuickAddChoice,
       { id: 'qa-dup', name: 'B' } as QuickAddChoice,
     ])
@@ -86,41 +91,40 @@ describe('the quickadd record', () => {
       hotkey: 'Shift+',
       position: -4,
     }])
-    const choice = parsed.data?.choices[0]
+    const choice = parsed.data?.choices[0] as QuickAddCaptureChoice
 
-    expect(choice?.name.length).toBe(QUICKADD_LIMITS.maxNameLength)
-    expect(choice?.targetTitle).toBe('a b')
-    expect(choice?.after).toBe('## Log')
-    expect((choice as { format: { format: string } }).format.format.length)
-      .toBe(QUICKADD_LIMITS.maxFormatLength)
-    expect(choice?.createAt).toBe('bottom')
-    expect(choice?.hotkey).toBeNull()
-    expect(choice?.position).toBe(0)
+    expect(choice.name.length).toBe(QUICKADD_LIMITS.maxNameLength)
+    expect(choice.targetTitle).toBe('a b')
+    expect(choice.after).toBe('## Log')
+    expect(choice.format.format.length).toBe(QUICKADD_LIMITS.maxFormatLength)
+    expect(choice.createAt).toBe('bottom')
+    expect(choice.hotkey).toBeNull()
+    expect(choice.position).toBe(0)
   })
 
   it('never lets a folder path name a folder the tree does not show', () => {
-    const parsed = parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'a/../../b/../c' }])
-    expect(parsed.data?.choices[0]).toMatchObject({ folderPath: 'a/b/c' })
-    expect(parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'a\\..\\b' }]).data?.choices[0])
-      .toMatchObject({ folderPath: 'a/b' })
-    const long = parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'x/y/'.repeat(40) }]).data?.choices[0]
-    expect(long).toMatchObject({ type: 'template' })
-    expect((long as { folderPath: string }).folderPath.split('/').length).toBeLessThanOrEqual(25)
+    const parsed = parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'a/../../b/../c' } as QuickAddTemplateChoice])
+    expect((parsed.data?.choices[0] as QuickAddTemplateChoice).folderPath).toBe('a/b/c')
+    expect((parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'a\\..\\b' } as QuickAddTemplateChoice])
+      .data?.choices[0] as QuickAddTemplateChoice).folderPath).toBe('a/b')
+    const long = parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'x/y/'.repeat(40) }] as QuickAddTemplateChoice[]).data?.choices[0] as QuickAddTemplateChoice
+    expect(long.type).toBe('template')
+    expect(long.folderPath.split('/').length).toBeLessThanOrEqual(25)
   })
 
   it('requires a modifier before it will store a hotkey', () => {
     const parsed = parse([
-      { ...templateChoice('qa-a', 'A'), hotkey: 'Ctrl+Alt+J' },
-      { ...templateChoice('qa-b', 'B'), hotkey: 'ctrl+j' },
-      { ...templateChoice('qa-c', 'C'), hotkey: 'j' },
-      { ...templateChoice('qa-d', 'D'), hotkey: 'cmd+shift+' },
+      { ...templateChoice('qa-a', 'A'), hotkey: 'Ctrl+Alt+J' } as QuickAddTemplateChoice,
+      { ...templateChoice('qa-b', 'B'), hotkey: 'ctrl+j' } as QuickAddTemplateChoice,
+      { ...templateChoice('qa-c', 'C'), hotkey: 'j' } as QuickAddTemplateChoice,
+      { ...templateChoice('qa-d', 'D'), hotkey: 'cmd+shift+' } as QuickAddTemplateChoice,
     ])
     expect(parsed.data?.choices.map((choice) => choice.hotkey)).toEqual(['ctrl+alt+j', 'ctrl+j', null, null])
   })
 
   it('keeps template references it cannot verify and drops choice references it can', () => {
     const parsed = parse([
-      { ...templateChoice('qa-t', 'T'), templateId: 'tpl-gone' },
+      { ...templateChoice('qa-t', 'T'), templateId: 'tpl-gone' } as QuickAddTemplateChoice,
       {
         id: 'qa-m',
         name: 'M',
@@ -149,10 +153,10 @@ describe('the quickadd record', () => {
 
   it('repairs a tree that points nowhere, at itself, or around a cycle', () => {
     const parsed = parse([
-      { ...templateChoice('qa-orphan', 'Orphan'), parentId: 'qa-missing' },
-      { ...templateChoice('qa-self', 'Self'), parentId: 'qa-self' },
-      { ...groupChoice('qa-g1', 'G1'), parentId: 'qa-g2' },
-      { ...groupChoice('qa-g2', 'G2'), parentId: 'qa-g1' },
+      { ...templateChoice('qa-orphan', 'Orphan'), parentId: 'qa-missing' } as QuickAddTemplateChoice,
+      { ...templateChoice('qa-self', 'Self'), parentId: 'qa-self' } as QuickAddTemplateChoice,
+      { ...groupChoice('qa-g1', 'G1'), parentId: 'qa-g2' } as QuickAddChoice,
+      { ...groupChoice('qa-g2', 'G2'), parentId: 'qa-g1' } as QuickAddChoice,
     ])
     expect(parsed.data?.choices.map((choice) => [choice.id, choice.parentId]))
       .toEqual(expect.arrayContaining([['qa-orphan', null], ['qa-self', null], ['qa-g1', null]]))
@@ -160,7 +164,7 @@ describe('the quickadd record', () => {
   })
 
   it('refuses a child that is not in a group', () => {
-    const parsed = parse([templateChoice('qa-t', 'T'), templateChoice('qa-c', 'C', 'qa-t')])
+    const parsed = parse([templateChoice('qa-t', 'T'), { ...templateChoice('qa-c', 'C'), parentId: 'qa-t' } as QuickAddTemplateChoice])
     expect(parsed.data?.choices.map((choice) => choice.parentId)).toEqual([null, null])
   })
 
