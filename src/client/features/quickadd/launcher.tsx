@@ -178,7 +178,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
         choiceId: choice.id,
         choiceName: choice.name,
       })
-      const value = answers.get('day')
+      const value = answers?.get('day')
       const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
       if (!Number.isFinite(stamp)) return
       day = new Date(stamp)

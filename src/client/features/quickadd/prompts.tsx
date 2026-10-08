@@ -388,6 +388,7 @@ function SinglePrompt({ group }: { group: PromptGroup }) {
     >
       <div
         className="space-y-2 pt-1"
+        data-owns-escape
         onKeyDown={(event) => {
           const multiline = event.target instanceof HTMLElement && event.target.tagName === 'TEXTAREA'
           if (multiline && !event.ctrlKey && !event.metaKey) {
@@ -417,6 +418,7 @@ function SinglePrompt({ group }: { group: PromptGroup }) {
 
 function OnePagePrompt({ group }: { group: PromptGroup }) {
   const { drafts, patch, pick } = useDrafts(group)
+  const dismiss = () => cancelQuickAddPrompts(collect(group, drafts, true))
   const missing = group.requests.filter((request) => {
     const draft = drafts.get(request.key)
     return draft !== undefined && !hasAnswer(request, draft)
@@ -425,18 +427,24 @@ function OnePagePrompt({ group }: { group: PromptGroup }) {
   return (
     <Modal
       open
-      onClose={() => cancelQuickAddPrompts(collect(group, drafts, true))}
+      onClose={dismiss}
       title={t('quickadd.prompt_page_title', { name: group.choiceName })}
       description={contextLine(group)}
       width={520}
       footer={<>
-        <Button variant="ghost" onClick={() => cancelQuickAddPrompts(collect(group, drafts, true))}>{t('common.cancel')}</Button>
+        <Button variant="ghost" onClick={dismiss}>{t('common.cancel')}</Button>
         <Button variant="primary" disabled={missing.length > 0} onClick={() => submitQuickAddPrompts(collect(group, drafts, false))}>
           {t('quickadd.prompt_ok')}
         </Button>
       </>}
     >
-      <div className="space-y-4 pt-1">
+      <div
+        className="space-y-4 pt-1"
+        data-owns-escape
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') dismiss()
+        }}
+      >
         {group.requests.map((request, index) => {
           const draft = drafts.get(request.key)
           if (!draft) return null

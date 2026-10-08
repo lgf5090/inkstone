@@ -319,21 +319,17 @@ export async function runCaptureChoice(
   const runtime = buildRuntime(session, port)
 
   const target = await resolveTarget(choice, session, runtime, port)
+  if (session.dismissed) return { kind: 'cancelled' }
   if ('kind' in target) return target
 
   let note: NoteRef
   let body: string
   let created = false
   if ('create' in target) {
-    const template = choice.createTemplateId ? await port.templateBody(choice.createTemplateId) : null
-    const made = await port.create({
-      title: sanitizeTitle(target.create.title, target.create.title),
-      content: template ?? '',
-      folderPath: target.create.folder,
-    })
-    if (!made) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
-    note = made
-    body = await port.read(made.id)
+    // The note is only written once every question has been answered. Creating it up front meant a
+    // reader who closed the prompt found an empty note in the sidebar.
+    note = { id: '', title: sanitizeTitle(target.create.title, target.create.title), folderPath: target.create.folder }
+    body = (choice.createTemplateId ? await port.templateBody(choice.createTemplateId) : null) ?? ''
     created = true
   } else {
     note = target
@@ -342,6 +338,18 @@ export async function runCaptureChoice(
   session.destination = note
   runtime.title = note.title
   runtime.folderPath = note.folderPath
+
+  const materialise = async (): Promise<QuickAddRunStatus | null> => {
+    if (!created || note.id !== '') return null
+    const made = await port.create({ title: note.title, content: body, folderPath: note.folderPath })
+    if (!made) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
+    note = made
+    body = await port.read(made.id)
+    session.destination = made
+    runtime.title = made.title
+    runtime.folderPath = made.folderPath
+    return null
+  }
 
   if (choice.property.enabled) {
     const value = await formatWithPrompts(
@@ -354,6 +362,9 @@ export async function runCaptureChoice(
     const name = choice.property.prompted
       ? await promptForProperty(session, parsed, choice, note)
       : (await formatWithPrompts(choice.property.name, runtime, session, note.title)).text.trim()
+    if (session.dismissed) return { kind: 'cancelled' }
+    const refusedProperty = await materialise()
+    if (refusedProperty) return refusedProperty
     if (!name) return { kind: 'failed', reason: t('quickadd.error_property_name') }
     const key = Object.keys(parsed.data).find((entry) => entry.toLowerCase() === name.toLowerCase()) ?? name
     const existing = key in parsed.data ? (parsed.data[key] as PromptAnswer) : null
@@ -373,6 +384,9 @@ export async function runCaptureChoice(
   }
 
   const payload = await formatPayload(choice, runtime, session, note.title)
+  if (session.dismissed) return { kind: 'cancelled' }
+  const refusedPayload = await materialise()
+  if (refusedPayload) return refusedPayload
   const isEmpty = payload.text.trim() === '' && payload.cursor === null
   if (isEmpty && !created) return { kind: 'empty', noteId: note.id }
 

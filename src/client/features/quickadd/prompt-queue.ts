@@ -23,7 +23,7 @@ export type PromptAnswers = Map<string, PromptAnswer>
 
 interface Entry {
   group: PromptGroup
-  resolve: (answers: PromptAnswers) => void
+  resolve: (answers: PromptAnswers | null) => void
 }
 
 let active: Entry | null = null
@@ -108,13 +108,13 @@ function withDrafts(group: PromptGroup): PromptGroup {
 }
 
 /**
- * Ask a group of prompts and wait for the answers. A dialog dismissed without an answer contributes
- * `null` for each of its requests: the engine turns that into an empty substitution for an
- * `|optional` token, and the caller decides whether a missing required answer aborts the run.
+ * Ask a group of prompts and wait for the answers. `null` means the question was closed, or the host
+ * went away: the run that asked has to stop, rather than carry on with whatever happened to be in
+ * the field.
  */
-export function askQuickAddPrompts(group: PromptGroup): Promise<PromptAnswers> {
+export function askQuickAddPrompts(group: PromptGroup): Promise<PromptAnswers | null> {
   const prepared = withDrafts(group)
-  return new Promise<PromptAnswers>((resolve) => {
+  return new Promise<PromptAnswers | null>((resolve) => {
     if (active) waiting.push({ group: prepared, resolve })
     else {
       active = { group: prepared, resolve }
@@ -124,13 +124,13 @@ export function askQuickAddPrompts(group: PromptGroup): Promise<PromptAnswers> {
   })
 }
 
-function finish(entry: Entry | null, answers: PromptAnswers, keepDrafts: boolean): void {
+function finish(entry: Entry | null, answers: PromptAnswers | null, keepDrafts: boolean): void {
   if (!entry) return
   active = null
   sequence += 1
   if (keepDrafts) {
     for (const request of entry.group.requests) {
-      const value = answers.get(request.key) ?? null
+      const value = answers?.get(request.key) ?? null
       rememberDraft(entry.group.choiceId, request.key, value)
     }
   }
@@ -144,13 +144,22 @@ export function submitQuickAddPrompts(answers: PromptAnswers): void {
   finish(active, answers, true)
 }
 
-/** Cancel the active group, keeping whatever was typed in it as this choice's next default. */
+/**
+ * Cancel the active group. Whatever was typed is kept as this choice's next default, but the run
+ * itself gets no answer: closing a question has to stop it, not write the half-typed text the reader
+ * just walked away from.
+ */
 export function cancelQuickAddPrompts(typed: PromptAnswers = new Map()): void {
-  finish(active, typed, true)
+  const entry = active
+  if (entry) {
+    for (const request of entry.group.requests)
+      rememberDraft(entry.group.choiceId, request.key, typed.get(request.key) ?? null)
+  }
+  finish(active, null, false)
 }
 
 export function rejectQuickAddPrompts(): void {
-  finish(active, new Map(), false)
+  finish(active, null, false)
 }
 
 /** Drop everything outstanding with no answer: used when the host unmounts or the account changes. */
@@ -159,7 +168,7 @@ export function resetQuickAddPrompts(): void {
   active = null
   sequence += 1
   waiting.length = 0
-  for (const entry of entries) entry.resolve(new Map())
+  for (const entry of entries) entry.resolve(null)
   notify()
 }
 

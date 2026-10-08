@@ -3476,6 +3476,8 @@ const allowed = new Map([
     "/**\n * The editor for one QuickAdd choice.\n *\n * A draft copy is edited and only written back on Save: a capture format is built over minutes, and\n * autosaving every keystroke would push a half-typed `{{DATE` to the account. The live preview is what\n * makes the form trustworthy — `inertFormat` is the same pass a run uses, so the preview shows what the\n * note will get, a prompt-shaped token is marked rather than guessed, and nothing here can ask a\n * question or touch a note.\n */",
     "/** One line about what a choice does, for the list and the launcher's future hint text. */",
     "// The whole draft is the patch: the store re-normalizes it and refuses a record it cannot read.",
+    "// A group cannot live inside its own contents: the store would refuse the write and the reader",
+    "// would watch the choice snap back with no explanation.",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -3517,12 +3519,12 @@ const allowed = new Map([
     "/** Where the run is about to write, so a prompt can name its destination. */",
     "/** Answers typed into a prompt that was cancelled, kept per choice so the next run can use them. */",
     "/** A draft only fills a token that asked for no default of its own. */",
-    "/**\n * Ask a group of prompts and wait for the answers. A dialog dismissed without an answer contributes\n * `null` for each of its requests: the engine turns that into an empty substitution for an\n * `|optional` token, and the caller decides whether a missing required answer aborts the run.\n */",
     "/** Deliver what the page answered. Requests left out of the map count as no answer. */",
-    "/** Cancel the active group, keeping whatever was typed in it as this choice's next default. */",
     "/** Drop everything outstanding with no answer: used when the host unmounts or the account changes. */",
     "/**\n * Identifies the group on screen. The host keys its dialogs on this, so answering one prompt and\n * promoting the next cannot inherit the typed text, the filter or the picker state of the previous\n * group — and a dialog whose request list changed shape cannot render a different hook count.\n */",
     "/**\n * Claim the queue for as long as the prompt host is mounted, releasing any outstanding run once the\n * last host is gone. The release is deferred by a task on purpose: StrictMode runs an effect's\n * cleanup and then sets it up again inside the same commit, and a host that drops the queue in that\n * cleanup answers every first prompt with nothing before the reader sees a dialog.\n */",
+    "/**\n * Ask a group of prompts and wait for the answers. `null` means the question was closed, or the host\n * went away: the run that asked has to stop, rather than carry on with whatever happened to be in\n * the field.\n */",
+    "/**\n * Cancel the active group. Whatever was typed is kept as this choice's next default, but the run\n * itself gets no answer: closing a question has to stop it, not write the half-typed text the reader\n * just walked away from.\n */",
   ]],
   ["src/client/features/quickadd/prompts.test.ts", [
     "// React keeps its own value tracker on the DOM node, so assigning `.value` and firing `input` is",
@@ -3530,6 +3532,9 @@ const allowed = new Map([
     "// An answered prompt clears its draft, so a third run starts from the token's own default.",
     "/**\n * The queue notifies its subscribers the moment a group is asked, so the call has to happen inside\n * `act` — a prompt opened outside it leaves React warning that the host updated itself off-camera.\n */",
     "// Cancelling is a state change the host renders, so it has to happen inside `act`.",
+    "/**\n * A surface that owns the escape stack above the prompt: the app's global handler defers to anything\n * inside `data-owns-escape`, so the dialog still sees its own Escape key.\n */",
+    "// A timer, not a microtask: the host releases the queue one task after its last unmount, and a",
+    "// pump that only drains microtasks would watch that release go by.",
   ]],
   ["src/client/features/quickadd/prompts.tsx", [
     "/**\n * The dialogs a QuickAdd run asks with: one per prompt, or a single page for a whole run, plus the\n * suggester list, the date shortcuts and the live arithmetic preview behind them.\n *\n * Everything here is Inkstone chrome — `Modal`, `Button`, `FIELD_BASE`, the command palette's row\n * classes — because a prompt that appears in the middle of typing into a note has to feel like the\n * note's own. The queue in `prompt-queue.ts` owns the promises; this file renders what the queue says\n * to render and answers back.\n */",
@@ -7332,6 +7337,8 @@ const allowed = new Map([
     "// A list typed in Chinese separates with fullwidth commas and ideographic commas, so a reader who",
     "// writes two items that way means two items. The two glyphs are written as escapes because this",
     "// app's own i18n gate keeps Han-range literals out of `src/`.",
+    "// The note is only written once every question has been answered. Creating it up front meant a",
+    "// reader who closed the prompt found an empty note in the sidebar.",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -7543,6 +7550,7 @@ const allowed = new Map([
     "// A `{{MACRO:}}` inside a capture or template format has to reach the macro engine, or the token",
     "// silently writes nothing. The import is deferred because the macro engine is what runs captures:",
     "// a static edge here would close the cycle at module-evaluation time.",
+    "/** A question was closed rather than answered: the run stops instead of writing what was typed. */",
   ]],
   ["src/client/lib/quickadd/session.ts", [
     "/**\n * The parts of a choice run that every engine needs: a session with one clock, the ask-me-which-day\n * prompt, the prompt-request defaulting, and the format-then-ask loop.\n *\n * `formatWithPrompts` exists because a format can grow tokens while it is being formatted — an\n * included template or a macro that emits `{{VALUE:…}}` — and a literal token written into a note is\n * a silent failure. So the pass asks, formats, and asks again for anything that only appeared after\n * the first round.\n */",
@@ -7555,6 +7563,8 @@ const allowed = new Map([
     "/** Ask for the inputs of a text, then format it: the order the one-page form promises. */",
     "// A token that only appeared after the prompts ran (a macro or an included template's own",
     "// `{{VALUE}}`) has not been asked for yet; ask once more rather than write a literal token.",
+    "// A closed question leaves its variable unset, so the second pass below would ask the very same",
+    "// thing again — the reader who pressed Escape would watch the dialog reappear.",
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",
