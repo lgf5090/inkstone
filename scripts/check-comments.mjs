@@ -7901,6 +7901,8 @@ const allowed = new Map([
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
+    "/** Version 2 nested everything under snapshots/<stamp>/, version 3 flattened it and added the\n *  template library, version 4 adds the automation library. All three still restore. */",
+    "/** The account's QuickAdd library, kept beside the templates it can call. */",
   ]],
   ["src/shared/constants.ts", [
     "// D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.",
@@ -8127,6 +8129,7 @@ const allowed = new Map([
   ]],
   ["src/worker/backup/quickadd.ts", [
     "/**\n * Restore the automation library an export carried into the account's own column, in the same\n * envelope the live `PUT /api/quickadd/library` writes. A library that cannot be read, or that the\n * store would quietly trim, fails the restore instead of leaving the account with half a library.\n */",
+    "/**\n * The account's automation library as the transport payload a backup can carry — the same shape the\n * settings page downloads, so a `automation.json` opened in an editor reads like a library and not\n * like a database row. Null when the account has none or its column cannot be understood.\n */",
   ]],
   ["src/worker/backup/retention.ts", [
     "// 50 removals were 50 serial R2 deletes each followed by its own D1 DELETE; one batched",

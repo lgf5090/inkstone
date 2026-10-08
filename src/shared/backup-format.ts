@@ -1,11 +1,14 @@
 import { LIMITS } from './constants'
 
 export const MARKDOWN_BACKUP_FORMAT = 'inkstone-markdown-backup'
-export const MARKDOWN_BACKUP_VERSION = 3 as const
-export type MarkdownBackupVersion = 2 | typeof MARKDOWN_BACKUP_VERSION
+export const MARKDOWN_BACKUP_VERSION = 4 as const
+/** Version 2 nested everything under snapshots/<stamp>/, version 3 flattened it and added the
+ *  template library, version 4 adds the automation library. All three still restore. */
+export type MarkdownBackupVersion = 2 | 3 | typeof MARKDOWN_BACKUP_VERSION
 export const BACKUP_MANIFEST_NAME = 'manifest.json'
 export const BACKUP_COMPLETE_NAME = 'COMPLETE'
 export const BACKUP_TEMPLATES_NAME = 'templates.json'
+export const BACKUP_AUTOMATION_NAME = 'automation.json'
 
 export type MarkdownBackupNoteState = 'notes' | 'archived' | 'trash'
 
@@ -39,6 +42,12 @@ export interface MarkdownBackupTemplatesEntry {
   sha256: string
 }
 
+export interface MarkdownBackupAutomationEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupManifest {
   format: typeof MARKDOWN_BACKUP_FORMAT
   version: MarkdownBackupVersion
@@ -49,6 +58,8 @@ export interface MarkdownBackupManifest {
   attachments: MarkdownBackupAttachmentEntry[]
   /** The account's own template library, absent from a backup taken before it was worth keeping. */
   templates?: MarkdownBackupTemplatesEntry
+  /** The account's QuickAdd library, kept beside the templates it can call. */
+  automation?: MarkdownBackupAutomationEntry
 }
 
 const HASH_RE = /^[0-9a-f]{64}$/
@@ -87,6 +98,15 @@ export function backupTemplatesPath(
   return BACKUP_TEMPLATES_NAME
 }
 
+export function backupAutomationPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_AUTOMATION_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_AUTOMATION_NAME
+}
+
 export function backupAttachmentPath(sha256: string, filename: string): string {
   if (!HASH_RE.test(sha256)) throw new Error('Invalid attachment checksum')
   return `attachments/${sha256}--${filename}`
@@ -101,7 +121,7 @@ export function backupCompleteBody(
 }
 
 export function completeManifestHash(value: string): string | null {
-  const match = /^inkstone-markdown-backup v(?:2|3)\r?\nmanifest-sha256 ([0-9a-f]{64})\r?\n?$/.exec(value)
+  const match = /^inkstone-markdown-backup v(?:2|3|4)\r?\nmanifest-sha256 ([0-9a-f]{64})\r?\n?$/.exec(value)
   return match?.[1] ?? null
 }
 
@@ -109,7 +129,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
   if (!isRecord(value)) return null
   if (
     value.format !== MARKDOWN_BACKUP_FORMAT ||
-    (value.version !== 2 && value.version !== MARKDOWN_BACKUP_VERSION)
+    (value.version !== 2 && value.version !== 3 && value.version !== MARKDOWN_BACKUP_VERSION)
   ) return null
   if (typeof value.appVersion !== 'string' || value.appVersion.length > 64) return null
   if (typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return null
@@ -214,6 +234,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     templates = { path: expectedPath, bytes: value.templates.bytes, sha256: value.templates.sha256 }
   }
 
+  let automation: MarkdownBackupAutomationEntry | undefined
+  if (value.automation !== undefined) {
+    if (!isRecord(value.automation)) return null
+    const expectedPath = backupAutomationPath(value.snapshot, value.version)
+    if (
+      value.automation.path !== expectedPath ||
+      !isSafeSize(value.automation.bytes) ||
+      value.automation.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.automation.sha256 !== 'string' ||
+      !HASH_RE.test(value.automation.sha256)
+    ) return null
+    automation = { path: expectedPath, bytes: value.automation.bytes, sha256: value.automation.sha256 }
+  }
+
   return {
     format: MARKDOWN_BACKUP_FORMAT,
     version: value.version,
@@ -223,6 +257,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     notes,
     attachments,
     templates,
+    automation,
   }
 }
 

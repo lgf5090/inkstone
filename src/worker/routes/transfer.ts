@@ -248,6 +248,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.templates) {
             expected.add(`${backup.rootPrefix}${backup.manifest.templates.path}`.toLowerCase())
           }
+          if (backup.manifest.automation) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.automation.path}`.toLowerCase())
+          }
           const entries = await readZip(bytes, {
             ...zipOptions,
             maxEntryBytes: LIMITS.importUploadMaxBytes,
@@ -419,6 +422,7 @@ async function importBackupFileBatch(
     manifest.attachments.map((entry) => [entry.path.toLowerCase(), entry]),
   )
   const templatesByPath = manifest.templates?.path.toLowerCase() ?? null
+  const automationByPath = manifest.automation?.path.toLowerCase() ?? null
   const seen = new Set<string>()
   const planned = selected.map(({ file, path }) => {
     if (!isSafeBackupPath(path)) throw new Error(`Invalid backup path: ${path}`)
@@ -428,21 +432,28 @@ async function importBackupFileBatch(
     const note = noteByPath.get(key)
     const attachment = attachmentByPath.get(key)
     const templates = templatesByPath !== null && key === templatesByPath
-    if (!note && !attachment && !templates) throw new Error(`The file is not listed in the backup manifest: ${path}`)
-    return { file, path, note, attachment, templates }
+    const automation = automationByPath !== null && key === automationByPath
+    if (!note && !attachment && !templates && !automation) throw new Error(`The file is not listed in the backup manifest: ${path}`)
+    return { file, path, note, attachment, templates, automation }
   })
 
   for (const item of planned) {
-    const entry = item.note ?? item.attachment ?? (item.templates ? manifest.templates! : null)
+    const entry = item.note
+      ?? item.attachment
+      ?? (item.templates ? manifest.templates ?? null : null)
+      ?? (item.automation ? manifest.automation ?? null : null)
     if (!entry) continue
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await verifyBackupEntry(
       bytes,
-      item.note ? item.note.bytes : item.attachment ? item.attachment.size : manifest.templates!.bytes,
+      item.note ? item.note.bytes
+        : item.attachment ? item.attachment.size
+        : item.templates ? manifest.templates!.bytes
+        : manifest.automation!.bytes,
       entry.sha256,
       entry.path,
     )
-    if (item.note || item.templates) {
+    if (item.note || item.templates || item.automation) {
       try {
         new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
       } catch {
@@ -477,6 +488,13 @@ async function importBackupFileBatch(
       new Uint8Array(await templatesItem.file.arrayBuffer()),
     )
     await applyBackupTemplates(c.env.DB, userId, text)
+  }
+  const automationItem = planned.find((item) => item.automation)
+  if (automationItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await automationItem.file.arrayBuffer()),
+    )
+    await applyBackupQuickAdd(c.env.DB, userId, text)
   }
 }
 

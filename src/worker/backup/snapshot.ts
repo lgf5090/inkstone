@@ -1,6 +1,7 @@
 /** Produces restorable JSON, readable Markdown, and attachment files for every backup target. */
 import {
   backupAttachmentPath,
+  backupAutomationPath,
   backupCompleteBody,
   backupCompletePath,
   backupManifestPath,
@@ -25,6 +26,7 @@ import {
   readAttachmentObjectStream,
 } from '../attachments/backend'
 import { readBackupTemplates } from './templates'
+import { readBackupQuickAdd } from './quickadd'
 import { attachmentObjectKey } from '../attachments/keys'
 import { NOTE_COLUMNS_FULL, NOTE_CONTENT_COLUMNS, toFolder, toNote, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
 import type { Env } from '../env'
@@ -32,7 +34,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation'
 
 export interface BackupFile {
   path: string
@@ -223,6 +225,15 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'templates',
     )
+  const automationText = await readBackupQuickAdd(env.DB, userId)
+  const automationFile = automationText === null
+    ? null
+    : await staticFile(
+      backupAutomationPath(stamp),
+      automationText,
+      'application/json; charset=utf-8',
+      'automation',
+    )
   const manifest: MarkdownBackupManifest = {
     format: MARKDOWN_BACKUP_FORMAT,
     version: MARKDOWN_BACKUP_VERSION,
@@ -233,6 +244,9 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     attachments: attachmentEntries,
     templates: templatesFile
       ? { path: templatesFile.path, bytes: templatesFile.byteLength, sha256: templatesFile.sha256 }
+      : undefined,
+    automation: automationFile
+      ? { path: automationFile.path, bytes: automationFile.byteLength, sha256: automationFile.sha256 }
       : undefined,
   }
   if (!parseMarkdownBackupManifest(manifest)) {
@@ -253,7 +267,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     'text/plain; charset=utf-8',
     'complete',
   )
-  const payloadFiles = [...noteFiles, ...attachmentFiles, readmeFile, ...(templatesFile ? [templatesFile] : [])]
+  const payloadFiles = [...noteFiles, ...attachmentFiles, readmeFile, ...(templatesFile ? [templatesFile] : []), ...(automationFile ? [automationFile] : [])]
   const allFiles = [...payloadFiles, manifestFile, completeFile]
 
   return {
@@ -634,7 +648,7 @@ function readme(
   const active = notes.filter((note) => note.state === 'notes').length
   const archived = notes.filter((note) => note.state === 'archived').length
   const trash = notes.filter((note) => note.state === 'trash').length
-  return `Inkstone Markdown backup\n\nSnapshot (UTC): ${stamp}\nTotal notes: ${notes.length}\nActive: ${active}\nArchived: ${archived}\nTrash: ${trash}\nAttachments: ${attachments}\n\nnotes/ contains ordinary notes in their folder hierarchy.\narchived/ contains archived notes in their folder hierarchy.\ntrash/ contains trashed notes in their folder hierarchy.\nattachments/ contains referenced files in their original bytes; the checksum in each filename prevents collisions.\nmanifest.json records note state, timestamps, paths, and checksums.\ntemplates.json holds the account's own template library, when it has one.\n\nRestore this ZIP directly in Inkstone. For a backup larger than the browser upload limit, extract it and select the extracted folder instead.\nA backup is valid only when its COMPLETE file is present and matches manifest.json.\n`
+  return `Inkstone Markdown backup\n\nSnapshot (UTC): ${stamp}\nTotal notes: ${notes.length}\nActive: ${active}\nArchived: ${archived}\nTrash: ${trash}\nAttachments: ${attachments}\n\nnotes/ contains ordinary notes in their folder hierarchy.\narchived/ contains archived notes in their folder hierarchy.\ntrash/ contains trashed notes in their folder hierarchy.\nattachments/ contains referenced files in their original bytes; the checksum in each filename prevents collisions.\nmanifest.json records note state, timestamps, paths, and checksums.\ntemplates.json holds the account's own template library, when it has one.\nautomation.json holds the account's automation choices and their settings, when it has one.\n\nRestore this ZIP directly in Inkstone. For a backup larger than the browser upload limit, extract it and select the extracted folder instead.\nA backup is valid only when its COMPLETE file is present and matches manifest.json.\n`
 }
 
 function formatBytes(bytes: number): string {
