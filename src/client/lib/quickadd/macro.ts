@@ -257,6 +257,8 @@ async function runMacroSteps(
   for (const step of choice.steps) {
     const failed = await runStep(step, state)
     if (failed) return { status: failed, text: state.collected.join('') }
+    if (state.session.dismissed)
+      return { status: { kind: 'cancelled' }, text: state.collected.join('') }
   }
   return {
     status: {

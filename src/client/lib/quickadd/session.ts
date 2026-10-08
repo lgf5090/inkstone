@@ -76,7 +76,7 @@ export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunS
     label: t('quickadd.prompt_day'),
     dateFormat: session.settings.dateFormat,
   })])
-  const value = answers.get('day')
+  const value = answers.get('day') ?? null
   if (value === null) return { kind: 'cancelled' }
   const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
   if (!Number.isFinite(stamp))
@@ -98,6 +98,9 @@ export async function formatWithPrompts(
     (entry) => !session.variables.has(entry.key),
   )
   if (promised.length > 0) await askForInputs(session, promised, { destination })
+  // A closed question leaves its variable unset, so the second pass below would ask the very same
+  // thing again — the reader who pressed Escape would watch the dialog reappear.
+  if (session.dismissed) return { text: '', cursor: null }
   const result = await formatQuickAddText(text, runtime)
   // A token that only appeared after the prompts ran (a macro or an included template's own
   // `{{VALUE}}`) has not been asked for yet; ask once more rather than write a literal token.
@@ -106,6 +109,7 @@ export async function formatWithPrompts(
   )
   if (rest.length === 0) return result
   await askForInputs(session, rest, { destination })
+  if (session.dismissed) return { text: '', cursor: null }
   return formatQuickAddText(text, runtime)
 }
 

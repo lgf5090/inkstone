@@ -33,8 +33,8 @@ function request(over: Partial<PromptRequest> = {}): PromptRequest {
   }
 }
 
-function ask(): Promise<PromptAnswers> {
-  let asking: Promise<PromptAnswers> | undefined
+function ask(): Promise<PromptAnswers | null> {
+  let asking: Promise<PromptAnswers | null> | undefined
   act(() => {
     asking = askQuickAddPrompts({
       requests: [request()],
@@ -96,7 +96,7 @@ describe('the claim a prompt host holds over the queue', () => {
       submitQuickAddPrompts(new Map([['who', 'the reader']]))
     })
     const answers = await asking
-    expect(answers.get('who')).toBe('the reader')
+    expect(answers?.get('who')).toBe('the reader')
   })
 
   it('releases the run once the last host has really gone away', async () => {
@@ -110,6 +110,6 @@ describe('the claim a prompt host holds over the queue', () => {
     })
     await settled()
     expect(currentPromptGroup(), 'a host that is gone cannot answer the run').toBeNull()
-    expect(await asking).toEqual(new Map())
+    expect(await asking, 'a host that is gone answers nothing').toBeNull()
   })
 })

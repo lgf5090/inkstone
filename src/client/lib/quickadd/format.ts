@@ -28,6 +28,7 @@ import {
 } from './token-grammar'
 import { formatDatePattern } from './date-pattern'
 import { weekStartFor } from '../time'
+import { escapeIntoScalar, frontMatterRange, quotedScalarAt, unquoteTypedScalars } from './yaml-quotes'
 import { evaluateMathExpression, formatMathValue } from './math'
 import { t } from '../../lib/i18n'
 import type { QuickAddPeriod } from '@shared/quickadd'
@@ -129,14 +130,22 @@ const PERIOD_TO_QUICKADD_PERIOD: Readonly<Record<string, QuickAddPeriod>> = {
 async function mapTokens(
   text: string,
   replace: (span: TokenSpan) => Promise<string | null> | string | null,
+  runtime?: FormatRuntime,
 ): Promise<string> {
   const spans = scanTokens(text)
+  const range = frontMatterRange(text)
   let out = ''
   let at = 0
   for (const span of spans) {
     const value = await replace(span)
     if (value === null) continue
-    out += text.slice(at, span.start) + value
+    // A token inside a quoted property has to be written the way that property holds it, or the
+    // reader's own answer silently breaks the note's front matter.
+    const scalar = quotedScalarAt(text, span.start, span.end, range)
+    const rendered = scalar ? escapeIntoScalar(value, scalar.quote) : { text: value, folded: false }
+    if (scalar && rendered.folded)
+      runtime?.warn(t('quickadd.warn_scalar_folded', { quote: scalar.quote }))
+    out += text.slice(at, span.start) + rendered.text
     at = span.end
   }
   return `${out}${text.slice(at)}`
@@ -542,12 +551,13 @@ export async function formatQuickAddText(
 ): Promise<FormattedText> {
   let text = expandGlobalsForDiscovery(input, runtime)
   text = expandEscapes(text)
+  text = unquoteTypedScalars(text)
   text = await mapTokens(text, async (span) => {
     if (span.name !== 'macro') return null
     const { name, label } = namedReference(bodyOf(span))
     if (!name) return ''
     return runtime.runMacroByName(name, label)
-  })
+  }, runtime)
   text = expandGlobalsForDiscovery(text, runtime)
   text = await includeTemplates(text, runtime)
   // A second pass: an included template or a macro may itself carry a `{{GLOBAL_VAR:}}` snippet.
@@ -581,7 +591,7 @@ export async function formatQuickAddText(
       default:
         return null
     }
-  })
+  }, runtime)
 
   text = await mapTokens(text, async (span) => {
     switch (span.name) {
@@ -720,7 +730,7 @@ export async function formatQuickAddText(
       default:
         return null
     }
-  })
+  }, runtime)
 
   text = mapTokensSync(text, (span) => {
     switch (span.name) {

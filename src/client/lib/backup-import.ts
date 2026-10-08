@@ -23,6 +23,7 @@ interface BackupSelection {
   attachments: SelectedBackupFile<MarkdownBackupAttachmentEntry>[]
   notes: SelectedBackupFile<MarkdownBackupNoteEntry>[]
   templates: { file: File; path: string } | null
+  automation: { file: File; path: string } | null
   warning: string | null
 }
 
@@ -53,6 +54,11 @@ export async function restoreMarkdownBackupFolder(
     const { file, path } = selection.templates
     if (file.size !== selection.manifest.templates!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
     if (await sha256File(file) !== selection.manifest.templates!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
+  }
+  if (selection.automation) {
+    const { file, path } = selection.automation
+    if (file.size !== selection.manifest.automation!.bytes) throw new Error(t('settings.backup_file_size_mismatch', { value0: path }))
+    if (await sha256File(file) !== selection.manifest.automation!.sha256) throw new Error(t('settings.backup_file_checksum_failed', { value0: path }))
   }
 
   let attachmentBatch: SelectedBackupFile<MarkdownBackupAttachmentEntry>[] = []
@@ -126,6 +132,16 @@ export async function restoreMarkdownBackupFolder(
         [selection.templates.file],
         manifestSlice(selection.manifest, [], []),
         [selection.templates.path],
+      ),
+    )
+  }
+  if (selection.automation) {
+    mergeResult(
+      result,
+      await send(
+        [selection.automation.file],
+        manifestSlice(selection.manifest, [], []),
+        [selection.automation.path],
       ),
     )
   }
@@ -214,18 +230,19 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       if (!file) throw new Error(t('settings.backup_missing_file', { value0: path }))
       return { file, path, entry }
     }
+    const resolveLibrary = (entry: { path: string } | undefined) => {
+      if (!entry) return null
+      const path = entry.path
+      const file = byPath.get(`${rootPrefix}${path}`.toLowerCase())
+      if (!file) throw new Error(t('settings.backup_missing_file', { value0: path }))
+      return { file, path }
+    }
     return {
       manifest,
       attachments: manifest.attachments.map(resolve),
       notes: manifest.notes.map(resolve),
-      templates: manifest.templates
-        ? (() => {
-          const path = manifest.templates!.path
-          const file = byPath.get(`${rootPrefix}${path}`.toLowerCase())
-          if (!file) throw new Error(t('settings.backup_missing_file', { value0: path }))
-          return { file, path }
-        })()
-        : null,
+      templates: resolveLibrary(manifest.templates),
+      automation: resolveLibrary(manifest.automation),
       warning: skipped.length
         ? t('settings.backup_newer_snapshot_skipped', { value0: skipped[0] })
         : null,

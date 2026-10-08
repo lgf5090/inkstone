@@ -47,6 +47,10 @@ interface LauncherRow {
   isGroup: boolean
   depth: number
   recent: boolean
+  /** The groups this match sits inside, when the filter reached below the level on screen. */
+  trail: string[]
+  /** Those groups in order, so choosing a nested group opens exactly where it lives. */
+  ancestors: QuickAddChoice[]
 }
 
 function rowLabel(choice: QuickAddChoice): string {
@@ -76,6 +80,8 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
 
   const rows = useMemo(() => {
+    const byPosition = (list: QuickAddChoice[]): QuickAddChoice[] =>
+      list.slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
     const enabled = scoped.filter((choice) => choice.enabled)
     const wanted = query.trim() === ''
       ? enabled
@@ -83,11 +89,44 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
     const listed: LauncherRow[] = wanted.map((choice) => ({
       key: choice.id,
       choice,
-      isGroup: choice.type === 'group',
+      isGroup: isGroup(choice),
       depth: 0,
       recent: false,
+      trail: [],
+      ancestors: [],
     }))
-    if (query.trim() !== '' || path.length > 0) return listed
+    if (query.trim() !== '') {
+      if (!settings.searchNestedChoices) return listed
+      // Typing reaches into the groups without making the reader walk them first: every descendant
+      // is a candidate, and the whole pool is ranked together so a better match deeper down cannot
+      // be buried behind a worse one at this level.
+      const already = new Set(listed.map((row) => row.choice.id))
+      const places = new Map<string, { trail: string[]; ancestors: QuickAddChoice[] }>()
+      const descendants: QuickAddChoice[] = []
+      const walk = (group: QuickAddChoice, trail: string[], ancestors: QuickAddChoice[]): void => {
+        for (const child of byPosition(childrenOf(choices, group.id).filter((entry) => entry.enabled))) {
+          descendants.push(child)
+          places.set(child.id, { trail, ancestors })
+          if (isGroup(child)) walk(child, [...trail, child.name], [...ancestors, child])
+        }
+      }
+      for (const group of enabled.filter(isGroup)) walk(group, [group.name], [group])
+      const nested = fuzzyFilter(descendants.filter((choice) => !already.has(choice.id)), query, rowLabel)
+        .map(({ item }) => {
+          const place = places.get(item.id) ?? { trail: [], ancestors: [] }
+          return {
+            key: `nested:${item.id}`,
+            choice: item,
+            isGroup: isGroup(item),
+            depth: place.ancestors.length,
+            recent: false,
+            trail: place.trail,
+            ancestors: place.ancestors,
+          }
+        })
+      return [...listed, ...nested]
+    }
+    if (path.length > 0) return listed
     // Recents ride above the list only at the top of the tree with nothing typed: two views of the
     // same row would make the arrow keys ambiguous.
     const byId = new Map(choices.map((choice) => [choice.id, choice]))
@@ -101,10 +140,12 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
         isGroup: choice.type === 'group',
         depth: 0,
         recent: true,
+        trail: [],
+        ancestors: [],
       }))
     const seen = new Set(recent.map((row) => row.choice.id))
     return [...recent, ...listed.filter((row) => !seen.has(row.choice.id))]
-  }, [choices, path.length, pinyinVersion, query, scoped, settings.recent])
+  }, [choices, path.length, pinyinVersion, query, scoped, settings.recent, settings.searchNestedChoices])
 
   useEffect(() => {
     setCursor((current) => (rows.length === 0 ? 0 : Math.min(current, rows.length - 1)))
@@ -137,7 +178,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
         choiceId: choice.id,
         choiceName: choice.name,
       })
-      const value = answers.get('day')
+      const value = answers?.get('day')
       const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
       if (!Number.isFinite(stamp)) return
       day = new Date(stamp)
@@ -150,6 +191,14 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
   }, [activeNoteId, onClose, settings.dateFormat])
 
   const activate = useCallback((row: LauncherRow, pickDay: boolean) => {
+    // A group the search surfaced from deeper down still names a place: open it where it lives
+    // rather than running it or pushing it onto the path a second time.
+    if (row.isGroup && row.ancestors.length > 0) {
+      setPath([...row.ancestors, row.choice])
+      setCursor(0)
+      setQuery('')
+      return
+    }
     void run(row.choice, pickDay)
   }, [run])
 
@@ -271,7 +320,11 @@ function LauncherRowView({ row, index, active, onHover, onActivate }: {
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[12.5px] text-[var(--text-primary)]">{row.choice.name}</span>
         <span className="mt-0.5 block text-[11px] tabular text-[var(--text-quaternary)]">
-          {row.recent ? t('quickadd.launcher_recent') : t(TYPE_LABEL_KEY[row.choice.type])}
+          {row.recent
+            ? t('quickadd.launcher_recent')
+            : row.trail.length > 0
+              ? `${row.trail.join(' / ')} · ${t(TYPE_LABEL_KEY[row.choice.type])}`
+              : t(TYPE_LABEL_KEY[row.choice.type])}
         </span>
       </span>
       {combo && (

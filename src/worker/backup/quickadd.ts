@@ -1,7 +1,35 @@
-import { parseQuickAddRecord, QUICKADD_VERSION } from '@shared/quickadd'
+import {
+  buildQuickAddPayload,
+  parseQuickAddRecord,
+  QUICKADD_VERSION,
+  quickAddLibraryFromStored,
+} from '@shared/quickadd'
 
 export interface BackupQuickAddSummary {
   choices: number
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  }
+  catch {
+    return null
+  }
+}
+
+/**
+ * The account's automation library as the transport payload a backup can carry — the same shape the
+ * settings page downloads, so a `automation.json` opened in an editor reads like a library and not
+ * like a database row. Null when the account has none or its column cannot be understood.
+ */
+export async function readBackupQuickAdd(db: D1Database, userId: string): Promise<string | null> {
+  const row = await db.prepare('SELECT quickadd FROM users WHERE id = ?1')
+    .bind(userId)
+    .first<{ quickadd: string | null }>()
+  const library = quickAddLibraryFromStored(row?.quickadd ?? null)
+  if (!library) return null
+  return JSON.stringify(buildQuickAddPayload(library.settings, library.choices))
 }
 
 /**
@@ -12,8 +40,9 @@ export interface BackupQuickAddSummary {
 export async function applyBackupQuickAdd(
   db: D1Database,
   userId: string,
-  library: unknown,
+  carried: unknown,
 ): Promise<BackupQuickAddSummary> {
+  const library = typeof carried === 'string' ? parseJson(carried) : carried
   const parsed = parseQuickAddRecord(library)
   if (!parsed.data) throw new Error('The export contains no readable QuickAdd library')
   if (parsed.dropped > 0 || parsed.truncated) {

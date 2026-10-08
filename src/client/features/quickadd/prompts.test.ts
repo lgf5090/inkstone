@@ -1,9 +1,10 @@
-import { act, createElement } from 'react'
+import { act, createElement, type ReactElement } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { PromptRequest } from '../../lib/quickadd/format'
 import type { PromptAnswers } from './prompt-queue'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { useEscape } from '../../components/overlay'
 import {
   askQuickAddPrompts,
   cancelQuickAddPrompts,
@@ -34,6 +35,15 @@ function request(over: Partial<PromptRequest> = {}): PromptRequest {
   }
 }
 
+/**
+ * A surface that owns the escape stack above the prompt: the app's global handler defers to anything
+ * inside `data-owns-escape`, so the dialog still sees its own Escape key.
+ */
+function DecoyOverlay(): ReactElement {
+  useEscape(true, () => {})
+  return createElement('div', { 'data-decoy': 'true' })
+}
+
 function group(over: Partial<Parameters<typeof askQuickAddPrompts>[0]> = {}) {
   return {
     requests: [request()],
@@ -48,8 +58,8 @@ function group(over: Partial<Parameters<typeof askQuickAddPrompts>[0]> = {}) {
  * The queue notifies its subscribers the moment a group is asked, so the call has to happen inside
  * `act` — a prompt opened outside it leaves React warning that the host updated itself off-camera.
  */
-function ask(over: Parameters<typeof askQuickAddPrompts>[0]): Promise<PromptAnswers> {
-  let asking: Promise<PromptAnswers> | undefined
+function ask(over: Parameters<typeof askQuickAddPrompts>[0]): Promise<PromptAnswers | null> {
+  let asking: Promise<PromptAnswers | null> | undefined
   act(() => {
     asking = askQuickAddPrompts(over)
   })
@@ -58,6 +68,7 @@ function ask(over: Parameters<typeof askQuickAddPrompts>[0]): Promise<PromptAnsw
 }
 
 let rendered: RenderedElement
+let decoy: RenderedElement | undefined
 
 beforeAll(async () => {
   await initI18n()
@@ -72,6 +83,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  decoy?.unmount()
+  decoy = undefined
   rendered.unmount()
   act(() => {
     resetQuickAddPrompts()
@@ -126,7 +139,11 @@ async function untilSettled<T>(promise: Promise<T>): Promise<T> {
   })
   for (let attempt = 0; attempt < 20 && result === undefined; attempt += 1)
     await act(async () => {
-      await Promise.resolve()
+      // A timer, not a microtask: the host releases the queue one task after its last unmount, and a
+      // pump that only drains microtasks would watch that release go by.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0)
+      })
     })
   if (result === undefined) throw new Error('the prompt never settled')
   return result
@@ -142,7 +159,7 @@ describe('the prompt queue', () => {
     type('Tom', field(panel()))
     clickButton(panel(), t('quickadd.prompt_ok'))
     const answers = await untilSettled(asking)
-    expect(answers.get('who')).toBe('Tom')
+    expect(answers?.get('who')).toBe('Tom')
   })
 
   it('holds the second group until the first is answered', async () => {
@@ -163,7 +180,7 @@ describe('the prompt queue', () => {
     expect(panel().textContent).toContain('B')
     type('two')
     clickButton(panel(), t('quickadd.prompt_ok'))
-    expect((await untilSettled(second)).get('b')).toBe('two')
+    expect((await untilSettled(second))?.get('b')).toBe('two')
   })
 
   it('settles every waiting promise when the host goes away', async () => {
@@ -173,7 +190,7 @@ describe('the prompt queue', () => {
     })
     rendered.unmount()
     const answers = await untilSettled(asking)
-    expect(answers.size).toBe(0)
+    expect(answers, 'a host that is gone answers nothing').toBeNull()
     rendered = renderElement(createElement(QuickAddPromptHost))
   })
 
@@ -184,7 +201,8 @@ describe('the prompt queue', () => {
     })
     type('half written')
     press('Escape', field(panel()))
-    expect((await untilSettled(first)).get('who')).toBe('half written')
+    const cancelled = await untilSettled(first)
+    expect(cancelled, 'a closed question answers nothing').toBeNull()
 
     const again = ask(group({ requests: [request({ optional: true })] }))
     await act(async () => {
@@ -193,7 +211,7 @@ describe('the prompt queue', () => {
     expect(field(panel()).value).toBe('half written')
     type('')
     clickButton(panel(), t('quickadd.prompt_ok'))
-    expect((await untilSettled(again)).get('who')).toBe('')
+    expect((await untilSettled(again))?.get('who')).toBe('')
     // An answered prompt clears its draft, so a third run starts from the token's own default.
     const third = ask(group({ requests: [request({ optional: true })] }))
     await act(async () => {
@@ -202,7 +220,17 @@ describe('the prompt queue', () => {
     expect(field(panel()).value).toBe('')
     type('fresh')
     clickButton(panel(), t('quickadd.prompt_ok'))
-    expect((await untilSettled(third)).get('who')).toBe('fresh')
+    expect((await untilSettled(third))?.get('who')).toBe('fresh')
+  })
+
+  it('closes on the first Escape even when another surface owns the escape stack', async () => {
+    const asking = ask(group())
+    await act(async () => {
+      await Promise.resolve()
+    })
+    decoy = renderElement(createElement(DecoyOverlay))
+    press('Escape', field(panel()))
+    expect(await untilSettled(asking), 'the first Escape has to close the question').toBeNull()
   })
 })
 
@@ -220,7 +248,7 @@ describe('the gate that mounts the dialogs', () => {
     expect(panel().textContent).toContain('Who')
     type('through the gate')
     clickButton(panel(), t('quickadd.prompt_ok'))
-    expect((await untilSettled(asking)).get('who')).toBe('through the gate')
+    expect((await untilSettled(asking))?.get('who')).toBe('through the gate')
   })
 })
 
@@ -291,7 +319,7 @@ describe('the prompt kinds', () => {
       await Promise.resolve()
     })
     clickButton(panel(), t('quickadd.prompt_yes'))
-    expect((await untilSettled(asking)).get('flag')).toBe('true')
+    expect((await untilSettled(asking))?.get('flag')).toBe('true')
   })
 
   it('clamps a slider into its own bounds', async () => {
@@ -309,7 +337,7 @@ describe('the prompt kinds', () => {
     })
     clickButton(panel(), t('quickadd.prompt_today'))
     clickButton(panel(), t('quickadd.prompt_ok'))
-    const answer = (await untilSettled(asking)).get('day')
+    const answer = (await untilSettled(asking))?.get('day')
     const now = new Date()
     const pad = (value: number) => String(value).padStart(2, '0')
     expect(answer).toBe(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`)
@@ -332,7 +360,7 @@ describe('the prompt kinds', () => {
     })
     type('  hello world  ')
     clickButton(panel(), t('quickadd.prompt_ok'))
-    expect((await untilSettled(asking)).get('title')).toBe('Hello World')
+    expect((await untilSettled(asking))?.get('title')).toBe('Hello World')
   })
 })
 
@@ -367,9 +395,19 @@ describe('the one-page form', () => {
       submit.click()
     })
     const answers = await untilSettled(asking)
-    expect(answers.get('a')).toBe('filled')
-    expect(answers.get('b')).toBe('p')
-    expect(answers.get('c')).toBe('')
+    expect(answers?.get('a')).toBe('filled')
+    expect(answers?.get('b')).toBe('p')
+    expect(answers?.get('c')).toBe('')
+  })
+
+  it('closes the whole page on the first Escape under another surface', async () => {
+    const asking = ask(group({ onePage: true, requests: [request({ key: 'a', label: 'Alpha' })] }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    decoy = renderElement(createElement(DecoyOverlay))
+    press('Escape', panel().querySelector('[data-quickadd-page-row="a"] input') as HTMLInputElement)
+    expect(await untilSettled(asking), 'the first Escape has to close the whole page').toBeNull()
   })
 
   it('names the note the run is about to write', async () => {
@@ -392,6 +430,6 @@ describe('cancelling from the outside', () => {
     act(() => {
       cancelQuickAddPrompts()
     })
-    expect((await untilSettled(asking)).size).toBe(0)
+    expect(await untilSettled(asking), 'a cancelled run gets no answers at all').toBeNull()
   })
 })

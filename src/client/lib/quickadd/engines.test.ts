@@ -17,7 +17,7 @@ vi.mock('../../features/quickadd/prompt-queue', () => ({
     answers.calls.push(group.requests.map((request) => request.key))
     const next = answers.queue.shift()
     // A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.
-    if (next === null) return new Map()
+    if (next === null) return null
     return new Map(group.requests.map((request, index) => [
       request.key,
       next === undefined ? request.defaultValue : next[index] ?? request.defaultValue,
@@ -200,6 +200,29 @@ describe('capturing into a note', () => {
     expect(fake.content('Inbox')).toBe('today\na phrase in the note')
   })
 
+  it('writes nothing when the reader closes the value question', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [null]
+    const status = await runCaptureChoice(
+      captureOn('Inbox', { format: { enabled: true, format: '- {{VALUE}} (logged)' } }),
+      fake.port,
+    )
+    expect(status.kind).toBe('cancelled')
+    expect(fake.content('Inbox'), 'a dismissed dialog must not leave text behind').toBe('today\n')
+    expect(answers.calls, 'a closed question must not be asked again').toEqual([['value']])
+  })
+
+  it('does not even create the target note when the value question is closed', async () => {
+    const fake = harness({})
+    answers.queue = [null]
+    const status = await runCaptureChoice(
+      captureOn('Fresh inbox', { format: { enabled: true, format: '- {{VALUE}}' } }),
+      fake.port,
+    )
+    expect(status.kind).toBe('cancelled')
+    expect(fake.created, 'a cancelled capture must not leave an empty note behind').toEqual([])
+  })
+
   it('asks anyway when the choice says this capture always asks', async () => {
     const fake = harness({ Inbox: 'today\n' }, {}, 'a phrase in the note')
     const choice = captureOn('Inbox', { useSelectionAsValue: false })
@@ -258,7 +281,7 @@ describe('capturing into a note', () => {
       after: '## {{DATE:YYYY-MM-DD}}',
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'date', direction: 'asc', dateFormat: 'YYYY-MM-DD' },
+      orderBy: { by: 'date', direction: 'asc', dateFormat: 'YYYY-MM-DD', unparseable: 'bottom' },
       format: { enabled: true, format: 'text' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -272,7 +295,7 @@ describe('capturing into a note', () => {
       after: `## {{DATE:${CJK_DATE_FIXTURES.headingFormat}}}`,
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'date', direction: 'asc', dateFormat: CJK_DATE_FIXTURES.headingFormat },
+      orderBy: { by: 'date', direction: 'asc', dateFormat: CJK_DATE_FIXTURES.headingFormat, unparseable: 'bottom' },
       format: { enabled: true, format: 'text' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -286,7 +309,7 @@ describe('capturing into a note', () => {
       after: '## 1.3.0',
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'semver', direction: 'desc', dateFormat: '' },
+      orderBy: { by: 'semver', direction: 'desc', dateFormat: '', unparseable: 'bottom' },
       format: { enabled: true, format: 'new' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -304,7 +327,7 @@ describe('capturing into a note', () => {
       after: '## Only',
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'lexical', direction: 'asc', dateFormat: '' },
+      orderBy: { by: 'lexical', direction: 'asc', dateFormat: '', unparseable: 'bottom' },
       format: { enabled: true, format: 'body' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -540,6 +563,48 @@ describe('capturing into a note', () => {
     expect(fake.content('Note')).toBe('---\nstatus: Done\n---\nbody only\n')
   })
 
+  it('creates the note a property capture is aimed at', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop new', 0),
+      targetTitle: 'Fresh',
+      createIfMissing: true,
+      property: {
+        enabled: true,
+        prompted: false,
+        name: 'status',
+        action: 'set' as const,
+        createIfMissing: true,
+        format: { enabled: true, format: 'Done' },
+      },
+    }
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created[0].title).toBe('Fresh')
+    expect(fake.content('Fresh')).toBe('---\nstatus: Done\n---\n')
+  })
+
+  it('creates nothing when a property capture’s question is closed', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop asked', 0),
+      targetTitle: 'Fresh',
+      createIfMissing: true,
+      property: {
+        enabled: true,
+        prompted: true,
+        name: '',
+        action: 'set' as const,
+        createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE}}' },
+      },
+    }
+    answers.queue = [null]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('cancelled')
+    expect(fake.created, 'a closed property question must not leave an empty note').toEqual([])
+  })
+
   it('asks which heading to use when the choice says so', async () => {
     const fake = harness({ Log: '# Log\n\n## Alpha\nx\n\n## Beta\ny\n' })
     const choice = captureOn('Log', {
@@ -609,6 +674,34 @@ describe('creating a note from a template', () => {
     answers.queue = [['My note']]
     await runTemplateChoice(choice, fake.port)
     expect(fake.created[0].title).toBe('My note')
+  })
+
+  it('creates no note when the reader closes the folder question', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'T', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Filed note' },
+      folderMode: 'ask' as const,
+    }
+    answers.queue = [null]
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('cancelled')
+    expect(fake.created, 'a closed folder question must not file the note in the root').toEqual([])
+  })
+
+  it('cancels rather than fails when the date question is closed', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'T', 0),
+      templateId: 'tpl-cleared',
+      nameFormat: { enabled: true, format: 'Day note' },
+      dateOrigin: 'ask' as const,
+    }
+    answers.queue = [null]
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind, 'closing a question is not a broken date').toBe('cancelled')
+    expect(fake.created).toEqual([])
   })
 
   it('merges the choice tags into the new note’s properties', async () => {

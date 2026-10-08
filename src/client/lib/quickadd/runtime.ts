@@ -26,6 +26,8 @@ export interface RunSession {
   sourceNoteId?: string
   /** Set only while a property capture formats its value. */
   propertyValue?: PromptAnswer
+  /** A question was closed rather than answered: the run stops instead of writing what was typed. */
+  dismissed?: boolean
 }
 
 export interface RuntimeHooks {
@@ -102,6 +104,10 @@ export async function askForInputs(
     choiceName: session.base.name,
     destination: extra?.destination ?? session.destination?.title,
   }).then((answers) => {
+    if (!answers) {
+      session.dismissed = true
+      return new Map<string, PromptAnswer>()
+    }
     for (const [key, value] of answers) session.variables.set(key, value)
     return answers
   })

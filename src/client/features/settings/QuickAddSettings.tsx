@@ -100,6 +100,12 @@ export function QuickAddSettings() {
         <SettingRow title={t('settings.quickadd_notifications')} description={t('settings.quickadd_notifications_desc')}>
           <Switch label={t('settings.quickadd_notifications')} checked={settings.notifications} onChange={(notifications) => save({ notifications })}/>
         </SettingRow>
+        <SettingRow title={t('settings.quickadd_cancel_notice')} description={t('settings.quickadd_cancel_notice_desc')}>
+          <Switch label={t('settings.quickadd_cancel_notice')} checked={settings.cancelNotice} onChange={(cancelNotice) => save({ cancelNotice })}/>
+        </SettingRow>
+        <SettingRow title={t('settings.quickadd_nested_search')} description={t('settings.quickadd_nested_search_desc')}>
+          <Switch label={t('settings.quickadd_nested_search')} checked={settings.searchNestedChoices} onChange={(searchNestedChoices) => save({ searchNestedChoices })}/>
+        </SettingRow>
         <SettingRow title={t('settings.quickadd_selection_as_value')} description={t('settings.quickadd_selection_as_value_desc')}>
           <Switch label={t('settings.quickadd_selection_as_value')} checked={settings.selectionAsValue} onChange={(selectionAsValue) => save({ selectionAsValue })}/>
         </SettingRow>

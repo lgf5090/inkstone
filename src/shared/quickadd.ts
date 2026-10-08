@@ -39,6 +39,9 @@ export type QuickAddCreateAt = 'top' | 'bottom' | 'cursor' | 'ordered'
 export type QuickAddBlankLineMode = 'auto' | 'skip' | 'none'
 export type QuickAddOrderKey = 'lexical' | 'date' | 'numeric' | 'semver' | 'insertion'
 export type QuickAddDirection = 'asc' | 'desc'
+/** Where a heading the ordering key cannot be read from belongs: the reference parks them at the
+ * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */
+export type QuickAddUnparseablePolicy = 'top' | 'bottom'
 export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 export type QuickAddConditionOperator = 'eq' | 'ne' | 'has' | 'empty' | 'gt' | 'lt'
@@ -92,7 +95,7 @@ export interface QuickAddCaptureChoice extends QuickAddChoiceBase {
   /** Ask which heading to insert under, from the target note's own headings, at run time. */
   promptHeading: boolean
   blankLine: QuickAddBlankLineMode
-  orderBy: { by: QuickAddOrderKey; direction: QuickAddDirection; dateFormat: string }
+  orderBy: { by: QuickAddOrderKey; direction: QuickAddDirection; dateFormat: string; unparseable: QuickAddUnparseablePolicy }
   format: { enabled: boolean; format: string }
   task: boolean
   eachLine: boolean
@@ -159,7 +162,11 @@ export interface QuickAddRecentRun {
 export interface QuickAddSettings {
   enabled: boolean
   notifications: boolean
+  /** Say that a run stopped because the reader closed the question, rather than saying nothing. */
+  cancelNotice: boolean
   selectionAsValue: boolean
+  /** The launcher's filter also looks inside groups and lists what it finds with its path. */
+  searchNestedChoices: boolean
   onePage: QuickAddOnePageMode
   drafts: boolean
   defaultFolder: string
@@ -207,7 +214,9 @@ export function defaultQuickAddSettings(): QuickAddSettings {
   return {
     enabled: true,
     notifications: true,
+    cancelNotice: false,
     selectionAsValue: true,
+    searchNestedChoices: true,
     onePage: 'auto',
     drafts: true,
     defaultFolder: '',
@@ -274,7 +283,7 @@ export function newCaptureChoice(id: string, name: string, position: number): Qu
     replaceExisting: false,
     promptHeading: false,
     blankLine: 'auto',
-    orderBy: { by: 'lexical', direction: 'desc', dateFormat: 'YYYY-MM-DD' },
+    orderBy: { by: 'lexical', direction: 'desc', dateFormat: 'YYYY-MM-DD', unparseable: 'bottom' },
     format: { enabled: false, format: '{{VALUE}}' },
     task: false,
     eachLine: false,
@@ -530,6 +539,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
           by: pick(orderBy.by, ['lexical', 'date', 'numeric', 'semver', 'insertion'] as const, 'lexical'),
           direction: pick(orderBy.direction, ['asc', 'desc'] as const, 'desc'),
           dateFormat: oneLine(orderBy.dateFormat, 40) || 'YYYY-MM-DD',
+          unparseable: pick(orderBy.unparseable, ['top', 'bottom'] as const, 'bottom'),
         },
         format: {
           enabled: boolOf(format.enabled, false),
@@ -682,7 +692,9 @@ export function normalizeQuickAddSettings(value: unknown, knownIds: ReadonlySet<
   return {
     enabled: boolOf(value.enabled, fallback.enabled),
     notifications: boolOf(value.notifications, fallback.notifications),
+    cancelNotice: boolOf(value.cancelNotice, fallback.cancelNotice),
     selectionAsValue: boolOf(value.selectionAsValue, fallback.selectionAsValue),
+    searchNestedChoices: boolOf(value.searchNestedChoices, fallback.searchNestedChoices),
     onePage: pick(value.onePage, ['always', 'auto', 'never'] as const, fallback.onePage),
     drafts: boolOf(value.drafts, fallback.drafts),
     defaultFolder: normalizeFolderPath(value.defaultFolder),

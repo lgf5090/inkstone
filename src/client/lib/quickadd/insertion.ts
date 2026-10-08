@@ -390,6 +390,8 @@ export interface OrderRule {
   by: 'lexical' | 'date' | 'numeric' | 'semver' | 'insertion'
   direction: 'asc' | 'desc'
   dateFormat: string
+  /** Where the siblings whose key cannot be read belong. Omitted means `bottom`. */
+  unparseable?: 'top' | 'bottom'
 }
 
 /** `## [1.10.0] - 2026-06-16` and `v1.10` are both a version a changelog heading can be sorted by. */
@@ -461,10 +463,13 @@ export function orderedSlotFor(
     return text.trim().toLocaleLowerCase(locale)
   }
   const target = keyOf(wanted?.[2] ?? '')
-  if (target === null) return lastOfBand()
+  const unreadableFirst = rule.unparseable === 'top'
+  if (target === null)
+    return unreadableFirst ? { mode: 'before', line: siblings[0]!.line } : lastOfBand()
   const descending = rule.direction === 'desc'
+  const ranked = unreadableFirst ? siblings.filter((heading) => keyOf(heading.text) !== null) : siblings
 
-  for (const heading of siblings) {
+  for (const heading of ranked) {
     const key = keyOf(heading.text)
     // An unparseable sibling has sunk to the end of the band: anything readable belongs above it.
     if (key === null) return { mode: 'before', line: heading.line }
@@ -473,6 +478,11 @@ export function orderedSlotFor(
       : descending ? String(target) > String(key) : String(target) < String(key)
     if (precedes) return { mode: 'before', line: heading.line }
   }
+  const tail = ranked[ranked.length - 1]
+  // With the unreadable ones floated up, the new sibling joins the readable run rather than the
+  // physical end of the band, which the floated headings now own.
+  if (unreadableFirst && tail)
+    return { mode: 'after', line: sectionEndLine(lines, tail.line, true) ?? tail.line }
   return lastOfBand()
 }
 

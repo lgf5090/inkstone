@@ -365,3 +365,33 @@ describe('the prompt a bare token raises', () => {
     }
   })
 })
+
+describe('a token inside a property the note carries', () => {
+  const vars = (entries: [string, string][]) => new Map<string, string>(entries)
+
+  it('escapes what the reader answered instead of breaking the properties', async () => {
+    expect(await render('---\nTitle: "{{VALUE}}"\n---\nBody', { variables: vars([['value', 'Say "hi"']]) }))
+      .toBe('---\nTitle: "Say \\"hi\\""\n---\nBody')
+    expect(await render("---\nauthor: '{{VALUE:who}}'\n---\n", { variables: vars([['who', "O'Brien"]]) }))
+      .toBe("---\nauthor: 'O''Brien'\n---\n")
+  })
+
+  it('takes the quotes off a property that declares a number or a flag', async () => {
+    expect(await render('---\nrating: "{{VALUE:num|type:number}}"\n---\n', { variables: vars([['num', '42']]) }))
+      .toBe('---\nrating: 42\n---\n')
+    expect(await render('---\ndone: "{{VALUE:d|type:checkbox}}"\n---\n', { variables: vars([['d', 'true']]) }))
+      .toBe('---\ndone: true\n---\n')
+  })
+
+  it('keeps the quotes where the author meant a string, and everywhere outside the properties', async () => {
+    expect(await render('---\nid: "{{VALUE:id|type:text}}"\n---\n', { variables: vars([['id', '0042']]) }))
+      .toBe('---\nid: "0042"\n---\n')
+    expect(await render('Said "{{VALUE:num|type:number}}" today', { variables: vars([['num', '42']]) }))
+      .toBe('Said "42" today')
+  })
+
+  it('carries a multiline answer as an escaped line break', async () => {
+    expect(await render('---\nnotes: "{{VALUE:n|type:multiline}}"\n---\n', { variables: vars([['n', 'a\nb']]) }))
+      .toBe('---\nnotes: "a\\nb"\n---\n')
+  })
+})

@@ -276,6 +276,8 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'about', titleKey: 'common.github', termKeys: ['settings.open_github_repository', 'settings.open_official_repository'] },
   { section: 'automation', titleKey: 'settings.quickadd_enabled' },
   { section: 'automation', titleKey: 'settings.quickadd_notifications' },
+  { section: 'automation', titleKey: 'settings.quickadd_cancel_notice' },
+  { section: 'automation', titleKey: 'settings.quickadd_nested_search' },
   { section: 'automation', titleKey: 'settings.quickadd_selection_as_value' },
   { section: 'automation', titleKey: 'settings.quickadd_drafts' },
   { section: 'automation', titleKey: 'quickadd.field_one_page', termKeys: ['quickadd.one_page_auto', 'quickadd.one_page_always', 'quickadd.one_page_never'] },

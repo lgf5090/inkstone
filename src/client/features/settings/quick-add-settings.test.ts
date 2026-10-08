@@ -150,6 +150,15 @@ function typeNamed(name: string, value: string): void {
   typeInto(control(name), value)
 }
 
+function selectNamed(name: string, value: string): void {
+  const node = control(name)
+  if (!(node instanceof HTMLSelectElement)) throw new Error(`no select named "${name}"`)
+  act(() => {
+    node.value = value
+    node.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
 function transportBox(): HTMLTextAreaElement | null {
   return document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${t('settings.quickadd_transport')}"]`)
 }
@@ -288,6 +297,29 @@ describe('the choice editor', () => {
     expect(saved.type === 'capture' && saved.format).toEqual({ enabled: true, format: `{{DATE}} ${CJK_CHOICE_FIXTURES.word}` })
   })
 
+  it('lets any choice be placed inside a group from its own editor', async () => {
+    const group = newGroupChoice('qa-g', 'Work', 0)
+    const capture = { ...newCaptureChoice('qa-c', 'Meeting', 0), targetTitle: 'Inbox' }
+    seed({ choices: [group, capture] })
+    editor(capture)
+    selectNamed(t('quickadd.field_parent'), 'qa-g')
+    clickNamed(t('common.save'))
+    await settle()
+    expect(library().find((choice) => choice.id === 'qa-c')?.parentId).toBe('qa-g')
+  })
+
+  it('does not offer a group the choices inside it', () => {
+    const outer = newGroupChoice('qa-outer', 'Outer', 0)
+    const inner = { ...newGroupChoice('qa-inner', 'Inner', 0), parentId: 'qa-outer' }
+    seed({ choices: [outer, inner] })
+    editor(outer)
+    const select = control(t('quickadd.field_parent'))
+    expect(select).toBeInstanceOf(HTMLSelectElement)
+    const values = [...(select as HTMLSelectElement).options].map((option) => option.value)
+    expect(values).toContain('')
+    expect(values, 'a group cannot live inside its own contents').not.toContain('qa-inner')
+  })
+
   it('refuses to save an empty name', () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })
@@ -357,6 +389,16 @@ describe('the automation page', () => {
     // calling the formatter the page is under test for.
     const today = new Date()
     expect(bodyText()).toContain(CJK_CHOICE_FIXTURES.cjkDate(today.getFullYear(), today.getMonth() + 1, today.getDate()))
+    // The cancellation notice is off until asked for, and the row is what turns it on.
+    expect(useQuickAdd.getState().settings.cancelNotice).toBe(false)
+    click(control(t('settings.quickadd_cancel_notice')))
+    expect(useQuickAdd.getState().settings.cancelNotice).toBe(true)
+    click(control(t('settings.quickadd_cancel_notice')))
+    expect(useQuickAdd.getState().settings.cancelNotice).toBe(false)
+    // Reaching into groups is on until the reader says otherwise.
+    expect(useQuickAdd.getState().settings.searchNestedChoices).toBe(true)
+    click(control(t('settings.quickadd_nested_search')))
+    expect(useQuickAdd.getState().settings.searchNestedChoices).toBe(false)
   })
 
   it('adds, edits and removes a global variable', () => {

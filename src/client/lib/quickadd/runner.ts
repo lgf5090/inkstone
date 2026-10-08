@@ -10,6 +10,7 @@
 import type { NotePort, NoteRef, QuickAddRunStatus } from './context'
 import { findNoteByTitle, useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
+import type { ToastInput } from '../../store/ui'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useQuickAdd } from '../../store/quickadd'
 import { api } from '../../lib/api'
@@ -21,7 +22,7 @@ import { runCaptureChoice } from './capture'
 import { runMacroChoice } from './macro'
 import { t } from '../../lib/i18n'
 import type { PromptAnswer } from './format'
-import type { QuickAddCaptureChoice, QuickAddChoice, QuickAddMacroChoice, QuickAddTemplateChoice } from '@shared/quickadd'
+import type { QuickAddCaptureChoice, QuickAddChoice, QuickAddMacroChoice, QuickAddSettings, QuickAddTemplateChoice } from '@shared/quickadd'
 
 function noteRef(id: string): NoteRef | null {
   const summary = useNotes.getState().notes[id]
@@ -310,23 +311,37 @@ export function findChoiceById(choices: readonly QuickAddChoice[], id: string): 
   return null
 }
 
-function describe(status: QuickAddRunStatus, choice: QuickAddChoice): void {
-  const ui = useUi.getState()
-  const enabled = useQuickAdd.getState().settings.notifications
+/**
+ * What a finished run says about itself. Kept apart from the toast host so the four outcomes and the
+ * two notice switches can be read, and tested, without a store or a screen in the way.
+ */
+export function runNotice(
+  status: QuickAddRunStatus,
+  choice: QuickAddChoice,
+  settings: Pick<QuickAddSettings, 'notifications' | 'cancelNotice'>,
+): { title: string; description?: string; tone?: ToastInput['tone'] } | null {
   switch (status.kind) {
     case 'written':
-      if (enabled) ui.toast({ title: status.summary })
-      break
+      return settings.notifications ? { title: status.summary } : null
     case 'empty':
-      if (enabled) ui.toast({ title: t('quickadd.ran_empty', { name: choice.name }) })
-      break
+      return settings.notifications ? { title: t('quickadd.ran_empty', { name: choice.name }) } : null
     case 'cancelled':
-      if (status.reason) ui.toast({ title: status.reason, tone: 'warning' })
-      break
+      // A cancel that carries a reason is a refusal the engine hit, and that always speaks up; a
+      // plain closed dialog is the reader's own doing, so only the opt-in notice mentions it.
+      if (status.reason) return { title: status.reason, tone: 'warning' }
+      return settings.cancelNotice ? { title: t('quickadd.ran_cancelled', { name: choice.name }) } : null
     case 'failed':
-      ui.toast({ title: status.reason, description: t('quickadd.failed_hint', { name: choice.name }), tone: 'danger' })
-      break
+      return {
+        title: status.reason,
+        description: t('quickadd.failed_hint', { name: choice.name }),
+        tone: 'danger',
+      }
   }
+}
+
+function describe(status: QuickAddRunStatus, choice: QuickAddChoice): void {
+  const notice = runNotice(status, choice, useQuickAdd.getState().settings)
+  if (notice) useUi.getState().toast(notice)
 }
 
 export async function runQuickAddChoice(

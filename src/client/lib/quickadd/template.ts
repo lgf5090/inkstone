@@ -106,6 +106,7 @@ export async function runTemplateChoice(
     runtime.folderPath = active.folderPath
     session.destination = active
     const formatted = await formatWithPrompts(body, runtime, session, active.title)
+    if (session.dismissed) return { kind: 'cancelled' }
     if (formatted.text.trim() === '' && formatted.cursor === null)
       return { kind: 'empty', noteId: active.id }
     if (!port.insertAtCursor(formatted.text, formatted.cursor))
@@ -120,8 +121,10 @@ export async function runTemplateChoice(
   }
 
   const title = await resolveTitle(choice, session, runtime, port)
+  if (session.dismissed) return { kind: 'cancelled' }
   if (!title) return { kind: 'cancelled' }
   const folder = await resolveFolder(choice, session, runtime, port)
+  if (session.dismissed) return { kind: 'cancelled' }
   const existing = port.findByTitle(title)
   const collides = existing !== null && (existing.folderPath ?? '') === (folder ?? '')
 
@@ -136,6 +139,7 @@ export async function runTemplateChoice(
     if (answers.get('overwrite') !== 'true') return { kind: 'cancelled' }
     session.destination = existing
     const formatted = await formatWithPrompts(body, runtime, session, existing.title)
+    if (session.dismissed) return { kind: 'cancelled' }
     const prior = await port.read(existing.id)
     const written = await port.write(existing.id, formatted.text, prior)
     if (!written) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
