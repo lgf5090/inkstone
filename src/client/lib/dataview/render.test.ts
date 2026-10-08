@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { appendValue, renderInlineText, renderNotice, renderResult, renderTruncation } from './render'
 import type { QueryRuntimeSettings } from './functions'
+import { DEFAULT_QUERY_SETTINGS } from './functions'
 import { DvDuration, DvLink, Grouping, type DataObject, type Literal } from './value'
 import { narrowWeekdayLabels, weekStartFor } from '../time'
 
 const settings: QueryRuntimeSettings = {
+  ...DEFAULT_QUERY_SETTINGS,
   renderNullAs: '—',
   dateFormat: 'yyyy-MM-dd',
   datetimeFormat: 'yyyy-MM-dd HH:mm',
@@ -228,5 +230,35 @@ describe('view rendering', () => {
     expect(rows.tagName).toBe('P')
     expect(bodies.tagName).toBe('P')
     expect(rows.textContent).not.toBe(bodies.textContent)
+  })
+})
+
+describe('the settings a drawn result honours', () => {
+  const oneRow = [{ id: DvLink.file('A.md'), cells: [5 as Literal] }]
+
+  it('prints the tally only when it was asked for', () => {
+    const counted = renderResult({ kind: 'table', names: ['File', 'rating'], showId: true, rows: oneRow }, { ...context, settings: { ...settings, showResultCount: true } })
+    expect(counted.querySelector('.dataview-result-count')?.getAttribute('data-count')).toBe('1')
+    expect(counted.querySelector('table')).not.toBeNull()
+    const plain = renderResult({ kind: 'table', names: ['File', 'rating'], showId: true, rows: oneRow }, { ...context, settings: { ...settings, showResultCount: false } })
+    expect(plain.querySelector('.dataview-result-count')).toBeNull()
+    expect(plain.classList.contains('dataview-table-wrap')).toBe(true)
+  })
+
+  it('leaves the gap when the empty warning is turned off', () => {
+    const quiet = renderResult({ kind: 'table', names: ['File'], showId: true, rows: [] }, { ...context, settings: { ...settings, warnOnEmptyResult: false } })
+    expect(quiet.querySelector('.dataview-empty')).toBeNull()
+  })
+
+  it('stops expanding a value at the depth it was given', () => {
+    const deep = [[[['x']]]] as unknown as Literal
+    const shallow = document.createElement('td')
+    appendValue(shallow, deep, { ...context, settings: { ...settings, maxRecursiveRenderDepth: 1 } })
+    expect(shallow.textContent).not.toContain('x')
+    expect(shallow.textContent).toContain('…')
+    const roomy = document.createElement('td')
+    appendValue(roomy, deep, { ...context, settings: { ...settings, maxRecursiveRenderDepth: 8 } })
+    expect(roomy.textContent).toContain('x')
+    expect(roomy.textContent).not.toContain('…')
   })
 })

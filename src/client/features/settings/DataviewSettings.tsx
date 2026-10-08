@@ -93,6 +93,18 @@ export function DataviewSettings() {
         <SettingRow title={t('settings.dataview_inline_queries')} description={t('settings.dataview_inline_queries_desc')}>
           <Switch checked={dataview.inlineQueries} onChange={(inlineQueries) => patch({ inlineQueries })} label={t('settings.dataview_inline_queries')}/>
         </SettingRow>
+        <SettingRow title={t('settings.dataview_inline_live')} description={t('settings.dataview_inline_live_desc')}>
+          <Switch checked={dataview.prettyInlineFieldsLivePreview} onChange={(prettyInlineFieldsLivePreview) => patch({ prettyInlineFieldsLivePreview })} label={t('settings.dataview_inline_live')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_inline_codeblocks')} description={t('settings.dataview_inline_codeblocks_desc')}>
+          <Switch checked={dataview.inlineQueriesInCodeblocks} onChange={(inlineQueriesInCodeblocks) => patch({ inlineQueriesInCodeblocks })} label={t('settings.dataview_inline_codeblocks')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_inline_js')} description={t('settings.dataview_inline_js_desc')}>
+          <Switch checked={dataview.inlineJsQueries} onChange={(inlineJsQueries) => patch({ inlineJsQueries })} label={t('settings.dataview_inline_js')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_inline_js_prefix')} description={t('settings.dataview_inline_js_prefix_desc')}>
+          <Input className="w-[120px]" value={dataview.inlineJsQueryPrefix} maxLength={8} placeholder={DEFAULT_SETTINGS.dataview.inlineJsQueryPrefix} onChange={(event) => patch({ inlineJsQueryPrefix: event.target.value })}/>
+        </SettingRow>
         <SettingRow title={t('settings.dataview_js')} description={t('settings.dataview_js_desc')}>
           <Switch checked={dataview.jsBlocks} onChange={(jsBlocks) => patch({ jsBlocks })} label={t('settings.dataview_js')}/>
         </SettingRow>
@@ -105,9 +117,42 @@ export function DataviewSettings() {
         <SettingRow title={t('settings.dataview_archived')} description={t('settings.dataview_archived_desc')}>
           <Switch checked={dataview.includeArchived} onChange={(includeArchived) => patch({ includeArchived })} label={t('settings.dataview_archived')}/>
         </SettingRow>
+        <SettingRow title={t('settings.dataview_task_completion')} description={t('settings.dataview_task_completion_desc')}>
+          <Switch checked={dataview.taskCompletionTracking} onChange={(taskCompletionTracking) => patch({ taskCompletionTracking })} label={t('settings.dataview_task_completion')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_task_completion_emoji')} description={t('settings.dataview_task_completion_emoji_desc')}>
+          <Switch checked={dataview.taskCompletionUseEmojiShorthand} onChange={(taskCompletionUseEmojiShorthand) => patch({ taskCompletionUseEmojiShorthand })} label={t('settings.dataview_task_completion_emoji')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_task_completion_field')} description={t('settings.dataview_task_completion_field_desc')}>
+          <Input className="w-[170px]" value={dataview.taskCompletionText} maxLength={40} placeholder={DEFAULT_SETTINGS.dataview.taskCompletionText} onChange={(event) => patch({ taskCompletionText: event.target.value })}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_task_completion_format')} description={t('settings.dataview_task_completion_format_desc')}>
+          <Input className="w-[170px]" value={dataview.taskCompletionDateFormat} maxLength={40} placeholder={DEFAULT_SETTINGS.dataview.taskCompletionDateFormat} onChange={(event) => patch({ taskCompletionDateFormat: event.target.value })}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_task_recursive')} description={t('settings.dataview_task_recursive_desc')}>
+          <Switch checked={dataview.recursiveSubTaskCompletion} onChange={(recursiveSubTaskCompletion) => patch({ recursiveSubTaskCompletion })} label={t('settings.dataview_task_recursive')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_result_count')} description={t('settings.dataview_result_count_desc')}>
+          <Switch checked={dataview.showResultCount} onChange={(showResultCount) => patch({ showResultCount })} label={t('settings.dataview_result_count')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_empty_warning')} description={t('settings.dataview_empty_warning_desc')}>
+          <Switch checked={dataview.warnOnEmptyResult} onChange={(warnOnEmptyResult) => patch({ warnOnEmptyResult })} label={t('settings.dataview_empty_warning')}/>
+        </SettingRow>
       </section>
 
       <section>
+        <SettingRow title={t('settings.dataview_table_id')} description={t('settings.dataview_table_id_desc')}>
+          <Input className="w-[170px]" value={dataview.tableIdColumnName} maxLength={40} placeholder={DEFAULT_SETTINGS.dataview.tableIdColumnName} onChange={(event) => patch({ tableIdColumnName: event.target.value })}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_table_group')} description={t('settings.dataview_table_group_desc')}>
+          <Input className="w-[170px]" value={dataview.tableGroupColumnName} maxLength={40} placeholder={DEFAULT_SETTINGS.dataview.tableGroupColumnName} onChange={(event) => patch({ tableGroupColumnName: event.target.value })}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_recursion')} description={t('settings.dataview_recursion_desc')}>
+          <Slider className="w-[200px]" value={dataview.maxRecursiveRenderDepth} min={1} max={12} step={1} onChange={(maxRecursiveRenderDepth) => patch({ maxRecursiveRenderDepth })} label={t('settings.dataview_recursion')}/>
+        </SettingRow>
+        <SettingRow title={t('settings.dataview_export_html')} description={t('settings.dataview_export_html_desc')}>
+          <Switch checked={dataview.allowHtmlInExports} onChange={(allowHtmlInExports) => patch({ allowHtmlInExports })} label={t('settings.dataview_export_html')}/>
+        </SettingRow>
         <SettingRow title={t('settings.dataview_null')} description={t('settings.dataview_null_desc')}>
           <Input className="w-[120px]" value={dataview.renderNullAs} maxLength={24} placeholder={DEFAULT_SETTINGS.dataview.renderNullAs} onChange={(event) => patch({ renderNullAs: event.target.value })}/>
         </SettingRow>

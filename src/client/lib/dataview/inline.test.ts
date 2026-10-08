@@ -5,12 +5,15 @@
  * query must be replaced exactly once.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { renderDataviewInline } from './inline'
+import { renderDataviewInline, takeInlineJsLines } from './inline'
+import { decodeDataValue } from '../markdown/data-attr'
 import { DvLink, Values, type DataObject } from './value'
 import type { QueryRuntimeSettings } from './functions'
+import { DEFAULT_QUERY_SETTINGS } from './functions'
 import type { LinkHandler } from './context'
 
 const settings: QueryRuntimeSettings = {
+    ...DEFAULT_QUERY_SETTINGS,
     renderNullAs: '—',
     dateFormat: 'yyyy-MM-dd',
     datetimeFormat: 'yyyy-MM-dd HH:mm',
@@ -200,5 +203,58 @@ describe('inline value shapes', () => {
         const values = [...root.querySelectorAll('.dataview-inline-value')].map((node) => node.textContent)
         expect(values).toEqual(['true', '2.5'])
         expect(Values.isString(values[0])).toBe(true)
+    })
+})
+
+describe('where a query line may be', () => {
+    it('answers a fenced line only when the reader asked, and never an inline code span', () => {
+        const kept = prose('<pre><code>= 2 + 2</code></pre>')
+        run(kept)
+        expect(kept.querySelector('.dataview-inline-query')).toBeNull()
+        expect(kept.textContent).toBe('= 2 + 2')
+
+        const answered = prose('<pre><code>= 2 + 2</code></pre>')
+        run(answered, { codeblocks: true })
+        expect(answered.querySelector('.dataview-inline-query')?.textContent).toBe('4')
+
+        // The line is the code span's whole text, so only the skip rule can keep this one literal.
+        const span = prose('<p><code>= 2 + 2</code></p>')
+        run(span, { codeblocks: true })
+        expect(span.querySelector('.dataview-inline-query')).toBeNull()
+        expect(span.textContent).toBe('= 2 + 2')
+    })
+})
+
+describe('inline script lines', () => {
+    const base = { settings, data, linkHandler, fields: true, queries: true }
+
+    it('marks each line and hands its code back in document order', () => {
+        const root = prose('<p>$= dv.paragraph("a")</p><p>plain prose</p><p>$= dv.paragraph("b")</p>')
+        const marks = takeInlineJsLines(root, { ...base, jsPrefix: '$=' }, 20)
+        expect(marks.map((mark) => decodeDataValue(mark.dataset.dataviewJs ?? ''))).toEqual(['dv.paragraph("a")', 'dv.paragraph("b")'])
+        expect(marks[0]?.textContent).toBe('dv.paragraph("a")')
+        expect(root.textContent).toContain('plain prose')
+    })
+
+    it('takes only the line that starts with the prefix', () => {
+        const root = prose('<p>Cost $= 5 and a half</p>')
+        const marks = takeInlineJsLines(root, { ...base, jsPrefix: '$=' }, 20)
+        expect(marks).toHaveLength(0)
+        expect(root.querySelector('p')?.textContent).toBe('Cost $= 5 and a half')
+    })
+
+    it('stops at the limit and does nothing without a prefix', () => {
+        const root = prose('<p>$= one</p><p>$= two</p><p>$= three</p>')
+        expect(takeInlineJsLines(root, { ...base, jsPrefix: '$=' }, 2)).toHaveLength(2)
+        const untouched = prose('<p>$= one</p>')
+        expect(takeInlineJsLines(untouched, base, 20)).toHaveLength(0)
+        expect(untouched.querySelector('p')?.textContent).toBe('$= one')
+    })
+
+    it('marks a line once, so a re-render cannot queue it twice', () => {
+        const root = prose('<p>$= dv.paragraph("a")</p>')
+        const context = { ...base, jsPrefix: '$=' }
+        expect(takeInlineJsLines(root, context, 20)).toHaveLength(1)
+        expect(takeInlineJsLines(root, context, 20)).toHaveLength(0)
     })
 })

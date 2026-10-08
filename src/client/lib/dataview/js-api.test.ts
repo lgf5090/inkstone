@@ -22,9 +22,9 @@ const project = page('Site.md', {
     file: { name: 'Site', path: 'Site', folder: '', etags: ['#project/active'], tags: [], inlinks: [], outlinks: [] },
 })
 
-function dvFor(pages: DvSnapshotPage[], current: DvSnapshotPage | null = null) {
+function dvFor(pages: DvSnapshotPage[], current: DvSnapshotPage | null = null, settings = DEFAULT_QUERY_SETTINGS) {
     const nodes: DvNode[] = []
-    const dv = createDv({ code: '', pages, current, settings: DEFAULT_QUERY_SETTINGS }, (node) => nodes.push(node))
+    const dv = createDv({ code: '', pages, current, settings }, (node) => nodes.push(node))
     return { dv, nodes }
 }
 
@@ -57,7 +57,8 @@ describe('the list a note receives', () => {
         expect(list.sort().first()).toBe(1)
         expect(list.sort().last()).toBe('x')
         expect(list.where((value) => typeof value === 'number').length).toBe(4)
-        expect(list.distinct().join('/')).toBe('3/1/2/x')
+        expect(list.distinct().join('/')).toBe('1/2/3/x')
+        expect(list.distinct((value) => (typeof value === 'number' ? 1 : 0)).length).toBe(2)
         expect([...list].length).toBe(5)
         expect(Array.isArray(list)).toBe(false)
         expect(list.toJSON()).toEqual([3, 1, 2, 2, 'x'])
@@ -86,6 +87,70 @@ describe('the list a note receives', () => {
     })
 })
 
+describe('the rest of the dv surface', () => {
+    it('reads and compares values the way the expression language does', () => {
+        const { dv } = dvFor([book, project])
+        expect(dv.page('Reading/Dune.md')).not.toBeNull()
+        expect(dv.page('Reading/Dune')).not.toBeNull()
+        expect(dv.page('Nowhere')).toBeNull()
+        expect(dv.pagePaths('#book').array()).toEqual(['Reading/Dune.md'])
+        expect(dv.evaluate('rating', book.data).value).toBe(5)
+        expect(dv.evaluate('nope.').successful).toBe(false)
+        expect(dv.tryEvaluate('nope.')).toBeNull()
+        expect(dv.tryEvaluate('2 + 2')).toBe(4)
+        expect((dv.parse('1 + 1') as { type: string }).type).toBe('binaryop')
+        expect(dv.compare(1, 2)).toBe(-1)
+        expect(dv.equal('a', 'a')).toBe(true)
+        expect(dv.typeOf(new Date(2024, 0, 1))).toBe('date')
+        expect(dv.isArray([1]) && dv.isArray(dv.pages('')) && dv.isDataArray(dv.pages(''))).toBe(true)
+        expect(dv.values({ a: 1, b: 2 }).array()).toEqual([1, 2])
+        expect(dv.clone({ a: [1, 2] })).toEqual({ a: [1, 2] })
+        expect(dv.literal({ [String.fromCharCode(0) + 'dv']: 'date', value: 1746489600000 })).toBeInstanceOf(Date)
+        expect(dv.fileLink('Reading/Dune.md', 'Dune')).toBeTruthy()
+        expect((dv.sectionLink('A.md', 'h') as { kind: string }).kind).toBe('header')
+        expect((dv.blockLink('A.md', 'b') as { kind: string }).kind).toBe('block')
+        expect(dv.settings.dateFormat).toBe('yyyy-MM-dd')
+    })
+
+    it('renders markdown text for the export path', () => {
+        const { dv } = dvFor([book, project])
+        expect(dv.markdownTable(['Name', 'Note'], [['a|b', 2]])).toBe('| Name | Note |\n| --- | --- |\n| a\\|b | 2 |')
+        expect(dv.markdownList(['x', 'y'])).toBe('- x\n- y')
+        expect(dv.markdownList(['x', 'y'], true)).toBe('1. x\n2. y')
+        expect(dv.markdownTaskList([{ text: 'a', completed: true }, { text: 'b' }])).toBe('- [x] a\n- [ ] b')
+        expect(dv.queryMarkdown('TABLE rating FROM #book')).toContain('| File | rating |')
+        expect(dv.queryMarkdown('TABLE rating FROM #book')).toContain('| Dune | 5 |')
+        expect(dv.tryQueryMarkdown('TABLE a WHERE')).toBeNull()
+        expect(dv.queryMarkdown('TABLE a WHERE')).toBe('')
+        expect(dv.tryQuery('TABLE a WHERE')).toBeNull()
+        expect(dv.tryQuery('LIST FROM #book')?.length).toBe(1)
+    })
+
+    it('keeps a list or an object as HTML only when the export setting asks', () => {
+        const html = dvFor([book], null, { ...DEFAULT_QUERY_SETTINGS, allowHtmlInExports: true }).dv
+        expect(html.markdownTable(['Name', 'Tags'], [['a', ['x', 'y']]]))
+            .toBe('| Name | Tags |\n| --- | --- |\n| a | <ul><li>x</li><li>y</li></ul> |')
+        expect(html.markdownTable(['K'], [[{ k: 'v' }]])).toContain('<li><b>k</b>: v</li>')
+        const shallow = dvFor([book], null, { ...DEFAULT_QUERY_SETTINGS, allowHtmlInExports: true, maxRecursiveRenderDepth: 1 }).dv
+        expect(shallow.markdownTable(['K'], [[[['deep']]]])).toContain('…')
+        expect(html.markdownTable(['K'], [[[['deep']]]])).toContain('deep')
+        const plain = dvFor([book]).dv
+        expect(plain.markdownTable(['Name', 'Tags'], [['a', ['x', 'y']]])).toContain('x, y')
+        expect(plain.markdownTable(['Name', 'Tags'], [['a', ['x', 'y']]])).not.toContain('<ul>')
+    })
+
+    it('refuses a table whose rows are not as wide as its headers', () => {
+        const { dv } = dvFor([book])
+        expect(() => dv.markdownTable(['A', 'B'], [['x']])).toThrow(/must match/)
+    })
+
+    it('keeps the doors this port does not open shut', () => {
+        const { dv } = dvFor([book])
+        expect(() => dv.execute('x')).toThrow(/dv.query/)
+        expect(() => dv.executeInline('x')).toThrow(/tryEvaluate/)
+    })
+})
+
 describe('what a note can ask to be drawn', () => {
     it('takes rows from the wrapper its own map returns', () => {
         const { dv, nodes } = dvFor([book, project])
@@ -104,6 +169,51 @@ describe('what a note can ask to be drawn', () => {
         // A cooled link carries its own `kind`, so reading it as a drawn node would have shown nothing.
         expect(table?.kind === 'table' && table.rows[0]?.map((cell) => cell.kind)).toEqual(['link'])
         expect(nodes.some((node) => node.kind === 'element')).toBe(false)
+    })
+
+    it('carries the rest of the reference DataArray surface', () => {
+        const numbers = DvArray.of([3, 1, 2, 2])
+        expect(numbers.flatMap((value) => [value as number, (value as number) * 10]).array()).toEqual([3, 30, 1, 10, 2, 20, 2, 20])
+        expect(numbers.slice(1, 3).array()).toEqual([1, 2])
+        expect(numbers.concat([9]).last()).toBe(9)
+        expect(numbers.indexOf(2)).toBe(2)
+        expect(numbers.includes(5)).toBe(false)
+        expect(numbers.find((value) => (value as number) > 1)).toBe(3)
+        expect(numbers.findIndex((value) => (value as number) > 1)).toBe(0)
+        expect(numbers.every((value) => (value as number) > 0)).toBe(true)
+        expect(numbers.none((value) => (value as number) > 3)).toBe(true)
+        expect(numbers.some((value) => (value as number) > 2)).toBe(true)
+        expect(numbers.sum()).toBe(8)
+        expect(numbers.avg()).toBe(2)
+        expect(numbers.min()).toBe(1)
+        expect(numbers.max()).toBe(3)
+        let seen = 0
+        numbers.forEach((value) => { seen += value as number })
+        expect(seen).toBe(8)
+        const mutated = DvArray.of([1, 2])
+        let touched = 0
+        const same = mutated.mutate((value) => { touched += value as number })
+        expect(touched).toBe(3)
+        expect(same.array()).toEqual([1, 2])
+        expect(same.sort((value) => -(value as number)).array()).toEqual([2, 1])
+    })
+
+    it('groups, re-groups and reads fields through the proxy', () => {
+        const { dv } = dvFor([book, project])
+        const pages = dv.pages('')
+        const grouped = pages.groupBy((value) => (value as { file: { folder: string } }).file.folder)
+        expect(grouped.length).toBe(2)
+        expect((grouped.first() as { key: string; rows: { length: number } }).key).toBe('')
+        expect((grouped.last() as { key: string; rows: { length: number } }).rows.length).toBe(1)
+        expect(grouped.groupIn(() => 'all' as never).length).toBe(2)
+        // `pages.file.name` is the shorthand real notes use, and it flattens one level.
+        const fields = pages as unknown as { file: { name: { join(sep: string): string } } }
+        expect(fields.file.name.join('/')).toBe('Dune/Site')
+        expect((pages.get(0) as { file: { name: string } }).file.name).toBe('Dune')
+        expect(pages.to('rating').array()).toEqual([5])
+        expect(pages.into('rating').array()).toEqual([5])
+        expect(pages.expand('nope').length).toBe(0)
+        expect(Array.isArray(pages)).toBe(false)
     })
 
     it('draws lists, tasks and headings from either array shape', () => {
@@ -131,10 +241,12 @@ describe('what a note can ask to be drawn', () => {
 
     it('runs a DQL query and reports its own failure instead of throwing', () => {
         const { dv } = dvFor([book, project])
-        const good = dv.query('TABLE rating', '#book')
+        const good = dv.query('TABLE rating FROM #book')
         expect(good.successful).toBe(true)
         expect(good.results).toHaveLength(1)
         expect(good.results[0]?.row.rating).toBe(5)
+        expect(dv.query('TABLE this.rating FROM #book', 'Reading/Dune.md').results[0]?.row).toEqual({ 'this.rating': 5 })
+        expect(dv.tryEvaluate('this.file.name', book.data)).toBe('Dune')
         const bad = dv.query('TABLE a WHERE')
         expect(bad.successful).toBe(false)
         expect(bad.errors[0]?.message).toContain('Expected')

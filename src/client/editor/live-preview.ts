@@ -91,7 +91,7 @@ class RenderedBlock extends WidgetType {
             if (alive && settings.chart) await renderPendingCharts(host, dark);
             // A query block answers from other notes, so it is filled on this live host after the rest of
             // the enhancement chain — and `this.file.name` inside it means the note being edited.
-            if (alive) mountDataview(host, { originNoteId: useUi.getState().activeNoteId ?? null, editable: false });
+            if (alive) mountDataview(host, { originNoteId: useUi.getState().activeNoteId ?? null, editable: false, live: true });
             if (alive) view.requestMeasure();
         };
         void prepare().catch(() => { if (alive) view.requestMeasure(); });

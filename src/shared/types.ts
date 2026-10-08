@@ -481,6 +481,36 @@ export interface DataviewSettings {
   showErrorDetails: boolean
   /** Re-run a block while the reader types, rather than only when the note is saved. */
   liveRefresh: boolean
+  /** Ticking a task in a result writes the tick back into its note. */
+  taskCompletionTracking: boolean
+  /** Record that tick as `✅ 2026-10-08` rather than as an inline field. */
+  taskCompletionUseEmojiShorthand: boolean
+  /** The inline field the completion date is written to when it is not the emoji. */
+  taskCompletionText: string
+  /** Pattern for that date. */
+  taskCompletionDateFormat: string
+  /** A parent task's tick carries down to the tasks indented under it. */
+  recursiveSubTaskCompletion: boolean
+  /** The header a `TABLE`'s first column gets when the rows are notes rather than groups. */
+  tableIdColumnName: string
+  /** Header for a grouped table's key column when the query gave the group no name of its own. */
+  tableGroupColumnName: string
+  /** How many levels deep a value's own arrays and objects are expanded before they become `…`. */
+  maxRecursiveRenderDepth: number
+  /** Print how many rows a block matched under its answer. */
+  showResultCount: boolean
+  /** Say so when a block matched nothing, rather than leaving a gap that reads as a broken page. */
+  warnOnEmptyResult: boolean
+  /** `$= …` lines run JavaScript against the same sandbox a ```dataviewjs``` block uses. */
+  inlineJsQueries: boolean
+  /** The prefix that makes an inline line a JavaScript query. Empty means inline JS is off. */
+  inlineJsQueryPrefix: string
+  /** Evaluate `= …` lines inside fenced code too, which rewrites the author's own example. */
+  inlineQueriesInCodeblocks: boolean
+  /** The `[key:: value]` chips also appear inside a live-preview block, not only in prose. */
+  prettyInlineFieldsLivePreview: boolean
+  /** `dv.markdownTable` may put HTML in a cell; off keeps every exported cell plain text. */
+  allowHtmlInExports: boolean
   savedQueries: SavedDataviewQuery[]
 }
 

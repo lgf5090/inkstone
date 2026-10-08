@@ -83,6 +83,8 @@ export type QueryType = 'table' | 'list' | 'task' | 'calendar'
 
 export interface NamedField {
     name: string
+    /** True when `AS` wrote this name, rather than the field's own text being reused as one. */
+    aliased?: boolean
     field: Field
 }
 

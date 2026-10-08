@@ -21,6 +21,7 @@ import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { DataviewSettings, NoteSummary, UserSettings } from '@shared/types'
 import { DataviewIndex, type IndexNote } from './index'
 import { DEFAULT_QUERY_SETTINGS, type QueryRuntimeSettings } from './functions'
+import { rewriteTask } from './tasks'
 
 /** The batch endpoint caps one request at this many ids. */
 const CHUNK = 40
@@ -60,6 +61,12 @@ export function querySettings(): QueryRuntimeSettings {
         datetimeFormat: settings.datetimeFormat,
         durationFormat: settings.durationFormat,
         locale: useSession.getState().settings?.appearance.language ?? 'en-US',
+        tableIdColumnName: settings.tableIdColumnName,
+        tableGroupColumnName: settings.tableGroupColumnName,
+        maxRecursiveRenderDepth: settings.maxRecursiveRenderDepth,
+        showResultCount: settings.showResultCount,
+        warnOnEmptyResult: settings.warnOnEmptyResult,
+        allowHtmlInExports: settings.allowHtmlInExports,
     }
 }
 
@@ -171,4 +178,26 @@ export function touchNote(noteId: string): void {
 
 export function useDataviewSettings(): UserSettings['dataview'] {
     return useSession((state) => state.settings?.dataview ?? DEFAULT_SETTINGS.dataview)
+}
+
+/** Whether a tick landed, was refused because the note moved, or could not be read at all. */
+export type TaskToggleResult = 'written' | 'conflict' | 'missing'
+
+/**
+ * Tick a task the reader sees in a result, in the note it came from.
+ *
+ * The target note is usually closed, so the write goes through the store's remote-content path: anything
+ * still unsaved in that note's editor is flushed first, and the rewrite runs against the copy the server
+ * holds now. Refusing a line whose text no longer matches is what makes a stale result a no-op rather
+ * than an edit to somebody else's task.
+ */
+export async function toggleTask(noteId: string, line: number, text: string, completed: boolean): Promise<TaskToggleResult> {
+    const settings = settingsOf()
+    return useNotes.getState().editRemoteContent(noteId, (content) => rewriteTask(content, { line, text }, completed, {
+        tracked: settings.taskCompletionTracking,
+        emojiShorthand: settings.taskCompletionUseEmojiShorthand,
+        key: settings.taskCompletionText,
+        dateFormat: settings.taskCompletionDateFormat,
+        recursive: settings.recursiveSubTaskCompletion,
+    }, new Date()))
 }

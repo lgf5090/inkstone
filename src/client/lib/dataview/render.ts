@@ -15,7 +15,7 @@
 import { encodeDataValue } from '../markdown/data-attr'
 import { DvLink, Grouping, Values, type DataObject, type Literal } from './value'
 import type { CalendarResult, ListResult, TableResult, TaskResult, QueryResult } from './engine'
-import type { QueryRuntimeSettings } from './functions'
+import { DEFAULT_QUERY_SETTINGS, type QueryRuntimeSettings } from './functions'
 import { t } from '../i18n'
 import { narrowWeekdayLabels, weekStartFor } from '../time'
 
@@ -23,21 +23,35 @@ export interface RenderContext {
     settings: QueryRuntimeSettings
     /** The note the block lives in, so a result that links back to itself can mark it. */
     originPath: string | null
+    /** Whether a task checkbox may write back to its note; only a surface the reader owns can. */
+    canToggle?: boolean
 }
 
 export function renderResult(result: QueryResult, context: RenderContext): HTMLElement {
     switch (result.kind) {
         case 'table':
-            return renderTable(result, context)
+            return withCount(renderTable(result, context), result.rows.length, context)
         case 'list':
-            return renderList(result, context)
+            return withCount(renderList(result, context), result.items.length, context)
         case 'task':
-            return renderTasks(result, context)
+            return withCount(renderTasks(result, context), result.tasks.length, context)
         case 'calendar':
-            return renderCalendar(result, context)
+            return withCount(renderCalendar(result, context), result.days.reduce((total, day) => total + day.rows.length, 0), context)
         default:
             return renderNotice('warning', t('dataview.unknown_view'))
     }
+}
+
+/**
+ * The tally line hangs under the answer rather than inside it, so a table keeps being a table and a list
+ * keeps being a list. With the setting off the view's own element is what the block gets, untouched.
+ */
+function withCount(element: HTMLElement, total: number, context: RenderContext): HTMLElement {
+    if (!context.settings.showResultCount || total === 0) return element
+    const wrap = document.createElement('div')
+    wrap.className = 'dataview-output'
+    wrap.append(element, renderCount(total, context))
+    return wrap
 }
 
 function renderTable(result: TableResult, context: RenderContext): HTMLElement {
@@ -67,7 +81,7 @@ function renderTable(result: TableResult, context: RenderContext): HTMLElement {
     }
     table.append(head, body)
     wrap.append(table)
-    if (!result.rows.length) wrap.append(renderEmpty())
+    if (!result.rows.length) wrap.append(renderEmpty(context))
     return wrap
 }
 
@@ -97,7 +111,7 @@ function renderList(result: ListResult, context: RenderContext): HTMLElement {
     }
     if (!result.items.length) {
         const wrapper = document.createElement('div')
-        wrapper.append(renderEmpty())
+        wrapper.append(renderEmpty(context))
         return wrapper
     }
     return list
@@ -107,6 +121,12 @@ function renderList(result: ListResult, context: RenderContext): HTMLElement {
  * A task row: the checkbox is a static picture of the note's own state, because ticking it here would
  * have to edit a different note's line. The row opens that note instead.
  */
+/** The accessible name of a task checkbox: the task's own text, not a generic "checkbox". */
+function taskAriaLabel(task: DataObject): string {
+    const text = typeof task.text === 'string' ? task.text.trim() : ''
+    return text ? `${t('dataview.task_toggle')}: ${text.slice(0, 120)}` : t('dataview.task_toggle')
+}
+
 function renderTasks(result: TaskResult, context: RenderContext): HTMLElement {
     const wrapper = document.createElement('div')
     wrapper.className = 'dataview-tasks'
@@ -114,11 +134,25 @@ function renderTasks(result: TaskResult, context: RenderContext): HTMLElement {
         const task = entry.task
         const row = document.createElement('div')
         row.className = 'dataview-task'
-        const checkbox = document.createElement('span')
         const completed = task.completed === true
+        const path = typeof task.path === 'string' ? task.path : null
+        const line = typeof task.line === 'number' ? task.line : null
+        const taskText = typeof task.text === 'string' ? task.text : null
+        const toggleable = context.canToggle === true && path !== null && line !== null && taskText !== null
+        const checkbox = document.createElement(toggleable ? 'input' : 'span')
+        if (toggleable) {
+            // A real checkbox on the surface that can write: keyboard and screen-reader state come free,
+            // and the payload is what the click handler needs to find the same line again.
+            const input = checkbox as HTMLInputElement
+            input.type = 'checkbox'
+            input.checked = completed
+            input.setAttribute('aria-label', taskAriaLabel(task))
+            input.dataset.dataviewTask = encodeDataValue(JSON.stringify({ path, line, text: taskText, completed }))
+        } else {
+            checkbox.setAttribute('role', 'img')
+            checkbox.setAttribute('aria-label', completed ? t('dataview.task_done') : t('dataview.task_open'))
+        }
         checkbox.className = `dataview-task-checkbox${completed ? ' is-checked' : ''}`
-        checkbox.setAttribute('role', 'img')
-        checkbox.setAttribute('aria-label', completed ? t('dataview.task_done') : t('dataview.task_open'))
         row.append(checkbox)
 
         const text = document.createElement('span')
@@ -138,7 +172,7 @@ function renderTasks(result: TaskResult, context: RenderContext): HTMLElement {
         }
         wrapper.append(row)
     }
-    if (!result.tasks.length) wrapper.append(renderEmpty())
+    if (!result.tasks.length) wrapper.append(renderEmpty(context))
     return wrapper
 }
 
@@ -164,7 +198,7 @@ function taskChips(task: DataObject): HTMLElement[] {
 }
 
 function noopSettings(): QueryRuntimeSettings {
-    return { renderNullAs: '', dateFormat: '', datetimeFormat: '', durationFormat: 'long', locale: 'en-US' }
+    return { ...DEFAULT_QUERY_SETTINGS, renderNullAs: '', dateFormat: '', datetimeFormat: '', locale: 'en-US' }
 }
 
 /**
@@ -235,7 +269,7 @@ function renderCalendar(result: CalendarResult, context: RenderContext): HTMLEle
         section.append(grid)
         wrapper.append(section)
     }
-    if (!result.days.length) wrapper.append(renderEmpty())
+    if (!result.days.length) wrapper.append(renderEmpty(context))
     return wrapper
 }
 
@@ -244,6 +278,12 @@ function renderCalendar(result: CalendarResult, context: RenderContext): HTMLEle
  * its rows, and anything else becomes text — so a cell never receives markup it did not ask for.
  */
 export function appendValue(target: ParentNode, value: Literal | undefined, context: RenderContext, depth = 0): void {
+    if (depth > context.settings.maxRecursiveRenderDepth) {
+        // A note can hold a property nested hundreds of levels deep, and the DOM for it is the reader's
+        // problem, not the query's; the ceiling is a setting because some authors do want more.
+        target.append(document.createTextNode('…'))
+        return
+    }
     if (Values.isGrouping(value) || value instanceof Grouping) {
         const list = document.createElement('ul')
         list.className = 'dataview-group'
@@ -433,10 +473,21 @@ export function renderNotice(tone: 'error' | 'warning' | 'empty', message: strin
     return aside
 }
 
-function renderEmpty(): HTMLElement {
+function renderEmpty(context: RenderContext): HTMLElement | DocumentFragment {
+    if (!context.settings.warnOnEmptyResult) return document.createDocumentFragment()
     const p = document.createElement('p')
     p.className = 'dataview-empty'
     p.textContent = t('dataview.no_results')
+    return p
+}
+
+/** The line a block prints under its answer when the reader asked for the tally. */
+function renderCount(total: number, context: RenderContext): HTMLElement | DocumentFragment {
+    if (!context.settings.showResultCount || total === 0) return document.createDocumentFragment()
+    const p = document.createElement('p')
+    p.className = 'dataview-result-count'
+    p.dataset.count = String(total)
+    p.textContent = t('dataview.result_count', { value0: total })
     return p
 }
 

@@ -214,7 +214,9 @@ export class DataviewIndex {
     }
 
     noteIdForPath(path: string): string | undefined {
-        return this.byPath.get(stripExtension(path).toLocaleLowerCase()) ?? this.noteIdForLink(path)
+        // The exact path first, because two notes may share a title in different folders and only the
+        // path says which one a result stood for; the link lookup is the fallback for a partial spelling.
+        return this.byPath.get(path.trim().toLocaleLowerCase()) ?? this.noteIdForLink(path)
     }
 
     /** Which notes a source yields, and which bodies could still change that answer. */

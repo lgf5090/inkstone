@@ -338,6 +338,21 @@ export const DEFAULT_SETTINGS: UserSettings = {
     includeArchived: false,
     showErrorDetails: true,
     liveRefresh: true,
+    taskCompletionTracking: false,
+    taskCompletionUseEmojiShorthand: false,
+    taskCompletionText: 'completion',
+    taskCompletionDateFormat: 'yyyy-MM-dd',
+    recursiveSubTaskCompletion: false,
+    tableIdColumnName: 'File',
+    tableGroupColumnName: 'Group',
+    maxRecursiveRenderDepth: 4,
+    showResultCount: false,
+    warnOnEmptyResult: true,
+    inlineJsQueries: false,
+    inlineJsQueryPrefix: '$=',
+    inlineQueriesInCodeblocks: false,
+    prettyInlineFieldsLivePreview: true,
+    allowHtmlInExports: false,
     savedQueries: [],
   },
 }
@@ -922,7 +937,28 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.dataview.durationFormat = enumValue(dataview.durationFormat, DURATION_FORMATS, base.dataview.durationFormat)
   base.dataview.maxRows = integerInRange(dataview.maxRows, 10, 2000, base.dataview.maxRows)
   base.dataview.bodyLimit = integerInRange(dataview.bodyLimit, 20, 5000, base.dataview.bodyLimit)
+  base.dataview.tableIdColumnName = trimmedText(dataview.tableIdColumnName, 40) || DEFAULT_SETTINGS.dataview.tableIdColumnName
+  base.dataview.tableGroupColumnName = trimmedText(dataview.tableGroupColumnName, 40) || DEFAULT_SETTINGS.dataview.tableGroupColumnName
+  base.dataview.maxRecursiveRenderDepth = integerInRange(dataview.maxRecursiveRenderDepth, 1, 12, base.dataview.maxRecursiveRenderDepth)
+  base.dataview.showResultCount = booleanValue(dataview.showResultCount, base.dataview.showResultCount)
+  base.dataview.warnOnEmptyResult = booleanValue(dataview.warnOnEmptyResult, base.dataview.warnOnEmptyResult)
+  base.dataview.inlineJsQueries = booleanValue(dataview.inlineJsQueries, base.dataview.inlineJsQueries)
+  // A stored settings blob written before this setting existed has no key at all, which must mean the
+  // default prefix rather than "off"; an explicit empty string is the reader turning it off. A prefix
+  // starting with `=` would turn every inline query into code, so that shape falls back too.
+  const inlineJsPrefix = dataview.inlineJsQueryPrefix === undefined
+    ? DEFAULT_SETTINGS.dataview.inlineJsQueryPrefix
+    : trimmedText(dataview.inlineJsQueryPrefix, 8)
+  base.dataview.inlineJsQueryPrefix = inlineJsPrefix.startsWith('=') ? DEFAULT_SETTINGS.dataview.inlineJsQueryPrefix : inlineJsPrefix
+  base.dataview.inlineQueriesInCodeblocks = booleanValue(dataview.inlineQueriesInCodeblocks, base.dataview.inlineQueriesInCodeblocks)
+  base.dataview.prettyInlineFieldsLivePreview = booleanValue(dataview.prettyInlineFieldsLivePreview, base.dataview.prettyInlineFieldsLivePreview)
+  base.dataview.allowHtmlInExports = booleanValue(dataview.allowHtmlInExports, base.dataview.allowHtmlInExports)
   base.dataview.savedQueries = savedDataviewQueries(dataview.savedQueries)
+  base.dataview.taskCompletionTracking = booleanValue(dataview.taskCompletionTracking, base.dataview.taskCompletionTracking)
+  base.dataview.taskCompletionUseEmojiShorthand = booleanValue(dataview.taskCompletionUseEmojiShorthand, base.dataview.taskCompletionUseEmojiShorthand)
+  base.dataview.recursiveSubTaskCompletion = booleanValue(dataview.recursiveSubTaskCompletion, base.dataview.recursiveSubTaskCompletion)
+  base.dataview.taskCompletionText = trimmedText(dataview.taskCompletionText, 40) || DEFAULT_SETTINGS.dataview.taskCompletionText
+  base.dataview.taskCompletionDateFormat = trimmedText(dataview.taskCompletionDateFormat, 40) || DEFAULT_SETTINGS.dataview.taskCompletionDateFormat
 
   return base
 }

@@ -23,6 +23,18 @@ export interface QueryRuntimeSettings {
     datetimeFormat: string
     durationFormat: string
     locale: string
+    /** Header for a table's id column when the rows are notes. */
+    tableIdColumnName: string
+    /** Header for a grouped table's key column when the query named the group nothing. */
+    tableGroupColumnName: string
+    /** How deep a value's own arrays and objects go before the renderer prints `…`. */
+    maxRecursiveRenderDepth: number
+    /** A block says how many rows it matched. */
+    showResultCount: boolean
+    /** A block that matched nothing says so. */
+    warnOnEmptyResult: boolean
+    /** `dv.markdownTable` may put HTML in a cell. */
+    allowHtmlInExports: boolean
 }
 
 export const DEFAULT_QUERY_SETTINGS: QueryRuntimeSettings = {
@@ -31,6 +43,12 @@ export const DEFAULT_QUERY_SETTINGS: QueryRuntimeSettings = {
     datetimeFormat: 'yyyy-MM-dd HH:mm',
     durationFormat: 'long',
     locale: 'en-US',
+    tableIdColumnName: 'File',
+    tableGroupColumnName: 'Group',
+    maxRecursiveRenderDepth: 4,
+    showResultCount: false,
+    warnOnEmptyResult: true,
+    allowHtmlInExports: false,
 }
 
 /** The pieces of an evaluation context a function may reach for; `Context` implements it. */

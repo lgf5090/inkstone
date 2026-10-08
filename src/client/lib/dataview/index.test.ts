@@ -170,6 +170,34 @@ describe('index source resolution', () => {
         expect(index.noteIdForLink('Alpha.md')).toBe('a')
         expect(index.noteIdForLink('Missing')).toBeUndefined()
     })
+
+    it('resolves a printed path with or without the extension it carries', () => {
+        const state = fixture([
+            { id: 'a', title: 'Alpha', folder: 'Reading' },
+            { id: 'b', title: 'Beta', folder: '' },
+        ])
+        const index = indexFor(state)
+        index.sync()
+        expect(index.noteIdForPath('Reading/Alpha.md')).toBe('a')
+        expect(index.noteIdForPath('Reading/Alpha')).toBe('a')
+        expect(index.noteIdForPath('reading/alpha.md')).toBe('a')
+        expect(index.noteIdForPath('Beta.md')).toBe('b')
+        expect(index.noteIdForPath('Alpha')).toBe('a')
+        expect(index.noteIdForPath('Reading/Gamma')).toBeUndefined()
+    })
+
+    it('keeps two notes of the same title apart by their path', () => {
+        const state = fixture([
+            { id: 'a', title: 'Alpha', folder: 'Reading' },
+            { id: 'b', title: 'Alpha', folder: 'Writing' },
+        ])
+        const index = indexFor(state)
+        index.sync()
+        expect(index.noteIdForPath('Reading/Alpha.md')).toBe('a')
+        expect(index.noteIdForPath('Reading/Alpha')).toBe('a')
+        expect(index.noteIdForPath('Writing/Alpha.md')).toBe('b')
+        expect(index.noteIdForPath('Writing/Alpha')).toBe('b')
+    })
 })
 
 describe('index body loading', () => {

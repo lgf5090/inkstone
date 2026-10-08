@@ -261,6 +261,27 @@
   border-bottom: 1px dotted var(--border-strong);
 }
 
+.ink-prose .dataview-inline-js {
+  padding: 0 0.2em;
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.ink-prose .dataview-inline-js.loading {
+  color: var(--text-quaternary);
+}
+
+.ink-prose .dataview-inline-js-logs {
+  margin-left: 0.4em;
+  color: var(--text-quaternary);
+  font-size: var(--text-11-5);
+}
+
+.ink-prose .dataview-result-count {
+  margin: 0.4em 0 0;
+  font-size: var(--text-11-5);
+  color: var(--text-tertiary);
+}
+
 .ink-prose .dataview-inline-error {
   color: var(--danger);
   cursor: help;

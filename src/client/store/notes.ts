@@ -55,6 +55,8 @@ interface NotesState {
     }) => Promise<void>;
     editTitle: (id: string, title: string) => void;
     editContent: (id: string, content: string) => void;
+    /** Compute a closed note's next body from its current server copy; null refuses the write. */
+    editRemoteContent: (id: string, transform: (content: string) => string | null) => Promise<'written' | 'conflict' | 'missing'>;
     flush: (options?: {
         immediate?: boolean;
     }) => Promise<void>;
@@ -966,6 +968,41 @@ export const useNotes = create<NotesState>((set, get) => ({
             adoptNote(result.note, set, get);
             useUi.getState().toast({ title: t("workspace.mention_linked"), tone: 'success' });
             return 'linked';
+        });
+    },
+    /**
+     * Rewrite the body of a note the reader is not looking at.
+     *
+     * A query result's checkbox stands for a line in another note, so the write has to land without
+     * touching the workspace: `openNote` would bind that note to a pane, and `editContent` refuses a body
+     * the store has never held. The note is therefore read again from the server inside the same queued
+     * write, which is what makes the transform see the text as it now is rather than as an index cache
+     * copy said it was; the caller's transform returning null is the refusal, and nothing is sent.
+     */
+    async editRemoteContent(id, transform) {
+        if (!(await saveDirtyBeforeDestructiveMutation(id, set, get)))
+            return 'missing';
+        return enqueueNoteWrite(id, async () => {
+            let current: Note;
+            try {
+                current = await api.notes.get(id);
+            }
+            catch {
+                return 'missing';
+            }
+            const next = transform(current.content ?? '');
+            if (next === null)
+                return 'conflict';
+            if (next === current.content)
+                return 'written';
+            try {
+                const saved = await api.notes.patch(id, { rev: current.rev, content: next });
+                adoptNote(saved, set, get);
+                return 'written';
+            }
+            catch {
+                return 'missing';
+            }
         });
     },
     async purgeNote(id) {

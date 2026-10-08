@@ -13,11 +13,12 @@
  */
 
 import { DvDuration, DvLink, Grouping, Values, type DataObject, type Literal } from './value'
-import { parseSource, parseQuery } from './expression'
+import { parseField, parseSource, parseQuery } from './expression'
 import type { Source } from './ast'
-import { executeCore, type DataRail } from './engine'
+import { executeQuery, type DataRail } from './engine'
 import { Context } from './context'
 import type { QueryRuntimeSettings } from './functions'
+import { DEFAULT_QUERY_SETTINGS } from './functions'
 
 export const DV_MARKER = '\u0000dv'
 /** The snapshot ceiling: past this the block is told the answer is incomplete rather than slowed down. */
@@ -65,6 +66,7 @@ export function cool(value: unknown): unknown {
     if (value instanceof DvLink) return { [DV_MARKER]: 'link', path: value.path, kind: value.kind, subpath: value.subpath, display: value.display, embed: value.embed }
     if (value instanceof DvDuration) return { [DV_MARKER]: 'duration', units: { ...value } }
     if (value instanceof Grouping) return { [DV_MARKER]: 'group', key: cool(value.key), rows: value.rows.map((row) => cool(row)) }
+    if (value instanceof DvArray) return value.array().map((item) => cool(item))
     if (Array.isArray(value)) return value.map((item) => cool(item))
     if (value instanceof Map) return { [DV_MARKER]: 'map', entries: [...value.entries()].map(([key, item]) => [String(key), cool(item)]) }
     if (value instanceof Set) return { [DV_MARKER]: 'set', items: [...value].map((item) => cool(item)) }
@@ -108,92 +110,336 @@ export function warm(value: unknown): Literal {
 }
 
 /**
- * The DataArray of the port: the helpers a note's code reaches for, over a plain array.
+ * The DataArray of the port: the helpers a note's code reaches for, over a list of literals.
  *
  * It deliberately does not extend `Array`. `map`/`filter`/`sort` on a subclass cannot return the
  * subclass under `Literal`'s union (the base's generic `U[]` refuses a narrower element type), and a
  * class that lies about its own `Array` contract is worse than one that says it is a list with methods.
- * `array()` is the documented way down to a real array.
+ * `array()` is the documented way down to a real array, and `asList` is the internal one.
+ *
+ * The object a note holds is a proxy over an instance, which is what makes `pages.file.name` mean
+ * `pages.to('file').to('name')` — the shorthand real snippets use constantly. Anything that is not a
+ * method name or an index is read as a field, so a typo yields an empty list rather than a crash.
  */
-export class DvArray {
-    private readonly items: Literal[]
+export type DvKeyFunc = (value: Literal, index: number, values: Literal[]) => unknown
+export type DvComparator = (one: never, other: never) => number
 
-    private constructor(items: Literal[]) {
-        this.items = items
+const DV_ARRAY_MEMBERS = new Set([
+    'length', 'values', 'array', 'toJSON', 'toString', 'first', 'last', 'get', 'map', 'filter', 'where',
+    'flatMap', 'mutate', 'limit', 'slice', 'concat', 'indexOf', 'find', 'findIndex', 'includes', 'join',
+    'sort', 'sortInPlace', 'groupBy', 'groupIn', 'distinct', 'every', 'some', 'none', 'to', 'into',
+    'expand', 'forEach', 'sum', 'avg', 'min', 'max',
+])
+
+const DV_PASSTHROUGH = new Set(['constructor', 'prototype', '__proto__', 'then', 'inspect', 'nodeType'])
+
+export class DvArray {
+    private readonly values: Literal[]
+    private readonly settings: QueryRuntimeSettings
+
+    private constructor(values: Literal[], settings: QueryRuntimeSettings) {
+        this.values = values
+        this.settings = settings
     }
 
-    static of(values: Iterable<unknown>): DvArray {
-        return new DvArray(Array.from(values, (value) => (typeof value === 'object' && value !== null && DV_MARKER in (value as Record<string, unknown>) ? value as Literal : value as Literal)))
+    private wrap<U>(values: U[]): DvArray {
+        return DvArray.of(values, this.settings)
+    }
+
+    private compare(one: Literal, other: Literal): number {
+        return Values.compare(one, other)
+    }
+
+    private static readonly PROXY: ProxyHandler<DvArray> = {
+        get(target, property) {
+            if (typeof property === 'symbol') return Reflect.get(target, property)
+            const index = Number(property)
+            if (Number.isInteger(index) && String(index) === property) return target.at(index)
+            if (DV_ARRAY_MEMBERS.has(property) && !DV_PASSTHROUGH.has(property)) {
+                const member = Reflect.get(target, property)
+                return typeof member === 'function' ? member.bind(target) : member
+            }
+            if (DV_PASSTHROUGH.has(property)) return Reflect.get(target, property)
+            return target.to(property)
+        },
+    }
+
+    static of(values: Iterable<unknown>, settings: QueryRuntimeSettings = DEFAULT_QUERY_SETTINGS): DvArray {
+        return new Proxy(new DvArray(Array.from(values) as Literal[], settings), DvArray.PROXY)
     }
 
     get length(): number {
-        return this.items.length
+        return this.values.length
     }
 
     [Symbol.iterator](): Iterator<Literal> {
-        return this.items[Symbol.iterator]()
+        return this.values[Symbol.iterator]()
     }
 
     array(): Literal[] {
-        return [...this.items]
+        return [...this.values]
+    }
+
+    at(index: number): Literal | null {
+        return this.values[index < 0 ? this.values.length + index : index] ?? null
     }
 
     get(index: number): Literal | null {
-        return this.items[index] ?? null
+        return this.at(index)
     }
 
     first(): Literal | null {
-        return this.items.length ? this.items[0]! : null
+        return this.values.length ? this.values[0]! : null
     }
 
     last(): Literal | null {
-        return this.items.length ? this.items[this.items.length - 1]! : null
+        return this.values.length ? this.values[this.values.length - 1]! : null
     }
 
-    map(transform: (value: Literal, index: number) => unknown): DvArray {
-        return DvArray.of(this.items.map((value, index) => transform(value, index)))
+    map(transform: DvKeyFunc): DvArray {
+        return this.wrap(this.values.map((value, index) => transform(value, index, this.values)))
     }
 
-    filter(predicate: (value: Literal, index: number) => unknown): DvArray {
-        return DvArray.of(this.items.filter((value, index) => Boolean(predicate(value, index))))
+    filter(predicate: DvKeyFunc): DvArray {
+        return this.where(predicate)
     }
 
-    where(predicate: (value: Literal) => unknown): DvArray {
-        return this.filter((value) => predicate(value))
+    where(predicate: DvKeyFunc): DvArray {
+        return this.wrap(this.values.filter((value, index) => Boolean(predicate(value, index, this.values))))
     }
 
-    sort(compare?: (one: Literal, other: Literal) => number): DvArray {
-        const copy = [...this.items]
-        copy.sort(compare ?? ((one, other) => Values.compare(one, other)))
-        return DvArray.of(copy)
+    flatMap(transform: DvKeyFunc): DvArray {
+        return this.wrap(this.values.flatMap((value, index) => asRawList(transform(value, index, this.values))))
+    }
+
+    mutate(transform: DvKeyFunc): DvArray {
+        this.values.forEach((value, index) => {
+            transform(value, index, this.values)
+        })
+        return this
     }
 
     limit(count: number): DvArray {
-        return DvArray.of(this.items.slice(0, Math.max(0, Math.trunc(count))))
+        return this.wrap(this.values.slice(0, Math.max(0, Math.trunc(count))))
+    }
+
+    slice(start?: number, end?: number): DvArray {
+        return this.wrap(this.values.slice(start, end))
+    }
+
+    concat(other: Iterable<unknown>): DvArray {
+        return this.wrap([...this.values, ...Array.from(other) as Literal[]])
+    }
+
+    indexOf(element: Literal, fromIndex = 0): number {
+        return this.values.findIndex((value, index) => index >= fromIndex && Values.compare(value, element) === 0)
+    }
+
+    find(predicate: DvKeyFunc): Literal | undefined {
+        return this.values.find((value, index) => Boolean(predicate(value, index, this.values)))
+    }
+
+    findIndex(predicate: DvKeyFunc, fromIndex = 0): number {
+        for (let index = fromIndex; index < this.values.length; index++) {
+            if (predicate(this.values[index]!, index, this.values)) return index
+        }
+        return -1
+    }
+
+    includes(element: Literal): boolean {
+        return this.indexOf(element) >= 0
     }
 
     join(separator = ', '): string {
-        return this.items.map((value) => Values.toString(value)).join(separator)
+        return this.values.map((value) => Values.toString(value, this.settings, this.settings.locale)).join(separator)
     }
 
-    distinct(): DvArray {
-        const out: Literal[] = []
-        for (const value of this.items) {
-            if (!out.some((item) => Values.compare(item, value) === 0)) out.push(value)
+    sort(key?: DvKeyFunc, direction?: string, comparator?: (one: never, other: never) => number): DvArray {
+        if (!this.values.length) return this
+        const read = key ?? ((value: Literal) => value as never)
+        const against = comparator ?? ((one: never, other: never) => this.compare(one as never, other as never))
+        const descending = typeof direction === 'string' && direction.toLowerCase().startsWith('desc')
+        const copy = this.values.map((value, index) => ({ value, key: read(value, index, this.values) }))
+        copy.sort((one, other) => {
+            const result = against(one.key as never, other.key as never)
+            return descending ? -result : result
+        })
+        return this.wrap(copy.map((entry) => entry.value))
+    }
+
+    sortInPlace(key?: DvKeyFunc, direction?: string, comparator?: (one: never, other: never) => number): DvArray {
+        const sorted = this.sort(key, direction, comparator).array()
+        this.values.splice(0, this.values.length, ...sorted)
+        return this
+    }
+
+    groupBy(key: DvKeyFunc, comparator?: (one: never, other: never) => number): DvArray {
+        if (!this.values.length) return this.wrap([])
+        const against = comparator ?? ((one: never, other: never) => this.compare(one as never, other as never))
+        const sorted = this.sort(key, 'asc', comparator).array()
+        const result: Literal[] = []
+        let currentKey = key(sorted[0]!, 0, sorted)
+        let rows: Literal[] = [sorted[0]!]
+        for (let index = 1; index < sorted.length; index++) {
+            const value = sorted[index]!
+            const nextKey = key(value, index, sorted)
+            if (against(currentKey as never, nextKey as never) !== 0) {
+                result.push({ key: currentKey as Literal, rows: this.wrap(rows) } as unknown as Literal)
+                currentKey = nextKey
+                rows = [value]
+                continue
+            }
+            rows.push(value)
         }
-        return DvArray.of(out)
+        result.push({ key: currentKey as Literal, rows: this.wrap(rows) } as unknown as Literal)
+        return this.wrap(result)
+    }
+
+    /** Group inside each existing group when the list is already grouped, and group once otherwise. */
+    groupIn(key: DvKeyFunc, comparator?: (one: never, other: never) => number): DvArray {
+        const grouped = this.values.length && this.values.every((value) => isGroupRecord(value))
+        if (!grouped) return this.groupBy(key as DvKeyFunc, comparator)
+        return this.map((value) => {
+            const record = value as unknown as { key: Literal; rows: DvArray }
+            return { key: record.key, rows: record.rows.groupIn(key, comparator) } as unknown as Literal
+        })
+    }
+
+    distinct(key?: DvKeyFunc, comparator?: (one: never, other: never) => number): DvArray {
+        if (!this.values.length) return this
+        const read = key ?? ((value: Literal) => value as never)
+        const against = comparator ?? ((one: never, other: never) => this.compare(one as never, other as never))
+        const paired = this.map((value, index) => ({ key: read(value, index, this.values), value }) as unknown as Literal).sort((entry) => (entry as { key: unknown }).key as never, 'asc', comparator).array()
+        const result: Literal[] = [(paired[0] as { value: Literal }).value]
+        for (let index = 1; index < paired.length; index++) {
+            const previous = paired[index - 1] as { key: Literal }
+            const current = paired[index] as { key: Literal; value: Literal }
+            if (against(previous.key as never, current.key as never) !== 0) result.push(current.value)
+        }
+        return this.wrap(result)
+    }
+
+    every(predicate: DvKeyFunc): boolean {
+        return this.values.every((value, index) => Boolean(predicate(value, index, this.values)))
+    }
+
+    some(predicate: DvKeyFunc): boolean {
+        return this.values.some((value, index) => Boolean(predicate(value, index, this.values)))
+    }
+
+    none(predicate: DvKeyFunc): boolean {
+        return this.values.every((value, index) => !predicate(value, index, this.values))
+    }
+
+    /** Map to a field, flattening one level — the shorthand `pages.file.name` runs through. */
+    to(field: string): DvArray {
+        const result: Literal[] = []
+        for (const child of this.values) {
+            const value = fieldOf(child, field)
+            if (value === undefined || value === null) continue
+            for (const item of asRawList(value)) result.push(item as Literal)
+        }
+        return this.wrap(result)
+    }
+
+    /** Like `to`, but a list-valued field stays one value instead of being spread. */
+    into(field: string): DvArray {
+        const result: Literal[] = []
+        for (const child of this.values) {
+            const value = fieldOf(child, field)
+            if (value === undefined || value === null) continue
+            result.push(value as Literal)
+        }
+        return this.wrap(result)
+    }
+
+    /** Walk a tree of lists through `field`, keeping every node that has one. */
+    expand(field: string): DvArray {
+        const result: Literal[] = []
+        const queue: unknown[] = [...this.values]
+        while (queue.length) {
+            const next = queue.pop()
+            const value = fieldOf(next, field)
+            if (value === undefined || value === null) continue
+            for (const item of asRawList(value)) queue.push(item)
+            result.push(next as Literal)
+        }
+        return this.wrap(result)
+    }
+
+    forEach(action: DvKeyFunc): void {
+        this.values.forEach((value, index) => {
+            action(value, index, this.values)
+        })
+    }
+
+    sum(): number {
+        return this.values.reduce<number>((total, value) => total + asNumber(value), 0)
+    }
+
+    avg(): number {
+        return this.values.length ? this.sum() / this.values.length : 0
+    }
+
+    min(): number {
+        return this.values.length ? Math.min(...this.numeric()) : Number.NaN
+    }
+
+    max(): number {
+        return this.values.length ? Math.max(...this.numeric()) : Number.NaN
+    }
+
+    toString(): string {
+        return `[${this.values.map((value) => Values.toString(value, this.settings, this.settings.locale)).join(', ')}]`
     }
 
     /** The shape `dv.table` and `postMessage` both want: a plain JSON list. */
     toJSON(): unknown[] {
-        return this.items.map((value) => cool(value)) as unknown[]
+        return this.values.map((value) => cool(value)) as unknown[]
     }
+
+    private numeric(): number[] {
+        return this.values.map(asNumber)
+    }
+}
+
+/** What a note's arithmetic makes of a value: a number, or seconds for a duration. */
+function asNumber(value: unknown): number {
+    if (typeof value === 'number') return value
+    if (value instanceof DvDuration) return value.toMillis() / 1000
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : 0
+}
+
+/** A `{ key, rows }` record, which is what `groupBy` produces and `groupIn` recurses into. */
+function isGroupRecord(value: unknown): boolean {
+    return Boolean(value && typeof value === 'object' && 'key' in (value as Record<string, unknown>) && 'rows' in (value as Record<string, unknown>))
+}
+
+/** One field of one value, reading through the shapes a page actually holds. */
+function fieldOf(value: unknown, field: string): unknown {
+    if (value === null || value === undefined) return null
+    if (value instanceof DvArray) return value.array().map((item) => fieldOf(item, field)).filter((item) => item !== null)
+    if (value instanceof Grouping) return fieldOf(value.rows, field)
+    if (Array.isArray(value)) return value.map((item) => fieldOf(item, field)).filter((item) => item !== null)
+    if (value instanceof DvLink) return (value as unknown as Record<string, unknown>)[field]
+    return (value as Record<string, unknown>)[field]
+}
+
+/** A list-taking value from a note's code: a real array, a `DvArray`, or a single thing. */
+function asRawList(value: unknown): unknown[] {
+    if (value instanceof DvArray) return value.array()
+    if (Array.isArray(value)) return value
+    return value === undefined || value === null ? [] : [value]
 }
 
 function nodes(value: unknown): DvNode[] {
     if (value === null || value === undefined) return [{ kind: 'text', text: '' }]
     if (typeof value === 'string') return [{ kind: 'text', text: value }]
     if (typeof value === 'number' || typeof value === 'boolean') return [{ kind: 'text', text: String(value) }]
+    // A data array is a proxy, so it has to be read as a list before anything looks at its shape —
+    // `Array.isArray` is false for it, and treating it as an object would print its private fields.
+    if (value instanceof DvArray) return value.array().flatMap((item) => nodes(item))
     if (Array.isArray(value)) return value.flatMap((item) => nodes(item))
     if (isDescriptor(value)) return [value]
     const literal = warm(value)
@@ -203,16 +449,6 @@ function nodes(value: unknown): DvNode[] {
     return [{ kind: 'text', text: Values.toString(literal) }]
 }
 
-/**
- * What a note's code may hand a list-taking method: a real array, or the `DvArray` its own `map` and
- * `filter` return. A `DvArray` is not an `Array`, so reading it as one would silently draw an empty
- * table out of a query that matched twenty notes.
- */
-function asList(value: unknown): unknown[] {
-    if (value instanceof DvArray) return value.array()
-    if (Array.isArray(value)) return value
-    return value === undefined || value === null ? [] : [value]
-}
 
 const NODE_KINDS = new Set(['text', 'heading', 'paragraph', 'list', 'task', 'table', 'grid', 'element', 'markdown', 'html', 'link', 'section'])
 
@@ -251,9 +487,34 @@ export interface DvApi {
     string(value: unknown): string
     toString(value: unknown): string
     mdEsc(value: unknown): string
+    typeOf(value: unknown): string
+    isArray(value: unknown): boolean
+    isDataArray(value: unknown): boolean
+    compare(one: unknown, other: unknown): number
+    equal(one: unknown, other: unknown): boolean
+    values(value: unknown): DvArray
+    clone(value: unknown): Literal
+    literal(value: unknown): Literal
+    func(callback: (...args: Literal[]) => unknown): (...args: Literal[]) => unknown
+    fileLink(path: string, display?: string | null, embed?: boolean): Literal
+    sectionLink(path: string, section: string, display?: string | null): Literal
+    blockLink(path: string, blockId: string, display?: string | null): Literal
+    page(path: string): DataObject | null
+    pagePaths(from?: string): DvArray
+    parse(expression: string): unknown
+    evaluate(expression: string, value?: unknown): { successful: boolean; value: Literal | null; error: string | null }
+    tryEvaluate(expression: string, value?: unknown): Literal | null
+    queryMarkdown(text: string, originFile?: string): string
+    tryQueryMarkdown(text: string, originFile?: string): string | null
+    tryQuery(text: string, originFile?: string): DvArray | null
+    markdownTable(header: unknown, rows: unknown): string
+    markdownList(items: unknown, ordered?: boolean): string
+    markdownTaskList(tasks: unknown): string
+    settings: QueryRuntimeSettings
     version: string
-    query(text: string, source?: string): DvQueryResult
+    query(text: string, originFile?: string): DvQueryResult
     execute(code: string): never
+    executeInline(code: string, source?: string): never
     header(level: number, text: unknown): void
     paragraph(text: unknown): void
     list(items: unknown): void
@@ -310,13 +571,107 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
         data: warm(page.data) as DataObject,
     }))
 
+    /** Rows for a parsed source, which is what a query's own `FROM` says rather than a string. */
+    const rowsForSource = (source: Source): DataRail[] => pages.filter((page) => matchesSource(source, page, current.file as Literal | undefined)).map((page) => ({
+        id: DvLink.file(page.path),
+        data: warm(page.data) as DataObject,
+    }))
+
+    /** The origin file a query runs as: its page, when the snapshot has one. */
+    const originData = (originFile?: string): DataObject => {
+        if (!originFile) return current
+        const found = byPath.get(originFile) ?? byPath.get(`${originFile}.md`)
+        return found ? (warm(found) as DataObject) : current
+    }
+
+    /**
+     * A query rendered as Markdown text, which is what `dv.queryMarkdown` and the export path use.
+     * Each view shape gets the text a reader would have written by hand: a pipe table, a bullet list,
+     * a task list, or one line per day.
+     */
+    const runMarkdown = (text: string, originFile?: string): string | null => {
+        let parsed
+        try {
+            parsed = parseQuery(text)
+        } catch {
+            return null
+        }
+        const result = executeQuery(parsed, rowsForSource(parsed.source), context, originData(originFile))
+        if (!result.ok) return null
+        const cell = (value: unknown) => escapeMarkdownCells(Values.toString(warm(value), request.settings, request.settings.locale))
+        switch (result.value.kind) {
+            case 'table': {
+                const head = `| ${result.value.names.map(cell).join(' | ')} |`
+                const rule = `| ${result.value.names.map(() => '---').join(' | ')} |`
+                const body = result.value.rows.map((row) => `| ${[cell(row.id), ...row.cells.map(cell)].join(' | ')} |`)
+                return [head, rule, ...body].join('\n')
+            }
+            case 'list':
+                return result.value.items.map((item) => `- ${[item.id, item.value].filter((part) => part !== null && part !== '').map(cell).join(': ')}`).join('\n')
+            case 'task':
+                return result.value.tasks.map((entry) => `- [${entry.task.completed ? 'x' : ' '}] ${cell(entry.task.text)}`).join('\n')
+            case 'calendar':
+                return result.value.days.map((day) => `- ${Values.toString(day.date, request.settings, request.settings.locale)} · ${day.rows.length}`).join('\n')
+            default:
+                return null
+        }
+    }
+
+    /**
+     * A query run for a note's code. The columns are the *computed* ones — going through the same
+     * extraction a block uses is what makes `TABLE this.rating` and `TABLE round(x / 2)` answer,
+     * rather than reading a field name out of the page and finding nothing.
+     */
+    const runQuery = (text: string, originFile?: string): DvQueryResult => {
+        try {
+            const query = parseQuery(text)
+            const result = executeQuery(query, rowsForSource(query.source), context, originData(originFile))
+            if (!result.ok) return { successful: false, results: [], errors: [{ message: result.error }], time: 0 }
+            const view = result.value
+            const results: DvQueryResult['results'] = []
+            if (view.kind === 'table') {
+                for (const row of view.rows) {
+                    const out: DataObject = {}
+                    view.names.slice(view.showId ? 1 : 0).forEach((name, index) => {
+                        out[name] = row.cells[index] ?? null
+                    })
+                    results.push({ row: out, id: cool(row.id), heading: Values.toString(warm(row.id)) })
+                }
+            } else if (view.kind === 'list') {
+                for (const item of view.items) results.push({ row: { value: cool(item.value) } as DataObject, id: cool(item.id), heading: Values.toString(warm(item.id)) })
+            } else if (view.kind === 'task') {
+                for (const entry of view.tasks) results.push({ row: cool(entry.task) as DataObject, id: cool(entry.source), heading: Values.toString(warm(entry.source)) })
+            } else {
+                for (const day of view.days) results.push({ row: { date: cool(day.date), count: day.rows.length } as DataObject, id: cool(day.date), heading: Values.toString(day.date) })
+            }
+            return { successful: true, results, errors: [], time: 0 }
+        } catch (error) {
+            return { successful: false, results: [], errors: [{ message: error instanceof Error ? error.message : String(error) }], time: 0 }
+        }
+    }
+
+    const attemptEvaluate = (expression: string, value: unknown) => {
+        try {
+            const field = parseField(expression)
+            const scope = value === undefined ? current : (warm(value) as DataObject)
+            // The value a note passes to `dv.evaluate` is both the row and `this`, as in the reference.
+            context.set('this', scope)
+            const result = context.attempt(field, scope as Record<string, Literal>)
+            return result.ok
+                ? { successful: true, value: result.value ?? null, error: null }
+                : { successful: false, value: null, error: result.error }
+        } catch (error) {
+            return { successful: false, value: null, error: error instanceof Error ? error.message : String(error) }
+        }
+    }
+
     return {
-        pages: (from = '') => DvArray.of(rowsOf(from).map((row) => row.data as Literal)),
-        pagesByTag: (tag: string) => DvArray.of(rowsOf('#' + tag).map((row) => row.data as Literal)),
-        pagesByFolder: (folder: string) => DvArray.of(rowsOf(JSON.stringify(folder)).map((row) => row.data as Literal)),
-        pagesByLink: (target: string) => DvArray.of(rowsOf('[[' + target + ']]').map((row) => row.data as Literal)),
+        pages: (from = '') => DvArray.of(rowsOf(from).map((row) => row.data as Literal), request.settings),
+        pagesByTag: (tag: string) => DvArray.of(rowsOf('#' + tag).map((row) => row.data as Literal), request.settings),
+        pagesByFolder: (folder: string) => DvArray.of(rowsOf(JSON.stringify(folder)).map((row) => row.data as Literal), request.settings),
+        pagesByLink: (target: string) => DvArray.of(rowsOf('[[' + target + ']]').map((row) => row.data as Literal), request.settings),
         current: () => current,
-        array: (values: unknown) => DvArray.of(asList(values).map((item) => warm(item))),
+        array: (values: unknown) => DvArray.of(asRawList(values).map((item) => warm(item)), request.settings),
         date: (value: unknown) => warm(value) instanceof Date ? warm(value) : Values.isString(value) ? new Date(value as string) : null,
         duration: (value: unknown) => {
             const literal = warm(value)
@@ -326,35 +681,64 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
         string: (value: unknown) => Values.toString(warm(value)),
         toString: (value: unknown) => Values.toString(warm(value), request.settings, request.settings.locale),
         mdEsc: (value: unknown) => escapeMarkdown(String(value ?? '')),
-        version: '0.1.0-inkstone',
-        query: (text: string, source = '') => {
-            try {
-                const query = parseQuery(text)
-                const base = rowsOf(source)
-                const core = executeCore(base, context, query.operations)
-                if (!core.ok) return { successful: false, results: [], errors: [{ message: core.error }], time: 0 }
-                const results = core.value.rows.map((row) => {
-                    const out: DataObject = {}
-                    for (const field of query.header.type === 'table' ? query.header.fields : []) out[field.name] = row.data[field.name] ?? null
-                    return { row: out, id: cool(row.id), heading: Values.toString(warm(row.id)) }
-                })
-                return { successful: true, results, errors: core.value.errors, time: 0 }
-            } catch (error) {
-                return { successful: false, results: [], errors: [{ message: error instanceof Error ? error.message : String(error) }], time: 0 }
-            }
+        typeOf: (value: unknown) => Values.typeOf(warm(value)) ?? 'unknown',
+        isArray: (value: unknown) => Array.isArray(value) || value instanceof DvArray,
+        isDataArray: (value: unknown) => value instanceof DvArray,
+        compare: (one: unknown, other: unknown) => Values.compare(warm(one), warm(other)),
+        equal: (one: unknown, other: unknown) => Values.compare(warm(one), warm(other)) === 0,
+        values: (value: unknown) => DvArray.of(Object.values((warm(value) ?? {}) as Record<string, unknown>), request.settings),
+        clone: (value: unknown) => warm(cool(warm(value))),
+        literal: (value: unknown) => warm(value),
+        func: (callback: (...args: Literal[]) => unknown) => callback,
+        fileLink: (path: string, display: string | null = null, embed = false) => new DvLink(String(path), 'file', null, display, embed),
+        sectionLink: (path: string, section: string, display: string | null = null) => new DvLink(String(path), 'header', String(section), display, false),
+        blockLink: (path: string, blockId: string, display: string | null = null) => new DvLink(String(path), 'block', String(blockId), display, false),
+        page: (path: string) => {
+            const found = byPath.get(String(path)) ?? byPath.get(`${path}.md`)
+            return found ? (warm(found) as DataObject) : null
         },
+        pagePaths: (from = '') => DvArray.of(matching(from).map((entry) => entry.path), request.settings),
+        parse: (expression: string) => cool(parseField(expression)),
+        evaluate: (expression: string, value?: unknown) => attemptEvaluate(expression, value),
+        tryEvaluate: (expression: string, value?: unknown) => {
+            const result = attemptEvaluate(expression, value)
+            return result.successful ? result.value : null
+        },
+        queryMarkdown: (text: string, originFile?: string) => runMarkdown(text, originFile) ?? '',
+        tryQuery: (text: string, originFile?: string) => {
+            const result = runQuery(text, originFile)
+            return result.successful ? DvArray.of(result.results, request.settings) : null
+        },
+        tryQueryMarkdown: (text: string, originFile?: string) => runMarkdown(text, originFile),
+        markdownTable: (header: unknown, rows: unknown) => {
+            const head = asRawList(header)
+            const body = asRawList(rows).map((row) => asRawList(row))
+            const wide = body.find((row) => row.length !== head.length)
+            if (wide) throw new Error(`The number of headers (${head.length}) must match the number of columns (${wide.length})`)
+            const cell = (value: unknown) => exportCell(value, request.settings, 0)
+            return [`| ${head.map(cell).join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...body.map((row) => `| ${row.map(cell).join(' | ')} |`)].join('\n')
+        },
+        markdownList: (items: unknown, ordered = false) => asRawList(items).map((item, index) => `${ordered ? `${index + 1}.` : '-'} ${Values.toString(warm(item), request.settings, request.settings.locale)}`).join('\n'),
+        markdownTaskList: (tasks: unknown) => asRawList(tasks).map((entry) => {
+            const task = (entry && typeof entry === 'object' ? entry : {}) as { text?: unknown; completed?: boolean }
+            return `- [${task.completed ? 'x' : ' '}] ${Values.toString(warm(task.text ?? ''), request.settings, request.settings.locale)}`
+        }).join('\n'),
+        settings: request.settings,
+        version: '0.1.0-inkstone',
+        query: runQuery,
         execute: () => { throw new Error('dv.execute is not available; use dv.query(text) instead') },
+        executeInline: () => { throw new Error('dv.executeInline is not available; use dv.tryEvaluate(expression) instead') },
         header: (level: number, text: unknown) => emit({ kind: 'heading', level: clampLevel(level), children: nodes(text) }),
         paragraph: (text: unknown) => emit({ kind: 'paragraph', children: nodes(text) }),
-        list: (items: unknown) => emit({ kind: 'list', ordered: false, items: asList(items).flatMap((item) => nodes(item)) }),
-        numberList: (items: unknown) => emit({ kind: 'list', ordered: true, items: asList(items).flatMap((item) => nodes(item)) }),
+        list: (items: unknown) => emit({ kind: 'list', ordered: false, items: asRawList(items).flatMap((item) => nodes(item)) }),
+        numberList: (items: unknown) => emit({ kind: 'list', ordered: true, items: asRawList(items).flatMap((item) => nodes(item)) }),
         table: (header: unknown, rows: unknown) => {
-            const head = asList(header).flatMap((item) => nodes(item))
-            const body = asList(rows).map((row) => asList(row).flatMap((cell) => nodes(cell)))
+            const head = asRawList(header).flatMap((item) => nodes(item))
+            const body = asRawList(rows).map((row) => asRawList(row).flatMap((cell) => nodes(cell)))
             emit({ kind: 'table', header: head, rows: body })
         },
         taskList: (tasks: unknown, groupByTask = true) => {
-            const items = asList(tasks).map((entry) => {
+            const items = asRawList(tasks).map((entry) => {
                 const task = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>
                 const source = task.source
                 return {
@@ -376,10 +760,10 @@ export function createDv(request: DvRequest, emit: (node: DvNode) => void): DvAp
                 tag: SAFE_TAGS.has(tag) ? tag : 'div',
                 class: classOf,
                 attrs,
-                children: asList(children).flatMap((item) => nodes(item)),
+                children: asRawList(children).flatMap((item) => nodes(item)),
             })
         },
-        div: (children: unknown) => emit({ kind: 'element', tag: 'div', class: null, attrs: {}, children: asList(children).flatMap((item) => nodes(item)) }),
+        div: (children: unknown) => emit({ kind: 'element', tag: 'div', class: null, attrs: {}, children: asRawList(children).flatMap((item) => nodes(item)) }),
         renderMarkdown: (text: unknown) => emit({ kind: 'markdown', text: String(text ?? '') }),
         renderHtml: (html: unknown) => emit({ kind: 'html', html: String(html ?? '') }),
         startSection: (title: string) => emit({ kind: 'section', title: String(title ?? ''), children: [] }),
@@ -419,6 +803,28 @@ function parseDurationText(text: string): DvDuration | null {
         else units.seconds = (units.seconds ?? 0) + amount
     }
     return new DvDuration(units)
+}
+
+/** A pipe table cell: the bar is the delimiter, so it has to survive as text. */
+function escapeMarkdownCells(text: string): string {
+    return text.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+}
+
+/**
+ * One cell of an exported table. `allowHtmlInExports` keeps a list's or an object's shape as HTML, which
+ * is what `dv.renderMarkdown` can draw, and the walk stops at the depth the page-side renderer stops at
+ * so one note's nested property cannot make the export run away.
+ */
+function exportCell(value: unknown, settings: QueryRuntimeSettings, depth: number): string {
+    if (depth > settings.maxRecursiveRenderDepth) return '…'
+    const literal = warm(value)
+    if (settings.allowHtmlInExports) {
+        if (Values.isArray(literal)) return `<ul>${literal.map((item) => `<li>${exportCell(item, settings, depth + 1)}</li>`).join('')}</ul>`
+        if (Values.isObject(literal)) {
+            return `<ul>${Object.entries(literal).map(([key, item]) => `<li><b>${exportCell(key, settings, depth + 1)}</b>: ${exportCell(item, settings, depth + 1)}</li>`).join('')}</ul>`
+        }
+    }
+    return escapeMarkdownCells(Values.toString(literal, settings, settings.locale))
 }
 
 function escapeMarkdown(text: string): string {

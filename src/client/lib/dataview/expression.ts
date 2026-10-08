@@ -143,19 +143,18 @@ const dateShorthandParser: Parser<Date> = (input, pos, ctx) => {
     return { ok: false, pos, expected: 'a date shorthand' }
 }
 
-/** `YYYY-MM[-DD[T HH:mm[:ss[.ms]]]]` with an optional `Z` or `±HH:mm` offset. */
+/** `YYYY-MM[-DD[T HH:mm[:ss[.ms]]]]` with an optional `Z` or `±H[H][:mm]` offset. */
 export const dateParser: Parser<Date> = map(
-    pattern(/\d{4}-\d{2}(?:-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?)?/, 'a date'),
+    pattern(/\d{4}-\d{2}(?:-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{1,2}(?::?\d{2})?)?)?)?/, 'a date'),
     (text) => buildDate(text),
 )
 
 export function buildDate(text: string): Date {
-    const zone = /(?:Z|[+-]\d{2}:?\d{2})$/.exec(text)?.[0]
-    const body = zone ? text.slice(0, -zone.length) : text
-    const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?/.exec(body)
+    // The offset is read inside the time group, so `1984-08-15` cannot be mis-read as a `-15` zone.
+    const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{1,2}(?::?\d{2})?)?)?/.exec(text)
     if (!match) return new Date(NaN)
-    const numeric = (value: string | undefined, fallback = 0) => (value === undefined ? fallback : Number.parseInt(value, 10))
-    const [, year, month, day, hour, minute, second, ms] = match
+    const numeric = (value: string | undefined, fallback = 0) => (value === undefined || value === '' ? fallback : Number.parseInt(value, 10))
+    const [, year, month, day, hour, minute, second, ms, zone] = match
     if (zone) {
         const shift = zone === 'Z' ? 0 : zoneMinutes(zone)
         return new Date(Date.UTC(numeric(year), numeric(month, 1) - 1, numeric(day, 1), numeric(hour), numeric(minute) - shift, numeric(second), numeric(ms)))
@@ -164,9 +163,9 @@ export function buildDate(text: string): Date {
 }
 
 function zoneMinutes(zone: string): number {
-    const match = /([+-])(\d{2}):?(\d{2})/.exec(zone)
+    const match = /([+-])(\d{1,2})(?::?(\d{2}))?/.exec(zone)
     if (!match) return 0
-    const minutes = Number.parseInt(match[2]!, 10) * 60 + Number.parseInt(match[3]!, 10)
+    const minutes = Number.parseInt(match[2]!, 10) * 60 + Number.parseInt(match[3] ?? '0', 10)
     return match[1] === '-' ? -minutes : minutes
 }
 
@@ -391,7 +390,7 @@ const namedFieldParser: Parser<NamedField> = (input, pos, ctx) => {
     const as = keyword('AS')(input, field.pos, ctx)
     if (as.ok) {
         const name = trimmed(alt(identifierParser, stringParser), ws)(input, as.pos, ctx)
-        return name.ok ? { ok: true, pos: name.pos, value: { name: name.value as string, field: field.value as Field } } : name
+        return name.ok ? { ok: true, pos: name.pos, value: { name: name.value as string, aliased: true, field: field.value as Field } } : name
     }
     return { ok: true, pos: field.pos, value: { name: collapseWhitespace(input.slice(pos, field.pos)), field: field.value as Field } }
 }
@@ -411,17 +410,34 @@ const sortFieldParser: Parser<QuerySortBy> = map(
 
 const withoutIdParser: Parser<boolean> = map(optional(seq(trimmed(keyword('WITHOUT'), ws), trimmed(keyword('ID'), ws))), (value) => value !== undefined)
 
+/**
+ * The words the clause loop owns. A header field must not read `SORT` as a variable, or a query written
+ * as `LIST` + newline + `SORT file.name DESC` — the shape the docs use — becomes a parse failure.
+ */
+const CLAUSE_WORDS = ['FROM', 'WHERE', 'SORT', 'LIMIT', 'GROUP', 'FLATTEN']
+const notClauseWord: Parser<true> = (input, pos, ctx) => {
+    const word = /^[ \t\r\n]*([A-Za-z]+)/.exec(input.slice(pos))?.[1] ?? ''
+    if (CLAUSE_WORDS.includes(word.toUpperCase())) {
+        if (ctx.furthest < pos) {
+            ctx.furthest = pos
+            ctx.expected = new Set(['a field'])
+        }
+        return { ok: false, pos, expected: 'a field' }
+    }
+    return { ok: true, pos, value: true }
+}
+
 const tableHeaderParser: Parser<QueryHeader> = map(
-    seq(keyword('TABLE'), ws, withoutIdParser, sepBy(namedFieldParser, trimmed(lit(','), ws))),
-    ([, , withoutId, fields]) => ({ type: 'table', fields: fields as NamedField[], showId: !withoutId }),
+    seq(keyword('TABLE'), ws, withoutIdParser, optional(seq(notClauseWord, sepBy(namedFieldParser, trimmed(lit(','), ws))))),
+    ([, , withoutId, fields]) => ({ type: 'table', fields: ((fields as NamedField[][] | undefined)?.[1] ?? []) as NamedField[], showId: !withoutId }),
 )
 
 /**
  * `LIST` takes at most one field, and must not swallow a following comma — the clause loop owns that.
  */
 const listHeaderParser: Parser<QueryHeader> = map(
-    seq(keyword('LIST'), ws, withoutIdParser, optional(trimmed(fieldParser, ws))),
-    ([, , withoutId, format]) => ({ type: 'list', format: format as Field | undefined, showId: !withoutId }),
+    seq(keyword('LIST'), ws, withoutIdParser, optional(seq(notClauseWord, trimmed(fieldParser, ws)))),
+    ([, , withoutId, format]) => ({ type: 'list', format: (format as [true, Field] | undefined)?.[1], showId: !withoutId }),
 )
 
 const taskHeaderParser: Parser<QueryHeader> = map(keyword('TASK'), () => ({ type: 'task' }) as QueryHeader)

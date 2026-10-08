@@ -27,7 +27,7 @@ export interface RowError {
 export type Execution<T> = { ok: true; value: T; errors: RowError[] } | { ok: false; error: string }
 
 /** Why a row's id is what it is — a note path, or a group key (possibly nested). */
-export type IdentifierMeaning = { type: 'path' } | { type: 'group'; name: string; on: IdentifierMeaning }
+export type IdentifierMeaning = { type: 'path' } | { type: 'group'; name: string; aliased: boolean; on: IdentifierMeaning }
 
 export interface CoreExecution {
     rows: DataRail[]
@@ -138,7 +138,7 @@ export function executeCore(input: DataRail[], context: Context, ops: QueryOpera
                     grouped.push({ id: group, data })
                 }
                 rows = grouped
-                idMeaning = { type: 'group', name: op.field.name, on: idMeaning }
+                idMeaning = { type: 'group', name: op.field.name, aliased: op.field.aliased === true, on: idMeaning }
                 break
             }
             case 'flatten': {
@@ -239,7 +239,10 @@ function extractTable(header: Extract<QueryHeader, { type: 'table' }>, core: Cor
     const extracted = extractFields(core.rows, context, fields)
     if (!extracted.ok) return extracted
 
-    const names = [...(header.showId ? ['name'] : []), ...header.fields.map((field) => field.name)]
+    const idName = core.idMeaning.type === 'group'
+        ? core.idMeaning.aliased ? core.idMeaning.name : context.settings.tableGroupColumnName
+        : context.settings.tableIdColumnName
+    const names = [...(header.showId ? [idName] : []), ...header.fields.map((field) => field.name)]
     const rows = extracted.value.rows.map((row) => ({
         id: displayId(row.id, core.idMeaning),
         cells: header.fields.map((field) => row.data[field.name] ?? null),

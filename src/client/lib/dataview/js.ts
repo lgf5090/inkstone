@@ -42,8 +42,14 @@ export interface DvRunResult {
     snapshotOwes: boolean
 }
 
-/** Run one block's code. Resolves with an error text rather than rejecting, so a block never stalls. */
-export async function runDataviewJs(code: string, originNoteId: string | null): Promise<DvRunResult> {
+/** The pages one run gets, taken once so a batch of snippets shares one snapshot. */
+interface Prepared {
+    request: DvRequest
+    short: boolean
+    owed: boolean
+}
+
+async function prepare(originNoteId: string | null): Promise<Prepared> {
     let pages = snapshot(originNoteId)
     // A note's code reads the vault, so a body the index has not read is a missing answer rather than a
     // smaller one. Ask for the ones inside the window once — `load` is bounded by the reader's own limit.
@@ -51,53 +57,112 @@ export async function runDataviewJs(code: string, originNoteId: string | null): 
         await dataviewIndex.load(pages.missing)
         pages = snapshot(originNoteId)
     }
-    const request: DvRequest = {
-        code,
-        pages: pages.pages,
-        current: pages.current,
-        settings: querySettings(),
+    return {
+        request: { code: '', pages: pages.pages, current: pages.current, settings: querySettings() },
+        short: pages.short,
+        owed: pages.owed,
     }
+}
+
+function failure(errorText: string, prepared: Prepared): DvRunResult {
+    return { nodes: [], errorText, logs: [], truncated: false, snapshotShort: prepared.short, snapshotOwes: prepared.owed }
+}
+
+/** Run one block's code. Resolves with an error text rather than rejecting, so a block never stalls. */
+export async function runDataviewJs(code: string, originNoteId: string | null): Promise<DvRunResult> {
+    const prepared = await prepare(originNoteId)
     let worker: DvWorker
     try {
         worker = spawn()
     } catch (error) {
-        return { nodes: [], errorText: error instanceof Error ? error.message : String(error), logs: [], truncated: false, snapshotShort: pages.short, snapshotOwes: pages.owed }
+        return failure(error instanceof Error ? error.message : String(error), prepared)
     }
-    return await new Promise<DvRunResult>((resolve) => {
+    try {
+        prepared.request.code = code
+        return toResult(await ask(worker, prepared.request, DV_RUN_TIMEOUT_MS), prepared)
+    } finally {
+        worker.terminate()
+    }
+}
+
+/**
+ * Run several short snippets in one worker, in the order they were asked for.
+ *
+ * This is what `$=` inline queries cost: a note with four of them spawns one worker and four serial runs
+ * rather than four workers, which matters because spawning is the expensive part of a DML block. A
+ * snippet that overruns its own deadline ends the batch — the rest are reported as not having run,
+ * rather than each quietly waiting two more seconds.
+ */
+export async function runDataviewJsBatch(codes: string[], originNoteId: string | null): Promise<DvRunResult[]> {
+    if (!codes.length) return []
+    const prepared = await prepare(originNoteId)
+    let worker: DvWorker
+    try {
+        worker = spawn()
+    } catch (error) {
+        const text = error instanceof Error ? error.message : String(error)
+        return codes.map(() => failure(text, prepared))
+    }
+    const out: DvRunResult[] = []
+    try {
+        for (const code of codes) {
+            prepared.request.code = code
+            const outcome = await ask(worker, prepared.request, DV_RUN_TIMEOUT_MS)
+            out.push(toResult(outcome, prepared))
+            // A snippet that overran its deadline leaves the worker busy, so the rest are reported rather
+            // than queued behind it.
+            if (!outcome.ok && outcome.reason === 'timeout') break
+        }
+    } finally {
+        worker.terminate()
+    }
+    while (out.length < codes.length) out.push(failure(t('dataview.js_timeout', { value0: DV_RUN_TIMEOUT_MS }), prepared))
+    return out
+}
+
+/** One request, one reply, with the deadline that stops a snippet from hanging the batch. */
+type AskOutcome = { ok: true; reply: DvReply } | { ok: false; reason: 'crashed' | 'timeout' }
+
+function ask(worker: DvWorker, request: DvRequest, timeoutMs: number): Promise<AskOutcome> {
+    return new Promise<AskOutcome>((resolve) => {
         let settled = false
-        const finish = (result: DvRunResult) => {
+        const finish = (outcome: AskOutcome) => {
             if (settled) return
             settled = true
             clearTimeout(timer)
-            worker.terminate()
-            resolve(result)
+            worker.onmessage = null
+            worker.onerror = null
+            resolve(outcome)
         }
-        const timer = setTimeout(() => {
-            finish({
-                nodes: [],
-                errorText: t('dataview.js_timeout', { value0: DV_RUN_TIMEOUT_MS }),
-                logs: [],
-                truncated: false,
-                snapshotShort: pages.short, snapshotOwes: pages.owed,
-            })
-        }, DV_RUN_TIMEOUT_MS)
+        const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }), timeoutMs)
         worker.onmessage = (event) => {
             const reply = event.data
-            finish({
-                nodes: Array.isArray(reply?.nodes) ? reply.nodes : [],
-                errorText: reply?.errorText ?? '',
-                logs: Array.isArray(reply?.logs) ? reply.logs : [],
-                truncated: Boolean(reply?.truncated),
-                snapshotShort: pages.short, snapshotOwes: pages.owed,
-            })
+            if (reply && typeof reply === 'object') finish({ ok: true, reply })
+            else finish({ ok: false, reason: 'crashed' })
         }
-        worker.onerror = () => finish({ nodes: [], errorText: t('dataview.js_crashed'), logs: [], truncated: false, snapshotShort: pages.short, snapshotOwes: pages.owed })
+        worker.onerror = () => finish({ ok: false, reason: 'crashed' })
         try {
             worker.postMessage(request)
-        } catch (error) {
-            finish({ nodes: [], errorText: error instanceof Error ? error.message : String(error), logs: [], truncated: false, snapshotShort: pages.short, snapshotOwes: pages.owed })
+        } catch {
+            finish({ ok: false, reason: 'crashed' })
         }
     })
+}
+
+function toResult(outcome: AskOutcome, prepared: Prepared): DvRunResult {
+    if (!outcome.ok) {
+        const text = outcome.reason === 'crashed' ? t('dataview.js_crashed') : t('dataview.js_timeout', { value0: DV_RUN_TIMEOUT_MS })
+        return failure(text, prepared)
+    }
+    const reply = outcome.reply
+    return {
+        nodes: Array.isArray(reply.nodes) ? reply.nodes : [],
+        errorText: reply.errorText ?? '',
+        logs: Array.isArray(reply.logs) ? reply.logs : [],
+        truncated: Boolean(reply.truncated),
+        snapshotShort: prepared.short,
+        snapshotOwes: prepared.owed,
+    }
 }
 
 interface DvSnapshot {

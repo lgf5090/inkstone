@@ -164,9 +164,11 @@ describe('query parser', () => {
     it('supports GROUP BY and FLATTEN with aliases', () => {
         const query = parseQuery('LIST rows.file.name GROUP BY author AS "By author"')
         const group = query.operations.find((op) => op.type === 'group')
-        expect(group).toEqual({ type: 'group', field: { name: 'By author', field: Fields.variable('author') } })
+        expect(group).toEqual({ type: 'group', field: { name: 'By author', aliased: true, field: Fields.variable('author') } })
         const flatten = parseQuery('TABLE x FLATTEN file.tags AS tag').operations.find((op) => op.type === 'flatten')
-        expect(flatten).toEqual({ type: 'flatten', field: { name: 'tag', field: Fields.index(Fields.variable('file'), Fields.literal('tags')) } })
+        expect(flatten).toEqual({ type: 'flatten', field: { name: 'tag', aliased: true, field: Fields.index(Fields.variable('file'), Fields.literal('tags')) } })
+        const bare = parseQuery('TABLE rating GROUP BY done').operations.find((op) => op.type === 'group')
+        expect(bare).toEqual({ type: 'group', field: { name: 'done', field: Fields.variable('done') } })
     })
 
     it('skips // comment lines between clauses', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from './context'
-import { DEFAULT_QUERY_SETTINGS } from './functions'
+import { DEFAULT_QUERY_SETTINGS, type QueryRuntimeSettings } from './functions'
 import type { LinkHandler } from './context'
 import { executeCore, executeQuery, expandTasks } from './engine'
 import { parseQuery } from './expression'
@@ -9,8 +9,8 @@ import { DvLink, Grouping, Values, type DataObject, type Literal } from './value
 
 const handler: LinkHandler = { resolve: () => null, normalize: (path) => path, exists: () => false }
 
-function ctx(): Context {
-    return new Context({ linkHandler: handler, settings: DEFAULT_QUERY_SETTINGS })
+function ctx(over: Partial<QueryRuntimeSettings> = {}): Context {
+    return new Context({ linkHandler: handler, settings: { ...DEFAULT_QUERY_SETTINGS, ...over } })
 }
 
 function rail(name: string, data: Record<string, Literal>) {
@@ -85,7 +85,7 @@ describe('query pipeline', () => {
     it('groups rows and remembers that the id is now a group', () => {
         const result = executeCore(rows, ctx(), [{ type: 'group', field: { name: 'done', field: Fields.variable('done') } }])
         if (!result.ok) throw new Error(result.error)
-        expect(result.value.idMeaning).toEqual({ type: 'group', name: 'done', on: { type: 'path' } })
+        expect(result.value.idMeaning).toEqual({ type: 'group', name: 'done', aliased: false, on: { type: 'path' } })
         expect(result.value.rows).toHaveLength(2)
         const first = result.value.rows[0]
         expect(Values.isGrouping(first?.id)).toBe(true)
@@ -99,7 +99,7 @@ describe('query pipeline', () => {
         if (!result.ok) return
         expect(result.value.kind).toBe('table')
         if (result.value.kind !== 'table') return
-        expect(result.value.names).toEqual(['name', 'rating', 'Status'])
+        expect(result.value.names).toEqual(['File', 'rating', 'Status'])
         expect(result.value.rows.map((row) => (row.id as DvLink).path)).toEqual(['B.md', 'A.md'])
         expect(query.source.type).toBe('negate')
     })
@@ -111,6 +111,20 @@ describe('query pipeline', () => {
         expect(result.value.kind).toBe('table')
         if (result.value.kind !== 'table') return
         expect(result.value.rows.map((row) => row.id)).toEqual([false, true])
+    })
+
+    it('names a table id column from the settings and the group from its alias', () => {
+        const plain = executeQuery(parseQuery('TABLE rating'), rows, ctx({ tableIdColumnName: 'Note' }), null)
+        if (!plain.ok) throw new Error(plain.error)
+        expect(plain.value.kind === 'table' && plain.value.names).toEqual(['Note', 'rating'])
+
+        const named = executeQuery(parseQuery('TABLE rating GROUP BY done AS "By status"'), rows, ctx(), null)
+        if (!named.ok) throw new Error(named.error)
+        expect(named.value.kind === 'table' && named.value.names).toEqual(['By status', 'rating'])
+
+        const unnamed = executeQuery(parseQuery('TABLE rating GROUP BY done'), rows, ctx({ tableGroupColumnName: 'State' }), null)
+        if (!unnamed.ok) throw new Error(unnamed.error)
+        expect(unnamed.value.kind === 'table' && unnamed.value.names).toEqual(['State', 'rating'])
     })
 
     it('keeps the members of a grouped list', () => {

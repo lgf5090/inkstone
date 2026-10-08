@@ -8,22 +8,27 @@
  * that the answer depends on the note's own properties, which only exist once the note is parsed — and
  * a Markdown rule runs before the block is even in the document.
  *
- * The pass never reads inside a code block, a front-matter table, or a query block's own answer, so a
- * fenced example that demonstrates `[due:: 2024-05-06]` stays the literal text the author wrote.
+ * The pass does not read inside a front-matter table or a query block's own answer, and it leaves fenced
+ * code alone unless the reader turned that on — a fenced example that demonstrates `[due:: 2024-05-06]`
+ * stays the literal text the author wrote.
  */
 
 import { appendValue, renderInlineText } from './render'
 import { extractFullLineField, extractInlineFields } from './metadata'
 import { parseField, parseInlineValue } from './expression'
 import { Context } from './context'
+import { encodeDataValue } from '../markdown/data-attr'
 import { Values, type DataObject, type Literal } from './value'
 import type { QueryRuntimeSettings } from './functions'
 import type { RenderContext } from './render'
 
 const PROSE_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, blockquote > p, td, th'
-/** Subtrees whose text is either code or somebody else's answer. */
-const SKIP_SELECTOR = 'pre, code, .dataview-block, .frontmatter-properties, .dataview-inline-field, .dataview-inline-query'
+/** A fenced code block is prose for a query only when the reader asked for it; a code span never is. */
+const CODE_PROSE_SELECTOR = `${PROSE_SELECTOR}, pre > code`
+/** Subtrees that are never prose, whatever the settings say. */
+const OWNED_SELECTOR = '.dataview-block, .frontmatter-properties, .dataview-inline-field, .dataview-inline-query, .dataview-inline-js'
 const MARKER = 'dataviewInline'
+const JS_MARKER = 'dataviewInlineJs'
 
 export interface InlineContext {
     settings: QueryRuntimeSettings
@@ -32,6 +37,24 @@ export interface InlineContext {
     linkHandler: Context['linkHandler']
     fields: boolean
     queries: boolean
+    /** True when `= …` may also be answered inside a fenced code block. */
+    codeblocks?: boolean
+    /** The prefix that makes a line an inline JavaScript query; empty or absent means the feature is off. */
+    jsPrefix?: string
+}
+
+/** Whether a node's text is prose this pass may rewrite, walking up to the nearest deciding ancestor. */
+function skippedBy(element: HTMLElement, context: InlineContext, forQuery: boolean): boolean {
+    let node: HTMLElement | null = element
+    while (node) {
+        if (node.matches(OWNED_SELECTOR)) return true
+        if (node.tagName === 'CODE') {
+            const inFence = forQuery && context.codeblocks && node.parentElement?.tagName === 'PRE'
+            if (!inFence) return true
+        } else if (node.tagName === 'PRE' && !(forQuery && context.codeblocks)) return true
+        node = node.parentElement
+    }
+    return false
 }
 
 /** The renderer only needs the two halves a value render reads, not the evaluator or the row. */
@@ -75,13 +98,70 @@ export function rerunInlineQueries(root: ParentNode, context: InlineContext): vo
 export function renderDataviewInline(root: ParentNode, context: InlineContext): void {
     const engine = new Context({ linkHandler: context.linkHandler, settings: context.settings })
     const scope = context.data ? { ...context.data, this: context.data as Literal } : {}
-    for (const element of root.querySelectorAll<HTMLElement>(PROSE_SELECTOR)) {
-        if (element.closest(SKIP_SELECTOR)) continue
+    for (const element of root.querySelectorAll<HTMLElement>(context.codeblocks ? CODE_PROSE_SELECTOR : PROSE_SELECTOR)) {
         if (element.dataset[MARKER]) continue
         element.dataset[MARKER] = '1'
-        if (context.queries && applyInlineQuery(element, engine, scope, context)) continue
-        if (context.fields) applyInlineFields(element, context)
+        const queryable = context.queries && !skippedBy(element, context, true)
+        const fieldable = context.fields && !skippedBy(element, context, false)
+        if (!queryable && !fieldable) continue
+        if (queryable && applyInlineQuery(element, engine, scope, context)) continue
+        if (fieldable) applyInlineFields(element, context)
     }
+}
+
+/**
+ * Replace every `$= …` line with an empty placeholder, in document order, and hand the placeholders back
+ * with the code each one carries. The answer needs the worker, which this module deliberately does not
+ * know about, so `blocks.ts` is the one that fills them in.
+ */
+export function takeInlineJsLines(root: ParentNode, context: InlineContext, limit: number): HTMLElement[] {
+    if (!context.jsPrefix) return []
+    const marks: HTMLElement[] = []
+    for (const element of root.querySelectorAll<HTMLElement>(context.codeblocks ? CODE_PROSE_SELECTOR : PROSE_SELECTOR)) {
+        if (element.dataset[JS_MARKER]) continue
+        element.dataset[JS_MARKER] = '1'
+        if (marks.length >= limit) break
+        if (skippedBy(element, context, true)) continue
+        const nodes = textNodes(element, context, true)
+        let cursor = 0
+        const ranges = nodes.map((node) => {
+            const length = (node.nodeValue ?? '').length
+            const range = { node, start: cursor, end: cursor + length }
+            cursor += length
+            return range
+        })
+        const full = nodes.map((node) => node.nodeValue ?? '').join('')
+        const lead = leadLine(full, context.jsPrefix)
+        if (!lead) continue
+        const whole = full.trim() === lead[0].trim()
+        const hit = ranges.find((range) => range.start <= lead.index && lead.index + lead[0].length <= range.end)
+        if (!whole && !hit) continue
+        const code = lead[1]!.trim()
+        if (!code) continue
+        const mark = document.createElement('span')
+        mark.className = 'dataview-inline-js loading'
+        mark.setAttribute('aria-busy', 'true')
+        // The line stays readable as its own code until the worker answers, which is what a reader who
+        // just typed it expects to see — an empty gap reads as a lost line.
+        mark.textContent = code
+        mark.dataset.dataviewJs = encodeDataValue(code)
+        const text = hit && !whole ? hit.node.nodeValue ?? '' : full
+        const start = hit && !whole ? lead.index - hit.start : lead.index
+        const indent = /^[ \t]*/.exec(lead[0])![0]
+        const consumed = start + lead[0].length
+        const replacement = document.createDocumentFragment()
+        replacement.append(indent, mark, text.slice(consumed))
+        if (whole || !hit) element.replaceChildren(replacement)
+        else hit.node.parentNode?.replaceChild(replacement, hit.node)
+        marks.push(mark)
+    }
+    return marks
+}
+
+/** A line that starts with this prefix, or null when the element holds none. */
+function leadLine(text: string, prefix: string): RegExpExecArray | null {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`^[ \\t]*${escaped}[ \\t]*(.+)$`, 'm').exec(text)
 }
 
 /**
@@ -91,7 +171,7 @@ export function renderDataviewInline(root: ParentNode, context: InlineContext): 
 function applyInlineQuery(element: HTMLElement, engine: Context, scope: Record<string, Literal>, context: InlineContext): boolean {
     // The app's own inline renderers may already have split a line into several text nodes, so the
     // query is read from the element's whole text and written back where that line actually lives.
-    const nodes = textNodes(element)
+    const nodes = textNodes(element, context, true)
     const full = nodes.map((node) => node.nodeValue ?? '').join('')
     let cursor = 0
     const ranges = nodes.map((node) => {
@@ -165,7 +245,7 @@ function depthOf(text: string): number {
 
 /** Every `[k:: v]` in the line becomes a labelled chip; the surrounding prose is left alone. */
 function applyInlineFields(element: HTMLElement, context: InlineContext): void {
-    for (const node of textNodes(element)) {
+    for (const node of textNodes(element, context, false)) {
         const text = node.nodeValue ?? ''
         if (!text.includes('::')) continue
         const hits = extractInlineFields(text)
@@ -217,7 +297,7 @@ function chipFor(key: string, raw: string, context: InlineContext): HTMLElement 
 }
 
 /** Every text node below `element`, skipping subtrees that are not prose. */
-function textNodes(element: Node): Text[] {
+function textNodes(element: Node, context: InlineContext, forQuery: boolean): Text[] {
     const out: Text[] = []
     const walk = (node: Node) => {
         for (const child of Array.from(node.childNodes)) {
@@ -227,7 +307,7 @@ function textNodes(element: Node): Text[] {
             }
             if (child.nodeType !== Node.ELEMENT_NODE) continue
             const element = child as HTMLElement
-            if (element.matches(SKIP_SELECTOR) || element.closest(SKIP_SELECTOR)) continue
+            if (skippedBy(element, context, forQuery)) continue
             walk(element)
         }
     }

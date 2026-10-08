@@ -13,14 +13,14 @@
  */
 
 import { parseQuery } from './expression'
-import { dvLogPanel, dvTruncatedNotice, renderDvNodes, runDataviewJs } from './js'
+import { dvLogPanel, dvTruncatedNotice, renderDvNodes, runDataviewJs, runDataviewJsBatch, type DvRunResult } from './js'
 import type { DataviewMode } from './body'
 import { ParseFailure } from './grammar'
 import { Context } from './context'
 import { executeQuery, type QueryResult } from './engine'
 import { renderNotice, renderResult, renderTruncation } from './render'
-import { querySettings, dataviewIndex, dataviewSettings, startDataview } from './service'
-import { renderDataviewInline, rerunInlineQueries, type InlineContext } from './inline'
+import { querySettings, dataviewIndex, dataviewSettings, startDataview, toggleTask } from './service'
+import { renderDataviewInline, rerunInlineQueries, takeInlineJsLines, type InlineContext } from './inline'
 import type { DataObject } from './value'
 import { decodeDataValue, encodeDataValue } from '../markdown/data-attr'
 import { t } from '../i18n'
@@ -31,6 +31,8 @@ const HOST_SELECTOR = '[data-dataview]'
 const MAX_SOURCE_CHARS = 8000
 /** How many times a cold block asks the index for the bodies it is missing before it gives up. */
 const BOOT_LOAD_ROUNDS = 3
+/** How many `$=` lines one document may ask the worker about, whatever the note says. */
+const DV_INLINE_JS_LIMIT = 20
 
 interface Mount {
     /** The rendered subtree, so the next answer replaces exactly what this one drew. */
@@ -57,6 +59,8 @@ const mounts = new WeakMap<HTMLElement, Mount>()
 let pending = new Set<HTMLElement>()
 /** Prose surfaces whose inline pass answered `this` before the note had a page. */
 const inlineRoots = new Map<HTMLElement, DataviewMountOptions>()
+/** The last `$=` batch per document, so a re-render of unchanged code does not spend a worker run. */
+const inlineJsRuns = new WeakMap<HTMLElement, { key: string; version: number; results: DvRunResult[] }>()
 let unsubscribeIndex: (() => void) | null = null
 let pumpRunning = false
 
@@ -65,6 +69,8 @@ export interface DataviewMountOptions {
     originNoteId: string | null
     /** Where the block writes its own fence body back, when the surface can edit. */
     editable: boolean
+    /** True on the live-preview block, where the reader is still typing the line. */
+    live?: boolean
 }
 
 /**
@@ -100,7 +106,9 @@ export function renderDataviewBlocks(root: HTMLElement, options: DataviewMountOp
 export function mountDataview(root: HTMLElement, options: DataviewMountOptions): void {
     renderDataviewBlocks(root, options)
     const data = dataviewIndex.currentData(options.originNoteId)
-    renderDataviewInline(root, inlineContextFor(options))
+    const context = inlineContextFor(options)
+    renderDataviewInline(root, context)
+    if (context.jsPrefix) void answerInlineJs(root, context, options.originNoteId)
     // An inline answer reads the note it lives in, and that note is only a page once its body has been
     // read. Asking for it is cheap — one note — and the pump re-runs the pass when the page arrives.
     if (!data && options.originNoteId) {
@@ -109,16 +117,69 @@ export function mountDataview(root: HTMLElement, options: DataviewMountOptions):
     } else inlineRoots.delete(root)
 }
 
-/** The inline pass's view of a surface: the note's own page plus the two feature switches. */
+/** The inline pass's view of a surface: the note's own page plus the feature switches. */
 function inlineContextFor(options: DataviewMountOptions): InlineContext {
     const settings = dataviewSettings()
     return {
         settings: querySettings(),
         data: dataviewIndex.currentData(options.originNoteId),
         linkHandler,
-        fields: settings.inlineFields,
+        fields: settings.inlineFields && (!options.live || settings.prettyInlineFieldsLivePreview),
         queries: settings.inlineQueries,
+        codeblocks: settings.inlineQueriesInCodeblocks,
+        // A reader who turned script blocks off has said they do not want a note running code, so the
+        // inline form needs the same permission — the reference gates it the same two ways.
+        jsPrefix: settings.jsBlocks && settings.inlineJsQueries ? settings.inlineJsQueryPrefix : '',
     }
+}
+
+/**
+ * Answer the `$= …` lines under `root` with one worker for the whole document.
+ *
+ * The lines are collected before anything runs, so a note with six of them costs six serial runs in one
+ * worker rather than six workers. A re-render of the same document with the same code and an index that
+ * has not moved reuses the last batch instead of paying for it again. A mark that has left the document
+ * by the time the answer comes back is dropped rather than written into a detached subtree.
+ */
+async function answerInlineJs(root: ParentNode, context: InlineContext, originNoteId: string | null): Promise<void> {
+    const marks = takeInlineJsLines(root, context, DV_INLINE_JS_LIMIT)
+    if (!marks.length) return
+    const codes = marks.map((mark) => decodeDataValue(mark.dataset.dataviewJs ?? ''))
+    const key = codes.join('\n')
+    const version = dataviewIndex.currentVersion
+    const last = inlineJsRuns.get(root as HTMLElement)
+    let results: DvRunResult[]
+    if (last && last.key === key && last.version === version) {
+        results = last.results
+    } else {
+        try {
+            results = await runDataviewJsBatch(codes, originNoteId)
+        } catch (error) {
+            results = codes.map(() => ({ nodes: [], errorText: error instanceof Error ? error.message : String(error), logs: [], truncated: false, snapshotShort: false, snapshotOwes: false }))
+        }
+        inlineJsRuns.set(root as HTMLElement, { key, version, results })
+    }
+    marks.forEach((mark, index) => {
+        if (!mark.isConnected) return
+        const result = results[index]
+        mark.classList.remove('loading')
+        mark.removeAttribute('aria-busy')
+        mark.replaceChildren()
+        if (!result) return
+        if (result.errorText) {
+            mark.className = 'dataview-inline-js dataview-inline-error'
+            mark.setAttribute('title', result.errorText)
+            mark.textContent = context.settings.renderNullAs || '—'
+            return
+        }
+        mark.append(renderDvNodes(result.nodes))
+        if (result.logs.length) {
+            const note = document.createElement('span')
+            note.className = 'dataview-inline-js-logs'
+            note.textContent = result.logs.map((line) => line.text).join(' ')
+            mark.append(note)
+        }
+    })
 }
 
 /** One link handler for the whole module, so a query and an inline line agree on note identity. */
@@ -303,7 +364,7 @@ function draw(host: HTMLElement, mount: Mount, source: string, options: Dataview
     pending.add(host)
     if (answer.owingBodies) boot(host, mount, source, options, answer.needBodies)
     host.classList.remove('is-error')
-    const rendered = renderResult(answer.result, { settings: querySettings(), originPath: currentPath(options) })
+    const rendered = renderResult(answer.result, { settings: querySettings(), originPath: currentPath(options), canToggle: true })
     mount.body.append(rendered)
     if (answer.truncatedRows || answer.truncatedBodies) {
         mount.body.append(renderTruncation(answer.shown, answer.matched, answer.truncatedBodies))
@@ -510,6 +571,14 @@ function takeGesture(host: HTMLElement, event: MouseEvent, options: DataviewMoun
         if (id) void openNote(id)
         return
     }
+    const box = target.closest<HTMLInputElement>('input[data-dataview-task]')
+    if (box) {
+        // The box flips at once: a tick that waits for a note read and a save before it moves reads as a
+        // dead control. `toggleTaskRow` puts it back when the note refused the change.
+        event.stopPropagation()
+        void toggleTaskRow(box)
+        return
+    }
     const wiki = target.closest<HTMLElement>('[data-wikilink]')
     if (!wiki || !host.closest('.cm-live-block')) return
     // A plain click on a result link is navigation here, not a caret move; the split and read surfaces
@@ -531,6 +600,42 @@ function linkTitleOf(target: string): string {
 async function openNote(noteId: string): Promise<void> {
     const { useNotes } = await import('../../store/notes')
     await useNotes.getState().openNote(noteId)
+}
+
+/**
+ * Tick the task a checkbox in a result stands for. The payload is this module's own encoding, but it is
+ * read back defensively because a note's text is in it: a bad line number or a missing path is refused
+ * rather than handed to the writer.
+ */
+async function toggleTaskRow(box: HTMLInputElement): Promise<void> {
+    if (box.dataset.dataviewBusy === '1') return
+    let payload: { path?: unknown; line?: unknown; text?: unknown; completed?: unknown }
+    try {
+        payload = JSON.parse(decodeDataValue(box.dataset.dataviewTask ?? '')) as typeof payload
+    } catch {
+        return
+    }
+    const path = typeof payload.path === 'string' ? payload.path : ''
+    const line = typeof payload.line === 'number' && Number.isInteger(payload.line) && payload.line >= 0 ? payload.line : -1
+    const text = typeof payload.text === 'string' ? payload.text : ''
+    const noteId = line >= 0 && text ? dataviewIndex.noteIdForPath(path) : undefined
+    if (!noteId) {
+        box.checked = payload.completed === true
+        await notice('dataview.task_unavailable')
+        return
+    }
+    box.dataset.dataviewBusy = '1'
+    const result = await toggleTask(noteId, line, text, payload.completed !== true)
+    delete box.dataset.dataviewBusy
+    if (result !== 'written') {
+        box.checked = payload.completed === true
+        await notice(result === 'conflict' ? 'dataview.task_moved' : 'dataview.task_unavailable')
+    }
+}
+
+async function notice(key: Parameters<typeof t>[0]): Promise<void> {
+    const { useUi } = await import('../../store/ui')
+    useUi.getState().toast({ title: t(key), tone: 'warning' })
 }
 
 /**
