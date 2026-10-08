@@ -1,5 +1,6 @@
 import { Fragment, useMemo, type ReactNode } from 'react'
 import { cn } from '../lib/cn'
+import { t } from '../lib/i18n'
 import { dateKey, type WeekStartDay } from '../lib/time'
 
 
@@ -39,15 +40,27 @@ interface MonthGridProps {
   onMouseUp?: React.MouseEventHandler
   onMouseOver?: React.MouseEventHandler
   renderCell: (cell: MonthGridCell) => ReactNode
+  /** Draws one extra column ahead of each week row — the week number, or anything else a row owns. */
+  renderRowHeader?: (rowIndex: number, row: readonly MonthGridCell[]) => ReactNode
 }
 
-export function MonthGrid({ year, month, weekStart = 1, weekdayLabels, todayKey, className, ariaLabel, onKeyDown, onMouseDown, onMouseUp, onMouseOver, renderCell }: MonthGridProps) {
+export function MonthGrid({ year, month, weekStart = 1, weekdayLabels, todayKey, className, ariaLabel, onKeyDown, onMouseDown, onMouseUp, onMouseOver, renderCell, renderRowHeader }: MonthGridProps) {
   const cells = useMemo(() => buildMonthGridCells(year, month, weekStart, todayKey), [year, month, weekStart, todayKey])
-  return (<div role='group' aria-label={ariaLabel} onKeyDown={onKeyDown} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onMouseOver={onMouseOver} className={cn('grid grid-cols-7 gap-[var(--sp-0-5)] select-none', className)}>
+  const rows = useMemo(() => {
+    const out: MonthGridCell[][] = []
+    for (let index = 0; index < cells.length; index += 7)
+      out.push(cells.slice(index, index + 7))
+    return out
+  }, [cells])
+  return (<div role='group' aria-label={ariaLabel} onKeyDown={onKeyDown} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onMouseOver={onMouseOver} className={cn('grid gap-[var(--sp-0-5)] select-none', renderRowHeader ? 'grid-cols-[var(--sp-4)_repeat(7,minmax(0,1fr))]' : 'grid-cols-7', className)}>
+    {renderRowHeader && (<div aria-hidden='true' className='flex items-center justify-center text-[length:var(--text-8-5)] font-medium text-[var(--text-quaternary)]'>{t('sidebar.calendar_week_column_header')}</div>)}
     {weekdayLabels.map((label, index) => (<div key={index} className='flex items-center justify-center text-[length:var(--text-9)] font-medium text-[var(--text-quaternary)]'>
       {label}
     </div>))}
-    {cells.map((cell) => (<Fragment key={cell.key}>{renderCell(cell)}</Fragment>))}
+    {rows.map((row, rowIndex) => (<Fragment key={row[0]!.key}>
+      {renderRowHeader?.(rowIndex, row)}
+      {row.map((cell) => (<Fragment key={cell.key}>{renderCell(cell)}</Fragment>))}
+    </Fragment>))}
   </div>)
 }
 

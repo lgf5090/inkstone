@@ -117,6 +117,10 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
     'Calendar cells, the same grid geometry as the year view.',
   ],
   [
+    'src/client/components/activity-calendar/today-card.tsx',
+    'The whole card is the target: two truncated lines, a week number and a year position on their own baselines. `Button` fixes a height and wraps its children in one non-stretching span, so neither line could keep its own width.',
+  ],
+  [
     'src/client/components/activity-calendar/weeks-strip.tsx',
     'Calendar cells and the note rows inside an expanded day, all laid out on the strip grid.',
   ],
