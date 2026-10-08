@@ -76,6 +76,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.outline_keep_search', detailKey: 'settings.outline_keep_search_description' },
   { section: 'editor', titleKey: 'settings.outline_locate_by_cursor', detailKey: 'settings.outline_locate_by_cursor_description' },
   { section: 'editor', titleKey: 'settings.link_hover_preview', detailKey: 'settings.link_hover_preview_description' },
+  { section: 'editor', titleKey: 'settings.link_hover_links', detailKey: 'settings.link_hover_links_description', termKeys: ['preview.link_kind_web', 'preview.link_copy_address', 'preview.link_open_new_tab'] },
   { section: 'editor', titleKey: 'settings.context_menu', detailKey: 'settings.context_menu_description' },
   { section: 'editor', titleKey: 'settings.context_menu_toolbar', detailKey: 'settings.context_menu_toolbar_description' },
   { section: 'editor', titleKey: 'settings.context_menu_search', detailKey: 'settings.context_menu_search_description' },

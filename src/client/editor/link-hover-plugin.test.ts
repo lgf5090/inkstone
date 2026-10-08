@@ -165,6 +165,91 @@ describe('hashtag proposals from the editor', () => {
   })
 })
 
+describe('markdown link proposals from the editor', () => {
+  const LINK_DOC = 'Read [the docs](https://example.test/docs) now'
+
+  it('proposes the link mark under the pointer', async () => {
+    const { view, proposals, container } = mountEditor(LINK_DOC)
+    const mark = container.querySelector<HTMLElement>('.cm-md-link')!
+    expect(mark.dataset.mdlink).toBe(encodeDataValue('https://example.test/docs'))
+
+    mark.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 40, clientY: 8 }))
+    await waitForMeasure()
+    expect(proposals.at(-1)).toBe(mark)
+
+    view.destroy()
+    container.remove()
+  })
+
+  it('stays quiet while the caret sits inside a link the reader is typing', async () => {
+    const { view, proposals, container } = mountEditor(LINK_DOC)
+    view.dispatch({ selection: { anchor: LINK_DOC.indexOf('docs') + 2 } })
+    await waitForMeasure()
+    expect(proposals).toHaveLength(0)
+
+    view.destroy()
+    container.remove()
+  })
+
+  it('closes the note card when the caret moves from a wiki link into a plain link', async () => {
+    const { view, proposals, container } = mountEditor('[[Note B]] then [the docs](https://example.test/docs)')
+    view.dispatch({ selection: { anchor: 2 } })
+    await waitForMeasure()
+    expect(proposals.at(-1)!.textContent).toBe('[[Note B]]')
+
+    view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('docs') + 2 } })
+    await waitForMeasure()
+    expect(proposals.at(-1)).toBeNull()
+
+    view.destroy()
+    container.remove()
+  })
+})
+
+describe('live preview links and pictures', () => {
+  function renderedSpan(line: HTMLElement, attributes: Record<string, string>): HTMLElement {
+    const el = line.ownerDocument.createElement(attributes.src ? 'img' : 'a');
+    for (const [name, value] of Object.entries(attributes)) el.setAttribute(name, value);
+    el.textContent = 'the docs';
+    line.appendChild(el);
+    return el;
+  }
+
+  it('proposes a link a live preview block rendered', async () => {
+    const { view, proposals, container } = mountEditor('Read the docs now')
+    const anchor = renderedSpan(container.querySelector<HTMLElement>('.cm-line')!, { href: 'https://example.test/live' })
+    anchor.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 8 }))
+    await waitForMeasure()
+    expect(proposals.at(-1)).toBe(anchor)
+    expect(anchor.dataset.mdlink, 'a rendered anchor needs no source datum').toBeUndefined()
+
+    view.destroy()
+    container.remove()
+  })
+
+  it('proposes the picture a live preview block rendered', async () => {
+    const { view, proposals, container } = mountEditor('Read the docs now')
+    const image = renderedSpan(container.querySelector<HTMLElement>('.cm-line')!, { src: 'https://example.test/pic.png' })
+    image.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 8 }))
+    await waitForMeasure()
+    expect(proposals.at(-1)).toBe(image)
+
+    view.destroy()
+    container.remove()
+  })
+
+  it('keeps a rendered link off the caret path', async () => {
+    const { view, proposals, container } = mountEditor('Plain words here')
+    renderedSpan(container.querySelector<HTMLElement>('.cm-line')!, { href: 'https://example.test/live' })
+    view.dispatch({ selection: { anchor: 'Plain words here'.length } })
+    await waitForMeasure()
+    expect(proposals).toHaveLength(0)
+
+    view.destroy()
+    container.remove()
+  })
+})
+
 describe('mouse hover behavior of link hover plugin', () => {
   it('does not re-propose when the mouse hovers the same mark the caret is in', async () => {
     const { view, proposals, container } = mountEditor()

@@ -302,6 +302,8 @@ export interface PreviewSettings {
   /** A bundled block starts floated, so the note's text runs beside it. */
   mediaAutoBundleWrap: boolean
   linkHover: boolean
+  /** Plain links, bare addresses and pictures get a preview card of their own. */
+  linkHoverLinks: boolean
   linkHoverDelayMs: number
   linkPreviewLength: number
   pinnedWindowSize: PinnedWindowSizeName

@@ -382,6 +382,9 @@ const allowed = new Map([
     "// The name rides on the mark because CodeMirror strips attributes a decoration does not declare,",
     "// and the hover and context-menu paths both identify a hashtag by that datum.",
     "/**\n * The marks the visible text carries, in the order `RangeSetBuilder` demands.\n *\n * Every visible range contributes to one list that is sorted once, because a viewport boundary\n * usually falls *inside* a wrapped line: two adjacent ranges then both claim that line, and\n * re-emitting its marks after the builder has already been handed a later one walks `from`\n * backwards — which CodeMirror answers by throwing and dropping the whole plugin. `seen` is what\n * makes a shared line contribute once.\n */",
+    "// A markdown link carries its destination on the mark for the same reason a hashtag does, and because",
+    "// the text under the mark is the source itself, which the card would otherwise have to re-parse.",
+    "/** Everything the link card previews: a markdown link, a picture link, or a bare address. */",
   ]],
   ["src/client/editor/diagram-templates.test.ts", [
     "// A slice chart's value-column name has nowhere to live in its config, so the table → JSON → table",
@@ -497,7 +500,12 @@ const allowed = new Map([
   ]],
   ["src/client/editor/link-hover-plugin.ts", [
     "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
-    "// its own; without this the sidebar and preview hover but the editor does not.",
+    "// its own; without this the sidebar and preview hover but the editor does not. A link",
+    "// mark already arrived with its destination, so it needs nothing written.",
+    "// A link mark on the caret path would put a card over the very address the reader is still typing,",
+    "// so links preview on the pointer only. Wiki and tag spans keep both paths, because their marks are",
+    "// complete as soon as the closing pair lands and a caret there is where the reader wants the card.",
+    "/** Whether the span already states where it goes: a source mark, or a rendered link or picture. */",
   ]],
   ["src/client/editor/live-preview-menu.test.ts", [
     "// one ordinary paragraph",
@@ -3231,6 +3239,21 @@ const allowed = new Map([
     "// card that duplicates the note the reader is already looking at.",
     "// The link editor and a preview card are two panels over the same span, and the card wins the race",
     "// by 320ms; while the reader is editing a link there is nothing left to preview about it.",
+    "/** The note a copied direct link of this deployment points at, when it points at one the reader can open. */",
+    "// Rendered links are real anchors, so the keyboard reaches them the same way it reaches a",
+    "// wiki link or a hashtag, and tabbing to one should preview it just as hovering does.",
+    "// The branch below is for `[[#heading]]`, which carries its target in the same datum: an element",
+    "// without one is not a wiki link at all, and the card it would produce is a copy of the note the",
+    "// reader is already looking at.",
+  ]],
+  ["src/client/features/preview/link-preview.ts", [
+    "/** Where a destination stops being worth printing in full: a `data:` URI can hold megabytes. */",
+    "/** Spans the note card and the tag card already own; a link card on top of them would duplicate. */",
+    "/** The host a browser would contact, with the `www.` prefix dropped; null when the address has none. */",
+    "/**\n * The card's one-line summary of a destination: what the reader clicked, what it points at, and whether\n * the card may offer to open it. `javascript:` and `data:` are never openable, which is the whole reason\n * the scheme is checked here rather than trusted from the renderer.\n */",
+    "/** The words a source-editor span shows, with whichever markdown shape it was written in taken off. */",
+    "/**\n * The link a hovered span carries, or null when the span is not a link. The editor's marks announce\n * themselves with `data-mdlink` because their text is the markdown source; the rendered preview needs\n * no such hint since it holds a real anchor or image.\n */",
+    "/** The card header: the words the reader sees, falling back to the host, then to the address. */",
   ]],
   ["src/client/features/preview/markdown-tabs.test.ts", [
     "// jsdom only moves `document.activeElement` for a node that is in the document, which is what the",
@@ -3614,6 +3637,16 @@ const allowed = new Map([
     "// mark a palette the fence has since changed.",
     "/** Leaving the note (or the pane) writes the last edit and drops the instances. */",
     "/**\n * Clicking a node hands the map the DOM focus its shortcuts need — in a split\n * view the editor would otherwise swallow Tab, Delete and undo. The full screen\n * overlay is portaled outside this host, so it installs its own listener on the\n * modal body; both resolve the same entry and focus twice is harmless.\n */",
+  ]],
+  ["src/client/features/preview/wiki-link-hover-card/index.tsx", [
+    "// Pinning keeps a note window, so a link card has nothing to pin into.",
+  ]],
+  ["src/client/features/preview/wiki-link-hover-card/link-preview-body.tsx", [
+    "/**\n * Only the schemes a browser can follow reach this, and a destination too long to print whole is never\n * offered for opening either: the card would be launching bytes the reader cannot see.\n */",
+  ]],
+  ["src/client/features/preview/wiki-link-hover-card/use-wiki-link-hover-card.ts", [
+    "// The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one",
+    "// is not a wiki link, and the card it used to produce only repeated the note already on screen.",
   ]],
   ["src/client/features/quickadd/bridge.test.ts", [
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
@@ -9470,6 +9503,16 @@ const allowed = new Map([
     "/* The outline's located-marker bar is 2.5px wide; without the step the class resolved to nothing\n  and the marker painted no pixels at all. */",
     "/* ErrorBoundary paints a danger wash behind its icon; the fork builds washes with color-mix\n  rather than carrying a second flat colour per theme. */",
   ]],
+  ["src/client/types/hover-card.ts", [
+    "/** The destination exactly as the note wrote it, truncated for display. */",
+    "/** The words the reader sees, empty when the span shows the address itself. */",
+    "/** The host a browser would contact, or null when the address names no host. */",
+    "/** Whether the card may offer to open it: only the schemes a browser can follow. */",
+    "/** True when `href` is a shortened preview of something too long to print whole. */",
+    "/** The note of this notebook the address points back to, when it does. */",
+    "/** Set on a card that previews a link rather than a note. */",
+    "/** What a plain link previews as: a `[label](url)` span, a bare address, or a picture. */",
+  ]],
   ["src/client/types/shims.d.ts", [
     "/** A file's own text, imported through Vite's raw loader. */",
   ]],
@@ -9739,6 +9782,7 @@ const allowed = new Map([
     "/**\n * A block style the reader defined: the markdown the menu writes, and the copy the menu shows.\n *\n * `template` holds the block's text as `${content}` and may name other tokens that `variables`\n * fills in; `linePrefix` is put in front of every line of the content, which is what makes a\n * callout's `> ` run down the block instead of only its first line.\n */",
     "/** A glyph the menu shows before the label — emoji or short text, never markup. */",
     "/** The markdown linter: which rules are on, what each one wants, and what to leave alone. */",
+    "/** Plain links, bare addresses and pictures get a preview card of their own. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",

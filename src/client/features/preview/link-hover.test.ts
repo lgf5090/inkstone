@@ -12,6 +12,12 @@ import { useNotes } from '../../store/notes'
 import { PINNED_WINDOWS_STORAGE_KEY } from '../../lib/runtime'
 import { loadPersisted, usePinnedWindows } from '../../store/pinned-windows'
 import { encodeDataValue } from '../../lib/markdown/data-attr'
+import { useUi } from '../../store/ui'
+import { linkPreviewFromElement } from './link-preview'
+import { useLinkHoverHost } from './link-hover-host'
+import { useSession } from '../../store/session'
+import { mergeSettings } from '@shared/constants'
+import type { LinkPreview } from '../../types/hover-card'
 
 beforeAll(() => {
   ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -170,6 +176,54 @@ describe('hover machine nested and immediate cards', () => {
     expect(cards.length).toBe(2)
     act(() => root.unmount())
     unmountAll()
+  })
+
+  it('opens a link card for a plain link inside the card body', async () => {
+    seedNotes([['a', 'Note A']], () => 'Read [the manual](https://example.test/manual) here.')
+    const anchor = document.createElement('span')
+    document.body.appendChild(anchor)
+
+    const { root } = await mountCard({ anchor, title: 'Note A', noteId: 'a', missing: false })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    const link = document.querySelector<HTMLElement>('[role="tooltip"] .wiki-hover-body a[href="https://example.test/manual"]')
+    expect(link, 'the card body renders the link').not.toBeNull()
+
+    await act(async () => {
+      link!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 420))
+    })
+    const cards = [...document.querySelectorAll('[role="tooltip"]')]
+    expect(cards.length).toBe(2)
+    expect(cards[1].textContent).toContain('https://example.test/manual')
+
+    act(() => root.unmount())
+    unmountAll()
+  })
+
+  it('shows no card for a card-body link once link previews are switched off', async () => {
+    const settings = useSession.getState().settings
+    useSession.setState({ settings: mergeSettings({ preview: { linkHoverLinks: false } }) })
+    seedNotes([['a', 'Note A']], () => 'Read [the manual](https://example.test/manual) here.')
+    const anchor = document.createElement('span')
+    document.body.appendChild(anchor)
+
+    const { root } = await mountCard({ anchor, title: 'Note A', noteId: 'a', missing: false })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    const link = document.querySelector<HTMLElement>('[role="tooltip"] .wiki-hover-body a[href="https://example.test/manual"]')
+    expect(link).not.toBeNull()
+    await act(async () => {
+      link!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 420))
+    })
+    expect(document.querySelectorAll('[role="tooltip"]').length).toBe(1)
+
+    act(() => root.unmount())
+    unmountAll()
+    useSession.setState({ settings })
   })
 
   it('does not open a nested card for a link back to a note already on the path', async () => {
@@ -476,3 +530,189 @@ describe('pinned windows persistence', () => {
     localStorage.removeItem(PINNED_WINDOWS_STORAGE_KEY)
   })
 })
+
+describe('the link card', () => {
+  function linkState(link: Partial<LinkPreview> & { href: string }): { state: WikiLinkHoverCardState, anchor: HTMLElement } {
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', link.href);
+    document.body.appendChild(anchor);
+    return {
+      anchor,
+      state: {
+        anchor,
+        title: link.text || link.host || link.href,
+        noteId: null,
+        missing: false,
+        link: { text: '', kind: 'web', host: null, openable: true, truncated: false, noteId: null, ...link } as LinkPreview,
+      },
+    };
+  }
+
+  it('shows the destination and the kind of a plain link', async () => {
+    const { state } = linkState({ href: 'https://example.com/report', host: 'example.com', text: 'the report' });
+    const { root } = await mountCard(state);
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('https://example.com/report');
+    expect(body).toContain('preview.link_kind_web');
+    expect(findButtonByLabel('preview.link_open_new_tab')).not.toBeNull();
+    expect(findButtonByLabel('preview.link_copy_address')).not.toBeNull();
+    expect(findButtonByLabel('preview.pin_card')).toBeUndefined();
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('names the host and falls back to it when the link shows its own address', async () => {
+    const { state } = linkState({ href: 'https://cdn.io/a.png', host: 'cdn.io', kind: 'image', text: '' });
+    const { root } = await mountCard(state);
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('cdn.io');
+    expect(body).toContain('preview.link_kind_image');
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('offers no way to open a destination a browser must not follow', async () => {
+    const { state } = linkState({ href: 'javascript:alert(1)', openable: false, kind: 'other' });
+    const { root } = await mountCard(state);
+    expect(findButtonByLabel('preview.link_open_new_tab')).toBeUndefined();
+    expect(findButtonByLabel('preview.link_copy_address')).not.toBeNull();
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('javascript:alert(1)');
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('copies the whole address and says so', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const toast = vi.fn();
+    useUi.setState({ toast });
+    const { state } = linkState({ href: 'https://example.com/copy-me', host: 'example.com', text: 'copy' });
+    const { root } = await mountCard(state);
+    await act(async () => {
+      findButtonByLabel('preview.link_copy_address')!.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith('https://example.com/copy-me');
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'preview.link_address_copied' }));
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('opens the note a copied direct link points at', async () => {
+    const openNote = vi.fn(async () => {});
+    useNotes.setState({ openNote });
+    seedNotes([['n-1', 'Deep Notes']], () => 'body');
+    const onClose = vi.fn();
+    const { state } = linkState({ href: `${window.location.origin}/n/n-1`, text: 'ref', noteTitle: 'Deep Notes', noteId: 'n-1' });
+    const { root } = await mountCard(state, { onClose });
+    expect((document.body.textContent ?? '').includes('preview.link_own_note')).toBe(true);
+    await act(async () => {
+      findButtonByLabel('preview.link_open_note')!.click();
+    });
+    expect(openNote).toHaveBeenCalledWith('n-1');
+    expect(onClose).toHaveBeenCalled();
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('hands a mail address to the page rather than a new tab', async () => {
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+    const { state } = linkState({ href: 'mailto:reader@example.com', kind: 'mail', text: 'write' });
+    const { root } = await mountCard(state);
+    await act(async () => {
+      findButtonByLabel('common.open')!.click();
+    });
+    expect(open).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('opens a web address in a new tab that cannot reach back', async () => {
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+    const { state } = linkState({ href: 'https://example.com/open-me', host: 'example.com', text: 'go' });
+    const { root } = await mountCard(state);
+    await act(async () => {
+      findButtonByLabel('preview.link_open_new_tab')!.click();
+    });
+    expect(open).toHaveBeenCalledWith('https://example.com/open-me', '_blank', 'noopener,noreferrer');
+    vi.unstubAllGlobals();
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('neither opens nor copies an address too long to show whole', async () => {
+    const { state } = linkState({ href: `https://example.com/${'x'.repeat(400)}`, truncated: true, openable: true });
+    const { root } = await mountCard(state);
+    expect(findButtonByLabel('preview.link_open_new_tab')).toBeUndefined();
+    expect(findButtonByLabel('preview.link_copy_address')).toBeUndefined();
+    expect((document.body.textContent ?? '').includes('preview.link_too_long')).toBe(true);
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('lets the hover machine see an anchor and a source mark', async () => {
+    const seen: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let machine: ReturnType<typeof useLinkHover> | null = null;
+    const Harness = () => {
+      machine = useLinkHover({
+        resolve: (el) => {
+          const preview = linkPreviewFromElement(el);
+          if (!preview) return null;
+          seen.push(preview.href);
+          return { anchor: el, title: preview.text, noteId: null, missing: false, link: preview };
+        },
+        delay: 0,
+        enabled: true,
+      });
+      return createElement('div', {
+        onMouseMove: machine.handleMouseMove,
+        dangerouslySetInnerHTML: {
+          __html: `<a href="https://example.com/hovered">hovered</a>`
+            + `<span class="cm-md-link" data-mdlink="${encodeDataValue('https://example.com/marked')}">[marked](x)</span>`,
+        },
+      });
+    };
+    await act(async () => root.render(createElement(Harness)));
+    for (const selector of ['a[href]', '.cm-md-link']) {
+      const target = container.querySelector<HTMLElement>(selector)!;
+      await act(async () => {
+        target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+    }
+    expect(seen).toEqual(['https://example.com/hovered', 'https://example.com/marked']);
+    expect(machine!.card?.link?.href).toBe('https://example.com/marked');
+    act(() => root.unmount());
+    unmountAll();
+  });
+
+  it('previews the link a reader reaches with the keyboard', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let host: ReturnType<typeof useLinkHoverHost> | null = null;
+    const Harness = () => {
+      host = useLinkHoverHost(null);
+      return createElement('div', { onFocus: host.onFocus, onBlur: host.onBlur },
+        createElement('a', { href: 'https://example.com/tabbed' }, 'tabbed'));
+    };
+    await act(async () => root.render(createElement(Harness)));
+    const anchor = container.querySelector<HTMLAnchorElement>('a')!;
+    await act(async () => { anchor.focus(); });
+    expect(host!.hover.card?.link?.href).toBe('https://example.com/tabbed');
+    await act(async () => {
+      anchor.blur();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(host!.hover.card).toBeNull();
+    act(() => root.unmount());
+    unmountAll();
+  });
+});

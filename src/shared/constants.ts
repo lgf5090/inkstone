@@ -269,6 +269,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     mediaAutoBundle: false,
     mediaAutoBundleWrap: false,
     linkHover: true,
+    linkHoverLinks: true,
     linkHoverDelayMs: 320,
     linkPreviewLength: 4000,
     pinnedWindowSize: 'medium',
@@ -904,6 +905,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.preview.mediaAutoBundle = booleanValue(preview.mediaAutoBundle, base.preview.mediaAutoBundle)
   base.preview.mediaAutoBundleWrap = booleanValue(preview.mediaAutoBundleWrap, base.preview.mediaAutoBundleWrap)
   base.preview.linkHover = booleanValue(preview.linkHover, base.preview.linkHover)
+  base.preview.linkHoverLinks = booleanValue(preview.linkHoverLinks, base.preview.linkHoverLinks)
   base.preview.linkHoverDelayMs = integerInRange(
     preview.linkHoverDelayMs,
     LINK_HOVER_DELAY_RANGE[0],

@@ -4,7 +4,7 @@ import { decodeDataValue, encodeDataValue } from '../lib/markdown/data-attr'
 
 const WIKI_TEXT_RE = /^\[\[([\s\S]+)\]\]$/
 const TAG_TEXT_RE = /^#([\p{L}\p{N}_\-/·]{1,60})$/u
-const HOVER_SELECTOR = '.cm-md-wikilink, [data-wikilink], .cm-md-tag, [data-tag]'
+const HOVER_SELECTOR = '.cm-md-wikilink, [data-wikilink], .cm-md-tag, [data-tag], .cm-md-link, [data-mdlink], a[href], img[src]'
 
 interface LinkHoverCallbacks {
   propose: (link: HTMLElement | null, options?: { immediate?: boolean }) => void
@@ -84,7 +84,7 @@ class LinkHoverPlugin {
 
   emit = () => {
     const callback = this.view.state.facet(linkHoverFacet)[0]
-    const mark = this.hovered ?? this.caretMark
+    const mark = this.hovered ?? caretProposable(this.caretMark)
     if (mark) {
       if (mark === this.lastProposed) return
       const raw = wikiRawOf(mark)
@@ -92,9 +92,10 @@ class LinkHoverPlugin {
       else {
         const tag = tagRawOf(mark)
         // The caret path reads whichever datum the mark just got, so a hashtag has to carry
-        // its own; without this the sidebar and preview hover but the editor does not.
-        if (tag == null) return
-        mark.dataset.tag = encodeDataValue(tag)
+        // its own; without this the sidebar and preview hover but the editor does not. A link
+        // mark already arrived with its destination, so it needs nothing written.
+        if (tag == null && !carriesDestination(mark)) return
+        if (tag != null) mark.dataset.tag = encodeDataValue(tag)
       }
       this.lastProposed = mark
       callback?.propose(mark, { immediate: this.hovered == null })
@@ -117,6 +118,20 @@ function tagRawOf(mark: HTMLElement): string | null {
   if (encoded !== undefined) return decodeDataValue(encoded) || null
   const match = TAG_TEXT_RE.exec((mark.textContent ?? '').trim())
   return match ? match[1]!.trim() : null
+}
+
+/** Whether the span already states where it goes: a source mark, or a rendered link or picture. */
+function carriesDestination(mark: HTMLElement): boolean {
+  return mark.dataset.mdlink !== undefined || mark.hasAttribute('href') || mark.hasAttribute('src')
+}
+
+// A link mark on the caret path would put a card over the very address the reader is still typing,
+// so links preview on the pointer only. Wiki and tag spans keep both paths, because their marks are
+// complete as soon as the closing pair lands and a caret there is where the reader wants the card.
+function caretProposable(mark: HTMLElement | null): HTMLElement | null {
+  if (!mark) return null
+  if (!carriesDestination(mark)) return mark
+  return wikiRawOf(mark) === null && tagRawOf(mark) === null ? null : mark
 }
 
 function containsPoint(element: HTMLElement, point: { x: number, y: number }): boolean {

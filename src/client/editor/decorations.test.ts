@@ -4,6 +4,7 @@ import { EditorState, RangeSetBuilder } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { syntaxTree } from '@codemirror/language'
 import { collectMarkDecorations, markdownDecorations } from './decorations'
+import { decodeDataValue } from '../lib/markdown/data-attr'
 
 const ANCHOR_LINE = '\u951a\u70b9\uff1a[[#\u76ee\u6807\u5c0f\u8282]]'
 const DOC = `# \u6807\u9898\n${ANCHOR_LINE}\n\u7ed3\u5c3e\u3002`
@@ -89,3 +90,65 @@ describe('collectMarkDecorations', () => {
     view.destroy()
   })
 })
+
+describe('the link marks a preview card reads', () => {
+  function linkMarks(doc: string) {
+    const view = mount(doc);
+    try {
+      return collectMarkDecorations(view, [{ from: 0, to: view.state.doc.length }])
+        .filter((mark) => (mark.deco.spec.class as string | undefined)?.includes('cm-md-link'))
+        .map((mark) => ({
+          text: doc.slice(mark.from, mark.to),
+          href: decodeDataValue(mark.deco.spec.attributes?.['data-mdlink'] ?? ''),
+        }));
+    }
+    finally {
+      view.destroy();
+    }
+  }
+
+  it('marks a markdown link and carries its destination', () => {
+    expect(linkMarks('\u524d [\u6587\u5b57](https://example.com/a) \u540e')).toEqual([
+      { text: '[\u6587\u5b57](https://example.com/a)', href: 'https://example.com/a' },
+    ]);
+  });
+
+  it('marks a picture link, angle-wrapped destination included', () => {
+    expect(linkMarks('![\u7167\u7247](<https://cdn.io/a.png>)')).toEqual([
+      { text: '![\u7167\u7247](<https://cdn.io/a.png>)', href: 'https://cdn.io/a.png' },
+    ]);
+  });
+
+  it('marks a bare address the note never wrapped', () => {
+    expect(linkMarks('\u89c1 https://example.com/b \u91cc')).toEqual([
+      { text: 'https://example.com/b', href: 'https://example.com/b' },
+    ]);
+  });
+
+  it('leaves a wiki link to the note card', () => {
+    expect(linkMarks('\u8df3 [[\u53e6\u4e00\u7bc7\u7b14\u8bb0]] \u8d70')).toEqual([]);
+  });
+
+  it('keeps the order the builder demands when one line holds all three shapes', () => {
+    const doc = '\u951a\u70b9\uff1a[[#\u76ee\u6807\u5c0f\u8282]] \u89c1 [\u6587\u5b57](https://a.cn/x) #\u6807\u7b7e \u5c3e https://b.cn/y';
+    const view = mount(doc);
+    try {
+      const middle = view.state.doc.line(1).from + 12;
+      const marks = collectMarkDecorations(view, [
+        { from: 0, to: middle },
+        { from: middle, to: view.state.doc.length },
+      ]);
+      expect(addAll(marks)).toBe(true);
+      const links = marks.filter((mark) => (mark.deco.spec.class as string | undefined)?.includes('cm-md-link'));
+      expect(links).toHaveLength(2);
+    }
+    finally {
+      view.destroy();
+    }
+  });
+
+  it('leaves an address inside a fenced block unmarked', () => {
+    const doc = '\u524d\n```md\n[\u6587\u5b57](https://example.com/a)\n```\n\u540e';
+    expect(linkMarks(doc)).toEqual([]);
+  });
+});
