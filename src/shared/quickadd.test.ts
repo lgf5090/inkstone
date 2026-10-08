@@ -10,6 +10,7 @@ import {
   flattenChoices,
   newCaptureChoice,
   newGroupChoice,
+  newMacroChoice,
   newTemplateChoice,
   normalizeQuickAddChoice,
   normalizeQuickAddSettings,
@@ -18,6 +19,7 @@ import {
   placeChoice,
   type QuickAddCaptureChoice,
   type QuickAddChoice,
+  type QuickAddMacroChoice,
   type QuickAddTemplateChoice,
 } from './quickadd'
 
@@ -110,6 +112,15 @@ describe('the quickadd record', () => {
     const long = parse([{ ...templateChoice('qa-t', 'T'), folderPath: 'x/y/'.repeat(40) }] as QuickAddTemplateChoice[]).data?.choices[0] as QuickAddTemplateChoice
     expect(long.type).toBe('template')
     expect(long.folderPath.split('/').length).toBeLessThanOrEqual(25)
+  })
+
+  it('keeps a command step and flattens the id it names', () => {
+    const parsed = parse([{
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      steps: [{ kind: 'command', commandId: 'cmd-new\n' }],
+    } as QuickAddChoice])
+    const steps = (parsed.data?.choices[0] as QuickAddMacroChoice).steps
+    expect(steps).toEqual([{ kind: 'command', commandId: 'cmd-new' }])
   })
 
   it('keeps a template pick legal and defaults the libraries that predate it', () => {

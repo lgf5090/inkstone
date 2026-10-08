@@ -60,6 +60,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     notes[title] = { id: `n-${title}`, title, folderPath: null, content }
   const created: NewNoteInput[] = []
   const copied: string[] = []
+  const commands: string[] = []
   const inserted: { text: string; cursor: number | null | undefined }[] = []
   const opened: string[] = []
   const notifications: string[] = []
@@ -107,6 +108,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       return true
     },
     copyText: (text) => { copied.push(text) },
+    runAppCommand: (id) => {
+      commands.push(id)
+      return !id.startsWith('missing')
+    },
     placeCursor: () => {},
     recordRun: () => {},
     notify: (title, description) => { notifications.push(`${title}: ${description ?? ''}`) },
@@ -129,6 +134,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     notes,
     created,
     copied,
+    commands,
     inserted,
     opened,
     notifications,
@@ -834,6 +840,40 @@ describe('creating a note from a template', () => {
 })
 
 describe('running a macro', () => {
+  it('runs an app command through the port, the way the palette entry does', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      steps: [{ kind: 'command' as const, commandId: 'cmd-emoji' }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.commands).toEqual(['cmd-emoji'])
+  })
+
+  it('says so when the app command it was told to run is not available', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      steps: [{ kind: 'command' as const, commandId: 'missing-command' }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    expect(fake.commands, 'an id the port would refuse is still asked of the port once').toEqual(['missing-command'])
+  })
+
+  it('refuses a command step with no id rather than running the first one', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      steps: [{ kind: 'command' as const, commandId: '   ' }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    expect(fake.commands).toEqual([])
+  })
+
+
   it('runs its steps in order and shares the variables between them', async () => {
     const fake = harness({ Inbox: 'x\n' })
     const choice = {
