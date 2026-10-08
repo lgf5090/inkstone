@@ -18,6 +18,9 @@ const KEY = {
   tags: 'tags',
   cursor: 'cursor',
   content: (id: string) => `note:${id}`,
+  omnisearchBody: (id: string) => `omnisearchBody:${id}`,
+  omnisearchCache: 'omnisearchCache',
+  omnisearchHistory: 'omnisearchHistory',
   outbox: 'outbox',
   outboxReplayLease: 'outboxReplayLease',
   templateLibrary: 'templateLibrary',
@@ -299,6 +302,50 @@ export const localDb = {
       ? setMany(entries.map(([id, value]) => [userScopedKey(KEY.content(id)), value] as [string, CachedNoteContent]), store).catch(() => {})
       : Promise.resolve(),
   dropContent: (id: string) => del(userScopedKey(KEY.content(id)), store).catch(() => {}),
+
+  /**
+   * The bodies the local search index kept for excerpts. They live under their own key because
+   * `note:<id>` is what the editor opens: a body truncated to the indexing cap would otherwise be
+   * written back over the real note.
+   */
+  async getOmnisearchBodies(ids: readonly string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map()
+    const keys = ids.map((id) => userScopedKey(KEY.omnisearchBody(id)))
+    const values = await getMany<string | undefined>(keys, store).catch(() => [] as (string | undefined)[])
+    const out = new Map<string, string>()
+    values.forEach((value, index) => {
+      const id = ids[index]
+      if (typeof value === 'string' && id) out.set(id, value)
+    })
+    return out
+  },
+  setOmnisearchBodies: (entries: Array<[string, string]>) =>
+    entries.length
+      ? setMany(
+        entries.map(([id, value]) => [userScopedKey(KEY.omnisearchBody(id)), value] as [string, string]),
+        store,
+      ).catch(() => {})
+      : Promise.resolve(),
+  async dropOmnisearchBodies(ids: readonly string[]): Promise<void> {
+    const keys = ids.map((id) => userScopedKey(KEY.omnisearchBody(id)))
+    if (!keys.length) return
+    if (delMany) {
+      await delMany(keys, store).catch(() => {})
+      return
+    }
+    await Promise.all(keys.map((key) => del(key, store).catch(() => {})))
+  },
+
+  async loadOmnisearchCache(): Promise<unknown> {
+    return safeGet<unknown>(userScopedKey(KEY.omnisearchCache))
+  },
+  saveOmnisearchCache: (value: unknown) => safeSet(userScopedKey(KEY.omnisearchCache), value),
+  clearOmnisearchCache: () => del(userScopedKey(KEY.omnisearchCache), store).catch(() => {}),
+
+  async loadOmnisearchHistory(): Promise<unknown> {
+    return safeGet<unknown>(userScopedKey(KEY.omnisearchHistory))
+  },
+  saveOmnisearchHistory: (value: unknown) => safeSet(userScopedKey(KEY.omnisearchHistory), value),
 
   /**
    * Reads the per-account template library, dropping any stored entry that no

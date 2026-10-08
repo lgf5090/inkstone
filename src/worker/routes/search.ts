@@ -4,7 +4,7 @@ import { likePattern, segmentCJK, toPlainText, wikiNoteTarget } from '@shared/ma
 import { sliceText, truncateText } from '@shared/text-utils'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
 import { emptyParsedQuery, parseQuery, type ParsedQuery } from '@shared/search-query'
-import type { GraphResponse, SearchHit, SearchResponse } from '@shared/types'
+import type { GraphResponse, SearchDocumentItem, SearchDocumentsResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
 import { FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
 import { NOTE_COLUMNS, toNoteSummary, type NoteRow } from '../db/rows'
@@ -728,6 +728,104 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     direction,
   })
   return c.json(body)
+})
+
+/**
+ * The bodies the client-side Omnisearch index is built from. Ids come from the client because it
+ * already holds every summary and knows which ones moved; this route only supplies content.
+ *
+ * Two ceilings keep a page bounded: per note (the same one the FTS index uses, so local and server
+ * search agree on what a long note contains) and per response, so a vault of 1.9 MB notes cannot
+ * turn one indexing request into a hundred megabytes of JSON.
+ */
+const DOCUMENT_IDS_MAX = 40
+const DOCUMENT_PAGE_CHARS = 400_000
+const DOCUMENT_THROTTLE_PER_10_MIN = 1_200
+
+interface DocumentRow {
+  id: string
+  title: string
+  updated_at: number
+  is_archived: number
+  is_starred: number
+  folder_id: string | null
+  content: string | null
+  chars: number
+}
+
+/**
+ * One page of note bodies for the client-side index. `running` is the truncated size accumulated in
+ * id order: keeping the rows that *start* under the budget means at least one row is always returned,
+ * so the client can never stall on a note bigger than a page, and no page is bigger than the budget
+ * plus one note.
+ */
+export async function fetchSearchDocuments(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+): Promise<SearchDocumentsResponse> {
+  if (!ids.length) return { items: [], missing: [] }
+  const binds: unknown[] = [userId, LIMITS.omnisearchDocumentChars, DOCUMENT_PAGE_CHARS]
+  for (const id of ids) binds.push(id)
+  const placeholders = ids.map((_, index) => `?${index + 4}`).join(', ')
+  const { results } = await db
+    .prepare(
+      `SELECT id, title, updated_at, is_archived, is_starred, folder_id, content, chars FROM (
+         SELECT n.id, n.title, n.updated_at, n.is_archived, n.is_starred, n.folder_id,
+           substr(n.content, 1, ?2) AS content,
+           length(n.content) AS chars,
+           SUM(MIN(length(n.content), ?2)) OVER (ORDER BY n.id ROWS UNBOUNDED PRECEDING) AS running
+           FROM notes n
+          WHERE n.user_id = ?1 AND n.deleted_at IS NULL AND n.id IN (${placeholders})
+       ) WHERE running - MIN(chars, ?2) < ?3`,
+    )
+    .bind(...binds)
+    .all<DocumentRow>()
+  const items: SearchDocumentItem[] = results.map((row) => ({
+    id: row.id,
+    title: row.title,
+    updatedAt: row.updated_at,
+    archived: row.is_archived === 1,
+    starred: row.is_starred === 1,
+    folderId: row.folder_id,
+    content: row.content ?? '',
+    chars: row.chars,
+  }))
+  const served = new Set(items.map((item) => item.id))
+  return { items, missing: ids.filter((id) => !served.has(id)) }
+}
+
+searchRoutes.post('/search/documents', requireAuth, async (c) => {
+  const userId = c.get('userId')
+  const body = await c.req.json().catch((): unknown => null)
+  const requested = (body as { ids?: unknown } | null)?.ids
+  const ids = [...new Set(
+    Array.isArray(requested)
+      ? requested.filter((item): item is string => typeof item === 'string' && isValidId(item))
+      : [],
+  )].slice(0, DOCUMENT_IDS_MAX)
+  if (!ids.length) throw new ApiError(400, 'bad_request', 'No note ids were given')
+
+  try {
+    await consumeAttemptBudget(c.env.DB, [{
+      key: `search-documents:${userId}`,
+      maxAttempts: DOCUMENT_THROTTLE_PER_10_MIN,
+      windowMs: 10 * 60 * 1000,
+      lockMs: 60 * 1000,
+    }])
+  } catch (error) {
+    if (error instanceof ThrottleError) {
+      throw new ApiError(
+        429,
+        'too_many_attempts',
+        `Too many indexing requests. Try again in ${error.retryAfterSec} seconds`,
+        { retryAfter: error.retryAfterSec },
+      )
+    }
+    throw error
+  }
+
+  return c.json(await fetchSearchDocuments(c.env.DB, userId, ids))
 })
 
 searchRoutes.post('/search/reindex', requireAuth, async (c) => {
