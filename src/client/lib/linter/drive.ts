@@ -241,7 +241,7 @@ function activeNoteId(): string | null {
  * that is being written in another window.
  */
 export async function previewCurrentNote(): Promise<void> {
-  const noteId = useUi.getState().activeNoteId
+  const noteId = activeNoteId()
   const stamp = noteId ? stampOf(noteId) : null
   if (!noteId || !stamp) return
   const text = await textOf(noteId, editorFor(noteId, null))
