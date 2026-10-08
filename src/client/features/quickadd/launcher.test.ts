@@ -295,3 +295,57 @@ describe('running a choice from the launcher', () => {
     expect(runs.calls).toEqual([{ id: 'qa-inbox', sourceNoteId: undefined, day: null }])
   })
 })
+
+describe('the filter reaching into groups', () => {
+  it('lists a nested choice and says where it lives', async () => {
+    const group = newGroupChoice('g-work', 'Work', 0)
+    const child = { ...newCaptureChoice('c-meeting', 'Meeting note', 0), parentId: 'g-work' }
+    library([group, child])
+    openLauncher()
+    type('meeting')
+    const found = rows().map((row) => row.textContent ?? '')
+    expect(found).toHaveLength(1)
+    expect(found[0]).toContain('Meeting note')
+    expect(found[0], 'the reader needs to see which group holds it').toContain('Work')
+    await settle()
+    clickRow(0)
+    await settle()
+    expect(runs.calls.map((call) => call.id)).toEqual(['c-meeting'])
+  })
+
+  it('opens a nested group where it actually lives', async () => {
+    const outer = newGroupChoice('g-outer', 'Outer', 0)
+    const inner = { ...newGroupChoice('g-inner', 'Inner', 0), parentId: 'g-outer' }
+    const deep = { ...newCaptureChoice('c-deep', 'Deep note', 0), parentId: 'g-inner' }
+    library([outer, inner, deep])
+    openLauncher()
+    type('inner')
+    expect(rows()).toHaveLength(1)
+    clickRow(0)
+    await settle()
+    expect(rows().map((row) => row.textContent ?? '')).toEqual(expect.arrayContaining([expect.stringContaining('Deep note')]))
+    expect(rows().some((row) => (row.textContent ?? '').includes('Outer'))).toBe(false)
+  })
+
+  it('lists a match once when both it and its group answer the same words', () => {
+    const group = newGroupChoice('g-work', 'Work', 0)
+    const child = { ...newCaptureChoice('c-work', 'Work log', 0), parentId: 'g-work' }
+    library([group, child])
+    openLauncher()
+    type('work')
+    const keys = rows().map((row) => row.textContent ?? '')
+    expect(keys).toHaveLength(2)
+    expect(new Set(keys).size).toBe(2)
+  })
+
+  it('stays at the level on screen when the account says so', () => {
+    const group = newGroupChoice('g-work', 'Work', 0)
+    const child = { ...newCaptureChoice('c-meeting', 'Meeting note', 0), parentId: 'g-work' }
+    library([group, child])
+    useQuickAdd.setState((state) => ({ settings: { ...state.settings, searchNestedChoices: false } }))
+    openLauncher()
+    type('meeting')
+    expect(rows()).toHaveLength(0)
+    expect(dialog().textContent).toContain(t('quickadd.launcher_no_match'))
+  })
+})

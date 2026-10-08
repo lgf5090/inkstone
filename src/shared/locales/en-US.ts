@@ -1220,6 +1220,8 @@ export const EN_US_MESSAGES = {
     "settings.quickadd_notifications_desc": "Say what each run wrote, even when nothing needed writing",
     "settings.quickadd_cancel_notice": "Cancellation notice",
     "settings.quickadd_cancel_notice_desc": "Say when a run stopped because the question was closed",
+    "settings.quickadd_nested_search": "Search inside groups",
+    "settings.quickadd_nested_search_desc": "Typing in the launcher also finds choices nested in groups and shows where each one lives",
     "settings.quickadd_selection_as_value": "Use the selection as the value",
     "settings.quickadd_selection_as_value_desc": "A capture with text selected starts with that text instead of asking",
     "settings.quickadd_drafts": "Remember what I typed",

@@ -3497,6 +3497,13 @@ const allowed = new Map([
     "// The words that found the group have no business filtering what is inside it.",
     "// The store keeps the library in tree order, but a reorder changes `position` without touching the",
     "// array, so the list the reader sees has to be sorted rather than trusted to be in order.",
+    "/** The groups this match sits inside, when the filter reached below the level on screen. */",
+    "/** Those groups in order, so choosing a nested group opens exactly where it lives. */",
+    "// Typing reaches into the groups without making the reader walk them first: every descendant",
+    "// is a candidate, and the whole pool is ranked together so a better match deeper down cannot",
+    "// be buried behind a worse one at this level.",
+    "// A group the search surfaced from deeper down still names a place: open it where it lives",
+    "// rather than running it or pushing it onto the path a second time.",
   ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
@@ -3552,6 +3559,7 @@ const allowed = new Map([
     "// The hint under the row shows today through that format; the expectation is built here, not by",
     "// calling the formatter the page is under test for.",
     "// The cancellation notice is off until asked for, and the row is what turns it on.",
+    "// Reaching into groups is on until the reader says otherwise.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
@@ -8052,6 +8060,7 @@ const allowed = new Map([
     "/**\n * Read the `{ savedAt, version, library }` envelope an account stores in `users.quickadd` in the\n * shape a backup can carry. Junk, an unreadable library and an empty column all come back as null,\n * so a broken column never takes a whole export down with it.\n */",
     "/** Where a heading the ordering key cannot be read from belongs: the reference parks them at the\n * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */",
     "/** Say that a run stopped because the reader closed the question, rather than saying nothing. */",
+    "/** The launcher's filter also looks inside groups and lists what it finds with its path. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

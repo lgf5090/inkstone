@@ -363,6 +363,10 @@ describe('the automation page', () => {
     expect(useQuickAdd.getState().settings.cancelNotice).toBe(true)
     click(control(t('settings.quickadd_cancel_notice')))
     expect(useQuickAdd.getState().settings.cancelNotice).toBe(false)
+    // Reaching into groups is on until the reader says otherwise.
+    expect(useQuickAdd.getState().settings.searchNestedChoices).toBe(true)
+    click(control(t('settings.quickadd_nested_search')))
+    expect(useQuickAdd.getState().settings.searchNestedChoices).toBe(false)
   })
 
   it('adds, edits and removes a global variable', () => {

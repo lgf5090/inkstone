@@ -1220,6 +1220,8 @@ export const ZH_CN_MESSAGES = {
     "settings.quickadd_notifications_desc": "每次运行都说明写了什么，即使什么都没写",
     "settings.quickadd_cancel_notice": "取消提示",
     "settings.quickadd_cancel_notice_desc": "运行时因为关闭提问而停止，也说明一声",
+    "settings.quickadd_nested_search": "搜索分组里面",
+    "settings.quickadd_nested_search_desc": "在启动器里打字时，也会找出藏在分组里的选项，并标出它在哪一组",
     "settings.quickadd_selection_as_value": "把选区作为输入值",
     "settings.quickadd_selection_as_value_desc": "选中文字后运行收集，会直接用选中内容而不是再问",
     "settings.quickadd_drafts": "记住我输入的内容",

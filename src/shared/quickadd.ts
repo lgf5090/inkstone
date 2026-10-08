@@ -165,6 +165,8 @@ export interface QuickAddSettings {
   /** Say that a run stopped because the reader closed the question, rather than saying nothing. */
   cancelNotice: boolean
   selectionAsValue: boolean
+  /** The launcher's filter also looks inside groups and lists what it finds with its path. */
+  searchNestedChoices: boolean
   onePage: QuickAddOnePageMode
   drafts: boolean
   defaultFolder: string
@@ -214,6 +216,7 @@ export function defaultQuickAddSettings(): QuickAddSettings {
     notifications: true,
     cancelNotice: false,
     selectionAsValue: true,
+    searchNestedChoices: true,
     onePage: 'auto',
     drafts: true,
     defaultFolder: '',
@@ -691,6 +694,7 @@ export function normalizeQuickAddSettings(value: unknown, knownIds: ReadonlySet<
     notifications: boolOf(value.notifications, fallback.notifications),
     cancelNotice: boolOf(value.cancelNotice, fallback.cancelNotice),
     selectionAsValue: boolOf(value.selectionAsValue, fallback.selectionAsValue),
+    searchNestedChoices: boolOf(value.searchNestedChoices, fallback.searchNestedChoices),
     onePage: pick(value.onePage, ['always', 'auto', 'never'] as const, fallback.onePage),
     drafts: boolOf(value.drafts, fallback.drafts),
     defaultFolder: normalizeFolderPath(value.defaultFolder),
