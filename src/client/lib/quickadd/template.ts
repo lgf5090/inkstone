@@ -9,11 +9,51 @@
  */
 import { appendFrontMatterTag, parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
 import type { QuickAddTemplateChoice } from '@shared/quickadd'
-import type { FormatRuntime, PromptAnswer } from './format'
+import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
-import { newSession, applyDateOrigin, formatWithPrompts, promptRequest as request } from './session'
+import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
 import { folderJoin, sanitizeTitle, type NotePort, type QuickAddRunStatus } from './context'
 import { t } from '../../lib/i18n'
+
+/** What the run asks for a name when the choice has no name format of its own. */
+function titleRequest(port: NotePort, runtime: FormatRuntime): PromptRequest {
+  const existing = port.knownNoteTitles()
+  return request({
+    key: 'title',
+    label: t('quickadd.prompt_name'),
+    kind: 'suggester',
+    options: existing.slice(0, 200),
+    allowCustom: true,
+    trim: true,
+    defaultValue: runtime.title ?? '',
+  })
+}
+
+/** What the run asks for a folder when the choice lets the reader pick one each time. */
+function folderRequest(choice: QuickAddTemplateChoice, port: NotePort): PromptRequest {
+  return request({
+    kind: 'suggester',
+    key: 'folder',
+    label: t('quickadd.prompt_folder'),
+    options: port.knownFolderPaths(),
+    allowCustom: true,
+    optional: true,
+    trim: true,
+    defaultValue: choice.folderPath || port.settings().defaultFolder,
+  })
+}
+
+/** Which library template to use, when the choice asks each time. */
+function templateRequest(port: NotePort): PromptRequest {
+  return request({
+    kind: 'suggester',
+    key: 'template',
+    label: t('quickadd.prompt_template'),
+    options: port.templateNames(),
+    allowCustom: false,
+    trim: true,
+  })
+}
 
 /** A note title, from the name format or from a prompt when the choice has no format. */
 async function resolveTitle(
@@ -29,17 +69,7 @@ async function resolveTitle(
     runtime.title = title
     return title
   }
-  const existing = port.knownNoteTitles()
-  const answers = await askForInputs(session, [request({
-    key: 'title',
-    label: t('quickadd.prompt_name'),
-    kind: 'suggester',
-    options: existing.slice(0, 200),
-    allowCustom: true,
-    trim: true,
-    defaultValue: runtime.title ?? '',
-  })])
-  const value = answers.get('title')
+  const value = await askOrReuse(session, titleRequest(port, runtime))
   const title = typeof value === 'string' ? sanitizeTitle(value, '') : ''
   if (!title) return null
   runtime.title = title
@@ -61,17 +91,7 @@ async function resolveFolder(
       path = port.activeNote()?.folderPath ?? null
       break
     case 'ask': {
-      const answers = await askForInputs(session, [request({
-        kind: 'suggester',
-        key: 'folder',
-        label: t('quickadd.prompt_folder'),
-        options: port.knownFolderPaths(),
-        allowCustom: true,
-        optional: true,
-        trim: true,
-        defaultValue: choice.folderPath || port.settings().defaultFolder,
-      })])
-      const value = answers.get('folder')
+      const value = await askOrReuse(session, folderRequest(choice, port))
       path = typeof value === 'string' ? value.trim() : null
       break
     }
@@ -85,18 +105,9 @@ async function resolveFolder(
 
 /** Which library template to use, when the choice says it asks each time. */
 async function askForTemplate(session: RunSession, port: NotePort): Promise<string | null> {
-  const names = port.templateNames()
-  if (names.length === 0) return null
-  const answers = await askForInputs(session, [request({
-    kind: 'suggester',
-    key: 'template',
-    label: t('quickadd.prompt_template'),
-    options: names,
-    allowCustom: false,
-    trim: true,
-  })])
+  if (port.templateNames().length === 0) return null
+  const value = await askOrReuse(session, templateRequest(port))
   if (session.dismissed) return null
-  const value = answers.get('template')
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
@@ -106,20 +117,42 @@ export async function runTemplateChoice(
   options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
 ): Promise<QuickAddRunStatus> {
   const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const runtime = buildRuntime(session, port)
+  // `null` means the named template is gone, which stays a failure; `''` means the choice genuinely
+  // wants a blank note, and a pick-each-time run has no body to scan yet.
+  const fixedBody = choice.templatePick === 'ask' ? null : (choice.templateId ? await port.templateBody(choice.templateId) : '')
+  const asks: PromptRequest[] = []
+  const texts: string[] = []
+  if (choice.dateOrigin === 'ask') asks.push(dayRequest(session))
+  if (choice.templatePick === 'ask') {
+    if (port.templateNames().length > 0) asks.push(templateRequest(port))
+  }
+  else if (fixedBody) texts.push(fixedBody)
+  if (choice.mode !== 'insert-here') {
+    if (choice.nameFormat.enabled) texts.push(choice.nameFormat.format)
+    else asks.push(titleRequest(port, runtime))
+    if (choice.folderMode === 'ask') asks.push(folderRequest(choice, port))
+    else if (choice.folderMode === 'fixed') texts.push(choice.folderPath)
+  }
+  await precollectInputs(session, runtime, { requests: asks, texts })
+  // The page was closed: asking the day question again would put a dialog in front of a reader who
+  // just dismissed one.
+  if (session.dismissed) return { kind: 'cancelled' }
   const cancelled = await applyDateOrigin(session)
   if (cancelled) return cancelled
+  if (session.dismissed) return { kind: 'cancelled' }
 
-  const runtime = buildRuntime(session, port)
   let templateRef = choice.templateId
+  let body: string | null = fixedBody
   if (choice.templatePick === 'ask') {
     const asked = await askForTemplate(session, port)
     if (session.dismissed) return { kind: 'cancelled' }
     if (!asked) return { kind: 'failed', reason: t('quickadd.error_template_missing') }
     templateRef = asked
+    body = await port.templateBody(templateRef)
   }
   // "No template" is a choice the editor offers, so it means a blank note. Only a template that was
   // deleted from under the choice is a failure worth a danger notice.
-  const body = templateRef ? await port.templateBody(templateRef) : ''
   if (body === null)
     return { kind: 'failed', reason: t('quickadd.error_template_missing') }
 

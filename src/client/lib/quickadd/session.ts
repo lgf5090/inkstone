@@ -8,7 +8,7 @@
  * the first round.
  */
 import { collectRequirements, formatQuickAddText, type FormatRuntime, type PromptAnswer, type PromptRequest } from './format'
-import { askForInputs } from './runtime'
+import { askForInputs, pageMode } from './runtime'
 import type { RunSession } from './runtime'
 import type { NotePort, QuickAddRunStatus } from './context'
 import { t } from '../../lib/i18n'
@@ -67,16 +67,20 @@ export function newSession(
   return session
 }
 
-/** The day a run measures its dates from, when the choice says "ask me each time". */
-export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunStatus | null> {
-  if (session.base.dateOrigin !== 'ask') return null
-  const answers = await askForInputs(session, [promptRequest({
+/** The "ask me each time" day question, shared by the opening page and the engine that applies it. */
+export function dayRequest(session: RunSession): PromptRequest {
+  return promptRequest({
     kind: 'date',
     key: 'day',
     label: t('quickadd.prompt_day'),
     dateFormat: session.settings.dateFormat,
-  })])
-  const value = answers.get('day') ?? null
+  })
+}
+
+/** The day a run measures its dates from, when the choice says "ask me each time". */
+export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunStatus | null> {
+  if (session.base.dateOrigin !== 'ask') return null
+  const value = await askOrReuse(session, dayRequest(session))
   if (value === null) return { kind: 'cancelled' }
   const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
   if (!Number.isFinite(stamp))
@@ -85,6 +89,59 @@ export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunS
   origin.setHours(session.clock.now.getHours(), session.clock.now.getMinutes(), session.clock.now.getSeconds())
   session.clock = { now: session.clock.now, date: origin }
   return null
+}
+
+/**
+ * One question, taken from the opening page when there is one. Without this the precollect pass would
+ * ask the very same thing twice — every engine-level prompt has to look for the answer first.
+ */
+export async function askOrReuse(
+  session: RunSession,
+  request: PromptRequest,
+  destination?: string,
+): Promise<PromptAnswer> {
+  if (session.variables.has(request.key)) return session.variables.get(request.key) ?? null
+  const answers = await askForInputs(session, [request], destination === undefined ? undefined : { destination })
+  return answers.get(request.key) ?? null
+}
+
+/**
+ * Ask everything the run can already name, once, before it writes anything.
+ *
+ * The setting promises "always one page", and a choice used to honour it one surface at a time: a
+ * template asked for its day, then its name, then its folder, then its body — four dialogs for one
+ * button press. Only questions whose wording and choices are known before the run starts can share a
+ * page, so each engine hands over what it knows statically (`requests` for the engine's own prompts,
+ * `texts` for the formats whose tokens can be scanned) and keeps asking the rest where the answer
+ * depends on something the earlier answers produced.
+ */
+export async function precollectInputs(
+  session: RunSession,
+  runtime: FormatRuntime,
+  surfaces: { requests?: PromptRequest[]; texts?: string[]; skip?: Set<string> },
+  destination?: string,
+): Promise<void> {
+  if (pageMode(session) === 'never') return
+  const wanted: PromptRequest[] = []
+  const seen = new Set<string>()
+  const take = (request: PromptRequest, fromText: boolean): void => {
+    // A multi-select keeps its own dialog: the page cannot hold a picker, and the surface that asked
+    // for it still asks exactly as it did before this pass existed.
+    if (request.key === '' || request.multiSelect) return
+    const id = request.key.toLowerCase()
+    if (seen.has(id) || session.variables.has(request.key)) return
+    // `skip` names variables the run writes itself, which only ever arrive out of a scanned format —
+    // an engine's own request is one it has decided to ask.
+    if (fromText && surfaces.skip?.has(id)) return
+    seen.add(id)
+    wanted.push(request)
+  }
+  for (const request of surfaces.requests ?? []) take(request, false)
+  for (const text of surfaces.texts ?? []) {
+    for (const request of collectRequirements(text, runtime)) take(request, true)
+  }
+  if (wanted.length === 0) return
+  await askForInputs(session, wanted, destination === undefined ? undefined : { destination })
 }
 
 /** Ask for the inputs of a text, then format it: the order the one-page form promises. */
