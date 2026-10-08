@@ -56,7 +56,7 @@ import {
   unwrapMediaLayoutHere,
   wrapLinesAsMediaLayout,
 } from './commands'
-import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
+import { CHART_TEMPLATES, DATAVIEW_JS_BODY, DATAVIEW_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
 import { openEmojiPicker } from '../store/emoji-picker'
 import { AlignCenter, AlignLeft, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Eraser, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, SquarePen, Strikethrough, Subscript, Superscript, Table as TableIcon, Underline } from 'lucide-react'
 import { openLinkAtCursor } from '../features/links/use-link-editor'
@@ -205,6 +205,7 @@ export function codeMenuItems(run: RunEditorCommand): MenuItem[] {
   const chart = diagramSubmenu(run, 'chart', '```chart style=table', CHART_TEMPLATES, 180)
   const mindmap = diagramSubmenu(run, 'mindmap', '```mindmap', MINDMAP_TEMPLATES, 180)
   const kanban = diagramSubmenu(run, 'kanban', '```kanban', KANBAN_TEMPLATES, 180)
+  const dataview = diagramSubmenu(run, 'dataview', '```dataview', DATAVIEW_TEMPLATES, 190)
   return [
     { id: 'code', label: t('workspace.code_block'), onSelect: () => run(insertCodeBlock) },
     { id: 'advanced-code', label: t('workspace.enhanced_code_block'), onSelect: () => run(insertAdvancedCodeBlock) },
@@ -213,6 +214,8 @@ export function codeMenuItems(run: RunEditorCommand): MenuItem[] {
     { id: 'chart', label: t('workspace.chartjs_diagram'), subItems: chart.items, submenu: chart.submenu },
     { id: 'mindmap', label: t('workspace.mind_map'), subItems: mindmap.items, submenu: mindmap.submenu },
     { id: 'kanban', label: t('workspace.kanban_board'), subItems: kanban.items, submenu: kanban.submenu },
+    { id: 'dataview', label: t('workspace.dataview_query'), subItems: dataview.items, submenu: dataview.submenu },
+    { id: 'dataview-js', label: t('workspace.dataview_js'), onSelect: () => run(insertDiagramCode('\`\`\`dataviewjs', DATAVIEW_JS_BODY)) },
     { id: 'mindmap-from-outline', label: t('workspace.mindmap_from_outline'), separatorBefore: true, onSelect: () => run(generateMindmapFromOutline) },
     { id: 'format-code', label: t('command.format_code_block'), combo: editorCombo('format-code'), separatorBefore: true, onSelect: () => run(formatCodeBlock) },
   ]

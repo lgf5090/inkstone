@@ -1,0 +1,381 @@
+/* Query blocks, inline fields and inline answers. The block shell follows the board and mind-map
+   heads so a note with several rich blocks reads as one family; the table, list and checkbox shapes
+   come from prose.css rather than being drawn again here. */
+
+.ink-prose .dataview-block {
+  margin: 1em 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+
+.ink-prose .dataview-block.loading {
+  border-style: dashed;
+}
+
+.ink-prose .dataview-block.is-error {
+  border-color: var(--danger);
+}
+
+.ink-prose .dataview-block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+}
+
+.ink-prose .dataview-block-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-11);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.ink-prose .dataview-block-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-0-5);
+  margin-inline-start: auto;
+}
+
+.ink-prose .dataview-block-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 var(--sp-1);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-10);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.ink-prose .dataview-block-btn:hover,
+.ink-prose .dataview-block-btn:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ink-prose .dataview-block-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ink-prose .dataview-block-body {
+  padding: var(--sp-2) var(--sp-3);
+}
+
+/* A block that shows its own text, and a block on a surface that cannot answer, share one look. */
+.ink-prose .dataview-source {
+  margin: 0;
+  padding: var(--sp-2);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  color: var(--code-fg);
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ink-prose .dataview-block-body > .dataview-table-wrap {
+  margin: 0;
+}
+
+.ink-prose .dataview-table-wrap {
+  margin: 0.6em 0;
+}
+
+.ink-prose .dataview-table td .wikilink + .wikilink::before {
+  content: ", ";
+  color: var(--text-quaternary);
+}
+
+.ink-prose .dataview-list,
+.ink-prose .dataview-group {
+  margin: 0.4em 0;
+  padding-inline-start: 1.3em;
+  list-style: disc;
+}
+
+.ink-prose .dataview-group {
+  margin: 0;
+  font-size: 0.94em;
+}
+
+.ink-prose .dataview-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.ink-prose .dataview-task {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.ink-prose .dataview-task-checkbox {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 0.28em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  background: var(--bg-base);
+}
+
+.ink-prose .dataview-task-checkbox.is-checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ink-prose .dataview-task-checkbox.is-checked::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent-contrast);
+  clip-path: polygon(19% 47%, 38% 66%, 81% 22%, 89% 31%, 39% 82%, 11% 55%);
+}
+
+.ink-prose .dataview-task-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ink-prose .dataview-task-text.is-done {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+
+.ink-prose .dataview-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--sp-1-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  background: var(--bg-raised);
+  font-size: var(--text-10-5);
+  color: var(--text-secondary);
+}
+
+.ink-prose .dataview-task-chip-key {
+  color: var(--text-quaternary);
+}
+
+.ink-prose .dataview-task-source {
+  flex: none;
+  font-size: var(--text-10-5);
+  color: var(--text-quaternary);
+}
+
+.ink-prose .dataview-empty,
+.ink-prose .dataview-truncated {
+  margin: 0.4em 0 0;
+  font-size: var(--text-11-5);
+  color: var(--text-tertiary);
+}
+
+.ink-prose .dataview-truncated {
+  padding-top: 0.3em;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.ink-prose .dataview-notice {
+  margin: 0.4em 0;
+  padding: var(--sp-2);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  font-size: var(--text-12);
+}
+
+.ink-prose .dataview-notice strong {
+  color: var(--text-secondary);
+  font-weight: 620;
+}
+
+.ink-prose .dataview-notice.is-error {
+  background: color-mix(in oklab, var(--danger) 10%, var(--bg-raised));
+}
+
+.ink-prose .dataview-notice.is-error strong {
+  color: var(--danger);
+}
+
+.ink-prose .dataview-notice.is-warning strong {
+  color: var(--warning);
+}
+
+.ink-prose .dataview-notice-detail {
+  margin: var(--sp-1) 0 0;
+  padding: var(--sp-1) var(--sp-1-5);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-10-5);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 12em;
+  overflow: auto;
+}
+
+/* Inline fields: the label is quieter than the value, so a line of them stays readable as a list. */
+.ink-prose .dataview-inline-field {
+  display: inline;
+  margin-inline-end: 0.25em;
+  padding: 0 0.28em;
+  border-radius: var(--r-2);
+  background: var(--bg-inset);
+}
+
+.ink-prose .dataview-inline-key,
+.ink-prose .dataview-inline-sep {
+  color: var(--text-quaternary);
+  font-size: 0.9em;
+}
+
+.ink-prose .dataview-inline-value {
+  color: var(--text-primary);
+}
+
+.ink-prose .dataview-inline-query {
+  padding: 0 0.2em;
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.ink-prose .dataview-inline-error {
+  color: var(--danger);
+  cursor: help;
+}
+
+.ink-prose .dataview-object {
+  display: inline;
+}
+
+.ink-prose .dataview-object-key {
+  color: var(--text-quaternary);
+  font-size: 0.9em;
+}
+
+/* Calendar: a month grid whose occupied days are the only thing you can press. */
+.ink-prose .dataview-calendar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+.ink-prose .dataview-calendar-month {
+  min-width: min(100%, 260px);
+  flex: 1 1 260px;
+}
+
+.ink-prose .dataview-calendar-title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--text-12);
+  font-weight: 620;
+  color: var(--text-secondary);
+}
+
+.ink-prose .dataview-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.ink-prose .dataview-calendar-weekday {
+  padding: 2px 0;
+  font-size: var(--text-10);
+  text-align: center;
+  color: var(--text-quaternary);
+}
+
+.ink-prose .dataview-calendar-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.9em;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--bg-base);
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-11);
+}
+
+.ink-prose .dataview-calendar-day.is-empty {
+  background: var(--bg-sunken);
+  color: var(--text-quaternary);
+}
+
+.ink-prose .dataview-calendar-day.has-items {
+  border-color: var(--border-subtle);
+  background: var(--accent-softer);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.ink-prose .dataview-calendar-day.has-items:hover,
+.ink-prose .dataview-calendar-day.has-items:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.ink-prose .dataview-calendar-count {
+  position: absolute;
+  inset-block-end: 1px;
+  inset-inline-end: 3px;
+  font-size: var(--text-9-5);
+  color: var(--accent);
+}
+
+.ink-prose .dataview-logs {
+  margin-top: var(--sp-1);
+  font-size: var(--text-11);
+}
+
+.ink-prose .dataview-logs > summary {
+  cursor: pointer;
+  color: var(--text-tertiary);
+}
+
+.ink-prose .dataview-logs pre {
+  max-height: 14em;
+  overflow: auto;
+  font-size: var(--text-10-5);
+}
+
+.ink-prose .dataview-section {
+  margin: 0.8em 0;
+}
+
+.ink-prose .dataview-markdown > :first-child,
+.ink-prose .dataview-html > :first-child {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-prose .dataview-block-btn,
+  .ink-prose .dataview-calendar-day.has-items {
+    transition: none;
+  }
+}

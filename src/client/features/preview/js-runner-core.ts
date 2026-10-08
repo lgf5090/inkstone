@@ -69,6 +69,19 @@ export function hardenWorkerScope(scope: Record<string, unknown>): void {
 }
 
 export function executeUserCode(code: string): JsRunOutcome {
+  return runUserCode(code)
+}
+
+/**
+ * The same run with extra names handed to the code as parameters. A Dataview DML block gets a `dv`
+ * object this way: the shadowing list above still applies, so an injection can only add a name the note
+ * could not reach anyway, and a note that rebinds `dv` itself rebinds a parameter, not the worker scope.
+ */
+export function runUserCode(code: string, injections: Record<string, unknown> = {}): JsRunOutcome {
+  // A name the sandbox already shadows cannot be handed over as a second parameter: two parameters of
+  // one name are a syntax error the moment the body says "use strict".
+  const names = Object.keys(injections).filter((name) => !SHADOWED_GLOBALS.includes(name))
+  const values = names.map((name) => injections[name])
   const logs: JsRunLog[] = []
   const fakeConsole = {
     log: (...args: unknown[]) => logs.push({ type: 'log', text: args.map(formatJsValue).join(' ') }),
@@ -81,8 +94,8 @@ export function executeUserCode(code: string): JsRunOutcome {
   let result: unknown
   let errorText = ''
   try {
-    const fn = new Function(...SHADOWED_GLOBALS, `"use strict";\n${code}`)
-    result = fn(fakeConsole, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined)
+    const fn = new Function(...SHADOWED_GLOBALS, ...names, `"use strict";\n${code}`)
+    result = fn(fakeConsole, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, ...values)
   } catch (err) {
     errorText = formatJsError(err)
   }

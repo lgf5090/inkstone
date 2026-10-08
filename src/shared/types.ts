@@ -440,6 +440,48 @@ export interface UserSettings {
   sync: SyncSettings
   notes: NotesSettings
   search: SearchSettings
+  dataview: DataviewSettings
+}
+
+/** How a duration renders in a result cell. */
+export type DurationFormatName = 'long' | 'short' | 'tiny'
+
+/**
+ * A saved query the Dataview panel can re-run. `id` is stable so a reordering write does not look
+ * like a delete plus an insert to the account snapshot.
+ */
+export interface SavedDataviewQuery {
+  id: string
+  name: string
+  query: string
+}
+
+export interface DataviewSettings {
+  /** Turning the query blocks off leaves the source text in place, as with the other render switches. */
+  enabled: boolean
+  /** `= 2 + 2` and `= this.file.name` lines answer inline instead of showing their source. */
+  inlineQueries: boolean
+  /** `[key:: value]` renders as a labelled value; the note keeps the brackets either way. */
+  inlineFields: boolean
+  /** ```dataviewjs``` blocks run their own code, inside the same worker sandbox as runnable examples. */
+  jsBlocks: boolean
+  /** What an unset property shows as, so a blank cell is not mistaken for a broken query. */
+  renderNullAs: string
+  /** The token pattern for a date without a time, and for one with. */
+  dateFormat: string
+  datetimeFormat: string
+  durationFormat: DurationFormatName
+  /** Rows a single block may draw; a query that matches more says so rather than freezing the page. */
+  maxRows: number
+  /** Bodies one query may read, which is what keeps the throttled note endpoint ahead of a runaway list. */
+  bodyLimit: number
+  /** Archived notes are outside every other list, so they are outside a query too unless asked. */
+  includeArchived: boolean
+  /** Whether a failed block prints the error text or only says the query did not run. */
+  showErrorDetails: boolean
+  /** Re-run a block while the reader types, rather than only when the note is saved. */
+  liveRefresh: boolean
+  savedQueries: SavedDataviewQuery[]
 }
 
 
