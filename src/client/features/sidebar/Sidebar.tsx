@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Search, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -13,7 +13,9 @@ import { useUpdate } from '../../store/update';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { folderMoveExclusions, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { searchFolders } from '../../lib/folder-search';
-import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
+import { splitByRanges } from '../../lib/fuzzy';
+import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
+import { FilterInput } from '../../components/FilterInput';
 import { usePinyinVersion } from '../../lib/pinyin';
 import { setInboxFolderId, useFolderPreferences } from '../../lib/folder-prefs';
 import { saveCalendarPrefs, useCalendarTreePreferences } from '../../lib/calendar-prefs';
@@ -339,12 +341,16 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const [movingId, setMovingId] = useState<string | null>(null);
     const [rootDropping, setRootDropping] = useDropState(false);
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-    const [folderQuery, setFolderQuery] = useState('');
-    const folderQueryRef = useRef<HTMLInputElement>(null);
+    const [folderText, setFolderText] = useState('');
+    const filtering = Boolean(folderText.trim());
     const pinyinVersion = usePinyinVersion();
-    const searchedFolders = useMemo(() => searchFolders(tree, folderQuery), [tree, folderQuery, pinyinVersion]);
-    const filteringFolders = Boolean(folderQuery.trim());
-    const folderSearch = { open: filteringFolders, matched: searchedFolders.matched, query: folderQuery };
+    const folderQuery = useMemo(() => compileQuery(folderText), [folderText, pinyinVersion]);
+    const notesOfFolder = useMemo(() => (folderId: string) => notesByFolder.get(folderId) ?? [], [notesByFolder]);
+    const unfiledNotes = useMemo(() => notesByFolder.get(null) ?? [], [notesByFolder]);
+    const searchedFolders = useMemo(() => searchFolders(tree, folderQuery, notesOfFolder), [tree, folderQuery, notesOfFolder, pinyinVersion]);
+    const unfiledMatches = useMemo(() => filtering ? unfiledNotes.filter((note) => queryMatches(folderQuery, note.title)) : [], [unfiledNotes, folderQuery, filtering, pinyinVersion]);
+    const notesMatched = searchedFolders.noteShown + unfiledMatches.length;
+    const folderSearch: FolderRowSearch = { open: filtering, matched: searchedFolders.matched, whole: searchedFolders.whole, notes: searchedFolders.notes, query: folderQuery };
     const headerRef = useRef<HTMLDivElement>(null);
     const headerMenu = useContextMenu();
     const { inboxFolderId } = useFolderPreferences();
@@ -524,55 +530,47 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         </div>
       </div>
 
-      {tree.length > 0 && (<>
-        <div className="relative mt-1">
-          <Search size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-          <input
-            ref={folderQueryRef}
-            aria-label={t("folders.search")}
-            type="search"
-            value={folderQuery}
-            placeholder={t("folders.filter_placeholder")}
-            data-folder-filter
-            onChange={(event) => setFolderQuery(event.target.value)}
-            onKeyDown={(event) => {
-                            if (event.key === 'Escape') {
-                                if (folderQuery)
-                                    setFolderQuery('');
-                                else
-                                    folderQueryRef.current?.blur();
-                            }
-                            // Enter opens what the reader was about to click: the first row of the
-                            // filtered tree, which is the best guess the filter has.
-                            if (event.key === 'Enter' && searchedFolders.nodes[0]) {
-                                event.preventDefault();
-                                openFolderView(folders, searchedFolders.nodes[0].id);
-                            }
-                            event.stopPropagation();
-                        }}
-            className="h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-7 pl-7 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none md:h-[28px] md:pr-6"
-          />
-          {folderQuery && (<button type="button" aria-label={t("notes.clear_filters")} onClick={() => {
-                            setFolderQuery('');
-                            folderQueryRef.current?.focus();
-                        }} className="absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-6">
-              <X size={11}/>
-            </button>)}
-        </div>
-        {filteringFolders && searchedFolders.shown > 0 && (<p data-folder-match-count className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{t("folders.match_count", { value0: searchedFolders.shown })}</p>)}
+      {(tree.length > 0 || unfiledNotes.length > 0) && (<>
+        <FilterInput
+          value={folderText}
+          onChange={setFolderText}
+          query={folderQuery}
+          label={t("folders.search")}
+          placeholder={t("folders.filter_placeholder")}
+          data-folder-filter
+          onKeyDown={(event) => {
+                        // Enter opens what the reader was about to click: the first row the filter has.
+                        if (event.key !== 'Enter')
+                            return;
+                        const folder = searchedFolders.nodes[0];
+                        const note = unfiledMatches[0];
+                        if (!folder && !note)
+                            return;
+                        event.preventDefault();
+                        if (folder)
+                            openFolderView(folders, folder.id);
+                        else
+                            void useNotes.getState().openNote(note!.id);
+                    }}
+        />
+        {filtering && (searchedFolders.shown > 0 || notesMatched > 0) && (<p data-folder-match-count className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{notesMatched > 0 ? t("folders.note_match_count", { value0: searchedFolders.shown, value1: notesMatched }) : t("folders.match_count", { value0: searchedFolders.shown })}</p>)}
       </>)}
 
-      {!filteringFolders && (<>
+      {!filtering && (<>
         <TodoTree />
         <CalendarTree />
         <InboxTree />
       </>)}
-      {tree.length === 0 && !filteringFolders ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
+      {tree.length === 0 && !filtering ? (<button type="button" disabled={creating} onClick={() => void create(null)} className="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]">
         <FolderPlus size={13}/>{t("sidebar.create_first_folder")}</button>) : null}
-      {filteringFolders && searchedFolders.nodes.length === 0 ? (<p data-folder-no-match className="px-2 py-2 text-[11.5px] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>) : null}
+      {filtering && searchedFolders.nodes.length === 0 && unfiledMatches.length === 0 ? (<p data-folder-no-match className="px-2 py-2 text-[11.5px] text-[var(--text-quaternary)]">{t("folders.no_match")}</p>) : null}
         <div role="tree" aria-label={t("navigation.folder")} className="mt-0.5 space-y-px">
           {searchedFolders.nodes.map((node, index) => (<FolderRow key={node.id} node={node} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={searchedFolders.nodes} index={index} parentNode={null} parentSiblings={[]} onCreateChild={create} onMove={move} onChooseParent={setMovingId} rootTree={tree} onSortSiblings={sortSiblings} onExportZip={exportZip} onDropNotes={dropNotes} onToggleInbox={toggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={setRenamingId} onFinishRename={() => setRenamingId(null)} search={folderSearch}/>))}
         </div>
+      {unfiledMatches.length > 0 && (<><p data-unfiled-label className="px-2 pt-2 text-[10.5px] text-[var(--text-quaternary)]">{t("navigation.unfiled")}</p>
+        <div role="tree" aria-label={t("navigation.unfiled")} className="mt-0.5 space-y-px" data-unfiled-matches>
+          {unfiledMatches.map((note) => <ExplorerNote key={note.id} note={note} depth={0} canOpenToSide={canOpenToSide} highlight={folderQuery}/>)}
+        </div></>)}
       </section>
       <FolderPicker open={Boolean(movingFolder)} title={t("folders.choose_parent")} folders={folders} currentId={movingFolder?.parentId ?? null} excludedIds={excludedMoveTargets} onSelect={(parentId) => {
             if (movingId)
@@ -588,10 +586,18 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
  * A reading-based hit (the pinyin initials of a Chinese name) has no letters in the label to
  * mark, so it renders as plain text rather than underlining the wrong characters.
  */
-function FolderNameText({ name, search }: { name: string; search: { open: boolean; matched: ReadonlySet<string>; query: string } }) {
+/** What the folder filter leaves on screen, in the shape every row of the tree reads. */
+interface FolderRowSearch {
+    open: boolean;
+    matched: ReadonlySet<string>;
+    whole: ReadonlySet<string>;
+    notes: ReadonlySet<string>;
+    query: Query;
+}
+function FolderNameText({ name, search }: { name: string; search: FolderRowSearch }) {
     if (!search.open)
         return name;
-    const match = fuzzyMatch(name, search.query);
+    const match = queryMatches(search.query, name);
     if (!match)
         return name;
     return splitByRanges(name, match.ranges).map((part, index) => part.hit
@@ -619,7 +625,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     renamingId: string | null;
     onStartRename: (id: string) => void;
     onFinishRename: () => void;
-    search: { open: boolean; matched: ReadonlySet<string>; query: string };
+    search: FolderRowSearch;
 }) {
     const view = useUi((s) => s.view);
     const activeFolderId = useUi((s) => s.folderId);
@@ -639,7 +645,13 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     const renamingRef = useRef(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const active = view === 'folder' && activeFolderId === node.id;
-    const hasChildren = node.children.length > 0 || Boolean(notesByFolder.get(node.id)?.length);
+    // A folder the query named shows what it holds; one the query only walks through shows the note
+    // it walked through, and nothing else.
+    const folderNotes = notesByFolder.get(node.id) ?? [];
+    const visibleNotes = search.open && !search.whole.has(node.id)
+        ? folderNotes.filter((note) => search.notes.has(note.id))
+        : folderNotes;
+    const hasChildren = node.children.length > 0 || visibleNotes.length > 0;
     const justCreated = createdFolderId === node.id;
     const renaming = renamingId === node.id;
     const canCreateChild = node.depth + 1 < LIMITS.folderDepthMax;
@@ -885,7 +897,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
       {childrenMounted && (<div role="group" aria-hidden={!childrenVisible} inert={!childrenVisible} className={cn('folder-children-grid', childrenVisible && 'is-expanded')}>
           <div className="min-h-0 space-y-px overflow-hidden">
             {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} rootTree={rootTree} onSortSiblings={onSortSiblings} onExportZip={onExportZip} onDropNotes={onDropNotes} onToggleInbox={onToggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename} search={search}/>))}
-            {notesByFolder.get(node.id)?.map((note) => <ExplorerNote key={note.id} note={note} depth={node.depth + 1} canOpenToSide={canOpenToSide}/>)}
+            {visibleNotes.map((note) => <ExplorerNote key={note.id} note={note} depth={node.depth + 1} canOpenToSide={canOpenToSide} highlight={search.open ? search.query : undefined}/>)}
           </div>
         </div>)}
 

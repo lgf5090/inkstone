@@ -12,6 +12,8 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { collapseOrLeave, moveTreeFocus } from './tree-keyboard';
 import { noteFolderOwner } from '../../lib/folders';
+import { splitByRanges } from '../../lib/fuzzy';
+import { queryMatches, type Query } from '../../lib/query-match';
 
 export function groupExplorerNotes(notes: Record<string, NoteSummary>, folders: Folder[], locale: string): Map<string | null, NoteSummary[]> {
     const folderIds = new Set(folders.map((folder) => folder.id));
@@ -32,9 +34,25 @@ export function groupExplorerNotes(notes: Record<string, NoteSummary>, folders: 
 
 export const ExplorerNote = memo(ExplorerNoteRow);
 
+/**
+ * The row's title, with the part a filter query reached marked out. A reading-based hit has no
+ * letters in the label to mark, so it comes back plain rather than underlining the wrong ones.
+ */
+function titleWithHighlight(note: NoteSummary, highlight?: Query): React.ReactNode {
+    const title = note.title || t('common.untitled_note');
+    if (!highlight?.text)
+        return title;
+    const match = queryMatches(highlight, note.title);
+    if (!match?.ranges.length)
+        return title;
+    return splitByRanges(note.title, match.ranges).map((part, index) => part.hit
+        ? <span key={index} className="font-semibold text-[var(--accent)]">{part.text}</span>
+        : <span key={index}>{part.text}</span>);
+}
+
 // Every explorer row subscribes to several store slices; without memoising the row, a note
 // change re-renders every visible row in the explorer.
-function ExplorerNoteRow({ note, depth, canOpenToSide, trailing }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode }) {
+function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode; highlight?: Query }) {
     const active = useUi((s) => s.activeNoteId === note.id);
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);
@@ -72,7 +90,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing }: { note: NoteS
                     if (collapseOrLeave(event.currentTarget)) event.preventDefault();
                 }
             }} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[12.5px]">
-                {note.title || t('common.untitled_note')}
+                {titleWithHighlight(note, highlight)}
             </button>
             {trailing}
             <IconButton label={t('common.more_actions')} size="sm" onClick={() => { contextMenu.close(); setMenuOpen(true); }} className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"><MoreHorizontal size={13}/></IconButton>

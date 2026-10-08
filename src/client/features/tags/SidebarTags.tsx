@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronsUpDown, Hash, MoreHorizontal, Pin, Plus, Search, Tag, X } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, Hash, MoreHorizontal, Pin, Plus, Tag, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import { fuzzyMatch, splitByRanges } from '../../lib/fuzzy';
+import { splitByRanges } from '../../lib/fuzzy';
+import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
+import { FilterInput } from '../../components/FilterInput';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
 import { IconButton, SectionLabel } from '../../components/primitives';
@@ -73,7 +75,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     }, [tags]);
     const searching = Boolean(query.trim());
     const pinyinVersion = usePinyinVersion()
-    const searched = useMemo(() => searchTagTree(tree, query), [tree, query, pinyinVersion]);
+    const tagQuery = useMemo(() => compileQuery(query), [query]);
+    const searched = useMemo(() => searchTagTree(tree, tagQuery), [tree, tagQuery, pinyinVersion]);
     const shownNodes = searching ? searched.nodes : tree;
     const parentPaths = useMemo(() => collectParentPaths(shownNodes), [shownNodes]);
     const allExpanded = parentPaths.length > 0 && parentPaths.every((path) => expanded.has(path));
@@ -155,18 +158,10 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
       </div>
 
       {tags.length > 0 && (<>
-        <div className="relative mt-1">
-          <Search size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-          <input ref={inputRef} aria-label={t('tags.filter')} type="search" value={query} placeholder={t('tags.filter_placeholder')} onChange={(event) => {
-                setQuery(event.target.value);
+        <FilterInput value={query} onChange={(next) => {
+                setQuery(next);
                 setCursor(-1);
-            }} onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                    if (query)
-                        setQuery('');
-                    else
-                        inputRef.current?.blur();
-                }
+            }} query={tagQuery} label={t('tags.filter')} placeholder={t('tags.filter_placeholder')} inputRef={inputRef} data-tag-filter onKeyDown={(event) => {
                 if (event.key === 'ArrowDown') {
                     event.preventDefault();
                     moveCursor(1);
@@ -177,15 +172,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                 }
                 if (event.key === 'Enter' && rows[cursor])
                     open(rows[cursor]!.fullPath, false);
-                event.stopPropagation();
-            }} className={cn('h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-7 pl-7 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] md:h-[28px] md:pr-6', 'transition-[border-color,box-shadow] duration-[var(--dur-fast)]', 'focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none')}/>
-          {query && (<button type="button" aria-label={t('notes.clear_filters')} onClick={() => {
-                    setQuery('');
-                    inputRef.current?.focus();
-                }} className="absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-secondary)] md:size-6">
-              <X size={11}/>
-            </button>)}
-        </div>
+            }}/>
         {searching && rows.length > 0 && <p className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: searched.hitCount })}</p>}
       </>)}
 
@@ -211,7 +198,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
                     inputRef.current?.focus();
                 }} className="text-[var(--accent)] hover:underline">{t('notes.clear_filters')}</button>
           </p>}
-        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} searching={searching} query={query} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
+        {rows.map((node, index) => (<TagTreeRow key={node.fullPath} node={node} query={tagQuery} expanded={expanded.has(node.fullPath)} active={(mobile || listVisible) && view === 'tag' && activeTags.includes(node.fullPath)} highlighted={index === cursor} renaming={renamingId === node.tag.id} onToggle={() => setExpanded((previous) => toggleSet(previous, node.fullPath))} onOpen={(event) => open(node.fullPath, event.metaKey || event.ctrlKey)} onStartRename={() => setRenamingId(node.tag.id)} onFinishRename={(value) => {
                     setRenamingId(null);
                     void renameTag(node.tag, renameTagSegment(node.fullPath, value));
                 }} onCancelRename={() => setRenamingId(null)} excluded={excludedTags.includes(node.fullPath)} onToggleLevel={(paths, open) => setExpanded((previous) => { const next = new Set(previous); for (const path of paths) { if (open) next.add(path); else next.delete(path) } return next })} levelSiblings={siblingParentPaths(tree, node.fullPath)} onCreateChild={startDraft} onManage={() => setManageOpen(true)} dragging={dragPath === node.fullPath} dropTarget={dropPath === node.fullPath} dropHint={dropPath === node.fullPath ? tagMoveTarget(draggedTag(), node.fullPath) : null} onDragStart={(event) => {
@@ -288,9 +275,9 @@ function scrollRowIntoView(list: HTMLElement | null, index: number): void {
 }
 function TagNameText({ name, query }: {
     name: string;
-    query: string;
+    query: Query;
 }) {
-    const match = query.trim() ? fuzzyMatch(name, query) : null;
+    const match = queryMatches(query, name);
     if (!match)
         return name;
     return splitByRanges(name, match.ranges).map((part, index) => part.hit
@@ -327,10 +314,9 @@ function TagDraftRow({ leaf, onFinish, onCancel }: {
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>
     </div>);
 }
-function TagTreeRow({ node, searching, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, excluded, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, dropHint, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
+function TagTreeRow({ node, query, expanded, active, highlighted, renaming, onToggle, onOpen, onStartRename, onFinishRename, onCancelRename, excluded, onToggleLevel, levelSiblings, onCreateChild, onManage, dragging, dropTarget, dropHint, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, }: {
     node: TagTreeNode;
-    searching: boolean;
-    query: string;
+    query: Query;
     expanded: boolean;
     active: boolean;
     highlighted: boolean;
@@ -400,7 +386,7 @@ function TagTreeRow({ node, searching, query, expanded, active, highlighted, ren
             }
             event.stopPropagation();
         }} className="min-w-0 flex-1 rounded-[var(--r-xs)] border border-[var(--accent)] bg-[var(--bg-surface)] px-1 py-px text-[12.5px] outline-none"/>) : (<button data-navigation-item type="button" title={t('tags.cmd_click')} aria-current={active ? 'page' : undefined} onClick={onOpen} onDoubleClick={node.isVirtual ? undefined : onStartRename} className="min-w-0 flex-1 truncate py-1 text-left font-medium">
-          <TagNameText name={node.name} query={searching ? query : ''}/>
+          <TagNameText name={node.name} query={query}/>
         </button>)}
       {!renaming && (<>
           <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)] transition-opacity md:group-hover:opacity-0">

@@ -85,6 +85,15 @@ const allowed = new Map([
     "// nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.",
     "/* A show outlives the layout that started it: the shell swaps its whole workspace subtree\n          when the breakpoint moves, so the overlay is hosted above that switch rather than inside\n          it. It is only mounted while a show is up, which is also what keeps the deck-splitting code\n          out of the boot chunk for everyone who is not presenting. */",
   ]],
+  ["src/client/components/FilterInput.tsx", [
+    "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
+    "/** `panel` is the bordered, full-height box a modal or settings page draws; `sidebar` is the quiet one. */",
+    "/** For the listing that moves the caret back into the box when its last row goes away. */",
+    "/** A control the listing keeps beside the box, drawn inside it. */",
+    "/**\n * The filter box every sidebar listing uses: it searches by fuzzily-matched letters, by the reading\n * of a Chinese label, and by a `/regular expression/`, and it is the one place that says so when a\n * pattern is refused.\n */",
+    "// The box owns its keys: a shortcut that fires while the reader is typing a name would",
+    "// take the keystroke, and the listing above answers arrows of its own.",
+  ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
     "// jsdom has no layout engine, so these guards assert the anti-wrap CSS contract",
@@ -3325,13 +3334,16 @@ const allowed = new Map([
   ["src/client/features/sidebar/ExplorerNote.tsx", [
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
     "// change re-renders every visible row in the explorer.",
+    "/**\n * The row's title, with the part a filter query reached marked out. A reading-based hit has no\n * letters in the label to mark, so it comes back plain rather than underlining the wrong ones.\n */",
   ]],
   ["src/client/features/sidebar/Sidebar.tsx", [
     "// The graph canvas and its scene maths are only needed once a reader opens that tab, and the",
     "// sidebar rides in the first bundle.",
-    "// Enter opens what the reader was about to click: the first row of the",
-    "// filtered tree, which is the best guess the filter has.",
     "/**\n * The folder's own name, with the letters the query reached underlined.\n *\n * A reading-based hit (the pinyin initials of a Chinese name) has no letters in the label to\n * mark, so it renders as plain text rather than underlining the wrong characters.\n */",
+    "// Enter opens what the reader was about to click: the first row the filter has.",
+    "/** What the folder filter leaves on screen, in the shape every row of the tree reads. */",
+    "// A folder the query named shows what it holds; one the query only walks through shows the note",
+    "// it walked through, and nothing else.",
   ]],
   ["src/client/features/sidebar/SidebarOutlinks.tsx", [
     "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
@@ -3851,9 +3863,12 @@ const allowed = new Map([
     "// A layout block's numbers reach CSS the same way, and its handles are pointer furniture an exported",
     "// page has no script to answer.",
   ]],
+  ["src/client/lib/folder-search.test.ts", [
+    "// `meet` is named, so its own note shows; `work` is only the road to it, so its report does not.",
+  ]],
   ["src/client/lib/folder-search.ts", [
-    "/**\n * What a folder query leaves of the tree.\n *\n * `nodes` is the tree to draw and `shown` how many folders are in it, so the count the panel\n * prints is the number of rows the reader can actually see — the same rule the tag filter\n * follows. `matched` is the narrower set: the folders the query itself hit, which is what\n * gets underlined. The two differ because a parent that only leads to a match has to stay on\n * screen for the child to be reachable.\n */",
-    "/**\n * The folder tree pruned to what the query can reach, matched by folder name only.\n *\n * A folder the query hits keeps its whole subtree, so searching `work` still shows\n * `work/meeting`; a folder that merely leads to a match is kept unmarked, at the depth the\n * reader knows it at. An empty query returns the tree as it came.\n */",
+    "/**\n * What a filter query leaves of the tree.\n *\n * `nodes` is the tree to draw and `shown` how many folders are in it, so the count the panel prints\n * is the number of rows the reader can actually see — the same rule the tag filter follows. `matched`\n * is the narrower set: the folders the query itself hit by name, which is what gets underlined. The\n * two differ because a parent that only leads to a match has to stay on screen for the child to be\n * reachable.\n *\n * `whole` holds the folders that show every note they own rather than only the notes the query\n * reached: a folder named by the query is what the reader asked for, so its contents come with it,\n * and so do the contents of everything below it. `notes` is the set of note titles the query hit,\n * which is what a folder kept only as the road to a note draws.\n */",
+    "/**\n * The folder tree pruned to what the query can reach, by folder name and by the titles of the notes\n * filed inside it.\n *\n * A folder the query names keeps its whole subtree and every note in it, so searching `work` still\n * shows `work/meeting` and what that holds. A folder the query only reaches through one of its notes\n * is kept for that note: it stays at the depth the reader knows it at, unmarked, and shows nothing\n * else. An empty query returns the tree as it came.\n */",
   ]],
   ["src/client/lib/format-colors.ts", [
     "/**\n * Highlights are painted as a wash, so what matters here is the hue: each of these is saturated\n * enough to still read at {@link HIGHLIGHT_ALPHA} over a light page or a dark one.\n */",
@@ -7004,6 +7019,19 @@ const allowed = new Map([
     "/** Whether a label's reading has already been derived — the warm-up's own progress signal. */",
     "/**\n * Derive readings for up to `limit` labels that do not have one yet, starting at `from`, and return\n * the index to continue from. Bounded work in, bounded time out: this is the piece a keystroke would\n * otherwise pay all at once.\n */",
     "/**\n * Walk a listing's labels deriving their readings, a chunk per idle callback, and return a cancel.\n *\n * A 2000-note vault costs about 120ms of dictionary work — one long task on the first keystroke if\n * nothing spreads it out, invisible if idle does. Labels already cached are stepped over, so a\n * re-warm after the vault changes costs what is new and nothing else.\n */",
+  ]],
+  ["src/client/lib/query-match.test.ts", [
+    "// The dictionary is lazy in the browser; here the literal is what a reader can type without it.",
+    "// The same shape, run for real, is the thing the guard is for: it is unbounded, not merely slow.",
+  ]],
+  ["src/client/lib/query-match.ts", [
+    "/**\n * What a listing's filter box was asked for. `/body/flags` is a regular expression and anything\n * else is the fuzzy matcher, which reads Chinese labels by their initials; both answer in the same\n * shape, so a row can underline either without knowing which it got.\n */",
+    "/**\n * A group that repeats while repeating something inside itself multiplies its own backtracking, and\n * so does a repeated alternation whose branches start alike. Both are refused before the engine runs,\n * because nothing can stop a match once it has started: the price of a refusal is one keystroke, the\n * price of missing one is a frozen tab. It errs toward refusing — a name filter has no use for `(a+)+`.\n */",
+    "/** Every `( … )` in the pattern, inner text included; null when the parentheses do not nest. */",
+    "/** Whether the atom ending at `close` is repeated more than twice, or an unknown number of times. */",
+    "/** Any quantifier that is not inside a class, not a group prefix, and not a fixed `{1}` or `{2}`. */",
+    "/** The group body cut at every `|` that is not inside a nested group or a class. */",
+    "/**\n * Where the query lands in a label, or null when it does not. A repeated group's own failure is what\n * makes backtracking explode, so the expression is handed a capped slice: this compares names, and a\n * listing that hands it a body instead of a title is answered from the part of it a reader can see\n * anyway. The fuzzy matcher needs no such ceiling — a scan cannot blow up on length.\n */",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",

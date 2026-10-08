@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Tag } from '@shared/types'
 import { buildTagTree, collectParentPaths, flattenTagTree, searchTagTree, siblingParentPaths } from './tag-tree'
+import { compileQuery } from './query-match'
 
 function tag(name: string, count: number, isPinned = false): Tag {
   return { id: `id-${name}`, name, color: null, isPinned, count, createdAt: 1 }
@@ -109,7 +110,7 @@ describe('searchTagTree', () => {
   ])
 
   it('keeps the ancestor chain of a match so the child stays navigable', () => {
-    const result = searchTagTree(tree, '\u6307\u5357')
+    const result = searchTagTree(tree, compileQuery('\u6307\u5357'))
     expect(result.nodes.map((node) => node.fullPath)).toEqual(['Inkstone'])
     expect(result.nodes[0]!.children[0]!.fullPath).toBe('Inkstone/\u5165\u95e8')
     expect(result.nodes[0]!.children[0]!.children[0]!.fullPath).toBe('Inkstone/\u5165\u95e8/\u6307\u5357')
@@ -118,27 +119,40 @@ describe('searchTagTree', () => {
   })
 
   it('keeps the whole subtree under a parent that matches', () => {
-    const result = searchTagTree(tree, 'Inkstone')
+    const result = searchTagTree(tree, compileQuery('Inkstone'))
     expect(result.nodes[0]!.children[0]!.children).toHaveLength(1)
     expect(result.hitCount).toBe(2)
     expect([...result.matchedPaths]).toEqual(['Inkstone'])
   })
 
   it('tolerates a fuzzy query and drops unrelated branches', () => {
-    const result = searchTagTree(tree, 'apky')
+    const result = searchTagTree(tree, compileQuery('apky'))
     expect(result.nodes.map((node) => node.fullPath)).toEqual(['apikeys'])
     expect(result.hitCount).toBe(1)
   })
 
   it('counts the tags it shows rather than the invented ancestors above them', () => {
     const deep = buildTagTree([tag('a/b/target', 1), tag('a/b/other', 2)])
-    const result = searchTagTree(deep, 'target')
+    const result = searchTagTree(deep, compileQuery('target'))
     expect(result.hitCount).toBe(1)
     expect(flattenTagTree(result.nodes, new Set(collectParentPaths(result.nodes)))).toHaveLength(3)
   })
 
+  it('searches tag paths by expression when the query is written as one', () => {
+    const result = searchTagTree(tree, compileQuery('/^api/'))
+    expect(result.nodes.map((node) => node.fullPath)).toEqual(['apikeys'])
+    const anchored = searchTagTree(tree, compileQuery('/keys$/'))
+    expect([...anchored.matchedPaths]).toEqual(['apikeys'])
+  })
+
+  it('shows the reader why a refused expression matched nothing', () => {
+    const refused = compileQuery('/(a+)+b/')
+    expect(refused.error).toBe('unsafe')
+    expect(searchTagTree(tree, refused).nodes).toEqual([])
+  })
+
   it('returns the untouched tree for a blank query', () => {
-    const result = searchTagTree(tree, '   ')
+    const result = searchTagTree(tree, compileQuery('   '))
     expect(result.nodes).toHaveLength(tree.length)
     expect(result.hitCount).toBe(0)
     expect(result.matchedPaths.size).toBe(0)
