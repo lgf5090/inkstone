@@ -9,10 +9,7 @@ import {defaultMisspellings} from './misspellings';
 describe('Examples pass', () => {
   for (const rule of rules) {
     describe(rule.getName(), () => {
-      // two rules whose examples this fork does not yet satisfy; see the harness's
-      // KNOWN_DIVERGENCES list for why each one is open
-      const divergence = rule.alias === 'no-bare-urls' || rule.alias === 'yaml-timestamp';
-      test.skipIf(divergence).each(rule.examples)('$description', (example: Example) => {
+      test.each(rule.examples)('$description', (example: Example) => {
         const options = example.options;
         // add default misspellings for auto-correct
         if (rule.alias == 'auto-correct-common-misspellings') {

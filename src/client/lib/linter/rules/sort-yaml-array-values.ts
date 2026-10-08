@@ -117,7 +117,7 @@ export default class SortYamlArrayValues extends RuleBuilder<SortYamlArrayValues
       return text;
     });
   }
-  sortArray(arr: string | string[], sortType: YamlArraySortOrder): string | string[] {
+  sortArray(arr: string | string[] | null, sortType: YamlArraySortOrder): string | string[] | null {
     if (arr == null || typeof arr === 'string' || arr.length <= 1) {
       return arr;
     }

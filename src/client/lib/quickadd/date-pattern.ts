@@ -97,8 +97,20 @@ function dayOfYear(date: Date): number {
   return 1 + Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() - start.getTime()) / 86_400_000)
 }
 
+/**
+ * The ordinal suffix a day, month or quarter is written with.
+ *
+ * Only a handful of languages have ordinal forms at all, and this fork's date patterns are written
+ * in the two the interface offers plus whatever a reader copies out of a note. French is the one
+ * whose suffix actually changes what is read back — `1er` — so it is spelled out here; a language
+ * with no ordinal rule keeps the bare number, which is what its own almanac does.
+ */
 function ordinal(value: number, locale: string): string {
-  if (!locale.toLowerCase().startsWith('en')) return String(value)
+  const language = locale.toLowerCase().split(/[-_]/)[0]
+  if (language === 'fr') {
+    return value === 1 ? '1er' : `${value}e`
+  }
+  if (language !== 'en') return String(value)
   const lastTwo = value % 100
   if (lastTwo >= 11 && lastTwo <= 13) return `${value}th`
   return `${value}${['th', 'st', 'nd', 'rd'][value % 10] ?? 'th'}`

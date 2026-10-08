@@ -119,7 +119,9 @@ export default class NoBareUrls extends RuleBuilder<NoBareUrlsOptions> {
         urlMatch = urlMatch.substring(0, urlMatch.length - 1);
       }
 
-      if (this.skipMatch(previousChar ?? '', nextChar ?? '', urlMatch, isURISearch)) {
+      // `undefined` means there is no neighbour at all; an empty string would count as a special
+      // character to every `includes` check below and swallow the whole match.
+      if (this.skipMatch(previousChar, nextChar, urlMatch, isURISearch)) {
         continue;
       }
 
@@ -158,7 +160,7 @@ export default class NoBareUrls extends RuleBuilder<NoBareUrlsOptions> {
 
     replacements.push(replacement);
   }
-  skipMatch(previousChar: string, nextChar: string, match: string, isURISearch: boolean) {
+  skipMatch(previousChar: string | undefined, nextChar: string | undefined, match: string, isURISearch: boolean) {
     const startsWithSpecialCharacter = (previousChar != undefined && specialCharsToNotEscapeContentsWithin.includes(previousChar)) || specialCharsToNotEscapeContentsWithin.includes(match.charAt(0));
     const endsWithSpecialCharacter = (nextChar != undefined && specialCharsToNotEscapeContentsWithin.includes(nextChar)) || specialCharsToNotEscapeContentsWithin.includes(match.charAt(match.length - 1));
     if (startsWithSpecialCharacter && endsWithSpecialCharacter) {

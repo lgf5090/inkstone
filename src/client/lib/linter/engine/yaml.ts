@@ -342,9 +342,14 @@ export function requireYamlSectionValue(yaml: string, rawKey: string, allowNeste
   return getYamlSectionValue(yaml, rawKey, allowNestedKey) ?? '';
 }
 
-/** A key's value, already split the way it is written. For a key the caller knows is present. */
-export function splitRequiredYamlSection(yaml: string, rawKey: string): string | string[] {
-  return splitValueIfSingleOrMultilineArray(requireYamlSectionValue(yaml, rawKey)) ?? '';
+/**
+ * A key's value, already split the way it is written. A key with nothing in it — `key:` with no
+ * value, or `key: []` — answers `null` rather than an empty string: an empty string is a one-item
+ * array holding nothing, which is how a forced multi-line style ended up writing `key:` plus an empty
+ * list item where the reference leaves the key empty.
+ */
+export function splitRequiredYamlSection(yaml: string, rawKey: string): string | string[] | null {
+  return splitValueIfSingleOrMultilineArray(requireYamlSectionValue(yaml, rawKey));
 }
 
 export function getYamlSectionValue(yaml: string, rawKey: string, allowNestedKey: boolean = true): string | null {
@@ -549,7 +554,7 @@ export type QuoteCharacter = '\'' | '"';
  * @param {boolean} escapeNumericValues Whether or not to escape any numeric values found in the array.
  * @return {string} The formatted array in the specified YAML/obsidian YAML format.
  */
-export function formatYamlArrayValue(value: string | string[], format: NormalArrayFormats | SpecialArrayFormats | TagSpecificArrayFormats, defaultEscapeCharacter: QuoteCharacter, removeEscapeCharactersIfPossibleWhenGoingToMultiLine: boolean, escapeNumericValues: boolean = false): string {
+export function formatYamlArrayValue(value: string | string[] | null, format: NormalArrayFormats | SpecialArrayFormats | TagSpecificArrayFormats, defaultEscapeCharacter: QuoteCharacter, removeEscapeCharactersIfPossibleWhenGoingToMultiLine: boolean, escapeNumericValues: boolean = false): string {
   if (typeof value === 'string') {
     value = [value];
   }
@@ -706,7 +711,7 @@ export function splitValueIfSingleOrMultilineArray(value: string): null | string
  * @param {string | string[]} value The value that is already good to go or needs to be split on a comma or spaces.
  * @return {string} The converted tag key value that should account for its obsidian formats.
  */
-export function convertTagValueToStringOrStringArray(value: string | string[]): string[] {
+export function convertTagValueToStringOrStringArray(value: string | string[] | null): string[] {
   if (value == null) {
     return [];
   }
@@ -733,7 +738,11 @@ export function convertTagValueToStringOrStringArray(value: string | string[]): 
  * @param {string | string[]} value The value of the aliases key that may need to be split into the appropriate parts.
  * @return {string} The alias value converted to the appropriate array items for formatting.
  */
-export function convertAliasValueToStringOrStringArray(value: string | string[]): string[] {
+export function convertAliasValueToStringOrStringArray(value: string | string[] | null): string[] {
+  if (value == null) {
+    return [];
+  }
+
   if (typeof value === 'string') {
     return convertYAMLStringToArray(value, ',') ?? [];
   }

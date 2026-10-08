@@ -64,11 +64,22 @@ ruleTest({
 });
 
 describe('protected ranges preserve the masking contract', () => {
+  // The rule's own defaults already list `[`, `]`, `(` and `)`, so a case that means to choose its
+  // own anchors has to name them the way the settings do — the dashed spelling used in the
+  // reference's tests is dropped on the floor there, which left those cases testing the defaults.
   it.each(['', '- '])('does not use protected symbols as anchors with prefix %j', (prefix) => {
     const text = prefix + 'text [link](url) text';
-    const options = { 'characters-to-remove-space-before': '[', 'characters-to-remove-space-after': ')' };
+    const options = { characters_to_remove_space_before: '[', characters_to_remove_space_after: ')' };
     // An ignored link's brackets cannot license deletion of whitespace outside that link.
     expect(RemoveSpaceBeforeOrAfterCharacters.getRule().apply(text, options)).toBe(text);
+  });
+
+  it('reads the anchors it is given instead of falling back to its defaults', () => {
+    const text = 'a b{c} d';
+    const options = { characters_to_remove_space_before: '{', characters_to_remove_space_after: '}' };
+
+    expect(RemoveSpaceBeforeOrAfterCharacters.getRule().apply(text, options)).toBe('a b{c}d');
+    expect(RemoveSpaceBeforeOrAfterCharacters.getRule().apply(text, { characters_to_remove_space_before: '', characters_to_remove_space_after: '' })).toBe(text);
   });
 
   it.each(['', '- '])('allows unprotected anchors next to protected regions with prefix %j', (prefix) => {
@@ -76,12 +87,9 @@ describe('protected ranges preserve the masking contract', () => {
     expect(RemoveSpaceBeforeOrAfterCharacters.getRule().apply(text)).toBe(prefix + '[link](url). ([link](url)');
   });
 
-  // the fork's projection token for a protected run is padded where the reference's is not, so
-  // the anchor the rule looks for lands one character off; kept as a skip rather than a changed
-  // expectation, because the reference's assertion is the one that has to be satisfied
-  it.skip('uses literal braces, not legacy placeholder braces, as anchors', () => {
+  it('uses literal braces, not legacy placeholder braces, as anchors', () => {
     const text = 'text [link](url) text {literal} text';
-    const options = { 'characters-to-remove-space-before': '{', 'characters-to-remove-space-after': '}' };
+    const options = { characters_to_remove_space_before: '{', characters_to_remove_space_after: '}' };
     // Intentionally unlike masking: synthetic placeholder braces must not trigger edits.
     expect(RemoveSpaceBeforeOrAfterCharacters.getRule().apply(text, options)).toBe('text [link](url) text{literal}text');
   });

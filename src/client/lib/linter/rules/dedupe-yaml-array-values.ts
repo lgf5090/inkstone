@@ -131,7 +131,7 @@ export default class DedupeYamlArrayValues extends RuleBuilder<DedupeYamlArrayVa
 
     return value;
   }
-  getUniqueArray(arr: string | string[]): string | string[] {
+  getUniqueArray(arr: string | string[] | null): string | string[] | null {
     if (arr == null || typeof arr === "string" || arr.length <= 1) {
       return arr;
     }
