@@ -1,8 +1,13 @@
 import { act, createElement, type RefObject } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
+import { installTestGlobals } from '../../lib/test-render'
 import { GalleryHeader } from './gallery-header'
+
+beforeAll(() => {
+  installTestGlobals()
+})
 
 let root: Root
 let container: HTMLDivElement

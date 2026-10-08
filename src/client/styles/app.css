@@ -557,12 +557,20 @@
 .mobile-note-list > header button { min-width: 44px; min-height: 44px; }
 .mobile-library-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 .mobile-library-toolbar .mobile-note-search {
   min-width: 0;
   flex: 1;
+}
+/* Four 44px touch targets already cost 176px, which left the search box two
+   characters wide on a small phone; below the tablet breakpoint it takes its own row. */
+@media (max-width: 639px) {
+  .mobile-library-toolbar .mobile-note-search {
+    flex: 1 0 100%;
+  }
 }
 .mobile-note-list > header .mobile-library-sort {
   flex: 0 0 44px;
