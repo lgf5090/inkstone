@@ -1,25 +1,22 @@
 /**
- * The startup macro: the one run the notebook makes on its own.
+ * The startup macros: the runs the notebook makes on its own.
  *
- * The reference fires every time the vault loads, which in a web app means every refresh — a macro
- * that files a note would leave one per reload. So the default scope remembers the last run per
- * calendar day in this browser, and the session scope keeps the reference's behaviour for anyone who
- * wants exactly that.
+ * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,
+ * with no memory of having done so. In a web app "when the vault opens" is "every refresh", so a
+ * macro that files a note would leave one per reload; the day scope remembers the last run per macro
+ * in this browser, and the session scope keeps the reference's behaviour for anyone who wants it.
  */
-import type { QuickAddSettings } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddMacroChoice, QuickAddSettings } from '@shared/quickadd'
 
 export const STARTUP_STAMP_KEY = 'inkstone.quickadd-startup.v1'
 
-export type StartupSettings = Pick<QuickAddSettings, 'enabled' | 'startupMacroId' | 'startupScope'>
+export type StartupSettings = Pick<QuickAddSettings, 'enabled' | 'startupScope'>
 
-interface StartupStamp {
-  macroId: string
-  day: string
-}
+type StartupStamps = Record<string, string>
 
 type StartupStorage = Pick<Storage, 'getItem' | 'setItem'> | null
 
-let sessionRun: string | null = null
+const sessionRuns = new Set<string>()
 
 function defaultStorage(): StartupStorage {
   return typeof localStorage === 'undefined' ? null : localStorage
@@ -35,42 +32,51 @@ export function startupDay(now: Date): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
-export function loadStartupStamp(storage: StartupStorage = defaultStorage()): StartupStamp | null {
+/** Every macro the reader asked to run by itself, in the order the launcher lists them. */
+export function startupMacros(choices: readonly QuickAddChoice[]): QuickAddMacroChoice[] {
+  return choices
+    .filter((choice): choice is QuickAddMacroChoice => choice.type === 'macro' && choice.enabled && choice.runOnStartup)
+    .sort((a, b) => a.position - b.position)
+}
+
+export function loadStartupStamps(storage: StartupStorage = defaultStorage()): StartupStamps {
   try {
     const raw = storage?.getItem(STARTUP_STAMP_KEY)
-    if (!raw) return null
-    const value = JSON.parse(raw) as { macroId?: unknown; day?: unknown }
-    if (typeof value.macroId !== 'string' || typeof value.day !== 'string') return null
-    return { macroId: value.macroId, day: value.day }
+    if (!raw) return {}
+    const value = JSON.parse(raw) as Record<string, unknown>
+    const stamps: StartupStamps = {}
+    for (const [key, day] of Object.entries(value)) {
+      if (typeof day === 'string' && key !== '__proto__') stamps[key] = day
+    }
+    return stamps
   }
   catch {
-    return null
+    return {}
   }
 }
 
-export function saveStartupStamp(stamp: StartupStamp, storage: StartupStorage = defaultStorage()): void {
+export function saveStartupStamps(stamps: StartupStamps, storage: StartupStorage = defaultStorage()): void {
   try {
-    storage?.setItem(STARTUP_STAMP_KEY, JSON.stringify(stamp))
+    storage?.setItem(STARTUP_STAMP_KEY, JSON.stringify(stamps))
   }
   catch {
-    // A private-mode write can throw; the session flag still keeps this load quiet.
+    // A private-mode write can throw; the session set still keeps this load quiet.
   }
 }
 
 export function shouldRunStartup(
   settings: StartupSettings,
+  macroId: string,
   owner: string,
   now: Date = new Date(),
   storage: StartupStorage = defaultStorage(),
 ): boolean {
-  const macroId = settings.startupMacroId
   if (!settings.enabled || !macroId || owner === '') return false
-  // Never twice in one load, whatever the scope says: the library can change identity a few times
-  // while the shell settles, and a browser that refuses to store anything has no day to check.
-  if (sessionRun === ownerKey(owner, macroId)) return false
+  // Never twice in one load, whatever the scope says: the library changes identity a few times while
+  // the shell settles, and a browser that refuses to store anything has no day left to check.
+  if (sessionRuns.has(ownerKey(owner, macroId))) return false
   if (settings.startupScope === 'session') return true
-  const stamp = loadStartupStamp(storage)
-  return stamp === null || stamp.macroId !== macroId || stamp.day !== startupDay(now)
+  return loadStartupStamps(storage)[macroId] !== startupDay(now)
 }
 
 export function markStartupRun(
@@ -79,11 +85,13 @@ export function markStartupRun(
   now: Date = new Date(),
   storage: StartupStorage = defaultStorage(),
 ): void {
-  sessionRun = ownerKey(owner, macroId)
-  saveStartupStamp({ macroId, day: startupDay(now) }, storage)
+  sessionRuns.add(ownerKey(owner, macroId))
+  const stamps = loadStartupStamps(storage)
+  stamps[macroId] = startupDay(now)
+  saveStartupStamps(stamps, storage)
 }
 
 /** Only a test or an account switch needs this; a page load starts with nothing run. */
 export function resetStartupSession(): void {
-  sessionRun = null
+  sessionRuns.clear()
 }

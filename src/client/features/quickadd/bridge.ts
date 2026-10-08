@@ -12,9 +12,10 @@ import { useEffect } from 'react'
 import type { QuickAddChoice } from '@shared/quickadd'
 import { register, type Hotkey } from '../../lib/hotkeys'
 import { t } from '../../lib/i18n'
-import { markStartupRun, shouldRunStartup } from '../../lib/quickadd/startup'
+import { markStartupRun, shouldRunStartup, startupMacros } from '../../lib/quickadd/startup'
 import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
+import { useUi } from '../../store/ui'
 
 function choiceHotkey(choice: QuickAddChoice): Hotkey {
   return {
@@ -63,19 +64,31 @@ export function useQuickAddBridge(owner: string | undefined): void {
     }
   }, [choices, enabled])
 
-  // The startup macro waits for both libraries: a note-creating macro that ran before the notes were
+  // The startup macros wait for both libraries: a note-creating macro that ran before the notes were
   // loaded would not find the note it means to append to, and would file a second one instead.
   useEffect(() => {
     if (!owner || !libraryReady || !notesReady) return
-    const settings = useQuickAdd.getState().settings
-    if (!shouldRunStartup(settings, owner)) return
-    const macroId = settings.startupMacroId
-    if (!macroId) return
-    const macro = useQuickAdd.getState().choices.find((choice) => choice.id === macroId)
-    // A macro that was deleted or switched off is not a run to report at boot — the settings row names
-    // it as gone, which is where the reader can actually do something about it.
-    if (!macro || macro.type !== 'macro' || !macro.enabled) return
-    markStartupRun(owner, macroId)
-    void import('../../lib/quickadd/runner').then(({ runQuickAddChoice }) => runQuickAddChoice(macroId))
+    const store = useQuickAdd.getState()
+    const wanted = startupMacros(store.choices)
+    if (wanted.length === 0) return
+    void (async () => {
+      const { runQuickAddChoice } = await import('../../lib/quickadd/runner')
+      for (const macro of wanted) {
+        if (!shouldRunStartup(store.settings, macro.id, owner)) continue
+        markStartupRun(owner, macro.id)
+        // One macro that throws must not take the rest of the routine down with it; the reference
+        // isolates each one, and a run nobody asked for has no business blocking the shell.
+        try {
+          await runQuickAddChoice(macro.id)
+        }
+        catch (error) {
+          useUi.getState().toast({
+            title: t('quickadd.startup_failed', { name: macro.name }),
+            description: error instanceof Error ? error.message : String(error),
+            tone: 'danger',
+          })
+        }
+      }
+    })()
   }, [choices, libraryReady, notesReady, owner])
 }

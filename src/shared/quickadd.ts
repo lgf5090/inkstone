@@ -136,6 +136,8 @@ export type QuickAddStep =
 export interface QuickAddMacroChoice extends QuickAddChoiceBase {
   type: 'macro'
   steps: QuickAddStep[]
+  /** Fire this macro when the notebook finishes loading, without anyone asking. */
+  runOnStartup: boolean
 }
 
 export interface QuickAddGroupChoice extends QuickAddChoiceBase {
@@ -175,9 +177,7 @@ export interface QuickAddSettings {
   searchNestedChoices: boolean
   onePage: QuickAddOnePageMode
   drafts: boolean
-  /** The macro the notebook runs after it loads. `null` means nothing runs on its own. */
-  startupMacroId: string | null
-  /** How often that macro is allowed to fire: once per load, or once per calendar day. */
+  /** How often a macro flagged "run on startup" may fire: once per load, or once per day. */
   startupScope: QuickAddStartupScope
   defaultFolder: string
   dateFormat: string
@@ -229,7 +229,6 @@ export function defaultQuickAddSettings(): QuickAddSettings {
     searchNestedChoices: true,
     onePage: 'auto',
     drafts: true,
-    startupMacroId: null,
     startupScope: 'day',
     defaultFolder: '',
     dateFormat: 'YYYY-MM-DD',
@@ -316,7 +315,7 @@ export function newCaptureChoice(id: string, name: string, position: number): Qu
 }
 
 export function newMacroChoice(id: string, name: string, position: number): QuickAddMacroChoice {
-  return { ...baseChoice({ id, name, position }), type: 'macro', steps: [] }
+  return { ...baseChoice({ id, name, position }), type: 'macro', steps: [], runOnStartup: false }
 }
 
 export function newGroupChoice(id: string, name: string, position: number): QuickAddGroupChoice {
@@ -581,7 +580,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
       }
     }
     case 'macro':
-      return { ...base, type: 'macro', steps: normalizeSteps(value.steps, 0) }
+      return { ...base, type: 'macro', steps: normalizeSteps(value.steps, 0), runOnStartup: boolOf(value.runOnStartup, false) }
     case 'group':
       return { ...base, type: 'group', collapsed: boolOf(value.collapsed, false) }
     default:
@@ -713,7 +712,6 @@ export function normalizeQuickAddSettings(value: unknown, knownIds: ReadonlySet<
     searchNestedChoices: boolOf(value.searchNestedChoices, fallback.searchNestedChoices),
     onePage: pick(value.onePage, ['always', 'auto', 'never'] as const, fallback.onePage),
     drafts: boolOf(value.drafts, fallback.drafts),
-    startupMacroId: normalizeRef(value.startupMacroId),
     startupScope: pick(value.startupScope, ['session', 'day'] as const, fallback.startupScope),
     defaultFolder: normalizeFolderPath(value.defaultFolder),
     dateFormat: oneLine(value.dateFormat, 40) || fallback.dateFormat,

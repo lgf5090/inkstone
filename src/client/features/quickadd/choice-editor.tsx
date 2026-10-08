@@ -696,6 +696,11 @@ function MacroFields({ draft, patch }: {
           <StepFields step={step} index={index} runnable={runnable} onChange={(next) => updateStep(index, next)}/>
         </fieldset>
       ))}
+      <SettingRow title={t('quickadd.field_run_on_startup')} description={t('quickadd.field_run_on_startup_desc')}>
+        <Switch
+          checked={draft.runOnStartup}
+          onChange={(runOnStartup) => patch({ runOnStartup } as Partial<QuickAddChoice>)}/>
+      </SettingRow>
     </div>
   )
 }

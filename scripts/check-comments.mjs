@@ -3621,10 +3621,10 @@ const allowed = new Map([
   ["src/client/features/quickadd/bridge.ts", [
     "// The reader is usually inside a note when they press it, and the shortcut has to reach them there.",
     "/**\n * The shell's side of QuickAdd: load the account's library, turn each choice that carries a shortcut\n * into a real key binding, and fire the startup macro once the notebook is ready.\n *\n * The bindings are registered while the library is loaded and disposed when it changes, so a renamed\n * or re-keyed choice takes effect on the next keystroke rather than needing a reload. Two choices with\n * the same combo cannot both fire: the registry is walked in insertion order, which is tree order, so\n * the choice the reader sees first in the launcher is the one that owns the key — and the settings\n * editor says so before it lets the collision through.\n */",
-    "// The startup macro waits for both libraries: a note-creating macro that ran before the notes were",
     "// loaded would not find the note it means to append to, and would file a second one instead.",
-    "// A macro that was deleted or switched off is not a run to report at boot — the settings row names",
-    "// it as gone, which is where the reader can actually do something about it.",
+    "// The startup macros wait for both libraries: a note-creating macro that ran before the notes were",
+    "// One macro that throws must not take the rest of the routine down with it; the reference",
+    "// isolates each one, and a run nobody asked for has no business blocking the shell.",
   ]],
   ["src/client/features/quickadd/choice-editor.tsx", [
     "/**\n * The editor for one QuickAdd choice.\n *\n * A draft copy is edited and only written back on Save: a capture format is built over minutes, and\n * autosaving every keystroke would push a half-typed `{{DATE` to the account. The live preview is what\n * makes the form trustworthy — `inertFormat` is the same pass a run uses, so the preview shows what the\n * note will get, a prompt-shaped token is marked rather than guessed, and nothing here can ask a\n * question or touch a note.\n */",
@@ -3729,8 +3729,6 @@ const allowed = new Map([
     "/**\n * Settings → Automation: the whole QuickAdd feature in one page.\n *\n * The formats an author writes are the reason this page lives in the app's own settings sheet: a\n * capture that inserts a note into the middle of a heading list should look like any other preference,\n * not like a plugin window dropped on top. Everything here edits the account's choice library, which\n * the store pushes to the server on a debounce — so the page writes through the store, never to the\n * endpoint directly, and a reload of the section shows the same data another tab just saved.\n */",
     "// A variable with no name is dropped by the library normalizer, so the new one is drafted here",
     "// and only joins the list when it has something to be called.",
-    "// A macro deleted after it was chosen leaves the setting pointing at nothing; the row says so rather",
-    "// than showing an empty box, which would read as \"nothing was ever picked\".",
   ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",
@@ -9099,12 +9097,13 @@ const allowed = new Map([
     "// an engine's own request is one it has decided to ask.",
   ]],
   ["src/client/lib/quickadd/startup.ts", [
-    "/**\n * The startup macro: the one run the notebook makes on its own.\n *\n * The reference fires every time the vault loads, which in a web app means every refresh — a macro\n * that files a note would leave one per reload. So the default scope remembers the last run per\n * calendar day in this browser, and the session scope keeps the reference's behaviour for anyone who\n * wants exactly that.\n */",
     "/** The reader's own calendar day, not the UTC one: \"once a day\" means their day. */",
-    "// A private-mode write can throw; the session flag still keeps this load quiet.",
-    "// Never twice in one load, whatever the scope says: the library can change identity a few times",
-    "// while the shell settles, and a browser that refuses to store anything has no day to check.",
     "/** Only a test or an account switch needs this; a page load starts with nothing run. */",
+    "/**\n * The startup macros: the runs the notebook makes on its own.\n *\n * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,\n * with no memory of having done so. In a web app \"when the vault opens\" is \"every refresh\", so a\n * macro that files a note would leave one per reload; the day scope remembers the last run per macro\n * in this browser, and the session scope keeps the reference's behaviour for anyone who wants it.\n */",
+    "/** Every macro the reader asked to run by itself, in the order the launcher lists them. */",
+    "// A private-mode write can throw; the session set still keeps this load quiet.",
+    "// Never twice in one load, whatever the scope says: the library changes identity a few times while",
+    "// the shell settles, and a browser that refuses to store anything has no day left to check.",
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",
@@ -9698,8 +9697,8 @@ const allowed = new Map([
     "/** Say that a run stopped because the reader closed the question, rather than saying nothing. */",
     "/** The launcher's filter also looks inside groups and lists what it finds with its path. */",
     "/** Use the template named on the choice, or pick one from the library every run. */",
-    "/** The macro the notebook runs after it loads. `null` means nothing runs on its own. */",
-    "/** How often that macro is allowed to fire: once per load, or once per calendar day. */",
+    "/** Fire this macro when the notebook finishes loading, without anyone asking. */",
+    "/** How often a macro flagged \"run on startup\" may fire: once per load, or once per day. */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",

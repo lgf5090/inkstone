@@ -272,14 +272,14 @@ describe('the quickadd record', () => {
       .toEqual({ folder: 'x', format: 'YYYY-MM-DD', templateId: null })
   })
 
-  it('keeps the startup macro and refuses a scope it does not know', () => {
-    const kept = normalizeQuickAddSettings({ startupMacroId: 'qa-mac', startupScope: 'session' })
-    expect(kept.startupMacroId).toBe('qa-mac')
-    expect(kept.startupScope).toBe('session')
-    const repaired = normalizeQuickAddSettings({ startupMacroId: 'x'.repeat(200), startupScope: 'hourly' })
-    expect(repaired.startupMacroId, 'a reference that is not an id is no reference at all').toBeNull()
-    expect(repaired.startupScope, 'the quiet default: a day, not every reload').toBe('day')
-    expect(defaultQuickAddSettings().startupMacroId, 'nothing runs on its own until the reader says so').toBeNull()
+  it('keeps a macro’s startup flag and refuses a scope it does not know', () => {
+    const flagged = normalizeQuickAddChoice({ ...newMacroChoice('qa-mac', 'Morning', 0), runOnStartup: true })
+    expect(flagged?.type === 'macro' && flagged.runOnStartup).toBe(true)
+    const plain = normalizeQuickAddChoice(newMacroChoice('qa-mac', 'Morning', 0))
+    expect(plain?.type === 'macro' && plain.runOnStartup, 'nothing runs by itself until the reader says so').toBe(false)
+    expect(normalizeQuickAddChoice({ ...newMacroChoice('qa-mac', 'M', 0), runOnStartup: 'yes' })?.type).toBe('macro')
+    expect(normalizeQuickAddSettings({ startupScope: 'session' }).startupScope).toBe('session')
+    expect(normalizeQuickAddSettings({ startupScope: 'hourly' }).startupScope, 'the quiet default: a day, not every reload').toBe('day')
   })
 })
 

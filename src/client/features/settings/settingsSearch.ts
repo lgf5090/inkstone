@@ -282,7 +282,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'automation', titleKey: 'settings.quickadd_selection_as_value' },
   { section: 'automation', titleKey: 'settings.quickadd_drafts' },
   { section: 'automation', titleKey: 'quickadd.field_one_page', termKeys: ['quickadd.one_page_auto', 'quickadd.one_page_always', 'quickadd.one_page_never'] },
-  { section: 'automation', titleKey: 'quickadd.field_startup_macro', detailKey: 'quickadd.field_startup_macro_desc', termKeys: ['quickadd.startup_none', 'quickadd.startup_gone'] },
   { section: 'automation', titleKey: 'quickadd.field_startup_scope', detailKey: 'quickadd.field_startup_scope_desc', termKeys: ['quickadd.startup_scope_day', 'quickadd.startup_scope_session'] },
   { section: 'automation', titleKey: 'settings.quickadd_default_folder' },
   { section: 'automation', titleKey: 'settings.quickadd_date_format' },

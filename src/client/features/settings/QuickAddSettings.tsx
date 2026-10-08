@@ -38,7 +38,6 @@ export function QuickAddSettings() {
   const importLibrary = useQuickAdd((state) => state.importLibrary)
   const exportText = useQuickAdd((state) => state.exportText)
   const globalVars = settings.globalVars
-  const choices = useQuickAdd((state) => state.choices)
   const user = useSession((state) => state.user)
   const owner = user?.id ?? ''
   const hydrateTemplates = useNoteTemplates((state) => state.hydrate)
@@ -56,10 +55,6 @@ export function QuickAddSettings() {
 
   const datePreview = useMemo(() => previewDateFormat(settings.dateFormat, locale), [locale, settings.dateFormat])
   const timePreview = useMemo(() => previewDateFormat(settings.timeFormat, locale), [locale, settings.timeFormat])
-  const macros = useMemo(() => choices.filter((choice) => choice.type === 'macro'), [choices])
-  // A macro deleted after it was chosen leaves the setting pointing at nothing; the row says so rather
-  // than showing an empty box, which would read as "nothing was ever picked".
-  const startupGone = settings.startupMacroId !== null && !macros.some((macro) => macro.id === settings.startupMacroId)
 
   const setVar = useCallback((index: number, next: { name: string; value: string }) => {
     save({ globalVars: globalVars.map((entry, at) => (at === index ? next : entry)) })
@@ -124,29 +119,15 @@ export function QuickAddSettings() {
             <option value="never">{t('quickadd.one_page_never')}</option>
           </Select>
         </SettingRow>
-        <SettingRow
-          title={t('quickadd.field_startup_macro')}
-          description={startupGone ? t('quickadd.startup_gone') : t('quickadd.field_startup_macro_desc')}>
+        <SettingRow title={t('quickadd.field_startup_scope')} description={t('quickadd.field_startup_scope_desc')}>
           <Select
-            aria-label={t('quickadd.field_startup_macro')}
-            value={settings.startupMacroId ?? ''}
-            onChange={(event) => save({ startupMacroId: event.target.value === '' ? null : event.target.value })}>
-            <option value="">{t('quickadd.startup_none')}</option>
-            {macros.map((macro) => <option key={macro.id} value={macro.id}>{macro.name}</option>)}
-            {startupGone && <option value={settings.startupMacroId ?? ''}>{t('quickadd.startup_gone')}</option>}
+            aria-label={t('quickadd.field_startup_scope')}
+            value={settings.startupScope}
+            onChange={(event) => save({ startupScope: event.target.value as QuickAddStartupScope })}>
+            <option value="day">{t('quickadd.startup_scope_day')}</option>
+            <option value="session">{t('quickadd.startup_scope_session')}</option>
           </Select>
         </SettingRow>
-        {settings.startupMacroId && (
-          <SettingRow title={t('quickadd.field_startup_scope')} description={t('quickadd.field_startup_scope_desc')}>
-            <Select
-              aria-label={t('quickadd.field_startup_scope')}
-              value={settings.startupScope}
-              onChange={(event) => save({ startupScope: event.target.value as QuickAddStartupScope })}>
-              <option value="day">{t('quickadd.startup_scope_day')}</option>
-              <option value="session">{t('quickadd.startup_scope_session')}</option>
-            </Select>
-          </SettingRow>
-        )}
         <SettingRow title={t('settings.quickadd_default_folder')} description={t('settings.quickadd_default_folder_desc')}>
           <Input aria-label={t('settings.quickadd_default_folder')} className="w-[220px] max-w-full" value={settings.defaultFolder} onChange={(event) => save({ defaultFolder: event.target.value })}/>
         </SettingRow>
