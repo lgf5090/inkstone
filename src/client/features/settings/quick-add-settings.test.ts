@@ -435,6 +435,24 @@ describe('the choice editor', () => {
     expect(macroSteps()).toHaveLength(2)
   })
 
+  it('lets a macro step name an app command', async () => {
+    const choice = { ...newMacroChoice('qa-m', 'Routine', 0), steps: [] }
+    seed({ choices: [choice] })
+    editor(choice)
+    clickNamed(t('quickadd.add_step'))
+    selectNamed(t('quickadd.step_kind'), 'command')
+    const select = control(t('quickadd.step_command'))
+    expect(select, 'the step offers the same list the palette shows').toBeInstanceOf(HTMLSelectElement)
+    const node = select as HTMLSelectElement
+    expect([...node.options].map((option) => option.value)).toContain('cmd-new')
+    expect(node.value, 'a fresh step names the first command rather than nothing').toBe('cmd-new')
+    selectNamed(t('quickadd.step_command'), 'cmd-emoji')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'macro' && saved.steps).toEqual([{ kind: 'command', commandId: 'cmd-emoji' }])
+  })
+
   it('offers the token list without leaving the editor', () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })

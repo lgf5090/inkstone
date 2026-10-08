@@ -93,7 +93,9 @@ describe('graph storage and route hardening', () => {
     expect(entry).toContain('APP_SHORTCUTS.graph')
     expect(entry).toContain('allowInInput: true')
     expect(entry).toContain('allowInOverlay: true')
-    const surfaces = ['../src/client/features/sidebar/Sidebar.tsx', '../src/client/features/command/CommandPalette.tsx']
+    // The palette's command list moved into the registry, so the shared chord now has to be spelled
+    // out in one of three files and never as a literal in any of them.
+    const surfaces = ['../src/client/features/sidebar/Sidebar.tsx', '../src/client/features/command/CommandPalette.tsx', '../src/client/features/command/registry.ts']
       .map((path) => read(path))
       .join('\n')
     expect(surfaces).not.toMatch(/['"]mod\+shift\+g['"]/)

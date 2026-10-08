@@ -124,6 +124,7 @@ export type QuickAddStep =
   | { kind: 'create'; title: string; templateId: string | null; folderPath: string; openAfter: boolean }
   | { kind: 'capture'; title: string; text: string; position: 'bottom' | 'top' }
   | { kind: 'copy'; text: string }
+  | { kind: 'command'; commandId: string }
   | { kind: 'open'; title: string }
   | { kind: 'notify'; text: string }
   | { kind: 'wait'; ms: number }
@@ -438,6 +439,8 @@ function normalizeStep(value: unknown, depth: number): QuickAddStep | null {
       return { kind: 'copy', text: textOf(value.text, QUICKADD_LIMITS.maxFormatLength) }
     case 'open':
       return { kind: 'open', title: oneLine(value.title, QUICKADD_LIMITS.maxNameLength) }
+    case 'command':
+      return { kind: 'command', commandId: oneLine(value.commandId, 60) }
     case 'notify':
       return { kind: 'notify', text: oneLine(value.text, QUICKADD_LIMITS.maxTextLength) }
     case 'wait':

@@ -67,6 +67,11 @@ export interface NotePort {
   templateBody(name: string): Promise<string | null>
   /** Every template name in the library, for a choice that asks which one to use. */
   templateNames(): string[]
+  /**
+   * Run one of the app's own commands by id, the way the palette entry does. False when the id is
+   * unknown or not offered right now, so the step can say so instead of looking like it worked.
+   */
+  runAppCommand(id: string): boolean
   /** A property name to value list, collected from the account's other notes. */
   fieldValues(name: string, filter: FieldValueFilter): Promise<string[]>
   /** Note titles inside a folder, for `{{FILE:folder}}`. */

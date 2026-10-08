@@ -125,6 +125,15 @@ async function runStep(step: QuickAddStep, state: MacroState): Promise<QuickAddR
       await port.open(found.id)
       return null
     }
+    case 'command': {
+      // The id is authored from the same list the palette shows, so a refusal means the command was
+      // renamed or needs a note that is no longer open.
+      if (step.commandId.trim() === '')
+        return { kind: 'failed', reason: t('quickadd.error_command_unavailable') }
+      if (!port.runAppCommand(step.commandId.trim()))
+        return { kind: 'failed', reason: t('quickadd.error_command_unavailable') }
+      return null
+    }
     case 'notify': {
       const formatted = await formatWithPrompts(step.text, buildRuntime(session, port), session, owner.name)
       port.notify(owner.name, formatted.text)

@@ -628,8 +628,6 @@ const allowed = new Map([
   ["src/client/features/command/CommandPalette.tsx", [
     "// The pointer already sits on its row; scrolling would move other rows under it and",
     "// re-trigger the highlight, so only keyboard movement scrolls.",
-    "// A choice flagged as a command is the one thing QuickAdd promises to run without opening",
-    "// the list, and a renamed choice has to show its new name here the same second.",
   ]],
   ["src/client/features/command/palette-perf.test.ts", [
     "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
@@ -639,6 +637,17 @@ const allowed = new Map([
     "// Not a command, switched off, or a group: none of those may be a runnable palette row.",
     "// A Chinese choice name is the case the fuzzy + pinyin path has to answer to; `check-i18n.mjs`",
     "// keeps such data out of `src/` because interface copy belongs in the catalog.",
+  ]],
+  ["src/client/features/command/registry.test.ts", [
+    "// Lucide components are forwardRef objects, so a plain `typeof === 'function'` check is wrong.",
+  ]],
+  ["src/client/features/command/registry.ts", [
+    "/**\n * The application commands, as data.\n *\n * The palette used to build this list inside its own component, which made the commands unreachable\n * from anywhere else — a QuickAdd macro could not say \"do what the palette entry called X does\"\n * without opening the palette. Every entry here reads what it needs from the stores when it is\n * called, so the palette, a hotkey and an automation step all run the same one implementation.\n */",
+    "/** The commands as they apply right now: labels follow the locale, and a few need an open note. */",
+    "// A choice flagged as a command is the one thing QuickAdd promises to run without opening",
+    "// the list, and a renamed choice has to show its new name here the same second.",
+    "/** One command by id, or null when nothing registers that id. */",
+    "/**\n * Run a command by id without opening the palette. The three refusals are reported rather than\n * swallowed, because a caller in an automation chain has to say why nothing happened.\n */",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -8864,6 +8873,7 @@ const allowed = new Map([
     "/** The run could not go ahead, and said why. */",
     "/** Strip what a title cannot carry, the way the app's own new-note flow does. */",
     "/** Every template name in the library, for a choice that asks which one to use. */",
+    "/**\n   * Run one of the app's own commands by id, the way the palette entry does. False when the id is\n   * unknown or not offered right now, so the step can say so instead of looking like it worked.\n   */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -8998,6 +9008,8 @@ const allowed = new Map([
     "/** Everything the steps produced, which is what `{{MACRO:}}` writes. */",
     "/** The macro run behind `{{MACRO:name}}`: its text, not its status. */",
     "/** Look a macro up by name, the way `{{MACRO:Cleanup}}` does. */",
+    "// The id is authored from the same list the palette shows, so a refusal means the command was",
+    "// renamed or needs a note that is no longer open.",
   ]],
   ["src/client/lib/quickadd/math.ts", [
     "/**\n * The arithmetic behind `{{MVALUE}}`.\n *\n * The reference plugin evaluates that token with mathjs. Inkstone has no such dependency and the\n * expression arrives as user text that a shared notebook may hand to a stranger's browser, so this\n * is a total re-implementation of the arithmetic half of the language: numbers, `+ - * / % ^`,\n * parentheses, unary minus, a fixed function table and two constants. Anything else — assignment,\n * a unit conversion, an identifier that is not a function — is a parse error naming what it found,\n * never a value. There is no `eval`, no `Function`, and no way to reach a property.\n */",
@@ -10189,6 +10201,8 @@ const allowed = new Map([
   ]],
   ["tests/graph-hardening.test.ts", [
     "// The shared Select pins h-11 at md and above, so a compact row has to answer that breakpoint too.",
+    "// The palette's command list moved into the registry, so the shared chord now has to be spelled",
+    "// out in one of three files and never as a literal in any of them.",
   ]],
   ["tests/graph-route-filters.test.ts", [
     "// D1 refuses a statement holding more than 100 bound variables, and node:sqlite does not,",

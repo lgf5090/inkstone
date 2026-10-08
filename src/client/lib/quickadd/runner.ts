@@ -21,6 +21,7 @@ import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
 import { runMacroChoice } from './macro'
 import { t } from '../../lib/i18n'
+import { runAppCommand } from '../../features/command/registry'
 import type { PromptAnswer } from './format'
 import type { QuickAddCaptureChoice, QuickAddChoice, QuickAddMacroChoice, QuickAddSettings, QuickAddTemplateChoice } from '@shared/quickadd'
 
@@ -212,6 +213,7 @@ export const notePort: NotePort = {
       .filter((name) => name !== '')
       .sort((a, b) => a.localeCompare(b))
   },
+  runAppCommand: (id) => runAppCommand(id).ok,
   async fieldValues(name, filter) {
     try {
       const response = await api.quickadd.fieldValues({

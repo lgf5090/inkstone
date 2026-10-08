@@ -45,8 +45,9 @@ import { previewRuntime } from '../../lib/quickadd/preview'
 import { useNoteTemplates } from '../../store/note-templates'
 import { useQuickAdd } from '../../store/quickadd'
 import { QuickAddTokenHelp } from './token-help'
+import { appCommands } from '../command/registry'
 
-const STEP_KINDS: QuickAddStep['kind'][] = ['ask', 'set', 'insert', 'capture', 'create', 'copy', 'open', 'notify', 'wait', 'script', 'if', 'choice']
+const STEP_KINDS: QuickAddStep['kind'][] = ['ask', 'set', 'insert', 'capture', 'create', 'copy', 'open', 'command', 'notify', 'wait', 'script', 'if', 'choice']
 const OPERATORS: QuickAddConditionOperator[] = ['eq', 'ne', 'has', 'empty', 'gt', 'lt']
 const ORDER_KEYS: QuickAddOrderKey[] = ['lexical', 'date', 'numeric', 'semver', 'insertion']
 const POSITIONS: QuickAddPosition[] = ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor']
@@ -103,6 +104,7 @@ const STEP_KEYS: Record<QuickAddStep['kind'], MessageKey> = {
   create: 'quickadd.step_create',
   copy: 'quickadd.step_copy',
   open: 'quickadd.step_open',
+  command: 'quickadd.step_command',
   notify: 'quickadd.step_notify',
   wait: 'quickadd.step_wait',
   script: 'quickadd.step_script',
@@ -626,6 +628,7 @@ function newStep(kind: QuickAddStep['kind']): QuickAddStep {
     case 'create': return { kind, title: '{{DATE}}', templateId: null, folderPath: '', openAfter: false }
     case 'copy': return { kind, text: '{{VALUE}}' }
     case 'open': return { kind, title: '' }
+    case 'command': return { kind, commandId: appCommands()[0]?.id ?? '' }
     case 'notify': return { kind, text: '' }
     case 'wait': return { kind, ms: 200 }
     case 'script': return { kind, name: 'step', code: 'return quickadd.title' }
@@ -782,6 +785,27 @@ function StepFields({ step, index, runnable, onChange }: {
           {t('quickadd.step_branch_counts', { value0: String(step.then.length), value1: String(step.else.length) })}
         </p>
       </div>)
+    case 'command': {
+      const commands = appCommands()
+      const groups = [...new Set(commands.map((entry) => entry.group))]
+      return (<div className="space-y-1">
+        <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_command')}</span>
+        <Select
+          aria-label={t('quickadd.step_command')}
+          value={step.commandId}
+          onChange={(event) => onChange({ ...step, commandId: event.target.value })}>
+          <option value="">{t('quickadd.step_command_none')}</option>
+          {groups.map((group) => (
+            <optgroup key={group} label={group}>
+              {commands.filter((entry) => entry.group === group).map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </Select>
+        <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('quickadd.step_command_hint')}</p>
+      </div>)
+    }
     default:
       return (<div>
         <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_choice_step')}</span>
