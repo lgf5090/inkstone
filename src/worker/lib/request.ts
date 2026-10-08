@@ -7,6 +7,7 @@ export const JSON_BODY_LIMITS = {
   small: 8 * 1024,
   settings: 16 * 1024,
   templateLibrary: 1024 * 1024,
+  quickAdd: 1024 * 1024,
   backup: 32 * 1024,
   profile: 256 * 1024,
   note: LIMITS.contentMaxBytes * 6 + 64 * 1024,

@@ -46,6 +46,7 @@ export interface DemoState {
   backupRuns: BackupRun[]
   communityTemplates: CommunityTemplate[]
   templateLibrary: { savedAt: number; library: unknown } | null
+  quickadd: { savedAt: number; library: unknown } | null
 }
 
 const seedId = (value: number) => `01j${String(value).padStart(23, '0')}`
@@ -106,6 +107,7 @@ export function createDemoState(): DemoState {
     backupRuns: [],
     communityTemplates: [],
     templateLibrary: null,
+    quickadd: null,
   }
 }
 

@@ -18,6 +18,9 @@ export const APP_SHORTCUTS = {
   star: 'mod+alt+s',
   outline: 'mod+alt+o',
   emoji: 'mod+alt+e',
+  // The launcher has to be reachable with the editor focused, and `q` is the letter the feature is
+  // named after; `mod+shift+a` was left alone because Obsidian users bind it to their palette.
+  quickadd: 'mod+shift+q',
   // A show starts on the slide under the editor cursor, so the key has to reach into the editor;
   // `mod+shift+p` is already the command palette.
   present: 'mod+alt+p',

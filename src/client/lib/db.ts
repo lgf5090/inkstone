@@ -2,6 +2,8 @@ import { clear as clearStore, createStore, del, get, getMany, set, setMany, upda
 import * as idbKeyval from 'idb-keyval'
 import type { UseStore } from 'idb-keyval'
 import type { Folder, Note, NoteSummary, NoteTemplate, NoteTemplateCategory, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
+import { parseQuickAddRecord } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddSettings } from '@shared/quickadd'
 import { CLIENT_DATABASE_NAME } from './runtime'
 
 const optionalIdbExport = (name: string): unknown => Object.prototype.hasOwnProperty.call(idbKeyval, name)
@@ -24,6 +26,7 @@ const KEY = {
   outbox: 'outbox',
   outboxReplayLease: 'outboxReplayLease',
   templateLibrary: 'templateLibrary',
+  quickadd: 'quickadd',
   userId: 'userId',
   session: 'session',
 } as const
@@ -77,6 +80,16 @@ export interface TemplateLibraryData {
   categories: NoteTemplateCategory[]
   templates: NoteTemplate[]
   seedVersion: number
+  /** `savedAt` of the copy the account server holds, or 0 when never synced. */
+  syncedAt: number
+  /** Local changes that have not reached the account server yet. */
+  pendingPush: boolean
+}
+
+/** The account's QuickAdd choices and options, persisted as one per-account record. */
+export interface QuickAddData {
+  settings: QuickAddSettings
+  choices: QuickAddChoice[]
   /** `savedAt` of the copy the account server holds, or 0 when never synced. */
   syncedAt: number
   /** Local changes that have not reached the account server yet. */
@@ -368,6 +381,32 @@ export const localDb = {
 
   saveTemplateLibrary: (data: TemplateLibraryData) =>
     safeSet(userScopedKey(KEY.templateLibrary), data),
+
+  /**
+   * The per-account QuickAdd record. A choice list that no longer parses is dropped whole rather
+   * than half-trusted: a silent, unrunnable choice is worse than an empty library the user notices.
+   */
+  async loadQuickAdd(): Promise<QuickAddData | null> {
+    const value = await safeGet<unknown>(userScopedKey(KEY.quickadd))
+    if (!isRecord(value)) return null
+    const parsed = parseQuickAddRecord(value)
+    if (!parsed.data) return null
+    const syncedAt = isFiniteNumber(value.syncedAt) ? value.syncedAt : 0
+    return {
+      settings: parsed.data.settings,
+      choices: parsed.data.choices,
+      syncedAt,
+      pendingPush: value.pendingPush === true,
+    }
+  },
+
+  saveQuickAdd: (data: QuickAddData) =>
+    safeSet(userScopedKey(KEY.quickadd), {
+      settings: data.settings,
+      choices: data.choices,
+      syncedAt: data.syncedAt,
+      pendingPush: data.pendingPush,
+    }),
 
   getOutbox: async (): Promise<OutboxItem[]> => normalizeOutbox(await safeGet<unknown>(userScopedKey(KEY.outbox))),
 
@@ -678,6 +717,7 @@ export type BroadcastPayload = (
   | { type: 'claim-leader'; clientId: string; at: number }
   | { type: 'settings-changed'; clientId: string }
   | { type: 'template-library-changed'; clientId: string }
+  | { type: 'quickadd-changed'; clientId: string }
   | { type: 'profile-changed'; clientId: string }
   | { type: 'site-changed'; clientId: string }
   | {
