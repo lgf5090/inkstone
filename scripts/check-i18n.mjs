@@ -158,8 +158,14 @@ const allowedHanFragments = new Map([
  *
  * `CJK_CHOICE_FIXTURES` is that argument one level up: a choice's name is text the reader typed, and
  * the launcher and the palette filter it through the same fuzzy + pinyin path the notes use.
+ *
+ * The lunar block (`TERM_NAMES`, `LUNAR_MONTH_NAMES`, `LUNAR_DAY_NAMES`, `GANZI_VOCABULARY`,
+ * `ALMANAC_TEXT`, `FESTIVAL_DATA`) is the almanac's own vocabulary: a solar term, a sexagenary year
+ * or a traditional feast keeps its name whatever language the interface is in, and the calendar
+ * prints it beside a translated day number. The `LUNAR_*`/`TERM_*` fixtures are the same argument in
+ * a test - the table is only worth having if the test can read what it produces.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES', 'TERM_NAMES', 'LUNAR_MONTH_NAMES', 'LUNAR_DAY_NAMES', 'GANZI_VOCABULARY', 'ALMANAC_TEXT', 'FESTIVAL_DATA', 'LUNAR_ALMANAC_FIXTURES', 'LUNAR_TERM_FIXTURES', 'LUNAR_DAY_NAME_FIXTURES', 'LUNAR_MONTH_NAME_FIXTURES', 'LUNAR_SHORT_NAME_FIXTURES', 'FESTIVAL_CELL_FIXTURES', 'LUNAR_FESTIVAL_FIXTURES', 'ALMANAC_WORDS', 'ALMANAC_LOADER_FIXTURES']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen

@@ -41,7 +41,7 @@ const allowed = new Map([
     "// script under test. Each fragment is listed once per place it is spelled.",
     "// The layout block's fixtures are the reference plugin's own demo line, copied verbatim so the",
     "// alternate embed spellings and a Han label are exercised the way an author writes them.",
-    "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n *\n * `CJK_DATE_FIXTURES` is the same argument in a test: a QuickAdd date format and the heading a reader\n * writes with it are note text the ordering rule has to *read*, so a Chinese user's real headings are\n * what the test must feed it. ASCII would prove the rule on a shape nobody has.\n *\n * `CJK_CHOICE_FIXTURES` is that argument one level up: a choice's name is text the reader typed, and\n * the launcher and the palette filter it through the same fuzzy + pinyin path the notes use.\n */",
+    "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n *\n * `CJK_DATE_FIXTURES` is the same argument in a test: a QuickAdd date format and the heading a reader\n * writes with it are note text the ordering rule has to *read*, so a Chinese user's real headings are\n * what the test must feed it. ASCII would prove the rule on a shape nobody has.\n *\n * `CJK_CHOICE_FIXTURES` is that argument one level up: a choice's name is text the reader typed, and\n * the launcher and the palette filter it through the same fuzzy + pinyin path the notes use.\n *\n * The lunar block (`TERM_NAMES`, `LUNAR_MONTH_NAMES`, `LUNAR_DAY_NAMES`, `GANZI_VOCABULARY`,\n * `ALMANAC_TEXT`, `FESTIVAL_DATA`) is the almanac's own vocabulary: a solar term, a sexagenary year\n * or a traditional feast keeps its name whatever language the interface is in, and the calendar\n * prints it beside a translated day number. The `LUNAR_*`/`TERM_*` fixtures are the same argument in\n * a test - the table is only worth having if the test can read what it produces.\n */",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -95,6 +95,14 @@ const allowed = new Map([
     "// The box owns its keys: a shortcut that fires while the reader is typing a name would",
     "// take the keystroke, and the listing above answers arrows of its own.",
   ]],
+  ["src/client/components/activity-calendar-almanac.test.ts", [
+    "// What the calendar must paint under each day number, spelled the way a reader reads it.",
+    "// 2027 opens on a Friday, so a Monday grid leads with 2026's last ISO week while a Sunday grid",
+    "// calls the row holding January 1st week 1. The reference calendar printed one ISO number",
+    "// beside either grid, which is the disagreement this pins out.",
+    "// The tile is squeezed to two characters; the accessible name keeps the whole one.",
+    "/**\n * The almanac is a separate chunk now, so a label assertion has to let it arrive first. Polling\n * rather than a fixed sleep keeps the suite honest on a loaded machine and on an idle one.\n */",
+  ]],
   ["src/client/components/activity-calendar.test.ts", [
     "// The same month total spread over thirty days keeps every one of them on the lightest level.",
     "// jsdom has no layout engine, so these guards assert the anti-wrap CSS contract",
@@ -143,6 +151,9 @@ const allowed = new Map([
   ["src/client/components/activity-calendar/range.ts", [
     "/** Convert an inclusive month range (0-11 indices within a year) to inclusive day keys. */",
   ]],
+  ["src/client/components/activity-calendar/stats-bar.tsx", [
+    "/**\n * The month's own numbers sit beside the legend rather than under a heading: both answer the same\n * question about the same row of squares, and a reader who wants the ramp explanation already has\n * it in front of them.\n */",
+  ]],
   ["src/client/components/activity-calendar/strip.ts", [
     "// The darkest level is capped by contrast rather than by taste: a day number is primary text on",
     "// this tint, and the cap has to hold for every accent the appearance setting offers, in both",
@@ -151,6 +162,9 @@ const allowed = new Map([
     "// (scripts/check-contrast.mjs re-measures the cells for each accent and theme).",
     "/** Per-month note totals and the busiest month, which is the scale the yearly grid divides by. */",
     "/**\n * A day is scaled by the busiest month's total rather than by the busiest day, so a month of steady\n * daily writing stays on the lightest level while one day holding a whole month's output goes dark.\n */",
+  ]],
+  ["src/client/components/activity-calendar/today-card.tsx", [
+    "/**\n * Two lines, always. The sidebar is 196px wide, so a third item on either line would ellipsize the\n * date itself - the one thing this bar exists to say. The right-hand slot of the first line is\n * shared: a festival outranks the week number there because the week column already prints the\n * number when it is on, while nothing else on the calendar names today's feast.\n */",
   ]],
   ["src/client/components/activity-calendar/types.ts", [
     "// Shared hook state shapes for the activity calendar. Kept in their own module",
@@ -191,6 +205,9 @@ const allowed = new Map([
     "// shows all of them.",
     "// `--dur-base` is 220ms and the collapse animates `grid-template-rows`, which needs its",
     "// children present for the whole run; unmounting any earlier would snap the panel shut.",
+  ]],
+  ["src/client/components/calendar-grids.tsx", [
+    "/** Draws one extra column ahead of each week row — the week number, or anything else a row owns. */",
   ]],
   ["src/client/components/form.tsx", [
     "/**\n * Enter inside a text field has to be cancelled before it commits. Committing can mount a confirm\n * dialog, and the browser runs the keydown's default action after our handler returns, so the very\n * keystroke that asked would otherwise press the dialog's own button and answer it.\n */",
@@ -3546,6 +3563,9 @@ const allowed = new Map([
   ["src/client/features/quickadd/token-help.tsx", [
     "/**\n * The token cheat sheet, and the one place the QuickAdd grammar is spelled out for the author.\n *\n * Each row shows the token as it is typed and what the *same formatter* makes of it right now, so the\n * table cannot disagree with the engine the way a hand-written example eventually does.\n */",
   ]],
+  ["src/client/features/settings/AppearanceSettings.tsx", [
+    "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
+  ]],
   ["src/client/features/settings/QuickAddSettings.tsx", [
     "/**\n * Settings → Automation: the whole QuickAdd feature in one page.\n *\n * The formats an author writes are the reason this page lives in the app's own settings sheet: a\n * capture that inserts a note into the middle of a heading list should look like any other preference,\n * not like a plugin window dropped on top. Everything here edits the account's choice library, which\n * the store pushes to the server on a debounce — so the page writes through the store, never to the\n * endpoint directly, and a reload of the section shows the same data another tab just saved.\n */",
     "// A variable with no name is dropped by the library normalizer, so the new one is drafted here",
@@ -4025,6 +4045,22 @@ const allowed = new Map([
     "// The fresh build hands a title to the first note in record order that carries it, so a",
     "// repair may only move a slot to a note that comes earlier than the current owner.",
   ]],
+  ["src/client/lib/calendar-display-prefs.ts", [
+    "/** The stored form of each switch; 'auto' defers to the reader's language at render time. */",
+    "/** What the calendar itself is handed: every question already answered. */",
+    "/** 'auto' defers to the reader's locale; a digit is that weekday's JS `getDay()` number. */",
+    "/** 'auto' resolves to the reader's language: a Han interface asks for an almanac, others do not. */",
+    "/** Which weekday opens the grids: the reader's answer, or the locale's. */",
+  ]],
+  ["src/client/lib/calendar-stats.ts", [
+    "/** Consecutive days with at least one note, running back from today. */",
+    "/** The longest such run anywhere in the vault. */",
+    "/** The most recent day that holds a note, which is not today once a reader skips a day. */",
+    "/** Share of the month's days that hold at least one note, 0-100. */",
+    "/**\n * A run is measured against the day the reader last wrote, not against the clock: at 00:05 the\n * streak would otherwise drop to zero for someone who wrote all of yesterday and means to write\n * today too. Today only breaks a run once it has been passed.\n */",
+    "/** Everything the calendar knows about one calendar month, in one pass over its days. */",
+    "/** This year's progress, so a reader can see how much of it is left. */",
+  ]],
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
   ]],
@@ -4171,6 +4207,41 @@ const allowed = new Map([
     "/**\n * Subscribes a component that calls {@link t} during render to the two things that change what `t`\n * answers: the active locale, and the resource version this locale's messages arrive under. A board\n * rendered outside the app's own locale-aware tree would otherwise keep last locale's copy after a\n * language switch, because React has no other reason to run its render again.\n */",
     "/**\n * The built-in template bodies are the one part of the catalog a reader may never\n * open, so they arrive on demand instead of riding the start-up locale chunk.\n * Registering them mutates the same table `t()` reads, which keeps lookups, the\n * language switch and the `resourcesVersion` signal exactly as they were.\n */",
     "/**\n * `localizedTexts` with its parameters filled in: a value that was written into a note\n * while the interface spoke another language is still the same string, so a lookup keyed\n * on display text has to answer in every shipped language at once.\n */",
+  ]],
+  ["src/client/lib/lunar/almanac-loader.ts", [
+    "/**\n * Downloads the almanac at most once, and only when something asks for it. A reader who switches\n * both lunar labels and festival names off never issues this request, so the 1900-2100 tables and\n * the term solver stay out of their transfer entirely.\n */",
+    "/** The almanac, or null while it is switched off or still arriving. */",
+  ]],
+  ["src/client/lib/lunar/festivals.ts", [
+    "/** The whole lunar date, sexagenary year through day name. */",
+    "/** A festival or solar term worth naming; where several land on one day, the highest rank wins. */",
+    "/** True when the highlight names a solar term rather than a calendrical feast. */",
+    "/**\n * Festival names are proper nouns of the tradition, not interface copy: a reader switching the\n * app to English is asking for different chrome, not for Qingming to stop being called Qingming.\n * They live here for the same reason the sexagenary vocabulary does, which is also why the i18n\n * gate exempts this declaration by name.\n */",
+    "/** The one label worth printing for this day, or null when nothing names it and no lunar date exists. */",
+    "// A repeated leap month is not the month it repeats: the fifth month's fifth day is Duanwu",
+    "// once, and the leap fifth month's fifth day is an ordinary day.",
+    "/** The lunar day as a month cell can carry it: two characters, month name on the first day. */",
+    "/** `highlight` squeezed into a month cell. */",
+    "/** A festival tile is as narrow as a lunar one, so the seasonal suffix comes off names long\n   * enough to carry it; these four do not end in it and need naming by hand. */",
+    "/** The name that fits a month cell: two characters, with the full form kept for the tooltip. */",
+  ]],
+  ["src/client/lib/lunar/lunar-calendar.ts", [
+    "/**\n * The table stores each year's month lengths, not its start date, so the whole 1900-2100 frame is\n * walked once: a lunar year opens where the previous one's months run out. Doing it per lookup\n * instead would re-walk up to two centuries of months for every cell of every grid.\n */",
+    "/** The lunar date a Gregorian day falls on, or null outside the 1900-2100 table. */",
+    "/** The Gregorian day a lunar year opens on, or null when that year is off the table. */",
+    "/** The solar term falling on this Gregorian day. Beijing reckoning, so it is the same for every reader. */",
+    "/** All twenty-four terms of a Gregorian year, in calendar order. */",
+  ]],
+  ["src/client/lib/lunar/lunar-data.ts", [
+    "/**\n * One five-character hex row per lunar year, 1900 through 2100. Bits 0-12 mark, in calendar order,\n * which of that year's twelve (or thirteen) months run to thirty days rather than twenty-nine;\n * bits 13-16 hold the month number that is repeated as the leap month, or 0 when the year has none.\n *\n * Generated from the Shouxing astronomical calendar (lunar-javascript 1.7.7) rather than typed, and\n * pinned by tests/lunar-calendar.test.ts against published almanac anchors - including the 2033\n * leap-month case, which a rule set that ignores the winter-solstice inclusion gets wrong.\n */",
+    "/**\n * The day of month of each solar term, twenty-four characters per year in TERM_NAMES order, with the\n * same source and the same pinning as LUNAR_YEAR_TABLE. These are Beijing dates, which is what an\n * almanac prints, so they do not move with the reader's own timezone.\n */",
+    "/** Month names as an almanac prints them; index 0 is the first month of the lunar year. */",
+    "/** Day-of-month names, index 0 is day 1. */",
+    "/** The sexagenary cycle and the twelve animals, which name a lunar year to a reader. */",
+    "/** The two affixes an almanac line is assembled from. */",
+    "/** The sexagenary year label an almanac heads a page with, e.g. stem-branches plus the year suffix. */",
+    "/** A whole lunar date as an almanac line reads it: sexagenary year, month name, day name. */",
+    "/**\n * The same name squeezed into one calendar tile. A month cell is 23-27px wide and three Han\n * characters need 26px, so the leap repeat drops the suffix it would otherwise carry: a repeated\n * sixth month reads as two characters on the tile while the tooltip and the today bar keep the\n * whole name.\n */",
   ]],
   ["src/client/lib/markdown/chart/accent.ts", [
     "/**\n * The account's accent, read for the things that draw outside CSS.\n *\n * The pure oklch math lives in ./palette; this is the half that touches the document, kept apart so the\n * math stays testable without a DOM. Every call re-reads: a chart's colours must follow the accent the\n * account has now, not the one that happened to be set when the module was first loaded.\n */",
@@ -7709,6 +7780,13 @@ const allowed = new Map([
     "// `getWeekInfo` is the Stage-3 form; `weekInfo` is the same data as a getter, which engines",
     "// shipped earlier. Asking for both leaves the fallback below reachable only where neither exists.",
     "/**\n * How long ago, as a compact duration rather than a sentence: `5 min`, `2 hr`, `3 days`.\n *\n * A list column has no room for a full \"3 days ago\" beside every row, and the reader already\n * knows the number counts backwards because the column sits under the note's title. Same\n * thresholds as `relativeTime`, so the two never disagree about which unit a moment is worth.\n */",
+    "/** A civil day with no clock and no zone: every week rule below counts these, never instants. */",
+    "/** The first day of the week row `date` sits in, as a fresh local-midnight `Date`. */",
+    "/** The year the count restarts in, which is not the calendar year at either end of one. */",
+    "/** ISO-8601: weeks open on Monday and week 1 is the row holding this year's first Thursday. */",
+    "/**\n * Which numbered week a day belongs to, on the same rule as the grid drawing it.\n *\n * A Monday grid answers in ISO-8601, because that is the number a Chinese almanac prints and the\n * number an `YYYY-[W]ww` filename carries; every other opening day counts rows from the one holding\n * January 1st, which is what those readers' printed calendars do. The reference calendar kept a\n * single ISO count beside a grid that could open on any day, so its week column disagreed with its\n * own rows whenever the week start was not Monday.\n */",
+    "/** How many days this civil year has. */",
+    "/** This day's position in its year, 1-based. */",
   ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
@@ -8541,6 +8619,11 @@ const allowed = new Map([
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
   ]],
+  ["tests/almanac-loader.test.ts", [
+    "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
+    "// This file owns the loader's module-level state: vitest gives every file a fresh registry, so the",
+    "// \"not loaded yet\" assertions here cannot be polluted by another suite warming the chunk.",
+  ]],
   ["tests/backlink-mentions.test.ts", [
     "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",
     "// Without the fold the scan reports no position and the excerpt falls back to the top",
@@ -8704,6 +8787,19 @@ const allowed = new Map([
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",
     "// to lock out anybody who mistyped their username by filling that shared bucket.",
+  ]],
+  ["tests/lunar-calendar.test.ts", [
+    "// Each row is an almanac fact checked against a published source, not against this table: the",
+    "// 2027 spring festival moved a day between the tabulated calendar and a purely computed one, and",
+    "// 2033 is the year a rule set that ignores the winter-solstice inclusion gets the leap month wrong.",
+    "// 2026 opens on a Thursday, which is what makes it a 53-week ISO year: the row of 28 December",
+    "// sits exactly 52 weeks after the row that opened the year.",
+    "// 2021 opened on a Friday, so a Sunday grid is already on its second row by the 3rd.",
+    "// The first day of a repeated month is the only lunar label that would need three characters.",
+    "// The last day of a middle month is a month end, not the year end: only the twelfth month",
+    "// closes the lunar year, and a month of thirty days must not be read as New Year's Eve.",
+    "// 2023 repeated its second month, and the second day of that month falls inside the repeat. The",
+    "// repeat is not the month it repeats, so the dragon-head raising belongs to the ordinary one only.",
   ]],
   ["tests/markdown-scan-bounds.test.ts", [
     "/** One md-example fence costs 17 bytes; nesting requires a strictly longer outer fence. */",

@@ -6,6 +6,8 @@ import { buildStripWeeks, buildYearHeatMeta, yearHeatLevel, type WeekCell } from
 import { latestEditOutsideWindow } from '../../features/list/gap-indicator'
 import { YEAR_GRID_COLUMNS, buildMonthGridCells, yearGridColumns, type YearGridColumns } from '../calendar-grids'
 import type { ActivityCalendarProps } from './props'
+import { DEFAULT_DISPLAY_VIEW } from './props'
+import type { CalendarDisplayView } from '../../lib/calendar-display-prefs'
 import type { CalendarState, FlashState, CalendarBase, MonthState, StripState, LatestState } from './types'
 import { useCalendarNav, useMonthGridHandlers, useRangeDragFinish, useRootKeyHandler, useStripHandlers, useYearGridHandlers, type MonthGridHandlers, type NavHandlers, type StripHandlers, type YearGridHandlers } from './use-calendar-handlers'
 
@@ -189,6 +191,9 @@ export interface MonthViewBundle {
   onActivateDay: (key: string, diaryId: string | null) => void
   onFocusDay: (key: string) => void
   flashRef: React.RefObject<HTMLDivElement | null>
+  display: CalendarDisplayView
+  locale: string
+  onRangeSelect: (start: string, end: string) => void
 }
 
 function buildMonthView(props: ActivityCalendarProps, state: CalendarState, base: CalendarBase, month: MonthState, latest: LatestState, monthHandlers: MonthGridHandlers, stripHandlers: StripHandlers, flash: FlashState): MonthViewBundle {
@@ -211,6 +216,9 @@ function buildMonthView(props: ActivityCalendarProps, state: CalendarState, base
     },
     onFocusDay: state.setFocusedKey,
     flashRef: flash.monthFlashRef,
+    display: props.display ?? DEFAULT_DISPLAY_VIEW,
+    locale: props.locale,
+    onRangeSelect: props.onRangeSelect,
   }
 }
 
@@ -284,6 +292,9 @@ function buildWeekView(props: ActivityCalendarProps, state: CalendarState, base:
 interface CalendarHook {
   view: 'month' | 'weeks' | 'year'
   onViewChange: (view: 'month' | 'weeks' | 'year') => void
+  now: Date
+  todayKey: string
+  weekStart: WeekStartDay
   rootRef: React.RefObject<HTMLDivElement | null>
   onRootKeyDown: React.KeyboardEventHandler
   header: {
@@ -327,6 +338,9 @@ export function useActivityCalendar(props: ActivityCalendarProps): CalendarHook 
   return {
     view: props.view,
     onViewChange: props.onViewChange,
+    now: base.now,
+    todayKey: base.todayKey,
+    weekStart: props.weekStart ?? 1,
     rootRef: state.rootRef,
     onRootKeyDown: useRootKeyHandler(props, state),
     header: {

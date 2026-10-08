@@ -51,6 +51,78 @@ export function daysBetweenKeys(a: string, b: string): number {
  */
 export type WeekStartDay = 0 | 1 | 2 | 3 | 4 | 5 | 6
 
+/** A civil day with no clock and no zone: every week rule below counts these, never instants. */
+function civilUtc(date: Date): number {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+/** The first day of the week row `date` sits in, as a fresh local-midnight `Date`. */
+export function startOfWeek(date: Date, weekStart: WeekStartDay): Date {
+  const out = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  out.setDate(out.getDate() - ((out.getDay() - weekStart + 7) % 7))
+  return out
+}
+
+export interface WeekOrdinal {
+  week: number
+  /** The year the count restarts in, which is not the calendar year at either end of one. */
+  year: number
+}
+
+/** ISO-8601: weeks open on Monday and week 1 is the row holding this year's first Thursday. */
+export function isoWeekOrdinal(date: Date): WeekOrdinal {
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const thursday = new Date(local)
+  thursday.setDate(local.getDate() - ((local.getDay() + 6) % 7) + 3)
+  const weekYear = thursday.getFullYear()
+  const jan4 = new Date(weekYear, 0, 4)
+  const week1Thursday = new Date(jan4)
+  week1Thursday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + 3)
+  return {
+    week: Math.round((civilUtc(thursday) - civilUtc(week1Thursday)) / (7 * 86_400_000)) + 1,
+    year: weekYear,
+  }
+}
+
+function rowsInRowYear(year: number, weekStart: WeekStartDay): number {
+  const first = civilUtc(startOfWeek(new Date(year, 0, 1), weekStart))
+  const next = civilUtc(startOfWeek(new Date(year + 1, 0, 1), weekStart))
+  return Math.round((next - first) / (7 * 86_400_000))
+}
+
+/**
+ * Which numbered week a day belongs to, on the same rule as the grid drawing it.
+ *
+ * A Monday grid answers in ISO-8601, because that is the number a Chinese almanac prints and the
+ * number an `YYYY-[W]ww` filename carries; every other opening day counts rows from the one holding
+ * January 1st, which is what those readers' printed calendars do. The reference calendar kept a
+ * single ISO count beside a grid that could open on any day, so its week column disagreed with its
+ * own rows whenever the week start was not Monday.
+ */
+export function weekOrdinal(date: Date, weekStart: WeekStartDay): WeekOrdinal {
+  if (weekStart === 1)
+    return isoWeekOrdinal(date)
+  const year = date.getFullYear()
+  const firstRow = civilUtc(startOfWeek(new Date(year, 0, 1), weekStart))
+  const ordinal = Math.round((civilUtc(startOfWeek(date, weekStart)) - firstRow) / (7 * 86_400_000)) + 1
+  const rows = rowsInRowYear(year, weekStart)
+  if (ordinal > rows)
+    return { week: ordinal - rows, year: year + 1 }
+  if (ordinal < 1)
+    return { week: rowsInRowYear(year - 1, weekStart) + ordinal, year: year - 1 }
+  return { week: ordinal, year }
+}
+
+/** How many days this civil year has. */
+export function daysInYear(year: number): number {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 366 : 365
+}
+
+/** This day's position in its year, 1-based. */
+export function dayOfYear(date: Date): number {
+  return Math.round((civilUtc(date) - Date.UTC(date.getFullYear(), 0, 1)) / 86_400_000) + 1
+}
+
 /**
  * Which weekday opens a reader's calendar is locale data, so it is read off `Intl` rather than off
  * the languages this app ships. `firstDay` is ISO-numbered (Monday = 1 … Sunday = 7) while the

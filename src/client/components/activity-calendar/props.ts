@@ -1,7 +1,18 @@
 import type { DateRangeFilter } from '@shared/types'
 import type { WeekStartDay } from '../../lib/time'
+import type { CalendarDisplayView } from '../../lib/calendar-display-prefs'
 import type { CalendarDayNote } from './strip'
 import type { YearGridColumnsPref } from '../calendar-grids'
+
+export const DEFAULT_DISPLAY_VIEW: CalendarDisplayView = {
+  lunar: false,
+  festivals: false,
+  weekNumbers: false,
+  weekendTint: false,
+  todayCard: false,
+  streakStats: false,
+  showAdjacentDays: true,
+}
 
 
 
@@ -15,6 +26,7 @@ export interface ActivityCalendarProps {
   range?: { start: Date; end: Date }
   selectedRange?: DateRangeFilter | null
   latestEditKey?: string | null
+  display?: CalendarDisplayView
   view: 'month' | 'weeks' | 'year'
   onViewChange: (view: 'month' | 'weeks' | 'year') => void
   cursor: { year: number; month: number }
