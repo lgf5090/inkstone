@@ -272,6 +272,18 @@ describe('the quickadd record', () => {
       .toEqual({ folder: 'x', format: 'YYYY-MM-DD', templateId: null })
   })
 
+  it('keeps the category a template pick is limited to', () => {
+    const scoped = normalizeQuickAddChoice({
+      ...newTemplateChoice('qa-t', 'Ritual', 0),
+      templatePick: 'ask',
+      templatePickCategory: 'cat-journal',
+    })
+    expect(scoped?.type === 'template' && scoped.templatePickCategory).toBe('cat-journal')
+    const all = normalizeQuickAddChoice({ ...newTemplateChoice('qa-t', 'Ritual', 0), templatePickCategory: '   ' })
+    expect(all?.type === 'template' && all.templatePickCategory, 'blank means every category').toBeNull()
+    expect(newTemplateChoice('qa-t', 'R', 0).templatePickCategory).toBeNull()
+  })
+
   it('keeps a macro’s startup flag and refuses a scope it does not know', () => {
     const flagged = normalizeQuickAddChoice({ ...newMacroChoice('qa-mac', 'Morning', 0), runOnStartup: true })
     expect(flagged?.type === 'macro' && flagged.runOnStartup).toBe(true)

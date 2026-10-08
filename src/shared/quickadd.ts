@@ -71,6 +71,8 @@ export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   type: 'template'
   templateId: string | null
   templatePick: QuickAddTemplatePick
+  /** When the pick asks, only templates in this library category are offered. */
+  templatePickCategory: string | null
   mode: QuickAddTemplateMode
   folderMode: QuickAddFolderMode
   folderPath: string
@@ -264,6 +266,7 @@ export function newTemplateChoice(id: string, name: string, position: number): Q
     type: 'template',
     templateId: null,
     templatePick: 'fixed',
+    templatePickCategory: null,
     mode: 'new-note',
     folderMode: 'default',
     folderPath: '',
@@ -513,6 +516,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         type: 'template',
         templateId: normalizeRef(value.templateId),
         templatePick: pick(value.templatePick, ['fixed', 'ask'] as const, 'fixed'),
+        templatePickCategory: normalizeRef(value.templatePickCategory),
         mode: pick(value.mode, ['new-note', 'insert-here'] as const, 'new-note'),
         folderMode: pick(value.folderMode, ['default', 'fixed', 'ask', 'source'] as const, 'default'),
         folderPath: normalizeFolderPath(value.folderPath),

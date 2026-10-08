@@ -213,6 +213,20 @@ export const notePort: NotePort = {
       .filter((name) => name !== '')
       .sort((a, b) => a.localeCompare(b))
   },
+  templatesForPick(categoryId) {
+    const store = useNoteTemplates.getState()
+    const wanted = categoryId?.trim() ?? ''
+    const names = new Map(store.categories.map((category) => [category.id, category.name]))
+    return store.templates
+      .filter((template) => template.name.trim() !== '')
+      .filter((template) => wanted === '' || (template.categoryId ?? '') === wanted)
+      .map((template) => ({
+        id: template.id,
+        name: template.name.trim(),
+        category: template.categoryId ? names.get(template.categoryId) ?? null : null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  },
   runAppCommand: (id) => runAppCommand(id).ok,
   async fieldValues(name, filter) {
     try {

@@ -361,6 +361,7 @@ function TemplateFields({ draft, patch, renderFormat }: {
   renderFormat: (text: string) => string
 }) {
   const templates = useNoteTemplates((state) => state.templates)
+  const categories = useNoteTemplates((state) => state.categories)
   return (
     <div className="space-y-3 border-t border-[var(--border-subtle)] pt-3">
       <SettingRow title={t('quickadd.field_mode')}>
@@ -378,6 +379,17 @@ function TemplateFields({ draft, patch, renderFormat }: {
           <option value="ask">{t('quickadd.template_pick_ask')}</option>
         </Select>
       </SettingRow>
+      {draft.templatePick === 'ask' && categories.length > 0 && (
+        <Field label={t('quickadd.field_template_pick_category')}>
+          <Select
+            aria-label={t('quickadd.field_template_pick_category')}
+            value={draft.templatePickCategory ?? ''}
+            onChange={(event) => patch({ templatePickCategory: event.target.value === '' ? null : event.target.value })}>
+            <option value="">{t('quickadd.template_pick_all_categories')}</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </Select>
+        </Field>
+      )}
       {draft.templatePick === 'fixed' && (
         <Field label={t('quickadd.field_template')} hint={t('quickadd.field_template_hint')}>
           <Select

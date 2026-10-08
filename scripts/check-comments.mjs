@@ -8882,6 +8882,8 @@ const allowed = new Map([
     "/** Strip what a title cannot carry, the way the app's own new-note flow does. */",
     "/** Every template name in the library, for a choice that asks which one to use. */",
     "/**\n   * Run one of the app's own commands by id, the way the palette entry does. False when the id is\n   * unknown or not offered right now, so the step can say so instead of looking like it worked.\n   */",
+    "/** One row of the \"which template?\" picker: what to run, and what to call it on screen. */",
+    "/**\n   * The templates a \"ask which one\" choice offers: everything, or only what sits in one library\n   * category. The id is the answer, so two templates called the same thing stay distinguishable.\n   */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -8925,6 +8927,7 @@ const allowed = new Map([
     "/** Whether each group went up as a single page — the promise the whole-choice precollect makes. */",
     "/** A template whose body asks for something, which is what makes a page worth having. */",
     "// The day the page collected has to reach the body, which only formats after the page is answered.",
+    "/** The full requests of each group, so a test can read the choices and their display text. */",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -9043,6 +9046,10 @@ const allowed = new Map([
     "// A preview never asks, so a prompt-shaped token renders the default the reader would have been offered.",
     "/** The date-formatter half, for the format-field hint line under the date inputs. */",
   ]],
+  ["src/client/lib/quickadd/runner-notice.test.ts", [
+    "// Seeded per test, not once: the teardown hands the store back, and a beforeAll seed would leave",
+    "// every test after the first one choosing from an empty library.",
+  ]],
   ["src/client/lib/quickadd/runner.ts", [
     "/**\n * The app-backed side of a choice run: what a `NotePort` means when the notes are in the zustand\n * store and the editor is a CodeMirror view, plus the dispatcher that turns a choice id into a write.\n *\n * Two paths are deliberately different. A note that is on screen is written through the store, so the\n * editor, the autosave and the other tab hear about it; a note that is not open is patched through the\n * API with its revision, because a capture must not resurrect a stale editor buffer behind the\n * reader's back. A lost revision race is reported as a failed run rather than retried blind.\n */",
     "/** The line the caret is on, and the heading above it, in the note's current text. */",
@@ -9114,11 +9121,11 @@ const allowed = new Map([
     "/** Which library template to use, when the choice says it asks each time. */",
     "/** What the run asks for a name when the choice has no name format of its own. */",
     "/** What the run asks for a folder when the choice lets the reader pick one each time. */",
-    "/** Which library template to use, when the choice asks each time. */",
     "// `null` means the named template is gone, which stays a failure; `''` means the choice genuinely",
     "// wants a blank note, and a pick-each-time run has no body to scan yet.",
     "// The page was closed: asking the day question again would put a dialog in front of a reader who",
     "// just dismissed one.",
+    "/**\n * Which library template to use, when the choice asks each time. The answer is the template's id, so\n * two templates called the same thing stay distinguishable; the row says what the reader is choosing.\n */",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",
@@ -9699,6 +9706,7 @@ const allowed = new Map([
     "/** Use the template named on the choice, or pick one from the library every run. */",
     "/** Fire this macro when the notebook finishes loading, without anyone asking. */",
     "/** How often a macro flagged \"run on startup\" may fire: once per load, or once per day. */",
+    "/** When the pick asks, only templates in this library category are offered. */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",

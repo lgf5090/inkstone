@@ -181,7 +181,7 @@ beforeEach(async () => {
   calls.toasts = []
   document.body.replaceChildren()
   useSession.setState({ user: { id: 'user-1', username: 'tester', role: 'owner' } as never })
-  useNoteTemplates.setState({ templates: [], hydrated: true, owner: 'user-1', hydrate: async () => {} } as never)
+  useNoteTemplates.setState({ templates: [], categories: [], hydrated: true, owner: 'user-1', hydrate: async () => {} } as never)
   vi.spyOn(useUi.getState(), 'toast').mockImplementation((input) => {
     calls.toasts.push({ title: input.title, tone: input.tone })
     return 'toast-1'
@@ -387,6 +387,24 @@ describe('the choice editor', () => {
     await settle()
     const saved = library()[0]!
     expect(saved.type === 'template' && saved.templatePick).toBe('ask')
+  })
+
+  it('offers the category filter only while the run asks which template', async () => {
+    const choice = newTemplateChoice('qa-t', 'Alpha', 0)
+    seed({ choices: [choice] })
+    act(() => {
+      useNoteTemplates.setState({ categories: [{ id: 'cat-j', name: 'Journal', icon: null, color: null, position: 0 }] as never })
+    })
+    editor(choice)
+    const categorySelect = () => document.querySelector(`select[aria-label="${t('quickadd.field_template_pick_category')}"]`)
+    expect(categorySelect(), 'a fixed template needs no filter').toBeNull()
+    selectNamed(t('quickadd.field_template_pick'), 'ask')
+    expect(categorySelect()).not.toBeNull()
+    selectNamed(t('quickadd.field_template_pick_category'), 'cat-j')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.templatePickCategory).toBe('cat-j')
   })
 
   it('refuses to save an empty name', () => {

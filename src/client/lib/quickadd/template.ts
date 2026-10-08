@@ -43,13 +43,18 @@ function folderRequest(choice: QuickAddTemplateChoice, port: NotePort): PromptRe
   })
 }
 
-/** Which library template to use, when the choice asks each time. */
-function templateRequest(port: NotePort): PromptRequest {
+/**
+ * Which library template to use, when the choice asks each time. The answer is the template's id, so
+ * two templates called the same thing stay distinguishable; the row says what the reader is choosing.
+ */
+function templateRequest(port: NotePort, categoryId: string | null): PromptRequest {
+  const options = port.templatesForPick(categoryId)
   return request({
     kind: 'suggester',
     key: 'template',
     label: t('quickadd.prompt_template'),
-    options: port.templateNames(),
+    options: options.map((entry) => entry.id),
+    displayOptions: options.map((entry) => (entry.category ? `${entry.name} (${entry.category})` : entry.name)),
     allowCustom: false,
     trim: true,
   })
@@ -104,9 +109,9 @@ async function resolveFolder(
 }
 
 /** Which library template to use, when the choice says it asks each time. */
-async function askForTemplate(session: RunSession, port: NotePort): Promise<string | null> {
-  if (port.templateNames().length === 0) return null
-  const value = await askOrReuse(session, templateRequest(port))
+async function askForTemplate(session: RunSession, port: NotePort, categoryId: string | null): Promise<string | null> {
+  if (port.templatesForPick(categoryId).length === 0) return null
+  const value = await askOrReuse(session, templateRequest(port, categoryId))
   if (session.dismissed) return null
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
@@ -121,11 +126,12 @@ export async function runTemplateChoice(
   // `null` means the named template is gone, which stays a failure; `''` means the choice genuinely
   // wants a blank note, and a pick-each-time run has no body to scan yet.
   const fixedBody = choice.templatePick === 'ask' ? null : (choice.templateId ? await port.templateBody(choice.templateId) : '')
+  const pickable = choice.templatePick === 'ask' ? port.templatesForPick(choice.templatePickCategory) : []
   const asks: PromptRequest[] = []
   const texts: string[] = []
   if (choice.dateOrigin === 'ask') asks.push(dayRequest(session))
   if (choice.templatePick === 'ask') {
-    if (port.templateNames().length > 0) asks.push(templateRequest(port))
+    if (pickable.length > 0) asks.push(templateRequest(port, choice.templatePickCategory))
   }
   else if (fixedBody) texts.push(fixedBody)
   if (choice.mode !== 'insert-here') {
@@ -145,7 +151,9 @@ export async function runTemplateChoice(
   let templateRef = choice.templateId
   let body: string | null = fixedBody
   if (choice.templatePick === 'ask') {
-    const asked = await askForTemplate(session, port)
+    if (pickable.length === 0)
+      return { kind: 'failed', reason: t('quickadd.error_no_templates_to_pick') }
+    const asked = await askForTemplate(session, port, choice.templatePickCategory)
     if (session.dismissed) return { kind: 'cancelled' }
     if (!asked) return { kind: 'failed', reason: t('quickadd.error_template_missing') }
     templateRef = asked

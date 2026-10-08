@@ -23,6 +23,13 @@ export interface NewNoteInput {
   cursor?: number | null
 }
 
+/** One row of the "which template?" picker: what to run, and what to call it on screen. */
+export interface TemplatePickOption {
+  id: string
+  name: string
+  category: string | null
+}
+
 export interface NotePort {
   /** The note the reader is looking at, or null when the editor is on nothing. */
   activeNote(): NoteRef | null
@@ -67,6 +74,11 @@ export interface NotePort {
   templateBody(name: string): Promise<string | null>
   /** Every template name in the library, for a choice that asks which one to use. */
   templateNames(): string[]
+  /**
+   * The templates a "ask which one" choice offers: everything, or only what sits in one library
+   * category. The id is the answer, so two templates called the same thing stay distinguishable.
+   */
+  templatesForPick(categoryId: string | null): TemplatePickOption[]
   /**
    * Run one of the app's own commands by id, the way the palette entry does. False when the id is
    * unknown or not offered right now, so the step can say so instead of looking like it worked.

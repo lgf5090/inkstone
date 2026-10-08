@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuickAddCaptureChoice, QuickAddTemplateChoice } from '@shared/quickadd'
 import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddSettings } from '@shared/quickadd'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef } from './context'
+import type { NewNoteInput, NotePort, NoteRef, TemplatePickOption } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -13,6 +13,8 @@ import { runMacroChoice } from './macro'
 const answers = vi.hoisted(() => ({
   queue: [] as (PromptAnswer[] | null)[],
   calls: [] as string[][],
+  /** The full requests of each group, so a test can read the choices and their display text. */
+  requests: [] as PromptRequest[][],
   /** Whether each group went up as a single page — the promise the whole-choice precollect makes. */
   pages: [] as boolean[],
 }))
@@ -20,6 +22,7 @@ const answers = vi.hoisted(() => ({
 vi.mock('../../features/quickadd/prompt-queue', () => ({
   askQuickAddPrompts: async (group: { requests: PromptRequest[]; onePage: boolean }) => {
     answers.calls.push(group.requests.map((request) => request.key))
+    answers.requests.push(group.requests)
     answers.pages.push(group.onePage)
     const next = answers.queue.shift()
     // A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.
@@ -71,6 +74,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const opened: string[] = []
   const notifications: string[] = []
   const store: QuickAddChoice[] = []
+  const picks: TemplatePickOption[] = [
+    { id: 'tpl-daily', name: 'Daily', category: 'Journal' },
+    { id: 'tpl-cleared', name: 'Cleared', category: null },
+  ]
   let activeId: string | null = null
   const merged: Partial<QuickAddSettings> = { ...defaultQuickAddSettings(), ...settings }
 
@@ -103,6 +110,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     clipboard: async () => '',
     templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
     templateNames: () => ['Daily', 'Cleared'],
+    templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
     pickFileTitles: async () => [],
     knownNoteTitles: () => Object.keys(notes),
@@ -141,6 +149,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     created,
     copied,
     commands,
+    picks,
     inserted,
     opened,
     notifications,
@@ -177,6 +186,7 @@ vi.mock('./session', async () => {
 beforeEach(() => {
   answers.queue = []
   answers.calls = []
+  answers.requests = []
   answers.pages = []
 })
 
@@ -699,10 +709,42 @@ describe('creating a note from a template', () => {
 
   it('says so when the library has no template to offer', async () => {
     const fake = harness({})
-    fake.port.templateNames = () => []
+    fake.picks.length = 0
     const choice = { ...newTemplateChoice('qa-t', 'Picked', 0), templatePick: 'ask' as const }
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('failed')
+    expect(fake.created).toEqual([])
+  })
+
+  it('narrows the pick to one category and names the rows by it', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Journal ritual', 0),
+      templatePick: 'ask' as const,
+      templatePickCategory: 'Journal',
+      nameFormat: { enabled: true, format: 'Ritual' },
+    }
+    answers.queue = [['tpl-daily']]
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    const request = answers.requests[0]?.find((entry) => entry.key === 'template')
+    expect(request?.options, 'the answer is the id, so two templates can share a name').toEqual(['tpl-daily'])
+    expect(request?.displayOptions, 'the row says which category it came from').toEqual(['Daily (Journal)'])
+    expect(fake.created[0].content).toBe('Daily body')
+  })
+
+  it('refuses a category that has nothing in it, rather than offering the whole library', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Empty bin', 0),
+      templatePick: 'ask' as const,
+      templatePickCategory: 'Nope',
+      nameFormat: { enabled: true, format: 'Anything' },
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_no_templates_to_pick'))
+    expect(answers.calls, 'a run with nothing to choose asks no questions').toEqual([])
     expect(fake.created).toEqual([])
   })
 
