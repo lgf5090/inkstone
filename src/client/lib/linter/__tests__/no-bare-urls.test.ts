@@ -1,0 +1,317 @@
+import NoBareUrls from '../rules/no-bare-urls';
+import dedent from 'ts-dedent';
+import { ruleTest } from '../test-harness';
+
+ruleTest({
+  RuleBuilderClass: NoBareUrls,
+  testCases: [
+    {
+      testName: 'Combines many interleaved URLs and URIs without wrapping overlapping matches twice',
+      before: Array.from({ length: 256 }, (_, index) => `https://example.com/${index} obsidian://note-${index} custom://example.org/${index}`).join('\n'),
+      after: Array.from({ length: 256 }, (_, index) => `<https://example.com/${index}> <obsidian://note-${index}> <custom://example.org/${index}>`).join('\n'),
+      options: { noBareURIs: true },
+    },
+    {
+      testName: 'Leaves URLs inside fenced code alone',
+      before: '```\nhttps://example.com\n```\nhttps://example.org',
+      after: '```\nhttps://example.com\n```\n<https://example.org>',
+    },
+    {
+      testName: 'Leaves URLs inside disabled sections alone',
+      before: '<!-- linter-disable -->\nhttps://example.com\n<!-- linter-enable -->\n\nhttps://example.org',
+      after: '<!-- linter-disable -->\nhttps://example.com\n<!-- linter-enable -->\n\n<https://example.org>',
+    },
+    {
+      testName: 'Protects the URL between opening and closing anchor HTML nodes',
+      before: '<a href="https://example.com">https://example.org</a> https://example.net',
+      after: '<a href="https://example.com">https://example.org</a> <https://example.net>',
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/275
+      testName: 'Leaves markdown links and images alone',
+      before: dedent`
+        [regular link](https://google.com)
+        ![image alt text](https://github.com/favicon.ico)
+      `,
+      after: dedent`
+        [regular link](https://google.com)
+        ![image alt text](https://github.com/favicon.ico)
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1568
+      testName: 'Urls with text fragments are detected as part of the URL',
+      before: dedent`
+        https://example.com/page#:~:text=fragment
+        <https://example.com/page#:~:text=fragment>
+        https://example.com/p?q=1&x=#:~:text=a
+      `,
+      after: dedent`
+        <https://example.com/page#:~:text=fragment>
+        <https://example.com/page#:~:text=fragment>
+        <https://example.com/p?q=1&x=#:~:text=a>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/339
+      testName: 'Urls with a hashtag referring to header that are surrounded by `<` and `> should be left alone',
+      before: dedent`
+        <https://google.com#hashtag>
+      `,
+      after: dedent`
+        <https://google.com#hashtag>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/469
+      testName: 'Urls that are surrounded by smart quotes should be left alone',
+      before: dedent`
+        “https://google.com”
+        ‘https://google.com’
+      `,
+      after: dedent`
+        “https://google.com”
+        ‘https://google.com’
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/469
+      testName: 'Urls that are in inline code should be left alone',
+      before: dedent`
+        \`http --headers --follow --all https://google.com\`
+      `,
+      after: dedent`
+        \`http --headers --follow --all https://google.com\`
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/588
+      testName: 'Make sure that anchor tags are not affected by the rule',
+      before: dedent`
+        <a href="https://www.google.com" class="tc-tiddlylink-external" rel="noopener noreferrer" target="_blank">https://www.google.com</a>
+      `,
+      after: dedent`
+        <a href="https://www.google.com" class="tc-tiddlylink-external" rel="noopener noreferrer" target="_blank">https://www.google.com</a>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/777
+      testName: 'Make sure that iframe tags are not affected by the rule when a space is present in the src attribute of the tag',
+      before: dedent`
+        > [!note]  [Google](https://www.google.com)
+        > <iframe width="100%" height="600" src=" https://www.google.com "></iframe>
+      `,
+      after: dedent`
+        > [!note]  [Google](https://www.google.com)
+        > <iframe width="100%" height="600" src=" https://www.google.com "></iframe>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/776
+      testName: 'Trailing periods should not be included in the URL that gets enclosed in angle brackets',
+      before: dedent`
+        - https://theintercept.com/2023/05/23/henry-kissinger-cambodia-bombing-survivors/.
+        - https://www.gettyimages.com/detail/news-photo/617942032.
+      `,
+      after: dedent`
+        - <https://theintercept.com/2023/05/23/henry-kissinger-cambodia-bombing-survivors/>.
+        - <https://www.gettyimages.com/detail/news-photo/617942032>.
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/776
+      testName: 'Trailing parentheses should not be included in the URL that gets enclosed in angle brackets',
+      before: dedent`
+        This is a url followed by a paren https://github.com). Wow that worked!
+      `,
+      after: dedent`
+        This is a url followed by a paren <https://github.com>). Wow that worked!
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/776
+      testName: 'Does not put angle brackets around URIs when `No Bare URIs` is not enabled',
+      before: dedent`
+        obsidian://show-plugin?id=cycle-in-sidebar
+      `,
+      after: dedent`
+        obsidian://show-plugin?id=cycle-in-sidebar
+      `,
+      options: {
+        noBareURIs: false,
+      },
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/908
+      testName: 'Make sure that a link ending in ) gets fully put in the angle brackets if it has an opening paren',
+      before: dedent`
+        [The Score]: https://en.wikipedia.org/wiki/The_Score_(album)
+      `,
+      after: dedent`
+        [The Score]: <https://en.wikipedia.org/wiki/The_Score_(album)>
+      `,
+    },
+    {// relates for https://github.com/platers/obsidian-linter/issues/908
+      testName: 'Make sure that a link ending in ), but without an opening paren does not get angle brackets added around it',
+      before: dedent`
+        [The Score]: https://en.wikipedia.org/wiki/The_Score_album)
+      `,
+      after: dedent`
+        [The Score]: <https://en.wikipedia.org/wiki/The_Score_album>)
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/908
+      testName: 'Make sure that a link ending in ! gets fully put in the angle brackets',
+      before: dedent`
+        [This Is Fats Domino!]: https://en.wikipedia.org/wiki/This_Is_Fats_Domino!
+      `,
+      after: dedent`
+        [This Is Fats Domino!]: <https://en.wikipedia.org/wiki/This_Is_Fats_Domino!>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/900
+      testName: 'Make sure that a link ending in a blob of text without spaces does not include `>`',
+      before: dedent`
+        我是一个网址<https://github.com/platers/obsidian-linter>一些中文字符。被包含进去了如果我继续写
+      `,
+      after: dedent`
+        我是一个网址<https://github.com/platers/obsidian-linter>一些中文字符。被包含进去了如果我继续写
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/900
+      testName: 'Chinese is not allowed in links',
+      before: dedent`
+        我是一个网址https://github.com/platers/obsidian-linter一些中文字符。被包含进去了
+      `,
+      after: dedent`
+        我是一个网址<https://github.com/platers/obsidian-linter>一些中文字符。被包含进去了
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/959
+      testName: 'Make sure that URLs with `#` in them are properly recognized as URLs.',
+      before: dedent`
+        https://github.com/platers/obsidian-linter//issues/42#issuecomment-1234567890
+      `,
+      after: dedent`
+        <https://github.com/platers/obsidian-linter//issues/42#issuecomment-1234567890>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/980
+      testName: 'Make sure that URLs with multiple params in them are properly matched',
+      before: dedent`
+        https://m3.bbz-dormagen-moodle.de/tag/index.php?tc=1&tag=Nachschreibtermin&from=4817
+      `,
+      after: dedent`
+        <https://m3.bbz-dormagen-moodle.de/tag/index.php?tc=1&tag=Nachschreibtermin&from=4817>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1029
+      testName: 'Make sure that URLs with percents are properly matched',
+      before: dedent`
+        https://zh.wikipedia.org/wiki/%E5%85%AC%E5%8E%86
+        https://baike.baidu.com/item/%E7%99%BE%E7%A7%91
+        https://www.google.com/search?q=%E7%A9%BA%E6%A0%BC
+        https://cn.bing.com/search?pglt=163&q=%E6%A0%BC%E5%BC%8F%E5%8C%96
+        https://www.google.com/search?q=%E3%81%A1%E3%82%85%E3%81%86%E3%81%94%E3%81%8F%E3%81%94
+      `,
+      after: dedent`
+        <https://zh.wikipedia.org/wiki/%E5%85%AC%E5%8E%86>
+        <https://baike.baidu.com/item/%E7%99%BE%E7%A7%91>
+        <https://www.google.com/search?q=%E7%A9%BA%E6%A0%BC>
+        <https://cn.bing.com/search?pglt=163&q=%E6%A0%BC%E5%BC%8F%E5%8C%96>
+        <https://www.google.com/search?q=%E3%81%A1%E3%82%85%E3%81%86%E3%81%94%E3%81%8F%E3%81%94>
+      `,
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1030
+      testName: 'Make sure that file URIs with three slashes are properly matched',
+      before: dedent`
+        # Untitled
+
+        file:///C:/Untitled.md
+      `,
+      after: dedent`
+        # Untitled
+
+        <file:///C:/Untitled.md>
+      `,
+      options: {
+        noBareURIs: true,
+      },
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1050
+      testName: 'Make sure that URls containing an \'@\' are properly matched',
+      before: dedent`
+        https://domain.org/@user
+        https://domain.org/@user/some-kebab-case-path
+        https://domain.org/some-path/@user/some-kebab-case-path
+        https://domain.org/some-path/@user/some-kebab-case-path
+        https://domain.org/some-path/@user/some-kebab-case-path/@user
+        https://domain.org/some-path/@user/some-kebab-case-path#anchor
+        https://domain.org/some-path/@user/some-kebab-case-path#anchor?t=4
+      `,
+      after: dedent`
+        <https://domain.org/@user>
+        <https://domain.org/@user/some-kebab-case-path>
+        <https://domain.org/some-path/@user/some-kebab-case-path>
+        <https://domain.org/some-path/@user/some-kebab-case-path>
+        <https://domain.org/some-path/@user/some-kebab-case-path/@user>
+        <https://domain.org/some-path/@user/some-kebab-case-path#anchor>
+        <https://domain.org/some-path/@user/some-kebab-case-path#anchor?t=4>
+      `,
+      options: {
+        noBareURIs: false,
+      },
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1084
+      testName: 'Make sure that URLs containing `~` are properly matched',
+      before: dedent`
+        https://some.website/~username/
+        <https://some.website/~username/>
+      `,
+      after: dedent`
+        <https://some.website/~username/>
+        <https://some.website/~username/>
+      `,
+      options: {
+        noBareURIs: false,
+      },
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1064
+      testName: 'Make sure that various odd URL formats are indeed correctly matcted as URLs',
+      before: dedent`
+        https://web.archive.org/web/20240402173118/https://www.apple.com/
+        https://en.wikipedia.org/wiki/Möbius_strip
+        https://zh.wikipedia.org/wiki/Wikipedia:关于中文维基百科/en
+        https://john.doe@www.example.com:123/forum/questions/?tag=networking&order=newest#top
+        http://127.0.0.1/index.html
+        mailto:John.Doe@example.com
+        https://medium.com/@robertwiblin
+        https://company.sharepoint.com/:x:/r/sites/246073/
+        https://cs.wikipedia.org/wiki/P%C5%99%C3%ADli%C5%A1_%C5%BElu%C5%A5ou%C4%8Dk%C3%BD_k%C5%AF%C5%88_%C3%BAp%C4%9Bl_%C4%8F%C3%A1belsk%C3%A9_%C3%B3dy
+        https://cs.wikipedia.org/wiki/Příliš_žluťoučký_kůň_úpěl_ďábelské_ódy
+        https://shop.aeg.no/search?q=:relevance:pnc:91028883600
+        https://www.clasohlson.com/no/Electrolux-st&oslash;vsugerslange,-Gr&aring;/p/51-2445
+        https://web.archive.org/web/20090425045316/http://www.kernelthread.com/publications/appleoshistory/1.html
+      `,
+      after: dedent`
+        <https://web.archive.org/web/20240402173118/https://www.apple.com/>
+        <https://en.wikipedia.org/wiki/Möbius_strip>
+        <https://zh.wikipedia.org/wiki/Wikipedia:关于中文维基百科/en>
+        <https://john.doe@www.example.com:123/forum/questions/?tag=networking&order=newest#top>
+        <http://127.0.0.1/index.html>
+        <mailto:John.Doe@example.com>
+        <https://medium.com/@robertwiblin>
+        <https://company.sharepoint.com/:x:/r/sites/246073/>
+        <https://cs.wikipedia.org/wiki/P%C5%99%C3%ADli%C5%A1_%C5%BElu%C5%A5ou%C4%8Dk%C3%BD_k%C5%AF%C5%88_%C3%BAp%C4%9Bl_%C4%8F%C3%A1belsk%C3%A9_%C3%B3dy>
+        <https://cs.wikipedia.org/wiki/Příliš_žluťoučký_kůň_úpěl_ďábelské_ódy>
+        <https://shop.aeg.no/search?q=:relevance:pnc:91028883600>
+        <https://www.clasohlson.com/no/Electrolux-st&oslash;vsugerslange,-Gr&aring;/p/51-2445>
+        <https://web.archive.org/web/20090425045316/http://www.kernelthread.com/publications/appleoshistory/1.html>
+      `,
+      options: {
+        noBareURIs: false,
+      },
+    },
+    {// accounts for https://github.com/platers/obsidian-linter/issues/1064
+      testName: 'Make sure that a URL looking part to a URI gets ignored for the URL logic',
+      before: dedent`
+        news:comp.infosystems.www.servers.unix
+      `,
+      after: dedent`
+        news:comp.infosystems.www.servers.unix
+      `,
+      options: {
+        noBareURIs: false,
+      },
+    },
+  ],
+});

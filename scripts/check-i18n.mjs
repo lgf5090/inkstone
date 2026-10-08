@@ -8,6 +8,7 @@ const failures = [];
 const usedKeys = new Set();
 const forbiddenCjk = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u;
 const visibleAttributes = new Set(['alt', 'aria-label', 'description', 'hint', 'label', 'placeholder', 'title']);
+const ruleExampleCache = new WeakMap();
 const allowedHanFragments = new Map([
     [path.resolve('README.md'), ['<a href="./README_ZH.md">\u4e2d\u6587</a>']],
     // The OAuth consent page is a self-contained HTML document with its own
@@ -165,7 +166,7 @@ const allowedHanFragments = new Map([
  * prints it beside a translated day number. The `LUNAR_*`/`TERM_*` fixtures are the same argument in
  * a test - the table is only worth having if the test can read what it produces.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES', 'TERM_NAMES', 'LUNAR_MONTH_NAMES', 'LUNAR_DAY_NAMES', 'GANZI_VOCABULARY', 'ALMANAC_TEXT', 'FESTIVAL_DATA', 'LUNAR_ALMANAC_FIXTURES', 'LUNAR_TERM_FIXTURES', 'LUNAR_DAY_NAME_FIXTURES', 'LUNAR_MONTH_NAME_FIXTURES', 'LUNAR_SHORT_NAME_FIXTURES', 'FESTIVAL_CELL_FIXTURES', 'LUNAR_FESTIVAL_FIXTURES', 'ALMANAC_WORDS', 'ALMANAC_LOADER_FIXTURES']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES', 'TERM_NAMES', 'LUNAR_MONTH_NAMES', 'LUNAR_DAY_NAMES', 'GANZI_VOCABULARY', 'ALMANAC_TEXT', 'FESTIVAL_DATA', 'LUNAR_ALMANAC_FIXTURES', 'LUNAR_TERM_FIXTURES', 'LUNAR_DAY_NAME_FIXTURES', 'LUNAR_MONTH_NAME_FIXTURES', 'LUNAR_SHORT_NAME_FIXTURES', 'FESTIVAL_CELL_FIXTURES', 'LUNAR_FESTIVAL_FIXTURES', 'ALMANAC_WORDS', 'ALMANAC_LOADER_FIXTURES', 'HAN_PUNCTUATION_CLASS', 'HEADINGS_TRAILING_PUNCTUATION', 'hanCharacterOrCommonChinesePunctuationRegex']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen
@@ -211,7 +212,9 @@ const englishOnlyPaths = [
     path.resolve('.github'),
 ];
 for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walkSource(target)] : [])) {
-    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file))
+    // A test file holds note text and expected output, never interface copy, which is the same
+    // exemption the scan below gives it.
+    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file) || file.includes(".test."))
         continue;
     rejectHan(file);
 }
@@ -264,7 +267,7 @@ for (const file of walkSource(root)) {
             (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
             /\p{Script=Han}/u.test(node.text) &&
             !insideTranslationCall(node) &&
-            !insideInputVocabulary(node)) {
+            !insideInputVocabulary(node) && !insideRuleExample(node)) {
             report(node, JSON.stringify(node.text));
         }
         ts.forEachChild(node, visit);
@@ -290,7 +293,7 @@ function isTextSource(file) {
     return /\.(?:css|html|js|jsx|json|md|mjs|svg|toml|ts|tsx)$/.test(file);
 }
 function rejectHan(file) {
-    const source = blankInputVocabulary(file, fs.readFileSync(file, 'utf8'));
+    const source = blankRuleExampleFixtures(file, blankInputVocabulary(file, fs.readFileSync(file, 'utf8')));
     const checked = (allowedHanFragments.get(file) ?? []).reduce((text, fragment) => text.replace(fragment, ' '.repeat(fragment.length)), source);
     const match = forbiddenCjk.exec(checked);
     if (!match)
@@ -299,6 +302,64 @@ function rejectHan(file) {
     const line = before.split(/\r?\n/).length;
     const column = match.index - Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'));
     failures.push(`${path.relative(process.cwd(), file)}:${line}:${column} Chinese text is allowed only in src/shared/locales/zh-CN.ts`);
+}
+/**
+ * A lint rule's examples are markdown a note is written *with*, not copy a page renders: the
+ * Japanese-spaced heading that shows what `space-between-…` does is the input and the expected
+ * output of the rule, and translating it would test a document no reader has. Only the `before`,
+ * `after`, and `description` template literals of an `ExampleBuilder` are exempt, so a rule file
+ * still cannot smuggle unlocalized interface text past the gate.
+ */
+function ruleExampleSpans(sourceFile) {
+    if (!isLinterRuleFile(sourceFile.fileName))
+        return null;
+    const cached = ruleExampleCache.get(sourceFile);
+    if (cached)
+        return cached;
+    // inside the ported test corpus the same fixtures arrive as plain object literals, so the two
+    // property names that hold a document are recognized wherever they appear
+    const spans = [];
+    const walk = (node) => {
+        if (ts.isObjectLiteralExpression(node) &&
+            node.parent &&
+            ts.isNewExpression(node.parent) &&
+            node.parent.expression.getText() === 'ExampleBuilder') {
+            for (const property of node.properties) {
+                if (!ts.isPropertyAssignment(property) || !['after', 'before', 'description'].includes(property.name.getText()))
+                    continue;
+                if (ts.isTemplateExpression(property.initializer) ||
+                    ts.isNoSubstitutionTemplateLiteral(property.initializer) ||
+                    ts.isTaggedTemplateExpression(property.initializer))
+                    spans.push([property.initializer.getStart(sourceFile), property.initializer.getEnd()]);
+            }
+        }
+        ts.forEachChild(node, walk);
+    };
+    walk(sourceFile);
+    ruleExampleCache.set(sourceFile, spans);
+    return spans;
+}
+function blankRuleExampleFixtures(file, source) {
+    const spans = ruleExampleSpans(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+    if (!spans || !spans.length)
+        return source;
+    let text = source;
+    for (const [from, to] of [...spans].sort((a, b) => b[0] - a[0]))
+        text = text.slice(0, from) + text.slice(from, to).replace(/[^\n]/g, ' ') + text.slice(to);
+    return text;
+}
+function isLinterRuleFile(fileName) {
+    const dir = path.resolve(fileName).replace(/[\\/][^\\/]*$/, '');
+
+    return [path.join(process.cwd(), 'src', 'client', 'lib', 'linter', 'rules'),
+        path.join(process.cwd(), 'src', 'client', 'lib', 'linter', '__tests__')]
+        .some((root) => dir === root || dir.startsWith(root + path.sep));
+}
+function insideRuleExample(node) {
+    const spans = ruleExampleSpans(node.getSourceFile());
+    if (!spans)
+        return false;
+    return spans.some(([from, to]) => node.pos >= from && node.end <= to);
 }
 function blankInputVocabulary(file, source) {
     if (![...inputVocabularyConstants].some((name) => source.includes('const ' + name)))

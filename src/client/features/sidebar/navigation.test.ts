@@ -397,8 +397,34 @@ describe('folder row menu', () => {
             t('folders.move_to'),
             t('folders.group_arrange'),
             t('folders.group_archive'),
+            t('linter.command.lint_this_folder'),
+            t('linter.command.ignore_folder'),
             t('sidebar.delete_folder'),
         ]);
+    });
+
+    it('keeps the linter out of the menu once the reader turned it off', async () => {
+        const linter = useSession.getState().settings.linter;
+        useSession.setState({ settings: { ...useSession.getState().settings, linter: { ...linter, enabled: false } } });
+        try {
+            const scope = await openFolderMenu();
+
+            expect(labels(scope)).toEqual([
+                t('sidebar.rename'),
+                t('sidebar.create_new_note_here'),
+                t('sidebar.new_subfolder'),
+                t('folders.color'),
+                t('folders.icon'),
+                t('folders.set_as_inbox'),
+                t('folders.move_to'),
+                t('folders.group_arrange'),
+                t('folders.group_archive'),
+                t('sidebar.delete_folder'),
+            ]);
+        }
+        finally {
+            useSession.setState({ settings: { ...useSession.getState().settings, linter } });
+        }
     });
 
     it('paints the folder from the colour flyout and closes the menu', async () => {

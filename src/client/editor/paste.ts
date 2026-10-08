@@ -4,6 +4,7 @@ import { truncateText } from '@shared/text-utils';
 import { t } from "../lib/i18n";
 import { randomLocalId } from '../lib/random-id';
 import { useSession } from '../store/session';
+import { pasteRulesAreOn } from '../lib/linter/rule-search-index';
 import { applyPasteLink, escapeMarkdownLabel, markdownLink } from './paste-link';
 
 
@@ -61,6 +62,14 @@ export function pasteEventHandlers(handlers: PasteHandlers): DOMEventHandlers<Ed
                     return true;
                 }
             }
+            if (text && wantsPasteLint() && !isBareLink(text)) {
+                // The paste rules live behind a dynamic import, so the event is claimed here and the
+                // text lands when that import answers. If it cannot answer, the reader still gets the
+                // text they copied.
+                event.preventDefault();
+                void lintPastedText(view, text).then((next) => insertText(view, next), () => insertText(view, text));
+                return true;
+            }
             return false;
         },
         drop(event: DragEvent, view: EditorView) {
@@ -83,7 +92,48 @@ export function pasteEventHandlers(handlers: PasteHandlers): DOMEventHandlers<Ed
 }
 
 export function pasteExtension(handlers: PasteHandlers) {
+    // The paste rules are a dynamic import, and a paste that claims the event has to wait for that
+    // import. Asking for it while the editor is being built is what keeps the reader's first paste
+    // from being the one that pays for it.
+    if (wantsPasteLint()) {
+        void import('../lib/linter/runner');
+    }
     return EditorView.domEventHandlers(pasteEventHandlers(handlers));
+}
+
+/** Whether the reader asked for the paste rules to run on what they paste. */
+function wantsPasteLint(): boolean {
+    const linter = useSession.getState().settings.linter;
+    return linter.enabled && linter.lintOnPaste && pasteRulesAreOn(linter.ruleConfigs);
+}
+
+/**
+ * A lone address is left for the link features to deal with, the way the reference plugin gives up
+ * on a clipboard that holds a link — linting it would fight whatever turns it into a card.
+ */
+function isBareLink(text: string): boolean {
+    return /^(?:https?:\/\/|www\.|mailto:|file:)/i.test(text.trim());
+}
+
+function insertText(view: EditorView, text: string): void {
+    const range = view.state.selection.main;
+    view.dispatch({
+        changes: { from: range.from, to: range.to, insert: text },
+        selection: EditorSelection.cursor(range.from + text.length),
+        userEvent: 'input.paste',
+    });
+}
+
+/** The paste-time rules, over the text about to land, with the line and selection they apply to. */
+async function lintPastedText(view: EditorView, text: string): Promise<string> {
+    const range = view.state.selection.main;
+    const { lintPaste } = await import('../lib/linter');
+    return lintPaste({
+        text,
+        currentLine: view.state.doc.lineAt(range.head).text,
+        selectedText: view.state.sliceDoc(range.from, range.to),
+        settings: useSession.getState().settings.linter,
+    });
 }
 export async function insertFiles(view: EditorView, files: File[], handlers: PasteHandlers): Promise<void> {
     // Two or more pictures pasted together become one layout block, each upload sitting on its own row line

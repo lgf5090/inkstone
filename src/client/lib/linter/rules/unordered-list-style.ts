@@ -1,0 +1,199 @@
+import {IgnoreTypes} from '../engine/ignore-types';
+import {Options, RuleType} from '../rules';
+import RuleBuilder, {DropdownOptionBuilder, ExampleBuilder, OptionBuilderBase} from '../rule-builder';
+import dedent from 'ts-dedent';
+import {UnorderedListItemStyles, updateUnorderedListItemIndicators} from '../engine/mdast';
+import type {ProtectedRanges} from '../engine/protected-ranges';
+
+class UnorderedListStyleOptions implements Options {
+  listStyle: UnorderedListItemStyles = UnorderedListItemStyles.Consistent;
+}
+
+export default class UnorderedListStyle extends RuleBuilder<UnorderedListStyleOptions> {
+  constructor() {
+    super({
+      alias: 'unordered-list-style',
+      nameKey: "linter.rules.unordered_list_style.name",
+      descriptionKey: "linter.rules.unordered_list_style.description",
+      type: RuleType.CONTENT,
+      ruleIgnoreTypes: [IgnoreTypes.code, IgnoreTypes.math, IgnoreTypes.yaml, IgnoreTypes.tag],
+    });
+  }
+  get OptionsClass(): new () => UnorderedListStyleOptions {
+    return UnorderedListStyleOptions;
+  }
+  apply(text: string, options: UnorderedListStyleOptions, protectedRanges: ProtectedRanges): string {
+    return updateUnorderedListItemIndicators(text, options.listStyle, protectedRanges);
+  }
+  get exampleBuilders(): ExampleBuilder<UnorderedListStyleOptions>[] {
+    return [
+      new ExampleBuilder({
+        description: 'Unordered lists have their marker updated to `*` when `List item style = \'consistent\'` and `*` is the first unordered list marker',
+        before: dedent`
+          1. ordered item 1
+          2. ordered item 2
+          ${''}
+          Checklists should be ignored
+          - [ ] Checklist item 1
+          - [x] completed item
+          ${''}
+          * Item 1
+            - Sublist 1 item 1
+            - Sublist 1 item 2
+          - Item 2
+            + Sublist 2 item 1
+            + Sublist 2 item 2
+          + Item 3
+            * Sublist 3 item 1
+            * Sublist 3 item 2
+          ${''}
+        `,
+        after: dedent`
+          1. ordered item 1
+          2. ordered item 2
+          ${''}
+          Checklists should be ignored
+          - [ ] Checklist item 1
+          - [x] completed item
+          ${''}
+          * Item 1
+            * Sublist 1 item 1
+            * Sublist 1 item 2
+          * Item 2
+            * Sublist 2 item 1
+            * Sublist 2 item 2
+          * Item 3
+            * Sublist 3 item 1
+            * Sublist 3 item 2
+          ${''}
+        `,
+      }),
+      new ExampleBuilder({
+        description: 'Unordered lists have their marker updated to `-` when `List item style = \'-\'`',
+        before: dedent`
+          - Item 1
+            * Sublist 1 item 1
+            * Sublist 1 item 2
+          * Item 2
+            + Sublist 2 item 1
+            + Sublist 2 item 2
+          + Item 3
+            - Sublist 3 item 1
+            - Sublist 3 item 2
+          ${''}
+          See that the ordered list is ignored, but its sublist is not
+          ${''}
+          1. Item 1
+            - Sub item 1
+          1. Item 2
+            * Sub item 2
+          1. Item 3
+            + Sub item 3
+        `,
+        after: dedent`
+          - Item 1
+            - Sublist 1 item 1
+            - Sublist 1 item 2
+          - Item 2
+            - Sublist 2 item 1
+            - Sublist 2 item 2
+          - Item 3
+            - Sublist 3 item 1
+            - Sublist 3 item 2
+          ${''}
+          See that the ordered list is ignored, but its sublist is not
+          ${''}
+          1. Item 1
+            - Sub item 1
+          1. Item 2
+            - Sub item 2
+          1. Item 3
+            - Sub item 3
+        `,
+        options: {
+          listStyle: UnorderedListItemStyles.Dash,
+        },
+      }),
+      new ExampleBuilder({
+        description: 'Unordered lists have their marker updated to `*` when `List item style = \'*\'`',
+        before: dedent`
+          - Item 1
+            * Sublist 1 item 1
+            * Sublist 1 item 2
+          * Item 2
+            + Sublist 2 item 1
+            + Sublist 2 item 2
+          + Item 3
+            - Sublist 3 item 1
+            - Sublist 3 item 2
+          ${''}
+        `,
+        after: dedent`
+          * Item 1
+            * Sublist 1 item 1
+            * Sublist 1 item 2
+          * Item 2
+            * Sublist 2 item 1
+            * Sublist 2 item 2
+          * Item 3
+            * Sublist 3 item 1
+            * Sublist 3 item 2
+          ${''}
+        `,
+        options: {
+          listStyle: UnorderedListItemStyles.Asterisk,
+        },
+      }),
+      new ExampleBuilder({
+        description: 'Unordered list in blockquote has list item markers set to `+` when `List item style = \'-\'`',
+        before: dedent`
+          > - Item 1
+          > + Item 2
+          > > * Subitem 1
+          > > + Subitem 2
+          > >   - Sub sub item 1
+          > > - Subitem 3
+        `,
+        after: dedent`
+          > + Item 1
+          > + Item 2
+          > > + Subitem 1
+          > > + Subitem 2
+          > >   + Sub sub item 1
+          > > + Subitem 3
+        `,
+        options: {
+          listStyle: UnorderedListItemStyles.Plus,
+        },
+      }),
+    ];
+  }
+  get optionBuilders(): OptionBuilderBase<UnorderedListStyleOptions>[] {
+    return [
+      new DropdownOptionBuilder<UnorderedListStyleOptions, UnorderedListItemStyles>({
+        OptionsClass: UnorderedListStyleOptions,
+        nameKey: "linter.rules.unordered_list_style.list_style.name",
+        descriptionKey: "linter.rules.unordered_list_style.list_style.description",
+        optionsKey: 'listStyle',
+        records: [
+          {
+            value: UnorderedListItemStyles.Consistent,
+            description: 'Makes sure unordered list items use a consistent list item marker in the file which will be based on the first list item found',
+          },
+          {
+            value: UnorderedListItemStyles.Dash,
+            description: 'Makes sure unordered list items use `-` as their marker',
+          },
+          {
+            value: UnorderedListItemStyles.Asterisk,
+            description: 'Makes sure unordered list items use `*` as their marker',
+          },
+          {
+            value: UnorderedListItemStyles.Plus,
+            description: 'Makes sure unordered list items use `+` as their marker',
+          },
+        ],
+      }),
+    ];
+  }
+}

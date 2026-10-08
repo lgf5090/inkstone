@@ -9,6 +9,7 @@ import { Menu, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { FolderPicker } from '../folders/FolderPicker';
+import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { collapseOrLeave, moveTreeFocus } from './tree-keyboard';
 import { noteFolderOwner } from '../../lib/folders';
@@ -58,6 +59,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
     const patchNote = useNotes((s) => s.patchNote);
     const deleteNote = useNotes((s) => s.deleteNote);
     const folders = useNotes((s) => s.folders);
+    const lintItems = useLintNoteMenuItems(note.id);
     const anchor = useRef<HTMLDivElement>(null);
     const contextMenu = useContextMenu();
     const [menuOpen, setMenuOpen] = useState(false);
@@ -71,6 +73,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
         { id: 'star', label: note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites'), icon: <Star size={13}/>, onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }) },
         { id: 'move', label: t('notes.move_to_folder'), icon: <FolderInput size={13}/>, onSelect: () => setMoving(true) },
         { id: 'archive', label: t('navigation.archive'), icon: <Archive size={13}/>, onSelect: () => void patchNote(note.id, { isArchived: true }) },
+        ...lintItems,
         { id: 'delete', label: t('common.move_to_trash'), icon: <Trash2 size={13}/>, separatorBefore: true, tone: 'danger', onSelect: () => void deleteNote(note.id) },
     ];
     return <div role="treeitem" aria-level={depth + 1} aria-selected={active} data-tree-note-id={note.id}>

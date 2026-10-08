@@ -1,5 +1,6 @@
 import { fuzzyMatch, matchesReading } from '../../lib/fuzzy'
 import { getLocale, getLocaleResources, localizedTexts, t, type MessageKey } from '../../lib/i18n'
+import { LINTER_RULE_SEARCH_ENTRIES } from '../../lib/linter/rule-search-index'
 import { SECTION_LABEL_KEYS, type SettingsSection } from './sections'
 
 export type SettingsSearchEntry = {
@@ -286,6 +287,21 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'automation', titleKey: 'settings.quickadd_time_format' },
   { section: 'automation', titleKey: 'settings.quickadd_global_vars', termKeys: ['quickadd.var_name', 'quickadd.var_value', 'settings.quickadd_add_var', 'settings.quickadd_no_vars'] },
   { section: 'automation', titleKey: 'settings.quickadd_periodic', termKeys: ['quickadd.period_format', 'quickadd.period_template', 'quickadd.no_template'] },
+  { section: 'linter', titleKey: 'settings.markdown_linter', termKeys: ['linter.enabled_desc'] },
+  { section: 'linter', titleKey: 'settings.linter_lint_on_save' },
+  { section: 'linter', titleKey: 'settings.linter_lint_on_paste' },
+  { section: 'linter', titleKey: 'settings.linter_lint_on_idle' },
+  { section: 'linter', titleKey: 'linter.tabs.general.override_locale.name', termKeys: ['linter.tabs.general.same_as_system_locale', 'settings.english', 'settings.simplified_chinese'] },
+  { section: 'linter', titleKey: 'settings.linter_report_changes' },
+  { section: 'linter', titleKey: 'settings.linter_record_log' },
+  { section: 'linter', titleKey: 'linter.custom_regexes.name', termKeys: ['linter.custom_regexes.add'] },
+  { section: 'linter', titleKey: 'linter.folders_to_ignore.name' },
+  { section: 'linter', titleKey: 'linter.alias_array_style.name' },
+  { section: 'linter', titleKey: 'linter.tag_array_style.name' },
+  { section: 'linter', titleKey: 'linter.default_array_style.name' },
+  { section: 'linter', titleKey: 'linter.escape_character.name' },
+  { section: 'linter', titleKey: 'linter.math_dollar_signs.name' },
+  { section: 'linter', titleKey: 'linter.reset_defaults.name' },
   { section: 'automation', titleKey: 'settings.quickadd_choices', termKeys: ['quickadd.new_template_choice', 'quickadd.new_capture_choice', 'quickadd.new_macro_choice', 'quickadd.new_group_choice', 'quickadd.no_choices', 'quickadd.run_now', 'quickadd.duplicate'] },
   { section: 'automation', titleKey: 'settings.quickadd_transport', termKeys: ['quickadd.import', 'quickadd.export', 'quickadd.import_merge', 'quickadd.import_replace'] },
   { section: 'about', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
@@ -349,6 +365,17 @@ function prepareIndex(): PreparedEntry[] {
     }
   })
   return prepared
+}
+
+// every rule the linter can switch on is a row of its own, so a reader who knows a rule's name
+// finds the page without opening the section first
+for (const rule of LINTER_RULE_SEARCH_ENTRIES) {
+  SETTINGS_SEARCH_INDEX.push({
+    section: 'linter',
+    titleKey: rule.nameKey,
+    detailKey: rule.descriptionKey,
+    termKeys: rule.optionNameKeys,
+  })
 }
 
 export function searchSettings(query: string): SettingsSearchHit[] {

@@ -27,6 +27,9 @@ const PresenterWindow = lazy(() =>
 const PropertyDecorationHost = lazy(() =>
   import('./features/preview/PropertyDecorationHost').then((module) => ({ default: module.PropertyDecorationHost })),
 )
+const LintPreviewHost = lazy(() =>
+  import('./features/linter/LintPreview').then((module) => ({ default: module.LintPreviewHost })),
+)
 
 export function App() {
 
@@ -112,6 +115,8 @@ export function App() {
       <Toaster />
       <ConfirmHost />
       <PromptHost />
+      {/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */}
+      {status === 'authed' && <LintPreviewHost />}
       {/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */}
       {status === 'authed' && <QuickAddPromptGate />}
     </>

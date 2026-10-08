@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -70,6 +70,7 @@ export function appCommands(): AppCommand[] {
   const updateSettings = session.updateSettings
   const quickAddChoices = quickAdd.choices
   const quickAddOn = quickAdd.settings.enabled
+  const linterOn = session.settings.linter.enabled
   const isDark = document.documentElement.dataset.theme === 'dark';
   return [
     {
@@ -116,6 +117,18 @@ export function appCommands(): AppCommand[] {
         group: t("command.commands"),
         run: () => openEmojiPicker(),
     },
+    ...(linterOn
+        ? [
+            {
+                id: 'cmd-lint-all',
+                kind: 'command' as const,
+                label: t("linter.command.lint_all"),
+                icon: WandSparkles,
+                group: t("command.commands"),
+                run: () => void import('../../lib/linter/drive').then((drive) => drive.lintWholeLibrary()),
+            },
+        ]
+        : []),
     ...(activeNote
         ? [
             {
@@ -267,6 +280,59 @@ export function appCommands(): AppCommand[] {
                 group: t("common.current_note"),
                 run: () => void patchNote(activeNote.id, { isStarred: !activeNote.isStarred }),
             },
+            ...(linterOn
+                ? [
+                    {
+                        id: 'cmd-lint-note',
+                        kind: 'command' as const,
+                        label: t("linter.command.lint_note"),
+                        icon: WandSparkles,
+                        combo: APP_SHORTCUTS.lintNote,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.lintCurrentNote()),
+                    },
+                    {
+                        id: 'cmd-lint-preview',
+                        kind: 'command' as const,
+                        label: t("linter.command.preview_note"),
+                        icon: ScanSearch,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.previewCurrentNote()),
+                    },
+                    {
+                        id: 'cmd-lint-paste-plain',
+                        kind: 'command' as const,
+                        label: t("linter.command.paste_plain"),
+                        icon: Clipboard,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.pasteWithoutFormatting()),
+                    },
+                    {
+                        id: 'cmd-lint-folder',
+                        kind: 'command' as const,
+                        label: t("linter.command.lint_folder"),
+                        icon: WandSparkles,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.lintCurrentFolder()),
+                    },
+                    {
+                        id: 'cmd-lint-ignore-note',
+                        kind: 'command' as const,
+                        label: t("linter.command.ignore_note"),
+                        icon: EyeOff,
+                        group: t("common.current_note"),
+                        run: () => import('../../lib/linter/drive').then((drive) => drive.toggleIgnoreNote()),
+                    },
+                    {
+                        id: 'cmd-lint-ignore-folder',
+                        kind: 'command' as const,
+                        label: t("linter.command.ignore_folder"),
+                        icon: EyeOff,
+                        group: t("common.current_note"),
+                        run: () => import('../../lib/linter/drive').then((drive) => drive.toggleIgnoreFolder()),
+                    },
+                ]
+                : []),
             {
                 id: 'cmd-archive',
                 kind: 'command' as const,

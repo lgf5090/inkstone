@@ -66,6 +66,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const quickAddOn = useQuickAdd((s) => s.settings.enabled);
     const quickAddChoices = useQuickAdd((s) => s.choices);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
+    const linterOn = useSession((s) => s.settings.linter.enabled);
     const debounced = useDebounced(query, 180);
     const now = useNow();
     useEscape(true, onClose);
@@ -104,6 +105,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         activeNote,
         appearanceTheme,
         locale,
+        linterOn,
         quickAddChoices,
         quickAddOn,
     ]);

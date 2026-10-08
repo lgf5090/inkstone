@@ -18,6 +18,7 @@ import type { ContextMenuHost, EditorContext } from './context-menu/types';
 import { Segmented } from '../../components/form';
 import { EditorSkeleton, Empty } from '../../components/feedback';
 import { DeferredCodeEditor } from '../../editor/CodeEditor';
+import { useLinterDrives } from '../../lib/linter/idle-drive';
 import { insertFiles } from '../../editor/paste';
 import { optimizeImageFile } from '../../lib/image';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
@@ -83,6 +84,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const moreButtonRef = useRef<HTMLButtonElement>(null);
     const exportMenuRef = useRef<HTMLButtonElement>(null);
     const [view, setView] = useState<EditorView | null>(null);
+    const noteEdited = useLinterDrives(note?.id ?? null, view);
     const readingKey = userId && note ? readingPositionKey(userId, note.id) : null;
     const pendingReadingRef = useRef<{ key: string; position: ReturnType<typeof captureReadingPosition> } | null>(null);
     const readingTimerRef = useRef<number | undefined>(undefined);
@@ -261,7 +263,8 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         if (!note)
             return;
         editContent(note.id, next);
-    }, [note, editContent]);
+        noteEdited();
+    }, [note, editContent, noteEdited]);
     // A jump has to leave the pane visible: in reading mode the editor is hidden, and moving a cursor
     // nobody can see would read as the menu having done nothing at all.
     const jumpToLine = useCallback((line: number) => {

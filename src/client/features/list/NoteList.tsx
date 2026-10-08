@@ -21,6 +21,7 @@ import { writeNoteDrag } from '../../lib/note-drag';
 import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
 import { openNoteFloatingWindow } from './note-floating-window';
 import { FolderPicker } from '../folders/FolderPicker';
+import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { TemplateQuickActions } from '../templates/quick-actions';
 import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
@@ -443,6 +444,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const duplicateNote = useNotes((s) => s.duplicateNote);
     const folders = useNotes((s) => s.folders);
     const menu = useContextMenu();
+    const lintItems = useLintNoteMenuItems(note.id);
     const menuButtonRef = useRef<HTMLButtonElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [moveOpen, setMoveOpen] = useState(false);
@@ -581,6 +583,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
         { id: 'copy-title', label: t('notes.copy_title'), icon: <Copy size={13}/>, onSelect: () => void copyText(note.title || t('common.untitled_note'), 'notes.title_copied') },
         { id: 'copy-id', label: t('notes.copy_id'), icon: <Copy size={13}/>, onSelect: () => void copyText(note.id, 'notes.id_copied') },
         { id: 'copy-direct-link', label: t('notes.copy_direct_link'), icon: <Link2 size={13}/>, onSelect: () => void copyText(new URL(`/n/${encodeURIComponent(note.id)}`, window.location.origin).href, 'notes.direct_link_copied') },
+        ...(inTrash ? [] : lintItems),
         ...noteActions,
     ];
     const titleParts = splitByRanges(note.title || t("common.untitled_note"), highlight);
