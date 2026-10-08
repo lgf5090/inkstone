@@ -65,6 +65,8 @@ export interface NotePort {
   clipboard(): Promise<string>
   /** Body text of a library template by id or name. */
   templateBody(name: string): Promise<string | null>
+  /** Every template name in the library, for a choice that asks which one to use. */
+  templateNames(): string[]
   /** A property name to value list, collected from the account's other notes. */
   fieldValues(name: string, filter: FieldValueFilter): Promise<string[]>
   /** Note titles inside a folder, for `{{FILE:folder}}`. */

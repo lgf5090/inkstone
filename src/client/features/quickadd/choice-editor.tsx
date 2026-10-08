@@ -8,7 +8,7 @@
  * question or touch a note.
  */
 import { useCallback, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, CircleSlash, Plus, Trash2 } from 'lucide-react'
 import {
   QUICKADD_LIMITS,
   descendantIds,
@@ -25,6 +25,7 @@ import {
   type QuickAddFolderMode,
   type QuickAddOnePageMode,
   type QuickAddTemplateMode,
+  type QuickAddTemplatePick,
   type QuickAddMacroChoice,
   type QuickAddOrderKey,
   type QuickAddUnparseablePolicy,
@@ -33,7 +34,8 @@ import {
   type QuickAddTemplateChoice,
 } from '@shared/quickadd'
 import type { MessageKey } from '@shared/locales/en-US'
-import { ORGANIZER_COLORS } from '@shared/organizer-colors'
+import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors'
+import { cn } from '../../lib/cn'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Field, Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
@@ -202,10 +204,10 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
               }}/>
           </Field>
           <Field label={t('quickadd.field_color')}>
-            <div className="flex flex-wrap gap-1" role="group" aria-label={t('quickadd.field_color')}>
+            <div className="grid grid-cols-8 gap-1.5" role="group" aria-label={t('quickadd.field_color')}>
               <ColorSwatch active={draft.color === null} label={t('quickadd.color_none')} onClick={() => patch({ color: null })}/>
               {ORGANIZER_COLORS.map((color) => (
-                <ColorSwatch key={color} color={color} active={draft.color === color} label={color} onClick={() => patch({ color })}/>
+                <ColorSwatch key={color} color={color} active={draft.color === color} label={organizerColorLabel(color, t)} onClick={() => patch({ color })}/>
               ))}
             </div>
           </Field>
@@ -298,16 +300,22 @@ function ColorSwatch({ color, active, label, onClick }: {
     <button
       type="button"
       aria-label={label}
+      title={label}
       aria-pressed={active}
       onClick={onClick}
-      className="flex size-7 items-center justify-center rounded-full border text-[10px] transition-transform hover:scale-110"
-      style={{
-        backgroundColor: color ?? 'transparent',
-        borderColor: active ? 'var(--accent)' : 'var(--border-subtle)',
-        color: 'var(--text-quaternary)',
-      }}
+      className={cn(
+        'flex size-7 items-center justify-center rounded-full transition-transform hover:scale-110',
+        color === undefined && 'border',
+        color === undefined && (active
+          ? 'border-[var(--accent)] text-[var(--accent)] ring-2 ring-[var(--accent-ring)]'
+          : 'border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]'),
+        color !== undefined && active && 'ring-2 ring-[var(--accent-ring)] ring-offset-2 ring-offset-[var(--bg-overlay)]',
+      )}
+      style={color ? { backgroundColor: color } : undefined}
     >
-      {color ?? 'Ø'}
+      {color === undefined
+        ? <CircleSlash size={13}/>
+        : active && <Check size={13} className="text-white"/>}
     </button>
   )
 }
@@ -359,15 +367,26 @@ function TemplateFields({ draft, patch, renderFormat }: {
           <option value="insert-here">{t('quickadd.mode_insert_here')}</option>
         </Select>
       </SettingRow>
-      <Field label={t('quickadd.field_template')} hint={t('quickadd.field_template_hint')}>
+      <SettingRow title={t('quickadd.field_template_pick')}>
         <Select
-          aria-label={t('quickadd.field_template')}
-          value={draft.templateId ?? ''}
-          onChange={(event) => patch({ templateId: event.target.value === '' ? null : event.target.value })}>
-          <option value="">{t('quickadd.no_template')}</option>
-          {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          aria-label={t('quickadd.field_template_pick')}
+          value={draft.templatePick}
+          onChange={(event) => patch({ templatePick: event.target.value as QuickAddTemplatePick })}>
+          <option value="fixed">{t('quickadd.template_pick_fixed')}</option>
+          <option value="ask">{t('quickadd.template_pick_ask')}</option>
         </Select>
-      </Field>
+      </SettingRow>
+      {draft.templatePick === 'fixed' && (
+        <Field label={t('quickadd.field_template')} hint={t('quickadd.field_template_hint')}>
+          <Select
+            aria-label={t('quickadd.field_template')}
+            value={draft.templateId ?? ''}
+            onChange={(event) => patch({ templateId: event.target.value === '' ? null : event.target.value })}>
+            <option value="">{t('quickadd.no_template')}</option>
+            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </Select>
+        </Field>
+      )}
       <FormatField
         label={t('quickadd.field_name_format')}
         hint={t('quickadd.field_name_format_hint')}
@@ -637,36 +656,39 @@ function MacroFields({ draft, patch }: {
         <h3 className="text-[13px] font-medium text-[var(--text-primary)]">{t('quickadd.field_steps')}</h3>
         <Button
           size="sm"
+          icon={<Plus size={13}/>}
           onClick={() => {
             if (draft.steps.length >= QUICKADD_LIMITS.maxSteps) return
             set([...draft.steps, newStep('insert')])
           }}
         >
-          <Plus size={13}/>{t('quickadd.add_step')}
+          {t('quickadd.add_step')}
         </Button>
       </div>
       {draft.steps.length === 0 && <p className="text-[12px] text-[var(--text-quaternary)]">{t('quickadd.no_steps')}</p>}
       {draft.steps.map((step, index) => (
         <fieldset key={`step-${index}`} className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
           <legend className="sr-only">{`${t('quickadd.step_kind')} ${index + 1}`}</legend>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label={t('quickadd.step_kind')}
               value={step.kind}
-              className="w-[150px]"
+              className="w-[150px] min-w-0"
               onChange={(event) => updateStep(index, newStep(event.target.value as QuickAddStep['kind']))}>
               {STEP_KINDS.map((kind) => <option key={kind} value={kind}>{t(STEP_KEYS[kind])}</option>)}
             </Select>
             <span className="flex-1"/>
-            <IconButton label={t('quickadd.move_step_up')} size="sm" onClick={() => move(index, -1)}>
-              <ArrowUp size={13}/>
-            </IconButton>
-            <IconButton label={t('quickadd.move_step_down')} size="sm" onClick={() => move(index, 1)}>
-              <ArrowDown size={13}/>
-            </IconButton>
-            <IconButton label={t('quickadd.remove_step')} size="sm" onClick={() => set(draft.steps.filter((_, at) => at !== index))}>
-              <Trash2 size={13}/>
-            </IconButton>
+            <div className="flex items-center gap-0.5">
+              <IconButton label={t('quickadd.move_step_up')} size="sm" onClick={() => move(index, -1)}>
+                <ArrowUp size={13}/>
+              </IconButton>
+              <IconButton label={t('quickadd.move_step_down')} size="sm" onClick={() => move(index, 1)}>
+                <ArrowDown size={13}/>
+              </IconButton>
+              <IconButton label={t('quickadd.remove_step')} size="sm" onClick={() => set(draft.steps.filter((_, at) => at !== index))}>
+                <Trash2 size={13}/>
+              </IconButton>
+            </div>
           </div>
           <StepFields step={step} index={index} runnable={runnable} onChange={(next) => updateStep(index, next)}/>
         </fieldset>

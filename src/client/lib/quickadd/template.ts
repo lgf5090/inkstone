@@ -83,6 +83,23 @@ async function resolveFolder(
   return folder
 }
 
+/** Which library template to use, when the choice says it asks each time. */
+async function askForTemplate(session: RunSession, port: NotePort): Promise<string | null> {
+  const names = port.templateNames()
+  if (names.length === 0) return null
+  const answers = await askForInputs(session, [request({
+    kind: 'suggester',
+    key: 'template',
+    label: t('quickadd.prompt_template'),
+    options: names,
+    allowCustom: false,
+    trim: true,
+  })])
+  if (session.dismissed) return null
+  const value = answers.get('template')
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+}
+
 export async function runTemplateChoice(
   choice: QuickAddTemplateChoice,
   port: NotePort,
@@ -93,9 +110,16 @@ export async function runTemplateChoice(
   if (cancelled) return cancelled
 
   const runtime = buildRuntime(session, port)
+  let templateRef = choice.templateId
+  if (choice.templatePick === 'ask') {
+    const asked = await askForTemplate(session, port)
+    if (session.dismissed) return { kind: 'cancelled' }
+    if (!asked) return { kind: 'failed', reason: t('quickadd.error_template_missing') }
+    templateRef = asked
+  }
   // "No template" is a choice the editor offers, so it means a blank note. Only a template that was
   // deleted from under the choice is a failure worth a danger notice.
-  const body = choice.templateId ? await port.templateBody(choice.templateId) : ''
+  const body = templateRef ? await port.templateBody(templateRef) : ''
   if (body === null)
     return { kind: 'failed', reason: t('quickadd.error_template_missing') }
 

@@ -127,8 +127,8 @@ export function QuickAddChoiceList() {
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-[12px] text-[var(--text-tertiary)]">{t('quickadd.choice_count', { value0: String(choices.length) })}</span>
         <span className="flex-1"/>
-        <Button size="sm" onClick={() => add('template')} disabled={choices.length >= QUICKADD_LIMITS.maxChoices}>
-          <Plus size={13}/>{t('quickadd.new_template_choice')}
+        <Button size="sm" icon={<Plus size={13}/>} onClick={() => add('template')} disabled={choices.length >= QUICKADD_LIMITS.maxChoices}>
+          {t('quickadd.new_template_choice')}
         </Button>
         <Button size="sm" onClick={() => add('capture')} disabled={choices.length >= QUICKADD_LIMITS.maxChoices}>
           {t('quickadd.new_capture_choice')}
@@ -186,7 +186,7 @@ function ChoiceRow({ row, rows, allChoices, onRun, onEdit, onDuplicate, onDelete
   const index = siblings.findIndex((entry) => entry.choice.id === choice.id)
   return (
     <li
-      className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
+      className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5"
       style={{ marginLeft: depth * 14 }}
     >
       {choice.type === 'group' ? (
@@ -217,11 +217,15 @@ function ChoiceRow({ row, rows, allChoices, onRun, onEdit, onDuplicate, onDelete
           <IconButton label={t('quickadd.move_down')} size="sm" onClick={() => onMove(1)} disabled={index >= siblings.length - 1}>
             <ArrowDown size={13}/>
           </IconButton>
-          {choice.type !== 'group' && (
-            <IconButton label={t('quickadd.run_now')} size="sm" onClick={onRun}>
-              <Play size={13}/>
-            </IconButton>
-          )}
+          {/* A group cannot be run, but its row keeps the run slot empty: without it every switch in
+              the list sits 26px further right than its neighbours'. */}
+          {choice.type === 'group'
+            ? <span aria-hidden="true" className="size-8 shrink-0 md:size-6"/>
+            : (
+              <IconButton label={t('quickadd.run_now')} size="sm" onClick={onRun}>
+                <Play size={13}/>
+              </IconButton>
+            )}
           <IconButton label={t('quickadd.duplicate')} size="sm" onClick={onDuplicate}>
             <Copy size={13}/>
           </IconButton>
