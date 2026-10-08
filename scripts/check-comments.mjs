@@ -429,6 +429,31 @@ const allowed = new Map([
     "/** How far back a destination is worth looking for, and how many candidates are worth checking. */",
     "/**\n * With the rules switched off the paste still has to be answered, because the markdown language wraps a\n * selected run around a pasted address on its own: writing the clipboard back as plain text is what\n * turning the switch off promises, and declining would let that wrap happen anyway.\n */",
   ]],
+  ["src/client/editor/outliner/adapter.ts", [
+    "/**\n * A list written inside a fenced block, a display formula or the note's front matter is not a list the\n * outliner may rewrite: printing the tree back would overwrite the author's own text with the parser's\n * reading of it.\n */",
+    "/** `$$` on a line of its own opens a formula, and an unclosed one runs to the end of the note. */",
+    "/** Lines are memoised on demand: pre-building the array costs a pass over the whole note per command. */",
+    "/** A `Text` is immutable, so a document identity is enough to reuse the line scans done over it. */",
+  ]],
+  ["src/client/editor/outliner/commands.ts", [
+    "/**\n * The outliner must not rewrite a line while an input method is still building a word out of the\n * same keystrokes. `view.composing` only turns on after the first composed character, so the editor\n * keeps its own count from the moment composition starts.\n */",
+    "/**\n * The options arrive through a reader, so nothing in the state changes when a switch flips; a plugin\n * that paints from them would keep the last picture forever. The host dispatches this after it has\n * written the new settings into the reader.\n */",
+    "/**\n * Parsing a root costs as much as the list it covers is long, so a caret that is nowhere near the\n * bullet, checkbox or indent gutter of its own line cannot be moved by the stick rules: the width here\n * is the widest prefix this line could own, and callers only add the checkbox a parent line carries.\n */",
+  ]],
+  ["src/client/editor/outliner/drag-drop.ts", [
+    "/**\n * The drop line can sit above the dragged subtree, and a RangeSetBuilder refuses ranges that are not\n * ascending, so marks are collected by position first and the drop wins where both land.\n */",
+  ]],
+  ["src/client/editor/outliner/fold.ts", [
+    "/** The last line that belongs to the item at `lineNumber`, or null when it has no children. */",
+    "/**\n * The fold gutter asks about every line in the viewport, and an item's subtree can run to the end of the\n * note, so scanning per question costs a document walk per visible line. One pass answers all of them.\n */",
+  ]],
+  ["src/client/editor/outliner/guides.ts", [
+    "/**\n     * A press on a guide means the guide, never the text beside it: the band is where the user asks\n     * to fold, and the drag controller would otherwise read the same press as a grab on the bullet.\n     */",
+    "/** The layer lives beside the editable content, so CodeMirror's own handlers never see its presses. */",
+  ]],
+  ["src/client/editor/outliner/tree.ts", [
+    "/** Print and clone recurse, and a generated note can nest thousands of levels: past this depth the parser declines rather than overflow the stack. */",
+  ]],
   ["src/client/editor/paste.ts", [
     "// Two or more pictures pasted together become one layout block, each upload sitting on its own row line",
     "// inside it. The block is written first and each placeholder keeps the marker the replacement looks for,",

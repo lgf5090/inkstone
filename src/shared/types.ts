@@ -139,11 +139,26 @@ export interface EditorSettings {
   pasteLinkBareAddress: boolean
   pasteLinkInternalNote: boolean
   pasteLinkRetarget: boolean
+  outliner: boolean
+  outlinerEnter: boolean
+  outlinerShiftEnter: boolean
+  outlinerTab: boolean
+  outlinerCursor: OutlinerCursorStick
+  outlinerSelectAll: boolean
+  outlinerMoveKeys: boolean
+  outlinerFoldKeys: boolean
+  outlinerGuides: boolean
+  outlinerGuideClick: OutlinerGuideClick
+  outlinerDrag: boolean
 }
 
 /** What a paste does when the author selected nothing: the plain paste, the word under the caret, an
  * empty `[](url)` with the caret waiting inside the brackets, or the bare `<url>` autolink. */
 export type PasteLinkNothing = 'plain' | 'word' | 'inline' | 'bare'
+
+export type OutlinerCursorStick = 'never' | 'bullet' | 'bullet-and-checkbox'
+
+export type OutlinerGuideClick = 'none' | 'fold'
 
 /** Which gesture opens the inline link editor over a link. */
 export type LinkEditorTrigger = 'click' | 'double-click'

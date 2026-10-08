@@ -5,7 +5,7 @@ import { t } from "../../lib/i18n";
 import { clearRecentEmojis, RECENT_EMOJI_LIMIT, useEmojiPreferences } from '../../lib/emoji-prefs';
 import { EMOJI_TONE_LABEL_KEYS, EMOJI_TONE_SLOTS, emojiToneHand } from '../../lib/emoji-unicode';
 import { LINK_EDITOR_ALIAS_SEPARATOR_MAX } from '@shared/constants';
-import type { CodeFormatKeywordCase, EmojiInsertFormat, LinkEditorAliasMode, LinkEditorModifier, LinkEditorTrigger, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, PasteLinkNothing, SkinTone } from '@shared/types';
+import type { CodeFormatKeywordCase, EmojiInsertFormat, LinkEditorAliasMode, LinkEditorModifier, LinkEditorTrigger, OutlinerCursorStick, OutlinerGuideClick, OutlineAutoExpandName, OutlineModeName, OutlineTextDirectionName, PasteLinkNothing, SkinTone } from '@shared/types';
 export function EditorSettings() {
     const editor = useSession((s) => s.settings.editor);
     const preview = useSession((s) => s.settings.preview);
@@ -54,6 +54,63 @@ export function EditorSettings() {
         <SettingRow title={t("settings.focus_mode")} description={t("settings.fade_content_outside_the_current_paragraph")}>
           <Switch checked={editor.focusMode} onChange={(focusMode) => void update({ editor: { focusMode } })} label={t("settings.focus_mode")}/>
         </SettingRow>
+      </section>
+
+      <section>
+        <h3 data-setting-title={t("settings.outliner_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.outliner_group")}</h3>
+
+        <SettingRow title={t("settings.outliner")} description={t("settings.outliner_hint")}>
+          <Switch checked={editor.outliner} onChange={(outliner) => void update({ editor: { outliner } })} label={t("settings.outliner")}/>
+        </SettingRow>
+
+        {editor.outliner && <>
+            <SettingRow title={t("settings.outliner_enter")} description={t("settings.outliner_enter_hint")}>
+              <Switch checked={editor.outlinerEnter} onChange={(outlinerEnter) => void update({ editor: { outlinerEnter } })} label={t("settings.outliner_enter")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_shift_enter")} description={t("settings.outliner_shift_enter_hint")}>
+              <Switch checked={editor.outlinerShiftEnter} onChange={(outlinerShiftEnter) => void update({ editor: { outlinerShiftEnter } })} label={t("settings.outliner_shift_enter")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_tab")} description={t("settings.outliner_tab_hint")}>
+              <Switch checked={editor.outlinerTab} onChange={(outlinerTab) => void update({ editor: { outlinerTab } })} label={t("settings.outliner_tab")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_cursor")} description={t("settings.outliner_cursor_hint")}>
+              <Segmented<OutlinerCursorStick> label={t("settings.outliner_cursor")} value={editor.outlinerCursor} onChange={(outlinerCursor) => void update({ editor: { outlinerCursor } })} options={[
+                { value: 'never', label: t("settings.outliner_cursor_never") },
+                { value: 'bullet', label: t("settings.outliner_cursor_bullet") },
+                { value: 'bullet-and-checkbox', label: t("settings.outliner_cursor_bullet_and_checkbox") },
+              ]}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_select_all")} description={t("settings.outliner_select_all_hint")}>
+              <Switch checked={editor.outlinerSelectAll} onChange={(outlinerSelectAll) => void update({ editor: { outlinerSelectAll } })} label={t("settings.outliner_select_all")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_move_keys")} description={t("settings.outliner_move_keys_hint")}>
+              <Switch checked={editor.outlinerMoveKeys} onChange={(outlinerMoveKeys) => void update({ editor: { outlinerMoveKeys } })} label={t("settings.outliner_move_keys")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_fold_keys")} description={t("settings.outliner_fold_keys_hint")}>
+              <Switch checked={editor.outlinerFoldKeys} onChange={(outlinerFoldKeys) => void update({ editor: { outlinerFoldKeys } })} label={t("settings.outliner_fold_keys")}/>
+            </SettingRow>
+
+            <SettingRow title={t("settings.outliner_guides")} description={t("settings.outliner_guides_hint")}>
+              <Switch checked={editor.outlinerGuides} onChange={(outlinerGuides) => void update({ editor: { outlinerGuides } })} label={t("settings.outliner_guides")}/>
+            </SettingRow>
+
+            {editor.outlinerGuides && <SettingRow title={t("settings.outliner_guide_click")}>
+              <Segmented<OutlinerGuideClick> label={t("settings.outliner_guide_click")} value={editor.outlinerGuideClick} onChange={(outlinerGuideClick) => void update({ editor: { outlinerGuideClick } })} options={[
+                { value: 'none', label: t("settings.outliner_click_none") },
+                { value: 'fold', label: t("settings.outliner_click_fold") },
+              ]}/>
+            </SettingRow>}
+
+            <SettingRow title={t("settings.outliner_drag")} description={t("settings.outliner_drag_hint")}>
+              <Switch checked={editor.outlinerDrag} onChange={(outlinerDrag) => void update({ editor: { outlinerDrag } })} label={t("settings.outliner_drag")}/>
+            </SettingRow>
+          </>}
       </section>
 
       <section>
