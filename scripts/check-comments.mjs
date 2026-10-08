@@ -3722,6 +3722,8 @@ const allowed = new Map([
     "/** `savedAt` of the copy the account server holds, or 0 when never synced. */",
     "/** Local changes that have not reached the account server yet. */",
     "/**\n   * Reads the per-account template library, dropping any stored entry that no\n   * longer matches the shape. A corrupt record degrades to an unseeded library\n   * rather than throwing the gallery into an error state.\n   */",
+    "/** The account's QuickAdd choices and options, persisted as one per-account record. */",
+    "/**\n   * The per-account QuickAdd record. A choice list that no longer parses is dropped whole rather\n   * than half-trusted: a silent, unrunnable choice is worse than an empty library the user notices.\n   */",
   ]],
   ["src/client/lib/element-image.test.ts", [
     "/**\n * The layer every pixel export goes through: an element is serialized into an SVG that carries the\n * document's stylesheet, loaded as an image, and drawn into a canvas. What has to travel inside that\n * SVG is not only its markup — a canvas's pixels are not markup at all, and an `<img>`'s bytes are\n * in another document — and N-24 measured both of those failing quietly: the exported page drew a\n * broken-image glyph where the slide had a picture.\n */",
@@ -7182,6 +7184,21 @@ const allowed = new Map([
     "// Reset the flag once the toast is gone, so a later installed worker can",
     "// notify again instead of being permanently suppressed.",
   ]],
+  ["src/client/store/quickadd.ts", [
+    "/**\n * The account's QuickAdd library: choices, their options, and the durability path that keeps a\n * local copy usable offline while one account record travels between devices.\n *\n * Every write goes through the shared normalizer rather than trusting the caller's patch, so a\n * field the editor should not have been able to set (an over-long format, a `../` folder path, a\n * hotkey without a modifier) arrives at the server already clamped.\n */",
+    "/** Account the hydrated library belongs to; a change forces a re-read. */",
+    "/** The list as it was before the last destructive action, kept in memory only. */",
+    "/** Take the account's copy as it stands: what a backup restore just wrote. */",
+    "/** `error` is a message id so the caller can translate it. */",
+    "/**\n * Re-read the library when another tab says it wrote one. The read replaces the in-memory copy:\n * the other tab wrote the whole record, so anything this tab still holds that is not in that\n * record was never written anywhere.\n */",
+    "// A whole-library write from this tab makes every other tab's copy stale, and each of them",
+    "// writes its own copy back on its next mutation. Saying so is what keeps two tabs open in one",
+    "// browser from erasing each other.",
+    "/**\n * A downloaded file may be the app's own export or a hand-written one that only carries\n * `choices`, so the payload header is filled in when absent. Anything else is not a library.\n */",
+    "/** A merged import re-keys every choice, so a step that runs another choice has to follow. */",
+    "// The account moved on while this read was in flight, so its result belongs to nobody:",
+    "// publishing it would show one account's library under another.",
+  ]],
   ["src/client/store/session.ts", [
     "// Push unsaved offline edits before clearing local data, otherwise",
     "// they would be silently dropped. Dynamic import keeps the session",
@@ -7371,6 +7388,18 @@ const allowed = new Map([
     "/**\n * Resolve the colour a theme actually painted with: a hex, an `rgb()` triple, or the `oklch()`\n * form the design tokens use — `getComputedStyle` hands back whichever the author wrote.\n */",
     "/**\n * WCAG contrast between an organiser colour and the surface it is painted on. A folder icon and a\n * tag pill carry no other weight, so a colour closer than 3:1 to the theme simply disappears.\n * Null means \"not two plain hexes\", which callers must read as unknown rather than as a pass.\n */",
   ]],
+  ["src/shared/quickadd.ts", [
+    "/**\n * The data model for QuickAdd-style choices: a named automation the user runs from the launcher,\n * the command palette or a hotkey. Three executable kinds (template, capture, macro) plus groups\n * that only hold other choices, and the account-level options that steer every run.\n *\n * Every function here is total: a hand-edited file or a stale account record is dropped entry by\n * entry with a count, never thrown at, because the worker validates the same shape on PUT.\n */",
+    "/** The one shape used by the account record, a downloaded file and an upload, so all three parse alike. */",
+    "/**\n * A folder path is matched against folder names, so separators are normalised here rather than at\n * every call site. Trimming is not enough: `../` and `.` segments would otherwise name a folder the\n * user cannot see in the tree, and an embedded NUL would break the stored record.\n */",
+    "/**\n * Names that would reach a prototype when a caller keys a plain object by the variable's name.\n * A global variable is user text, and a token's answer is text too, so the guard lives with the\n * name rather than at each place a name is used.\n */",
+    "/**\n * Choices are stored flat and assembled into a tree by `parentId`, so a hostile or hand-edited\n * record can point a child at a missing parent, at itself, or into a cycle. All three are fixed\n * here rather than at read time: an orphan becomes a root, and a cycle detaches the entry that\n * closes it. A parent that is not a group is a lie of the same kind.\n */",
+    "/**\n * A macro step that runs another choice is the one reference the record owns, so a dangling one is\n * dropped: running a deleted choice would silently do nothing. Template ids point into the template\n * library, which is a separate record, so they survive here and are reported at run time instead.\n */",
+    "/**\n * The lenient entry point: what an account record or an IndexedDB row holds is the parsed library,\n * which has lost the transport header. A bare `{choices}` is still only read as a library when it\n * really carries a choices array.\n */",
+    "/** Ids reachable from `id` through group children, so deleting a group can ask about its contents. */",
+    "/**\n * Put a choice among a parent's children at `index`, then renumber that parent's children from 0.\n * A caller passes an index measured against the list WITHOUT the moved entry, which is what a\n * drag-and-drop or an up/down button reports. Null when the request cannot be honoured: an unknown\n * id, a parent that is not a group, or a move that would put a group inside itself.\n */",
+    "/** Choices in tree order: each root followed by its group's children. */",
+  ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
     "/**\n * A stored settings object is older than any given key, so every renderer switch has to arrive through\n * `mergeSettings` rather than be read off the JSON: a stored `preview` that predates `chart` must come\n * back as the default, not as `undefined` coerced to \"off\" — that would silently stop drawing charts for\n * every account that existed before the switch shipped, with nothing wrong in the note.\n */",
@@ -7508,6 +7537,8 @@ const allowed = new Map([
     "// database already gets the column from SCHEMA_STATEMENTS.",
     "// How many accounts adopted each published template. `skipIfColumnExists` because a",
     "// fresh database already gets the column from SCHEMA_STATEMENTS and from version 26.",
+    "// The account's QuickAdd choices and their options, kept beside `template_library` for the",
+    "// same reason: a cleared browser and another device must both find them.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -7697,6 +7728,9 @@ const allowed = new Map([
     "// One fold and one instr per row: SQLite does not share the repeated subexpression",
     "// across the references below.",
     "/**\n * Notes that say the target's title in their text without linking to it.\n *\n * The full-text index finds the candidates and `mentionExcerpt` confirms the literal phrase:\n * the index is tokenised and case-folded, so it can offer a note where the words only\n * happen to sit next to each other, and a mention the reader cannot see is worse than a\n * shorter list. Notes that already carry a `[[title]]` are left to the linked half of the\n * panel, since a row would otherwise show up twice with two different meanings.\n *\n * The index pass over-fetches by three because the confirmation drops rows the index should\n * not have offered, and a candidate whose mention the first window missed gets one more look\n * at its first `MENTION_RETRY_SCAN_CHARS` characters, which is where an accented or Cyrillic\n * capital that SQLite could not fold usually lives. Without the index the same answer comes\n * from scanning every body, which is what the search endpoint already falls back to.\n */",
+  ]],
+  ["src/worker/routes/quickadd.ts", [
+    "/** Envelope stored in `users.quickadd`: when the account last saved, plus the library. */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",

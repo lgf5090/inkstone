@@ -510,6 +510,12 @@ export const api = {
       request<{ savedAt: number }>('/api/templates/library', { method: 'PUT', body: { library } }),
   },
 
+  quickadd: {
+    load: () => request<{ savedAt: number; library: unknown }>('/api/quickadd/library'),
+    save: (library: string) =>
+      request<{ savedAt: number }>('/api/quickadd/library', { method: 'PUT', body: { library } }),
+  },
+
   mcp: {
     get: () => request<McpSettingsInfo>('/api/mcp'),
     save: (body: {

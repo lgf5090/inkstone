@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { parseTemplateLibraryExport } from '@shared/note-templates'
+import { parseQuickAddText } from '@shared/quickadd'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
 import { parseQuery } from '@shared/search-query'
@@ -999,6 +1000,24 @@ export function createDemoBackend(): DemoBackend {
       return apiError(400, 'bad_request', 'The template library contains entries that cannot be stored')
     const savedAt = Date.now()
     state.templateLibrary = { savedAt, library: parsed.data }
+    return c.json({ savedAt })
+  })
+  app.get('/api/quickadd/library', (c) => c.json({
+    savedAt: state.quickadd?.savedAt ?? 0,
+    library: state.quickadd?.library ?? null,
+  }))
+  app.put('/api/quickadd/library', async (c) => {
+    const body = await jsonBody(c.req.raw)
+    if (typeof body.library !== 'string')
+      return apiError(400, 'bad_request', 'The QuickAdd library must be sent as text')
+    if (utf8ByteLength(body.library) > 1024 * 1024)
+      return apiError(400, 'bad_request', 'The QuickAdd library is too large')
+    const parsed = parseQuickAddText(body.library)
+    if (!parsed.data) return apiError(400, 'bad_request', 'The QuickAdd library could not be read')
+    if (parsed.dropped > 0 || parsed.truncated)
+      return apiError(400, 'bad_request', 'The QuickAdd library contains entries that cannot be stored')
+    const savedAt = Date.now()
+    state.quickadd = { savedAt, library: parsed.data }
     return c.json({ savedAt })
   })
   app.get('/api/settings/stats', (c) => {

@@ -34,6 +34,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     role TEXT NOT NULL DEFAULT 'member',
     settings TEXT NOT NULL DEFAULT '{}',
     template_library TEXT,
+    quickadd TEXT,
     created_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL
   )`,
@@ -714,6 +715,15 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE community_templates ADD COLUMN uses INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The account's QuickAdd choices and their options, kept beside `template_library` for the
+    // same reason: a cleared browser and another device must both find them.
+    version: 29,
+    skipIfColumnExists: { table: 'users', column: 'quickadd' },
+    statements: [
+      `ALTER TABLE users ADD COLUMN quickadd TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -736,7 +746,7 @@ const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
 const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_meta: ['key', 'value'],
   schema_migrations: ['version', 'applied_at'],
-  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'created_at', 'last_seen_at'],
+  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'created_at', 'last_seen_at'],
   folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at', 'deleted_at'],
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],
