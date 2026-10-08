@@ -4,11 +4,11 @@ import type { DateRangeFilter } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { localizedParams, t, useLocale, useLocaleResources } from '../../lib/i18n';
 import { useNow } from '../../lib/hooks';
-import { weekStartFor } from '../../lib/time';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { ActivityCalendarMemo } from '../../components/activity-calendar';
 import { buildActivityProjectionCached } from '../../lib/calendar-activity';
+import { resolveDisplay, resolveWeekStart, useCalendarDisplayPrefs } from '../../lib/calendar-display-prefs';
 import { useYearGridColumns } from '../../lib/year-grid-prefs';
 import { CalendarView, loadCalendarPersist, saveCalendarPersist } from './calendar-persist';
 import { createDiaryNote } from './diary-note';
@@ -71,7 +71,9 @@ function SidebarCalendarBody({ locale, now, view, setView, cursor, setCursor }: 
     const dateFilter = useUi((s) => s.dateFilter);
     const yearGridColumns = useYearGridColumns();
     const calendarJumpNonce = useUi((s) => s.calendarJump?.nonce ?? 0);
-    const weekStart = weekStartFor(locale);
+    const displayPrefs = useCalendarDisplayPrefs();
+    const weekStart = resolveWeekStart(displayPrefs.weekStart, locale);
+    const display = useMemo(() => resolveDisplay(displayPrefs, locale), [displayPrefs, locale]);
     const diaryTitle = useCallback((key: string) => t('sidebar.diary_title_value0', { value0: key }), []);
     const { counts, noteIdByTitle, notesByDay, latestEditKey } = useMemo(() => buildActivityProjectionCached(notes), [notes]);
     const getDiaryId = useCallback((key: string) => {
@@ -107,7 +109,7 @@ function SidebarCalendarBody({ locale, now, view, setView, cursor, setCursor }: 
     const onNoteClick = useCallback((noteId: string) => {
         openNote(noteId);
     }, [openNote]);
-    return (<ActivityCalendarMemo counts={counts} notesByDay={notesByDay} getDiaryId={getDiaryId} locale={locale} weekStart={weekStart} today={now} selectedRange={dateFilter} latestEditKey={latestEditKey} view={view} onViewChange={setView} cursor={cursor} onCursorChange={setCursor} columnsPreference={yearGridColumns} jumpFlash={calendarJumpNonce} onDayClick={onDayClick} onDaySelect={onDaySelect} onRangeSelect={onRangeSelect} onGapDayClick={onGapDayClick} onNoteClick={onNoteClick}/>);
+    return (<ActivityCalendarMemo counts={counts} notesByDay={notesByDay} getDiaryId={getDiaryId} locale={locale} weekStart={weekStart} today={now} selectedRange={dateFilter} latestEditKey={latestEditKey} display={display} view={view} onViewChange={setView} cursor={cursor} onCursorChange={setCursor} columnsPreference={yearGridColumns} jumpFlash={calendarJumpNonce} onDayClick={onDayClick} onDaySelect={onDaySelect} onRangeSelect={onRangeSelect} onGapDayClick={onGapDayClick} onNoteClick={onNoteClick}/>);
 }
 
 export function SidebarCalendar() {

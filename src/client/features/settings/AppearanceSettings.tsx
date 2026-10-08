@@ -2,13 +2,14 @@ import type { AccentName, AppLocale, BackgroundName, ProseFont, ProseWidth, Them
 import { useMemo } from 'react'
 import { Check, Monitor, Moon, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
-import { Segmented, SettingRow, Slider } from '../../components/form'
+import { Segmented, SettingRow, Slider, Switch } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
 import { YearGrid, type YearGridMonth } from '../../components/calendar-grids'
 import { buildYearHeatMeta, heatCell, yearHeatLevel } from '../../components/activity-calendar'
 import { buildActivityProjectionCached } from '../../lib/calendar-activity'
 import { setYearGridColumns, useYearGridColumns, type YearGridColumnsPref } from '../../lib/year-grid-prefs'
-import { weekStartFor } from '../../lib/time'
+import { setCalendarDisplayPrefs, useCalendarDisplayPrefs, WEEK_START_PREFS, type CalendarToggle, type WeekStartPref } from '../../lib/calendar-display-prefs'
+import { narrowWeekdayLabels, weekStartFor } from '../../lib/time'
 import { useNotes } from '../../store/notes'
 import { switchThemeWithTransition, useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
@@ -146,6 +147,8 @@ export function AppearanceSettings({
 
         <YearGridPreview columns={yearGridColumns} locale={locale}/>
       </section>
+
+      <CalendarDisplaySettings locale={locale}/>
 
       <section>
         <h3 data-setting-title={t("settings.preview_typography")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
@@ -288,5 +291,80 @@ function YearGridPreview({ columns, locale }: { columns: YearGridColumnsPref; lo
         renderMonth={(month) => (<PreviewMonthCard key={month.month} month={month} label={monthLabels[month.month] ?? ''} counts={counts} yearMax={yearMax} onJump={jumpToMonth}/>)}
       />
     </div>
+  )
+}
+
+const TOGGLE_VALUES: CalendarToggle[] = ['auto', 'on', 'off']
+
+/**
+ * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the
+ * heat grid paints and nothing else. They live in local storage beside the year-grid column count,
+ * so a reader's almanac preference travels with the device they read it on.
+ */
+export function CalendarDisplaySettings({ locale }: { locale: string }) {
+  const prefs = useCalendarDisplayPrefs()
+  const dayLabels = useMemo(() => narrowWeekdayLabels(locale, 0), [locale])
+  return (
+    <section>
+      <h3 data-setting-title={t('settings.calendar_display')} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        {t('settings.calendar_display')}
+      </h3>
+
+      <SettingRow title={t("settings.calendar_lunar")} description={t("settings.calendar_lunar_desc")}>
+        <Segmented<CalendarToggle>
+          label={t("settings.calendar_lunar")}
+          size="sm"
+          value={prefs.lunarLabels}
+          onChange={(lunarLabels) => setCalendarDisplayPrefs({ lunarLabels })}
+          options={TOGGLE_VALUES.map((value) => ({
+            value,
+            label: t(value === 'auto' ? "settings.calendar_toggle_auto" : value === 'on' ? "settings.calendar_toggle_on" : "settings.calendar_toggle_off"),
+          }))}
+        />
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_festivals")} description={t("settings.calendar_festivals_desc")}>
+        <Segmented<CalendarToggle>
+          label={t("settings.calendar_festivals")}
+          size="sm"
+          value={prefs.festivals}
+          onChange={(festivals) => setCalendarDisplayPrefs({ festivals })}
+          options={TOGGLE_VALUES.map((value) => ({
+            value,
+            label: t(value === 'auto' ? "settings.calendar_toggle_auto" : value === 'on' ? "settings.calendar_toggle_on" : "settings.calendar_toggle_off"),
+          }))}
+        />
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_week_start")} description={t("settings.calendar_week_start_desc")}>
+        <Segmented<WeekStartPref>
+          label={t("settings.calendar_week_start")}
+          size="sm"
+          value={prefs.weekStart}
+          onChange={(weekStart) => setCalendarDisplayPrefs({ weekStart })}
+          options={WEEK_START_PREFS.map((value) => ({ value, label: value === 'auto' ? t("settings.calendar_toggle_auto") : dayLabels[Number(value)] ?? value }))}
+        />
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_week_numbers")} description={t("settings.calendar_week_numbers_desc")}>
+        <Switch checked={prefs.weekNumbers} onChange={(weekNumbers) => setCalendarDisplayPrefs({ weekNumbers })} label={t("settings.calendar_week_numbers")}/>
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_today_card")} description={t("settings.calendar_today_card_desc")}>
+        <Switch checked={prefs.todayCard} onChange={(todayCard) => setCalendarDisplayPrefs({ todayCard })} label={t("settings.calendar_today_card")}/>
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_streak")} description={t("settings.calendar_streak_desc")}>
+        <Switch checked={prefs.streakStats} onChange={(streakStats) => setCalendarDisplayPrefs({ streakStats })} label={t("settings.calendar_streak")}/>
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_weekend")} description={t("settings.calendar_weekend_desc")}>
+        <Switch checked={prefs.weekendTint} onChange={(weekendTint) => setCalendarDisplayPrefs({ weekendTint })} label={t("settings.calendar_weekend")}/>
+      </SettingRow>
+
+      <SettingRow title={t("settings.calendar_adjacent")} description={t("settings.calendar_adjacent_desc")}>
+        <Switch checked={prefs.showAdjacentDays} onChange={(showAdjacentDays) => setCalendarDisplayPrefs({ showAdjacentDays })} label={t("settings.calendar_adjacent")}/>
+      </SettingRow>
+    </section>
   )
 }
