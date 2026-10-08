@@ -12,6 +12,7 @@ import { api } from '../api'
 import { confirm } from '../../components/overlay'
 import { getActiveEditorView } from '../../editor/commands'
 import { noteIdForView } from '../../features/links/store'
+import { requestLintPreview } from '../../features/linter/LintPreview'
 import { folderDescendantIds, folderPath } from '../folders'
 import { getLocale, t } from '../i18n'
 import { useNotes } from '../../store/notes'
@@ -19,6 +20,8 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { lintNote, type LintOutcome } from './index'
 import { getEditsBetween } from './engine/text-edits'
+import { stampOf, toggleFolderIgnored, toggleNoteIgnored } from './ignore-state'
+import { buildPreviewDiff } from './preview-rows'
 
 /**
  * Notes per batch run. A body has to be read one at a time — `/api/search/documents` answers with a
@@ -32,31 +35,6 @@ export type LintRun = {
   rules: string[]
   error: string | null
   delta: number
-}
-
-type NoteStamp = {
-  title: string
-  path: string
-  folderTrail: string[]
-  createdAt: number
-  updatedAt: number
-}
-
-function stampOf(noteId: string): NoteStamp | null {
-  const state = useNotes.getState()
-  const note = state.notes[noteId]
-  if (!note || note.deletedAt) {
-    return null
-  }
-  const folderTrail = folderPath(state.folders, note.folderId).map((folder) => folder.name)
-
-  return {
-    title: note.title,
-    path: [...folderTrail, note.title].join('/'),
-    folderTrail,
-    createdAt: note.createdAt,
-    updatedAt: note.updatedAt,
-  }
 }
 
 /** The editor only counts as a holder of the note when it is the editor that note was opened in. */
@@ -179,8 +157,15 @@ export async function lintOneNote(noteId: string, preferred: EditorView | null =
   return outcomeRun(outcome, outcome.text.length - text.length, text)
 }
 
+/**
+ * The locale a run writes dates in: the reader's own choice when they made one, since a note full of
+ * English month names should not be rewritten into another language's date style just because the
+ * interface was switched on another device.
+ */
 function appLocale(): string {
-  return getLocale()
+  const override = useSession.getState().settings.linter.localeOverride
+
+  return override || getLocale()
 }
 
 /** Rule aliases, as the names a reader gave them. */
@@ -262,16 +247,10 @@ export async function previewCurrentNote(): Promise<void> {
     useUi.getState().toast({ title: t('linter.toast.no_change') })
     return
   }
-  const added = Math.max(0, outcome.text.length - text.length)
-  const removed = Math.max(0, text.length - outcome.text.length)
-  const summary = t('linter.preview.summary', { rules: await namesOf(outcome.changedRules) })
-  const counted = added || removed
-    ? ` ${t('linter.preview.delta', { added, removed })}`
-    : ''
-  const go = await confirm({
-    title: t('linter.preview.title'),
-    description: `${summary}${counted}`,
-    confirmLabel: t('linter.preview.apply'),
+  const rules = await namesOf(outcome.changedRules)
+  const go = await requestLintPreview({
+    diff: buildPreviewDiff(text, outcome.text),
+    rules,
   })
   if (!go) return
   announce(await lintOneNote(noteId), true)
@@ -326,12 +305,16 @@ export async function lintWholeLibrary(): Promise<void> {
 }
 
 export async function lintCurrentFolder(): Promise<void> {
-  const state = useNotes.getState()
   const noteId = useUi.getState().activeNoteId
-  const note = noteId ? state.notes[noteId] : null
-  if (!note?.folderId) return
-  const folders = folderDescendantIds(state.folders, note.folderId)
-  const trail = folderPath(state.folders, note.folderId)
+  const folderId = noteId ? useNotes.getState().notes[noteId]?.folderId : null
+  if (folderId) await lintFolderById(folderId)
+}
+
+/** Every note under one folder, subfolders included, whatever asked for it. */
+export async function lintFolderById(folderId: string): Promise<void> {
+  const state = useNotes.getState()
+  const folders = folderDescendantIds(state.folders, folderId)
+  const trail = folderPath(state.folders, folderId)
   await lintMany(
     Object.values(state.notes).filter((item) => !item.deletedAt && item.folderId && folders.has(item.folderId)).map((item) => item.id),
     trail[trail.length - 1]?.name ?? '',
@@ -340,41 +323,19 @@ export async function lintCurrentFolder(): Promise<void> {
 
 /**
  * "Leave this note alone", the same two lists the settings page edits, toggled from where the reader
- * is standing. A note's own entry is a regex pinned to its path, so a rename stops it being ignored
- * rather than silently ignoring whatever takes that name next.
+ * is standing. The list itself, and what is already in it, live in `ignore-state` so a row menu can
+ * ask without loading the rules.
  */
 export function toggleIgnoreNote(): void {
   const noteId = useUi.getState().activeNoteId
-  const stamp = noteId ? stampOf(noteId) : null
-  if (!noteId || !stamp) return
-  const linter = useSession.getState().settings.linter
-  const match = `^${escapeForRegex(stamp.path)}$`
-  const kept = linter.filesToIgnore.filter((entry) => entry.match !== match)
-  const filesToIgnore = kept.length === linter.filesToIgnore.length
-    ? [...linter.filesToIgnore, { label: stamp.title, match, flags: '' }]
-    : kept
-  void useSession.getState().updateSettings({ linter: { ...linter, filesToIgnore } })
-  useUi.getState().toast({ title: t(kept.length === linter.filesToIgnore.length ? 'linter.ignore_added' : 'linter.ignore_removed', { name: stamp.title }) })
+  if (noteId) toggleNoteIgnored(noteId)
 }
 
 export function toggleIgnoreFolder(): void {
   const state = useNotes.getState()
   const noteId = useUi.getState().activeNoteId
-  const note = noteId ? state.notes[noteId] : null
-  const trail = note ? folderPath(state.folders, note.folderId) : []
-  const folder = trail[trail.length - 1]
-  if (!folder) return
-  const linter = useSession.getState().settings.linter
-  const kept = linter.foldersToIgnore.filter((name) => name !== folder.name)
-  const foldersToIgnore = kept.length === linter.foldersToIgnore.length
-    ? [...linter.foldersToIgnore, folder.name]
-    : kept
-  void useSession.getState().updateSettings({ linter: { ...linter, foldersToIgnore } })
-  useUi.getState().toast({ title: t(kept.length === linter.foldersToIgnore.length ? 'linter.ignore_added' : 'linter.ignore_removed', { name: folder.name }) })
-}
-
-function escapeForRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const folder = noteId ? folderPath(state.folders, state.notes[noteId]?.folderId ?? '').pop() : undefined
+  if (folder) toggleFolderIgnored(folder.id)
 }
 
 /**

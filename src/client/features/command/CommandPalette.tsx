@@ -92,6 +92,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const quickAddOn = useQuickAdd((s) => s.settings.enabled);
     const quickAddChoices = useQuickAdd((s) => s.choices);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
+    const linterOn = useSession((s) => s.settings.linter.enabled);
     const updateSettings = useSession((s) => s.updateSettings);
     const debounced = useDebounced(query, 180);
     const now = useNow();
@@ -173,14 +174,14 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 group: t("command.commands"),
                 run: () => openEmojiPicker(),
             },
-            {
+            ...(linterOn ? [{
                 id: 'cmd-lint-all',
-                kind: 'command',
+                kind: 'command' as const,
                 label: t("linter.command.lint_all"),
                 icon: <WandSparkles size={14}/>,
                 group: t("command.commands"),
                 run: () => void import('../../lib/linter/drive').then((drive) => drive.lintWholeLibrary()),
-            },
+            }] : []),
             ...(activeNote
                 ? [
                     {
@@ -332,7 +333,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                         group: t("common.current_note"),
                         run: () => void patchNote(activeNote.id, { isStarred: !activeNote.isStarred }),
                     },
-                    {
+                    ...(linterOn ? [{
                         id: 'cmd-lint-note',
                         kind: 'command' as const,
                         label: t("linter.command.lint_note"),
@@ -380,7 +381,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                         icon: <EyeOff size={14}/>,
                         group: t("common.current_note"),
                         run: () => import('../../lib/linter/drive').then((drive) => drive.toggleIgnoreFolder()),
-                    },
+                    }] : []),
                     {
                         id: 'cmd-archive',
                         kind: 'command' as const,
@@ -613,6 +614,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         locale,
         createFolder,
         deleteNote,
+        linterOn,
         openPanel,
         openView,
         patchNote,

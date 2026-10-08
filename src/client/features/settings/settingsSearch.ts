@@ -257,6 +257,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'linter', titleKey: 'settings.linter_lint_on_save' },
   { section: 'linter', titleKey: 'settings.linter_lint_on_paste' },
   { section: 'linter', titleKey: 'settings.linter_lint_on_idle' },
+  { section: 'linter', titleKey: 'linter.tabs.general.override_locale.name', termKeys: ['linter.tabs.general.same_as_system_locale', 'settings.english', 'settings.simplified_chinese'] },
   { section: 'linter', titleKey: 'settings.linter_report_changes' },
   { section: 'linter', titleKey: 'settings.linter_record_log' },
   { section: 'linter', titleKey: 'linter.custom_regexes.name', termKeys: ['linter.custom_regexes.add'] },

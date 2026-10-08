@@ -25,6 +25,7 @@ import { FOLDER_DRAG_TYPE, isNoteDrag, leftDropTarget, moveNotesToFolder, readDr
 import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
+import { useLintFolderMenuItems } from '../linter/useLintMenuItems';
 import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
 import { SidebarTags } from '../tags/SidebarTags';
 import { SidebarRecent } from './SidebarRecent';
@@ -660,6 +661,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
     const directNoteCount = node.directNotes;
     const [dropState, setDropState] = useDropState<'none' | 'before' | 'inside' | 'after'>('none');
     const menu = useContextMenu();
+    const lintItems = useLintFolderMenuItems(node.id);
     const buttonRef = useRef<HTMLDivElement>(null);
     const removingRef = useRef(false);
     const renamingRef = useRef(false);
@@ -782,6 +784,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
                     closeMenu();
                 } },
             ]}/>) },
+        ...lintItems,
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
     const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {

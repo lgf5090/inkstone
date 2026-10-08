@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline } from 'lucide-react';
+import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline, WandSparkles } from 'lucide-react';
+import { useSession } from '../../store/session';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -43,6 +44,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const textColorRef = useRef<HTMLButtonElement>(null);
     const highlightColorRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
+    const linterEnabled = useSession((s) => s.settings.linter.enabled);
     const recent = useRecentColors();
     const toggleMenu = (menu: ToolbarMenu) => setToolbarMenu((current) => current === menu ? null : menu);
     // The dropdown closes before the command runs, so a menu still holding the pointer cannot keep
@@ -139,6 +141,13 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
       {menuButton('math', <Sigma size={14}/>)}
       {menuButton('block', <Blocks size={14}/>)}
       {menuButton('format', <CaseUpper size={14}/>)}
+      {linterEnabled && (<><Divider />
+        <ToolButton label={t('linter.command.lint_note')} combo={APP_SHORTCUTS.lintNote} onClick={() => {
+                    void import('../../lib/linter/drive').then((drive) => drive.lintCurrentNote());
+                }}>
+          <WandSparkles size={14}/>
+        </ToolButton>
+      </>)}
       {menus.map((menu) => <Menu key={menu.id} anchor={menu.anchor} open={openMenu === menu.id} onClose={() => setToolbarMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
       <Menu anchor={textColorRef} open={openMenu === 'text-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.text_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="text" current={recent.text[0]} onPick={color => run(setFontColor(color))}/>}/>
       <Menu anchor={highlightColorRef} open={openMenu === 'highlight-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.highlight_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="highlight" current={recent.highlight[0]} onPick={color => run(setHighlightColor(color))}/>}/>

@@ -115,12 +115,27 @@ export type LintOnIdleTime = typeof LINT_ON_IDLE_TIMES[number]
 /** The flags a saved pattern may carry; anything else is dropped rather than compiled. */
 export const ALLOWED_REGEX_FLAGS = 'dgimsuy'
 
+/** The locales a date rule can be told to write in; `''` follows the interface. */
+export const LINTER_DATE_LOCALES = ['', 'en-US', 'zh-CN'] as const
+export type LinterDateLocale = typeof LINTER_DATE_LOCALES[number]
+
+/**
+ * The linter's stored preferences.
+ *
+ * Two settings the reference plugin keeps have no analogue here and were left out on purpose:
+ * `additionalFileExtensions`, which names the non-`.md` file types Obsidian should run the rules
+ * over — an inkstone note is a Markdown document in the library and has no extension to add — and a
+ * command to run after each rule, which would need a command registry addressed by id. The date
+ * locale is kept, but per account rather than per device, as `localeOverride`.
+ */
 export interface LinterSettings {
   /** The master switch. Off means no lint runs at all, including from the palette. */
   enabled: boolean
   lintOnSave: boolean
   lintOnPaste: boolean
   lintOnIdle: LintOnIdleTime
+  /** The locale the date rules write in, which need not be the one the interface is in. */
+  localeOverride: LinterDateLocale
   /** Report which rules changed the note after a run. */
   reportChanges: boolean
   /** Keep the rule-by-rule log of the last run for the results dialog. */
@@ -139,6 +154,7 @@ export const DEFAULT_LINTER_SETTINGS: LinterSettings = {
   lintOnSave: false,
   lintOnPaste: true,
   lintOnIdle: 0,
+  localeOverride: '',
   reportChanges: true,
   recordRunLog: false,
   logLevel: 'error',
@@ -217,7 +233,9 @@ function normalizeRuleConfigs(value: unknown): Record<string, LinterRuleConfig> 
 }
 
 function normalizeFlags(value: unknown): string {
-  return [...new Set(text(value, ALLOWED_REGEX_FLAGS.length).split(''))]
+  // dedupe and filter before any length cap: a pattern may legitimately carry every flag the engine
+  // allows, and cutting the string first would drop the last one of a full set
+  return [...new Set(text(value, 32).split(''))]
     .filter((flag) => ALLOWED_REGEX_FLAGS.includes(flag))
     .join('')
 }
@@ -288,6 +306,7 @@ export function normalizeLinterSettings(value: unknown): LinterSettings {
     lintOnIdle: typeof idle === 'number' && (LINT_ON_IDLE_TIMES as readonly number[]).includes(Math.trunc(idle))
       ? Math.trunc(idle) as LintOnIdleTime
       : DEFAULT_LINTER_SETTINGS.lintOnIdle,
+    localeOverride: oneOf(source.localeOverride, LINTER_DATE_LOCALES, DEFAULT_LINTER_SETTINGS.localeOverride),
     reportChanges: boolean(source.reportChanges, DEFAULT_LINTER_SETTINGS.reportChanges),
     recordRunLog: boolean(source.recordRunLog, DEFAULT_LINTER_SETTINGS.recordRunLog),
     logLevel: oneOf(source.logLevel, LOG_LEVELS, DEFAULT_LINTER_SETTINGS.logLevel),

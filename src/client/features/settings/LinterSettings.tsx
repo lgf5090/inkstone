@@ -32,6 +32,13 @@ const IDLE_KEYS: Record<string, MessageKey> = {
   '60000': 'linter.idle.after_minute',
 }
 
+const DATE_LOCALES = ['en-US', 'zh-CN'] as const
+
+const DATE_LOCALE_KEYS: Record<string, MessageKey> = {
+  'en-US': 'settings.english',
+  'zh-CN': 'settings.simplified_chinese',
+}
+
 function ruleLoaded(): Promise<typeof import('../../lib/linter/registry')> {
   return import('../../lib/linter/registry')
 }
@@ -65,7 +72,7 @@ export function LinterSettings() {
   const settings = useSession((state) => state.settings)
   const update = useSession((state) => state.updateSettings)
   const toast = useUi((state) => state.toast)
-  useLocale()
+  const locale = useLocale()
   const linter = settings.linter
   const [rules, setRules] = useState<Rule[]>([])
   const [query, setQuery] = useState('')
@@ -198,6 +205,17 @@ export function LinterSettings() {
             onChange={(event) => patch({ lintOnIdle: Number(event.target.value) as LinterSettingsValue['lintOnIdle'] })}>
             {Object.entries(IDLE_KEYS).map(([value, key]) => (
               <option key={value} value={value}>{t(key)}</option>
+            ))}
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('linter.tabs.general.override_locale.name')} description={asPlainText(t('linter.tabs.general.override_locale.description'))}>
+          <Select
+            aria-label={t('linter.tabs.general.override_locale.name')}
+            value={linter.localeOverride}
+            onChange={(event) => patch({ localeOverride: event.target.value as LinterSettingsValue['localeOverride'] })}>
+            <option value="">{t('linter.tabs.general.same_as_system_locale', { SYS_LOCALE: locale })}</option>
+            {DATE_LOCALES.map((value) => (
+              <option key={value} value={value}>{t(DATE_LOCALE_KEYS[value])}</option>
             ))}
           </Select>
         </SettingRow>

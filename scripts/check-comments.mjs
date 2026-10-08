@@ -90,6 +90,7 @@ const allowed = new Map([
     "// nothing of its own. Booting the notebook here would ask it to log in to a room it is already in.",
     "/* A show outlives the layout that started it: the shell swaps its whole workspace subtree\n          when the breakpoint moves, so the overlay is hosted above that switch rather than inside\n          it. It is only mounted while a show is up, which is also what keeps the deck-splitting code\n          out of the boot chunk for everyone who is not presenting. */",
     "/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */",
+    "/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */",
   ]],
   ["src/client/components/FilterInput.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
@@ -623,6 +624,18 @@ const allowed = new Map([
     "/**\n * Open the editor over the link a context menu was raised on.\n *\n * The menu already knows which link it means, but it knows that differently on each side: a character\n * position in the note's text on one, an element plus the source line it was rendered from on the\n * other. Both are turned back into a span here so the menu rows stay one line of code each.\n */",
     "// A rendered block and the editor's own DOM can both answer for one click; reopening the same span",
     "// would remount the panel and throw the reader's caret away.",
+  ]],
+  ["src/client/features/linter/LintPreview.tsx", [
+    "/**\n * The dialog that shows what a run would do before it does it.\n *\n * The reference plugin keeps a dockable diff view; this app has one modal surface per question, so\n * the preview is a dialog over the rows the drive already worked out. The rows arrive as plain data\n * — the diff is computed where the rules are, behind the same dynamic import — which keeps this file\n * light enough to sit in the shell from the first render.\n */",
+    "/** The rules that would change the note, already spelled as the reader names them. */",
+    "/** Ask the reader whether the change shown should be applied. False when they say no or dismiss it. */",
+    "/**\n * The line, with the characters the run disagrees about set apart. Two rows of spaces are otherwise\n * indistinguishable, and spaces are most of what this linter moves.\n */",
+  ]],
+  ["src/client/features/linter/useLintMenuItems.test.ts", [
+    "/**\n * The linter's row menu entries, as the note list and the folder tree build them.\n *\n * Two things are worth a test: the whole group is missing when the reader switched the linter off,\n * and the second entry says the opposite of itself once it has been used. That second one is the\n * defect this file exists to keep out — a menu that keeps offering \"leave this alone\" for a row the\n * linter already leaves alone tells the reader the app is not listening.\n */",
+  ]],
+  ["src/client/features/linter/useLintMenuItems.tsx", [
+    "/**\n * The linter's two row menu entries, for a note or for a folder.\n *\n * A row is not the note the editor holds, so both entries name the row they were built for and act on\n * that id. Formatting is the one thing that must not be imported here: the rule library is loaded only\n * when the reader actually asks for it, which is what keeps the note list light.\n */",
   ]],
   ["src/client/features/list/NoteList.tsx", [
     "/** The concatenated key is the only copied string; bound it by characters, not entries. */",
@@ -4275,8 +4288,6 @@ const allowed = new Map([
     "// handed the first one's rule and quietly stopped doing anything.",
   ]],
   ["src/client/lib/linter/__tests__/examples.test.ts", [
-    "// two rules whose examples this fork does not yet satisfy; see the harness's",
-    "// KNOWN_DIVERGENCES list for why each one is open",
     "// add default misspellings for auto-correct",
     "// Add YAML",
   ]],
@@ -4473,10 +4484,10 @@ const allowed = new Map([
   ]],
   ["src/client/lib/linter/__tests__/remove-space-before-or-after-characters.test.ts", [
     "// An ignored link's brackets cannot license deletion of whitespace outside that link.",
-    "// the fork's projection token for a protected run is padded where the reference's is not, so",
-    "// the anchor the rule looks for lands one character off; kept as a skip rather than a changed",
-    "// expectation, because the reference's assertion is the one that has to be satisfied",
     "// Intentionally unlike masking: synthetic placeholder braces must not trigger edits.",
+    "// The rule's own defaults already list `[`, `]`, `(` and `)`, so a case that means to choose its",
+    "// own anchors has to name them the way the settings do — the dashed spelling used in the",
+    "// reference's tests is dropped on the floor there, which left those cases testing the defaults.",
   ]],
   ["src/client/lib/linter/__tests__/remove-trailing-punctuation-in-heading.test.ts", [
     "// removing one character per run left the file changing on every lint and losing a character each time",
@@ -4571,6 +4582,7 @@ const allowed = new Map([
     "/**\n * The drive, from the reader's ask to the note's text.\n *\n * These assertions are about the seams: which holder of the text gets written (an open editor, the\n * store, or a note that had to be fetched), what the reader is told afterwards, and what a note that\n * was left alone does instead. The rules themselves are tested by the ported suite; this file is\n * about the walk from a command to a document that changed.\n */",
     "// the editor holds the text, so nothing goes around it into the store",
     "// n1 is not open, so its own text travels through the store instead",
+    "// the dialog was shown the lines that would go, not just a count",
   ]],
   ["src/client/lib/linter/drive.ts", [
     "/**\n * The linter's door into the app: what a reader asks for, and what the note ends up looking like.\n *\n * The engine only ever returns a string. This works out who holds that string — an open editor, or\n * nothing but the store — turns the difference into an undoable edit, tells the reader what changed,\n * and runs the same thing over a folder or the whole library when asked. The rule library stays\n * behind `lintNote`, so a reader who never switches the linter on never loads it.\n */",
@@ -4585,10 +4597,12 @@ const allowed = new Map([
     "/** The batch commands: a folder and its subfolders, or every note in the library. */",
     "// Notes the client held keep their own copy of the body, so the library is asked for the batch's",
     "// answers once at the end — pulling after every note made a run of thirty a crawl.",
-    "/**\n * \"Leave this note alone\", the same two lists the settings page edits, toggled from where the reader\n * is standing. A note's own entry is a regex pinned to its path, so a rename stops it being ignored\n * rather than silently ignoring whatever takes that name next.\n */",
     "/**\n * The way out of the paste rules: what is on the clipboard goes in as it is, with nothing run over\n * it. Writing it straight into the document is what makes this a bypass — the editor's paste handler,\n * which is where the paste rules live, never sees the event.\n */",
     "/**\n * The automatic runs live in `idle-drive.ts` rather than here: that module is mounted by the editor\n * host, and it must not pull `diff-match-patch` and the rule reporting into the first paint for a\n * reader who never switches these on.\n */",
     "/**\n * Notes per batch run. A body has to be read one at a time — `/api/search/documents` answers with a\n * truncated body, and writing that back would eat the note — so the run is capped at what a reader\n * will still watch finish.\n */",
+    "/** Every note under one folder, subfolders included, whatever asked for it. */",
+    "/**\n * \"Leave this note alone\", the same two lists the settings page edits, toggled from where the reader\n * is standing. The list itself, and what is already in it, live in `ignore-state` so a row menu can\n * ask without loading the rules.\n */",
+    "/**\n * The locale a run writes dates in: the reader's own choice when they made one, since a note full of\n * English month names should not be rewritten into another language's date style just because the\n * interface was switched on another device.\n */",
   ]],
   ["src/client/lib/linter/engine/dates.ts", [
     "/** The instant a wall-clock reading of a UTC-formatted string refers to. */",
@@ -4929,7 +4943,6 @@ const allowed = new Map([
     "/*\n   * The start comes from the colon rather than the value node. This retains\n   * the newline and indentation before the first item of a block sequence:\n   *\n   *   key:\n   *     - first\n   *     - second\n   */",
     "/*\n   * Match the previous regex behavior by consuming the newline terminating\n   * the key's value.\n   */",
     "/** The value of a key the caller has already confirmed is in the document. */",
-    "/** A key's value, already split the way it is written. For a key the caller knows is present. */",
     "/*\n   * Use the original key source, not rawKey. This preserves:\n   *\n   *   \"key1\":\n   *   'key2':\n   */",
     "/**\n * getBlockScalarPositions returns the postions of the actual block scalars in the YAML\n * @param yaml the YAML text without the indicators\n * @returns Positions that only have their offsets set in the actual position info\n */",
     "// The match includes:",
@@ -4958,6 +4971,7 @@ const allowed = new Map([
     "// if there is no single quote, double quote, or colon to escape, skip this substring",
     "// if the substring already has a single quote and a double quote, there is nothing that can be done to escape the substring",
     "// the line must have a colon with a space",
+    "/**\n * A key's value, already split the way it is written. A key with nothing in it — `key:` with no\n * value, or `key: []` — answers `null` rather than an empty string: an empty string is a one-item\n * array holding nothing, which is how a forced multi-line style ended up writing `key:` plus an empty\n * list item where the reference leaves the key empty.\n */",
   ]],
   ["src/client/lib/linter/file-info.ts", [
     "/**\n * The note metadata a lint run reads.\n *\n * The reference plugin asks Obsidian for a file's creation and modification times already formatted\n * by Moment; Inkstone has a note row with epoch milliseconds, so the same shape is built here from\n * the reader's locale. The ignore list is applied in the same place, because both the editor's\n * save-time lint and a batch run over the library have to answer it the same way.\n */",
@@ -4972,6 +4986,15 @@ const allowed = new Map([
   ["src/client/lib/linter/idle-drive.ts", [
     "/**\n * The linter's automatic runs.\n *\n * `Lint on save` means \"when this app would write the note\", which here is the reader's own auto-save\n * delay; `lint while idle` is a delay of its own, and whichever of the two comes first wins. Both wait\n * for the typing to stop, because a rule that counts blank lines cannot judge a document that is still\n * arriving under the caret. Both also step around an input method that is mid-word: replacing the\n * document while a composition is open would throw away what the reader had typed.\n *\n * The drive is armed by the editor's own change callback rather than by the note's text, so opening a\n * note — which fills its content in a beat after the title — is never mistaken for an edit. This lives\n * apart from `drive.ts` so the editor host does not pull the diff library and the reporting into the\n * first paint for a reader who never switches the linter on.\n */",
     "// A drive that found nothing to say stays silent: only a real edit or a real error is news.",
+  ]],
+  ["src/client/lib/linter/ignore-state.test.ts", [
+    "/**\n * The two lists that keep the linter away, read and written the way a row menu does it.\n *\n * A menu has to know whether the row it is on is already ignored, and the answer has to be the same\n * one a run uses, or the reader is shown \"leave this alone\" for a note the run already leaves alone.\n * So the entries are compared through `isLinterIgnoredPath`, and the pinned path regex is what a\n * rename is measured against.\n */",
+    "/** The settings the last toggle asked for, as they would read once the write landed. */",
+  ]],
+  ["src/client/lib/linter/ignore-state.ts", [
+    "/**\n * Who the linter is told to keep away from, and the two lists that say so.\n *\n * The lists are settings, so a menu that shows them must not drag the rule library along with it —\n * the note list and the sidebar are on the first paint, the engine is not. A run reads the same two\n * lists through `isLinterIgnoredPath`, which is where the pattern is refused before it can hang.\n */",
+    "/** The note as the rules see it: a title, the path it hangs the ignore lists off, and its dates. */",
+    "/**\n * A note's own entry, pinned to its path. A rename then stops the note being ignored instead of\n * silently ignoring whatever takes that name next.\n */",
   ]],
   ["src/client/lib/linter/index.ts", [
     "/**\n * The door the app walks through to lint a note.\n *\n * The rule library, the markdown parser and the spelling table are all reached through a dynamic\n * import, so a reader who never turns the linter on pays nothing for them. Everything above this\n * module is plain text in, plain text out: the editor, the save path and the batch run all come\n * through here and get the same `LintOutcome`.\n */",
@@ -4996,6 +5019,36 @@ const allowed = new Map([
     "/** A list of entries the reader adds, edits, and reorders — YAML keys, words to ignore, and so on. */",
     "/**\n * Notes whose tables hold extra spelling corrections, in place of the vault file picker the\n * reference plugin uses.\n */",
     "/** Every control kind a rule can ask the panel to draw. */",
+  ]],
+  ["src/client/lib/linter/preview-rows.test.ts", [
+    "/**\n * The rows the preview dialog draws.\n *\n * A reader decides from this whether to let the run through, so the two things that matter are that\n * it shows the lines that actually change and that it says how much it left out. The counts are the\n * ones the dialog prints in its header, so they are asserted here rather than recomputed there.\n */",
+    "// the trailing empty line the note ends with is context like any other line",
+    "// the cap cuts what is drawn, never what is counted: the header still says how big the change is",
+    "// a reader deciding from this has to see that the line stays and only its spaces go: one row",
+    "// alone would read as \"this line is being deleted\"",
+    "// every line still reads the same, so the diff has no row to show — and a change that trimmed",
+    "// away must not be drawn as a block, or its context lines come out twice",
+    "// the dialog paints this span darker: two rows of spaces are otherwise the same picture, and the",
+    "// line that reads `two` has nothing of its own to mark",
+    "// every dirty line is reported on both sides, and no clean one is",
+  ]],
+  ["src/client/lib/linter/preview-rows.ts", [
+    "/**\n * The lines a run would change, as rows a dialog can draw.\n *\n * The engine already knows what it changed — `getEditsBetween` answers with the ranges between the\n * two texts — so the preview shows exactly those, with a few unchanged lines around each so a reader\n * can see where they sit. Nothing here renders or measures a document: the rows are plain data, which\n * is what lets the dialog stay out of the first paint while this runs behind the same dynamic import\n * as the rules themselves.\n */",
+    "/** The line as it reads, without a marker. */",
+    "/** The 1-based line number in the text this row came from. */",
+    "/** Lines that were left out because they sit between two changed blocks. */",
+    "/** The diff stopped being drawn; the reader can ask for the rest. */",
+    "/** A half-open range of lines. An insertion or a deletion leaves one of the two empty. */",
+    "/** One edit, as the lines it took out and the lines it put in. */",
+    "/** The changes close enough to share their context lines, drawn as one block. */",
+    "/**\n * The rows of a diff, capped so a note with a change at each end does not print the whole of it.\n * `full` is what the dialog passes when the reader asks for the rest.\n *\n * A block is the span between the first and the last change that are close enough to show together,\n * so it holds lines the run left alone. Those are drawn as context: a line that only moved because\n * its neighbour was deleted is not a line the reader has to review twice.\n */",
+    "/**\n   * The characters inside the line that the run changed, when the change is one line turning into\n   * another. Without it a trimmed paragraph shows as two rows that look exactly alike.\n   */",
+    "/** True when the span is a whole line taken out or put in, newline included. */",
+    "/**\n * Drop the lines that only *look* changed because the diff aligned the edit around them. Deleting one\n * line out of three is reported as \"these two lines become that one\", and the line that merely moved\n * up would be drawn on both sides — as if the reader had to review a line the run left alone.\n */",
+    "/**\n * The edits, as line ranges in each text. Every offset in an edit refers to the text that was handed\n * over, so the position of the same point in the answer is carried along by hand.\n *\n * A change inside one line leaves the other text with no line to show for it, because nothing was\n * added or removed at the line level. That line is borrowed from the other side, so a trimmed\n * paragraph reads as \"this line becomes this\" instead of \"this line goes away\" — the difference the\n * reader is deciding on. A whole line that was deleted is not borrowed back: the line waiting at\n * that offset only moved up, and drawing it would claim it changed.\n */",
+    "/** The span each side disagrees about, counted from the front of its own line. */",
+    "// No line changed, but the size of the change is still the reader's to see: a note that only",
+    "// lost its final newline has nothing to draw and one character to report.",
   ]],
   ["src/client/lib/linter/registry.ts", [
     "/**\n * Loads every rule so the registry is complete before the first run.\n *\n * Each rule file exports a builder class and registers nothing by itself: this list is what turns a\n * builder into a rule, and it is the only place the 67 rule modules are named. The lint\n * engine is reached through a dynamic import everywhere else, so a reader who never opens the\n * linter never pays for the parse stack or the rule bodies.\n */",
@@ -5218,6 +5271,8 @@ const allowed = new Map([
     "// a url wrapped in chevrons reaches back over the characters before it, which can run into the",
     "// url already dealt with when two of them sit right next to each other",
     "// accounts for https://github.com/platers/obsidian-linter/issues/776",
+    "// `undefined` means there is no neighbour at all; an empty string would count as a special",
+    "// character to every `includes` check below and swallow the whole match.",
   ]],
   ["src/client/lib/linter/rules/paragraph-blank-lines.ts", [
     "// two-spaces line breaks keep paragraphs on adjacent lines, which is what this rule undoes",
@@ -5402,7 +5457,6 @@ const allowed = new Map([
     "// what the rules before it settled on",
     "// these adjacent cleanup rules can share a snapshot, including the front-matter-only escape",
     "// rule; clashes still start a fresh batch",
-    "// the timestamp runs last so it can see whether anything else changed",
     "/** The reader's own find/replace rules, last of the regular work and never inside ignored regions. */",
     "// The panel refuses these at the keystroke; a pattern that came in through a restored backup",
     "// never passed a panel, so it is refused here too, before anything gets a chance to hang.",
@@ -5413,6 +5467,8 @@ const allowed = new Map([
     "// up and a rewritten stack would hide where it happened",
     "/**\n * The timestamp rendered the way the reader's pattern wants it, so the key-sort rule can find the\n * value that was just written. UTC is applied here rather than in the pattern, the way the\n * reference plugin switched Moment into UTC before formatting.\n */",
     "/** A reader who keeps their own corrections in a note has that note linted without double work. */",
+    "// the timestamp runs last so it can see whether anything else changed, and it wants a reading",
+    "// with a locale and a UTC choice attached rather than the bare instant",
   ]],
   ["src/client/lib/linter/settings-data.ts", [
     "/**\n * The engine's view of a reader's settings.\n *\n * The persisted shape, its budgets, and the normalizer all live in `@shared/linter` so the worker\n * can validate the same blob; this file only re-exports them plus the run-time fields the engine\n * needs and a settings blob never carries.\n */",
@@ -5421,14 +5477,6 @@ const allowed = new Map([
   ["src/client/lib/linter/test-harness.ts", [
     "/**\n * The shared shape of the ported rule tests.\n *\n * Each reference test feeds one rule a document and compares the answer with the document it\n * expects, with no editor and no vault in sight, so the same harness works here: load the registry,\n * take the rule the file under test names, and call `apply`. Options arrive as the test wrote them;\n * anything the rule does not mention falls back to its own defaults, exactly as a run would.\n */",
     "/** The rule's own config keys, spelled as the settings spell them; anything absent keeps its default. */",
-    "/**\n * Cases this fork does not yet answer the way the reference plugin does.\n *\n * Each one is skipped by name so the suite stays green without hiding the gap: the reason is written\n * next to the name, and `it.skip` prints the case in the report instead of it silently passing.\n */",
-    "// the bare-URL rule leaves a URL whose fragment or query is long enough to be cut by the",
-    "// protection guard; the reference's own regexes match the same text, so the divergence is in how",
-    "// the found range is guarded, not in the pattern",
-    "// forcing an array style on a key that has no value yet: the fork writes no value where the",
-    "// reference writes `[]`",
-    "// the app's date formatter prints a French ordinal as a bare number, so the round-trip check the",
-    "// rule uses to decide \"already in this format\" fails and the value is rewritten",
   ]],
   ["src/client/lib/markdown/chart/accent.ts", [
     "/**\n * The account's accent, read for the things that draw outside CSS.\n *\n * The pure oklch math lives in ./palette; this is the half that touches the document, kept apart so the\n * math stays testable without a DOM. Every call re-reads: a chart's colours must follow the accent the\n * account has now, not the one that happened to be set when the module was first loaded.\n */",
@@ -8649,6 +8697,7 @@ const allowed = new Map([
     "// `2026-13-01` is not a day. Rejecting it keeps such a heading unparseable rather than sorting it",
     "// by a date the reader never wrote.",
     "/** How many pattern characters the token `kind` occupies, from the same table that prints it. */",
+    "/**\n * The ordinal suffix a day, month or quarter is written with.\n *\n * Only a handful of languages have ordinal forms at all, and this fork's date patterns are written\n * in the two the interface offers plus whatever a reader copies out of a note. French is the one\n * whose suffix actually changes what is read back — `1er` — so it is spelled out here; a language\n * with no ordinal rule keeps the bare number, which is what its own almanac does.\n */",
   ]],
   ["src/client/lib/quickadd/engines.test.ts", [
     "// A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.",
@@ -9186,6 +9235,11 @@ const allowed = new Map([
     "// the linter section is a nested record, so it is rebuilt from the reader's blob rather than",
     "// patched onto a default: an unknown rule or an oversized option has to be dropped, not stored",
   ]],
+  ["src/shared/linter.test.ts", [
+    "/**\n * The settings blob's boundary.\n *\n * A reader can bring this object into the app from a backup restore as well as from the settings\n * page, and the panel's own refusals are not in the way then. So everything that a lint run will\n * later compile or iterate is checked here: the shape, the size, and the flags. A value the\n * normaliser cannot recognise is dropped rather than passed on, because the alternative is a stored\n * string reaching `new RegExp` or a rule's option.\n */",
+    "// Every value is checked for the kind it is, not against the type the rule declared: the worker",
+    "// has no rule library to ask, and a rule reads `enabled: 'yes'` as \"not switched on\" anyway.",
+  ]],
   ["src/shared/linter.ts", [
     "/**\n * The persisted half of the markdown linter: the shape a reader's rule settings travel in, the\n * budgets that keep that shape bounded, and the normalizer both the client store and the worker\n * apply before anything is trusted.\n *\n * Rule defaults live with the rules themselves (client-side, 66 of them), so this file stores only\n * what a reader actually changed. A worker therefore never needs the rule library to validate a\n * settings blob: it checks keys, kinds, and sizes, and anything it cannot recognize is dropped so a\n * typo, an old version, or a hand-edited export cannot smuggle values into a lint run.\n */",
     "/** A note the reader picked as a source of extra spelling corrections, with what was parsed from it. */",
@@ -9200,6 +9254,11 @@ const allowed = new Map([
     "/** Whether a note is one the reader told the linter to leave alone. */",
     "// A restored backup never passed the panel that refuses these, so the run is where it is",
     "// refused: an ignore test that hangs takes the whole library down with it.",
+    "/** The locales a date rule can be told to write in; `''` follows the interface. */",
+    "/**\n * The linter's stored preferences.\n *\n * Two settings the reference plugin keeps have no analogue here and were left out on purpose:\n * `additionalFileExtensions`, which names the non-`.md` file types Obsidian should run the rules\n * over — an inkstone note is a Markdown document in the library and has no extension to add — and a\n * command to run after each rule, which would need a command registry addressed by id. The date\n * locale is kept, but per account rather than per device, as `localeOverride`.\n */",
+    "/** The locale the date rules write in, which need not be the one the interface is in. */",
+    "// dedupe and filter before any length cap: a pattern may legitimately carry every flag the engine",
+    "// allows, and cutting the string first would drop the last one of a full set",
   ]],
   ["src/shared/markdown-utils.test.ts", [
     "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",

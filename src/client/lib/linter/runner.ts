@@ -240,11 +240,12 @@ export class RulesRunner {
     }
 
     const currentTime = runOptions.getCurrentTime();
-    // the timestamp runs last so it can see whether anything else changed
+    // the timestamp runs last so it can see whether anything else changed, and it wants a reading
+    // with a locale and a UTC choice attached rather than the bare instant
     const [afterTimestamp, timestampRan] = this.applyWithFlag(YamlTimestamp.getRule(), text, settings, {
       fileCreatedTime: runOptions.fileInfo.createdAtFormatted,
       fileModifiedTime: runOptions.fileInfo.modifiedAtFormatted,
-      currentTime,
+      currentTime: { date: currentTime, utc: false, locale: runOptions.locale },
       alreadyModified: originalText !== text,
       locale: runOptions.locale,
     });

@@ -12,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, mergeSettings } from '@shared/constants';
 import type { LinterSettings } from '@shared/linter';
 import type { Note, NoteSummary } from '@shared/types';
-import { confirm } from '../../components/overlay';
 import { setActiveEditorView } from '../../editor/commands';
 import { registerLinkEditorNote } from '../../features/links/store';
 import { api } from '../api';
@@ -33,6 +32,17 @@ vi.mock('../../components/overlay', async (original) => ({
     confirmRequests.push(options);
     return Promise.resolve(confirmAnswer);
   },
+}));
+
+type PreviewRequest = { diff: { rows: Array<{ kind: string }>, linesAdded: number, linesRemoved: number }, rules: string };
+let previewAnswer = false;
+let previewRequests: PreviewRequest[] = [];
+vi.mock('../../features/linter/LintPreview', () => ({
+  requestLintPreview: (request: PreviewRequest) => {
+    previewRequests.push(request);
+    return Promise.resolve(previewAnswer);
+  },
+  LintPreviewHost: () => null,
 }));
 
 const TRAILING_SPACES: LinterSettings['ruleConfigs'] = { 'trailing-spaces': { enabled: true } };
@@ -100,6 +110,8 @@ beforeEach(() => {
   settingsPatches = [];
   confirmRequests = [];
   confirmAnswer = false;
+  previewRequests = [];
+  previewAnswer = false;
   seedNotes();
   setLinter({});
   useUi.setState({ toast: (input: { title: string }) => { toasts.push(input.title); return '' } });
@@ -193,6 +205,38 @@ describe('lintOneNote with the note open in an editor', () => {
   });
 });
 
+describe('the locale a run writes dates in', () => {
+  async function timestampLine(localeOverride: string): Promise<string> {
+    setLinter({
+      localeOverride: localeOverride as LinterSettings['localeOverride'],
+      ruleConfigs: { 'yaml-timestamp': { enabled: true, date_modified: false } },
+    });
+    const view = openEditor('---\ncreated: old\n---\n\n# 正文\n', 'n1');
+    await lintOneNote('n1', view);
+
+    return view.state.doc.toString();
+  }
+
+  it('follows the interface by default and the reader’s choice when they made one', async () => {
+    const english = await timestampLine('');
+    const chinese = await timestampLine('zh-CN');
+
+    expect(english).toContain('date created: Thursday, January 1st 2026');
+    expect(chinese).toContain('date created: 星期四, 一月 1 2026');
+  });
+
+  it('opens the front matter it needs before it writes the date into it', async () => {
+    setLinter({
+      localeOverride: 'zh-CN',
+      ruleConfigs: { 'yaml-timestamp': { enabled: true } },
+    });
+    const view = openEditor('body\n', 'n1');
+    await lintOneNote('n1', view);
+
+    expect(view.state.doc.toString()).toContain('date created: 星期四, 一月 1 2026');
+  });
+});
+
 describe('what the reader is told', () => {
   it('names the rule that changed the note', async () => {
     const view = openEditor('# Title   \n', 'n1');
@@ -217,21 +261,23 @@ describe('what the reader is told', () => {
   });
 
   it('keeps the note clean when the reader says no to the preview', async () => {
-    const view = openEditor('# Title   \nbody\n', 'n1');
-    confirmAnswer = false;
+    const view = openEditor('# Title   \n\nbody   \n', 'n1');
+    previewAnswer = false;
     await previewCurrentNote();
 
-    expect(confirm).toBeTruthy();
-    expect(view.state.doc.toString()).toBe('# Title   \nbody\n');
+    expect(view.state.doc.toString()).toBe('# Title   \n\nbody   \n');
     expect(toasts).toEqual([]);
+    // the dialog was shown the lines that would go, not just a count
+    expect(previewRequests[0]?.diff.rows.filter((row) => row.kind === 'removed')).toHaveLength(2);
   });
 
   it('applies the preview the reader agreed to', async () => {
     const view = openEditor('# Title   \nbody\n', 'n1');
-    confirmAnswer = true;
+    previewAnswer = true;
     await previewCurrentNote();
 
     expect(view.state.doc.toString()).toBe('# Title\nbody\n');
+    expect(previewRequests[0]?.rules).toBe('Trailing spaces');
     await vi.waitFor(() => expect(toasts).toEqual(['Formatted: Trailing spaces']));
   });
 
