@@ -11,6 +11,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import {
   QUICKADD_LIMITS,
+  descendantIds,
   normalizeQuickAddChoice,
   type QuickAddBlankLineMode,
   type QuickAddCaptureChoice,
@@ -246,11 +247,9 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
         {draft.type === 'capture' && <CaptureFields draft={draft} patch={patch} renderFormat={renderFormat}/>}
         {draft.type === 'macro' && <MacroFields draft={draft} patch={patch}/>}
 
-        {draft.type === 'group' && (
-          <Field label={t('quickadd.field_parent')} hint={t('quickadd.field_parent_hint')}>
-            <GroupParentSelect value={draft.parentId} selfId={draft.id} choices={choices} onChange={(parentId) => patch({ parentId })}/>
-          </Field>
-        )}
+        <Field label={t('quickadd.field_parent')} hint={t('quickadd.field_parent_hint')}>
+          <GroupParentSelect value={draft.parentId} selfId={draft.id} choices={choices} onChange={(parentId) => patch({ parentId })}/>
+        </Field>
 
         <div>
           <button
@@ -274,7 +273,10 @@ function GroupParentSelect({ value, selfId, choices, onChange }: {
   choices: readonly QuickAddChoice[]
   onChange: (next: string | null) => void
 }) {
-  const options = choices.filter((entry) => entry.type === 'group' && entry.id !== selfId)
+  // A group cannot live inside its own contents: the store would refuse the write and the reader
+  // would watch the choice snap back with no explanation.
+  const blocked = new Set([selfId, ...descendantIds(choices as QuickAddChoice[], selfId)])
+  const options = choices.filter((entry) => entry.type === 'group' && !blocked.has(entry.id))
   return (
     <Select
       aria-label={t('quickadd.field_parent')}

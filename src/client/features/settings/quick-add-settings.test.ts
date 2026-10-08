@@ -150,6 +150,15 @@ function typeNamed(name: string, value: string): void {
   typeInto(control(name), value)
 }
 
+function selectNamed(name: string, value: string): void {
+  const node = control(name)
+  if (!(node instanceof HTMLSelectElement)) throw new Error(`no select named "${name}"`)
+  act(() => {
+    node.value = value
+    node.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
 function transportBox(): HTMLTextAreaElement | null {
   return document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${t('settings.quickadd_transport')}"]`)
 }
@@ -286,6 +295,29 @@ describe('the choice editor', () => {
     const saved = library()[0]!
     expect(saved.name).toBe('Daily capture')
     expect(saved.type === 'capture' && saved.format).toEqual({ enabled: true, format: `{{DATE}} ${CJK_CHOICE_FIXTURES.word}` })
+  })
+
+  it('lets any choice be placed inside a group from its own editor', async () => {
+    const group = newGroupChoice('qa-g', 'Work', 0)
+    const capture = { ...newCaptureChoice('qa-c', 'Meeting', 0), targetTitle: 'Inbox' }
+    seed({ choices: [group, capture] })
+    editor(capture)
+    selectNamed(t('quickadd.field_parent'), 'qa-g')
+    clickNamed(t('common.save'))
+    await settle()
+    expect(library().find((choice) => choice.id === 'qa-c')?.parentId).toBe('qa-g')
+  })
+
+  it('does not offer a group the choices inside it', () => {
+    const outer = newGroupChoice('qa-outer', 'Outer', 0)
+    const inner = { ...newGroupChoice('qa-inner', 'Inner', 0), parentId: 'qa-outer' }
+    seed({ choices: [outer, inner] })
+    editor(outer)
+    const select = control(t('quickadd.field_parent'))
+    expect(select).toBeInstanceOf(HTMLSelectElement)
+    const values = [...(select as HTMLSelectElement).options].map((option) => option.value)
+    expect(values).toContain('')
+    expect(values, 'a group cannot live inside its own contents').not.toContain('qa-inner')
   })
 
   it('refuses to save an empty name', () => {
