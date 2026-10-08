@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, ScanSearch, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, ChevronsDownUp, ChevronsUpDown, IndentDecrease, IndentIncrease, MoveDown, MoveUp, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -17,12 +17,24 @@ import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
 import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
 import { openEmojiPicker } from '../../store/emoji-picker';
+import { openOmnisearch } from '../omnisearch/store';
 import { getActiveEditorView } from '../../editor/commands';
 import { openLinkAtCursor } from '../links/use-link-editor';
 import { pasteAsLinkFromClipboard } from '../../editor/paste-link';
 import { t, useLocale } from "../../lib/i18n";
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
+import { editorCombo } from '../../editor/shortcuts';
+import type { Command } from '@codemirror/view';
+import { outlinerFoldItem, outlinerIndentItem, outlinerMoveItemDown, outlinerMoveItemUp, outlinerOutdentItem, outlinerUnfoldAll, outlinerUnfoldItem } from '../../editor/outliner';
 import { usePinyinVersion } from '../../lib/pinyin'
+
+function runOnList(command: Command): () => void {
+    return () => {
+        const view = getActiveEditorView();
+        if (!view || !command(view)) useUi.getState().toast({ title: t("command.no_list_to_edit"), tone: 'warning' });
+    };
+}
+
 interface Item {
     id: string;
     kind: 'command' | 'note' | 'tag' | 'folder';
@@ -140,6 +152,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 run: () => void createFolder(),
             },
             {
+                id: 'cmd-omnisearch',
+                kind: 'command',
+                label: t("shell.omnisearch"),
+                icon: <ScanSearch size={14}/>,
+                combo: APP_SHORTCUTS.omnisearch,
+                group: t("command.commands"),
+                run: () => openOmnisearch({ mode: 'vault' }),
+            },
+            {
                 id: 'cmd-emoji',
                 kind: 'command',
                 label: t("command.open_emoji_picker"),
@@ -186,6 +207,66 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                         run: () => requestPropertyDecoration('cover', activeNote.id),
                     },
                     {
+                        id: 'cmd-list-up',
+                        kind: 'command' as const,
+                        label: t("command.move_list_up"),
+                        icon: <MoveUp size={14}/>,
+                        group: t("common.current_note"),
+                        combo: editorCombo('move-list-up'),
+                        run: runOnList(outlinerMoveItemUp),
+                    },
+                    {
+                        id: 'cmd-list-down',
+                        kind: 'command' as const,
+                        label: t("command.move_list_down"),
+                        icon: <MoveDown size={14}/>,
+                        group: t("common.current_note"),
+                        combo: editorCombo('move-list-down'),
+                        run: runOnList(outlinerMoveItemDown),
+                    },
+                    {
+                        id: 'cmd-list-indent',
+                        kind: 'command' as const,
+                        label: t("command.outliner_indent"),
+                        icon: <IndentIncrease size={14}/>,
+                        group: t("common.current_note"),
+                        run: runOnList(outlinerIndentItem),
+                    },
+                    {
+                        id: 'cmd-list-outdent',
+                        kind: 'command' as const,
+                        label: t("command.outliner_outdent"),
+                        icon: <IndentDecrease size={14}/>,
+                        group: t("common.current_note"),
+                        run: runOnList(outlinerOutdentItem),
+                    },
+                    {
+                        id: 'cmd-list-fold',
+                        kind: 'command' as const,
+                        label: t("command.fold_list"),
+                        icon: <ChevronsDownUp size={14}/>,
+                        group: t("common.current_note"),
+                        combo: editorCombo('fold-list'),
+                        run: runOnList(outlinerFoldItem),
+                    },
+                    {
+                        id: 'cmd-list-unfold',
+                        kind: 'command' as const,
+                        label: t("command.unfold_list"),
+                        icon: <ChevronsUpDown size={14}/>,
+                        group: t("common.current_note"),
+                        combo: editorCombo('unfold-list'),
+                        run: runOnList(outlinerUnfoldItem),
+                    },
+                    {
+                        id: 'cmd-list-unfold-all',
+                        kind: 'command' as const,
+                        label: t("command.outliner_unfold_all"),
+                        icon: <ListTree size={14}/>,
+                        group: t("common.current_note"),
+                        run: runOnList(outlinerUnfoldAll),
+                    },
+                    {
                         id: 'cmd-banner-image',
                         kind: 'command' as const,
                         label: t("command.select_banner_image"),
@@ -211,6 +292,15 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                             const properties = useSession.getState().settings.properties;
                             useSession.getState().updateSettings({ properties: { revealHidden: !properties.revealHidden } });
                         },
+                    },
+                    {
+                        id: 'cmd-omnisearch-in-file',
+                        kind: 'command' as const,
+                        label: t("omnisearch.scope_file"),
+                        icon: <ScanSearch size={14}/>,
+                        combo: APP_SHORTCUTS.omnisearchInFile,
+                        group: t("common.current_note"),
+                        run: () => openOmnisearch({ mode: 'file', noteId: activeNote.id }),
                     },
                     {
                         id: 'cmd-presentation-mode',

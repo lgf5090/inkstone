@@ -6,6 +6,8 @@ import type {
   LinkEditorModifier,
   LinkEditorTrigger,
   PasteLinkNothing,
+  OutlinerCursorStick,
+  OutlinerGuideClick,
   PropertyColorChoice,
   PropertyFormatChoice,
   PropertyProgressChoice,
@@ -83,6 +85,8 @@ export const LIMITS = {
   graphColorGroupMax: 5,
 
   ftsContentChars: 200_000,
+  /** What one note contributes to the client-side search index, in characters. */
+  omnisearchDocumentChars: 100_000,
 } as const
 
 export const ACCENTS: { name: AccentName; swatch: string; foreground: string }[] = [
@@ -175,6 +179,17 @@ export const DEFAULT_SETTINGS: UserSettings = {
     pasteLinkBareAddress: true,
     pasteLinkInternalNote: true,
     pasteLinkRetarget: true,
+    outliner: true,
+    outlinerEnter: true,
+    outlinerShiftEnter: true,
+    outlinerTab: true,
+    outlinerCursor: 'bullet-and-checkbox',
+    outlinerSelectAll: true,
+    outlinerMoveKeys: true,
+    outlinerFoldKeys: true,
+    outlinerGuides: true,
+    outlinerGuideClick: 'fold',
+    outlinerDrag: true,
   },
   preview: {
     layout: 'live',
@@ -274,6 +289,38 @@ export const DEFAULT_SETTINGS: UserSettings = {
     newNoteTemplate: DEFAULT_NEW_NOTE_TEMPLATE,
     syncTitleToFrontMatter: true,
     syncFrontMatterTitle: true,
+  },
+  search: {
+    enabled: true,
+    useCache: true,
+    ribbonButton: true,
+    showExcerpt: true,
+    plainExcerpt: true,
+    renderLineReturnInExcerpts: true,
+    showCreateButton: false,
+    showPreviousQueryResults: true,
+    maxEmbeds: 5,
+    maxResults: 50,
+    fuzziness: '1',
+    simpleSearch: false,
+    ignoreDiacritics: true,
+    splitCamelCase: false,
+    cjkBigrams: true,
+    pinyinSearch: true,
+    recencyBoost: 'disabled',
+    weightTitle: 10,
+    weightFolder: 7,
+    weightH1: 6,
+    weightH2: 5,
+    weightH3: 4,
+    weightTags: 2,
+    weightCustomProperties: [],
+    downrankedFolders: [],
+    hideArchived: false,
+    displayTitleProperty: '',
+    maxIndexedNotes: 3000,
+    maxContentChars: 100000,
+    indexStorageMb: 64,
   },
 }
 
@@ -509,8 +556,19 @@ const LINK_EDITOR_TRIGGERS: LinkEditorTrigger[] = ['click', 'double-click']
 const LINK_EDITOR_MODIFIERS: LinkEditorModifier[] = ['none', 'ctrl', 'alt', 'shift']
 const LINK_EDITOR_ALIAS_MODES: LinkEditorAliasMode[] = ['heading', 'note-then-heading', 'heading-then-note']
 const PASTE_LINK_NOTTHINGS: PasteLinkNothing[] = ['plain', 'word', 'inline', 'bare']
+const OUTLINER_CURSOR_STICKS: OutlinerCursorStick[] = ['never', 'bullet', 'bullet-and-checkbox']
+const OUTLINER_GUIDE_CLICKS: OutlinerGuideClick[] = ['none', 'fold']
 export const EMOJI_SKIN_TONE_MAX = 5
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
+
+const OMNISEARCH_FUZZINESS = ['0', '1', '2'] as const
+const OMNISEARCH_RECENCY = ['disabled', 'day', 'week', 'month'] as const
+
+export const SEARCH_WEIGHT_RANGE = [1, 10] as const
+export const SEARCH_PROPERTY_WEIGHT_RANGE = [0.1, 5] as const
+export const SEARCH_CUSTOM_PROPERTIES_MAX = 12
+export const SEARCH_DOWNRANKED_FOLDERS_MAX = 40
+export const SEARCH_DISPLAY_TITLE_MAX = 60
 
 
 export function mergeSettings(partial: unknown): UserSettings {
@@ -523,6 +581,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const backup = asRecord(src.backup)
   const sync = asRecord(src.sync)
   const notes = asRecord(src.notes)
+  const search = asRecord(src.search)
 
   base.notes.todoTag = normalizeTodoTags(notes.todoTag)
   base.notes.newNoteTemplate = typeof notes.newNoteTemplate === 'string'
@@ -640,6 +699,17 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.editor.pasteLinkBareAddress = booleanValue(editor.pasteLinkBareAddress, base.editor.pasteLinkBareAddress)
   base.editor.pasteLinkInternalNote = booleanValue(editor.pasteLinkInternalNote, base.editor.pasteLinkInternalNote)
   base.editor.pasteLinkRetarget = booleanValue(editor.pasteLinkRetarget, base.editor.pasteLinkRetarget)
+  base.editor.outliner = booleanValue(editor.outliner, base.editor.outliner)
+  base.editor.outlinerEnter = booleanValue(editor.outlinerEnter, base.editor.outlinerEnter)
+  base.editor.outlinerShiftEnter = booleanValue(editor.outlinerShiftEnter, base.editor.outlinerShiftEnter)
+  base.editor.outlinerTab = booleanValue(editor.outlinerTab, base.editor.outlinerTab)
+  base.editor.outlinerCursor = enumValue(editor.outlinerCursor, OUTLINER_CURSOR_STICKS, base.editor.outlinerCursor)
+  base.editor.outlinerSelectAll = booleanValue(editor.outlinerSelectAll, base.editor.outlinerSelectAll)
+  base.editor.outlinerMoveKeys = booleanValue(editor.outlinerMoveKeys, base.editor.outlinerMoveKeys)
+  base.editor.outlinerFoldKeys = booleanValue(editor.outlinerFoldKeys, base.editor.outlinerFoldKeys)
+  base.editor.outlinerGuides = booleanValue(editor.outlinerGuides, base.editor.outlinerGuides)
+  base.editor.outlinerGuideClick = enumValue(editor.outlinerGuideClick, OUTLINER_GUIDE_CLICKS, base.editor.outlinerGuideClick)
+  base.editor.outlinerDrag = booleanValue(editor.outlinerDrag, base.editor.outlinerDrag)
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
@@ -771,11 +841,83 @@ export function mergeSettings(partial: unknown): UserSettings {
     base.sync.pollIntervalMs,
   )
 
+  base.search.enabled = booleanValue(search.enabled, base.search.enabled)
+  base.search.useCache = booleanValue(search.useCache, base.search.useCache)
+  base.search.ribbonButton = booleanValue(search.ribbonButton, base.search.ribbonButton)
+  base.search.showExcerpt = booleanValue(search.showExcerpt, base.search.showExcerpt)
+  base.search.plainExcerpt = booleanValue(search.plainExcerpt, base.search.plainExcerpt)
+  base.search.renderLineReturnInExcerpts = booleanValue(
+    search.renderLineReturnInExcerpts,
+    base.search.renderLineReturnInExcerpts,
+  )
+  base.search.showCreateButton = booleanValue(search.showCreateButton, base.search.showCreateButton)
+  base.search.showPreviousQueryResults = booleanValue(
+    search.showPreviousQueryResults,
+    base.search.showPreviousQueryResults,
+  )
+  base.search.maxEmbeds = integerInRange(search.maxEmbeds, 0, 10, base.search.maxEmbeds)
+  base.search.maxResults = integerInRange(search.maxResults, 10, 100, base.search.maxResults)
+  base.search.fuzziness = enumValue(search.fuzziness, OMNISEARCH_FUZZINESS, base.search.fuzziness)
+  base.search.simpleSearch = booleanValue(search.simpleSearch, base.search.simpleSearch)
+  base.search.ignoreDiacritics = booleanValue(search.ignoreDiacritics, base.search.ignoreDiacritics)
+  base.search.splitCamelCase = booleanValue(search.splitCamelCase, base.search.splitCamelCase)
+  base.search.cjkBigrams = booleanValue(search.cjkBigrams, base.search.cjkBigrams)
+  base.search.pinyinSearch = booleanValue(search.pinyinSearch, base.search.pinyinSearch)
+  base.search.recencyBoost = enumValue(search.recencyBoost, OMNISEARCH_RECENCY, base.search.recencyBoost)
+  base.search.weightTitle = halfStepInRange(search.weightTitle, SEARCH_WEIGHT_RANGE, base.search.weightTitle)
+  base.search.weightFolder = halfStepInRange(search.weightFolder, SEARCH_WEIGHT_RANGE, base.search.weightFolder)
+  base.search.weightH1 = halfStepInRange(search.weightH1, SEARCH_WEIGHT_RANGE, base.search.weightH1)
+  base.search.weightH2 = halfStepInRange(search.weightH2, SEARCH_WEIGHT_RANGE, base.search.weightH2)
+  base.search.weightH3 = halfStepInRange(search.weightH3, SEARCH_WEIGHT_RANGE, base.search.weightH3)
+  base.search.weightTags = halfStepInRange(search.weightTags, SEARCH_WEIGHT_RANGE, base.search.weightTags)
+  base.search.weightCustomProperties = Array.isArray(search.weightCustomProperties)
+    ? search.weightCustomProperties
+      .map((item) => {
+        const record = asRecord(item)
+        return {
+          name: trimmedText(record.name, PROPERTY_NAME_MAX),
+          weight: numberInRange(record.weight, SEARCH_PROPERTY_WEIGHT_RANGE[0], SEARCH_PROPERTY_WEIGHT_RANGE[1], 1),
+        }
+      })
+      .filter((item) => item.name)
+      .slice(0, SEARCH_CUSTOM_PROPERTIES_MAX)
+    : base.search.weightCustomProperties
+  base.search.downrankedFolders = Array.isArray(search.downrankedFolders)
+    ? uniqueFolderPaths(search.downrankedFolders, SEARCH_DOWNRANKED_FOLDERS_MAX)
+    : base.search.downrankedFolders
+  base.search.hideArchived = booleanValue(search.hideArchived, base.search.hideArchived)
+  base.search.displayTitleProperty = trimmedText(search.displayTitleProperty, SEARCH_DISPLAY_TITLE_MAX)
+  base.search.maxIndexedNotes = integerInRange(search.maxIndexedNotes, 200, 20000, base.search.maxIndexedNotes)
+  base.search.maxContentChars = integerInRange(search.maxContentChars, 2000, 200000, base.search.maxContentChars)
+  base.search.indexStorageMb = integerInRange(search.indexStorageMb, 8, 512, base.search.indexStorageMb)
+
   return base
 }
 
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes'] as const
+function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
+  const clamped = numberInRange(value, range[0], range[1], fallback)
+  return Math.round(clamped * 2) / 2
+}
+
+function uniqueFolderPaths(value: readonly unknown[], max: number): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const path = typeof item === 'string' ? item.trim().replace(/^\/+|\/+$/g, '').slice(0, 120) : ''
+    // The server compares folder names with COLLATE NOCASE, so two spellings of one folder would
+    // otherwise occupy two slots that downrank exactly the same notes.
+    const key = path.toLowerCase()
+    if (!path || seen.has(key)) continue
+    seen.add(key)
+    out.push(path)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search'] as const
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -833,6 +975,11 @@ function cloneDefaultSettings(): UserSettings {
     backup: { ...DEFAULT_SETTINGS.backup },
     sync: { ...DEFAULT_SETTINGS.sync },
     notes: { ...DEFAULT_SETTINGS.notes },
+    search: {
+      ...DEFAULT_SETTINGS.search,
+      weightCustomProperties: [],
+      downrankedFolders: [],
+    },
   }
 }
 

@@ -5,6 +5,7 @@ import type { MessageKey } from '../lib/i18n';
 import { IS_MAC } from '../lib/hotkeys';
 import { codeMirrorKey } from '../lib/shortcuts';
 import { insertLink, setHeading, toggleBold, toggleComment, toggleBulletList, toggleInlineCode, toggleItalic, toggleOrderedList, toggleQuote, toggleStrikethrough, toggleTaskDone, toggleTaskList, formatCodeBlock } from './commands';
+import { outlinerFoldKey, outlinerMoveDown, outlinerMoveUp, outlinerUnfoldKey } from './outliner';
 import { toggleUnderline } from './text-format';
 import { pasteAsLinkFromClipboard } from './paste-link';
 import { openLinkAtCursor } from '../features/links/use-link-editor';
@@ -38,6 +39,10 @@ export const EDITOR_SHORTCUTS: EditorShortcut[] = [
     { id: 'task-done', combo: 'mod+shift+enter', label: 'command.check_uncheck_tasks', run: toggleTaskDone },
     { id: 'move-line-up', combo: 'alt+arrowup', label: 'command.move_line_up', run: moveLineUp },
     { id: 'move-line-down', combo: 'alt+arrowdown', label: 'command.move_line_down', run: moveLineDown },
+    { id: 'move-list-up', combo: 'mod+shift+arrowup', label: 'command.move_list_up', run: outlinerMoveUp },
+    { id: 'move-list-down', combo: 'mod+shift+arrowdown', label: 'command.move_list_down', run: outlinerMoveDown },
+    { id: 'fold-list', combo: 'mod+arrowup', label: 'command.fold_list', run: outlinerFoldKey },
+    { id: 'unfold-list', combo: 'mod+arrowdown', label: 'command.unfold_list', run: outlinerUnfoldKey },
     { id: 'delete-line', combo: 'mod+shift+k', label: 'command.delete_line', run: deleteLine },
     { id: 'indent', combo: 'mod+]', label: 'command.indent', run: indentMore },
     { id: 'outdent', combo: 'mod+[', label: 'command.outdent', run: indentLess },
