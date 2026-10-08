@@ -466,6 +466,17 @@ export const GLOBAL_HOTKEYS: Hotkey[] = [
         allowInInput: true,
         handler: () => openEmojiPicker(),
     },
+    {
+        id: 'lint-note',
+        combo: APP_SHORTCUTS.lintNote,
+        description: () => t('linter.command.lint_note'),
+        group: () => t('linter.group'),
+        // The key formats the note the reader is typing in, so it has to reach the caret; a linter
+        // switched off must not answer it, or the chord would swallow the keystroke for nothing.
+        allowInInput: true,
+        enabled: () => hasNote() && useSession.getState().settings.linter.enabled,
+        handler: () => void import('../../lib/linter/drive').then((drive) => drive.lintCurrentNote()),
+    },
 ];
 
 function useGlobalHotkeys(): void {

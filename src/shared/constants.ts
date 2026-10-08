@@ -25,6 +25,7 @@ import type {
   ViewKind,
 } from './types'
 import { COVER_POSITIONS, COVER_SHAPES } from './property-decorations'
+import { DEFAULT_LINTER_SETTINGS, normalizeLinterSettings } from './linter'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
 
@@ -142,6 +143,11 @@ aliases:
 export const NEW_NOTE_TEMPLATE_MAX_LENGTH = 4096
 
 export const DEFAULT_SETTINGS: UserSettings = {
+  linter: {
+    ...DEFAULT_LINTER_SETTINGS,
+    ruleConfigs: {},
+    commonStyles: { ...DEFAULT_LINTER_SETTINGS.commonStyles },
+  },
   appearance: {
     language: 'zh-CN',
     theme: 'system',
@@ -651,6 +657,10 @@ export function mergeSettings(partial: unknown): UserSettings {
   const sync = asRecord(src.sync)
   const notes = asRecord(src.notes)
   const search = asRecord(src.search)
+
+  // the linter section is a nested record, so it is rebuilt from the reader's blob rather than
+  // patched onto a default: an unknown rule or an oversized option has to be dropped, not stored
+  base.linter = normalizeLinterSettings(src.linter)
 
   base.notes.todoTag = normalizeTodoTags(notes.todoTag)
   base.notes.newNoteTemplate = typeof notes.newNoteTemplate === 'string'
@@ -1203,7 +1213,7 @@ function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): st
   return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search'] as const
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'linter'] as const
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -1256,6 +1266,14 @@ function cloneDefaultSettings(): UserSettings {
         custom: [...DEFAULT_SETTINGS.editor.draggerMenuOrders.custom],
       },
       draggerBlockStyles: [],
+    },
+    linter: {
+      ...DEFAULT_LINTER_SETTINGS,
+      ruleConfigs: {},
+      customRegexes: [],
+      foldersToIgnore: [],
+      filesToIgnore: [],
+      commonStyles: { ...DEFAULT_LINTER_SETTINGS.commonStyles },
     },
     preview: { ...DEFAULT_SETTINGS.preview },
     properties: {

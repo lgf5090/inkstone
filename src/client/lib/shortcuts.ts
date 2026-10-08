@@ -24,6 +24,9 @@ export const APP_SHORTCUTS = {
   // A show starts on the slide under the editor cursor, so the key has to reach into the editor;
   // `mod+shift+p` is already the command palette.
   present: 'mod+alt+p',
+  // The linter rewrites the note under the cursor, so its key has to reach the editor as well. The
+  // reference plugin defaults to the same chord, and nothing here had claimed it.
+  lintNote: 'mod+alt+l',
 } as const
 
 export const NOTE_LIST_SHORTCUTS = {

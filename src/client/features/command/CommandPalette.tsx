@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, ScanSearch, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, Zap, ChevronsDownUp, ChevronsUpDown, IndentDecrease, IndentIncrease, MoveDown, MoveUp, } from 'lucide-react';
+import { Archive, Clipboard, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, ScanSearch, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, Zap, ChevronsDownUp, ChevronsUpDown, IndentDecrease, IndentIncrease, MoveDown, MoveUp, WandSparkles, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -92,6 +92,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const quickAddOn = useQuickAdd((s) => s.settings.enabled);
     const quickAddChoices = useQuickAdd((s) => s.choices);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
+    const linterOn = useSession((s) => s.settings.linter.enabled);
     const updateSettings = useSession((s) => s.updateSettings);
     const debounced = useDebounced(query, 180);
     const now = useNow();
@@ -173,6 +174,14 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 group: t("command.commands"),
                 run: () => openEmojiPicker(),
             },
+            ...(linterOn ? [{
+                id: 'cmd-lint-all',
+                kind: 'command' as const,
+                label: t("linter.command.lint_all"),
+                icon: <WandSparkles size={14}/>,
+                group: t("command.commands"),
+                run: () => void import('../../lib/linter/drive').then((drive) => drive.lintWholeLibrary()),
+            }] : []),
             ...(activeNote
                 ? [
                     {
@@ -324,6 +333,55 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                         group: t("common.current_note"),
                         run: () => void patchNote(activeNote.id, { isStarred: !activeNote.isStarred }),
                     },
+                    ...(linterOn ? [{
+                        id: 'cmd-lint-note',
+                        kind: 'command' as const,
+                        label: t("linter.command.lint_note"),
+                        icon: <WandSparkles size={14}/>,
+                        combo: APP_SHORTCUTS.lintNote,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.lintCurrentNote()),
+                    },
+                    {
+                        id: 'cmd-lint-preview',
+                        kind: 'command' as const,
+                        label: t("linter.command.preview_note"),
+                        icon: <ScanSearch size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.previewCurrentNote()),
+                    },
+                    {
+                        id: 'cmd-lint-paste-plain',
+                        kind: 'command' as const,
+                        label: t("linter.command.paste_plain"),
+                        icon: <Clipboard size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.pasteWithoutFormatting()),
+                    },
+                    {
+                        id: 'cmd-lint-folder',
+                        kind: 'command' as const,
+                        label: t("linter.command.lint_folder"),
+                        icon: <WandSparkles size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => void import('../../lib/linter/drive').then((drive) => drive.lintCurrentFolder()),
+                    },
+                    {
+                        id: 'cmd-lint-ignore-note',
+                        kind: 'command' as const,
+                        label: t("linter.command.ignore_note"),
+                        icon: <EyeOff size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => import('../../lib/linter/drive').then((drive) => drive.toggleIgnoreNote()),
+                    },
+                    {
+                        id: 'cmd-lint-ignore-folder',
+                        kind: 'command' as const,
+                        label: t("linter.command.ignore_folder"),
+                        icon: <EyeOff size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => import('../../lib/linter/drive').then((drive) => drive.toggleIgnoreFolder()),
+                    }] : []),
                     {
                         id: 'cmd-archive',
                         kind: 'command' as const,
@@ -556,6 +614,7 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         locale,
         createFolder,
         deleteNote,
+        linterOn,
         openPanel,
         openView,
         patchNote,

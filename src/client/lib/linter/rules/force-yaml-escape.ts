@@ -1,0 +1,104 @@
+import {Options, RuleType} from '../rules';
+import RuleBuilder, {ExampleBuilder, OptionBuilderBase, ListItemOptionBuilder} from '../rule-builder';
+import dedent from 'ts-dedent';
+import {escapeStringIfNecessaryAndPossible, formatYAML, getYamlSectionValue, isValueEscapedAlready, QuoteCharacter, setYamlSection} from '../engine/yaml';
+import { isValidYamlKeyOnly } from '../engine/validation';
+
+class ForceYamlEscapeOptions implements Options {
+  defaultEscapeCharacter: QuoteCharacter = '"';
+  forceYamlEscape: string[] = [];
+}
+
+export default class ForceYamlEscape extends RuleBuilder<ForceYamlEscapeOptions> {
+  constructor() {
+    super({
+      alias: 'force-yaml-escape',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['defaultEscapeCharacter'],      nameKey: "linter.rules.force_yaml_escape.name",
+      descriptionKey: "linter.rules.force_yaml_escape.description",
+      type: RuleType.YAML,
+      hasSpecialExecutionOrder: true, // runs before other rules to help cleanup the YAML before it can throw errors on it
+    });
+  }
+  get OptionsClass(): new () => ForceYamlEscapeOptions {
+    return ForceYamlEscapeOptions;
+  }
+  apply(text: string, options: ForceYamlEscapeOptions): string {
+    return formatYAML(text, (text) => {
+      for (const yamlKeyToEscape of options.forceYamlEscape) {
+        let keyValue = getYamlSectionValue(text, yamlKeyToEscape);
+
+        if (keyValue != null) {
+          // skip YAML array values or already escaped values
+          if (keyValue.includes('\n') || keyValue.startsWith(' [') || isValueEscapedAlready(keyValue)) {
+            continue;
+          }
+
+          keyValue = escapeStringIfNecessaryAndPossible(keyValue, options.defaultEscapeCharacter, true);
+          text = setYamlSection(text, yamlKeyToEscape, ' ' + keyValue);
+        }
+      }
+
+      return text;
+    });
+  }
+  get exampleBuilders(): ExampleBuilder<ForceYamlEscapeOptions>[] {
+    return [
+      new ExampleBuilder({
+        description: 'YAML without anything to escape',
+        before: dedent`
+          ---
+          key: value
+          otherKey: []
+          ---
+        `,
+        after: dedent`
+          ---
+          key: value
+          otherKey: []
+          ---
+        `,
+      }),
+      new ExampleBuilder({
+        description: 'Force YAML keys to be escaped with double quotes where not already escaped with `Force YAML escape on keys = \'key\'\\n\'title\'\\n\'bool\'`',
+        before: dedent`
+          ---
+          key: 'Already escaped value'
+          title: This is a title
+          bool: false
+          unaffected: value
+          ---
+          ${''}
+          _Note that the force YAML key option should not be used with arrays._
+        `,
+        after: dedent`
+          ---
+          key: 'Already escaped value'
+          title: "This is a title"
+          bool: "false"
+          unaffected: value
+          ---
+          ${''}
+          _Note that the force YAML key option should not be used with arrays._
+        `,
+        options: {
+          forceYamlEscape: ['key', 'title', 'bool'],
+          defaultEscapeCharacter: '"',
+        },
+      }),
+    ];
+  }
+  get optionBuilders(): OptionBuilderBase<ForceYamlEscapeOptions>[] {
+    return [
+      new ListItemOptionBuilder({
+        OptionsClass: ForceYamlEscapeOptions,
+        nameKey: "linter.rules.force_yaml_escape.force_yaml_escape_keys.name",
+        descriptionKey: "linter.rules.force_yaml_escape.force_yaml_escape_keys.description",
+        emptyStateKey: "linter.rules.force_yaml_escape.force_yaml_escape_keys.empty_state",
+        fieldNamePlaceholderKey: "linter.rules.force_yaml_escape.force_yaml_escape_keys.placeholder_text",
+        optionsKey: 'forceYamlEscape',
+        validator: isValidYamlKeyOnly,
+      }),
+    ];
+  }
+}

@@ -36,12 +36,28 @@ export default defineConfig({
           // The last entry is the scratch-probe marker: a `*.tmp.*` file is a measurement in flight,
           // and it is the tsconfig exclusion plus tests/no-scratch-test-files.test.ts that make it
           // invisible to the gates and impossible to leave behind.
-          exclude: ['src/worker/lib/request.test.ts', 'src/client/demo/backend.test.ts', 'src/worker/lib/obsidian-import.test.ts', 'tests/backup-retention.test.ts', '**/*.tmp.*'],
+          exclude: ['src/worker/lib/request.test.ts', 'src/client/demo/backend.test.ts', 'src/worker/lib/obsidian-import.test.ts', 'tests/backup-retention.test.ts', 'src/client/lib/linter/**', '**/*.tmp.*'],
           server: {
             deps: {
               inline: ['@cloudflare/workers-oauth-provider'],
             },
           },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          // The linter's own suite, in a UTC worker. Several ported fixtures state a file timestamp
+          // with an explicit offset and compare it to a wall clock, which is only decidable in one
+          // zone; the reference project's CI runs UTC, so the fixtures were written that way. Giving
+          // them a project of their own keeps that assumption in one place instead of leaking a
+          // process-wide TZ change into every other suite.
+          name: 'linter',
+          environment: 'jsdom',
+          include: ['src/client/lib/linter/**/*.test.ts'],
+          exclude: ['**/*.tmp.*'],
+          setupFiles: ['src/client/lib/linter/__tests__/i18n-setup.ts'],
+          env: { TZ: 'UTC' },
         },
       },
       {

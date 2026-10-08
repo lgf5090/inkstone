@@ -1,0 +1,215 @@
+import TwoSpacesBetweenLinesWithContent from '../rules/two-spaces-between-lines-with-content';
+import dedent from 'ts-dedent';
+import {ruleTest} from '../test-harness';
+import {LineBreakIndicators} from '../engine/mdast';
+
+ruleTest({
+  RuleBuilderClass: TwoSpacesBetweenLinesWithContent,
+  testCases: [
+    {
+      testName: 'Leaves line endings inside fenced code alone',
+      before: '```\nInside one\nInside two\n```\n\nOutside one\nOutside two',
+      after: '```\nInside one\nInside two\n```\n\nOutside one  \nOutside two',
+    },
+    {
+      testName: 'Leaves line endings inside disabled sections alone',
+      before: '<!-- linter-disable -->\nInside one\nInside two\n<!-- linter-enable -->\n\nOutside one\nOutside two',
+      after: '<!-- linter-disable -->\nInside one\nInside two\n<!-- linter-enable -->\n\nOutside one  \nOutside two',
+    },
+    {
+      testName: 'Make sure obsidian multiline comments are not affected',
+      before: dedent`
+        Here is some inline comments: %%You can't see this text%% (Can't see it)
+        ${''}
+        Here is a block comment:
+        %%
+        It can span
+        multiple lines
+        %%
+      `,
+      after: dedent`
+        Here is some inline comments: %%You can't see this text%% (Can't see it)
+        ${''}
+        Here is a block comment:  ${''}
+        %%
+        It can span
+        multiple lines
+        %%
+      `,
+    },
+    {
+      // accounts for https://github.com/platers/obsidian-linter/issues/300
+      testName: 'Make sure obsidian multiline comments with single line comment prior is not affected',
+      before: dedent`
+        %% fold %%
+        ${''}
+        ## R
+        ${''}
+        %%
+        HW:: --
+        T:: 0
+        %%
+        ${''}
+        # A %% fold %%
+        ${''}
+        ## R
+        ${''}
+        %%
+        HW:: --
+        T:: 0
+        %%
+        ${''}
+        # A %% fold %% nocomment
+        ${''}
+        ## R
+        ${''}
+        %%
+        HW:: --
+        T:: 0
+        %%
+      `,
+      after: dedent`
+        %% fold %%
+        ${''}
+        ## R
+        ${''}
+        %%
+        HW:: --
+        T:: 0
+        %%
+        ${''}
+        # A %% fold %%
+        ${''}
+        ## R
+        ${''}
+        %%
+        HW:: --
+        T:: 0
+        %%
+        ${''}
+        # A %% fold %% nocomment
+        ${''}
+        ## R
+        ${''}
+        %%
+        HW:: --
+        T:: 0
+        %%
+      `,
+    },
+    {
+      testName: 'Make sure that using a line break indicator of `<br>` replaces the other line break endings properly',
+      before: dedent`
+        Here is some text${'  '}
+        Here is some more text\\
+        Here is yet some more text<br>
+        Even more text<br/>
+        Once more...
+      `,
+      after: dedent`
+        Here is some text<br>
+        Here is some more text<br>
+        Here is yet some more text<br>
+        Even more text<br>
+        Once more...
+      `,
+      options: {
+        lineBreakIndicator: LineBreakIndicators.LineBreakHtmlNotXml,
+      },
+    },
+    {
+      testName: 'Make sure that using a line break indicator of `<br/>` replaces the other line break endings properly',
+      before: dedent`
+        Here is some text${'  '}
+        Here is some more text\\
+        Here is yet some more text<br>
+        Even more text<br/>
+        Once more...
+      `,
+      after: dedent`
+        Here is some text<br/>
+        Here is some more text<br/>
+        Here is yet some more text<br/>
+        Even more text<br/>
+        Once more...
+      `,
+      options: {
+        lineBreakIndicator: LineBreakIndicators.LineBreakHtml,
+      },
+    },
+    {
+      testName: 'Make sure that using a line break indicator of `\\` replaces the other line break endings properly',
+      before: dedent`
+        Here is some text${'  '}
+        Here is some more text\\
+        Here is yet some more text<br>
+        Even more text<br/>
+        Once more...
+      `,
+      after: dedent`
+        Here is some text\\
+        Here is some more text\\
+        Here is yet some more text\\
+        Even more text\\
+        Once more...
+      `,
+      options: {
+        lineBreakIndicator: LineBreakIndicators.Backslash,
+      },
+    },
+    {
+      testName: 'Make sure that using a line break indicator of `  ` replaces the other line break endings properly',
+      before: dedent`
+        Here is some text${'  '}
+        Here is some more text\\
+        Here is yet some more text<br>
+        Even more text<br/>
+        Once more...
+      `,
+      after: dedent`
+        Here is some text${'  '}
+        Here is some more text${'  '}
+        Here is yet some more text${'  '}
+        Even more text${'  '}
+        Once more...
+      `,
+      options: {
+        lineBreakIndicator: LineBreakIndicators.TwoSpaces,
+      },
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/1243
+      testName: 'Make sure that a callout does not erroneously get its callout indicator line updated.',
+      before: dedent`
+        > [!NOTE]
+        > Callout!
+        > Callout2!
+      `,
+      after: dedent`
+        > [!NOTE]
+        > Callout!\\
+        > Callout2!
+      `,
+      options: {
+        lineBreakIndicator: LineBreakIndicators.Backslash,
+      },
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/1243
+      testName: 'Make sure that a nested callout does not erroneously get its callout indicator line updated.',
+      before: dedent`
+        > Something
+        > > [!NOTE]
+        > > Callout!
+        > > Callout2!
+      `,
+      after: dedent`
+        > Something
+        > > [!NOTE]
+        > > Callout!\\
+        > > Callout2!
+      `,
+      options: {
+        lineBreakIndicator: LineBreakIndicators.Backslash,
+      },
+    },
+  ],
+});
