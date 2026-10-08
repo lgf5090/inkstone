@@ -8934,6 +8934,7 @@ const allowed = new Map([
     "/** A template whose body asks for something, which is what makes a page worth having. */",
     "// The day the page collected has to reach the body, which only formats after the page is answered.",
     "/** The full requests of each group, so a test can read the choices and their display text. */",
+    "/** Where each group said the run was about to write, which the reader reads as “into what”. */",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -9107,11 +9108,11 @@ const allowed = new Map([
     "// thing again — the reader who pressed Escape would watch the dialog reappear.",
     "/** The \"ask me each time\" day question, shared by the opening page and the engine that applies it. */",
     "/**\n * One question, taken from the opening page when there is one. Without this the precollect pass would\n * ask the very same thing twice — every engine-level prompt has to look for the answer first.\n */",
-    "/**\n * Ask everything the run can already name, once, before it writes anything.\n *\n * The setting promises \"always one page\", and a choice used to honour it one surface at a time: a\n * template asked for its day, then its name, then its folder, then its body — four dialogs for one\n * button press. Only questions whose wording and choices are known before the run starts can share a\n * page, so each engine hands over what it knows statically (`requests` for the engine's own prompts,\n * `texts` for the formats whose tokens can be scanned) and keeps asking the rest where the answer\n * depends on something the earlier answers produced.\n */",
     "// A multi-select keeps its own dialog: the page cannot hold a picker, and the surface that asked",
     "// for it still asks exactly as it did before this pass existed.",
     "// `skip` names variables the run writes itself, which only ever arrive out of a scanned format —",
     "// an engine's own request is one it has decided to ask.",
+    "/**\n * Ask everything the run can already name, once, before it writes anything.\n *\n * The setting promises \"always one page\", and a choice used to honour it one surface at a time: a\n * template asked for its day, then its name, then its folder, then its body — four dialogs for one\n * button press. Only questions whose wording and choices are known before the run starts can share a\n * page, so each engine hands over what it knows statically (`requests` for the engine's own prompts,\n * `texts` for the formats whose tokens can be scanned) and keeps asking the rest where the answer\n * depends on something the earlier answers produced.\n *\n * `auto` deliberately stays out of this: asking the body's questions before the target note is known\n * would cost the prompt the destination it names, which is the one thing the reader is looking at.\n */",
   ]],
   ["src/client/lib/quickadd/startup.ts", [
     "/** The reader's own calendar day, not the UTC one: \"once a day\" means their day. */",

@@ -114,6 +114,9 @@ export async function askOrReuse(
  * page, so each engine hands over what it knows statically (`requests` for the engine's own prompts,
  * `texts` for the formats whose tokens can be scanned) and keeps asking the rest where the answer
  * depends on something the earlier answers produced.
+ *
+ * `auto` deliberately stays out of this: asking the body's questions before the target note is known
+ * would cost the prompt the destination it names, which is the one thing the reader is looking at.
  */
 export async function precollectInputs(
   session: RunSession,
@@ -121,7 +124,7 @@ export async function precollectInputs(
   surfaces: { requests?: PromptRequest[]; texts?: string[]; skip?: Set<string> },
   destination?: string,
 ): Promise<void> {
-  if (pageMode(session) === 'never') return
+  if (pageMode(session) !== 'always') return
   const wanted: PromptRequest[] = []
   const seen = new Set<string>()
   const take = (request: PromptRequest, fromText: boolean): void => {

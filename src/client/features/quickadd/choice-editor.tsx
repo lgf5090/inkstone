@@ -218,10 +218,10 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
         </div>
         <div className="grid gap-1 md:grid-cols-2">
           <SettingRow title={t('quickadd.field_enabled')}>
-            <Switch checked={draft.enabled} onChange={(enabled) => patch({ enabled })}/>
+            <Switch label={t('quickadd.field_enabled')} checked={draft.enabled} onChange={(enabled) => patch({ enabled })}/>
           </SettingRow>
           <SettingRow title={t('quickadd.field_as_command')} description={t('quickadd.field_as_command_desc')}>
-            <Switch checked={draft.asCommand} onChange={(asCommand) => patch({ asCommand })}/>
+            <Switch label={t('quickadd.field_as_command')} checked={draft.asCommand} onChange={(asCommand) => patch({ asCommand })}/>
           </SettingRow>
         </div>
         <Field label={t('quickadd.field_hotkey')} hint={t('quickadd.field_hotkey_hint')}>
@@ -712,6 +712,7 @@ function MacroFields({ draft, patch }: {
       ))}
       <SettingRow title={t('quickadd.field_run_on_startup')} description={t('quickadd.field_run_on_startup_desc')}>
         <Switch
+          label={t('quickadd.field_run_on_startup')}
           checked={draft.runOnStartup}
           onChange={(runOnStartup) => patch({ runOnStartup } as Partial<QuickAddChoice>)}/>
       </SettingRow>

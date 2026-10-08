@@ -407,6 +407,17 @@ describe('the choice editor', () => {
     expect(saved.type === 'template' && saved.templatePickCategory).toBe('cat-j')
   })
 
+  it('names every switch in the editor, so a screen reader says what it toggles', () => {
+    seed({ choices: [newMacroChoice('qa-m', 'Morning', 0), newTemplateChoice('qa-t', 'T', 1), newCaptureChoice('qa-c', 'C', 2)] })
+    for (const choice of library()) {
+      editor(choice)
+      const unnamed = [...document.querySelectorAll('button[role="switch"]')]
+        .filter((node) => !(node.getAttribute('aria-label') ?? '').trim())
+        .map((node) => node.closest('[data-setting-title]')?.getAttribute('data-setting-title') ?? 'unknown')
+      expect(unnamed, `the ${choice.name} editor has switches nobody can name`).toEqual([])
+    }
+  })
+
   it('lists the two caret-relative write positions for a capture', () => {
     const choice = newCaptureChoice('qa-c', 'Caret', 0)
     seed({ choices: [choice] })

@@ -17,13 +17,16 @@ const answers = vi.hoisted(() => ({
   requests: [] as PromptRequest[][],
   /** Whether each group went up as a single page — the promise the whole-choice precollect makes. */
   pages: [] as boolean[],
+  /** Where each group said the run was about to write, which the reader reads as “into what”. */
+  destinations: [] as (string | undefined)[],
 }))
 
 vi.mock('../../features/quickadd/prompt-queue', () => ({
-  askQuickAddPrompts: async (group: { requests: PromptRequest[]; onePage: boolean }) => {
+  askQuickAddPrompts: async (group: { requests: PromptRequest[]; onePage: boolean; destination?: string }) => {
     answers.calls.push(group.requests.map((request) => request.key))
     answers.requests.push(group.requests)
     answers.pages.push(group.onePage)
+    answers.destinations.push(group.destination)
     const next = answers.queue.shift()
     // A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.
     if (next === null) return null
@@ -197,6 +200,7 @@ beforeEach(() => {
   answers.calls = []
   answers.requests = []
   answers.pages = []
+  answers.destinations = []
 })
 
 function captureOn(title: string, over: Partial<QuickAddCaptureChoice> = {}): QuickAddCaptureChoice {
@@ -1120,6 +1124,20 @@ describe('one page for the whole choice', () => {
     expect(answers.pages).toEqual([true])
     expect(fake.created[0]).toMatchObject({ title: '2026-02-03', folderPath: 'Journal' })
     expect(fake.content('2026-02-03')).toContain('note: milk')
+  })
+
+  it('leaves the auto mode asking surface by surface, so the prompt still names its destination', async () => {
+    const fake = harness({ Inbox: 'one\n' })
+    const choice = captureOn('Inbox', {
+      onePage: 'auto' as const,
+      format: { enabled: true, format: 'note: {{VALUE:idea}}' },
+    })
+    answers.queue = [['milk']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'one question is one dialog, asked after the target is known').toEqual([['idea']])
+    expect(answers.pages, 'and it is not a page').toEqual([false])
+    expect(answers.destinations, 'the dialog tells the reader which note it is filling').toEqual(['Inbox'])
   })
 
   it('gathers a macro’s leading questions and leaves a branch’s off the page', async () => {
