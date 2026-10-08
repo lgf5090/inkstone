@@ -258,7 +258,7 @@ describe('capturing into a note', () => {
       after: '## {{DATE:YYYY-MM-DD}}',
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'date', direction: 'asc', dateFormat: 'YYYY-MM-DD' },
+      orderBy: { by: 'date', direction: 'asc', dateFormat: 'YYYY-MM-DD', unparseable: 'bottom' },
       format: { enabled: true, format: 'text' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -272,7 +272,7 @@ describe('capturing into a note', () => {
       after: `## {{DATE:${CJK_DATE_FIXTURES.headingFormat}}}`,
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'date', direction: 'asc', dateFormat: CJK_DATE_FIXTURES.headingFormat },
+      orderBy: { by: 'date', direction: 'asc', dateFormat: CJK_DATE_FIXTURES.headingFormat, unparseable: 'bottom' },
       format: { enabled: true, format: 'text' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -286,7 +286,7 @@ describe('capturing into a note', () => {
       after: '## 1.3.0',
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'semver', direction: 'desc', dateFormat: '' },
+      orderBy: { by: 'semver', direction: 'desc', dateFormat: '', unparseable: 'bottom' },
       format: { enabled: true, format: 'new' },
     })
     await runCaptureChoice(choice, fake.port)
@@ -304,7 +304,7 @@ describe('capturing into a note', () => {
       after: '## Only',
       createLineIfMissing: true,
       createAt: 'ordered',
-      orderBy: { by: 'lexical', direction: 'asc', dateFormat: '' },
+      orderBy: { by: 'lexical', direction: 'asc', dateFormat: '', unparseable: 'bottom' },
       format: { enabled: true, format: 'body' },
     })
     await runCaptureChoice(choice, fake.port)

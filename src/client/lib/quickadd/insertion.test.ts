@@ -232,6 +232,19 @@ describe('creating a heading at its sorted place', () => {
       .toEqual({ mode: 'after', line: 5 })
   })
 
+  it('floats the unreadable headings to the top of the band when the choice says so', () => {
+    const lines = splitLines('# L\n\n## 2026-01-01\nx\n\n## someday')
+    // The same input the previous test sinks below `## someday` now lands inside the readable run.
+    expect(orderedSlotFor(lines, '## 2025-12-31', { by: 'date', direction: 'desc', dateFormat: '', unparseable: 'top' }, 'en-US'))
+      .toEqual({ mode: 'after', line: 3 })
+    // A new heading the rule cannot read joins the floated group instead of trailing the band.
+    expect(orderedSlotFor(lines, '## someday else', { by: 'date', direction: 'desc', dateFormat: '', unparseable: 'top' }, 'en-US'))
+      .toEqual({ mode: 'before', line: 2 })
+    // Omitting the policy keeps the reference's own behaviour byte for byte.
+    expect(orderedSlotFor(lines, '## 2025-12-31', { by: 'date', direction: 'desc', dateFormat: '' }, 'en-US'))
+      .toEqual({ mode: 'before', line: 5 })
+  })
+
   it('walks past a sibling with the same key as the new one', () => {
     const lines = splitLines('# L\n\n## 2026-01-01\nfirst\n\n## 2026-01-02\nsecond')
     // Two captures on the same day stack under the first one rather than shuffling it down.

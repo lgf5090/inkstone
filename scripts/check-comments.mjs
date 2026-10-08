@@ -7425,6 +7425,9 @@ const allowed = new Map([
     "// 2025-12-31 does not precede the dated sibling, but it does belong above the unreadable one.",
     "// A new key the rule cannot read at all is appended, not slotted in by guesswork.",
     "// Two captures on the same day stack under the first one rather than shuffling it down.",
+    "// The same input the previous test sinks below `## someday` now lands inside the readable run.",
+    "// A new heading the rule cannot read joins the floated group instead of trailing the band.",
+    "// Omitting the policy keeps the reference's own behaviour byte for byte.",
   ]],
   ["src/client/lib/quickadd/insertion.ts", [
     "/**\n * Where a capture lands in a note.\n *\n * Every function here is pure text in, text out: no store, no editor, no prompts. That is what makes\n * the awkward cases testable — a heading inside a code fence is not a heading, a multi-line anchor\n * must match verbatim or not at all, a task captured above a blank line must not leave the blank\n * behind, and a note whose last line has no newline still needs one before the appended text.\n *\n * The reference plugin keeps this logic in five modules with twenty call-site comments describing each\n * regression it fixed. The rules are reproduced here; the numbering in the test file names which\n * behaviour each rule protects.\n */",
@@ -7465,6 +7468,9 @@ const allowed = new Map([
     "/** The offset of the line break at or after `from`, or the end of the text when the line is last. */",
     "/**\n * Insert after a piece of text *inside* a line rather than after the whole line.\n *\n * The anchor is the first literal occurrence in the note, and the capture is glued to it with no\n * newline of its own — that is the point of inline mode: `{{VALUE}}` lands after a word on the same\n * line. `replaceRestOfLine` drops everything from the anchor to that line's end, the way the\n * reference's \"replace existing\" does it, and the line break itself survives.\n */",
     "/** Does this line hold a heading? Used to keep a picked anchor off the body's other text. */",
+    "/** Where the siblings whose key cannot be read belong. Omitted means `bottom`. */",
+    "// With the unreadable ones floated up, the new sibling joins the readable run rather than the",
+    "// physical end of the band, which the floated headings now own.",
   ]],
   ["src/client/lib/quickadd/macro-script.ts", [
     "/**\n * A macro step that computes something in a Worker, the same hardened sandbox a note's runnable code\n * block already uses.\n *\n * The boundary is deliberate: the script gets a snapshot of the run — its variables, the selection,\n * the note it is writing — as plain JSON, and hands back text and more variables. It has no handle on\n * the app, because a note author's JavaScript must not be able to move the reader's data around. That\n * makes this a transform rather than the reference plugin's user script, which can drive Obsidian; the\n * macro step list covers the driving half with the named steps instead.\n */",
@@ -8040,6 +8046,7 @@ const allowed = new Map([
     "/** Offer a copy of the created note's link on the clipboard once the run is done. */",
     "/** Ask which heading to insert under, from the target note's own headings, at run time. */",
     "/**\n * Read the `{ savedAt, version, library }` envelope an account stores in `users.quickadd` in the\n * shape a backup can carry. Junk, an unreadable library and an empty column all come back as null,\n * so a broken column never takes a whole export down with it.\n */",
+    "/** Where a heading the ordering key cannot be read from belongs: the reference parks them at the\n * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

@@ -306,3 +306,27 @@ describe('patching a choice the way the editor does', () => {
     expect(patched?.type === 'capture' && patched.property.createIfMissing).toBe(true)
   })
 })
+
+describe('the ordering rule a capture record can carry', () => {
+  const capture = (orderBy: Record<string, unknown>) => {
+    const made = normalizeQuickAddChoice({
+      ...newCaptureChoice('c1', 'Changelog', 0),
+      writePosition: 'insertAfter',
+      after: '## 1.0.0',
+      createAt: 'ordered',
+      orderBy,
+    })
+    return made?.type === 'capture' ? made : null
+  }
+
+  it('keeps a policy the reader chose and defaults the rest', () => {
+    expect(capture({ by: 'semver', unparseable: 'top' })?.orderBy).toEqual({
+      by: 'semver', direction: 'desc', dateFormat: 'YYYY-MM-DD', unparseable: 'top',
+    })
+  })
+
+  it('falls back to the bottom policy for a record that predates it or names nonsense', () => {
+    expect(capture({ by: 'date' })?.orderBy.unparseable).toBe('bottom')
+    expect(capture({ by: 'date', unparseable: 'sideways' })?.orderBy.unparseable).toBe('bottom')
+  })
+})

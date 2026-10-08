@@ -26,6 +26,7 @@ import {
   type QuickAddTemplateMode,
   type QuickAddMacroChoice,
   type QuickAddOrderKey,
+  type QuickAddUnparseablePolicy,
   type QuickAddPosition,
   type QuickAddStep,
   type QuickAddTemplateChoice,
@@ -513,6 +514,17 @@ function CaptureFields({ draft, patch, renderFormat }: {
                       value={draft.orderBy.dateFormat}
                       onChange={(event) => set({ orderBy: { ...draft.orderBy, dateFormat: event.target.value } })}/>
                   </Field>
+                  {draft.orderBy.by !== 'lexical' && draft.orderBy.by !== 'insertion' && (
+                    <Field label={t('quickadd.field_order_unparseable')} hint={t('quickadd.field_order_unparseable_hint')}>
+                      <Select
+                        aria-label={t('quickadd.field_order_unparseable')}
+                        value={draft.orderBy.unparseable}
+                        onChange={(event) => set({ orderBy: { ...draft.orderBy, unparseable: event.target.value as QuickAddUnparseablePolicy } })}>
+                        <option value="bottom">{t('quickadd.order_unparseable_bottom')}</option>
+                        <option value="top">{t('quickadd.order_unparseable_top')}</option>
+                      </Select>
+                    </Field>
+                  )}
                 </div>
               )}
             </>
