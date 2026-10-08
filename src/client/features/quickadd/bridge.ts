@@ -1,6 +1,6 @@
 /**
- * The shell's side of QuickAdd: load the account's library, and turn each choice that carries a
- * shortcut into a real key binding.
+ * The shell's side of QuickAdd: load the account's library, turn each choice that carries a shortcut
+ * into a real key binding, and fire the startup macro once the notebook is ready.
  *
  * The bindings are registered while the library is loaded and disposed when it changes, so a renamed
  * or re-keyed choice takes effect on the next keystroke rather than needing a reload. Two choices with
@@ -12,6 +12,8 @@ import { useEffect } from 'react'
 import type { QuickAddChoice } from '@shared/quickadd'
 import { register, type Hotkey } from '../../lib/hotkeys'
 import { t } from '../../lib/i18n'
+import { markStartupRun, shouldRunStartup } from '../../lib/quickadd/startup'
+import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
 
 function choiceHotkey(choice: QuickAddChoice): Hotkey {
@@ -32,6 +34,8 @@ export function useQuickAddBridge(owner: string | undefined): void {
   const hydrate = useQuickAdd((state) => state.hydrate)
   const enabled = useQuickAdd((state) => state.settings.enabled)
   const choices = useQuickAdd((state) => state.choices)
+  const libraryReady = useQuickAdd((state) => state.hydrated)
+  const notesReady = useNotes((state) => state.hydrated)
 
   useEffect(() => {
     if (!owner) return
@@ -58,4 +62,20 @@ export function useQuickAddBridge(owner: string | undefined): void {
       for (const dispose of disposers) dispose()
     }
   }, [choices, enabled])
+
+  // The startup macro waits for both libraries: a note-creating macro that ran before the notes were
+  // loaded would not find the note it means to append to, and would file a second one instead.
+  useEffect(() => {
+    if (!owner || !libraryReady || !notesReady) return
+    const settings = useQuickAdd.getState().settings
+    if (!shouldRunStartup(settings, owner)) return
+    const macroId = settings.startupMacroId
+    if (!macroId) return
+    const macro = useQuickAdd.getState().choices.find((choice) => choice.id === macroId)
+    // A macro that was deleted or switched off is not a run to report at boot — the settings row names
+    // it as gone, which is where the reader can actually do something about it.
+    if (!macro || macro.type !== 'macro' || !macro.enabled) return
+    markStartupRun(owner, macroId)
+    void import('../../lib/quickadd/runner').then(({ runQuickAddChoice }) => runQuickAddChoice(macroId))
+  }, [choices, libraryReady, notesReady, owner])
 }

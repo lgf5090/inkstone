@@ -4,12 +4,16 @@ import {
   defaultQuickAddSettings,
   newCaptureChoice,
   newGroupChoice,
+  newMacroChoice,
   newTemplateChoice,
   type QuickAddChoice,
+  type QuickAddSettings,
 } from '@shared/quickadd'
 import { initI18n } from '../../lib/i18n'
 import { listHotkeys } from '../../lib/hotkeys'
+import { STARTUP_STAMP_KEY, resetStartupSession, startupDay } from '../../lib/quickadd/startup'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
 import { useQuickAddBridge } from './bridge'
 
@@ -69,6 +73,20 @@ function press(combo: 'mod+alt+j' | 'mod+alt+k', target: EventTarget = window): 
 
 const WITH_KEY = { ...newTemplateChoice('qa-one', 'Morning', 0), hotkey: 'mod+alt+j' }
 const OTHER_KEY = { ...newCaptureChoice('qa-two', 'Evening', 1), hotkey: 'mod+alt+k' }
+const MORNING_ROUTINE = newMacroChoice('qa-mac', 'Morning routine', 0)
+const notesWereHydrated = useNotes.getState().hydrated
+
+function seedStartup(over: Partial<QuickAddSettings> = {}, choices: QuickAddChoice[] = [MORNING_ROUTINE], notesReady = true): void {
+  act(() => {
+    useNotes.setState({ hydrated: notesReady })
+    useQuickAdd.setState({
+      choices,
+      settings: { ...defaultQuickAddSettings(), startupMacroId: 'qa-mac', ...over },
+      hydrated: true,
+      owner: 'user-1',
+    })
+  })
+}
 
 beforeAll(async () => {
   await initI18n()
@@ -76,12 +94,15 @@ beforeAll(async () => {
 
 beforeEach(() => {
   runs.calls = []
+  resetStartupSession()
+  localStorage.clear()
   document.body.replaceChildren()
 })
 
 afterEach(() => {
   rendered?.unmount()
   useQuickAdd.setState({ choices: [], settings: defaultQuickAddSettings(), hydrated: false, owner: '' })
+  useNotes.setState({ hydrated: notesWereHydrated })
 })
 
 describe('the shell bridge', () => {
@@ -165,5 +186,83 @@ describe('the shell bridge', () => {
     seed([])
     expect(listHotkeys().map((entry) => entry.id)).not.toContain('quickadd:qa-one')
     expect(press('mod+alt+j')).toBe(false)
+  })
+})
+
+describe('the startup macro', () => {
+  it('runs once the library and the notes have both loaded', async () => {
+    seedStartup()
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac'])
+  })
+
+  it('waits for the notes, or a capture would file a second copy of a note it cannot see', async () => {
+    seedStartup({}, [MORNING_ROUTINE], false)
+    mount()
+    await settle()
+    expect(runs.calls).toEqual([])
+    act(() => { useNotes.setState({ hydrated: true }) })
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac'])
+  })
+
+  it('never fires twice while the library settles', async () => {
+    seedStartup()
+    mount()
+    await settle()
+    seedStartup({}, [MORNING_ROUTINE, { ...newTemplateChoice('qa-late', 'Late', 1) }])
+    await settle()
+    expect(runs.calls, 'the shell re-renders as the account loads; one run is one run').toEqual(['qa-mac'])
+  })
+
+  it('stays quiet for a macro that was deleted or switched off', async () => {
+    seedStartup({}, [{ ...MORNING_ROUTINE, enabled: false }])
+    mount()
+    await settle()
+    expect(runs.calls).toEqual([])
+    seedStartup({}, [])
+    await settle()
+    expect(runs.calls).toEqual([])
+  })
+
+  it('runs nothing when QuickAdd itself is switched off', async () => {
+    seedStartup({ enabled: false })
+    mount()
+    await settle()
+    expect(runs.calls).toEqual([])
+  })
+
+  it('honours the day stamp across a reload, and forgets it the next day', async () => {
+    seedStartup()
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac'])
+    const stored = JSON.parse(localStorage.getItem(STARTUP_STAMP_KEY) ?? '{}') as { day?: string }
+    expect(stored.day).toBe(startupDay(new Date()))
+
+    resetStartupSession()
+    rendered.unmount()
+    mount()
+    await settle()
+    expect(runs.calls, 'a second load on the same day must not file the note again').toEqual(['qa-mac'])
+
+    localStorage.setItem(STARTUP_STAMP_KEY, JSON.stringify({ macroId: 'qa-mac', day: '2000-01-01' }))
+    resetStartupSession()
+    rendered.unmount()
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac', 'qa-mac'])
+  })
+
+  it('fires on every load once the reader asks for the session scope', async () => {
+    seedStartup({ startupScope: 'session' })
+    mount()
+    await settle()
+    resetStartupSession()
+    rendered.unmount()
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac', 'qa-mac'])
   })
 })

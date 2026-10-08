@@ -271,6 +271,16 @@ describe('the quickadd record', () => {
     expect(normalizeQuickAddSettings({ periodic: { daily: { folder: '../x', format: '' } } }).periodic.daily)
       .toEqual({ folder: 'x', format: 'YYYY-MM-DD', templateId: null })
   })
+
+  it('keeps the startup macro and refuses a scope it does not know', () => {
+    const kept = normalizeQuickAddSettings({ startupMacroId: 'qa-mac', startupScope: 'session' })
+    expect(kept.startupMacroId).toBe('qa-mac')
+    expect(kept.startupScope).toBe('session')
+    const repaired = normalizeQuickAddSettings({ startupMacroId: 'x'.repeat(200), startupScope: 'hourly' })
+    expect(repaired.startupMacroId, 'a reference that is not an id is no reference at all').toBeNull()
+    expect(repaired.startupScope, 'the quiet default: a day, not every reload').toBe('day')
+    expect(defaultQuickAddSettings().startupMacroId, 'nothing runs on its own until the reader says so').toBeNull()
+  })
 })
 
 describe('the quickadd tree helpers', () => {

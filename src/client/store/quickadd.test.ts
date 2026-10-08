@@ -319,6 +319,16 @@ describe('writing the quickadd library', () => {
     for (const choice of many) useQuickAdd.getState().recordRun(choice.id)
     expect(useQuickAdd.getState().settings.recent.length).toBe(12)
   })
+
+  it('keeps the run history when an unrelated setting is saved', () => {
+    const created = useQuickAdd.getState().createChoice('template', 'T')
+    useQuickAdd.getState().recordRun(created!.id)
+    useQuickAdd.getState().saveSettings({ notifications: false })
+    expect(
+      useQuickAdd.getState().settings.recent.map((entry) => entry.id),
+      'saving a toggle must not forget what the reader recently ran',
+    ).toEqual([created!.id])
+  })
 })
 
 describe('importing and exporting a quickadd library', () => {

@@ -192,7 +192,10 @@ export const useQuickAdd = create<QuickAddState>((set, get) => ({
     await get().hydrate(owner)
   },
   saveSettings: (patch) => {
-    persist(set, get, { settings: normalizeQuickAddSettings({ ...get().settings, ...patch }) })
+    // The id lists inside the settings are pruned against the library, so a write that forgot to pass
+    // it would answer "no choice exists" and quietly empty the reader's run history.
+    const ids = new Set(get().choices.map((choice) => choice.id))
+    persist(set, get, { settings: normalizeQuickAddSettings({ ...get().settings, ...patch }, ids) })
   },
   createChoice: (type, name, parentId = null) => {
     const choices = get().choices

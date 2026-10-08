@@ -565,4 +565,27 @@ describe('the automation page', () => {
     clickNamed(t('quickadd.export'))
     expect(transportBox()?.value).toContain('"Alpha"')
   })
+
+  it('offers only macros as a startup run, and asks how often once one is chosen', () => {
+    seed({ choices: [newMacroChoice('qa-mac', 'Morning', 0), newTemplateChoice('qa-t', 'Not a macro', 1)] })
+    mount(QuickAddSettings)
+    const name = t('quickadd.field_startup_macro')
+    const options = [...(control(name) as HTMLSelectElement).querySelectorAll('option')].map((option) => option.textContent?.trim())
+    expect(options, 'a template cannot start anything').toEqual([t('quickadd.startup_none'), 'Morning'])
+    expect(control(t('quickadd.field_startup_scope')), 'the frequency has no meaning with nothing to run').toBeNull()
+    selectNamed(name, 'qa-mac')
+    expect(useQuickAdd.getState().settings.startupMacroId).toBe('qa-mac')
+    expect(control(t('quickadd.field_startup_scope'))).not.toBeNull()
+    selectNamed(t('quickadd.field_startup_scope'), 'session')
+    expect(useQuickAdd.getState().settings.startupScope).toBe('session')
+  })
+
+  it('says so when the startup macro left the library', () => {
+    seed({ settings: { startupMacroId: 'qa-gone' } })
+    mount(QuickAddSettings)
+    expect(bodyText()).toContain(t('quickadd.startup_gone'))
+    const select = control(t('quickadd.field_startup_macro')) as HTMLSelectElement
+    expect(select.value, 'the dead reference stays visible instead of pretending to be nothing')
+      .toBe('qa-gone')
+  })
 })

@@ -45,6 +45,8 @@ export type QuickAddDirection = 'asc' | 'desc'
  * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */
 export type QuickAddUnparseablePolicy = 'top' | 'bottom'
 export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
+
+export type QuickAddStartupScope = 'session' | 'day'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 export type QuickAddConditionOperator = 'eq' | 'ne' | 'has' | 'empty' | 'gt' | 'lt'
 
@@ -173,6 +175,10 @@ export interface QuickAddSettings {
   searchNestedChoices: boolean
   onePage: QuickAddOnePageMode
   drafts: boolean
+  /** The macro the notebook runs after it loads. `null` means nothing runs on its own. */
+  startupMacroId: string | null
+  /** How often that macro is allowed to fire: once per load, or once per calendar day. */
+  startupScope: QuickAddStartupScope
   defaultFolder: string
   dateFormat: string
   timeFormat: string
@@ -223,6 +229,8 @@ export function defaultQuickAddSettings(): QuickAddSettings {
     searchNestedChoices: true,
     onePage: 'auto',
     drafts: true,
+    startupMacroId: null,
+    startupScope: 'day',
     defaultFolder: '',
     dateFormat: 'YYYY-MM-DD',
     timeFormat: 'HH:mm',
@@ -705,6 +713,8 @@ export function normalizeQuickAddSettings(value: unknown, knownIds: ReadonlySet<
     searchNestedChoices: boolOf(value.searchNestedChoices, fallback.searchNestedChoices),
     onePage: pick(value.onePage, ['always', 'auto', 'never'] as const, fallback.onePage),
     drafts: boolOf(value.drafts, fallback.drafts),
+    startupMacroId: normalizeRef(value.startupMacroId),
+    startupScope: pick(value.startupScope, ['session', 'day'] as const, fallback.startupScope),
     defaultFolder: normalizeFolderPath(value.defaultFolder),
     dateFormat: oneLine(value.dateFormat, 40) || fallback.dateFormat,
     timeFormat: oneLine(value.timeFormat, 40) || fallback.timeFormat,
