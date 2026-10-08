@@ -270,6 +270,9 @@ const allowed = new Map([
   ["src/client/demo/backend.ts", [
     "// Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would",
     "// orphan the whole branch. Deepest first so each pass only sees its own exact name.",
+    "// Same rule the worker applies: a mention has to be in the body (not the front matter)",
+    "// and case is folded the length-preserving way, so demo and a deployed site list the",
+    "// same notes for an accented or Greek title.",
   ]],
   ["src/client/editor/CodeEditor.tsx", [
     "// Preserve undo history across mode changes once editing has started.",
@@ -458,6 +461,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/emoji/insert-emoji.ts", [
     "/**\n * Where a picked emoji goes: the editor on screen, and the clipboard when there is no editor to\n * write into (a note opened read-only, a phone in the preview tab). Silently dropping the pick is\n * the one answer that is never right.\n */",
+  ]],
+  ["src/client/features/graph/LocalGraphPanel.tsx", [
+    "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
   ]],
   ["src/client/features/graph/graph-panel/scene-search.test.ts", [
     "/**\n * The graph's own filter box, read through the matcher the panel shares with every other listing: a\n * reader who types the first letters of a Chinese note title has to land on that note, and the hit\n * count the panel prints is derived from exactly this set.\n */",
@@ -3295,6 +3301,23 @@ const allowed = new Map([
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
     "// change re-renders every visible row in the explorer.",
   ]],
+  ["src/client/features/sidebar/Sidebar.tsx", [
+    "// The graph canvas and its scene maths are only needed once a reader opens that tab, and the",
+    "// sidebar rides in the first bundle.",
+  ]],
+  ["src/client/features/sidebar/SidebarOutlinks.tsx", [
+    "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
+  ]],
+  ["src/client/features/sidebar/SidebarRecent.tsx", [
+    "/**\n * The notes this device has opened, newest first. The order is the reader's own trail, so\n * nothing re-sorts it: a note that stops existing drops out of the list rather than\n * leaving a hole, and the rest keeps the sequence it was walked in.\n */",
+  ]],
+  ["src/client/features/sidebar/SidebarTabs.tsx", [
+    "/**\n * The strip's own order and set. `SIDEBAR_TABS` stays the authority for what is a legal\n * stored value, so a tab dropped from here still loads into the default rather than into\n * a blank body.\n */",
+    "/** What the strip actually offers; the store's `SIDEBAR_TABS` is the wider legal-value set. */",
+  ]],
+  ["src/client/features/sidebar/SidebarVersions.tsx", [
+    "/**\n * The saved snapshots of the note being read, newest first, with the one action that\n * matters from a narrow column: put one of them back. The diff view lives in the full\n * history panel because two note bodies do not fit side by side here.\n */",
+  ]],
   ["src/client/features/sidebar/calendar-persist.ts", [
     "// Quota or private-mode writes can throw; the calendar view stays authoritative in memory.",
   ]],
@@ -3322,6 +3345,9 @@ const allowed = new Map([
     "// sidebar re-render cannot re-run the header's formatting.",
     "// A diary keeps the title it was written under, so the lookup has to answer in",
     "// every shipped language: one per locale, current first.",
+  ]],
+  ["src/client/features/sidebar/sidebar-tabs.test.ts", [
+    "/** The dialog only answers when a host is mounted, and `confirm()` resolves false without one. */",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
@@ -3415,6 +3441,7 @@ const allowed = new Map([
     "// Debounced refresh on note revision changes; unrelated sync traffic",
     "// (cursor) no longer refetches, and stale links stay visible until the",
     "// fresh payload arrives.",
+    "/** In the sidebar tab the panel owns the column, so it grows instead of taking a slice of the editor. */",
   ]],
   ["src/client/features/workspace/EditorColorMenu.tsx", [
     "/** The colour painted behind the panel, which is what a pick has to stand out from. */",
@@ -7093,6 +7120,7 @@ const allowed = new Map([
   ]],
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
+    "/**\n * The link tests write to a note of their own. `dirty` is module state and outlives the\n * per-test `setState`, so a note an earlier test typed into is still unsaved here, and the\n * guard under test would trip for that reason instead of the one being measured.\n */",
   ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
@@ -7138,6 +7166,7 @@ const allowed = new Map([
     "// window by an hour the reader never selected.",
     "// The same window the list filters by: without it the editor can open on a note the list",
     "// does not contain, leaving nothing focused and the arrow keys without a position.",
+    "/**\n     * Wrap one bare mention of `targetId`'s title in a link inside `sourceId`.\n     *\n     * The source note can be open with keystrokes still in flight, so the write waits for\n     * those to reach the server first: a save queued behind us would land on the pre-link\n     * text and undo the click, and `adoptNote` below deliberately ignores the server copy\n     * while that note is still dirty. Whichever way it goes the reader is told, because\n     * the row they clicked may no longer mean what it said.\n     */",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",
@@ -7181,6 +7210,7 @@ const allowed = new Map([
     "// A malformed key reaches Intl.DateTimeFormat as an Invalid Date, which throws inside the list",
     "// header and the error boundary answers by reloading the page forever. A reversed range is not",
     "// an error, just a drag the other way round.",
+    "/** Which panel the sidebar tab strip shows; only one is mounted at a time. */",
   ]],
   ["src/client/styles/app.css", [
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
@@ -7243,6 +7273,11 @@ const allowed = new Map([
     "/**\n * The template inserted at the top of a new note. Keep the placeholders ASCII:\n * they are filled in at creation time with the note title and the current\n * date and time. The first line must be `---`, since a leading blank line would\n * stop the front matter from parsing at all.\n */",
     "/**\n * Ceiling the server applies to the stored template. The settings editor caps\n * input at the same number so what a reader sees in the preview is what the\n * account keeps.\n */",
   ]],
+  ["src/shared/markdown-utils.test.ts", [
+    "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",
+    "// an accent rather than by case. Folding it too would need a map that shortens code",
+    "// units, and the index would no longer point at the text it came from.",
+  ]],
   ["src/shared/markdown-utils.ts", [
     "/** Provides pure Markdown analysis shared by the browser and Worker runtimes. */",
     "// md-example fences are rendered as live markdown by the client renderer,",
@@ -7281,6 +7316,21 @@ const allowed = new Map([
     "// `::: details Some title` keeps its, because there the remainder is the title.",
     "/** The speed the status bar and the outline agree on when the reader has not chosen their own. */",
     "/**\n * Add a tag to the note's front matter `tags` list, creating the property when\n * it is missing. Returns `content` untouched when there is no front matter to\n * write into, when the tag is blank, or when the note already carries it. An\n * existing flow list keeps its flow spelling, so the default template's\n * `tags: []` becomes `tags: [daily]` rather than three rewritten lines.\n */",
+    "/**\n * Drops a front matter block that a fixed-size text window happened to start inside.\n *\n * A mention excerpt is cut around the hit, and a hit near the top of a note reaches back\n * into the `created:` / `tags:` lines that open every note here, which reads as noise\n * rather than as the sentence the reader came for. Only a lead that really looks like\n * front matter is dropped: every line must be key-shaped, and the block must either open\n * with `---` or run to more than one line, so a horizontal rule after a paragraph — or a\n * sentence that merely begins with \"Note:\" — keeps its text.\n */",
+    "/**\n * The text around a mention, for the panels that list one: `before` characters of\n * lead-in, `after` of tail, whitespace collapsed, and an ellipsis on whichever side\n * was cut. The worker reaches this through a SQL window instead, so both must keep the\n * same lead-in and tail or the same note reads differently in demo and in production.\n */",
+    "// A front matter line opens a key, continues an indented value, or is a list item",
+    "// under one; prose is none of those.",
+    "/**\n * Turns the first plain mention of `title` into a `[[wikilink]]`.\n *\n * This is the link the backlinks panel offers for its \"mentions\" half: the reader said\n * the note's name in prose without wrapping it. Only one occurrence is taken per call,\n * so pressing the button again links the next mention rather than rewriting the one the\n * reader already dealt with.\n *\n * The scan skips the same regions `replaceWikiLinkTarget` refuses to touch — front matter,\n * fenced and inline code — and additionally blanks existing wiki links, embeds and\n * markdown links, so a title that only appears inside someone else's link text or alias\n * is not mistaken for a bare mention. Latin neighbours are checked because `AI` should\n * not be cut out of `AINT`; CJK has no such boundaries and needs none.\n */",
+    "// Ask the link parser whether the text we just wrote really is a link to this note.",
+    "// A title holding a character the grammar reads as syntax (`]`, `|`, a heading `#`)",
+    "// would otherwise save a span that renders as prose, or points at some other note,",
+    "// and never counts as a backlink — the reader clicks a button that does nothing.",
+    "// A case-insensitive regex rather than `toLowerCase()` on both sides: lowercasing can",
+    "// change a string's length (`İ` becomes two code units), and every index below has to",
+    "// mean the same position in the line as it does in the blanked copy of it.",
+    "/**\n * Lowercase that never changes the string's length, so an index found in the folded text\n * still points at the same character in the original.\n *\n * Neither built-in will do: SQLite's `lower()` folds ASCII only, so it misses every\n * accented capital, and JavaScript's `toLowerCase()` can *grow* the string (`İ` becomes\n * two code units), which would cut the text at the wrong place afterwards. A character\n * whose lowercase form is longer is left alone, so it matches only itself — the same rule\n * the case-insensitive wikilink search in `linkFirstMention` follows.\n */",
+    "/**\n * Where `needle` occurs in `haystack`, ignoring case the way a reader would.\n *\n * Both sides go through `foldCase`, so the returned index is usable on `haystack` itself.\n */",
+    "/**\n * The text a reader sees where the markup is: a wiki link by its alias or target, a\n * markdown link by its label, an embed by its file name.\n *\n * Excerpts are cut around a hit, so they used to carry the `[[…]]` the note happens to\n * contain, which reads as noise in a panel whose whole job is to point at that sentence.\n */",
   ]],
   ["src/shared/note-template-render.ts", [
     "/**\n * Renders a new-note template into note content.\n *\n * Placeholders are filled in a single left-to-right pass, so a value that\n * itself looks like a placeholder (`{{tags}}` inside a note title) is written\n * out literally instead of being expanded a second time.\n */",
@@ -7367,6 +7417,7 @@ const allowed = new Map([
     "/** The settings bar and drag handles on a `::: media` layout block. */",
     "/** Pictures dropped or pasted together are bundled into one layout block. */",
     "/** A bundled block starts floated, so the note's text runs beside it. */",
+    "/** Which panel the sidebar's tab strip is showing. One panel owns the full height. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
@@ -7627,13 +7678,25 @@ const allowed = new Map([
     "// The quota read rides along with hashing instead of adding a serial round trip.",
     "// Whether another note already answers to either title decides the wiki-link rewrite, so",
     "// it rides along with the mutation instead of costing the rename path its own round trip.",
-    "// One lower() copy and one instr per row: SQLite does not share the repeated",
-    "// lower(n.content) subexpression across the three references below.",
     "// Load and rewrite in small windows: a hub note referenced by thousands of others must",
     "// not hold every candidate body in the isolate at once.",
     "// Several `tag` params combine with AND, and each one also matches its whole subtree so the",
     "// rolled-up count in the sidebar and the result set agree. Both halves have to stay in step",
     "// with tagInScope(), which spells the same rule in TypeScript for the offline shell.",
+    "/**\n * The notes whose `[[wikilinks]]` the link table already points at this one, each with\n * the text around the link.\n *\n * The window is cut from `hit`, so the column has to survive the outer projection: it\n * did not, and every context came back empty until a test read the row keys.\n */",
+    "// ?1 is the match expression only when the index is in play, so every later slot shifts.",
+    "/**\n * Link one bare mention: the button beside a row of the panel's \"mentions\" half.\n *\n * The rewrite happens here rather than in the panel because the note being edited is\n * usually not the one being read — the client may not even hold its text, and whatever\n * copy it does hold can be older than the row the reader clicked. The write is a\n * compare-and-swap on `rev` and `content_hash`, retried against a fresh read, so a note\n * that changed underneath is reported instead of quietly overwritten. The text that was\n * there is kept as a version first, so the reader can take it back.\n */",
+    "/**\n * The sentence around a mention, or `null` when the row does not actually carry one.\n *\n * Two reasons not to trust the index pass: SQLite's `lower()` folds ASCII characters only,\n * so a mention written with an accented or Cyrillic capital gives `hit` 0 and leaves the\n * window parked at the top of the note; and the full-text index matches token neighbours,\n * not characters, so it can offer a note where the words only happen to sit next to each\n * other. `foldIndexOf` is exact and length-preserving, so one check answers both.\n */",
+    "// `trimFrontMatterLead` only ever removes a prefix, so the difference in length is how",
+    "// much of the note the window already left behind.",
+    "/**\n * How far into a note the retry scan looks for a mention the cheap index pass could not\n * place. Sized to cover most notes whole, and applied only to the few rows per page that\n * need it, so the panel never pulls a body at the content limit.\n */",
+    "// A backlink is known from the link table, so the row stays even when the excerpt could",
+    "// not be placed on it; the head of the note is the honest fallback.",
+    "/**\n * The letters SQLite's `lower()` cannot fold, spelled out as `replace()` arguments.\n *\n * `lower()` covers ASCII; `foldCase` covers every letter with a single-code-unit lowercase.\n * The gap between them is exactly this list, so folding the column with these pairs and the\n * needle with `foldCase` leaves both sides in the same alphabet. Capped at twelve pairs: a\n * title made of exotic letters would build a `replace()` chain longer than the scan is worth,\n * and the caller's retry pass picks up what the cap drops.\n */",
+    "/** `expression`, folded down to the alphabet `foldCase` reports for `title`. */",
+    "// One fold and one instr per row: SQLite does not share the repeated subexpression",
+    "// across the references below.",
+    "/**\n * Notes that say the target's title in their text without linking to it.\n *\n * The full-text index finds the candidates and `mentionExcerpt` confirms the literal phrase:\n * the index is tokenised and case-folded, so it can offer a note where the words only\n * happen to sit next to each other, and a mention the reader cannot see is worse than a\n * shorter list. Notes that already carry a `[[title]]` are left to the linked half of the\n * panel, since a row would otherwise show up twice with two different meanings.\n *\n * The index pass over-fetches by three because the confirmation drops rows the index should\n * not have offered, and a candidate whose mention the first window missed gets one more look\n * at its first `MENTION_RETRY_SCAN_CHARS` characters, which is where an accented or Cyrillic\n * capital that SQLite could not fold usually lives. Without the index the same answer comes\n * from scanning every body, which is what the search endpoint already falls back to.\n */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -7734,6 +7797,11 @@ const allowed = new Map([
   ["tests/ai-drain-queue.test.ts", [
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
+  ]],
+  ["tests/backlink-mentions.test.ts", [
+    "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",
+    "// Without the fold the scan reports no position and the excerpt falls back to the top",
+    "// of the note, which is the same string with the wrong sentence in it.",
   ]],
   ["tests/backup-archive-gate.test.ts", [
     "// Emitting the declared length is what lets a test consume the archive to completion:",
@@ -7881,6 +7949,11 @@ const allowed = new Map([
   ]],
   ["tests/kanban-view-live-fields.test.ts", [
     "/**\n * KanbanView is persisted fence data: a declared field nobody reads is a dead\n * contract (review #19 left seven of them behind). Every field of the\n * KanbanView interface must be accessed (`view.<field>`) somewhere in the\n * client outside types.ts, so the next config knob ships wired or not at all.\n */",
+  ]],
+  ["tests/link-mention-route.test.ts", [
+    "/**\n * The HTTP shape of \"turn this mention into a link\", which the function-level tests in\n * `backlink-mentions.test.ts` do not cover: which status the reader gets back, and what is\n * left untouched when the row they clicked has already moved on.\n */",
+    "// The route checks the source id against the note-id grammar before it looks anything up,",
+    "// so every id here has to be shaped like one.",
   ]],
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",

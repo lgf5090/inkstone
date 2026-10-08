@@ -8,6 +8,7 @@ import type {
   PropertyColorChoice,
   PropertyFormatChoice,
   PropertyProgressChoice,
+  SidebarTab,
   SkinTone,
   UserSettings,
   ViewKind,
@@ -68,6 +69,8 @@ export const LIMITS = {
   changeLogKept: 5000,
   syncBatchSize: 500,
   searchLimit: 50,
+  mentionLimit: 50,
+  mentionMinChars: 2,
   graphNodeLimitMin: 50,
   graphNodeLimitMax: 600,
   graphNodeLimitDefault: 350,
@@ -99,6 +102,8 @@ export const PROSE_WIDTH_CH: Record<string, string> = {
 }
 
 export const VIEW_KINDS: ViewKind[] = ['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag']
+
+export const SIDEBAR_TABS: SidebarTab[] = ['library', 'tags', 'recent', 'graph', 'backlinks', 'outlinks', 'history']
 
 /**
  * The template inserted at the top of a new note. Keep the placeholders ASCII:

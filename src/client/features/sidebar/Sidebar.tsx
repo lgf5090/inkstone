@@ -1,5 +1,5 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
@@ -20,7 +20,13 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
-import { SidebarTags } from '../tags/SidebarTags';import { t, useLocale } from "../../lib/i18n";
+import { SidebarTags } from '../tags/SidebarTags';
+import { SidebarRecent } from './SidebarRecent';
+import { SidebarVersions } from './SidebarVersions';
+import { SidebarOutlinks } from './SidebarOutlinks';
+import { BacklinksPanel } from '../workspace/BacklinksPanel';
+import { SIDEBAR_PANEL_ID, SidebarTabStrip, tabId } from './SidebarTabs';
+import { t, useLocale } from "../../lib/i18n";
 import { SearchButton } from '../shell/SearchButton';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
 import { FolderMotionIcon } from './FolderMotionIcon';
@@ -29,12 +35,19 @@ import { useTreeChildrenMount } from './useTreeChildrenMount';
 import { CalendarTree, InboxTree, isDropBlockedTarget, TodoTree } from './virtual-tree';
 import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
+// The graph canvas and its scene maths are only needed once a reader opens that tab, and the
+// sidebar rides in the first bundle.
+const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
+
 export function Sidebar({ collapsed = false, onCollapse, }: {
     collapsed?: boolean;
     onCollapse?: () => void;
 }) {
     const view = useUi((s) => !s.listCollapsed && !s.searchList ? s.view : null);
     const openView = useUi((s) => s.openView);
+    const sidebarTab = useUi((s) => s.sidebarTab);
+    const activeNoteId = useUi((s) => s.activeNoteId);
+    const openPanel = useUi((s) => s.openPanel);
     const counts = useNavigationCounts();
     return (<>
         {collapsed ? <SidebarRail onExpand={onCollapse}/> : (<aside className="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]">
@@ -53,18 +66,28 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
       </header>
 
       <div className="shrink-0 px-2 pt-2"><SearchButton /></div>
+      <SidebarTabStrip />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-4">
-        <SidebarCalendar />
-        <div className="space-y-px">
-          <ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>
-          <ViewItem icon={<Clock size={14}/>} label={t("navigation.recently_edited")} view="recent" active={view === 'recent'} onSelect={openView}/>
-          <ViewItem icon={<Star size={14}/>} label={t("navigation.favorites")} view="starred" count={counts.starred} active={view === 'starred'} onSelect={openView}/>
-          <ViewItem icon={<Inbox size={14}/>} label={t("navigation.unfiled")} view="unfiled" count={counts.unfiled} active={view === 'unfiled'} onSelect={openView}/>
-        </div>
+      <div id={SIDEBAR_PANEL_ID} role="tabpanel" aria-labelledby={tabId(sidebarTab)} className={cn('min-h-0 flex-1 px-2 pt-2 pb-4', sidebarTab === 'graph' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto')}>
+        {sidebarTab === 'library' && (<>
+          <SidebarCalendar />
+          <div className="space-y-px">
+            <ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>
+            <ViewItem icon={<Clock size={14}/>} label={t("navigation.recently_edited")} view="recent" active={view === 'recent'} onSelect={openView}/>
+            <ViewItem icon={<Star size={14}/>} label={t("navigation.favorites")} view="starred" count={counts.starred} active={view === 'starred'} onSelect={openView}/>
+            <ViewItem icon={<Inbox size={14}/>} label={t("navigation.unfiled")} view="unfiled" count={counts.unfiled} active={view === 'unfiled'} onSelect={openView}/>
+          </div>
 
-        <FolderSection />
-        <SidebarTags />
+          <FolderSection />
+        </>)}
+        {sidebarTab === 'tags' && <SidebarTags />}
+        {sidebarTab === 'recent' && <SidebarRecent />}
+        {sidebarTab === 'backlinks' && (activeNoteId
+          ? <BacklinksPanel noteId={activeNoteId} fill/>
+          : <NoNotePanel label={t("common.backlinks")} message={t("sidebar.links_no_note")}/>)}
+        {sidebarTab === 'outlinks' && <SidebarOutlinks />}
+        {sidebarTab === 'history' && <SidebarVersions />}
+        {sidebarTab === 'graph' && (activeNoteId ? (<Suspense fallback={<PanelLoading/>}><LocalGraphPanel noteId={activeNoteId} fill onOpenFullGraph={() => openPanel('graph')}/></Suspense>) : <NoNotePanel label={t("graph.local_graph")} message={t("sidebar.graph_no_note")}/>)}
       </div>
 
       <div className="shrink-0 space-y-px border-t border-[var(--border-subtle)] px-2 py-2">
@@ -77,6 +100,18 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
       </div>
         </aside>)}
     </>);
+}
+function NoNotePanel({ label, message }: {
+    label: string;
+    message: string;
+}) {
+    return (<>
+      <SectionLabel>{label}</SectionLabel>
+      <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{message}</p>
+    </>);
+}
+function PanelLoading() {
+    return <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t("common.loading")}</p>;
 }
 function SidebarRail({ onExpand }: {
     onExpand?: () => void;

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Note, SyncResponse } from '@shared/types'
 
-const mocks = vi.hoisted(() => ({ queue: [] as any[], get: vi.fn(), patch: vi.fn(), create: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  queue: [] as any[],
+  get: vi.fn(),
+  patch: vi.fn(),
+  create: vi.fn(),
+  linkMention: vi.fn(),
+}))
 vi.mock('../lib/db', () => ({
   localDb: {
     scheduleShellSave: vi.fn(), setContent: vi.fn(async () => {}), setContentBatch: vi.fn(async () => {}),
@@ -24,7 +30,7 @@ vi.mock('../lib/db', () => ({
 }))
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<any>('../lib/api')
-  return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create } } }
+  return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create, linkMention: mocks.linkMention } } }
 })
 import { useNotes } from './notes'
 import { api } from '../lib/api'
@@ -42,10 +48,22 @@ function sync(remote: Note): SyncResponse {
     settingsChanged: false, profileChanged: false, siteChanged: false, notes: [summary],
     folders: [], tags: [], deletions: [], serverTime: 1 }
 }
+/**
+ * The link tests write to a note of their own. `dirty` is module state and outlives the
+ * per-test `setState`, so a note an earlier test typed into is still unsaved here, and the
+ * guard under test would trip for that reason instead of the one being measured.
+ */
+const PRISTINE = '01pristinenote'
+function withPristineNote(content: string): void {
+  useNotes.setState((state) => ({
+    notes: { ...state.notes, [PRISTINE]: { ...note, id: PRISTINE, content, excerpt: content } },
+    contents: { ...state.contents, [PRISTINE]: content },
+  }))
+}
 beforeEach(() => {
   vi.useFakeTimers()
   mocks.queue = []
-  mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset()
+  mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset(); mocks.linkMention.mockReset()
   useNotes.setState({ notes: { [note.id]: note }, contents: { [note.id]: note.content },
     folders: [], tags: [], cursor: 1, pendingCount: 0, online: true })
 })
@@ -162,4 +180,43 @@ it('leaves the counts untouched while editing a note that the archive excludes',
   vi.advanceTimersByTime(200)
   expect(useNotes.getState().notes[note.id].tags).toEqual([])
   expect(useNotes.getState().tags[0].count).toBe(5)
+})
+
+it('takes the linked text the server wrote back into the note it belongs to', async () => {
+  withPristineNote('see Example now')
+  mocks.linkMention.mockResolvedValue({
+    status: 'linked',
+    note: { ...note, id: PRISTINE, rev: 2, content: 'see [[Example]] now', excerpt: 'see Example now', updatedAt: 5 },
+  })
+  expect(await useNotes.getState().linkMention('01targetnote', PRISTINE)).toBe('linked')
+  expect(mocks.linkMention).toHaveBeenCalledWith('01targetnote', PRISTINE)
+  expect(useNotes.getState().contents[PRISTINE]).toBe('see [[Example]] now')
+  expect(useNotes.getState().notes[PRISTINE].rev).toBe(2)
+})
+
+it('reports a gone mention without rewriting the note', async () => {
+  withPristineNote('see Example now')
+  mocks.linkMention.mockResolvedValue({ status: 'no-mention' })
+  expect(await useNotes.getState().linkMention('01targetnote', PRISTINE)).toBe('none')
+  expect(useNotes.getState().contents[PRISTINE]).toBe('see Example now')
+  expect(useNotes.getState().notes[PRISTINE].rev).toBe(1)
+})
+
+it('waits for a write still travelling on that note instead of linking over it', async () => {
+  withPristineNote('see Example now')
+  const realFlush = useNotes.getState().flush
+  useNotes.setState({ flush: async () => {} })
+  mocks.queue.push({ id: 'w1', writeId: 'w1', noteId: PRISTINE, payload: {} })
+  expect(await useNotes.getState().linkMention('01targetnote', PRISTINE)).toBe('error')
+  expect(mocks.linkMention).not.toHaveBeenCalled()
+  expect(useNotes.getState().contents[PRISTINE]).toBe('see Example now')
+  useNotes.setState({ flush: realFlush })
+})
+
+it('leaves the note untouched when the link request cannot be made', async () => {
+  withPristineNote('see Example now')
+  mocks.linkMention.mockRejectedValue(new ApiError(500, 'internal', 'boom'))
+  expect(await useNotes.getState().linkMention('01targetnote', PRISTINE)).toBe('error')
+  expect(useNotes.getState().contents[PRISTINE]).toBe('see Example now')
+  expect(useNotes.getState().notes[PRISTINE].rev).toBe(1)
 })

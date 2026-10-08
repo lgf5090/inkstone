@@ -79,7 +79,7 @@ export async function searchUserNotes(
 }
 
 
-function buildFtsQuery(terms: string[]): string {
+export function buildFtsQuery(terms: string[]): string {
   const parts: string[] = []
   for (const term of terms) {
     const seg = segmentCJK(term).trim().replace(/"/g, '')

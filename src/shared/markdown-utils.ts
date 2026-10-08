@@ -920,6 +920,77 @@ export function replaceWikiLinkTarget(content: string, from: string, to: string)
   return lines.join('\n')
 }
 
+/**
+ * Turns the first plain mention of `title` into a `[[wikilink]]`.
+ *
+ * This is the link the backlinks panel offers for its "mentions" half: the reader said
+ * the note's name in prose without wrapping it. Only one occurrence is taken per call,
+ * so pressing the button again links the next mention rather than rewriting the one the
+ * reader already dealt with.
+ *
+ * The scan skips the same regions `replaceWikiLinkTarget` refuses to touch — front matter,
+ * fenced and inline code — and additionally blanks existing wiki links, embeds and
+ * markdown links, so a title that only appears inside someone else's link text or alias
+ * is not mistaken for a bare mention. Latin neighbours are checked because `AI` should
+ * not be cut out of `AINT`; CJK has no such boundaries and needs none.
+ */
+export function linkFirstMention(content: string, title: string): string {
+  const needle = title.trim()
+  if (!needle) return content
+  // A case-insensitive regex rather than `toLowerCase()` on both sides: lowercasing can
+  // change a string's length (`İ` becomes two code units), and every index below has to
+  // mean the same position in the line as it does in the blanked copy of it.
+  const pattern = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  const boundaryAt = (text: string, index: number, end: number) => {
+    const before = index > 0 ? text[index - 1]! : ''
+    const after = end < text.length ? text[end]! : ''
+    if (/^[A-Za-z0-9]/.test(needle) && /[A-Za-z0-9]/.test(before)) return false
+    if (/[A-Za-z0-9]$/.test(needle) && /[A-Za-z0-9]/.test(after)) return false
+    return true
+  }
+  const frontMatter = parseFrontMatter(content)
+  const lines = content.split('\n')
+  let inFence = false
+  let fenceChar = ''
+  let fenceLength = 0
+  for (let index = frontMatter.lineOffset; index < lines.length; index++) {
+    const line = lines[index]!
+    const fence = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)
+    if (fence) {
+      const marker = fence[1]!
+      if (!inFence) {
+        inFence = true
+        fenceChar = marker[0]!
+        fenceLength = marker.length
+      } else if (marker[0] === fenceChar && marker.length >= fenceLength) {
+        inFence = false
+      }
+      continue
+    }
+    if (inFence) continue
+    const haystack = line
+      .replace(/!?\[\[[^\]\n]*\]\]/g, (value) => ' '.repeat(value.length))
+      .replace(/!?\[[^\]\n]*\]\([^)\n]*\)/g, (value) => ' '.repeat(value.length))
+      .replace(/`+[^`\n]*`+/g, (value) => ' '.repeat(value.length))
+    pattern.lastIndex = 0
+    for (let found = pattern.exec(haystack); found; found = pattern.exec(haystack)) {
+      const from = found.index
+      const end = from + found[0].length
+      if (!boundaryAt(haystack, from, end)) continue
+      const edited = line.slice(0, from) + `[[${needle}]]` + line.slice(end)
+      // Ask the link parser whether the text we just wrote really is a link to this note.
+      // A title holding a character the grammar reads as syntax (`]`, `|`, a heading `#`)
+      // would otherwise save a span that renders as prose, or points at some other note,
+      // and never counts as a backlink — the reader clicks a button that does nothing.
+      const landsHere = extractWikiLinks(edited).some((link) => link.target === needle && wikiNoteTarget(link.target) === needle)
+      if (!landsHere) return content
+      lines[index] = edited
+      return lines.join('\n')
+    }
+  }
+  return content
+}
+
 function stripContainerMarkers(text: string): string {
   return text
     .replace(/^[ \t]{0,3}:{3,}.*$/gm, (line) => {
@@ -967,6 +1038,88 @@ export function deriveExcerpt(content: string, max = 220): string {
   text = text.replace(/^[\s\n]+/, '').replace(/\s*\n\s*/g, ' ').trim()
   if (text.length <= max) return text
   return truncateText(text, max).replace(/\s+\S*$/, '') + '…'
+}
+
+/**
+ * Drops a front matter block that a fixed-size text window happened to start inside.
+ *
+ * A mention excerpt is cut around the hit, and a hit near the top of a note reaches back
+ * into the `created:` / `tags:` lines that open every note here, which reads as noise
+ * rather than as the sentence the reader came for. Only a lead that really looks like
+ * front matter is dropped: every line must be key-shaped, and the block must either open
+ * with `---` or run to more than one line, so a horizontal rule after a paragraph — or a
+ * sentence that merely begins with "Note:" — keeps its text.
+ */
+export function trimFrontMatterLead(text: string): string {
+  const closed = text.indexOf('\n---')
+  if (closed < 0)
+    return text
+  const lines = text.slice(0, closed).split('\n').filter((line) => line.trim() !== '')
+  // A front matter line opens a key, continues an indented value, or is a list item
+  // under one; prose is none of those.
+  const isFrontMatterLine = (line: string) =>
+    line === '---' || /^[A-Za-z][\w-]*:/.test(line) || /^\s/.test(line) || /^-\s/.test(line.trim())
+  if (!lines.every(isFrontMatterLine))
+    return text
+  const fields = lines.filter((line) => line !== '---')
+  if (fields.length === 1 && lines[0] !== '---')
+    return text
+  return text.slice(closed + 4).replace(/^\s+/, '')
+}
+
+/**
+ * The text around a mention, for the panels that list one: `before` characters of
+ * lead-in, `after` of tail, whitespace collapsed, and an ellipsis on whichever side
+ * was cut. The worker reaches this through a SQL window instead, so both must keep the
+ * same lead-in and tail or the same note reads differently in demo and in production.
+ */
+export function mentionContext(content: string, needle: string, before = 60, after = 90): string {
+  const haystack = trimFrontMatterLead(content)
+  const hit = foldIndexOf(haystack, needle)
+  if (hit < 0) return truncateText(haystack, before + after).replace(/\s+/g, ' ').trim()
+  const start = Math.max(0, hit - before)
+  const end = Math.min(haystack.length, hit + needle.length + after)
+  return (start > 0 ? '…' : '') + plainLinkText(haystack.slice(start, end)).replace(/\s+/g, ' ').trim() + (end < haystack.length ? '…' : '')
+}
+
+/**
+ * Lowercase that never changes the string's length, so an index found in the folded text
+ * still points at the same character in the original.
+ *
+ * Neither built-in will do: SQLite's `lower()` folds ASCII only, so it misses every
+ * accented capital, and JavaScript's `toLowerCase()` can *grow* the string (`İ` becomes
+ * two code units), which would cut the text at the wrong place afterwards. A character
+ * whose lowercase form is longer is left alone, so it matches only itself — the same rule
+ * the case-insensitive wikilink search in `linkFirstMention` follows.
+ */
+export function foldCase(text: string): string {
+  return text.replace(/./gu, (char) => {
+    const lower = char.toLowerCase()
+    return lower.length === 1 ? lower : char
+  })
+}
+
+/**
+ * Where `needle` occurs in `haystack`, ignoring case the way a reader would.
+ *
+ * Both sides go through `foldCase`, so the returned index is usable on `haystack` itself.
+ */
+export function foldIndexOf(haystack: string, needle: string): number {
+  if (!needle) return -1
+  return foldCase(haystack).indexOf(foldCase(needle))
+}
+
+/**
+ * The text a reader sees where the markup is: a wiki link by its alias or target, a
+ * markdown link by its label, an embed by its file name.
+ *
+ * Excerpts are cut around a hit, so they used to carry the `[[…]]` the note happens to
+ * contain, which reads as noise in a panel whose whole job is to point at that sentence.
+ */
+export function plainLinkText(text: string): string {
+  return text
+    .replace(/!?\[\[([^[\]|\n]+)(?:\|([^[\]\n]*))?\]\]/g, (_all, target: string, alias?: string) => wikiLinkText(target, alias))
+    .replace(/\[([^\]\n]*)\]\([^)\n]*\)/g, (_all, label: string) => label)
 }
 
 // Same result as the /( ! )\[([^\]]*)\]\([^)]*\)/g pass, as one left-to-right scan:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, isUsableTagName, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText } from './markdown-utils'
+import { DEFAULT_READING_SPEED_WPM, countText, deriveExcerpt, deriveTitle, extractAttachmentIds, extractTags, extractWikiLinks, foldCase, foldIndexOf, isUsableTagName, linkFirstMention, mentionContext, plainLinkText, readingMinutes, replaceTagInContent, tagNamesEqual, toPlainText, trimFrontMatterLead } from './markdown-utils'
 
 const TAB_NOTE = [
   ':::: tabs',
@@ -256,5 +256,170 @@ describe('readingMinutes', () => {
   it('honours a slower reading speed', () => {
     expect(readingMinutes(600, 100)).toBe(6)
     expect(readingMinutes(600, 1000)).toBe(1)
+  })
+})
+
+describe('mention excerpts', () => {
+  it('cuts the front matter a window started inside', () => {
+    const window = `---\ncreated: 2026-10-08\ntags: []\n---\nThe sentence naming Deep Research Notes here`
+    expect(trimFrontMatterLead(window)).toBe('The sentence naming Deep Research Notes here')
+  })
+
+  it('keeps a window that begins mid front matter', () => {
+    expect(trimFrontMatterLead('tags: []\naliases: []\n---\nbody text')).toBe('body text')
+  })
+
+  it('cuts the front matter a new note actually carries', () => {
+    const window = '---\ncreated: 2026-10-08T06:43:53.000Z\ntags: []\naliases:\n  - \'\'\n---\njust says Target in passing, no brackets'
+    expect(trimFrontMatterLead(window)).toBe('just says Target in passing, no brackets')
+  })
+
+  it('leaves a horizontal rule and a colon-led sentence alone', () => {
+    const rule = 'First paragraph.\n---\nSecond paragraph.'
+    expect(trimFrontMatterLead(rule)).toBe(rule)
+    const colon = 'Note: this matters\n---\nstill body'
+    expect(trimFrontMatterLead(colon)).toBe(colon)
+  })
+
+  it('centres the excerpt on the mention and ellipsises both ends', () => {
+    const body = `a${'x'.repeat(200)} TARGET b${'y'.repeat(200)}`
+    const out = mentionContext(body, 'TARGET', 10, 10)
+    expect(out.startsWith('…')).toBe(true)
+    expect(out.endsWith('…')).toBe(true)
+    expect(out).toContain('TARGET')
+    expect(out.length).toBeLessThan(40)
+  })
+
+  it('falls back to the head of the text when the needle is absent', () => {
+    expect(mentionContext('no match at all', 'TARGET')).toBe('no match at all')
+  })
+})
+
+describe('linking a bare mention', () => {
+  it('wraps the first plain mention', () => {
+    expect(linkFirstMention('see Deep Research Notes today', 'Deep Research Notes'))
+      .toBe('see [[Deep Research Notes]] today')
+  })
+
+  it('leaves an already-linked title alone and takes the bare one', () => {
+    const content = 'first [[Deep Research Notes]] then Deep Research Notes again'
+    expect(linkFirstMention(content, 'Deep Research Notes'))
+      .toBe('first [[Deep Research Notes]] then [[Deep Research Notes]] again')
+  })
+
+  it('does not reach into inline code, fences, front matter or markdown links', () => {
+    expect(linkFirstMention('run `Deep Research Notes` now', 'Deep Research Notes'))
+      .toBe('run `Deep Research Notes` now')
+    expect(linkFirstMention('```\nDeep Research Notes\n```\n', 'Deep Research Notes'))
+      .toBe('```\nDeep Research Notes\n```\n')
+    expect(linkFirstMention('---\ntitle: Deep Research Notes\n---\nbody', 'Deep Research Notes'))
+      .toBe('---\ntitle: Deep Research Notes\n---\nbody')
+    expect(linkFirstMention('see [Deep Research Notes](https://x.test/y)', 'Deep Research Notes'))
+      .toBe('see [Deep Research Notes](https://x.test/y)')
+  })
+
+  it('will not cut a latin title out of a longer word', () => {
+    expect(linkFirstMention('that AINT right', 'AI')).toBe('that AINT right')
+    expect(linkFirstMention('that AI is right', 'AI')).toBe('that [[AI]] is right')
+  })
+
+  it('takes the next occurrence on the same line when the first is inside a word', () => {
+    expect(linkFirstMention('AINT and AI', 'AI')).toBe('AINT and [[AI]]')
+  })
+
+  it('links a chinese mention mid-sentence', () => {
+    const title = String.fromCodePoint(0x6DF1, 0x5EA6, 0x7814, 0x7A76, 0x7B14, 0x8BB0)
+    const about = String.fromCodePoint(0x5173, 0x4E8E)
+    const ideas = String.fromCodePoint(0x7684, 0x4E00, 0x4E9B, 0x60F3, 0x6CD5)
+    expect(linkFirstMention(about + title + ideas, title)).toBe(about + '[[' + title + ']]' + ideas)
+  })
+
+  it('links one more mention each time it is called', () => {
+    const once = linkFirstMention('Deep Research Notes and Deep Research Notes', 'Deep Research Notes')
+    expect(once).toBe('[[Deep Research Notes]] and Deep Research Notes')
+    expect(linkFirstMention(once, 'Deep Research Notes')).toBe('[[Deep Research Notes]] and [[Deep Research Notes]]')
+  })
+
+  it('matches case but writes the title as it is spelled', () => {
+    expect(linkFirstMention('about deep research notes here', 'Deep Research Notes'))
+      .toBe('about [[Deep Research Notes]] here')
+  })
+
+  it('returns the same string when there is nothing to link', () => {
+    const content = 'nothing relevant here\nsecond line'
+    expect(linkFirstMention(content, 'Deep Research Notes')).toBe(content)
+    expect(linkFirstMention('body', '')).toBe('body')
+  })
+
+  it('refuses a title the wikilink grammar cannot hold', () => {
+    for (const title of ['a]b', 'a|b', 'a#b']) {
+      const content = `see ${title} here`
+      expect(linkFirstMention(content, title), title).toBe(content)
+    }
+  })
+
+  it('keeps its place in a title whose lowercase form is longer than the title', () => {
+    const title = 'İstanbul'
+    expect(linkFirstMention(`notes about ${title} today`, title)).toBe(`notes about [[${title}]] today`)
+    expect(linkFirstMention(`see ${title} and ${title}`, title)).toBe(`see [[${title}]] and ${title}`)
+  })
+})
+
+describe('folding case without moving the text', () => {
+  const accented = 'CafÉ RÉsumÉ'
+  const greek = 'ΟΔΟΣ ΑΘΗΝΑ'
+
+  it('never changes the length, so an index stays usable on the original', () => {
+    const cjk = String.fromCodePoint(0x6DF1, 0x5EA6, 0x7814, 0x7A76, 0x7B14, 0x8BB0)
+    for (const text of [accented, greek, 'İstanbul', cjk, 'mixed Å2 é', '']) {
+      expect(foldCase(text).length).toBe(text.length)
+    }
+    expect(foldCase('a'.repeat(5) + 'İ')).toBe('a'.repeat(5) + 'İ')
+  })
+
+  it('folds the letters SQLite cannot, without moving the text', () => {
+    expect(foldIndexOf('notes about CAFÉ RÉSUMÉ here', 'Café Résumé')).toBe(12)
+    expect(foldIndexOf('УЛИЦА АФИНЫ тут', 'Улица Афины')).toBe(0)
+    expect(foldIndexOf('οδός αθήνα εδώ', 'Αθήνα')).toBe(5)
+    expect(foldIndexOf('İSTANBUL burada', 'İstanbul')).toBe(0)
+    expect(foldIndexOf('notes about DEEP RESEARCH NOTES', 'Deep Research Notes')).toBe(12)
+  })
+
+  it('draws the line at case, so a letter that changed its accents is not a mention', () => {
+    // Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by
+    // an accent rather than by case. Folding it too would need a map that shortens code
+    // units, and the index would no longer point at the text it came from.
+    expect(foldIndexOf('οδός ΑΘΗΝΑ εδώ', 'Αθήνα')).toBe(-1)
+  })
+
+  it('reports the position in the text it was given, not in a longer folded copy', () => {
+    expect(foldIndexOf(`${'İ'}xxxxxneedle`, 'needle')).toBe(6)
+    expect(foldIndexOf('İstanbul', 'needle')).toBe(-1)
+  })
+})
+
+describe('reading an excerpt without the markup', () => {
+  it('shows each kind of link by the words the reader sees', () => {
+    expect(plainLinkText('see [[Deep Research Notes]] now')).toBe('see Deep Research Notes now')
+    expect(plainLinkText('see [[Deep Research Notes|the notes]] now')).toBe('see the notes now')
+    expect(plainLinkText('see [[Deep Research Notes#Ideas]] now')).toBe('see Deep Research Notes#Ideas now')
+    expect(plainLinkText('see [the docs](https://x.test/y) now')).toBe('see the docs now')
+    expect(plainLinkText('see [[img.png|300]] now')).toBe('see img.png now')
+  })
+
+  it('leaves a mention cut mid-link alone rather than guessing', () => {
+    expect(plainLinkText('cut off [[Deep Research')).toBe('cut off [[Deep Research')
+    expect(plainLinkText('plain text')).toBe('plain text')
+  })
+
+  it('points the excerpt at the sentence, not at the brackets', () => {
+    expect(mentionContext('A reader wrote [[Deep Research Notes]] about it', 'Deep Research Notes'))
+      .toBe('A reader wrote Deep Research Notes about it')
+  })
+
+  it('counts the lead-in in characters of the note, not of a folded copy', () => {
+    const needle = 'Deep Research Notes'
+    const content = `${'a'.repeat(100)}İ${'b'.repeat(100)}${needle} and more`
+    expect(mentionContext(content, needle)).toContain(`${'b'.repeat(60)}${needle}`)
   })
 })

@@ -389,7 +389,12 @@ export const api = {
     restoreVersion: (id: string, versionId: string) =>
       request<Note>(`/api/notes/${id}/versions/${versionId}/restore`, { method: 'POST' }),
     backlinks: (id: string, signal?: AbortSignal) =>
-      request<{ backlinks: Backlink[] }>(`/api/notes/${id}/backlinks`, { signal }),
+      request<{ backlinks: Backlink[]; unlinked: Backlink[] }>(`/api/notes/${id}/backlinks`, { signal }),
+    linkMention: (id: string, sourceNoteId: string) =>
+      request<{ status: 'linked'; note: Note } | { status: 'no-mention' }>(`/api/notes/${id}/link-mention`, {
+        method: 'POST',
+        body: { sourceNoteId },
+      }),
   },
 
   folders: {

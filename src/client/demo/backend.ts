@@ -11,12 +11,16 @@ import {
   deriveTitle,
   extractAttachmentIds,
   extractWikiLinks,
+  foldIndexOf,
   isUsableTagName,
+  linkFirstMention,
+  mentionContext,
   normalizeLinkKey,
   notesCarryAnyTag,
   notesCarryEveryTag,
   replaceTagInContent,
   tagNamesEqual,
+  trimFrontMatterLead,
   wikiNoteTarget,
 } from '@shared/markdown-utils'
 import type {
@@ -254,10 +258,38 @@ export function createDemoBackend(): DemoBackend {
     const target = state.notes.get(c.req.param('id'))
     if (!target) return apiError(404, 'not_found', 'Note not found')
     const key = normalizeLinkKey(target.title)
-    const backlinks = [...state.notes.values()]
-      .filter((note) => note.id !== target.id && extractWikiLinks(note.content).some((link) => link.key === key))
-      .map((note) => ({ id: note.id, title: note.title, context: deriveExcerpt(note.content, 120) }))
-    return c.json({ backlinks })
+    const others = [...state.notes.values()].filter((note) => note.id !== target.id && !note.deletedAt)
+    const linked = others.filter((note) => extractWikiLinks(note.content).some((link) => link.key === key))
+    const title = target.title.trim()
+    // Same rule the worker applies: a mention has to be in the body (not the front matter)
+    // and case is folded the length-preserving way, so demo and a deployed site list the
+    // same notes for an accented or Greek title.
+    const unlinked = Array.from(title).length < LIMITS.mentionMinChars
+      ? []
+      : others.filter((note) => !linked.includes(note) && foldIndexOf(trimFrontMatterLead(note.content), title) >= 0)
+    const shape = (note: Note) => ({ id: note.id, title: note.title, context: mentionContext(note.content, title) })
+    return c.json({
+      backlinks: linked.slice(0, 50).map(shape),
+      unlinked: unlinked.slice(0, LIMITS.mentionLimit).map(shape),
+    })
+  })
+  app.post('/api/notes/:id/link-mention', async (c) => {
+    const target = state.notes.get(c.req.param('id'))
+    if (!target || target.deletedAt) return apiError(404, 'not_found', 'Note not found')
+    const body = await jsonBody(c.req.raw)
+    if (typeof body.sourceNoteId !== 'string' || !/^[0-9a-hjkmnp-tv-z]{26}$/.test(body.sourceNoteId)) {
+      return apiError(400, 'bad_request', 'sourceNoteId must be a valid note id')
+    }
+    const source = state.notes.get(body.sourceNoteId)
+    if (!source) return apiError(404, 'not_found', 'Note not found')
+    if (source.deletedAt) return apiError(404, 'not_found', 'Note not found')
+    const content = linkFirstMention(source.content, target.title)
+    if (content === source.content) return c.json({ status: 'no-mention' })
+    saveVersion(state, source)
+    const linked = refreshNote({ ...source, rev: source.rev + 1, updatedAt: Date.now() }, content)
+    state.notes.set(source.id, linked)
+    state.cursor++
+    return c.json({ status: 'linked', note: linked })
   })
   app.post('/api/notes/:id/restore', (c) => {
     const note = state.notes.get(c.req.param('id'))
