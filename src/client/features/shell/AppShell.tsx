@@ -18,6 +18,8 @@ import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { useLinkEditor } from '../links/store';
+import { isOmnisearchOpen, openOmnisearch, useOmnisearch } from '../omnisearch/store';
+import { omnisearchIndexer } from '../omnisearch/indexer';
 import { Sidebar } from '../sidebar/Sidebar';
 import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
@@ -30,6 +32,7 @@ import { scheduleSettingsWarmup } from '../settings/sections';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
 const importCommandPalette = () => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette }));
 const CommandPalette = lazy(importCommandPalette);
+const OmnisearchPrompt = lazy(() => import('../omnisearch/OmnisearchPrompt').then((m) => ({ default: m.OmnisearchPrompt })));
 const ShortcutsPanel = lazy(() => import('../command/ShortcutsPanel').then((m) => ({ default: m.ShortcutsPanel })));
 const GraphPanel = lazy(() => import('../graph/GraphPanel').then((m) => ({ default: m.GraphPanel })));
 const ManageFoldersPanel = lazy(() => import('../folders/ManageFoldersPanel').then((m) => ({ default: m.ManageFoldersPanel })));
@@ -105,6 +108,18 @@ export function AppShell() {
         if (role === 'owner')
             void checkForUpdates();
     }, [role, checkForUpdates]);
+    const indexReady = hydrated && !loading;
+    useEffect(() => {
+        // The in-memory index belongs to an account, so signing out has to drop it rather than let the
+        // next reader search the previous one's notes from cache.
+        if (!userId) {
+            omnisearchIndexer.dispose();
+            return;
+        }
+        if (!indexReady)
+            return;
+        void omnisearchIndexer.start();
+    }, [indexReady, userId]);
 
     useEffect(() => {
         const ui = useUi.getState();
@@ -234,6 +249,7 @@ function OverlayHost() {
     const panel = useUi((s) => s.panel);
     const emojiOpen = useEmojiPicker((s) => s.open);
     const linkEditOpen = useLinkEditor((s) => s.request !== null);
+    const omnisearch = useOmnisearch();
     const closePanel = useUi((s) => s.closePanel);
     const lightbox = useUi((s) => s.lightbox);
     const role = useSession((s) => s.user?.role);
@@ -248,6 +264,7 @@ function OverlayHost() {
         {panel === 'templates' && <TemplateGallery onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
+        {omnisearch.open && <OmnisearchPrompt mode={omnisearch.mode} seed={omnisearch.seed} noteId={omnisearch.noteId}/>}
         {lightbox && <Lightbox />}
         {emojiOpen && <EmojiPickerHost />}
         {linkEditOpen && <LinkEditorPopover />}
@@ -304,6 +321,27 @@ export const GLOBAL_HOTKEYS: Hotkey[] = [
         allowInInput: true,
         allowInOverlay: true,
         handler: () => ui().openSearchList(),
+    },
+    {
+        id: 'omnisearch',
+        combo: APP_SHORTCUTS.omnisearch,
+        description: () => t('shell.omnisearch'),
+        group: () => t('shell.global'),
+        allowInInput: true,
+        allowInOverlay: true,
+        // Pressing the key again while the prompt is up must not wipe what the reader typed.
+        enabled: () => !isOmnisearchOpen(),
+        handler: () => openOmnisearch({ mode: 'vault' }),
+    },
+    {
+        id: 'omnisearch-in-file',
+        combo: APP_SHORTCUTS.omnisearchInFile,
+        description: () => t('omnisearch.scope_file'),
+        group: () => t('shell.global'),
+        allowInInput: true,
+        allowInOverlay: true,
+        enabled: () => !isOmnisearchOpen() && hasNote(),
+        handler: () => openOmnisearch({ mode: 'file' }),
     },
     {
         id: 'graph',

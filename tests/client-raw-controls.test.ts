@@ -75,6 +75,10 @@ const COMPONENT_NAMED_BUTTONS = new Map<string, string>([
     'src/client/features/tags/ManageTagsModal.tsx',
     'The tag row is named by `<ManagedTagName>`, the same highlighting component one level down: the row\'s only child draws the tag name as text, and this read stops at the child.',
   ],
+  [
+    'src/client/features/omnisearch/OmnisearchPrompt.tsx',
+    'A search result row is a `role="option"` whose name is the note title, drawn by `<Highlighted>` as text split across the matched ranges. A listbox option is named by its content, so giving the element an `aria-label` as well would only risk the label and the visible title disagreeing.',
+  ],
 ])
 
 /**

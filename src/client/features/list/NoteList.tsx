@@ -21,6 +21,7 @@ import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
 import { openNoteFloatingWindow } from './note-floating-window';
 import { FolderPicker } from '../folders/FolderPicker';
 import { TemplateQuickActions } from '../templates/quick-actions';
+import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { removeTagFromNote } from '../tags/tagMutations';
@@ -366,7 +367,7 @@ export function NoteList() {
                 </button>
               </Tooltip>)}
           </div>
-          {breakpoint === 'mobile' && <><Tooltip label={t("notes.sort_and_display")}>
+          {breakpoint === 'mobile' && <><OmnisearchEntry mobile className="mobile-library-omnisearch"/><Tooltip label={t("notes.sort_and_display")}>
             <IconButton label={t("notes.sort_and_display")} size="sm" className="mobile-library-sort" ref={sortButtonRef} onClick={() => setSortMenuOpen(true)}>
               <ArrowDownWideNarrow size={17}/>
             </IconButton>
