@@ -3304,12 +3304,15 @@ const allowed = new Map([
   ["src/client/features/sidebar/Sidebar.tsx", [
     "// The graph canvas and its scene maths are only needed once a reader opens that tab, and the",
     "// sidebar rides in the first bundle.",
+    "// Enter opens what the reader was about to click: the first row of the",
+    "// filtered tree, which is the best guess the filter has.",
+    "/**\n * The folder's own name, with the letters the query reached underlined.\n *\n * A reading-based hit (the pinyin initials of a Chinese name) has no letters in the label to\n * mark, so it renders as plain text rather than underlining the wrong characters.\n */",
   ]],
   ["src/client/features/sidebar/SidebarOutlinks.tsx", [
     "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
   ]],
   ["src/client/features/sidebar/SidebarRecent.tsx", [
-    "/**\n * The notes this device has opened, newest first. The order is the reader's own trail, so\n * nothing re-sorts it: a note that stops existing drops out of the list rather than\n * leaving a hole, and the rest keeps the sequence it was walked in.\n */",
+    "/**\n * The notes this device has opened, newest first. The order is the reader's own trail, so\n * nothing re-sorts it: a note that stops existing drops out of the list rather than leaving\n * a hole, and the rest keeps the sequence it was walked in.\n *\n * Each row also says how long ago that note was last written, on a tick clock, so a list read\n * in the morning still says something true in the afternoon.\n */",
   ]],
   ["src/client/features/sidebar/SidebarTabs.tsx", [
     "/**\n * The strip's own order and set. `SIDEBAR_TABS` stays the authority for what is a legal\n * stored value, so a tab dropped from here still loads into the default rather than into\n * a blank body.\n */",
@@ -3822,6 +3825,10 @@ const allowed = new Map([
     "// is drawn as a still here the way the preview pane draws one for a card and a share page.",
     "// A layout block's numbers reach CSS the same way, and its handles are pointer furniture an exported",
     "// page has no script to answer.",
+  ]],
+  ["src/client/lib/folder-search.ts", [
+    "/**\n * What a folder query leaves of the tree.\n *\n * `nodes` is the tree to draw and `shown` how many folders are in it, so the count the panel\n * prints is the number of rows the reader can actually see — the same rule the tag filter\n * follows. `matched` is the narrower set: the folders the query itself hit, which is what\n * gets underlined. The two differ because a parent that only leads to a match has to stay on\n * screen for the child to be reachable.\n */",
+    "/**\n * The folder tree pruned to what the query can reach, matched by folder name only.\n *\n * A folder the query hits keeps its whole subtree, so searching `work` still shows\n * `work/meeting`; a folder that merely leads to a match is kept unmarked, at the depth the\n * reader knows it at. An empty query returns the tree as it came.\n */",
   ]],
   ["src/client/lib/format-colors.ts", [
     "/**\n * Highlights are painted as a wash, so what matters here is the hue: each of these is saturated\n * enough to still read at {@link HIGHLIGHT_ALPHA} over a light page or a dark one.\n */",
@@ -7036,6 +7043,7 @@ const allowed = new Map([
     "// @ts-expect-error the double stands in for an engine that shipped only the getter form",
     "// @ts-expect-error restoring the real constructor",
     "// @ts-expect-error the double keeps the real constructor's shape and only counts calls",
+    "// A fixed `now`, so a run at 23:59 cannot disagree with a run at 00:01.",
   ]],
   ["src/client/lib/time.ts", [
     "/** Day-key arithmetic: the key `delta` days after (or before) `key`. */",
@@ -7052,6 +7060,7 @@ const allowed = new Map([
     "/**\n * Which weekday opens a reader's calendar is locale data, so it is read off `Intl` rather than off\n * the languages this app ships. `firstDay` is ISO-numbered (Monday = 1 … Sunday = 7) while the\n * grids index JS `getDay()`, where Sunday is 0 — hence the modulo. Runtimes without `getWeekInfo`\n * get the answer these calendars shipped with before the API existed: `weekStartFor` is called on\n * every render of the sidebar and the appearance preview, so the answer is kept per locale tag —\n * the set is this app's handful of locales, and `Intl.Locale` construction is the cost being saved.\n */",
     "// `getWeekInfo` is the Stage-3 form; `weekInfo` is the same data as a getter, which engines",
     "// shipped earlier. Asking for both leaves the fallback below reachable only where neither exists.",
+    "/**\n * How long ago, as a compact duration rather than a sentence: `5 min`, `2 hr`, `3 days`.\n *\n * A list column has no room for a full \"3 days ago\" beside every row, and the reader already\n * knows the number counts backwards because the column sits under the note's title. Same\n * thresholds as `relativeTime`, so the two never disagree about which unit a moment is worth.\n */",
   ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
@@ -7211,6 +7220,7 @@ const allowed = new Map([
     "// header and the error boundary answers by reloading the page forever. A reversed range is not",
     "// an error, just a drag the other way round.",
     "/** Which panel the sidebar tab strip shows; only one is mounted at a time. */",
+    "/**\n   * Empty the trail behind the recent-files tab. Nothing is deleted: the list is this device's\n   * reading history, and it refills from the next note the reader opens.\n   */",
   ]],
   ["src/client/styles/app.css", [
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",

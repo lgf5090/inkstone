@@ -135,6 +135,7 @@ interface UiState {
   toggleOutline: () => void
   sendOutlineCommand: (action: OutlineCommand) => void
   toggleBacklinks: () => void
+  clearRecentNotes: () => void
   toggleLocalGraph: () => void
   showBacklinks: () => void
   setLightbox: (value: UiState['lightbox']) => void
@@ -606,6 +607,11 @@ export const useUi = create<UiState>((set, get) => ({
   toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
   sendOutlineCommand: (action) => set((s) => ({ outlineCommand: { action, seq: (s.outlineCommand?.seq ?? 0) + 1 } })),
   toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
+  /**
+   * Empty the trail behind the recent-files tab. Nothing is deleted: the list is this device's
+   * reading history, and it refills from the next note the reader opens.
+   */
+  clearRecentNotes: () => set({ recentNoteIds: [] }),
   toggleLocalGraph: () => set((s) => ({ localGraphOpen: !s.localGraphOpen })),
   showBacklinks: () => set({ backlinksOpen: true }),
   setLightbox: (lightbox) => set({ lightbox }),
