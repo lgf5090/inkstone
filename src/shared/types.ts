@@ -171,6 +171,7 @@ export interface EditorSettings {
   draggerSelectionStyle: DraggerSelectionStyle
   draggerMobileTextDrag: boolean
   draggerExitDragModeAfterDrop: boolean
+  draggerDragModeButton: boolean
   draggerMoveKeys: boolean
   draggerMenuOrders: DraggerMenuOrders
   draggerBlockStyles: DraggerBlockStyle[]

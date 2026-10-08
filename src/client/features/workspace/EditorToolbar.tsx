@@ -49,9 +49,10 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
     const draggerOn = useSession((state) => state.settings.editor.dragger);
     const draggerTextDrag = useSession((state) => state.settings.editor.draggerMobileTextDrag);
+    const draggerModeButton = useSession((state) => state.settings.editor.draggerDragModeButton);
     const dragMode = useUi((state) => state.draggerDragMode);
     // The mode is a finger's shortcut for a handle, so it is only offered where a handle is hard to hit.
-    const dragModeRow = draggerOn && mobile && isTouchPointer() && draggerTextDrag
+    const dragModeRow = draggerOn && mobile && isTouchPointer() && draggerTextDrag && draggerModeButton
       ? { enabled: dragMode, onToggle: () => useUi.getState().setDraggerDragMode(!dragMode) }
       : null;
     const recent = useRecentColors();

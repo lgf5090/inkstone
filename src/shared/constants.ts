@@ -219,6 +219,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     draggerSelectionStyle: 'subtle',
     draggerMobileTextDrag: true,
     draggerExitDragModeAfterDrop: true,
+    draggerDragModeButton: true,
     draggerMoveKeys: true,
     draggerMenuOrders: {
       root: ['paragraph', 'heading', 'list', 'quote', 'callout', 'code-block', 'math-block', 'custom'],
@@ -848,6 +849,7 @@ export function mergeSettings(partial: unknown): UserSettings {
     editor.draggerExitDragModeAfterDrop,
     base.editor.draggerExitDragModeAfterDrop,
   )
+  base.editor.draggerDragModeButton = booleanValue(editor.draggerDragModeButton, base.editor.draggerDragModeButton)
   base.editor.draggerMoveKeys = booleanValue(editor.draggerMoveKeys, base.editor.draggerMoveKeys)
   base.editor.draggerBlockStyles = draggerBlockStyles(editor.draggerBlockStyles)
   base.editor.draggerMenuOrders = draggerMenuOrders(
@@ -1187,15 +1189,18 @@ function sameStyleField(stored: unknown, wanted: unknown): boolean {
 }
 
 function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): string[] {
-  if (!Array.isArray(value)) return []
   const kept: string[] = []
   const seen = new Set<string>()
-  for (const entry of value) {
-    if (typeof entry !== 'string' || !styleIds.includes(entry) || seen.has(entry)) continue
-    seen.add(entry)
-    kept.push(entry)
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry !== 'string' || !styleIds.includes(entry) || seen.has(entry)) continue
+      seen.add(entry)
+      kept.push(entry)
+    }
   }
-  return kept
+  // A style the order never heard of would be a menu row nobody can reach, so it joins the end: an
+  // order can be re-arranged, a style the menu lost cannot be found again.
+  return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
 const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search'] as const

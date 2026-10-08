@@ -8036,6 +8036,8 @@ const allowed = new Map([
     "/**\n * One menu list: unknown, repeated, or non-string rows drop the whole list back to its default, so a\n * tampered order cannot hide a command the reader still expects. Missing rows are re-appended in\n * canonical order, which lets a new command join a list an older device already arranged.\n */",
     "/** Every list in `value` spelled exactly as `next` spells it — same rows, same order. */",
     "/** Every style in `value` carrying the same fields, in the same order, as `next` writes them. */",
+    "// A style the order never heard of would be a menu row nobody can reach, so it joins the end: an",
+    "// order can be re-arranged, a style the menu lost cannot be found again.",
   ]],
   ["src/shared/markdown-utils.test.ts", [
     "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",

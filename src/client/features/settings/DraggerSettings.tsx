@@ -194,6 +194,10 @@ export function DraggerSettings() {
                 <SettingRow title={t('settings.dragger_exit_after_drop')}>
                   <Switch checked={editor.draggerExitDragModeAfterDrop} onChange={(draggerExitDragModeAfterDrop) => set({ draggerExitDragModeAfterDrop })} label={t('settings.dragger_exit_after_drop')}/>
                 </SettingRow>
+
+                <SettingRow title={t('settings.dragger_drag_mode_button')} description={t('settings.dragger_drag_mode_button_hint')}>
+                  <Switch checked={editor.draggerDragModeButton} onChange={(draggerDragModeButton) => set({ draggerDragModeButton })} label={t('settings.dragger_drag_mode_button')}/>
+                </SettingRow>
               </>)}
           </>)}
       </section>)}
@@ -252,13 +256,12 @@ function DraggerOrderEditor({ settings, onChange }: { settings: EditorSettings; 
       </button>
       {open && (<div className="absolute right-0 z-[var(--z-pop)] mt-1 w-[min(92vw,420px)] rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)]">
           <OrderList label={t('settings.dragger_menu_order')} ids={orders.root} names={new Map(entries.map((entry) => [entry.id, entry.label]))} onMove={(index, delta) => move('root', index, delta)} onReset={() => onChange({ draggerMenuOrders: defaultOrders(orders) })}/>
-          {(['heading', 'list', 'callout'] as const).map((group) => {
-        const entriesFor = entries.find((entry) => isDraggerMenuGroup(entry) && entry.id === group)
-        const names = new Map(entriesFor && isDraggerMenuGroup(entriesFor)
-            ? entriesFor.options.map((option) => [option.id, option.label])
-            : [])
-        return (<OrderList key={group} label={entriesFor?.label ?? group} ids={orders[group]} names={names} onMove={(index, delta) => move(group, index, delta)}/>)
-      })}
+          {(['heading', 'list', 'callout', 'custom'] as const).map((group) => {
+            const entriesFor = entries.find((entry) => isDraggerMenuGroup(entry) && entry.id === group)
+            if (!entriesFor || !isDraggerMenuGroup(entriesFor)) return null
+            const names = new Map(entriesFor.options.map((option) => [option.id, option.label]))
+            return <OrderList key={group} label={entriesFor.label} ids={orders[group]} names={names} onMove={(index, delta) => move(group, index, delta)}/>
+          })}
         </div>)}
     </div>)
 }

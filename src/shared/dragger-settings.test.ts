@@ -9,6 +9,9 @@ describe('the dragger settings', () => {
     expect(editor({}).draggerHandles).toBe('hover')
     expect(editor({}).draggerHandleIcon).toBe('grip-dots')
     expect(editor({}).draggerMenuOrders.root).toEqual(DEFAULT_SETTINGS.editor.draggerMenuOrders.root)
+    expect(editor({}).draggerDragModeButton).toBe(true)
+    expect(editor({ draggerDragModeButton: 'yes' }).draggerDragModeButton).toBe(true)
+    expect(editor({ draggerDragModeButton: false }).draggerDragModeButton).toBe(false)
   })
 
   it('keeps a number inside the range the slider offers', () => {
@@ -68,6 +71,18 @@ describe('the dragger settings', () => {
     expect(orders.heading).toEqual(['heading-6', 'heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5'])
     expect(orders.list).toEqual(['list-ordered', 'list-unordered', 'list-task'])
     expect(orders.custom).toEqual([])
+  })
+
+  it('gives a style that lost its place in the order a new one', () => {
+    const repaired = editor({
+      draggerBlockStyles: [
+        { id: 'a', label: 'A', icon: '', template: '${content}' },
+        { id: 'b', label: 'B', icon: '', template: '${content}' },
+      ],
+      draggerMenuOrders: { ...DEFAULT_SETTINGS.editor.draggerMenuOrders, custom: ['b'] },
+    })
+    expect(repaired.draggerMenuOrders.custom).toEqual(['b', 'a'])
+    expect(repaired.draggerBlockStyles.map((style) => style.id)).toEqual(['a', 'b'])
   })
 
   it('keeps a stored order by reference when nothing about it changed', () => {

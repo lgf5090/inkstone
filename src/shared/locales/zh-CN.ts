@@ -3689,6 +3689,8 @@ console.log(\`Hello, \${name}!\`)
     "settings.dragger_mobile_text_drag": "长按正文拖拽",
     "settings.dragger_mobile_text_drag_hint": "触屏上按住任意一行即可搬动这一块，不必去够手柄。",
     "settings.dragger_exit_after_drop": "搬完自动退出拖拽模式",
+    "settings.dragger_drag_mode_button": "显示拖拽模式开关",
+    "settings.dragger_drag_mode_button_hint": "触屏设备的工具栏「这一块」菜单里放一个开关，开启后长按正文即可搬动这一块。",
     "settings.dragger_move_keys": "Alt+Shift+↑/↓ 移动整块",
     "settings.dragger_move_keys_hint": "光标所在的块与上/下一块交换位置，子项一起走。",
     "settings.dragger_menu_group": "手柄菜单",

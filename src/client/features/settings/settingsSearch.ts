@@ -123,6 +123,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'editor', titleKey: 'settings.dragger_auto_scroll_speed' },
   { section: 'editor', titleKey: 'settings.dragger_mobile_arm_ms', detailKey: 'settings.dragger_mobile_arm_ms_hint' },
   { section: 'editor', titleKey: 'settings.dragger_exit_after_drop' },
+  { section: 'editor', titleKey: 'settings.dragger_drag_mode_button', detailKey: 'settings.dragger_drag_mode_button_hint', termKeys: ['dragger.drag_mode'] },
   { section: 'editor', titleKey: 'settings.dragger_move_keys', detailKey: 'settings.dragger_move_keys_hint', termKeys: ['command.move_block_up', 'command.move_block_down'] },
   { section: 'editor', titleKey: 'settings.dragger_mobile_text_drag', detailKey: 'settings.dragger_mobile_text_drag_hint', termKeys: ['settings.dragger_mobile_arm_ms', 'settings.dragger_exit_after_drop', 'dragger.drag_mode'] },
   { section: 'editor', titleKey: 'settings.link_preview_length', termKeys: ['settings.characters'] },
