@@ -1,5 +1,22 @@
 const PREFIX = 'b64.'
 
+/**
+ * The two escapers live here rather than in `renderer.ts` because a fence module that builds markup has
+ * to be able to reach them without importing the renderer back. `renderer.ts` re-exports both, so every
+ * existing caller keeps the same import path.
+ */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+export function escapeAttr(text: string): string {
+  return escapeHtml(text).replace(/'/g, '&#39;').replace(/\n/g, '&#10;')
+}
+
 
 export function encodeDataValue(value: string): string {
   const bytes = new TextEncoder().encode(value)

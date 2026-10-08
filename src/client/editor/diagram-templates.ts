@@ -334,3 +334,48 @@ export const KANBAN_TEMPLATES: DiagramTemplate[] = [
 }`,
     },
 ];
+
+/**
+ * The starter queries behind the toolbar's Dataview submenu. Every body is a query the parser accepts
+ * and the index can answer with nothing indexed yet — an empty result, not an error — because a
+ * template that inserts a block reporting itself broken is worse than no template.
+ */
+export const DATAVIEW_TEMPLATES: DiagramTemplate[] = [
+    {
+        id: 'table',
+        labelKey: 'workspace.dataview_table',
+        body: 'TABLE file.mtime AS "Updated"\nSORT file.mtime DESC\nLIMIT 10',
+    },
+    {
+        id: 'table-tagged',
+        labelKey: 'workspace.dataview_tagged',
+        body: 'TABLE file.folder AS "Folder", length(file.tasks) AS "Tasks"\nFROM #project\nSORT file.name',
+    },
+    {
+        id: 'list',
+        labelKey: 'workspace.dataview_list',
+        body: 'LIST\nFROM -"Archive"\nSORT file.mtime DESC',
+    },
+    {
+        id: 'task',
+        labelKey: 'workspace.dataview_task',
+        body: 'TASK\nWHERE !completed\nSORT due',
+    },
+    {
+        id: 'calendar',
+        labelKey: 'workspace.dataview_calendar',
+        body: 'CALENDAR file.day\nFROM ""',
+    },
+    {
+        id: 'grouped',
+        labelKey: 'workspace.dataview_grouped',
+        body: 'LIST\nGROUP BY file.folder',
+    },
+]
+
+/** The DML starter: the shortest program that shows the `dv` object is working. */
+export const DATAVIEW_JS_BODY = [
+    'const pages = dv.pages("")',
+    'dv.header(3, `Notes: ${pages.length}`)',
+    'dv.table(["Name", "Updated"], pages.map((p) => [p.file.link, p.file.mtime]))',
+].join('\n')

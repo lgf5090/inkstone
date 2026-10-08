@@ -9,6 +9,7 @@ import type {
   DraggerMenuOrders,
   DraggerMenuRootItemId,
   DraggerSelectionStyle,
+  DurationFormatName,
   EmojiInsertFormat,
   LinkEditorAliasMode,
   LinkEditorModifier,
@@ -19,6 +20,7 @@ import type {
   PropertyColorChoice,
   PropertyFormatChoice,
   PropertyProgressChoice,
+  SavedDataviewQuery,
   SidebarTab,
   SkinTone,
   UserSettings,
@@ -367,6 +369,37 @@ export const DEFAULT_SETTINGS: UserSettings = {
     maxContentChars: 100000,
     indexStorageMb: 64,
   },
+  dataview: {
+    enabled: true,
+    inlineQueries: true,
+    inlineFields: true,
+    jsBlocks: true,
+    renderNullAs: '',
+    dateFormat: 'yyyy-MM-dd',
+    datetimeFormat: 'yyyy-MM-dd HH:mm',
+    durationFormat: 'long',
+    maxRows: 200,
+    bodyLimit: 500,
+    includeArchived: false,
+    showErrorDetails: true,
+    liveRefresh: true,
+    taskCompletionTracking: false,
+    taskCompletionUseEmojiShorthand: false,
+    taskCompletionText: 'completion',
+    taskCompletionDateFormat: 'yyyy-MM-dd',
+    recursiveSubTaskCompletion: false,
+    tableIdColumnName: 'File',
+    tableGroupColumnName: 'Group',
+    maxRecursiveRenderDepth: 4,
+    showResultCount: false,
+    warnOnEmptyResult: true,
+    inlineJsQueries: false,
+    inlineJsQueryPrefix: '$=',
+    inlineQueriesInCodeblocks: false,
+    prettyInlineFieldsLivePreview: true,
+    allowHtmlInExports: false,
+    savedQueries: [],
+  },
 }
 
 export const TODO_TAG_LIST_MAX = 8
@@ -657,6 +690,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const sync = asRecord(src.sync)
   const notes = asRecord(src.notes)
   const search = asRecord(src.search)
+  const dataview = asRecord(src.dataview)
 
   // the linter section is a nested record, so it is rebuilt from the reader's blob rather than
   // patched onto a default: an unknown rule or an oversized option has to be dropped, not stored
@@ -1046,10 +1080,73 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.search.maxIndexedNotes = integerInRange(search.maxIndexedNotes, 200, 20000, base.search.maxIndexedNotes)
   base.search.maxContentChars = integerInRange(search.maxContentChars, 2000, 200000, base.search.maxContentChars)
   base.search.indexStorageMb = integerInRange(search.indexStorageMb, 8, 512, base.search.indexStorageMb)
+  base.dataview.enabled = booleanValue(dataview.enabled, base.dataview.enabled)
+  base.dataview.inlineQueries = booleanValue(dataview.inlineQueries, base.dataview.inlineQueries)
+  base.dataview.inlineFields = booleanValue(dataview.inlineFields, base.dataview.inlineFields)
+  base.dataview.jsBlocks = booleanValue(dataview.jsBlocks, base.dataview.jsBlocks)
+  base.dataview.includeArchived = booleanValue(dataview.includeArchived, base.dataview.includeArchived)
+  base.dataview.showErrorDetails = booleanValue(dataview.showErrorDetails, base.dataview.showErrorDetails)
+  base.dataview.liveRefresh = booleanValue(dataview.liveRefresh, base.dataview.liveRefresh)
+  base.dataview.renderNullAs = trimmedText(dataview.renderNullAs, 24)
+  base.dataview.dateFormat = trimmedText(dataview.dateFormat, 40) || DEFAULT_SETTINGS.dataview.dateFormat
+  base.dataview.datetimeFormat = trimmedText(dataview.datetimeFormat, 40) || DEFAULT_SETTINGS.dataview.datetimeFormat
+  base.dataview.durationFormat = enumValue(dataview.durationFormat, DURATION_FORMATS, base.dataview.durationFormat)
+  base.dataview.maxRows = integerInRange(dataview.maxRows, 10, 2000, base.dataview.maxRows)
+  base.dataview.bodyLimit = integerInRange(dataview.bodyLimit, 20, 5000, base.dataview.bodyLimit)
+  base.dataview.tableIdColumnName = trimmedText(dataview.tableIdColumnName, 40) || DEFAULT_SETTINGS.dataview.tableIdColumnName
+  base.dataview.tableGroupColumnName = trimmedText(dataview.tableGroupColumnName, 40) || DEFAULT_SETTINGS.dataview.tableGroupColumnName
+  base.dataview.maxRecursiveRenderDepth = integerInRange(dataview.maxRecursiveRenderDepth, 1, 12, base.dataview.maxRecursiveRenderDepth)
+  base.dataview.showResultCount = booleanValue(dataview.showResultCount, base.dataview.showResultCount)
+  base.dataview.warnOnEmptyResult = booleanValue(dataview.warnOnEmptyResult, base.dataview.warnOnEmptyResult)
+  base.dataview.inlineJsQueries = booleanValue(dataview.inlineJsQueries, base.dataview.inlineJsQueries)
+  // A stored settings blob written before this setting existed has no key at all, which must mean the
+  // default prefix rather than "off"; an explicit empty string is the reader turning it off. A prefix
+  // starting with `=` would turn every inline query into code, so that shape falls back too.
+  const inlineJsPrefix = dataview.inlineJsQueryPrefix === undefined
+    ? DEFAULT_SETTINGS.dataview.inlineJsQueryPrefix
+    : trimmedText(dataview.inlineJsQueryPrefix, 8)
+  base.dataview.inlineJsQueryPrefix = inlineJsPrefix.startsWith('=') ? DEFAULT_SETTINGS.dataview.inlineJsQueryPrefix : inlineJsPrefix
+  base.dataview.inlineQueriesInCodeblocks = booleanValue(dataview.inlineQueriesInCodeblocks, base.dataview.inlineQueriesInCodeblocks)
+  base.dataview.prettyInlineFieldsLivePreview = booleanValue(dataview.prettyInlineFieldsLivePreview, base.dataview.prettyInlineFieldsLivePreview)
+  base.dataview.allowHtmlInExports = booleanValue(dataview.allowHtmlInExports, base.dataview.allowHtmlInExports)
+  base.dataview.savedQueries = savedDataviewQueries(dataview.savedQueries)
+  base.dataview.taskCompletionTracking = booleanValue(dataview.taskCompletionTracking, base.dataview.taskCompletionTracking)
+  base.dataview.taskCompletionUseEmojiShorthand = booleanValue(dataview.taskCompletionUseEmojiShorthand, base.dataview.taskCompletionUseEmojiShorthand)
+  base.dataview.recursiveSubTaskCompletion = booleanValue(dataview.recursiveSubTaskCompletion, base.dataview.recursiveSubTaskCompletion)
+  base.dataview.taskCompletionText = trimmedText(dataview.taskCompletionText, 40) || DEFAULT_SETTINGS.dataview.taskCompletionText
+  base.dataview.taskCompletionDateFormat = trimmedText(dataview.taskCompletionDateFormat, 40) || DEFAULT_SETTINGS.dataview.taskCompletionDateFormat
 
   return base
 }
 
+
+const DURATION_FORMATS: DurationFormatName[] = ['long', 'short', 'tiny']
+
+/**
+ * A saved query is a name and its text with a stable id, so reordering the list reads as an edit
+ * rather than a delete plus an insert to the account snapshot. Both strings are capped because the
+ * whole list travels inside the settings document.
+ */
+function savedDataviewQueries(value: unknown): SavedDataviewQuery[] {
+  if (!Array.isArray(value)) return []
+  const out: SavedDataviewQuery[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    const name = trimmedText(record.name, 60)
+    const query = typeof record.query === 'string' ? record.query.slice(0, 4000) : ''
+    if (!name || !query) continue
+    // The id is a local identifier, not a database row: a saved query that lost its id would be a
+    // different entry to the account snapshot, so a shape-matching one is kept and a stray is dropped.
+    const id = /^[a-z0-9][a-z0-9-]{3,63}$/i.test(String(record.id ?? '')) ? String(record.id).toLowerCase() : ''
+    const key = id || `${name}\u0000${query}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ id: key, name, query })
+    if (out.length >= 40) break
+  }
+  return out
+}
 
 function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
   const clamped = numberInRange(value, range[0], range[1], fallback)
@@ -1213,7 +1310,7 @@ function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): st
   return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'linter'] as const
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter'] as const
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -1293,6 +1390,10 @@ function cloneDefaultSettings(): UserSettings {
       ...DEFAULT_SETTINGS.search,
       weightCustomProperties: [],
       downrankedFolders: [],
+    },
+    dataview: {
+      ...DEFAULT_SETTINGS.dataview,
+      savedQueries: [],
     },
   }
 }

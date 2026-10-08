@@ -6,6 +6,7 @@
 @import './presentation.css';
 @import './properties.css';
 @import './dragger.css';
+@import './dataview.css';
 
 
 @theme inline {

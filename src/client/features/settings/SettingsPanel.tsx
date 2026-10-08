@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Braces, BrainCircuit, Cloud, Database, FilePlus2, Info, Keyboard, Link2, Palette, RefreshCw, ScanSearch, Search, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
+import { Braces, BrainCircuit, Cloud, Database, FilePlus2, Info, Keyboard, Link2, Palette, RefreshCw, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
@@ -37,6 +37,7 @@ export const SECTIONS: {
     { id: 'data', label: () => t("settings.data"), icon: <Database size={14}/> },
     { id: 'shares', label: () => t("share.shared_notes"), icon: <Link2 size={14}/> },
     { id: 'automation', label: () => t("settings.automation"), icon: <Zap size={14}/> },
+    { id: 'queries', label: () => t("settings.dataview"), icon: <TableProperties size={14}/> },
     { id: 'linter', label: () => t("settings.markdown_linter"), icon: <WandSparkles size={14}/> },
     { id: 'about', label: () => t("settings.about"), icon: <Info size={14}/> },
 ];
