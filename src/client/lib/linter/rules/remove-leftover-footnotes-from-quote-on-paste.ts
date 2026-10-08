@@ -8,10 +8,10 @@ import {applyNonOverlappingReplacements} from '../engine/text-edits';
 
 class RemoveLeftoverFootnotesFromQuoteOnPasteOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveLeftoverFootnotesFromQuoteOnPaste extends RuleBuilder<RemoveLeftoverFootnotesFromQuoteOnPasteOptions> {
   constructor() {
     super({
+      alias: 'remove-leftover-footnotes-from-quote-on-paste',
       nameKey: "linter.rules.remove_leftover_footnotes_from_quote_on_paste.name",
       descriptionKey: "linter.rules.remove_leftover_footnotes_from_quote_on_paste.description",
       ruleIgnoreTypes: [IgnoreTypes.wikiLink, IgnoreTypes.link, IgnoreTypes.image],

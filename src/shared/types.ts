@@ -93,6 +93,8 @@ export type ProseWidth = 'narrow' | 'normal' | 'wide' | 'full'
 export type EditorLayout = 'live' | 'split' | 'preview'
 export type BackupSchedule = 'off' | 'hourly' | 'sixHourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 
+import type { LinterSettings } from './linter'
+
 export interface AppearanceSettings {
   language: AppLocale
   theme: ThemePref
@@ -433,6 +435,8 @@ export interface SearchSettings {
 
 export interface UserSettings {
   appearance: AppearanceSettings
+  /** The markdown linter: which rules are on, what each one wants, and what to leave alone. */
+  linter: LinterSettings
   editor: EditorSettings
   preview: PreviewSettings
   properties: PropertySettings

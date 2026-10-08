@@ -9,10 +9,10 @@ class ConvertSpacesToTabsOptions implements Options {
   tabsize: number = 4;
 }
 
-@RuleBuilder.register
 export default class ConvertSpacesToTabs extends RuleBuilder<ConvertSpacesToTabsOptions> {
   constructor() {
     super({
+      alias: 'convert-spaces-to-tabs',
       nameKey: "linter.rules.convert_spaces_to_tabs.name",
       descriptionKey: "linter.rules.convert_spaces_to_tabs.description",
       type: RuleType.SPACING,

@@ -741,7 +741,7 @@ export function convertAliasValueToStringOrStringArray(value: string | string[])
   return value;
 }
 
-export function convertYAMLStringToArray(value: string, delimiter: string = ','): null | string[] {
+export function convertYAMLStringToArray(value: string | null, delimiter: string = ','): null | string[] {
   if (value == '' || value == null) {
     return null;
   }

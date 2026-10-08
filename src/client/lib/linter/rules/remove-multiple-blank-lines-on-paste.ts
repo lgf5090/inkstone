@@ -6,10 +6,10 @@ import dedent from 'ts-dedent';
 
 class RemoveMultipleBlankLinesOnPasteOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveMultipleBlankLinesOnPaste extends RuleBuilder<RemoveMultipleBlankLinesOnPasteOptions> {
   constructor() {
     super({
+      alias: 'remove-multiple-blank-lines-on-paste',
       nameKey: "linter.rules.remove_multiple_blank_lines_on_paste.name",
       descriptionKey: "linter.rules.remove_multiple_blank_lines_on_paste.description",
       type: RuleType.PASTE,

@@ -14,10 +14,10 @@ class RemoveTrailingPunctuationInHeadingOptions implements Options {
   punctuationToRemove: string = HEADINGS_TRAILING_PUNCTUATION;
 }
 
-@RuleBuilder.register
 export default class RemoveTrailingPunctuationInHeading extends RuleBuilder<RemoveTrailingPunctuationInHeadingOptions> {
   constructor() {
     super({
+      alias: 'remove-trailing-punctuation-in-heading',
       nameKey: "linter.rules.remove_trailing_punctuation_in_heading.name",
       descriptionKey: "linter.rules.remove_trailing_punctuation_in_heading.description",
       type: RuleType.HEADING,

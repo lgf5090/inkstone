@@ -5,17 +5,16 @@ import dedent from 'ts-dedent';
 import {indentedOrBlockquoteNestedChecklistIndicatorRegex, nonBlockquoteChecklistRegex} from '../engine/regex';
 
 class PreventDoubleChecklistIndicatorOnPasteOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    lineContent: string = '';
-  @RuleBuilder.noSettingControl()
-    selectedText: string = '';
+  lineContent: string = '';
+  selectedText: string = '';
 }
 
-@RuleBuilder.register
 export default class PreventDoubleChecklistIndicatorOnPaste extends RuleBuilder<PreventDoubleChecklistIndicatorOnPasteOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.prevent_double_checklist_indicator_on_paste.name",
+      alias: 'prevent-double-checklist-indicator-on-paste',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['lineContent', 'selectedText'],      nameKey: "linter.rules.prevent_double_checklist_indicator_on_paste.name",
       descriptionKey: "linter.rules.prevent_double_checklist_indicator_on_paste.description",
       type: RuleType.PASTE,
     });

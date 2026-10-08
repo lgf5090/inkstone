@@ -6,10 +6,10 @@ import {ellipsisRegex} from '../engine/regex';
 
 class ProperEllipsisOnPasteOptions implements Options {}
 
-@RuleBuilder.register
 export default class ProperEllipsisOnPaste extends RuleBuilder<ProperEllipsisOnPasteOptions> {
   constructor() {
     super({
+      alias: 'proper-ellipsis-on-paste',
       nameKey: "linter.rules.proper_ellipsis_on_paste.name",
       descriptionKey: "linter.rules.proper_ellipsis_on_paste.description",
       type: RuleType.PASTE,

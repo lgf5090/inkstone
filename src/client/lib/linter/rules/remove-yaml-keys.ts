@@ -8,10 +8,10 @@ class RemoveYamlKeysOptions implements Options {
   yamlKeysToRemove: string[] = [];
 }
 
-@RuleBuilder.register
 export default class RemoveYamlKeys extends RuleBuilder<RemoveYamlKeysOptions> {
   constructor() {
     super({
+      alias: 'remove-yaml-keys',
       nameKey: "linter.rules.remove_yaml_keys.name",
       descriptionKey: "linter.rules.remove_yaml_keys.description",
       type: RuleType.YAML,

@@ -9,10 +9,10 @@ import {replaceTextRanges, textReplacement} from '../engine/strings';
 
 class RemoveMultipleSpacesOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveMultipleSpaces extends RuleBuilder<RemoveMultipleSpacesOptions> {
   constructor() {
     super({
+      alias: 'remove-multiple-spaces',
       nameKey: "linter.rules.remove_multiple_spaces.name",
       descriptionKey: "linter.rules.remove_multiple_spaces.description",
       type: RuleType.CONTENT,

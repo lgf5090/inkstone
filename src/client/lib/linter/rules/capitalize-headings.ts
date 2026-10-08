@@ -318,10 +318,10 @@ class CapitalizeHeadingsOptions implements Options {
   ignoreCasedWords: boolean = true;
 }
 
-@RuleBuilder.register
 export default class CapitalizeHeadings extends RuleBuilder<CapitalizeHeadingsOptions> {
   constructor() {
     super({
+      alias: 'capitalize-headings',
       nameKey: "linter.rules.capitalize_headings.name",
       descriptionKey: "linter.rules.capitalize_headings.description",
       type: RuleType.HEADING,

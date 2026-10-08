@@ -7,10 +7,10 @@ import {ProtectedRanges} from '../engine/protected-ranges';
 
 class ParagraphBlankLinesOptions implements Options {}
 
-@RuleBuilder.register
 export default class ParagraphBlankLines extends RuleBuilder<ParagraphBlankLinesOptions> {
   constructor() {
     super({
+      alias: 'paragraph-blank-lines',
       nameKey: "linter.rules.paragraph_blank_lines.name",
       descriptionKey: "linter.rules.paragraph_blank_lines.description",
       type: RuleType.SPACING,

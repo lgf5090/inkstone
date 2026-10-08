@@ -7,10 +7,10 @@ import {replaceTextRanges} from '../engine/strings';
 
 class RemoveConsecutiveListMarkersOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveConsecutiveListMarkers extends RuleBuilder<RemoveConsecutiveListMarkersOptions> {
   constructor() {
     super({
+      alias: 'remove-consecutive-list-markers',
       nameKey: "linter.rules.remove_consecutive_list_markers.name",
       descriptionKey: "linter.rules.remove_consecutive_list_markers.description",
       type: RuleType.CONTENT,

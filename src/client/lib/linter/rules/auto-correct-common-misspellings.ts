@@ -13,15 +13,15 @@ class AutoCorrectCommonMisspellingsOptions implements Options {
   ignoreWords: string[] = [];
   extraAutoCorrectFiles: CustomAutoCorrectContent[] = [];
   skipWordsWithMultipleCapitals: boolean = false;
-  @RuleBuilder.noSettingControl()
-    misspellingToCorrection: Map<string, string> = new Map();
+  misspellingToCorrection: Map<string, string> = new Map();
 }
 
-@RuleBuilder.register
 export default class AutoCorrectCommonMisspellings extends RuleBuilder<AutoCorrectCommonMisspellingsOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.auto_correct_common_misspellings.name",
+      alias: 'auto-correct-common-misspellings',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['misspellingToCorrection'],      nameKey: "linter.rules.auto_correct_common_misspellings.name",
       descriptionKey: "linter.rules.auto_correct_common_misspellings.description",
       type: RuleType.CONTENT,
       // as a part of the logic to reduce the bundle and build size, we are moving the default list of replacements to

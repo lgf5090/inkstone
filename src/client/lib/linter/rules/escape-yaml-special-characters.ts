@@ -4,16 +4,16 @@ import dedent from 'ts-dedent';
 import { escapeStringIfNecessaryAndPossible, formatYAML, QuoteCharacter } from '../engine/yaml';
 
 class EscapeYamlSpecialCharactersOptions implements Options {
-  @RuleBuilder.noSettingControl()
   defaultEscapeCharacter: QuoteCharacter = '"';
   tryToEscapeSingleLineArrays: boolean = false;
 }
 
-@RuleBuilder.register
 export default class EscapeYamlSpecialCharacters extends RuleBuilder<EscapeYamlSpecialCharactersOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.escape_yaml_special_characters.name",
+      alias: 'escape-yaml-special-characters',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['defaultEscapeCharacter'],      nameKey: "linter.rules.escape_yaml_special_characters.name",
       descriptionKey: "linter.rules.escape_yaml_special_characters.description",
       type: RuleType.YAML,
       hasSpecialExecutionOrder: true,

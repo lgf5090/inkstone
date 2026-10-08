@@ -11,10 +11,10 @@ class OrderedListStyleOptions implements Options {
   preserveStart?: boolean;
 }
 
-@RuleBuilder.register
 export default class OrderedListStyle extends RuleBuilder<OrderedListStyleOptions> {
   constructor() {
     super({
+      alias: 'ordered-list-style',
       nameKey: "linter.rules.ordered_list_style.name",
       descriptionKey: "linter.rules.ordered_list_style.description",
       type: RuleType.CONTENT,

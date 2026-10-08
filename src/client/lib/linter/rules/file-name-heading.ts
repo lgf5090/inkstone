@@ -7,15 +7,15 @@ import {applyNonOverlappingReplacements} from '../engine/text-edits';
 import {ProtectedRanges} from '../engine/protected-ranges';
 
 class FileNameHeadingOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    fileName: string = '';
+  fileName: string = '';
 }
 
-@RuleBuilder.register
 export default class FileNameHeading extends RuleBuilder<FileNameHeadingOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.file_name_heading.name",
+      alias: 'file-name-heading',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['fileName'],      nameKey: "linter.rules.file_name_heading.name",
       descriptionKey: "linter.rules.file_name_heading.description",
       type: RuleType.HEADING,
       ruleIgnoreTypes: [IgnoreTypes.code, IgnoreTypes.math, IgnoreTypes.yaml, IgnoreTypes.link, IgnoreTypes.wikiLink, IgnoreTypes.tag],

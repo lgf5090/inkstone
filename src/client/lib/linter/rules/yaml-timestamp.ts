@@ -38,15 +38,12 @@ type DateCreatedSourceOfTruth = 'file system' | 'frontmatter';
 type DateModifiedSourceOfTruth = 'file system' | 'user or Linter edits';
 
 class YamlTimestampOptions implements Options {
-  @RuleBuilder.noSettingControl()
     alreadyModified?: boolean;
 
   dateCreatedKey: string = 'date created';
   dateCreated: boolean = true;
   dateCreatedSourceOfTruth: DateCreatedSourceOfTruth = 'file system';
   dateModifiedSourceOfTruth: DateModifiedSourceOfTruth = 'file system';
-
-  @RuleBuilder.noSettingControl()
     fileCreatedTime?: string;
 
   format: string = 'dddd, MMMM Do YYYY, h:mm:ss a';
@@ -58,25 +55,18 @@ class YamlTimestampOptions implements Options {
   // This is not used in the rule itself. It is used for running this rule as a standalone when
   // editor content is updated.
   timestampUpdateOnFileContentUpdated: AfterFileChangeLintTimes =AfterFileChangeLintTimes.Never;
-
-  @RuleBuilder.noSettingControl()
     fileModifiedTime?: string;
-
-  @RuleBuilder.noSettingControl()
-    locale: string = 'en';
-
-  @RuleBuilder.noSettingControl()
+  locale: string = 'en';
     currentTime?: LintDate;
-
-  @RuleBuilder.noSettingControl()
     fileName?: string;
 }
 
-@RuleBuilder.register
 export default class YamlTimestamp extends RuleBuilder<YamlTimestampOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.yaml_timestamp.name",
+      alias: 'yaml-timestamp',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['alreadyModified', 'fileCreatedTime', 'fileModifiedTime', 'locale', 'currentTime', 'fileName'],      nameKey: "linter.rules.yaml_timestamp.name",
       descriptionKey: "linter.rules.yaml_timestamp.description",
       type: RuleType.YAML,
       hasSpecialExecutionOrder: true,

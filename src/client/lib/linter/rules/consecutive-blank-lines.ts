@@ -9,10 +9,10 @@ import {applyNonOverlappingReplacements} from '../engine/text-edits';
 
 class ConsecutiveBlankLinesOptions implements Options {}
 
-@RuleBuilder.register
 export default class ConsecutiveBlankLines extends RuleBuilder<ConsecutiveBlankLinesOptions> {
   constructor() {
     super({
+      alias: 'consecutive-blank-lines',
       nameKey: "linter.rules.consecutive_blank_lines.name",
       descriptionKey: "linter.rules.consecutive_blank_lines.description",
       type: RuleType.SPACING,

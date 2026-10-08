@@ -37,16 +37,11 @@ class MoveInlineFieldsToYamlOptions implements Options {
   howToHandleBracketedFields: BracketedFieldOperations = 'Leave in place';
   howToHandleExistingKeys: ExistingKeyOperations = 'Skip';
   inlineKeysToIgnore: string[] = [];
-  @RuleBuilder.noSettingControl()
-    defaultEscapeCharacter: QuoteCharacter = '"';
-  @RuleBuilder.noSettingControl()
-    tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
-  @RuleBuilder.noSettingControl()
-    aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
-  @RuleBuilder.noSettingControl()
-    defaultArrayStyle: NormalArrayFormats = NormalArrayFormats.SingleLine;
-  @RuleBuilder.noSettingControl()
-    removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
+  defaultEscapeCharacter: QuoteCharacter = '"';
+  tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
+  aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
+  defaultArrayStyle: NormalArrayFormats = NormalArrayFormats.SingleLine;
+  removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
 }
 
 type ObsidianListKey = typeof OBSIDIAN_TAG_KEY_PLURAL | typeof OBSIDIAN_ALIAS_KEY_PLURAL;
@@ -71,11 +66,12 @@ const inlineFieldWrappers: Record<string, string> = {'[': ']', '(': ')'};
 const fullLineKeyRegex = /^[^0-9\w\p{Letter}]*((?:\p{Extended_Pictographic}|\u{200D}|\u{FE0F}|[0-9\p{Letter}\w\s/-])*)[_*~`]*$/u;
 const plainYamlKeyRegex = /^[\p{Letter}_][\p{Letter}\p{Number}_/-]*$/u;
 
-@RuleBuilder.register
 export default class MoveInlineFieldsToYaml extends RuleBuilder<MoveInlineFieldsToYamlOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.move_inline_fields_to_yaml.name",
+      alias: 'move-inline-fields-to-yaml',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['defaultEscapeCharacter', 'tagArrayStyle', 'aliasArrayStyle', 'defaultArrayStyle', 'removeUnnecessaryEscapeCharsForMultiLineArrays'],      nameKey: "linter.rules.move_inline_fields_to_yaml.name",
       descriptionKey: "linter.rules.move_inline_fields_to_yaml.description",
       type: RuleType.YAML,
       // runs at the end of the rules that run before the regular rules so that the keys it adds are formatted by the other YAML rules

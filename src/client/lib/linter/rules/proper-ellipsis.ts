@@ -8,10 +8,10 @@ import {replaceTextRanges, textReplacement} from '../engine/strings';
 
 class ProperEllipsisOptions implements Options {}
 
-@RuleBuilder.register
 export default class ProperEllipsis extends RuleBuilder<ProperEllipsisOptions> {
   constructor() {
     super({
+      alias: 'proper-ellipsis',
       nameKey: "linter.rules.proper_ellipsis.name",
       descriptionKey: "linter.rules.proper_ellipsis.description",
       type: RuleType.CONTENT,

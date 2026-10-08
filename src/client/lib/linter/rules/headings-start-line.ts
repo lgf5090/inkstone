@@ -8,10 +8,10 @@ import {applyNonOverlappingReplacements} from '../engine/text-edits';
 
 class HeadingStartLineOptions implements Options {}
 
-@RuleBuilder.register
 export default class HeadingStartLine extends RuleBuilder<HeadingStartLineOptions> {
   constructor() {
     super({
+      alias: 'headings-start-line',
       nameKey: "linter.rules.headings_start_line.name",
       descriptionKey: "linter.rules.headings_start_line.description",
       type: RuleType.HEADING,

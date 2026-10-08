@@ -26,21 +26,19 @@ import { isValidTag } from '../engine/validation';
 type tagOperations = 'Nothing' | 'Remove hashtag' | 'Remove whole tag';
 
 class MoveTagsToYamlOptions implements Options {
-  @RuleBuilder.noSettingControl()
     tagArrayStyle : TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   howToHandleExistingTags: tagOperations = 'Nothing';
   tagsToIgnore: string[] = [];
-  @RuleBuilder.noSettingControl()
-    defaultEscapeCharacter: QuoteCharacter = '"';
-  @RuleBuilder.noSettingControl()
-    removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
+  defaultEscapeCharacter: QuoteCharacter = '"';
+  removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
 }
 
-@RuleBuilder.register
 export default class MoveTagsToYaml extends RuleBuilder<MoveTagsToYamlOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.move_tags_to_yaml.name",
+      alias: 'move-tags-to-yaml',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['tagArrayStyle', 'defaultEscapeCharacter', 'removeUnnecessaryEscapeCharsForMultiLineArrays'],      nameKey: "linter.rules.move_tags_to_yaml.name",
       descriptionKey: "linter.rules.move_tags_to_yaml.description",
       type: RuleType.YAML,
       ruleIgnoreTypes: [IgnoreTypes.code, IgnoreTypes.inlineCode, IgnoreTypes.math, IgnoreTypes.html, IgnoreTypes.wikiLink, IgnoreTypes.link],

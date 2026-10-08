@@ -7,10 +7,10 @@ import {ProtectedRanges} from '../engine/protected-ranges';
 
 class RemoveLinkSpacingOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveLinkSpacing extends RuleBuilder<RemoveLinkSpacingOptions> {
   constructor() {
     super({
+      alias: 'remove-link-spacing',
       nameKey: "linter.rules.remove_link_spacing.name",
       descriptionKey: "linter.rules.remove_link_spacing.description",
       type: RuleType.SPACING,

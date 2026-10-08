@@ -21,26 +21,23 @@ import { isValidYamlKeyOnly } from '../engine/validation';
 type YamlArraySortOrder = 'Ascending Alphabetical' | 'Descending Alphabetical'
 
 class SortYamlArrayValuesOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
+  aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   sortAliasKey: boolean = true;
-  @RuleBuilder.noSettingControl()
-    tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
+  tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   sortTagKey: boolean = true;
   sortArrayKeys: boolean = true;
   sortOrder: YamlArraySortOrder = 'Ascending Alphabetical';
   ignoreSortArrayKeys: string[] = [];
-  @RuleBuilder.noSettingControl()
-    defaultEscapeCharacter: QuoteCharacter = '"';
-  @RuleBuilder.noSettingControl()
-    removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
+  defaultEscapeCharacter: QuoteCharacter = '"';
+  removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
 }
 
-@RuleBuilder.register
 export default class SortYamlArrayValues extends RuleBuilder<SortYamlArrayValuesOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.sort_yaml_array_values.name",
+      alias: 'sort-yaml-array-values',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['aliasArrayStyle', 'tagArrayStyle', 'defaultEscapeCharacter', 'removeUnnecessaryEscapeCharsForMultiLineArrays'],      nameKey: "linter.rules.sort_yaml_array_values.name",
       descriptionKey: "linter.rules.sort_yaml_array_values.description",
       type: RuleType.YAML,
     });

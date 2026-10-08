@@ -10,10 +10,10 @@ import {getEditsBetween} from '../engine/text-edits';
 
 class RemoveEmptyListMarkersOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveEmptyListMarkers extends RuleBuilder<RemoveEmptyListMarkersOptions> {
   constructor() {
     super({
+      alias: 'remove-empty-list-markers',
       nameKey: "linter.rules.remove_empty_list_markers.name",
       descriptionKey: "linter.rules.remove_empty_list_markers.description",
       type: RuleType.CONTENT,

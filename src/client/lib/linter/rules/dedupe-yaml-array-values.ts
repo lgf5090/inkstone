@@ -21,25 +21,22 @@ import {
 import { isValidYamlKeyOnly } from '../engine/validation';
 
 class DedupeYamlArrayValuesOptions implements Options {
-  @RuleBuilder.noSettingControl()
   aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   dedupeAliasKey: boolean = true;
-  @RuleBuilder.noSettingControl()
   tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   dedupeTagKey: boolean = true;
   dedupeArrayKeys: boolean = true;
   ignoreDedupeArrayKeys: string[] = [];
-  @RuleBuilder.noSettingControl()
   defaultEscapeCharacter: QuoteCharacter = '"';
-  @RuleBuilder.noSettingControl()
   removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
 }
 
-@RuleBuilder.register
 export default class DedupeYamlArrayValues extends RuleBuilder<DedupeYamlArrayValuesOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.dedupe_yaml_array_values.name",
+      alias: 'dedupe-yaml-array-values',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['aliasArrayStyle', 'tagArrayStyle', 'defaultEscapeCharacter', 'removeUnnecessaryEscapeCharsForMultiLineArrays'],      nameKey: "linter.rules.dedupe_yaml_array_values.name",
       descriptionKey: "linter.rules.dedupe_yaml_array_values.description",
       type: RuleType.YAML,
     });

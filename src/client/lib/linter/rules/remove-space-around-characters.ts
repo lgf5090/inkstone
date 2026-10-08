@@ -14,10 +14,10 @@ class RemoveSpaceAroundCharactersOptions implements Options {
   otherSymbols: string = '';
 }
 
-@RuleBuilder.register
 export default class RemoveSpaceAroundCharacters extends RuleBuilder<RemoveSpaceAroundCharactersOptions> {
   constructor() {
     super({
+      alias: 'remove-space-around-characters',
       nameKey: "linter.rules.remove_space_around_characters.name",
       descriptionKey: "linter.rules.remove_space_around_characters.description",
       type: RuleType.SPACING,

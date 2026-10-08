@@ -8,10 +8,10 @@ import {applyNonOverlappingReplacements} from '../engine/text-edits';
 
 class SpaceAfterListMarkersOptions implements Options {}
 
-@RuleBuilder.register
 export default class SpaceAfterListMarkers extends RuleBuilder<SpaceAfterListMarkersOptions> {
   constructor() {
     super({
+      alias: 'space-after-list-markers',
       nameKey: "linter.rules.space_after_list_markers.name",
       descriptionKey: "linter.rules.space_after_list_markers.description",
       type: RuleType.SPACING,

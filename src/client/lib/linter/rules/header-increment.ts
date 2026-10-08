@@ -11,10 +11,10 @@ class HeaderIncrementOptions implements Options {
   startAtH2: boolean = false;
 }
 
-@RuleBuilder.register
 export default class HeaderIncrement extends RuleBuilder<HeaderIncrementOptions> {
   constructor() {
     super({
+      alias: 'header-increment',
       nameKey: "linter.rules.header_increment.name",
       descriptionKey: "linter.rules.header_increment.description",
       type: RuleType.HEADING,

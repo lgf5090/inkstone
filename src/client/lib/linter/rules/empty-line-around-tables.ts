@@ -10,10 +10,10 @@ import {getEditsBetween} from '../engine/text-edits';
 
 class EmptyLineAroundTablesOptions implements Options {}
 
-@RuleBuilder.register
 export default class EmptyLineAroundTables extends RuleBuilder<EmptyLineAroundTablesOptions> {
   constructor() {
     super({
+      alias: 'empty-line-around-tables',
       nameKey: "linter.rules.empty_line_around_tables.name",
       descriptionKey: "linter.rules.empty_line_around_tables.description",
       type: RuleType.SPACING,

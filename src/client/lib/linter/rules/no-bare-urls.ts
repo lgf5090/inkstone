@@ -21,10 +21,10 @@ type MatchInfo = {
   match: string,
 }
 
-@RuleBuilder.register
 export default class NoBareUrls extends RuleBuilder<NoBareUrlsOptions> {
   constructor() {
     super({
+      alias: 'no-bare-urls',
       nameKey: "linter.rules.no_bare_urls.name",
       descriptionKey: "linter.rules.no_bare_urls.description",
       type: RuleType.CONTENT,

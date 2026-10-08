@@ -5,16 +5,16 @@ import {escapeStringIfNecessaryAndPossible, formatYAML, getYamlSectionValue, isV
 import { isValidYamlKeyOnly } from '../engine/validation';
 
 class ForceYamlEscapeOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    defaultEscapeCharacter: QuoteCharacter = '"';
+  defaultEscapeCharacter: QuoteCharacter = '"';
   forceYamlEscape: string[] = [];
 }
 
-@RuleBuilder.register
 export default class ForceYamlEscape extends RuleBuilder<ForceYamlEscapeOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.force_yaml_escape.name",
+      alias: 'force-yaml-escape',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['defaultEscapeCharacter'],      nameKey: "linter.rules.force_yaml_escape.name",
       descriptionKey: "linter.rules.force_yaml_escape.description",
       type: RuleType.YAML,
       hasSpecialExecutionOrder: true, // runs before other rules to help cleanup the YAML before it can throw errors on it

@@ -4,10 +4,10 @@ import dedent from 'ts-dedent';
 
 class LineBreakAtDocumentEndOptions implements Options {}
 
-@RuleBuilder.register
 export default class LineBreakAtDocumentEnd extends RuleBuilder<LineBreakAtDocumentEndOptions> {
   constructor() {
     super({
+      alias: 'line-break-at-document-end',
       nameKey: "linter.rules.line_break_at_document_end.name",
       descriptionKey: "linter.rules.line_break_at_document_end.description",
       type: RuleType.SPACING,

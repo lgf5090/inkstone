@@ -1,0 +1,224 @@
+import dedent from 'ts-dedent';
+import { ruleTest } from '../test-harness';
+import EmptyLineAroundTables from '../rules/empty-line-around-tables';
+
+ruleTest({
+  RuleBuilderClass: EmptyLineAroundTables,
+  testCases: [
+    {
+      testName: 'Leaves tables inside fenced code unchanged',
+      before: '```\nBefore\n| a |\n| - |\n| b |\nAfter\n```',
+      after: '```\nBefore\n| a |\n| - |\n| b |\nAfter\n```',
+    },
+    {
+      testName: 'Leaves tables inside a disabled section unchanged',
+      before: '<!-- linter-disable -->\nBefore\n| a |\n| - |\n| b |\nAfter\n<!-- linter-enable -->',
+      after: '<!-- linter-disable -->\nBefore\n| a |\n| - |\n| b |\nAfter\n<!-- linter-enable -->',
+    },
+    {
+      testName: 'Uses projected lines around a table between protected multiline constructs',
+      before: '```\ncode\n```\n| a |\n| - |\n| b |\n$$\nx\n$$',
+      after: '```\ncode\n```\n\n| a |\n| - |\n| b |\n\n$$\nx\n$$',
+    },
+    {
+      testName: 'Make sure multiple blank lines at the start and end are removed',
+      before: dedent`
+        ${''}
+        ${''}
+        | Column 1 | Column 2 |
+        |----------|----------|
+        | foo      | bar      |
+        | baz      | qux      |
+        | quux     | quuz     |
+        ${''}
+        ${''}
+      `,
+      after: dedent`
+        | Column 1 | Column 2 |
+        |----------|----------|
+        | foo      | bar      |
+        | baz      | qux      |
+        | quux     | quuz     |
+      `,
+    },
+    {
+      testName: 'Make sure multiple blank lines at the start and end are removed when dealing with blockquotes or callouts',
+      before: dedent`
+        >
+        > ${''}
+        > | Column 1 | Column 2 |
+        > |----------|----------|
+        > | foo      | bar      |
+        > | baz      | qux      |
+        > | quux     | quuz     |
+        > ${''}
+        >
+      `,
+      after: dedent`
+        > | Column 1 | Column 2 |
+        > |----------|----------|
+        > | foo      | bar      |
+        > | baz      | qux      |
+        > | quux     | quuz     |
+      `,
+    },
+    {
+      testName: 'Don\'t modify inline math',
+      before: dedent`
+        ${''}
+        $|a| + |b|$
+      `,
+      after: dedent`
+        ${''}
+        $|a| + |b|$
+      `,
+    },
+    {
+      testName: 'Don\'t modify math',
+      before: dedent`
+        ${''}
+        $$
+        |a| + |b|
+        $$
+      `,
+      after: dedent`
+        ${''}
+        $$
+        |a| + |b|
+        $$
+      `,
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/559
+      testName: 'Make sure that consecutive links are not affected',
+      before: dedent`
+        [[filename with dot . |alt name]] [[filename|alt name]]
+        ${''}
+      `,
+      after: dedent`
+        [[filename with dot . |alt name]] [[filename|alt name]]
+        ${''}
+      `,
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/559
+      testName: 'More complex link scenario is not affected either',
+      before: dedent`
+        dolor sit amet [[filename with dot . |alt name]] lorem ipsum [[filename|alt name]] adipisci velit [[filename|alt name]]
+        ${''}
+      `,
+      after: dedent`
+        dolor sit amet [[filename with dot . |alt name]] lorem ipsum [[filename|alt name]] adipisci velit [[filename|alt name]]
+        ${''}
+      `,
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/559
+      testName: 'Make sure that math blocks followed by a couple of wiki links are not affected',
+      before: dedent`
+        - $math1$ [[name1 .|alt name1]]  [[name2 |alt name2]]:
+        ${''}
+        - $math2$
+      `,
+      after: dedent`
+        - $math1$ [[name1 .|alt name1]]  [[name2 |alt name2]]:
+        ${''}
+        - $math2$
+      `,
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/577
+      testName: 'Make sure that we prevent some erroneous table matches where the value is not at the start of a line',
+      before: dedent`
+        content
+        magneto - | maɡˈnedō |
+        content
+      `,
+      after: dedent`
+        content
+        magneto - | maɡˈnedō |
+        content
+      `,
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/1235
+      testName: 'Make sure that we do not break a table apart when it rows with just dashes in them',
+      before: dedent`
+        | test  |
+        |:-----:|
+        |  ---  |
+        |  one  |
+        |  two  |
+        |  ---  |
+        |  ---  |
+        | three |
+        |  ---  |
+        |  ---  |
+        |  ---  |
+        |  ---  |
+        | four  |
+        | five  |
+      `,
+      after: dedent`
+        | test  |
+        |:-----:|
+        |  ---  |
+        |  one  |
+        |  two  |
+        |  ---  |
+        |  ---  |
+        | three |
+        |  ---  |
+        |  ---  |
+        |  ---  |
+        |  ---  |
+        | four  |
+        | five  |
+      `,
+    },
+    { // accounts for https://github.com/platers/obsidian-linter/issues/1319
+      testName: 'Make sure that empty lines around table handles an empty line prior to the table that is nested one blockquote level more than the table is',
+      before: dedent`
+        > AAA
+        >
+        > > **BBB:**
+        > >
+        > > - CCC
+        > > 
+        > | D | E |
+        > |:---:|:--- |
+        > | F | G |
+      `,
+      after: dedent`
+        > AAA
+        >
+        > > **BBB:**
+        > >
+        > > - CCC
+        > >
+        > | D | E |
+        > |:---:|:--- |
+        > | F | G |
+      `
+    },
+    {
+      testName: 'Make sure that empty lines around table handles an empty line after the table that is nested one blockquote level more than the table is',
+      before: dedent`
+        > AAA
+        >
+        > | D | E |
+        > |:---:|:--- |
+        > | F | G |
+        > > **BBB:**
+        > >
+        > > - CCC
+      `,
+      after: dedent`
+        > AAA
+        >
+        > | D | E |
+        > |:---:|:--- |
+        > | F | G |
+        >
+        > > **BBB:**
+        > >
+        > > - CCC
+      `
+    },
+  ],
+});

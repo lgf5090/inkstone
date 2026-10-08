@@ -10,22 +10,20 @@ import {insert} from '../engine/strings';
 type YamlTitleModeValues = 'first-h1-or-filename-if-h1-missing' | 'filename' | 'first-h1';
 
 class YamlTitleOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    fileName: string = '';
-
-  @RuleBuilder.noSettingControl()
-    defaultEscapeCharacter: QuoteCharacter = '"';
+  fileName: string = '';
+  defaultEscapeCharacter: QuoteCharacter = '"';
 
   titleKey: string = 'title';
 
   mode: YamlTitleModeValues = 'first-h1-or-filename-if-h1-missing';
 }
 
-@RuleBuilder.register
 export default class YamlTitle extends RuleBuilder<YamlTitleOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.yaml_title.name",
+      alias: 'yaml-title',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['fileName', 'defaultEscapeCharacter'],      nameKey: "linter.rules.yaml_title.name",
       descriptionKey: "linter.rules.yaml_title.description",
       type: RuleType.YAML,
       hasSpecialExecutionOrder: true, // this rule must run after capitalize-headings in order to update the title correctly

@@ -10,10 +10,10 @@ import { applyNonOverlappingReplacements, getEditsBetween } from '../engine/text
 class AlignTableOptions implements Options {
 }
 
-@RuleBuilder.register
 export default class AlignTable extends RuleBuilder<AlignTableOptions> {
   constructor() {
     super({
+      alias: 'align-table-columns',
       nameKey: "linter.rules.align_table_columns.name",
       descriptionKey: "linter.rules.align_table_columns.description",
       type: RuleType.SPACING,

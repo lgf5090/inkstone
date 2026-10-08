@@ -9,6 +9,8 @@
  * typo, an old version, or a hand-edited export cannot smuggle values into a lint run.
  */
 
+import { patternSafety } from './regex-safety'
+
 export const LINTER_CONFIG_VERSION = 1
 
 export const LINTER_LIMITS = {
@@ -306,6 +308,9 @@ export function isLinterIgnoredPath(settings: LinterSettings, path: string, fold
   return settings.filesToIgnore.some((entry) => {
     if (!entry.match) return false
     try {
+      // A restored backup never passed the panel that refuses these, so the run is where it is
+      // refused: an ignore test that hangs takes the whole library down with it.
+      if (patternSafety(entry.match)) return false
       return new RegExp(entry.match, entry.flags || 'i').test(path)
     }
     catch {

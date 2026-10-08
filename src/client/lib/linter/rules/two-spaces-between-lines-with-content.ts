@@ -9,10 +9,10 @@ class TwoSpacesBetweenLinesWithContentOptions implements Options {
   lineBreakIndicator: LineBreakIndicators = LineBreakIndicators.TwoSpaces;
 }
 
-@RuleBuilder.register
 export default class TwoSpacesBetweenLinesWithContent extends RuleBuilder<TwoSpacesBetweenLinesWithContentOptions> {
   constructor() {
     super({
+      alias: 'two-spaces-between-lines-with-content',
       nameKey: "linter.rules.two_spaces_between_lines_with_content.name",
       descriptionKey: "linter.rules.two_spaces_between_lines_with_content.description",
       type: RuleType.CONTENT,

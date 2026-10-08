@@ -10,10 +10,10 @@ import {getEditsBetween} from '../engine/text-edits';
 
 class RemoveEmptyLinesBetweenListMarkersAndChecklistsOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveEmptyLinesBetweenListMarkersAndChecklists extends RuleBuilder<RemoveEmptyLinesBetweenListMarkersAndChecklistsOptions> {
   constructor() {
     super({
+      alias: 'remove-empty-lines-between-list-markers-and-checklists',
       nameKey: "linter.rules.remove_empty_lines_between_list_markers_and_checklists.name",
       descriptionKey: "linter.rules.remove_empty_lines_between_list_markers_and_checklists.description",
       type: RuleType.SPACING,

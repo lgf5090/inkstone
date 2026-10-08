@@ -11,14 +11,8 @@ type YamlSortOrderForOtherKeys = 'None' | 'Ascending Alphabetical' | 'Descending
 
 class YamlKeySortOptions implements Options {
   priorityKeysAtStartOfYaml: boolean = true;
-
-  @RuleBuilder.noSettingControl()
     dateModifiedKey?: string;
-
-  @RuleBuilder.noSettingControl()
     currentTimeFormatted?: string;
-
-  @RuleBuilder.noSettingControl()
     yamlTimestampDateModifiedEnabled?: boolean;
 
   yamlKeyPrioritySortOrder: string[] = [];
@@ -40,11 +34,12 @@ function movedTokenArrays(target: Document, source: Document): { target: YamlCST
   return { target: targetTokens, source: sourceTokens };
 }
 
-@RuleBuilder.register
 export default class YamlKeySort extends RuleBuilder<YamlKeySortOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.yaml_key_sort.name",
+      alias: 'yaml-key-sort',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['dateModifiedKey', 'currentTimeFormatted', 'yamlTimestampDateModifiedEnabled'],      nameKey: "linter.rules.yaml_key_sort.name",
       descriptionKey: "linter.rules.yaml_key_sort.description",
       type: RuleType.YAML,
       hasSpecialExecutionOrder: true,

@@ -4,15 +4,15 @@ import RuleBuilder, {ExampleBuilder, OptionBuilderBase} from '../rule-builder';
 import dedent from 'ts-dedent';
 
 class BlockquotifyOnPasteOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    lineContent: string = '';
+  lineContent: string = '';
 }
 
-@RuleBuilder.register
 export default class BlockquotifyOnPaste extends RuleBuilder<BlockquotifyOnPasteOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.add_blockquote_indentation_on_paste.name",
+      alias: 'add-blockquote-indentation-on-paste',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['lineContent'],      nameKey: "linter.rules.add_blockquote_indentation_on_paste.name",
       descriptionKey: "linter.rules.add_blockquote_indentation_on_paste.description",
       type: RuleType.PASTE,
     });

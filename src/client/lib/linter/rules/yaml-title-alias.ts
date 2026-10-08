@@ -13,25 +13,18 @@ class YamlTitleAliasOptions implements Options {
   removeAliasKeyWhenEmpty: boolean = true
   useYamlKeyToKeepTrackOfOldFilenameOrHeading: boolean = true;
   aliasHelperKey: string = DEFAULT_LINTER_ALIASES_HELPER_KEY;
-
-  @RuleBuilder.noSettingControl()
   aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.MultiLine;
-
-  @RuleBuilder.noSettingControl()
   fileName: string = '';
-
-  @RuleBuilder.noSettingControl()
   defaultEscapeCharacter: QuoteCharacter = '"';
-
-  @RuleBuilder.noSettingControl()
   removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
 }
 
-@RuleBuilder.register
 export default class YamlTitleAlias extends RuleBuilder<YamlTitleAliasOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.yaml_title_alias.name",
+      alias: 'yaml-title-alias',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['aliasArrayStyle', 'fileName', 'defaultEscapeCharacter', 'removeUnnecessaryEscapeCharsForMultiLineArrays'],      nameKey: "linter.rules.yaml_title_alias.name",
       descriptionKey: "linter.rules.yaml_title_alias.description",
       type: RuleType.YAML,
       hasSpecialExecutionOrder: true, // this rule must run after capitalize-headings in order to update the alias correctly

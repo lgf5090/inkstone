@@ -16,6 +16,16 @@ export type OptionKind = 'toggle' | 'text' | 'number' | 'dropdown' | 'date-forma
 /** A stored value's own check, answered as `[valid, message]`. */
 export type EntryValidator = (value: string) => [boolean, string]
 
+/** Every control kind a rule can ask the panel to draw. */
+export type RuleOption =
+  | BooleanOption
+  | TextOption
+  | NumberOption
+  | DropdownOption
+  | MomentFormatOption
+  | ListItemOption
+  | NotePickerOption
+
 export abstract class Option {
   public ruleAlias: string = ''
 

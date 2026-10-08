@@ -7,10 +7,10 @@ import {applyNonOverlappingReplacements} from '../engine/text-edits';
 
 class FootnoteAfterPunctuationOptions implements Options {}
 
-@RuleBuilder.register
 export default class FootnoteAfterPunctuation extends RuleBuilder<FootnoteAfterPunctuationOptions> {
   constructor() {
     super({
+      alias: 'footnote-after-punctuation',
       nameKey: "linter.rules.footnote_after_punctuation.name",
       descriptionKey: "linter.rules.footnote_after_punctuation.description",
       type: RuleType.FOOTNOTE,

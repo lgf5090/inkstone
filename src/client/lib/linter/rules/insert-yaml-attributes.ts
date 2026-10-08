@@ -12,10 +12,10 @@ class InsertYamlAttributesOptions implements Options {
   ];
 }
 
-@RuleBuilder.register
 export default class InsertYamlAttributes extends RuleBuilder<InsertYamlAttributesOptions> {
   constructor() {
     super({
+      alias: 'insert-yaml-attributes',
       nameKey: "linter.rules.insert_yaml_attributes.name",
       descriptionKey: "linter.rules.insert_yaml_attributes.description",
       type: RuleType.YAML,

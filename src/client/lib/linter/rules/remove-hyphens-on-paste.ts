@@ -5,10 +5,10 @@ import dedent from 'ts-dedent';
 
 class RemoveHyphensOnPasteOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveHyphensOnPaste extends RuleBuilder<RemoveHyphensOnPasteOptions> {
   constructor() {
     super({
+      alias: 'remove-hyphens-on-paste',
       nameKey: "linter.rules.remove_hyphens_on_paste.name",
       descriptionKey: "linter.rules.remove_hyphens_on_paste.description",
       type: RuleType.PASTE,

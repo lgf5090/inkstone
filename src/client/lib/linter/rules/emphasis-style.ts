@@ -11,10 +11,10 @@ class EmphasisStyleOptions implements Options {
   style: EmphasisStyleValues = 'consistent';
 }
 
-@RuleBuilder.register
 export default class EmphasisStyle extends RuleBuilder<EmphasisStyleOptions> {
   constructor() {
     super({
+      alias: 'emphasis-style',
       nameKey: "linter.rules.emphasis_style.name",
       descriptionKey: "linter.rules.emphasis_style.description",
       type: RuleType.CONTENT,

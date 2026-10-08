@@ -7,10 +7,10 @@ class CompactYamlOptions implements Options {
   innerNewLines: boolean = false;
 }
 
-@RuleBuilder.register
 export default class CompactYaml extends RuleBuilder<CompactYamlOptions> {
   constructor() {
     super({
+      alias: 'compact-yaml',
       nameKey: "linter.rules.compact_yaml.name",
       descriptionKey: "linter.rules.compact_yaml.description",
       type: RuleType.SPACING,

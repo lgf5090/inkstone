@@ -11,7 +11,7 @@ import { t } from '../i18n'
 import { getExactDisabledRuleValue, getYAMLText } from './engine/yaml';
 import { LintContext } from './engine/protected-ranges';
 import { LinterError } from './linter-error';
-import { BooleanOption, Option, type RuleConflict } from './option';
+import { BooleanOption, type RuleConflict, type RuleOption } from './option';
 import type { MessageKey } from '../i18n'
 import type { IgnoreType } from './engine/ignore-types';
 import type { ProtectedRanges } from './engine/protected-ranges';
@@ -51,7 +51,7 @@ export class Rule {
       public type: RuleType,
       public applyAfterIgnore: ApplyFunction,
       public examples: Array<Example>,
-      public options: Array<Option> = [],
+      public options: Array<RuleOption> = [],
       public readonly hasSpecialExecutionOrder: boolean = false,
       public readonly ignoreTypes: IgnoreType[] = [],
   ) {
@@ -72,8 +72,16 @@ export class Rule {
     return options;
   }
 
+  /** The reader's stored config; a rule they never touched simply has no settings of its own. */
   getOptions(settings: LinterSettings): Options {
-    return settings.ruleConfigs[this.settingsKey] as Options;
+    return (settings.ruleConfigs[this.settingsKey] as Options) ?? {};
+  }
+
+  /** Whether the reader has this rule switched on; an absent config means the rule is off. */
+  isEnabled(settings: LinterSettings): boolean {
+    const stored = settings.ruleConfigs[this.settingsKey] as { enabled?: unknown } | undefined;
+
+    return stored?.enabled === true;
   }
 
   getName(): string {

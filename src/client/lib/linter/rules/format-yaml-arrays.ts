@@ -17,28 +17,24 @@ import {convertAliasValueToStringOrStringArray,
 import { isValidYamlKeyOnly } from '../engine/validation';
 
 class FormatYamlArrayOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
+  aliasArrayStyle: NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   formatAliasKey: boolean = true;
-  @RuleBuilder.noSettingControl()
-    tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
+  tagArrayStyle: TagSpecificArrayFormats | NormalArrayFormats | SpecialArrayFormats = NormalArrayFormats.SingleLine;
   formatTagKey: boolean = true;
-  @RuleBuilder.noSettingControl()
-    defaultArrayStyle: NormalArrayFormats = NormalArrayFormats.SingleLine;
+  defaultArrayStyle: NormalArrayFormats = NormalArrayFormats.SingleLine;
   formatArrayKeys: boolean = true;
   forceSingleLineArrayStyle: string[] = [];
   forceMultiLineArrayStyle: string[] = [];
-  @RuleBuilder.noSettingControl()
-    defaultEscapeCharacter: QuoteCharacter = '"';
-  @RuleBuilder.noSettingControl()
-    removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
+  defaultEscapeCharacter: QuoteCharacter = '"';
+  removeUnnecessaryEscapeCharsForMultiLineArrays: boolean = false;
 }
 
-@RuleBuilder.register
 export default class FormatYamlArray extends RuleBuilder<FormatYamlArrayOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.format_yaml_array.name",
+      alias: 'format-yaml-array',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['aliasArrayStyle', 'tagArrayStyle', 'defaultArrayStyle', 'defaultEscapeCharacter', 'removeUnnecessaryEscapeCharsForMultiLineArrays'],      nameKey: "linter.rules.format_yaml_array.name",
       descriptionKey: "linter.rules.format_yaml_array.description",
       type: RuleType.YAML,
     });

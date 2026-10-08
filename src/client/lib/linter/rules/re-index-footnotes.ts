@@ -7,10 +7,10 @@ import type {ProtectedRanges} from '../engine/protected-ranges';
 
 class ReIndexFootnotesOptions implements Options {}
 
-@RuleBuilder.register
 export default class ReIndexFootnotes extends RuleBuilder<ReIndexFootnotesOptions> {
   constructor() {
     super({
+      alias: 're-index-footnotes',
       nameKey: "linter.rules.re_index_footnotes.name",
       descriptionKey: "linter.rules.re_index_footnotes.description",
       type: RuleType.FOOTNOTE,

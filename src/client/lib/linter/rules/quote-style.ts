@@ -24,10 +24,10 @@ class QuoteStyleOptions implements Options {
   doubleQuoteStyle: DoubleQuoteStyles = DoubleQuoteStyles.Straight;
 }
 
-@RuleBuilder.register
 export default class QuoteStyle extends RuleBuilder<QuoteStyleOptions> {
   constructor() {
     super({
+      alias: 'quote-style',
       nameKey: "linter.rules.quote_style.name",
       descriptionKey: "linter.rules.quote_style.description",
       type: RuleType.CONTENT,

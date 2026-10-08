@@ -206,7 +206,9 @@ const englishOnlyPaths = [
     path.resolve('.github'),
 ];
 for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walkSource(target)] : [])) {
-    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file))
+    // A test file holds note text and expected output, never interface copy, which is the same
+    // exemption the scan below gives it.
+    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file) || file.includes(".test."))
         continue;
     rejectHan(file);
 }
@@ -308,6 +310,8 @@ function ruleExampleSpans(sourceFile) {
     const cached = ruleExampleCache.get(sourceFile);
     if (cached)
         return cached;
+    // inside the ported test corpus the same fixtures arrive as plain object literals, so the two
+    // property names that hold a document are recognized wherever they appear
     const spans = [];
     const walk = (node) => {
         if (ts.isObjectLiteralExpression(node) &&
@@ -339,7 +343,11 @@ function blankRuleExampleFixtures(file, source) {
     return text;
 }
 function isLinterRuleFile(fileName) {
-    return path.resolve(fileName).startsWith(path.join(process.cwd(), 'src', 'client', 'lib', 'linter', 'rules') + path.sep);
+    const dir = path.resolve(fileName).replace(/[\\/][^\\/]*$/, '');
+
+    return [path.join(process.cwd(), 'src', 'client', 'lib', 'linter', 'rules'),
+        path.join(process.cwd(), 'src', 'client', 'lib', 'linter', '__tests__')]
+        .some((root) => dir === root || dir.startsWith(root + path.sep));
 }
 function insideRuleExample(node) {
     const spans = ruleExampleSpans(node.getSourceFile());

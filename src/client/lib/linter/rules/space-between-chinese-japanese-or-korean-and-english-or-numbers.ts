@@ -12,10 +12,10 @@ class SpaceBetweenChineseJapaneseOrKoreanAndEnglishOrNumbersOptions implements O
   englishNonLetterCharactersBeforeCJKCharacters: string = `-+;:'"°%$)]`;
 }
 
-@RuleBuilder.register
 export default class SpaceBetweenChineseJapaneseOrKoreanAndEnglishOrNumbers extends RuleBuilder<SpaceBetweenChineseJapaneseOrKoreanAndEnglishOrNumbersOptions> {
   constructor() {
     super({
+      alias: 'space-between-chinese-japanese-or-korean-and-english-or-numbers',
       nameKey: "linter.rules.space_between_chinese_japanese_or_korean_and_english_or_numbers.name",
       descriptionKey: "linter.rules.space_between_chinese_japanese_or_korean_and_english_or_numbers.description",
       type: RuleType.SPACING,

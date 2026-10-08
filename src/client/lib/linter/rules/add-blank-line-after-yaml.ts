@@ -6,10 +6,10 @@ import {yamlRegex} from '../engine/regex';
 class AddBlankLineAfterYAMLOptions implements Options {
 }
 
-@RuleBuilder.register
 export default class AddBlankLineAfterYAML extends RuleBuilder<AddBlankLineAfterYAMLOptions> {
   constructor() {
     super({
+      alias: 'add-blank-line-after-yaml',
       nameKey: "linter.rules.add_blank_line_after_yaml.name",
       descriptionKey: "linter.rules.add_blank_line_after_yaml.description",
       type: RuleType.YAML,

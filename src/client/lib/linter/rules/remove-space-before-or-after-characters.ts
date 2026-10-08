@@ -12,10 +12,10 @@ class RemoveSpaceBeforeOrAfterCharactersOptions implements Options {
   charactersToRemoveSpacesAfter: string = '¿¡‘“([';
 }
 
-@RuleBuilder.register
 export default class RemoveSpaceBeforeOrAfterCharacters extends RuleBuilder<RemoveSpaceBeforeOrAfterCharactersOptions> {
   constructor() {
     super({
+      alias: 'remove-space-before-or-after-characters',
       nameKey: "linter.rules.remove_space_before_or_after_characters.name",
       descriptionKey: "linter.rules.remove_space_before_or_after_characters.description",
       type: RuleType.SPACING,

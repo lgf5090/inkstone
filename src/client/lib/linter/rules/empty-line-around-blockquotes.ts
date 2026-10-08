@@ -6,10 +6,10 @@ import {ProtectedRanges} from '../engine/protected-ranges';
 
 class EmptyLineAroundBlockquotesOptions implements Options {}
 
-@RuleBuilder.register
 export default class EmptyLineAroundBlockquotes extends RuleBuilder<EmptyLineAroundBlockquotesOptions> {
   constructor() {
     super({
+      alias: 'empty-line-around-blockquotes',
       nameKey: "linter.rules.empty_line_around_blockquotes.name",
       descriptionKey: "linter.rules.empty_line_around_blockquotes.description",
       type: RuleType.SPACING,

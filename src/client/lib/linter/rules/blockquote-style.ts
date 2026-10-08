@@ -13,10 +13,10 @@ class BlockquoteStyleOptions implements Options {
   style: BlockquoteStyleValues = 'space';
 }
 
-@RuleBuilder.register
 export default class BlockquoteStyle extends RuleBuilder<BlockquoteStyleOptions> {
   constructor() {
     super({
+      alias: 'blockquote-style',
       nameKey: "linter.rules.blockquote_style.name",
       descriptionKey: "linter.rules.blockquote_style.description",
       type: RuleType.CONTENT,

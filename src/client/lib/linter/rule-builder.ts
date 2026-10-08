@@ -15,7 +15,7 @@ import {
   MomentFormatOption,
   NotePickerOption,
   NumberOption,
-  Option,
+  type RuleOption,
   TextOption,
   type EntryValidator,
   type RuleConflict,
@@ -36,36 +36,6 @@ const maxFileSizeLength = 10000;
 
 export class RuleBuilderBase {
   static #ruleMap = new Map<string, Rule>();
-  static #noSettingsControlMap = new Map<string, string[]>();
-
-  protected static setNoSettingControl(optionsClassName: string, propertyKey: string): void {
-    const existing = RuleBuilderBase.#noSettingsControlMap.get(optionsClassName);
-    if (existing) {
-      existing.push(propertyKey);
-    } else {
-      RuleBuilderBase.#noSettingsControlMap.set(optionsClassName, [propertyKey]);
-    }
-  }
-
-  /**
-   * An options field that carries no control of its own.
-   *
-   * The value is fed to the rule from somewhere else — the run's extra options, or an option that
-   * renders as a page rather than a row — so the settings panel must not draw a second one for it.
-   */
-  static noSettingControl(): (value: unknown, context: ClassFieldDecoratorContext) => void {
-    return function (this: unknown, _value: unknown, context: ClassFieldDecoratorContext): void {
-      const propertyKey = String(context.name);
-
-      context.addInitializer(function () {
-        RuleBuilderBase.setNoSettingControl((this as { constructor: { name: string } }).constructor.name, propertyKey);
-      });
-    };
-  }
-
-  static hasSettingControl(optionsClassName: string, optionsClassKey: string): boolean {
-    return !(RuleBuilderBase.#noSettingsControlMap.get(optionsClassName) ?? []).includes(optionsClassKey);
-  }
 
   static getRule<TOptions extends Options>(this: (new () => RuleBuilder<TOptions>)): Rule {
     // Keyed on the rule's alias rather than the name of the class it was built from: three rules
@@ -79,10 +49,9 @@ export class RuleBuilderBase {
 
     const rule = new Rule(builder.nameKey, builder.descriptionKey, builder.settingsKey, builder.alias, builder.type, builder.safeApply.bind(builder), builder.exampleBuilders.map((builder) => builder.example), builder.optionBuilders.map((builder) => builder.option), builder.hasSpecialExecutionOrder, builder.ignoreTypes);
     rule.conflictsWhenEnabled = builder.conflictsWhenEnabled;
-    const optionsClassName = builder.OptionsClass.name;
-    rule.hiddenConfigKeys = rule.options
-      .filter((option) => !RuleBuilderBase.hasSettingControl(optionsClassName, option.configKey))
-      .map((option) => option.configKey);
+    rule.hiddenConfigKeys = builder.hiddenKeys
+      .map((field) => rule.options.find((option) => option.configKey === toConfigKey(field))?.configKey)
+      .filter((configKey): configKey is string => configKey !== undefined);
     RuleBuilderBase.#ruleMap.set(builder.alias, rule);
 
     return rule;
@@ -118,6 +87,8 @@ export class RuleBuilderBase {
 }
 
 type RuleBuilderConstructorArgs = {
+  /** Defaults to the locale key’s rule segment; a rule that keeps the reference’s dashed alias names it here. */
+  alias?: string,
   nameKey: MessageKey,
   descriptionKey: MessageKey,
   type: RuleType,
@@ -126,6 +97,8 @@ type RuleBuilderConstructorArgs = {
   // Note: this value should not contain custom ignore as that is added to all rules except Paste
   // rules, which do not use this property
   ruleIgnoreTypes?: IgnoreType[],
+  /** Option fields the run feeds in; the panel draws no control for them. */
+  hiddenKeys?: string[],
   /** Switching this rule on means these other settings should be turned off, with the reader's say. */
   disableConflictingOptions?: (value: boolean) => RuleConflict[],
 };
@@ -139,18 +112,21 @@ export default abstract class RuleBuilder<TOptions extends Options> extends Rule
   public hasSpecialExecutionOrder: boolean;
   public ignoreTypes: IgnoreType[];
   public conflictsWhenEnabled: (value: boolean) => RuleConflict[];
+  public hiddenKeys: string[];
 
   constructor(args: RuleBuilderConstructorArgs) {
     super();
 
-    // cut "linter.rules." from the start and ".name" from the end
-    this.alias = args.nameKey.substring('linter.rules.'.length, args.nameKey.length - '.name'.length);
+    // cut "linter.rules." from the start and ".name" from the end, unless the rule carries the
+    // reference's own alias: that spelling is what a note's disabled-rules front matter uses
+    this.alias = args.alias ?? args.nameKey.substring('linter.rules.'.length, args.nameKey.length - '.name'.length);
     this.settingsKey = this.alias;
     this.nameKey = args.nameKey;
     this.descriptionKey = args.descriptionKey;
     this.type = args.type;
     this.hasSpecialExecutionOrder = args.hasSpecialExecutionOrder ?? false;
     this.conflictsWhenEnabled = args.disableConflictingOptions ?? (() => []);
+    this.hiddenKeys = args.hiddenKeys ?? [];
 
     if (args.ruleIgnoreTypes) {
       this.ignoreTypes = [IgnoreTypes.customIgnore, ...args.ruleIgnoreTypes];
@@ -220,7 +196,7 @@ type OptionBuilderConstructorArgs<TOptions extends Options, TValue> = {
 
 export abstract class OptionBuilderBase<TOptions extends Options> {
   abstract setRuleOption(ruleOptions: TOptions, options: Partial<Options>): void;
-  abstract get option(): Option;
+  abstract get option(): RuleOption;
   abstract get optionsKey(): string;
 }
 
@@ -230,7 +206,7 @@ export abstract class OptionBuilder<TOptions extends Options, TValue> extends Op
   readonly nameKey: MessageKey;
   readonly descriptionKey: MessageKey;
   readonly optionsKey: KeysOfObjectMatchingPropertyValueType<TOptions, TValue>;
-  #option: Option | undefined;
+  #option: RuleOption | undefined;
 
   constructor(args: OptionBuilderConstructorArgs<TOptions, TValue>) {
     super();
@@ -248,7 +224,7 @@ export abstract class OptionBuilder<TOptions extends Options, TValue> extends Op
     return (new this.OptionsClass()[this.optionsKey] as unknown) as TValue;
   }
 
-  get option(): Option {
+  get option(): RuleOption {
     if (!this.#option) {
       this.#option = this.buildOption();
     }
@@ -263,7 +239,7 @@ export abstract class OptionBuilder<TOptions extends Options, TValue> extends Op
     }
   }
 
-  protected abstract buildOption(): Option;
+  protected abstract buildOption(): RuleOption;
 }
 
 export class BooleanOptionBuilder<TOptions extends Options> extends OptionBuilder<TOptions, boolean> {
@@ -274,13 +250,13 @@ export class BooleanOptionBuilder<TOptions extends Options> extends OptionBuilde
     this.conflictsWith = args.conflictsWith ?? [];
   }
 
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new BooleanOption(this.configKey, this.nameKey, this.descriptionKey, this.defaultValue, null, this.conflictsWith.length ? this.conflictsWith : undefined);
   }
 }
 
 export class NumberOptionBuilder<TOptions extends Options> extends OptionBuilder<TOptions, number> {
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new NumberOption(this.configKey, this.nameKey, this.descriptionKey, this.defaultValue);
   }
 }
@@ -297,7 +273,7 @@ export class DropdownOptionBuilder<TOptions extends Options, TValue extends stri
     this.records = args.records.map((record) => new DropdownRecord(record.value, enumLabelKeyFor(record.value), record.description));
   }
 
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new DropdownOption(this.configKey, this.nameKey, this.descriptionKey, this.defaultValue, this.records);
   }
 }
@@ -319,7 +295,7 @@ export class ListItemOptionBuilder<TOptions extends Options> extends OptionBuild
     this.trimItemWhitespace = args.trimItemWhitespace ?? false;
   }
 
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new ListItemOption(this.configKey, this.nameKey, this.descriptionKey, this.defaultValue ?? [], null, this.validator, this.emptyStateKey, this.fieldNamePlaceholderKey, this.allowReorder, this.trimItemWhitespace);
   }
 
@@ -333,19 +309,19 @@ export class ListItemOptionBuilder<TOptions extends Options> extends OptionBuild
 }
 
 export class TextOptionBuilder<TOptions extends Options> extends OptionBuilder<TOptions, string> {
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new TextOption(this.configKey, this.nameKey, this.descriptionKey, this.defaultValue);
   }
 }
 
 export class MomentFormatOptionBuilder<TOptions extends Options> extends OptionBuilder<TOptions, string> {
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new MomentFormatOption(this.configKey, this.nameKey, this.descriptionKey, this.defaultValue);
   }
 }
 
 export class MdFilePickerOptionBuilder<TOptions extends Options> extends OptionBuilder<TOptions, CustomAutoCorrectContent[]> {
-  protected buildOption(): Option {
+  protected buildOption(): RuleOption {
     return new NotePickerOption(this.configKey, this.nameKey, this.descriptionKey);
   }
 }
@@ -366,4 +342,9 @@ function enumLabelKeyFor(value: string): MessageKey | null {
   return `linter.enums.${value.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')}` as MessageKey;
 }
 
-export { enumLabelKeyFor };
+/** An options field name as the settings and the catalog spell it. */
+function toConfigKey(field: string): string {
+  return field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+export { enumLabelKeyFor, toConfigKey };

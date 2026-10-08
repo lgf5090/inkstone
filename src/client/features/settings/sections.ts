@@ -2,7 +2,7 @@ import { backupRunsResource, backupTargetsResource, mcpResource, sharesResource,
 import { useSession } from '../../store/session'
 import type { MessageKey } from '../../lib/i18n'
 
-export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'about'
+export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'linter' | 'about'
 
 export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   appearance: 'settings.appearance',
@@ -14,6 +14,7 @@ export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   sync: 'settings.sync',
   mcp: 'settings.mcp',
   automation: 'settings.automation',
+  linter: 'settings.markdown_linter',
   account: 'settings.account',
   data: 'settings.data',
   shares: 'share.shared_notes',
@@ -32,6 +33,7 @@ export const settingsLoaders = {
   data: () => import('./DataSettings').then((m) => ({ default: m.DataSettings })),
   shares: () => import('./SharedNotes').then((m) => ({ default: m.SharedNotes })),
   automation: () => import('./QuickAddSettings').then((m) => ({ default: m.QuickAddSettings })),
+  linter: () => import('./LinterSettings').then((m) => ({ default: m.LinterSettings })),
   about: () => import('./AboutSettings').then((m) => ({ default: m.AboutSettings })),
 }
 

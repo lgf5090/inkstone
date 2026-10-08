@@ -11,10 +11,10 @@ class TrailingSpacesOptions implements Options {
   twoSpaceLineBreak: boolean = false;
 }
 
-@RuleBuilder.register
 export default class TrailingSpaces extends RuleBuilder<TrailingSpacesOptions> {
   constructor() {
     super({
+      alias: 'trailing-spaces',
       nameKey: "linter.rules.trailing_spaces.name",
       descriptionKey: "linter.rules.trailing_spaces.description",
       type: RuleType.SPACING,

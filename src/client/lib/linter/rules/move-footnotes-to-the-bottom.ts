@@ -9,10 +9,10 @@ class MoveFootnotesToTheBottomOptions implements Options {
   includeBlankLineBetweenFootnotes: boolean = false;
 }
 
-@RuleBuilder.register
 export default class MoveFootnotesToTheBottom extends RuleBuilder<MoveFootnotesToTheBottomOptions> {
   constructor() {
     super({
+      alias: 'move-footnotes-to-the-bottom',
       nameKey: "linter.rules.move_footnotes_to_the_bottom.name",
       descriptionKey: "linter.rules.move_footnotes_to_the_bottom.description",
       type: RuleType.FOOTNOTE,

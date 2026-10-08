@@ -6,15 +6,15 @@ import {makeSureMathBlockIndicatorsAreOnTheirOwnLines} from '../engine/mdast';
 import {ProtectedRanges} from '../engine/protected-ranges';
 
 class MoveMathBlockIndicatorsToOwnLineOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    minimumNumberOfDollarSignsToBeAMathBlock: number = 2;
+  minimumNumberOfDollarSignsToBeAMathBlock: number = 2;
 }
 
-@RuleBuilder.register
 export default class MoveMathBlockIndicatorsToOwnLine extends RuleBuilder<MoveMathBlockIndicatorsToOwnLineOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.move_math_block_indicators_to_their_own_line.name",
+      alias: 'move-math-block-indicators-to-their-own-line',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['minimumNumberOfDollarSignsToBeAMathBlock'],      nameKey: "linter.rules.move_math_block_indicators_to_their_own_line.name",
       descriptionKey: "linter.rules.move_math_block_indicators_to_their_own_line.description",
       type: RuleType.SPACING,
       ruleIgnoreTypes: [IgnoreTypes.code, IgnoreTypes.inlineCode],

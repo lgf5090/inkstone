@@ -7,10 +7,10 @@ import {replaceTextRanges, textReplacement} from '../engine/strings';
 
 class RemoveHyphenatedLineBreaksOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveHyphenatedLineBreaks extends RuleBuilder<RemoveHyphenatedLineBreaksOptions> {
   constructor() {
     super({
+      alias: 'remove-hyphenated-line-breaks',
       nameKey: "linter.rules.remove_hyphenated_line_breaks.name",
       descriptionKey: "linter.rules.remove_hyphenated_line_breaks.description",
       type: RuleType.CONTENT,

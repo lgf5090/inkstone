@@ -6,10 +6,10 @@ import {ProtectedRanges} from '../engine/protected-ranges';
 
 class EmptyLineAroundCodeFencesOptions implements Options {}
 
-@RuleBuilder.register
 export default class EmptyLineAroundCodeFences extends RuleBuilder<EmptyLineAroundCodeFencesOptions> {
   constructor() {
     super({
+      alias: 'empty-line-around-code-fences',
       nameKey: "linter.rules.empty_line_around_code_fences.name",
       descriptionKey: "linter.rules.empty_line_around_code_fences.description",
       type: RuleType.SPACING,

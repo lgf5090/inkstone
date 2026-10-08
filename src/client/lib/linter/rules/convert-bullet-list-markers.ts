@@ -7,10 +7,10 @@ import {replaceTextRanges, textReplacement} from '../engine/strings';
 
 class ConvertBulletListMarkersOptions implements Options {}
 
-@RuleBuilder.register
 export default class ConvertBulletListMarkers extends RuleBuilder<ConvertBulletListMarkersOptions> {
   constructor() {
     super({
+      alias: 'convert-bullet-list-markers',
       nameKey: "linter.rules.convert_bullet_list_markers.name",
       descriptionKey: "linter.rules.convert_bullet_list_markers.description",
       type: RuleType.CONTENT,

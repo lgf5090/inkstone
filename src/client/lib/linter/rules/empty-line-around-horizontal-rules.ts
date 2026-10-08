@@ -6,10 +6,10 @@ import {ProtectedRanges} from '../engine/protected-ranges';
 
 class EmptyLineAroundHorizontalRulesOptions implements Options {}
 
-@RuleBuilder.register
 export default class EmptyLineAroundHorizontalRules extends RuleBuilder<EmptyLineAroundHorizontalRulesOptions> {
   constructor() {
     super({
+      alias: 'empty-line-around-horizontal-rules',
       nameKey: "linter.rules.empty_line_around_horizontal_rules.name",
       descriptionKey: "linter.rules.empty_line_around_horizontal_rules.description",
       type: RuleType.SPACING,

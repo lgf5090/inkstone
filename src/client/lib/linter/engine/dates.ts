@@ -2,13 +2,14 @@
  * The date surface the lint rules need, without a date library.
  *
  * The reference plugin hands its timestamps to Moment. Inkstone already owns a Moment-pattern
- * formatter and parser (the one QuickAdd date tokens use), so a lint date is a `Date` plus the two
- * things Moment carried around with it: the locale used for names, and whether the value is read
- * and written as UTC. A UTC date is kept as the instant it is and rendered with the offset applied,
- * which is what `moment(x).utc().format()` prints.
+ * formatter (the one QuickAdd date tokens use) and this fork's own pattern reader, so a lint date
+ * is a `Date` plus the two things Moment carried around with it: the locale used for names, and
+ * whether the value is read and written as UTC. A UTC date is kept as the instant it is and rendered
+ * with the offset applied, which is what `moment(x).utc().format()` prints.
  */
 import parseFormat from 'moment-parseformat'
-import { formatDatePattern, parseDatePattern } from '../../quickadd/date-pattern'
+import { formatDatePattern } from '../../quickadd/date-pattern'
+import { parseDateWithPattern } from './pattern-date'
 import { localeTag } from '../../i18n'
 
 export type LintDate = {
@@ -33,16 +34,14 @@ export function lintDateFrom(value: string | number | Date, options: ParseOption
   const pattern = options.pattern
 
   if (pattern) {
-    const parsed = parseDatePattern(String(value), pattern, locale)
+    const parsed = parseDateWithPattern(String(value), pattern.trimEnd(), locale)
     if (parsed === null) {
       return null
     }
 
-    // `parseDatePattern` reads the fields as wall-clock time in the machine's zone. For a UTC
-    // reading, the same wall clock has to name the instant that zone would show.
-    const local = new Date(parsed)
-
-    return { date: utc ? shiftToUtcInstant(local) : local, utc, locale }
+    // the reader names wall-clock time; a UTC reading means the same wall clock has to name the
+    // instant the reader's zone would show at that clock
+    return { date: utc ? shiftToUtcInstant(parsed) : parsed, utc, locale }
   }
 
   const date = value instanceof Date ? new Date(value.getTime()) : typeof value === 'number' ? new Date(value) : isoOrNative(String(value))

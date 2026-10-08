@@ -6,15 +6,15 @@ import {ensureEmptyLinesAroundMathBlock} from '../engine/mdast';
 import {ProtectedRanges} from '../engine/protected-ranges';
 
 class EmptyLineAroundMathBlockOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    minimumNumberOfDollarSignsToBeAMathBlock: number = 2;
+  minimumNumberOfDollarSignsToBeAMathBlock: number = 2;
 }
 
-@RuleBuilder.register
 export default class EmptyLineAroundMathBlock extends RuleBuilder<EmptyLineAroundMathBlockOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.empty_line_around_math_blocks.name",
+      alias: 'empty-line-around-math-blocks',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['minimumNumberOfDollarSignsToBeAMathBlock'],      nameKey: "linter.rules.empty_line_around_math_blocks.name",
       descriptionKey: "linter.rules.empty_line_around_math_blocks.description",
       type: RuleType.SPACING,
       ruleIgnoreTypes: [IgnoreTypes.yaml, IgnoreTypes.code],

@@ -9,10 +9,10 @@ class DefaultLanguageForCodeFencesOptions implements Options {
   defaultLanguage: string = '';
 }
 
-@RuleBuilder.register
 export default class DefaultLanguageForCodeFences extends RuleBuilder<DefaultLanguageForCodeFencesOptions> {
   constructor() {
     super({
+      alias: 'default-language-for-code-fences',
       nameKey: "linter.rules.default_language_for_code_fences.name",
       descriptionKey: "linter.rules.default_language_for_code_fences.description",
       type: RuleType.CONTENT,

@@ -11,10 +11,10 @@ class StrongStyleOptions implements Options {
   style: StrongStyleValues = 'consistent';
 }
 
-@RuleBuilder.register
 export default class StrongStyle extends RuleBuilder<StrongStyleOptions> {
   constructor() {
     super({
+      alias: 'strong-style',
       nameKey: "linter.rules.strong_style.name",
       descriptionKey: "linter.rules.strong_style.description",
       type: RuleType.CONTENT,

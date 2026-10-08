@@ -13,10 +13,10 @@ class HeadingBlankLinesOptions implements Options {
   emptyLineAfterYaml: boolean = true;
 }
 
-@RuleBuilder.register
 export default class HeadingBlankLines extends RuleBuilder<HeadingBlankLinesOptions> {
   constructor() {
     super({
+      alias: 'heading-blank-lines',
       nameKey: "linter.rules.heading_blank_lines.name",
       descriptionKey: "linter.rules.heading_blank_lines.description",
       type: RuleType.SPACING,

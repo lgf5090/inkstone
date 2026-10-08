@@ -5,10 +5,10 @@ import {formatYAML, OBSIDIAN_TAG_KEY_SINGULAR, OBSIDIAN_TAG_KEY_PLURAL} from '..
 
 class FormatTagsInYamlOptions implements Options {}
 
-@RuleBuilder.register
 export default class FormatTagsInYaml extends RuleBuilder<FormatTagsInYamlOptions> {
   constructor() {
     super({
+      alias: 'format-tags-in-yaml',
       nameKey: "linter.rules.format_tags_in_yaml.name",
       descriptionKey: "linter.rules.format_tags_in_yaml.description",
       type: RuleType.YAML,

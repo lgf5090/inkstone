@@ -5,10 +5,10 @@ import dedent from 'ts-dedent';
 
 class RemoveLeadingOrTrailingWhitespaceOnPasteOptions implements Options {}
 
-@RuleBuilder.register
 export default class RemoveLeadingOrTrailingWhitespaceOnPaste extends RuleBuilder<RemoveLeadingOrTrailingWhitespaceOnPasteOptions> {
   constructor() {
     super({
+      alias: 'remove-leading-or-trailing-whitespace-on-paste',
       nameKey: "linter.rules.remove_leading_or_trailing_whitespace_on_paste.name",
       descriptionKey: "linter.rules.remove_leading_or_trailing_whitespace_on_paste.description",
       type: RuleType.PASTE,

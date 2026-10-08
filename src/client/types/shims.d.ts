@@ -19,6 +19,12 @@ declare module 'markdown-it-mark' {
   export default plugin
 }
 
+/** A file's own text, imported through Vite's raw loader. */
+declare module '*.md?raw' {
+  const text: string
+  export default text
+}
+
 declare module 'katex/dist/katex.min.css'
 
 declare module 'mind-elixir/style.css'

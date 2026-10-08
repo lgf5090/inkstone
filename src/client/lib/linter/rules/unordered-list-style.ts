@@ -9,10 +9,10 @@ class UnorderedListStyleOptions implements Options {
   listStyle: UnorderedListItemStyles = UnorderedListItemStyles.Consistent;
 }
 
-@RuleBuilder.register
 export default class UnorderedListStyle extends RuleBuilder<UnorderedListStyleOptions> {
   constructor() {
     super({
+      alias: 'unordered-list-style',
       nameKey: "linter.rules.unordered_list_style.name",
       descriptionKey: "linter.rules.unordered_list_style.description",
       type: RuleType.CONTENT,

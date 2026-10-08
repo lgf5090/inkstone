@@ -5,17 +5,16 @@ import dedent from 'ts-dedent';
 import {lineStartingWithWhitespaceOrBlockquoteTemplate} from '../engine/regex';
 
 class PreventDoubleListItemIndicatorOnPasteOptions implements Options {
-  @RuleBuilder.noSettingControl()
-    lineContent: string = '';
-  @RuleBuilder.noSettingControl()
-    selectedText: string = '';
+  lineContent: string = '';
+  selectedText: string = '';
 }
 
-@RuleBuilder.register
 export default class PreventDoubleListItemIndicatorOnPaste extends RuleBuilder<PreventDoubleListItemIndicatorOnPasteOptions> {
   constructor() {
     super({
-      nameKey: "linter.rules.prevent_double_list_item_indicator_on_paste.name",
+      alias: 'prevent-double-list-item-indicator-on-paste',
+      // fields the run feeds in, so the panel must not draw a control for them
+      hiddenKeys: ['lineContent', 'selectedText'],      nameKey: "linter.rules.prevent_double_list_item_indicator_on_paste.name",
       descriptionKey: "linter.rules.prevent_double_list_item_indicator_on_paste.description",
       type: RuleType.PASTE,
     });
