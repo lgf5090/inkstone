@@ -21,11 +21,11 @@ import { randomLocalId } from '../../lib/random-id'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import {
+  attachQuickAddPromptHost,
   cancelQuickAddPrompts,
   currentPromptGroup,
   currentPromptSequence,
   queuedPromptCount,
-  resetQuickAddPrompts,
   submitQuickAddPrompts,
   subscribeQuickAddPrompts,
   type PromptAnswers,
@@ -47,7 +47,7 @@ function emptyDraft(request: PromptRequest): DraftEntry {
 export function QuickAddPromptHost() {
   const group = useSyncExternalStore(subscribeQuickAddPrompts, currentPromptGroup)
   const sequence = useSyncExternalStore(subscribeQuickAddPrompts, currentPromptSequence)
-  useEffect(() => resetQuickAddPrompts, [])
+  useEffect(attachQuickAddPromptHost, [])
   if (!group) return null
   return group.onePage
     ? <OnePagePrompt key={sequence} group={group} />

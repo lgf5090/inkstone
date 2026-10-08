@@ -8,7 +8,12 @@
  * waiting forever for a dialog that will never be rendered.
  */
 import { lazy, Suspense, useEffect, useSyncExternalStore } from 'react'
-import { currentPromptGroup, resetQuickAddPrompts, subscribeQuickAddPrompts } from './prompt-queue'
+import {
+  attachQuickAddPromptHost,
+  currentPromptGroup,
+  resetQuickAddPrompts,
+  subscribeQuickAddPrompts,
+} from './prompt-queue'
 
 function PromptChunkMissing(): null {
   useEffect(resetQuickAddPrompts, [])
@@ -21,6 +26,10 @@ const QuickAddPromptHost = lazy(() => import('./prompts')
 
 export function QuickAddPromptGate() {
   const group = useSyncExternalStore(subscribeQuickAddPrompts, currentPromptGroup)
+  // The gate, not the dialog, is what stands for “a host is coming”: the chunk is still fetching
+  // while the first prompt is already outstanding, and releasing the run in that gap would answer
+  // it with nothing before the reader had a chance to be asked.
+  useEffect(attachQuickAddPromptHost, [])
   if (!group) return null
   return (
     <Suspense fallback={null}>

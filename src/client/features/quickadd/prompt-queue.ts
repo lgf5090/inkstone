@@ -162,3 +162,21 @@ export function resetQuickAddPrompts(): void {
   for (const entry of entries) entry.resolve(new Map())
   notify()
 }
+
+let liveHosts = 0
+
+/**
+ * Claim the queue for as long as the prompt host is mounted, releasing any outstanding run once the
+ * last host is gone. The release is deferred by a task on purpose: StrictMode runs an effect's
+ * cleanup and then sets it up again inside the same commit, and a host that drops the queue in that
+ * cleanup answers every first prompt with nothing before the reader sees a dialog.
+ */
+export function attachQuickAddPromptHost(): () => void {
+  liveHosts += 1
+  return () => {
+    liveHosts -= 1
+    setTimeout(() => {
+      if (liveHosts === 0) resetQuickAddPrompts()
+    }, 0)
+  }
+}

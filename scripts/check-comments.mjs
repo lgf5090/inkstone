@@ -3306,6 +3306,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
+    "// The gate, not the dialog, is what stands for “a host is coming”: the chunk is still fetching",
+    "// while the first prompt is already outstanding, and releasing the run in that gap would answer",
+    "// it with nothing before the reader had a chance to be asked.",
   ]],
   ["src/client/features/quickadd/prompt-queue.ts", [
     "/**\n * The asking side of a QuickAdd run: a promise queue the format engine pushes prompts into and the\n * host component pulls out of, plus the draft memory that hands a cancelled answer back on the next\n * run.\n *\n * The queue lives outside React on purpose. A run may be waiting on three prompts while the surface\n * that started it unmounts, and a cancelled or unmounted host must resolve them as \"no answer\"\n * rather than leave a promise — and therefore the whole capture — hanging forever.\n */",
@@ -3318,6 +3321,7 @@ const allowed = new Map([
     "/** Cancel the active group, keeping whatever was typed in it as this choice's next default. */",
     "/** Drop everything outstanding with no answer: used when the host unmounts or the account changes. */",
     "/**\n * Identifies the group on screen. The host keys its dialogs on this, so answering one prompt and\n * promoting the next cannot inherit the typed text, the filter or the picker state of the previous\n * group — and a dialog whose request list changed shape cannot render a different hook count.\n */",
+    "/**\n * Claim the queue for as long as the prompt host is mounted, releasing any outstanding run once the\n * last host is gone. The release is deferred by a task on purpose: StrictMode runs an effect's\n * cleanup and then sets it up again inside the same commit, and a host that drops the queue in that\n * cleanup answers every first prompt with nothing before the reader sees a dialog.\n */",
   ]],
   ["src/client/features/quickadd/prompts.test.ts", [
     "// React keeps its own value tracker on the DOM node, so assigning `.value` and firing `input` is",
@@ -7162,6 +7166,8 @@ const allowed = new Map([
     "/**\n * Note text a Chinese-writing reader actually has in their journal. `check-i18n.mjs` keeps Han\n * literals out of `src/` because user-facing copy must come from the catalog; data a note is written\n * with is not copy, and this app's own headings are the case the date-ordering rule must read.\n */",
     "// \"Add to task list\" makes the format itself end with a newline, so each entry is already a line.",
     "// The macro ran once for the whole capture, not once per line.",
+    "// The real session, only with the clock pinned: a stub that rebuilt the record would stop",
+    "// exercising whatever `newSession` grows later, and the run would pass on a rule no test sees.",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -7272,6 +7278,12 @@ const allowed = new Map([
     "/** The line the caret is on, and the heading above it, in the note's current text. */",
     "/** Walk a slash path, creating the folders it names. Null when the path cannot be built. */",
     "/** Which choice an id names, looking inside groups as deep as the record allows. */",
+    "// Only the editor holds the truth about a note it has open: unsaved keystrokes live in the store’s",
+    "// content cache. For every other note that cache can be the text a previous run wrote *before* it",
+    "// was saved, so the server is asked instead — and a capture that read the body it is about to",
+    "// extend is the only comparison the write can honestly be guarded by.",
+    "// The summary’s own rev can lag the server right after a create, which the store answers with a",
+    "// second revision of its own. Ask the server what the note is at now, and write against that.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -7294,11 +7306,16 @@ const allowed = new Map([
     "/** Ask for the inputs of a text, then format it: the order the one-page form promises. */",
     "// A token that only appeared after the prompts ran (a macro or an included template's own",
     "// `{{VALUE}}`) has not been asked for yet; ask once more rather than write a literal token.",
+    "// What the reader has selected answers an un-named `{{VALUE}}` instead of asking: a selection is an",
+    "// answer, not a pre-fill, so a blank selection leaves the prompt exactly where it was. The choice",
+    "// overrides the account setting, which is itself the reference's always-on behaviour.",
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",
     "/** A note title, from the name format or from a prompt when the choice has no format. */",
     "/**\n * The choice's tags on the new note. `appendFrontMatterTag` deliberately only edits a note that\n * already has properties, so a body without front matter gets its block written here — a choice that\n * says \"tag this with #meeting\" must not quietly tag nothing.\n */",
+    "// \"No template\" is a choice the editor offers, so it means a blank note. Only a template that was",
+    "// deleted from under the choice is a failure worth a danger notice.",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",
@@ -7770,6 +7787,7 @@ const allowed = new Map([
     "/** Ask everything on one page, one at a time, or follow the account setting when absent. */",
     "/** Offer a copy of the created note's link on the clipboard once the run is done. */",
     "/** Ask which heading to insert under, from the target note's own headings, at run time. */",
+    "/**\n * Read the `{ savedAt, version, library }` envelope an account stores in `users.quickadd` in the\n * shape a backup can carry. Junk, an unreadable library and an empty column all come back as null,\n * so a broken column never takes a whole export down with it.\n */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
@@ -7839,6 +7857,9 @@ const allowed = new Map([
     "// guarantee), but the re-reads are now pipelined: waiting one D1 round trip per note made a",
     "// 5000 note backup spend 40–75 s purely waiting between entries.",
     "// A cancelled consumer must not leave the in-flight re-reads as unhandled rejections.",
+  ]],
+  ["src/worker/backup/quickadd.ts", [
+    "/**\n * Restore the automation library an export carried into the account's own column, in the same\n * envelope the live `PUT /api/quickadd/library` writes. A library that cannot be read, or that the\n * store would quietly trim, fails the restore instead of leaving the account with half a library.\n */",
   ]],
   ["src/worker/backup/retention.ts", [
     "// 50 removals were 50 serial R2 deletes each followed by its own D1 DELETE; one batched",
@@ -8212,6 +8233,9 @@ const allowed = new Map([
   ["tests/backup-archive-gate.test.ts", [
     "// Emitting the declared length is what lets a test consume the archive to completion:",
     "// the size guard in archive.ts rejects a short re-read.",
+  ]],
+  ["tests/backup-quickadd-export.test.ts", [
+    "/** The envelope `PUT /api/quickadd/library` writes: the transport payload, normalized, then wrapped. */",
   ]],
   ["tests/client-raw-controls.test.ts", [
     "/**\n * SH-49 asked for interactive controls to come from the component system, and for a `div`/`span`\n * with a click handler never to be passed off as one. That guard only read `features/share`, so the\n * shared components every feature uses kept the very shapes it forbade — the hub rows were\n * `div[role=button]` rows, and an account with any tag made the share center's own axe pass report\n * `button-name` and `nested-interactive` (SH-93). This reads the whole client tree instead.\n *\n * Three rules, in the order they matter:\n *\n *  1. No `div`/`span` that says `role='button'`. A fake control is wrong wherever it is, so this\n *     applies everywhere, with no exceptions: the last three the rule tolerated were the kanban\n *     board's card, its gallery tile and its list row, and each was a card that opened a detail and\n *     held controls of its own (SH-107). Redesigning the card — the title is a real button, the card\n *     is a container — took all three entries away rather than keeping an exemption nobody needs.\n *  2. Every raw `<button>` has to carry an accessible name — `aria-label`, `aria-labelledby`,\n *     `title`, or visible text. This is the `button-name` rule axe applies, read statically, and it\n *     is what the 37 unnamed icon buttons across the app were failing. Names are read from the\n *     element's own attributes and its subtree: a name a wrapper component injects, or one spread\n *     in with `{...rest}`, is not something this can see, so an entry is never needed for it — but a\n *     raw button that only *looks* named because of a wrapper is not caught here either. That limit\n *     is the price of not rendering the app; the browser gates read what a real screen reader sees.\n *\n *     What counts as text was measured against a browser rather than guessed: an expression that\n *     renders an element — `{expanded ? <ChevronDown/> : <ChevronRight/>}` — is an icon, not a\n *     label, and axe reports those buttons as unnamed. Reading any expression as text (which is what\n *     this rule did at first) called eight icon-only buttons named while the browser called them\n *     nameless: the kanban board's row, group and list expand toggles, the attachment drive's two\n *     selection cells, a folder icon picker and the blog category colour swatches. `{t('…')}` and\n *     `{name}` are still text: they are what a label is usually written as, and no static read can\n *     tell a bare identifier apart from a variable holding an icon.\n *  3. Inside `src/client/components` — the layer every feature shares — a raw `<button>` needs a\n *     written reason. These are the primitive implementations and the rows and cells whose geometry\n *     the primitives cannot express (a menu row stretches a flexible label between two fixed slots,\n *     a calendar cell is a grid track); the rule's job is to keep the next one from arriving\n *     unnoticed, not to relitigate the ones already argued.\n *  4. A container with a hit target of its own — a click or pointer-down handler on a `div`/`span`/\n *     row element — must not hold a control. This is the half of SH-107 rule 1 could not see: taking\n *     the `role` off a card that holds its own buttons leaves a click target that *looks* like a\n *     container, and the browser still reads `nested-interactive` (and, without a keyboard path, a\n *     keyboard cannot reach the card at all — the same shape SH-110 fixed in three more views). A\n *     pointer-down on a drag handle is read too: it is the other way a container becomes a hit\n *     target. What is left after both fixes is nine sites in six files, every one of them a container\n *     whose handler *stops* a click from reaching an outer one, watches for a row so a sheet can\n *     close, or is the backdrop of the dialog it holds — each is listed with its reason and its\n *     count, so a new site, or a tenth in a listed file, fails here.\n *\n * Features outside that layer are not required to funnel every button through the primitives: that\n * is a per-context judgement (146 files and 397 sites today), and an allowlist of 146 entries would\n * be a graveyard rather than a reason. Rules 1 and 2 are the part that holds for them.\n *\n * Both directions fail throughout: an unlisted file that grows a violation, and an entry for a file\n * whose violation is gone.\n */",
