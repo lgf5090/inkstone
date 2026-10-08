@@ -3278,8 +3278,22 @@ const allowed = new Map([
     "/**\n * The shell's side of QuickAdd: load the account's library, and turn each choice that carries a\n * shortcut into a real key binding.\n *\n * The bindings are registered while the library is loaded and disposed when it changes, so a renamed\n * or re-keyed choice takes effect on the next keystroke rather than needing a reload. Two choices with\n * the same combo cannot both fire: the registry is walked in insertion order, which is tree order, so\n * the choice the reader sees first in the launcher is the one that owns the key — and the settings\n * editor says so before it lets the collision through.\n */",
     "// The reader is usually inside a note when they press it, and the shortcut has to reach them there.",
   ]],
+  ["src/client/features/quickadd/choice-editor.tsx", [
+    "/**\n * The editor for one QuickAdd choice.\n *\n * A draft copy is edited and only written back on Save: a capture format is built over minutes, and\n * autosaving every keystroke would push a half-typed `{{DATE` to the account. The live preview is what\n * makes the form trustworthy — `inertFormat` is the same pass a run uses, so the preview shows what the\n * note will get, a prompt-shaped token is marked rather than guessed, and nothing here can ask a\n * question or touch a note.\n */",
+    "/** One line about what a choice does, for the list and the launcher's future hint text. */",
+    "// The whole draft is the patch: the store re-normalizes it and refuses a record it cannot read.",
+  ]],
+  ["src/client/features/quickadd/choice-list.tsx", [
+    "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
+    "// A child whose group no longer exists would vanish from every view while still taking up a slot in",
+    "// the library, so an orphan is listed at the bottom where it can be moved or deleted. Hidden by a",
+    "// collapsed ancestor is not the same thing: those rows are the group's own, and listing them here",
+    "// would make the collapse control do nothing at all.",
+  ]],
   ["src/client/features/quickadd/launcher.test.ts", [
     "/**\n * Choice names in the language the app's other readers write in. The filter is a fuzzy + pinyin path,\n * so the test has to feed it Chinese names; `check-i18n.mjs` keeps Han literals out of `src/` because\n * interface copy belongs in the catalog, and a name the reader typed is not interface copy.\n */",
+    "// A reorder changes `position` and leaves the array alone, so a list that trusted array order",
+    "// would keep showing the old one.",
   ]],
   ["src/client/features/quickadd/launcher.tsx", [
     "/**\n * The launcher: one searchable list of the account's QuickAdd choices.\n *\n * This is the surface the reference plugin opens with `Ctrl+Shift+A` — a modal where the reader types a\n * choice's name, or `>` in the command palette, and runs it. Two things are Inkstone's own decision\n * rather than a port: a group drills into its children instead of flattening them into the list (a\n * journal group with six daily captures is not six rows the reader has to read past), and Shift+Enter\n * runs a choice with a chosen day, which is the portable half of the reference's \"pick a date\"\n * commands and covers the backfill-a-past-day case without a command per choice.\n *\n * The engines are not imported here: a run pulls `runner.ts` on demand, so opening the list never\n * parses the capture or macro code.\n */",
@@ -3287,6 +3301,8 @@ const allowed = new Map([
     "// same row would make the arrow keys ambiguous.",
     "// A group is a place, not a thing that runs: the list stays open and shows what is inside it.",
     "// The words that found the group have no business filtering what is inside it.",
+    "// The store keeps the library in tree order, but a reorder changes `position` without touching the",
+    "// array, so the list the reader sees has to be sorted rather than trusted to be in order.",
   ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
@@ -3316,6 +3332,27 @@ const allowed = new Map([
     "// A yes/no question needs an explicit press: closing the dialog is a cancelled run, not a \"No\".",
     "// A one-press answer: a single-choice picker or a yes/no question has said everything the OK",
     "// button would say, so waiting for a second click only slows the run down.",
+  ]],
+  ["src/client/features/quickadd/token-help.tsx", [
+    "/**\n * The token cheat sheet, and the one place the QuickAdd grammar is spelled out for the author.\n *\n * Each row shows the token as it is typed and what the *same formatter* makes of it right now, so the\n * table cannot disagree with the engine the way a hand-written example eventually does.\n */",
+  ]],
+  ["src/client/features/settings/QuickAddSettings.tsx", [
+    "/**\n * Settings → Automation: the whole QuickAdd feature in one page.\n *\n * The formats an author writes are the reason this page lives in the app's own settings sheet: a\n * capture that inserts a note into the middle of a heading list should look like any other preference,\n * not like a plugin window dropped on top. Everything here edits the account's choice library, which\n * the store pushes to the server on a debounce — so the page writes through the store, never to the\n * endpoint directly, and a reload of the section shows the same data another tab just saved.\n */",
+    "// A variable with no name is dropped by the library normalizer, so the new one is drafted here",
+    "// and only joins the list when it has something to be called.",
+  ]],
+  ["src/client/features/settings/quick-add-settings.test.ts", [
+    "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",
+    "/** The library is stored in `position` order, so a test has to read it the way the UI does. */",
+    "// The format textarea only exists once \"format what is written\" is ticked.",
+    "// The editor works on a draft; the store only learns about it at Save.",
+    "// The first step cannot move up, so the draft keeps its shape and only the removal changes it.",
+    "// The stored name is data the author chose, not a field to type into: it is shown, and the value",
+    "// is what gets edited.",
+    "// The draft row refuses a name the library would drop, which is a name already taken (any case).",
+    "/**\n * Names and text in the app's other language: the list, the editor and the launcher all have to sort,\n * filter and echo them back, and `check-i18n.mjs` keeps such data in a named constant because\n * interface copy has to come from the catalog.\n */",
+    "// The hint under the row shows today through that format; the expectation is built here, not by",
+    "// calling the formatter the page is under test for.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
@@ -7219,6 +7256,16 @@ const allowed = new Map([
     "// `^` is the one right-associative operator, so it recurses one level looser: 2^3^2 is 512.",
     "/** Evaluate one arithmetic expression, with `round` applied the way a note author expects. */",
     "/** Render a computed answer the way the token writes it into a note: no float noise, no trailing zeros. */",
+  ]],
+  ["src/client/lib/quickadd/preview.test.ts", [
+    "// The periodic path is the folder the setting names plus the title the format writes.",
+  ]],
+  ["src/client/lib/quickadd/preview.ts", [
+    "/**\n * A format runtime that cannot touch the app, for the settings preview.\n *\n * The editor shows what a format will become while the author is still typing it. That has to run the\n * real formatter — a second, simpler implementation would drift from the engine and tell the author\n * their format is fine when it is not — but every seam that could ask a question, read the clipboard\n * or write a note is replaced by an answer that does nothing. A prompt-shaped token therefore renders\n * its own default text, and a macro or included template renders nothing at all.\n */",
+    "/** The note the preview should pretend to be about; a title the author will recognise. */",
+    "/**\n * The runtime, with `templateBody` and `fieldValues` left to the caller: those two need the note\n * library, and a preview that fetched them on every keystroke would be a search box in disguise.\n */",
+    "// A preview never asks, so a prompt-shaped token renders the default the reader would have been offered.",
+    "/** The date-formatter half, for the format-field hint line under the date inputs. */",
   ]],
   ["src/client/lib/quickadd/runner.ts", [
     "/**\n * The app-backed side of a choice run: what a `NotePort` means when the notes are in the zustand\n * store and the editor is a CodeMirror view, plus the dispatcher that turns a choice id into a write.\n *\n * Two paths are deliberately different. A note that is on screen is written through the store, so the\n * editor, the autosave and the other tab hear about it; a note that is not open is patched through the\n * API with its revision, because a capture must not resurrect a stale editor buffer behind the\n * reader's back. A lost revision race is reported as a failed run rather than retried blind.\n */",

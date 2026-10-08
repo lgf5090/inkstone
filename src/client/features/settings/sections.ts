@@ -2,7 +2,7 @@ import { backupRunsResource, backupTargetsResource, mcpResource, sharesResource,
 import { useSession } from '../../store/session'
 import type { MessageKey } from '../../lib/i18n'
 
-export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'about'
+export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'about'
 
 export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   appearance: 'settings.appearance',
@@ -12,6 +12,7 @@ export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   backup: 'settings.backup',
   sync: 'settings.sync',
   mcp: 'settings.mcp',
+  automation: 'settings.automation',
   account: 'settings.account',
   data: 'settings.data',
   shares: 'share.shared_notes',
@@ -28,6 +29,7 @@ export const settingsLoaders = {
   account: () => import('./AccountSettings').then((m) => ({ default: m.AccountSettings })),
   data: () => import('./DataSettings').then((m) => ({ default: m.DataSettings })),
   shares: () => import('./SharedNotes').then((m) => ({ default: m.SharedNotes })),
+  automation: () => import('./QuickAddSettings').then((m) => ({ default: m.QuickAddSettings })),
   about: () => import('./AboutSettings').then((m) => ({ default: m.AboutSettings })),
 }
 

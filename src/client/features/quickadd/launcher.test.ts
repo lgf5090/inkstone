@@ -216,6 +216,20 @@ describe('the launcher list', () => {
     expect(rows().map((row) => row.textContent ?? '').join('|')).toContain(CJK_CHOICE_FIXTURES.group)
   })
 
+  it('lists by the order the author set, not by the order the records were saved', () => {
+    // A reorder changes `position` and leaves the array alone, so a list that trusted array order
+    // would keep showing the old one.
+    library([
+      { ...DAILY, position: 3 },
+      { ...INBOX, position: 1 },
+    ])
+    openLauncher()
+    const names = rows().map((row) => row.textContent ?? '')
+    expect(names).toHaveLength(2)
+    expect(names[0]).toContain(CJK_CHOICE_FIXTURES.inbox)
+    expect(names[1]).toContain(CJK_CHOICE_FIXTURES.daily)
+  })
+
   it('leads the top of the tree with recent runs, without listing them twice', () => {
     library([DAILY, INBOX], [{ id: 'qa-inbox', at: 2 }, { id: 'qa-gone', at: 1 }])
     openLauncher()

@@ -69,7 +69,11 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
   }, [])
 
   const parent = path[path.length - 1] ?? null
-  const scoped = parent ? childrenOf(choices, parent.id) : choices.filter((choice) => choice.parentId === null)
+  // The store keeps the library in tree order, but a reorder changes `position` without touching the
+  // array, so the list the reader sees has to be sorted rather than trusted to be in order.
+  const scoped = (parent ? childrenOf(choices, parent.id) : choices.filter((choice) => choice.parentId === null))
+    .slice()
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
 
   const rows = useMemo(() => {
     const enabled = scoped.filter((choice) => choice.enabled)

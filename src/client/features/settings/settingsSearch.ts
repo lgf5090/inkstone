@@ -189,6 +189,18 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'about', titleKey: 'pwa.install_inkstone', detailKey: 'pwa.install_description', termKeys: ['pwa.install'] },
   { section: 'about', titleKey: 'pwa.complete_offline_access' },
   { section: 'about', titleKey: 'common.github', termKeys: ['settings.open_github_repository', 'settings.open_official_repository'] },
+  { section: 'automation', titleKey: 'settings.quickadd_enabled' },
+  { section: 'automation', titleKey: 'settings.quickadd_notifications' },
+  { section: 'automation', titleKey: 'settings.quickadd_selection_as_value' },
+  { section: 'automation', titleKey: 'settings.quickadd_drafts' },
+  { section: 'automation', titleKey: 'quickadd.field_one_page', termKeys: ['quickadd.one_page_auto', 'quickadd.one_page_always', 'quickadd.one_page_never'] },
+  { section: 'automation', titleKey: 'settings.quickadd_default_folder' },
+  { section: 'automation', titleKey: 'settings.quickadd_date_format' },
+  { section: 'automation', titleKey: 'settings.quickadd_time_format' },
+  { section: 'automation', titleKey: 'settings.quickadd_global_vars', termKeys: ['quickadd.var_name', 'quickadd.var_value', 'settings.quickadd_add_var', 'settings.quickadd_no_vars'] },
+  { section: 'automation', titleKey: 'settings.quickadd_periodic', termKeys: ['quickadd.period_format', 'quickadd.period_template', 'quickadd.no_template'] },
+  { section: 'automation', titleKey: 'settings.quickadd_choices', termKeys: ['quickadd.new_template_choice', 'quickadd.new_capture_choice', 'quickadd.new_macro_choice', 'quickadd.new_group_choice', 'quickadd.no_choices', 'quickadd.run_now', 'quickadd.duplicate'] },
+  { section: 'automation', titleKey: 'settings.quickadd_transport', termKeys: ['quickadd.import', 'quickadd.export', 'quickadd.import_merge', 'quickadd.import_replace'] },
   { section: 'about', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
 ]
 

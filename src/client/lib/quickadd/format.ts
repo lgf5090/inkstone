@@ -30,6 +30,7 @@ import { formatDatePattern } from './date-pattern'
 import { weekStartFor } from '../time'
 import { evaluateMathExpression, formatMathValue } from './math'
 import type { QuickAddPeriod } from '@shared/quickadd'
+import type { MessageKey } from '@shared/locales/en-US'
 
 export type PromptKind =
   | 'text' | 'multiline' | 'number' | 'slider' | 'checkbox' | 'date' | 'suggester' | 'confirm' | 'math'
@@ -815,37 +816,37 @@ async function includeTemplates(text: string, runtime: FormatRuntime): Promise<s
 }
 
 /** The token list a settings surface can render as a cheat sheet or an autocomplete source. */
-export const FORMAT_TOKEN_HELP: readonly { token: string; description: string }[] = [
-  { token: '{{VALUE}}', description: 'Ask once and reuse the answer everywhere' },
-  { token: '{{VALUE:label}}', description: 'Ask for a named value' },
-  { token: '{{VALUE:a,b,c}}', description: 'Pick from a list' },
-  { token: '{{VALUE:x|type:multiline}}', description: 'text, multiline, number, slider, checkbox, date' },
-  { token: '{{VALUE:x|default:y|optional|trim}}', description: 'Prefill, allow an empty answer, strip spaces' },
-  { token: '{{VALUE:x|case:title}}', description: 'kebab, snake, camel, pascal, title, lower, upper, slug' },
-  { token: '{{VALUE:a,b|multi|format:yaml}}', description: 'Pick several and write them as a list' },
-  { token: '{{DATE}}', description: 'Today, in the default date format' },
-  { token: '{{DATE:YYYY-MM-DD}}', description: 'Any date pattern, with [literal] escaping' },
-  { token: '{{DATE+7}}', description: 'Shift the day the token measures from' },
-  { token: '{{DATE|startof:week}}', description: 'Snap to a period boundary: year, quarter, month, week, isoweek, day' },
-  { token: '{{DATE|case:upper}}', description: 'Change the rendered case' },
-  { token: '{{TIME:HH:mm}}', description: 'The clock time' },
-  { token: '{{VDATE:due, YYYY-MM-DD|optional}}', description: 'Ask for one date, reuse it, reformat it per use' },
-  { token: '{{TITLE}}', description: 'The note this run is about' },
-  { token: '{{LINKCURRENT}}', description: 'A link to the note that was open' },
-  { token: '{{LINKSECTION}}', description: 'A link to the heading the caret is under' },
-  { token: '{{FILENAMECURRENT}}', description: 'The title of the note that was open' },
-  { token: '{{FOLDER}}', description: 'Where this run writes' },
-  { token: '{{FOLDERCURRENT}}', description: 'Where the open note lives' },
-  { token: '{{SELECTED}}', description: 'The editor selection' },
-  { token: '{{CLIPBOARD}}', description: 'The clipboard text' },
-  { token: '{{RANDOM:8}}', description: 'Random letters and digits, 1 to 100 long' },
-  { token: '{{MVALUE}}', description: 'Ask for an arithmetic expression and write its answer' },
-  { token: '{{FIELD:status|folder:Work}}', description: 'Pick a value other notes already use' },
-  { token: '{{FILE:Journal|link}}', description: 'Pick a note: name, path or link' },
-  { token: '{{TEMPLATE:Daily}}', description: 'Splice another template in' },
-  { token: '{{MACRO:Cleanup}}', description: 'Run a macro and write its text' },
-  { token: '{{GLOBAL_VAR:name}}', description: 'Insert a global snippet' },
-  { token: '{{DAILY}}', description: 'The periodic note for today: DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY, with |link and +N' },
-  { token: '{{PROPERTY}}', description: 'The property value a property capture is editing' },
-  { token: '{{cursor}}', description: 'Where the caret lands' },
+export const FORMAT_TOKEN_HELP: readonly { token: string; descriptionKey: MessageKey }[] = [
+  { token: '{{VALUE}}', descriptionKey: 'quickadd.help_value' },
+  { token: '{{VALUE:label}}', descriptionKey: 'quickadd.help_value_named' },
+  { token: '{{VALUE:a,b,c}}', descriptionKey: 'quickadd.help_value_list' },
+  { token: '{{VALUE:x|type:multiline}}', descriptionKey: 'quickadd.help_value_type' },
+  { token: '{{VALUE:x|default:y|optional|trim}}', descriptionKey: 'quickadd.help_value_default' },
+  { token: '{{VALUE:x|case:title}}', descriptionKey: 'quickadd.help_value_case' },
+  { token: '{{VALUE:a,b|multi|format:yaml}}', descriptionKey: 'quickadd.help_value_multi' },
+  { token: '{{DATE}}', descriptionKey: 'quickadd.help_date' },
+  { token: '{{DATE:YYYY-MM-DD}}', descriptionKey: 'quickadd.help_date_pattern' },
+  { token: '{{DATE+7}}', descriptionKey: 'quickadd.help_date_offset' },
+  { token: '{{DATE|startof:week}}', descriptionKey: 'quickadd.help_date_snap' },
+  { token: '{{DATE|case:upper}}', descriptionKey: 'quickadd.help_date_case' },
+  { token: '{{TIME:HH:mm}}', descriptionKey: 'quickadd.help_time' },
+  { token: '{{VDATE:due, YYYY-MM-DD|optional}}', descriptionKey: 'quickadd.help_vdate' },
+  { token: '{{TITLE}}', descriptionKey: 'quickadd.help_title' },
+  { token: '{{LINKCURRENT}}', descriptionKey: 'quickadd.help_linkcurrent' },
+  { token: '{{LINKSECTION}}', descriptionKey: 'quickadd.help_linksection' },
+  { token: '{{FILENAMECURRENT}}', descriptionKey: 'quickadd.help_filenamecurrent' },
+  { token: '{{FOLDER}}', descriptionKey: 'quickadd.help_folder' },
+  { token: '{{FOLDERCURRENT}}', descriptionKey: 'quickadd.help_foldercurrent' },
+  { token: '{{SELECTED}}', descriptionKey: 'quickadd.help_selected' },
+  { token: '{{CLIPBOARD}}', descriptionKey: 'quickadd.help_clipboard' },
+  { token: '{{RANDOM:8}}', descriptionKey: 'quickadd.help_random' },
+  { token: '{{MVALUE}}', descriptionKey: 'quickadd.help_mvalue' },
+  { token: '{{FIELD:status|folder:Work}}', descriptionKey: 'quickadd.help_field' },
+  { token: '{{FILE:Journal|link}}', descriptionKey: 'quickadd.help_file' },
+  { token: '{{TEMPLATE:Daily}}', descriptionKey: 'quickadd.help_template' },
+  { token: '{{MACRO:Cleanup}}', descriptionKey: 'quickadd.help_macro' },
+  { token: '{{GLOBAL_VAR:name}}', descriptionKey: 'quickadd.help_global_var' },
+  { token: '{{DAILY}}', descriptionKey: 'quickadd.help_periodic' },
+  { token: '{{PROPERTY}}', descriptionKey: 'quickadd.help_property' },
+  { token: '{{cursor}}', descriptionKey: 'quickadd.help_cursor' },
 ]
