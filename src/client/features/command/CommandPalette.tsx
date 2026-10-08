@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, Zap, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -17,6 +17,8 @@ import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree';
 import { outlineHeadingsFor } from '../preview/outline-registry';
 import { useSession } from '../../store/session';
 import { openEmojiPicker } from '../../store/emoji-picker';
+import { useQuickAdd } from '../../store/quickadd';
+import type { MessageKey } from '@shared/locales/en-US';
 import { getActiveEditorView } from '../../editor/commands';
 import { openLinkAtCursor } from '../links/use-link-editor';
 import { t, useLocale } from "../../lib/i18n";
@@ -74,6 +76,8 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
     const openView = useUi((s) => s.openView);
     const sendOutlineCommand = useUi((s) => s.sendOutlineCommand);
     const toast = useUi((s) => s.toast);
+    const quickAddOn = useQuickAdd((s) => s.settings.enabled);
+    const quickAddChoices = useQuickAdd((s) => s.choices);
     const appearanceTheme = useSession((s) => s.settings.appearance.theme);
     const updateSettings = useSession((s) => s.updateSettings);
     const debounced = useDebounced(query, 180);
@@ -409,6 +413,36 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                 group: t("common.navigation"),
                 run: () => openView('starred'),
             },
+            ...(quickAddOn
+                ? [
+                    {
+                        id: 'cmd-quickadd',
+                        kind: 'command' as const,
+                        label: t("quickadd.launcher_title"),
+                        icon: <Zap size={14}/>,
+                        combo: APP_SHORTCUTS.quickadd,
+                        group: t("command.commands"),
+                        run: () => openPanel('quickadd'),
+                    },
+                ]
+                : []),
+            // A choice flagged as a command is the one thing QuickAdd promises to run without opening
+            // the list, and a renamed choice has to show its new name here the same second.
+            ...(quickAddOn
+                ? quickAddChoices
+                    .filter((choice) => choice.enabled && choice.asCommand && choice.type !== 'group')
+                    .map((choice) => ({
+                        id: `cmd-quickadd-${choice.id}`,
+                        kind: 'command' as const,
+                        label: choice.name,
+                        detail: t(`quickadd.type_${choice.type}` as MessageKey),
+                        icon: <Zap size={14}/>,
+                        combo: choice.hotkey ?? undefined,
+                        group: t("quickadd.group"),
+                        run: () => void import('../../lib/quickadd/runner')
+                            .then(({ runQuickAddChoice }) => runQuickAddChoice(choice.id)),
+                    }))
+                : []),
         ];
     }, [
         activeNote,
@@ -420,6 +454,8 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
         openView,
         patchNote,
         updateSettings,
+        quickAddChoices,
+        quickAddOn,
     ]);
     const folderMatchData = useMemo(() => {
         const folderCounts = new Map<string, number>();

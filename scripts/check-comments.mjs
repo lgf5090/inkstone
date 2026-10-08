@@ -41,7 +41,7 @@ const allowed = new Map([
     "// script under test. Each fragment is listed once per place it is spelled.",
     "// The layout block's fixtures are the reference plugin's own demo line, copied verbatim so the",
     "// alternate embed spellings and a Han label are exercised the way an author writes them.",
-    "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n *\n * `CJK_DATE_FIXTURES` is the same argument in a test: a QuickAdd date format and the heading a reader\n * writes with it are note text the ordering rule has to *read*, so a Chinese user's real headings are\n * what the test must feed it. ASCII would prove the rule on a shape nobody has.\n */",
+    "/**\n * Named constants that hold the vocabulary a note is written *with* rather than the copy a page renders.\n * A chart table's scatter headers name the columns the author chose, and they must mean the same chart\n * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these\n * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.\n *\n * `CJK_DATE_FIXTURES` is the same argument in a test: a QuickAdd date format and the heading a reader\n * writes with it are note text the ordering rule has to *read*, so a Chinese user's real headings are\n * what the test must feed it. ASCII would prove the rule on a shape nobody has.\n *\n * `CJK_CHOICE_FIXTURES` is that argument one level up: a choice's name is text the reader typed, and\n * the launcher and the palette filter it through the same fuzzy + pinyin path the notes use.\n */",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -442,10 +442,17 @@ const allowed = new Map([
   ["src/client/features/command/CommandPalette.tsx", [
     "// The pointer already sits on its row; scrolling would move other rows under it and",
     "// re-trigger the highlight, so only keyboard movement scrolls.",
+    "// A choice flagged as a command is the one thing QuickAdd promises to run without opening",
+    "// the list, and a renamed choice has to show its new name here the same second.",
   ]],
   ["src/client/features/command/palette-perf.test.ts", [
     "/** 30s into a minute, so a test that nudges the clock never crosses a tick boundary. */",
     "/** React synthesises onMouseEnter from native mouseover, so a raw mouseenter never reaches it. */",
+  ]],
+  ["src/client/features/command/palette-quickadd.test.ts", [
+    "// Not a command, switched off, or a group: none of those may be a runnable palette row.",
+    "// A Chinese choice name is the case the fuzzy + pinyin path has to answer to; `check-i18n.mjs`",
+    "// keeps such data out of `src/` because interface copy belongs in the catalog.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -3264,6 +3271,23 @@ const allowed = new Map([
     "/** Leaving the note (or the pane) writes the last edit and drops the instances. */",
     "/**\n * Clicking a node hands the map the DOM focus its shortcuts need — in a split\n * view the editor would otherwise swallow Tab, Delete and undo. The full screen\n * overlay is portaled outside this host, so it installs its own listener on the\n * modal body; both resolve the same entry and focus twice is harmless.\n */",
   ]],
+  ["src/client/features/quickadd/bridge.test.ts", [
+    "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
+  ]],
+  ["src/client/features/quickadd/bridge.ts", [
+    "/**\n * The shell's side of QuickAdd: load the account's library, and turn each choice that carries a\n * shortcut into a real key binding.\n *\n * The bindings are registered while the library is loaded and disposed when it changes, so a renamed\n * or re-keyed choice takes effect on the next keystroke rather than needing a reload. Two choices with\n * the same combo cannot both fire: the registry is walked in insertion order, which is tree order, so\n * the choice the reader sees first in the launcher is the one that owns the key — and the settings\n * editor says so before it lets the collision through.\n */",
+    "// The reader is usually inside a note when they press it, and the shortcut has to reach them there.",
+  ]],
+  ["src/client/features/quickadd/launcher.test.ts", [
+    "/**\n * Choice names in the language the app's other readers write in. The filter is a fuzzy + pinyin path,\n * so the test has to feed it Chinese names; `check-i18n.mjs` keeps Han literals out of `src/` because\n * interface copy belongs in the catalog, and a name the reader typed is not interface copy.\n */",
+  ]],
+  ["src/client/features/quickadd/launcher.tsx", [
+    "/**\n * The launcher: one searchable list of the account's QuickAdd choices.\n *\n * This is the surface the reference plugin opens with `Ctrl+Shift+A` — a modal where the reader types a\n * choice's name, or `>` in the command palette, and runs it. Two things are Inkstone's own decision\n * rather than a port: a group drills into its children instead of flattening them into the list (a\n * journal group with six daily captures is not six rows the reader has to read past), and Shift+Enter\n * runs a choice with a chosen day, which is the portable half of the reference's \"pick a date\"\n * commands and covers the backfill-a-past-day case without a command per choice.\n *\n * The engines are not imported here: a run pulls `runner.ts` on demand, so opening the list never\n * parses the capture or macro code.\n */",
+    "// Recents ride above the list only at the top of the tree with nothing typed: two views of the",
+    "// same row would make the arrow keys ambiguous.",
+    "// A group is a place, not a thing that runs: the list stays open and shows what is inside it.",
+    "// The words that found the group have no business filtering what is inside it.",
+  ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
   ]],
@@ -3283,6 +3307,8 @@ const allowed = new Map([
     "// React keeps its own value tracker on the DOM node, so assigning `.value` and firing `input` is",
     "// not enough: the write has to go through the native setter for React to see it as a change.",
     "// An answered prompt clears its draft, so a third run starts from the token's own default.",
+    "/**\n * The queue notifies its subscribers the moment a group is asked, so the call has to happen inside\n * `act` — a prompt opened outside it leaves React warning that the host updated itself off-camera.\n */",
+    "// Cancelling is a state change the host renders, so it has to happen inside `act`.",
   ]],
   ["src/client/features/quickadd/prompts.tsx", [
     "/**\n * The dialogs a QuickAdd run asks with: one per prompt, or a single page for a whole run, plus the\n * suggester list, the date shortcuts and the live arithmetic preview behind them.\n *\n * Everything here is Inkstone chrome — `Modal`, `Button`, `FIELD_BASE`, the command palette's row\n * classes — because a prompt that appears in the middle of typing into a note has to feel like the\n * note's own. The queue in `prompt-queue.ts` owns the promises; this file renders what the queue says\n * to render and answers back.\n */",
@@ -7275,6 +7301,8 @@ const allowed = new Map([
   ["src/client/lib/shortcuts.ts", [
     "// A show starts on the slide under the editor cursor, so the key has to reach into the editor;",
     "// `mod+shift+p` is already the command palette.",
+    "// The launcher has to be reachable with the editor focused, and `q` is the letter the feature is",
+    "// named after; `mod+shift+a` was left alone because Obsidian users bind it to their palette.",
   ]],
   ["src/client/lib/sync.ts", [
     "/**\n   * Applies live setting changes (realtime toggle, poll interval) without\n   * tearing down the engine, its WebSocket, or its leadership claim.\n   */",
@@ -7523,6 +7551,7 @@ const allowed = new Map([
   ]],
   ["src/client/styles/app.css", [
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
+    "/* The phone has no icon rail, so the launcher takes the same 44px slot as its siblings. */",
   ]],
   ["src/client/styles/editor.css", [
     "/* Live preview shares the preview typography without nesting scroll containers. */",

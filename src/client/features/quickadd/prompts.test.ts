@@ -1,6 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { PromptRequest } from '../../lib/quickadd/format'
+import type { PromptAnswers } from './prompt-queue'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import {
@@ -43,6 +44,19 @@ function group(over: Partial<Parameters<typeof askQuickAddPrompts>[0]> = {}) {
   }
 }
 
+/**
+ * The queue notifies its subscribers the moment a group is asked, so the call has to happen inside
+ * `act` — a prompt opened outside it leaves React warning that the host updated itself off-camera.
+ */
+function ask(over: Parameters<typeof askQuickAddPrompts>[0]): Promise<PromptAnswers> {
+  let asking: Promise<PromptAnswers> | undefined
+  act(() => {
+    asking = askQuickAddPrompts(over)
+  })
+  if (!asking) throw new Error("the ask never started")
+  return asking
+}
+
 let rendered: RenderedElement
 
 beforeAll(async () => {
@@ -51,13 +65,17 @@ beforeAll(async () => {
 
 beforeEach(() => {
   clearQuickAddDrafts()
-  resetQuickAddPrompts()
+  act(() => {
+    resetQuickAddPrompts()
+  })
   rendered = renderElement(createElement(QuickAddPromptHost))
 })
 
 afterEach(() => {
   rendered.unmount()
-  resetQuickAddPrompts()
+  act(() => {
+    resetQuickAddPrompts()
+  })
 })
 
 function panel(): HTMLElement {
@@ -116,7 +134,7 @@ async function untilSettled<T>(promise: Promise<T>): Promise<T> {
 
 describe('the prompt queue', () => {
   it('shows the group the run asked for and answers it', async () => {
-    const asking = askQuickAddPrompts(group())
+    const asking = ask(group())
     await act(async () => {
       await Promise.resolve()
     })
@@ -128,8 +146,8 @@ describe('the prompt queue', () => {
   })
 
   it('holds the second group until the first is answered', async () => {
-    const first = askQuickAddPrompts(group({ requests: [request({ key: 'a', label: 'A' })] }))
-    const second = askQuickAddPrompts(group({ requests: [request({ key: 'b', label: 'B' })] }))
+    const first = ask(group({ requests: [request({ key: 'a', label: 'A' })] }))
+    const second = ask(group({ requests: [request({ key: 'b', label: 'B' })] }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -149,7 +167,7 @@ describe('the prompt queue', () => {
   })
 
   it('settles every waiting promise when the host goes away', async () => {
-    const asking = askQuickAddPrompts(group())
+    const asking = ask(group())
     await act(async () => {
       await Promise.resolve()
     })
@@ -160,7 +178,7 @@ describe('the prompt queue', () => {
   })
 
   it('keeps what was typed when the run is cancelled, and offers it back next time', async () => {
-    const first = askQuickAddPrompts(group())
+    const first = ask(group())
     await act(async () => {
       await Promise.resolve()
     })
@@ -168,7 +186,7 @@ describe('the prompt queue', () => {
     press('Escape', field(panel()))
     expect((await untilSettled(first)).get('who')).toBe('half written')
 
-    const again = askQuickAddPrompts(group({ requests: [request({ optional: true })] }))
+    const again = ask(group({ requests: [request({ optional: true })] }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -177,7 +195,7 @@ describe('the prompt queue', () => {
     clickButton(panel(), t('quickadd.prompt_ok'))
     expect((await untilSettled(again)).get('who')).toBe('')
     // An answered prompt clears its draft, so a third run starts from the token's own default.
-    const third = askQuickAddPrompts(group({ requests: [request({ optional: true })] }))
+    const third = ask(group({ requests: [request({ optional: true })] }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -194,7 +212,7 @@ describe('the gate that mounts the dialogs', () => {
     rendered = renderElement(createElement(QuickAddPromptGate))
     expect(document.querySelector('[role="dialog"]')).toBeNull()
 
-    const asking = askQuickAddPrompts(group())
+    const asking = ask(group())
     await act(async () => {
       await Promise.resolve()
       await Promise.resolve()
@@ -208,7 +226,7 @@ describe('the gate that mounts the dialogs', () => {
 
 describe('the prompt kinds', () => {
   async function open(next: PromptRequest): Promise<void> {
-    askQuickAddPrompts(group({ requests: [next] }))
+    ask(group({ requests: [next] }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -248,7 +266,7 @@ describe('the prompt kinds', () => {
   })
 
   it('keeps a multi-select open until OK and answers with a list', async () => {
-    const asking = askQuickAddPrompts(group({
+    const asking = ask(group({
       requests: [request({ kind: 'suggester', key: 'tags', label: 'Tags', options: ['x', 'y', 'z'], multiSelect: true })],
     }))
     await act(async () => {
@@ -268,7 +286,7 @@ describe('the prompt kinds', () => {
   })
 
   it('answers a checkbox as true or false words', async () => {
-    const asking = askQuickAddPrompts(group({ requests: [request({ kind: 'checkbox', key: 'flag', label: 'Flag?' })] }))
+    const asking = ask(group({ requests: [request({ kind: 'checkbox', key: 'flag', label: 'Flag?' })] }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -285,7 +303,7 @@ describe('the prompt kinds', () => {
   })
 
   it('writes an ISO day from the date shortcuts', async () => {
-    const asking = askQuickAddPrompts(group({ requests: [request({ kind: 'date', key: 'day', label: 'Day' })] }))
+    const asking = ask(group({ requests: [request({ kind: 'date', key: 'day', label: 'Day' })] }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -306,7 +324,7 @@ describe('the prompt kinds', () => {
   })
 
   it('applies the token case and trim to the answer it is given', async () => {
-    const asking = askQuickAddPrompts(group({
+    const asking = ask(group({
       requests: [request({ key: 'title', label: 'Title', trim: true, caseStyle: 'title' })],
     }))
     await act(async () => {
@@ -320,7 +338,7 @@ describe('the prompt kinds', () => {
 
 describe('the one-page form', () => {
   it('asks everything at once and refuses to submit a blank required answer', async () => {
-    const asking = askQuickAddPrompts(group({
+    const asking = ask(group({
       onePage: true,
       requests: [
         request({ key: 'a', label: 'Alpha' }),
@@ -355,7 +373,7 @@ describe('the one-page form', () => {
   })
 
   it('names the note the run is about to write', async () => {
-    askQuickAddPrompts(group({ destination: 'Inbox' }))
+    ask(group({ destination: 'Inbox' }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -366,11 +384,14 @@ describe('the one-page form', () => {
 
 describe('cancelling from the outside', () => {
   it('resolves the outstanding run with no answer', async () => {
-    const asking = askQuickAddPrompts(group())
+    const asking = ask(group())
     await act(async () => {
       await Promise.resolve()
     })
-    cancelQuickAddPrompts()
+    // Cancelling is a state change the host renders, so it has to happen inside `act`.
+    act(() => {
+      cancelQuickAddPrompts()
+    })
     expect((await untilSettled(asking)).size).toBe(0)
   })
 })

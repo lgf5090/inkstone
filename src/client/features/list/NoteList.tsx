@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { groupLabel, parseDateKey } from '../../lib/time';
@@ -14,6 +14,7 @@ import { IconButton, Logo } from '../../components/primitives';
 import { Menu, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { Empty, NoteListSkeleton } from '../../components/feedback';
 import { useUi } from '../../store/ui';
+import { useQuickAdd } from '../../store/quickadd';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
 import { folderPathLabel } from '../../lib/folders';
 import { writeNoteDrag } from '../../lib/note-drag';
@@ -69,6 +70,7 @@ const VIRTUAL_OVERSCAN = 15;
 export function NoteList() {
     const locale = useLocale();
     const breakpoint = useBreakpoint();
+    const quickAddOn = useQuickAdd((s) => s.settings.enabled);
     const view = useUi((s) => s.view);
     const searchList = useUi((s) => s.searchList);
     const searchRequest = useUi((s) => s.searchRequest);
@@ -371,6 +373,11 @@ export function NoteList() {
               <ArrowDownWideNarrow size={17}/>
             </IconButton>
           </Tooltip>
+          {quickAddOn && (<Tooltip label={t('quickadd.launcher_title')}>
+              <IconButton label={t('quickadd.launcher_title')} size="sm" className="mobile-library-quickadd" onClick={() => useUi.getState().togglePanel('quickadd')}>
+                <Zap size={17}/>
+              </IconButton>
+            </Tooltip>)}
           {view !== 'trash' && view !== 'archived' && <TemplateQuickActions iconSize={17} className="mobile-library-templates"/>}
           {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>
               <IconButton label={t("common.new_note")} size="sm" className="mobile-library-compose" onClick={() => void createContextualNote()}>

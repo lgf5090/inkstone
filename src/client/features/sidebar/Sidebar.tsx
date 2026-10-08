@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -8,6 +8,7 @@ import { Avatar, IconButton, Logo, SectionLabel } from '../../components/primiti
 import { commitOnEnter } from '../../components/form';
 import { Menu, MenuSubmenuList, Tooltip, confirm, useContextMenu, type MenuItem } from '../../components/overlay';
 import { switchThemeWithTransition, useUi } from '../../store/ui';
+import { useQuickAdd } from '../../store/quickadd';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
@@ -120,6 +121,7 @@ function SidebarRail({ onExpand }: {
     const panel = useUi((s) => s.panel);
     const togglePanel = useUi((s) => s.togglePanel);
     const openView = useUi((s) => s.openView);
+    const quickAddOn = useQuickAdd((s) => s.settings.enabled);
     return (<aside className="flex h-full min-h-0 flex-col items-center bg-[var(--bg-sunken)]">
       <div className="flex h-11 w-full shrink-0 items-center justify-center border-b border-[var(--border-subtle)]">
         <Tooltip label={t("sidebar.expand_navigation")} side="right">
@@ -135,6 +137,7 @@ function SidebarRail({ onExpand }: {
         <RailButton label={t("navigation.favorites")} active={view === 'starred'} icon={<Star size={16}/>} onClick={() => openView('starred')}/>
         <RailButton label={t("navigation.trash")} active={view === 'trash'} icon={<Trash2 size={16}/>} onClick={() => openView('trash')}/>
         <div className="my-1 h-px w-6 bg-[var(--border-subtle)]"/>
+        {quickAddOn && <RailButton label={t('quickadd.launcher_title')} combo={APP_SHORTCUTS.quickadd} icon={<Zap size={16}/>} active={panel === 'quickadd'} onClick={() => togglePanel('quickadd')}/>}
         <RailButton label={t("templates.new_note_from_template")} combo={APP_SHORTCUTS.templates} icon={<LayoutTemplate size={16}/>} active={panel === 'templates'} onClick={() => togglePanel('templates')}/>
         <RailButton label={t("common.new_note")} combo={APP_SHORTCUTS.newNote} accent icon={<FilePlus2 size={16}/>} onClick={() => void createContextualNote()}/>
       </div>

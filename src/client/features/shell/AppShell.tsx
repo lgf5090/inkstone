@@ -18,6 +18,8 @@ import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { useLinkEditor } from '../links/store';
+import { useQuickAddBridge } from '../quickadd/bridge';
+import { useQuickAdd } from '../../store/quickadd';
 import { Sidebar } from '../sidebar/Sidebar';
 import { NoteList } from '../list/NoteList';
 import { SearchButton } from './SearchButton';
@@ -40,6 +42,7 @@ const Lightbox = lazy(() => import('../preview/Lightbox').then((m) => ({ default
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
 const LinkEditorPopover = lazy(() => import('../links/LinkEditorPopover').then((m) => ({ default: m.LinkEditorPopover })));
+const QuickAddLauncher = lazy(() => import('../quickadd/launcher').then((m) => ({ default: m.default })));
 export function AppShell() {
     const breakpoint = useBreakpoint();
     const role = useSession((s) => s.user?.role);
@@ -71,6 +74,7 @@ export function AppShell() {
     const checkForUpdates = useUpdate((s) => s.check);
     useSyncEngine();
     useGlobalHotkeys();
+    useQuickAddBridge(userId);
     const hydrated = useNotes((s) => s.hydrated);
     const loading = useNotes((s) => s.loading);
     useEffect(() => {
@@ -251,6 +255,7 @@ function OverlayHost() {
         {lightbox && <Lightbox />}
         {emojiOpen && <EmojiPickerHost />}
         {linkEditOpen && <LinkEditorPopover />}
+      {panel === 'quickadd' && <QuickAddLauncher onClose={closePanel}/>}
       </Suspense>
       {role === 'owner' && updateDialogOpen && (<Suspense fallback={null}>
         <UpdateDialog />
@@ -295,6 +300,16 @@ export const GLOBAL_HOTKEYS: Hotkey[] = [
         allowInInput: true,
         allowInOverlay: true,
         handler: () => ui().togglePanel('templates'),
+    },
+    {
+        id: 'quickadd',
+        combo: APP_SHORTCUTS.quickadd,
+        description: () => t("quickadd.launcher_title"),
+        group: () => t("shell.global"),
+        allowInInput: true,
+        allowInOverlay: true,
+        enabled: () => useQuickAdd.getState().settings.enabled,
+        handler: () => ui().togglePanel('quickadd'),
     },
     {
         id: 'search',

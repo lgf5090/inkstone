@@ -586,6 +586,14 @@
   background: var(--bg-surface);
   color: var(--text-secondary);
 }
+/* The phone has no icon rail, so the launcher takes the same 44px slot as its siblings. */
+.mobile-note-list > header .mobile-library-quickadd {
+  flex: 0 0 44px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
 .mobile-note-list > header .mobile-library-compose {
   flex: 0 0 44px;
   border-radius: 14px;

@@ -155,8 +155,11 @@ const allowedHanFragments = new Map([
  * `CJK_DATE_FIXTURES` is the same argument in a test: a QuickAdd date format and the heading a reader
  * writes with it are note text the ordering rule has to *read*, so a Chinese user's real headings are
  * what the test must feed it. ASCII would prove the rule on a shape nobody has.
+ *
+ * `CJK_CHOICE_FIXTURES` is that argument one level up: a choice's name is text the reader typed, and
+ * the launcher and the palette filter it through the same fuzzy + pinyin path the notes use.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen
