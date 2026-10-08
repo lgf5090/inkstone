@@ -50,7 +50,7 @@ import { appCommands } from '../command/registry'
 const STEP_KINDS: QuickAddStep['kind'][] = ['ask', 'set', 'insert', 'capture', 'create', 'copy', 'open', 'command', 'notify', 'wait', 'script', 'if', 'choice']
 const OPERATORS: QuickAddConditionOperator[] = ['eq', 'ne', 'has', 'empty', 'gt', 'lt']
 const ORDER_KEYS: QuickAddOrderKey[] = ['lexical', 'date', 'numeric', 'semver', 'insertion']
-const POSITIONS: QuickAddPosition[] = ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor']
+const POSITIONS: QuickAddPosition[] = ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor', 'lineAbove', 'lineBelow']
 const CREATE_AT: QuickAddCreateAt[] = ['top', 'bottom', 'cursor', 'ordered']
 const BLANK_MODES: QuickAddBlankLineMode[] = ['auto', 'skip', 'none']
 const DIRECTIONS: QuickAddDirection[] = ['asc', 'desc']
@@ -67,6 +67,8 @@ const POSITION_KEYS: Record<QuickAddPosition, MessageKey> = {
   top: 'quickadd.position_top',
   insertAfter: 'quickadd.position_insert_after',
   insertBefore: 'quickadd.position_insert_before',
+  lineAbove: 'quickadd.position_line_above',
+  lineBelow: 'quickadd.position_line_below',
   cursor: 'quickadd.position_cursor',
 }
 

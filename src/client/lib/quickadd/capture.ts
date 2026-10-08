@@ -418,6 +418,13 @@ export async function runCaptureChoice(
     if (note.id !== port.activeNote()?.id || !port.insertAtCursor(payload.text, payload.cursor))
       return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
     outcome = { content: body, cursor: payload.cursor, changed: true }
+  } else if (choice.writePosition === 'lineAbove' || choice.writePosition === 'lineBelow') {
+    // These two write through the open editor, so a note that is not on screen cannot be their target;
+    // the whole-document path would drop the reader's unsaved typing on the floor.
+    const side = choice.writePosition === 'lineAbove' ? 'above' : 'below'
+    if (note.id !== port.activeNote()?.id || !port.insertRelativeToLine(payload.text, side, payload.cursor))
+      return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
+    outcome = { content: body, cursor: payload.cursor, changed: true }
   } else if (choice.writePosition === 'top') {
     outcome = prependAtBodyStart(body, payload.text, payload.cursor ?? undefined)
   } else if (choice.writePosition === 'bottom') {
@@ -436,7 +443,8 @@ export async function runCaptureChoice(
   }
 
   if (!outcome.changed) return { kind: 'empty', noteId: note.id }
-  if (choice.writePosition !== 'cursor' && !(await port.write(note.id, outcome.content, body)))
+  const writtenInEditor = choice.writePosition === 'cursor' || choice.writePosition === 'lineAbove' || choice.writePosition === 'lineBelow'
+  if (!writtenInEditor && !(await port.write(note.id, outcome.content, body)))
     return { kind: 'failed', reason: t('quickadd.error_write_refused') }
 
   if (choice.linkToSource && options.sourceNoteId) {

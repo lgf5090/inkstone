@@ -559,3 +559,46 @@ export function isWithinFrontMatter(content: string, line: number): boolean {
   const parsed = parseFrontMatter(content)
   return parsed.lineOffset > 0 && line < parsed.lineOffset
 }
+
+/** Offset just past the note's properties block, or 0 when it opens with text. */
+function frontMatterEnd(content: string): number {
+  if (!content.startsWith('---\n')) return 0
+  const close = content.indexOf('\n---', 4)
+  if (close === -1) return 0
+  const after = close + 4
+  return content[after] === '\n' ? after + 1 : after
+}
+
+/**
+ * Where a new line goes next to the caret's own line, and where the caret ends up afterwards.
+ *
+ * "Above the caret" means above the whole line it sits on, which is a hazard when that line belongs to
+ * the note's properties: a capture must never split a front matter block, so a caret parked inside the
+ * block writes just below it instead, whichever side was asked for.
+ */
+export function lineSlot(
+  content: string,
+  caret: number,
+  side: 'above' | 'below',
+  text: string,
+  cursor: number | null,
+): { at: number; insert: string; caret: number } {
+  const position = Math.max(0, Math.min(caret, content.length))
+  const bodyStart = frontMatterEnd(content)
+  const offset = cursor === null ? text.length : Math.max(0, Math.min(cursor, text.length))
+  if (position < bodyStart)
+    return { at: bodyStart, insert: `${text}\n`, caret: bodyStart + offset }
+  const lineStart = content.lastIndexOf('\n', position - 1) + 1
+  const nextBreak = content.indexOf('\n', position)
+  const lineEnd = nextBreak === -1 ? content.length : nextBreak
+  // A caret sitting on an empty line has that line to fill, so the capture takes it rather than
+  // pushing a blank one above or below what is already blank.
+  if (lineStart === lineEnd) {
+    const at = lineStart
+    const insert = lineEnd === content.length && content !== '' ? text : `${text}\n`
+    return { at, insert, caret: at + offset }
+  }
+  if (side === 'above')
+    return { at: lineStart, insert: `${text}\n`, caret: lineStart + offset }
+  return { at: lineEnd, insert: `\n${text}`, caret: lineEnd + 1 + offset }
+}

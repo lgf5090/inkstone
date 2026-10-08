@@ -284,6 +284,15 @@ describe('the quickadd record', () => {
     expect(newTemplateChoice('qa-t', 'R', 0).templatePickCategory).toBeNull()
   })
 
+  it('keeps the two caret-relative write positions', () => {
+    for (const position of ['lineAbove', 'lineBelow'] as const) {
+      const kept = normalizeQuickAddChoice({ ...newCaptureChoice('qa-c', 'C', 0), writePosition: position })
+      expect(kept?.type === 'capture' && kept.writePosition, position).toBe(position)
+    }
+    const broken = normalizeQuickAddChoice({ ...newCaptureChoice('qa-c', 'C', 0), writePosition: 'sideways' })
+    expect(broken?.type === 'capture' && broken.writePosition, 'an unknown position falls back to the bottom').toBe('bottom')
+  })
+
   it('keeps a macro’s startup flag and refuses a scope it does not know', () => {
     const flagged = normalizeQuickAddChoice({ ...newMacroChoice('qa-mac', 'Morning', 0), runOnStartup: true })
     expect(flagged?.type === 'macro' && flagged.runOnStartup).toBe(true)

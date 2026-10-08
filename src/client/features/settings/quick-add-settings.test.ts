@@ -407,6 +407,27 @@ describe('the choice editor', () => {
     expect(saved.type === 'template' && saved.templatePickCategory).toBe('cat-j')
   })
 
+  it('lists the two caret-relative write positions for a capture', () => {
+    const choice = newCaptureChoice('qa-c', 'Caret', 0)
+    seed({ choices: [choice] })
+    editor(choice)
+    const select = control(t('quickadd.field_position')) as HTMLSelectElement
+    const labels = [...select.querySelectorAll('option')].map((option) => option.textContent?.trim())
+    expect(labels).toEqual([
+      t('quickadd.position_bottom'),
+      t('quickadd.position_top'),
+      t('quickadd.position_insert_after'),
+      t('quickadd.position_insert_before'),
+      t('quickadd.position_cursor'),
+      t('quickadd.position_line_above'),
+      t('quickadd.position_line_below'),
+    ])
+    selectNamed(t('quickadd.field_position'), 'lineBelow')
+    clickNamed(t('common.save'))
+    const saved = library()[0]!
+    expect(saved.type === 'capture' && saved.writePosition).toBe('lineBelow')
+  })
+
   it('refuses to save an empty name', () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })

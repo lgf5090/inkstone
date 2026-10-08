@@ -1422,6 +1422,8 @@ export const EN_US_MESSAGES = {
     "quickadd.position_cursor": "At the caret",
     "quickadd.position_insert_after": "Under a line or heading",
     "quickadd.position_insert_before": "Above a line or heading",
+    "quickadd.position_line_above": "On a new line above the caret",
+    "quickadd.position_line_below": "On a new line below the caret",
     "quickadd.position_top": "Top of the body",
     "quickadd.preview_failed": "That format cannot be read yet",
     "quickadd.preview_label": "Preview:",

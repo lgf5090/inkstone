@@ -1422,6 +1422,8 @@ export const ZH_CN_MESSAGES = {
     "quickadd.position_cursor": "光标处",
     "quickadd.position_insert_after": "某行或标题下方",
     "quickadd.position_insert_before": "某行或标题上方",
+    "quickadd.position_line_above": "光标上方新起一行",
+    "quickadd.position_line_below": "光标下方新起一行",
     "quickadd.position_top": "正文开头",
     "quickadd.preview_failed": "这个格式暂时读不出来",
     "quickadd.preview_label": "预览：",

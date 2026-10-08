@@ -8851,6 +8851,8 @@ const allowed = new Map([
     "/** The text a property capture writes its value from. */",
     "// The heading and property-name pickers are not on this page: their choices come from the note the",
     "// run has to resolve first, so asking them up front would offer a list of nothing.",
+    "// These two write through the open editor, so a note that is not on screen cannot be their target;",
+    "// the whole-document path would drop the reader's unsaved typing on the floor.",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -8887,6 +8889,7 @@ const allowed = new Map([
     "/**\n   * Run one of the app's own commands by id, the way the palette entry does. False when the id is\n   * unknown or not offered right now, so the step can say so instead of looking like it worked.\n   */",
     "/** One row of the \"which template?\" picker: what to run, and what to call it on screen. */",
     "/**\n   * The templates a \"ask which one\" choice offers: everything, or only what sits in one library\n   * category. The id is the answer, so two templates called the same thing stay distinguishable.\n   */",
+    "/**\n   * Insert text on a new line above or below the caret's own line. False when the caret is not on\n   * screen — the same promise `insertAtCursor` makes.\n   */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9010,6 +9013,10 @@ const allowed = new Map([
     "/** Where the siblings whose key cannot be read belong. Omitted means `bottom`. */",
     "// With the unreadable ones floated up, the new sibling joins the readable run rather than the",
     "// physical end of the band, which the floated headings now own.",
+    "/** Offset just past the note's properties block, or 0 when it opens with text. */",
+    "/**\n * Where a new line goes next to the caret's own line, and where the caret ends up afterwards.\n *\n * \"Above the caret\" means above the whole line it sits on, which is a hazard when that line belongs to\n * the note's properties: a capture must never split a front matter block, so a caret parked inside the\n * block writes just below it instead, whichever side was asked for.\n */",
+    "// A caret sitting on an empty line has that line to fill, so the capture takes it rather than",
+    "// pushing a blank one above or below what is already blank.",
   ]],
   ["src/client/lib/quickadd/macro-script.ts", [
     "/**\n * A macro step that computes something in a Worker, the same hardened sandbox a note's runnable code\n * block already uses.\n *\n * The boundary is deliberate: the script gets a snapshot of the run — its variables, the selection,\n * the note it is writing — as plain JSON, and hands back text and more variables. It has no handle on\n * the app, because a note author's JavaScript must not be able to move the reader's data around. That\n * makes this a transform rather than the reference plugin's user script, which can drive Obsidian; the\n * macro step list covers the driving half with the named steps instead.\n */",

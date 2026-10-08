@@ -36,7 +36,7 @@ export type QuickAddTemplatePick = 'fixed' | 'ask'
 export type QuickAddFolderMode = 'default' | 'fixed' | 'ask' | 'source'
 export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel'
 export type QuickAddCaptureTargetMode = 'active' | 'note'
-export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor'
+export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor' | 'lineAbove' | 'lineBelow'
 export type QuickAddCreateAt = 'top' | 'bottom' | 'cursor' | 'ordered'
 export type QuickAddBlankLineMode = 'auto' | 'skip' | 'none'
 export type QuickAddOrderKey = 'lexical' | 'date' | 'numeric' | 'semver' | 'insertion'
@@ -543,7 +543,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         targetTitle: oneLine(value.targetTitle, QUICKADD_LIMITS.maxNameLength),
         createIfMissing: boolOf(value.createIfMissing, true),
         createTemplateId: normalizeRef(value.createTemplateId),
-        writePosition: pick(value.writePosition, ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor'] as const, 'bottom'),
+        writePosition: pick(value.writePosition, ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor', 'lineAbove', 'lineBelow'] as const, 'bottom'),
         after: oneLine(value.after, QUICKADD_LIMITS.maxTextLength),
         before: oneLine(value.before, QUICKADD_LIMITS.maxTextLength),
         atSectionEnd: boolOf(value.atSectionEnd, false),

@@ -71,6 +71,8 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const copied: string[] = []
   const commands: string[] = []
   const inserted: { text: string; cursor: number | null | undefined }[] = []
+  const lineInserts: { text: string; side: string }[] = []
+  const writes: { id: string; content: string; previous?: string }[] = []
   const opened: string[] = []
   const notifications: string[] = []
   const store: QuickAddChoice[] = []
@@ -87,6 +89,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     byId: (id) => ref(id),
     read: async (id) => Object.values(notes).find((note) => note.id === id)?.content ?? '',
     write: async (id, content, previous) => {
+      writes.push({ id, content, previous })
       const note = Object.values(notes).find((entry) => entry.id === id)
       if (!note) return false
       if (previous !== undefined && note.content !== previous) return false
@@ -133,6 +136,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       inserted.push({ text, cursor })
       return true
     },
+    insertRelativeToLine: (text, side) => {
+      lineInserts.push({ text, side })
+      return true
+    },
     prependToActive: async () => false,
     settings: () => merged as QuickAddSettings,
     choices: () => store,
@@ -151,6 +158,8 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     commands,
     picks,
     inserted,
+    lineInserts,
+    writes,
     opened,
     notifications,
     store,
@@ -650,6 +659,34 @@ describe('capturing into a note', () => {
     await runCaptureChoice(choice, fake.port, { sourceNoteId: fake.notes['Source'].id })
     expect(fake.content('Source')).toContain('[[Inbox]]')
     expect(fake.content('Inbox')).toBe('in\nin')
+  })
+
+  it('writes on a new line beside the caret, through the editor', async () => {
+    const fake = harness({ Inbox: 'one\ntwo\n' })
+    fake.setActive('Inbox')
+    const choice = captureOn('Inbox', {
+      writePosition: 'lineAbove',
+      format: { enabled: true, format: 'captured' },
+    })
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.lineInserts).toEqual([{ text: 'captured', side: 'above' }])
+    expect(fake.content('Inbox'), 'the editor took the write, so no whole-document replace ran')
+      .toBe('one\ntwo\n')
+    expect(fake.writes, 'a second write would drop what the reader has typed but not saved').toEqual([])
+  })
+
+  it('refuses a below-the-caret capture into a note that is not on screen', async () => {
+    const fake = harness({ Inbox: 'one\ntwo\n' })
+    const choice = captureOn('Inbox', {
+      writePosition: 'lineBelow',
+      format: { enabled: true, format: 'captured' },
+    })
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_editor_unavailable'))
+    expect(fake.lineInserts).toEqual([])
+    expect(fake.content('Inbox')).toBe('one\ntwo\n')
   })
 })
 

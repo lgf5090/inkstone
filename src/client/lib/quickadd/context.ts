@@ -92,6 +92,11 @@ export interface NotePort {
   notify(title: string, description?: string, tone?: 'default' | 'danger' | 'warning'): void
   /** Insert text into the open editor at the caret, replacing the selection. */
   insertAtCursor(text: string, cursorOffset?: number | null): boolean
+  /**
+   * Insert text on a new line above or below the caret's own line. False when the caret is not on
+   * screen — the same promise `insertAtCursor` makes.
+   */
+  insertRelativeToLine(text: string, side: 'above' | 'below', cursorOffset?: number | null): boolean
   /** Prepend text to the open note's body, below its properties. */
   prependToActive(text: string): Promise<boolean>
   settings(): QuickAddSettings
