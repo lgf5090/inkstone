@@ -904,6 +904,8 @@ export const ZH_CN_MESSAGES = {
     "markdown.example": "示例",
     "markdown.failure": "失败",
     "markdown.figure": "图",
+    "markdown.equation": "公式",
+    "markdown.table": "表",
     "markdown.front_matter_exceeds_the_64_kib_safety_limit": "Front Matter 超过 64 KiB 安全上限",
     "markdown.info": "信息",
     "markdown.inkstone_code_highlighting_failed_showing_plain_text": "[inkstone] 代码高亮加载失败，将显示纯文本：",

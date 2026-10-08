@@ -313,6 +313,10 @@ ${LAYOUT_PRINT_STYLES}
 .markdown-media-figure { margin-right: 4px; color: #6b7280; font-weight: 600; }
 .markdown-media[data-media-caption="off"] .markdown-media-caption, .markdown-media[data-media-caption="off"] figcaption { display: none; }
 .markdown-media[data-media-numbered] figcaption { display: none; }
+.math-equation { display: flex; align-items: center; gap: 12px; }
+.math-equation > .math-block { flex: 1 1 auto; min-width: 0; }
+.math-equation-number { flex: 0 0 auto; color: #6b7280; font-size: 0.85em; }
+.markdown-table-caption { caption-side: top; padding-bottom: 4px; color: #4b5563; font-size: 0.85em; font-weight: 600; text-align: left; }
 .markdown-timeline-caption { margin-bottom: 0.4em; font-weight: 600; }
 .markdown-timeline-intro { margin-bottom: 0.6em; }
 .markdown-timeline { margin: 0; padding: 0; list-style: none; counter-reset: markdown-timeline; }

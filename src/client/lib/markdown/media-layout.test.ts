@@ -114,8 +114,17 @@ describe('media row lines', () => {
     expect(parseMediaRow('![a](x.webp)')?.cells[0]?.kind).toBe('image')
   })
 
-  it('refuses a fifth picture on one row', () => {
-    expect(parseMediaRow('![[a]] ![[b]] ![[c]] ![[d]] ![[e]]')).toBeNull()
+  it('holds a row of twelve pictures and refuses a thirteenth', () => {
+    const twelve = Array.from({ length: 12 }, (_unused, index) => `![[p${index}.png]]`).join(' ')
+    expect(parseMediaRow(twelve)?.cells).toHaveLength(12)
+    expect(parseMediaRow(`${twelve} ![[last.png]]`)).toBeNull()
+  })
+
+  it('carries a weight for every picture in a long row', () => {
+    const twelve = Array.from({ length: 12 }, (_unused, index) => `![[p${index}.png]]`).join(' ')
+    const weights = Array.from({ length: 12 }, (_unused, index) => index + 1).join(':')
+    expect(parseMediaRow(`${twelve} {w=${weights}}`)?.options.weights).toHaveLength(12)
+    expect(parseMediaRow('![[a]] ![[b]] {w=1:1:1:1:1:1:1:1:1:1:1:1:1}')?.options.weights).toEqual([])
   })
 
   it('writes a row line without disturbing the embeds', () => {

@@ -904,6 +904,8 @@ export const EN_US_MESSAGES = {
     "markdown.example": "Example",
     "markdown.failure": "Failure",
     "markdown.figure": "Figure",
+    "markdown.equation": "Equation",
+    "markdown.table": "Table",
     "markdown.front_matter_exceeds_the_64_kib_safety_limit": "Front Matter exceeds the 64 KiB safety limit",
     "markdown.info": "Info",
     "markdown.inkstone_code_highlighting_failed_showing_plain_text": "[Inkstone] Code highlighting failed; showing plain text:",

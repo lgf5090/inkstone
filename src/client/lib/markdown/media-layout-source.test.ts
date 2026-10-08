@@ -132,12 +132,14 @@ describe('rewriting a layout block', () => {
     expect(lines[2]).toBe('![[clip.mp4]] ![[b.png]]')
   })
 
-  it('refuses a move that would put a fifth picture on a row', () => {
-    const source = '::: media\n![[a.png]]\n![[b.png]] ![[c.png]] ![[d.png]] ![[e.png]]\n:::\n'
+  it('refuses a move that would put a thirteenth picture on a row', () => {
+    const pictures = Array.from({ length: 12 }, (_unused, index) => `![[p${index}.png]]`)
+    const source = `::: media\n![[a.png]]\n${pictures.join(' ')}\n:::\n`
     expect(editMoveCell(source, 0, { line: 1, index: 0 }, { line: 2, index: 0 })).toBeNull()
-    // A row of four is already at the cap, so trading places inside it is still fine.
-    const within = applyMediaEdit(source, editMoveCell(source, 0, { line: 2, index: 0 }, { line: 2, index: 3 })!)
-    expect(within.split('\n')[2]).toBe('![[c.png]] ![[d.png]] ![[e.png]] ![[b.png]]')
+    // A row already at the cap can still trade places inside itself.
+    const moved = [...pictures.slice(1), pictures[0]!]
+    const within = applyMediaEdit(source, editMoveCell(source, 0, { line: 2, index: 0 }, { line: 2, index: 11 })!)
+    expect(within.split('\n')[2]).toBe(moved.join(' '))
   })
 
   it('takes a picture out, leaving the row’s remaining pictures configured', () => {

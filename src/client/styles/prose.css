@@ -807,6 +807,29 @@
 /* A reference to a figure: the same target a block id gets, so the jump and the flash are already there. */
 .ink-prose .figure-reference { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* A named equation keeps its number at the writing edge, the way a book prints one, because that number is
+   what every `@eq:` in the note says. */
+.ink-prose .math-equation {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.ink-prose .math-equation > .math-block { flex: 1 1 auto; min-width: 0; }
+.ink-prose .math-equation-number {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--text-11-5);
+  font-variant-numeric: tabular-nums;
+}
+.ink-prose .markdown-table-caption {
+  caption-side: top;
+  padding: 0 0 var(--sp-1);
+  color: var(--text-secondary);
+  font-size: var(--text-11-5);
+  font-weight: 600;
+  text-align: start;
+}
+
 /* The block's own settings bar reuses the shared block chrome skin; only the handles below are new. */
 .ink-prose .markdown-media > .block-head { margin-bottom: 0; }
 .ink-prose .media-handles {

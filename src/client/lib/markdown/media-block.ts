@@ -1,5 +1,7 @@
 import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs';
 import { blockLine } from './colon-fence';
+import { attachCrossrefName, nextCrossrefNumber } from './crossref';
+import type { CrossrefRegistry } from './crossref';
 import { parseMediaRow } from './media-layout';
 import type { MediaBlockOptions, MediaCell, MediaRowOptions } from './media-layout';
 
@@ -16,13 +18,6 @@ import type { MediaBlockOptions, MediaCell, MediaRowOptions } from './media-layo
  * The pictures themselves are handed to the inline parser verbatim, so a rename, a size suffix or an
  * alias the author wrote survives every layout edit untouched.
  */
-
-export interface MediaFigureRegistry {
-  /** How many captioned figures this document has numbered so far. */
-  sequence: number;
-  /** What `@fig:name` resolves to, filled as blocks are parsed — before any inline runs. */
-  figures: Map<string, number>;
-}
 
 export interface MediaCellToken {
   cell: MediaCell;
@@ -88,7 +83,7 @@ export function renderMediaContainer(
   end: number,
   nextLine: number,
   options: MediaBlockOptions,
-  figures: MediaFigureRegistry,
+  crossrefs: CrossrefRegistry,
 ): void {
   const scan = scanMediaBody(state, startLine + 1, end);
   if (scan.broken) {
@@ -116,8 +111,8 @@ export function renderMediaContainer(
     row.cells.forEach((cell, cellIndex) => {
       let figure: number | null = null;
       if (numbered && (cell.caption || cell.figId)) {
-        figure = ++figures.sequence;
-        if (cell.figId && !figures.figures.has(cell.figId)) figures.figures.set(cell.figId, figure);
+        figure = nextCrossrefNumber(crossrefs, 'fig');
+        if (cell.figId) attachCrossrefName(crossrefs, 'fig', cell.figId, figure);
       }
       const meta: MediaCellToken = {
         cell,
@@ -208,13 +203,4 @@ export function mediaCellCaption(meta: MediaCellToken, figureLabel: string | nul
   if (meta.figure === null && meta.cell.nativeCaption) return '';
   const label = figureLabel ? `<span class="markdown-media-figure">${escape(figureLabel)}</span>` : '';
   return `<div class="markdown-media-caption" data-media-caption>${label}${escape(meta.cell.caption)}</div>`;
-}
-
-export function emptyFigureRegistry(): MediaFigureRegistry {
-  return { sequence: 0, figures: new Map<string, number>() };
-}
-
-/** The `@fig:name` target: a name the author gave a picture, in the shape a block id may take. */
-export function readFigureReference(content: string): string | null {
-  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(content) ? content : null;
 }

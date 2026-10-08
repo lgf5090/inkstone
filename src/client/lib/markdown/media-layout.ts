@@ -69,7 +69,16 @@ export const MEDIA_ROW_DEFAULTS: MediaRowOptions = { weights: [], height: null, 
 export const MEDIA_MIN_ROW_HEIGHT = 60;
 export const MEDIA_MAX_ROW_HEIGHT = 1200;
 export const MEDIA_DEFAULT_ROW_HEIGHT = 260;
-export const MEDIA_MAX_CELLS_PER_ROW = 4;
+/**
+ * How many pictures one row line may hold.
+ *
+ * Only lines the author already put inside a layout block — or selected for the wrap command — are ever
+ * read as a row, so this is a ceiling on what the layout machinery will build, not a guess about whether
+ * a sentence full of pictures meant to be a gallery. Twelve covers the rows people actually typeset (a
+ * film strip, a year of thumbnails); past it a line is a paragraph, and the weight list a drag writes
+ * would be longer than the row is readable.
+ */
+export const MEDIA_MAX_CELLS_PER_ROW = 12;
 export const MEDIA_MIN_WIDTH = 20;
 export const MEDIA_MAX_WIDTH = 100;
 export const MEDIA_MAX_COLUMNS = 4;
