@@ -463,3 +463,70 @@
   [data-editor-layout='split'] > div { min-height: 0; }
   .editor-toolbar button { min-width: 44px; min-height: 44px; }
 }
+
+.ink-editor .ink-outliner-guide-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ink-editor .ink-outliner-guide-inner {
+  position: relative;
+  height: 100%;
+  will-change: transform;
+  z-index: 1;
+}
+.ink-editor .ink-outliner-guide {
+  position: absolute;
+  width: 8px;
+  margin-left: -8px;
+  background-image: linear-gradient(to right, transparent 7px, var(--border-strong) 7px);
+  background-repeat: repeat-y;
+  pointer-events: auto;
+}
+.ink-editor .ink-outliner-guide-layer[data-action="fold"] .ink-outliner-guide {
+  cursor: pointer;
+}
+.ink-editor .ink-outliner-guide:hover {
+  background-image: linear-gradient(to right, transparent 6px, var(--accent) 6px);
+}
+.ink-editor .ink-outliner-dragging-line {
+  background: var(--accent-softer);
+  opacity: 0.65;
+}
+.ink-editor .ink-outliner-dropping-line {
+  background: var(--accent-soft);
+}
+.ink-editor .ink-outliner-drop-zone {
+  position: absolute;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 3;
+}
+.ink-editor .cm-content.ink-outliner-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.ink-editor .ink-outliner-bullet {
+  cursor: grab;
+}
+.ink-editor .ink-outliner-bullet:hover {
+  color: var(--accent);
+}
+.ink-editor .cm-foldPlaceholder {
+  background: var(--accent-softer);
+  border: none;
+  border-radius: 999px;
+  color: var(--text-tertiary);
+  padding: 0 0.5em;
+  margin-left: 3px;
+  font-size: 0.86em;
+  line-height: 1.35;
+  vertical-align: baseline;
+}
+.ink-editor .cm-foldPlaceholder:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

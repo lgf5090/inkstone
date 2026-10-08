@@ -5,6 +5,8 @@ import type {
   LinkEditorAliasMode,
   LinkEditorModifier,
   LinkEditorTrigger,
+  OutlinerCursorStick,
+  OutlinerGuideClick,
   PropertyColorChoice,
   PropertyFormatChoice,
   PropertyProgressChoice,
@@ -167,6 +169,17 @@ export const DEFAULT_SETTINGS: UserSettings = {
     linkEditorEmbedToggle: true,
     linkEditorPadNew: true,
     linkEditorQuickSelect: false,
+    outliner: true,
+    outlinerEnter: true,
+    outlinerShiftEnter: true,
+    outlinerTab: true,
+    outlinerCursor: 'bullet-and-checkbox',
+    outlinerSelectAll: true,
+    outlinerMoveKeys: true,
+    outlinerFoldKeys: true,
+    outlinerGuides: true,
+    outlinerGuideClick: 'fold',
+    outlinerDrag: true,
   },
   preview: {
     layout: 'live',
@@ -500,6 +513,8 @@ const EMOJI_INSERT_FORMATS: EmojiInsertFormat[] = ['native', 'shortcode']
 const LINK_EDITOR_TRIGGERS: LinkEditorTrigger[] = ['click', 'double-click']
 const LINK_EDITOR_MODIFIERS: LinkEditorModifier[] = ['none', 'ctrl', 'alt', 'shift']
 const LINK_EDITOR_ALIAS_MODES: LinkEditorAliasMode[] = ['heading', 'note-then-heading', 'heading-then-note']
+const OUTLINER_CURSOR_STICKS: OutlinerCursorStick[] = ['never', 'bullet', 'bullet-and-checkbox']
+const OUTLINER_GUIDE_CLICKS: OutlinerGuideClick[] = ['none', 'fold']
 export const EMOJI_SKIN_TONE_MAX = 5
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -620,6 +635,17 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.editor.linkEditorEmbedToggle = booleanValue(editor.linkEditorEmbedToggle, base.editor.linkEditorEmbedToggle)
   base.editor.linkEditorPadNew = booleanValue(editor.linkEditorPadNew, base.editor.linkEditorPadNew)
   base.editor.linkEditorQuickSelect = booleanValue(editor.linkEditorQuickSelect, base.editor.linkEditorQuickSelect)
+  base.editor.outliner = booleanValue(editor.outliner, base.editor.outliner)
+  base.editor.outlinerEnter = booleanValue(editor.outlinerEnter, base.editor.outlinerEnter)
+  base.editor.outlinerShiftEnter = booleanValue(editor.outlinerShiftEnter, base.editor.outlinerShiftEnter)
+  base.editor.outlinerTab = booleanValue(editor.outlinerTab, base.editor.outlinerTab)
+  base.editor.outlinerCursor = enumValue(editor.outlinerCursor, OUTLINER_CURSOR_STICKS, base.editor.outlinerCursor)
+  base.editor.outlinerSelectAll = booleanValue(editor.outlinerSelectAll, base.editor.outlinerSelectAll)
+  base.editor.outlinerMoveKeys = booleanValue(editor.outlinerMoveKeys, base.editor.outlinerMoveKeys)
+  base.editor.outlinerFoldKeys = booleanValue(editor.outlinerFoldKeys, base.editor.outlinerFoldKeys)
+  base.editor.outlinerGuides = booleanValue(editor.outlinerGuides, base.editor.outlinerGuides)
+  base.editor.outlinerGuideClick = enumValue(editor.outlinerGuideClick, OUTLINER_GUIDE_CLICKS, base.editor.outlinerGuideClick)
+  base.editor.outlinerDrag = booleanValue(editor.outlinerDrag, base.editor.outlinerDrag)
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)

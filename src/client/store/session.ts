@@ -449,6 +449,8 @@ export function syncAppearanceToDom(settings: UserSettings): void {
     { narrow: '58ch', normal: '72ch', wide: '88ch', full: '100%' }[appearance.proseWidth] ?? '72ch',
   )
   setStyle('--editor-size', `${settings.editor.fontSize}px`)
+  const guides = settings.editor.outliner && settings.editor.outlinerGuides ? 'on' : 'off'
+  if (root.dataset.outlinerGuides !== guides) root.dataset.outlinerGuides = guides
   if (root.dataset.preview !== preview.layout) root.dataset.preview = preview.layout
   if (getLocale() !== appearance.language) setLocale(appearance.language)
 

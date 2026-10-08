@@ -2568,3 +2568,17 @@
     animation: none;
   }
 }
+
+:root[data-outliner-guides="on"] .ink-prose li > ul,
+:root[data-outliner-guides="on"] .ink-prose li > ol {
+  position: relative;
+}
+:root[data-outliner-guides="on"] .ink-prose li > ul::before,
+:root[data-outliner-guides="on"] .ink-prose li > ol::before {
+  content: "";
+  position: absolute;
+  inset-block: 0.1em 0.3em;
+  inset-inline-start: 0.4em;
+  width: 1px;
+  background: var(--border-strong);
+}

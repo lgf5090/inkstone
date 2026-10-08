@@ -1,6 +1,6 @@
 import { Facet, StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet } from '@codemirror/view';
-import { syntaxTree } from '@codemirror/language';
+import { foldedRanges, syntaxTree } from '@codemirror/language';
 import { parseWikiTarget, renderMarkdownBlocks, type Heading, type MarkdownBlock } from '../lib/markdown/renderer';
 import { subscribeEmojiUnicode } from '../lib/emoji-unicode';
 import { registerFenceBodies, type FenceBodies } from '../lib/markdown/fence-bodies';
@@ -282,16 +282,26 @@ function decorate(state: EditorState, live: LiveState, title: string): Decoratio
     const ranges: Range<Decoration>[] = [];
     const hasEmbeds = live.blocks.some((b) => b.html.includes('data-embed-target'));
     const source = hasEmbeds ? docSource(state) : '';
+    const folds = foldedRanges(state);
     for (const block of live.blocks) {
         if (block.startLine >= state.doc.lines || block.endLine <= block.startLine) continue;
         const from = state.doc.line(block.startLine + 1).from;
         const to = state.doc.line(Math.min(block.endLine, state.doc.lines)).to;
         const active = state.selection.ranges.some((range) =>
             (live.focused || !range.empty) && range.from <= to && range.to >= from);
-        if (active || from === to) continue;
+        if (active || from === to || foldsBetween(folds, from, to)) continue;
         ranges.push(Decoration.replace({ block: true, widget: new RenderedBlock(block, source, live.revision, title, live.fences) }).range(from, to));
     }
     return Decoration.set(ranges, true);
+}
+
+function foldsBetween(folds: ReturnType<typeof foldedRanges>, from: number, to: number): boolean {
+    if (!folds.size) return false;
+    let hit = false;
+    folds.between(from, to, () => {
+        hit = true;
+    });
+    return hit;
 }
 
 function blockOptions(): { emojiShortcodes: boolean, properties: ReturnType<typeof buildPropertyRenderOptions> } {
@@ -314,7 +324,8 @@ export function livePreview(onHeadings: (headings: Heading[]) => void, getTitle:
         update(value, tr) {
             const focused = tr.effects.find((effect) => effect.is(focusChanged));
             const refreshed = tr.effects.find((effect) => effect.is(refresh));
-            if (!tr.docChanged && !tr.selection && !focused && !refreshed) return value;
+            const foldsChanged = foldedRanges(tr.startState) !== foldedRanges(tr.state);
+            if (!tr.docChanged && !tr.selection && !focused && !refreshed && !foldsChanged) return value;
             // Keep typing synchronous and cheap. Reparse after a short idle window; never
             // display stale HTML for a block whose source was touched in the meantime.
             const mapped = tr.docChanged ? value.blocks.flatMap((block) => {

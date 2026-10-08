@@ -132,7 +132,22 @@ export interface EditorSettings {
   linkEditorEmbedToggle: boolean
   linkEditorPadNew: boolean
   linkEditorQuickSelect: boolean
+  outliner: boolean
+  outlinerEnter: boolean
+  outlinerShiftEnter: boolean
+  outlinerTab: boolean
+  outlinerCursor: OutlinerCursorStick
+  outlinerSelectAll: boolean
+  outlinerMoveKeys: boolean
+  outlinerFoldKeys: boolean
+  outlinerGuides: boolean
+  outlinerGuideClick: OutlinerGuideClick
+  outlinerDrag: boolean
 }
+
+export type OutlinerCursorStick = 'never' | 'bullet' | 'bullet-and-checkbox'
+
+export type OutlinerGuideClick = 'none' | 'fold'
 
 /** Which gesture opens the inline link editor over a link. */
 export type LinkEditorTrigger = 'click' | 'double-click'

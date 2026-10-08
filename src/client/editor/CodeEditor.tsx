@@ -14,6 +14,7 @@ import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } 
 import { codeFenceSource, emojiSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
+import { outlinerChrome, outlinerEnter, outlinerFoldSupport, outlinerNoteLine, outlinerOptionsChanged, outlinerOptionsFrom, outlinerShiftTab, outlinerTab } from './outliner';
 import { editorKeymap } from './shortcuts';
 import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-preview';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
@@ -117,6 +118,9 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     const lineNumbersCompartment = useRef(new Compartment());
     const tabSizeCompartment = useRef(new Compartment());
     const placeholderCompartment = useRef(new Compartment());
+    const outlinerFoldCompartment = useRef(new Compartment());
+    const outlinerRef = useRef(settings);
+    outlinerRef.current = settings;
     const configuredDisplay = useRef({ live, lineNumbers: settings.lineNumbers });
 
     useEffect(() => {
@@ -163,8 +167,10 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             typewriterPlugin,
             pasteExtension(cbRef.current.handlers),
             keymap.of([
-                { key: 'Enter', run: (view) => completeCodeFenceOnEnter(view) || completeColonFenceOnEnter(view) || smartEnter(view) },
-                { key: 'Tab', run: (view) => acceptCompletion(view) || tableTab(view) },
+                { key: 'Enter', run: (view) => completeCodeFenceOnEnter(view) || completeColonFenceOnEnter(view) || (outlinerRef.current.outliner && outlinerEnter(view)) || smartEnter(view) },
+                { key: 'Shift-Enter', run: (view) => outlinerRef.current.outliner && outlinerNoteLine(view) },
+                { key: 'Tab', run: (view) => acceptCompletion(view) || tableTab(view) || (outlinerRef.current.outliner && outlinerTab(view)) },
+                { key: 'Shift-Tab', run: (view) => outlinerRef.current.outliner && outlinerShiftTab(view) },
                 ...editorKeymap,
             ]),
             keymap.of([...closeBracketsKeymap, ...completionKeymap, ...searchKeymap, ...historyKeymap]),
@@ -208,6 +214,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             }),
             liveLinkGesture.of((event, view, target, kind) => linkGestureRef.current(event, view, target, kind)),
             linkHoverExtension(),
+            outlinerFoldCompartment.current.of(outlinerFoldSupport),
+            ...outlinerChrome(() => outlinerOptionsFrom(outlinerRef.current)),
             linkHoverFacet.of({
                 propose: (link, options) => hoverRef.current.propose(link, options),
                 hide: () => {
@@ -272,6 +280,24 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             ),
         });
     }, [settings.tabSize]);
+
+    const outlinerFoldOn = useRef(settings.outliner);
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view || outlinerFoldOn.current === settings.outliner) return;
+        outlinerFoldOn.current = settings.outliner;
+        view.dispatch({ effects: outlinerFoldCompartment.current.reconfigure(settings.outliner ? outlinerFoldSupport : []) });
+    }, [settings.outliner]);
+
+    const outlinerPaint = useRef(JSON.stringify(outlinerOptionsFrom(settings)));
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view) return;
+        const next = JSON.stringify(outlinerOptionsFrom(settings));
+        if (outlinerPaint.current === next) return;
+        outlinerPaint.current = next;
+        view.dispatch({ effects: outlinerOptionsChanged.of(null) });
+    }, [settings]);
 
     useEffect(() => {
         const view = viewRef.current;
