@@ -65,6 +65,9 @@ interface UiState {
   activeWorkspacePane: WorkspacePane
   workspacePaneLayouts: Record<WorkspacePane, EditorLayout>
   mobilePane: 'nav' | 'list' | 'editor' | 'preview' | 'account'
+  /** On a touch screen, holding a line carries its block instead of selecting its text. Ephemeral: a
+   * reader turns it on for one round of rearranging, and a drop or a note switch turns it back off. */
+  draggerDragMode: boolean
 
 
   view: ViewKind
@@ -116,6 +119,7 @@ interface UiState {
   setSearchQuery: (value: string) => void
   openExplorer: (folderId?: string | null) => void
   setMobilePane: (pane: UiState['mobilePane']) => void
+  setDraggerDragMode: (on: boolean) => void
   openView: (view: ViewKind, options?: { folderId?: string | null; tag?: string | null; tags?: readonly string[] }) => void
   setSidebarTab: (tab: SidebarTab) => void
   toggleTagFilter: (tag: string, additive: boolean) => void
@@ -409,6 +413,7 @@ export const useUi = create<UiState>((set, get) => ({
   lightbox: null,
   templateInsert: null as TemplateInsert | null,
   mobilePane: 'list',
+  draggerDragMode: false,
   searchList: false,
   searchQuery: '',
   searchRequest: 0,
@@ -525,6 +530,7 @@ export const useUi = create<UiState>((set, get) => ({
     dateFilter: null,
   }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
+  setDraggerDragMode: (draggerDragMode) => set({ draggerDragMode }),
 
   openView: (view, options) => {
     const tags = tagFilter(options?.tags ?? (options?.tag ? [options.tag] : []))

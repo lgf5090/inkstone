@@ -5,6 +5,7 @@
 @import './kanban.css';
 @import './presentation.css';
 @import './properties.css';
+@import './dragger.css';
 
 
 @theme inline {

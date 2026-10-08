@@ -150,6 +150,85 @@ export interface EditorSettings {
   outlinerGuides: boolean
   outlinerGuideClick: OutlinerGuideClick
   outlinerDrag: boolean
+  dragger: boolean
+  draggerHandles: DraggerHandleVisibility
+  draggerHandleIcon: DraggerHandleIcon
+  draggerHandleGlyph: string
+  draggerHandleSize: number
+  draggerHandleOffset: number
+  draggerHandleSide: DraggerGutterSide
+  draggerHandleColorMode: DraggerColorMode
+  draggerHandleColor: string
+  draggerIndicatorColorMode: DraggerColorMode
+  draggerIndicatorColor: string
+  draggerMultiSelect: boolean
+  draggerMultiSelectMs: number
+  draggerMobileArmMs: number
+  draggerAutoScroll: boolean
+  draggerAutoScrollEdge: number
+  draggerAutoScrollSpeed: number
+  draggerHighlight: boolean
+  draggerSelectionStyle: DraggerSelectionStyle
+  draggerMobileTextDrag: boolean
+  draggerExitDragModeAfterDrop: boolean
+  draggerDragModeButton: boolean
+  draggerMoveKeys: boolean
+  draggerMenuOrders: DraggerMenuOrders
+  draggerBlockStyles: DraggerBlockStyle[]
+}
+
+/** When the block handle shows itself: on the hovered block, on every block, or never. */
+export type DraggerHandleVisibility = 'hover' | 'always' | 'hidden'
+
+/** The handle's drawn shape. `custom` renders `draggerHandleGlyph` instead of a built-in. */
+export type DraggerHandleIcon = 'dot' | 'grip-dots' | 'grip-lines' | 'square' | 'custom'
+
+/** Which side of the text the handle sits on. */
+export type DraggerGutterSide = 'left' | 'right'
+
+/** Theme follows the account's accent; custom uses the stored hex color. */
+export type DraggerColorMode = 'theme' | 'custom'
+
+/** How the block being dragged, and a list drop area, are painted. */
+export type DraggerSelectionStyle = 'outline' | 'subtle' | 'filled'
+
+/** One entry of the handle's popup menu, in the order the reader wants them. */
+export type DraggerMenuRootItemId =
+  | 'paragraph'
+  | 'heading'
+  | 'list'
+  | 'quote'
+  | 'callout'
+  | 'code-block'
+  | 'math-block'
+  | 'custom'
+
+/** The four submenus' rows: heading levels, list marker kinds, callout flavors, saved styles. */
+export type DraggerMenuGroupId = 'heading' | 'list' | 'callout' | 'custom'
+
+export interface DraggerMenuOrders {
+  root: DraggerMenuRootItemId[]
+  heading: string[]
+  list: string[]
+  callout: string[]
+  custom: string[]
+}
+
+/**
+ * A block style the reader defined: the markdown the menu writes, and the copy the menu shows.
+ *
+ * `template` holds the block's text as `${content}` and may name other tokens that `variables`
+ * fills in; `linePrefix` is put in front of every line of the content, which is what makes a
+ * callout's `> ` run down the block instead of only its first line.
+ */
+export interface DraggerBlockStyle {
+  id: string
+  label: string
+  /** A glyph the menu shows before the label — emoji or short text, never markup. */
+  icon: string
+  template: string
+  linePrefix?: string
+  variables?: Record<string, string>
 }
 
 /** What a paste does when the author selected nothing: the plain paste, the word under the caret, an

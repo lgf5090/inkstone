@@ -14,7 +14,11 @@ const LONG_PRESS_SLOP = 12
  * event too; `lastLongPressRef` is how the caller tells the two apart and does not open the menu a
  * second time for the same gesture.
  */
-export function useLongPress(onLongPress: (point: { x: number; y: number }, target: HTMLElement) => void) {
+export function useLongPress(onLongPress: (point: { x: number; y: number }, target: HTMLElement) => void, options?: {
+  /** False when another gesture owns the press — a finger that is carrying a block is not also asking for a menu. */
+  enabled?: () => boolean
+}) {
+  const enabled = options?.enabled
   const timer = useRef<number | undefined>(undefined)
   const origin = useRef<{ x: number; y: number } | null>(null)
   const firedAt = useRef(0)
@@ -28,6 +32,7 @@ export function useLongPress(onLongPress: (point: { x: number; y: number }, targ
   useEffect(() => cancel, [cancel])
 
   const onTouchStart = useCallback((event: React.TouchEvent) => {
+    if (enabled && !enabled()) return
     if (event.touches.length !== 1) {
       cancel()
       return
@@ -45,7 +50,7 @@ export function useLongPress(onLongPress: (point: { x: number; y: number }, targ
       origin.current = null
       onLongPress(from, held)
     }, LONG_PRESS_MS)
-  }, [cancel, onLongPress])
+  }, [cancel, onLongPress, enabled])
 
   const onTouchMove = useCallback((event: React.TouchEvent) => {
     const from = origin.current
