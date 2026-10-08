@@ -1,6 +1,6 @@
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
+import { Archive, Clock, Columns2, Download, Eye, EyeOff, FileText, FolderPlus, Hash, ImagePlus, Keyboard, LayoutTemplate, Link2, ListTree, Moon, Palette, Pencil, Plus, Presentation, SquarePen, Search, Settings, Share2, Smile, Star, Sun, Trash2, Waypoints, X, } from 'lucide-react';
 import type { NoteSummary, SearchHit } from '@shared/types';
 import { truncateText } from '@shared/text-utils';
 import { api } from '../../lib/api';
@@ -19,6 +19,7 @@ import { useSession } from '../../store/session';
 import { openEmojiPicker } from '../../store/emoji-picker';
 import { getActiveEditorView } from '../../editor/commands';
 import { openLinkAtCursor } from '../links/use-link-editor';
+import { pasteAsLinkFromClipboard } from '../../editor/paste-link';
 import { t, useLocale } from "../../lib/i18n";
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -159,6 +160,21 @@ export function CommandPalette({ onClose, initialQuery = '' }: {
                             const view = getActiveEditorView();
                             if (!view || !openLinkAtCursor(view))
                                 toast({ title: t("command.no_editor_to_edit"), tone: 'warning' });
+                        },
+                    },
+                    {
+                        id: 'cmd-paste-as-link',
+                        kind: 'command' as const,
+                        label: t("command.paste_as_link"),
+                        icon: <Link2 size={14}/>,
+                        group: t("common.current_note"),
+                        run: () => {
+                            const view = getActiveEditorView();
+                            if (!view) {
+                                toast({ title: t("command.no_editor_to_edit"), tone: 'warning' });
+                                return;
+                            }
+                            pasteAsLinkFromClipboard(view);
                         },
                     },
                     {

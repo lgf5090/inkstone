@@ -132,7 +132,18 @@ export interface EditorSettings {
   linkEditorEmbedToggle: boolean
   linkEditorPadNew: boolean
   linkEditorQuickSelect: boolean
+  pasteLink: boolean
+  pasteLinkReverse: boolean
+  pasteLinkNothing: PasteLinkNothing
+  pasteLinkImageEmbed: boolean
+  pasteLinkBareAddress: boolean
+  pasteLinkInternalNote: boolean
+  pasteLinkRetarget: boolean
 }
+
+/** What a paste does when the author selected nothing: the plain paste, the word under the caret, an
+ * empty `[](url)` with the caret waiting inside the brackets, or the bare `<url>` autolink. */
+export type PasteLinkNothing = 'plain' | 'word' | 'inline' | 'bare'
 
 /** Which gesture opens the inline link editor over a link. */
 export type LinkEditorTrigger = 'click' | 'double-click'

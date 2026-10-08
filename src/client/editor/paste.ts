@@ -1,9 +1,10 @@
 import { EditorSelection } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorView, type DOMEventHandlers } from '@codemirror/view';
 import { truncateText } from '@shared/text-utils';
 import { t } from "../lib/i18n";
 import { randomLocalId } from '../lib/random-id';
 import { useSession } from '../store/session';
+import { applyPasteLink, escapeMarkdownLabel, markdownLink } from './paste-link';
 
 
 export interface PasteHandlers {
@@ -14,10 +15,9 @@ export interface PasteHandlers {
     } | null>;
     replaceDetachedUpload?: (placeholder: string, replacement: string) => void;
 }
-const URL_RE = /^https?:\/\/\S+$/i;
-export function pasteExtension(handlers: PasteHandlers) {
-    return EditorView.domEventHandlers({
-        paste(event, view) {
+export function pasteEventHandlers(handlers: PasteHandlers): DOMEventHandlers<EditorView> {
+    return {
+        paste(event: ClipboardEvent, view: EditorView) {
             const clipboard = event.clipboardData;
             if (!clipboard)
                 return false;
@@ -42,21 +42,9 @@ export function pasteExtension(handlers: PasteHandlers) {
             }
             const text = clipboard.getData('text/plain')?.trim();
 
-            if (text && URL_RE.test(text)) {
-                const range = view.state.selection.main;
-                if (!range.empty) {
-                    const selected = view.state.sliceDoc(range.from, range.to);
-                    if (!URL_RE.test(selected.trim())) {
-                        event.preventDefault();
-                        const insert = markdownLink(selected, text);
-                        view.dispatch({
-                            changes: { from: range.from, to: range.to, insert },
-                            selection: EditorSelection.cursor(range.from + insert.length),
-                            userEvent: 'input.paste',
-                        });
-                        return true;
-                    }
-                }
+            if (text && applyPasteLink(view, text)) {
+                event.preventDefault();
+                return true;
             }
 
             const html = clipboard.getData('text/html');
@@ -75,7 +63,7 @@ export function pasteExtension(handlers: PasteHandlers) {
             }
             return false;
         },
-        drop(event, view) {
+        drop(event: DragEvent, view: EditorView) {
             const files = [...(event.dataTransfer?.files ?? [])];
             if (!files.length)
                 return false;
@@ -86,12 +74,16 @@ export function pasteExtension(handlers: PasteHandlers) {
             void insertFiles(view, files, handlers);
             return true;
         },
-        dragover(event) {
+        dragover(event: DragEvent) {
             if (event.dataTransfer?.types.includes('Files'))
                 event.preventDefault();
             return false;
         },
-    });
+    };
+}
+
+export function pasteExtension(handlers: PasteHandlers) {
+    return EditorView.domEventHandlers(pasteEventHandlers(handlers));
 }
 export async function insertFiles(view: EditorView, files: File[], handlers: PasteHandlers): Promise<void> {
     // Two or more pictures pasted together become one layout block, each upload sitting on its own row line
@@ -185,15 +177,11 @@ export function uploadedFileMarkdown(result: {
     filename: string;
     isImage: boolean;
 }): string {
-    const label = escapeMarkdownLabel(result.isImage ? stripExt(result.filename) : result.filename);
-    return markdownLink(label, result.url, result.isImage, true);
+    return markdownLink(result.isImage ? stripExt(result.filename) : result.filename, result.url, result.isImage);
 }
 function stripExt(name: string): string {
     const dot = name.lastIndexOf('.');
     return dot > 0 ? name.slice(0, dot) : name;
-}
-function escapeMarkdownLabel(value: string): string {
-    return value.replace(/[\r\n]+/g, ' ').replace(/\\/g, '\\\\').replace(/[\[\]]/g, '\\$&');
 }
 function safeHtmlComment(value: string): string {
     return truncateText(value.replace(/[\r\n<>]+/g, ' ').replace(/--+/g, '\u2014'), 240);
@@ -337,12 +325,6 @@ export function htmlToMarkdown(html: string): string {
         });
         return lines.join('\n');
     }
-}
-
-function markdownLink(label: string, url: string, image = false, labelEscaped = false): string {
-    const safeLabel = labelEscaped ? label : escapeMarkdownLabel(label);
-    const destination = `<${url.replace(/[\u0000-\u0020<>]/g, (value) => encodeURIComponent(value))}>`;
-    return `${image ? '!' : ''}[${safeLabel}](${destination})`;
 }
 
 function safePastedHref(value: string, image: boolean): string | null {

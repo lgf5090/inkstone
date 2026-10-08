@@ -5,6 +5,7 @@ import type {
   LinkEditorAliasMode,
   LinkEditorModifier,
   LinkEditorTrigger,
+  PasteLinkNothing,
   PropertyColorChoice,
   PropertyFormatChoice,
   PropertyProgressChoice,
@@ -167,6 +168,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
     linkEditorEmbedToggle: true,
     linkEditorPadNew: true,
     linkEditorQuickSelect: false,
+    pasteLink: true,
+    pasteLinkReverse: true,
+    pasteLinkNothing: 'plain',
+    pasteLinkImageEmbed: true,
+    pasteLinkBareAddress: true,
+    pasteLinkInternalNote: true,
+    pasteLinkRetarget: true,
   },
   preview: {
     layout: 'live',
@@ -500,6 +508,7 @@ const EMOJI_INSERT_FORMATS: EmojiInsertFormat[] = ['native', 'shortcode']
 const LINK_EDITOR_TRIGGERS: LinkEditorTrigger[] = ['click', 'double-click']
 const LINK_EDITOR_MODIFIERS: LinkEditorModifier[] = ['none', 'ctrl', 'alt', 'shift']
 const LINK_EDITOR_ALIAS_MODES: LinkEditorAliasMode[] = ['heading', 'note-then-heading', 'heading-then-note']
+const PASTE_LINK_NOTTHINGS: PasteLinkNothing[] = ['plain', 'word', 'inline', 'bare']
 export const EMOJI_SKIN_TONE_MAX = 5
 const BACKUP_SCHEDULES = ['off', 'hourly', 'sixHourly', 'daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -620,6 +629,17 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.editor.linkEditorEmbedToggle = booleanValue(editor.linkEditorEmbedToggle, base.editor.linkEditorEmbedToggle)
   base.editor.linkEditorPadNew = booleanValue(editor.linkEditorPadNew, base.editor.linkEditorPadNew)
   base.editor.linkEditorQuickSelect = booleanValue(editor.linkEditorQuickSelect, base.editor.linkEditorQuickSelect)
+  base.editor.pasteLink = booleanValue(editor.pasteLink, base.editor.pasteLink)
+  base.editor.pasteLinkReverse = booleanValue(editor.pasteLinkReverse, base.editor.pasteLinkReverse)
+  base.editor.pasteLinkNothing = enumValue(
+    editor.pasteLinkNothing,
+    PASTE_LINK_NOTTHINGS,
+    base.editor.pasteLinkNothing,
+  )
+  base.editor.pasteLinkImageEmbed = booleanValue(editor.pasteLinkImageEmbed, base.editor.pasteLinkImageEmbed)
+  base.editor.pasteLinkBareAddress = booleanValue(editor.pasteLinkBareAddress, base.editor.pasteLinkBareAddress)
+  base.editor.pasteLinkInternalNote = booleanValue(editor.pasteLinkInternalNote, base.editor.pasteLinkInternalNote)
+  base.editor.pasteLinkRetarget = booleanValue(editor.pasteLinkRetarget, base.editor.pasteLinkRetarget)
 
   base.preview.layout = enumValue(preview.layout, EDITOR_LAYOUTS, base.preview.layout)
   base.preview.syncScroll = booleanValue(preview.syncScroll, base.preview.syncScroll)
