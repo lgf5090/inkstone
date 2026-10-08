@@ -10,10 +10,11 @@ import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
 
-const answers = vi.hoisted(() => ({ queue: [] as (PromptAnswer[] | null)[] }))
+const answers = vi.hoisted(() => ({ queue: [] as (PromptAnswer[] | null)[], calls: [] as string[][] }))
 
 vi.mock('../../features/quickadd/prompt-queue', () => ({
   askQuickAddPrompts: async (group: { requests: PromptRequest[] }) => {
+    answers.calls.push(group.requests.map((request) => request.key))
     const next = answers.queue.shift()
     // A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.
     if (next === null) return new Map()
@@ -53,7 +54,7 @@ interface FakeNote extends NoteRef {
   content: string
 }
 
-function harness(start: Record<string, string>, settings: Partial<QuickAddSettings> = {}) {
+function harness(start: Record<string, string>, settings: Partial<QuickAddSettings> = {}, selection = '') {
   const notes: Record<string, FakeNote> = {}
   for (const [title, content] of Object.entries(start))
     notes[title] = { id: `n-${title}`, title, folderPath: null, content }
@@ -91,7 +92,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     },
     linkTo: (target) => `[[${target.title}]]`,
     cursorHeadingPath: () => null,
-    selection: () => '',
+    selection: () => selection,
     clipboard: async () => '',
     templateBody: async (name) => (name === 'tpl-daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
     fieldValues: async () => [],
@@ -144,26 +145,25 @@ vi.mock('./session', async () => {
   const actual = await vi.importActual<typeof import('./session')>('./session')
   return {
     ...actual,
+    // The real session, only with the clock pinned: a stub that rebuilt the record would stop
+    // exercising whatever `newSession` grows later, and the run would pass on a rule no test sees.
     newSession: (
       choice: QuickAddChoice,
       port: NotePort,
       variables?: Map<string, PromptAnswer>,
       day?: Date,
       sourceNoteId?: string,
-    ) => ({
-      choice,
-      base: choice,
-      settings: port.settings(),
-      variables: variables ?? new Map<string, PromptAnswer>(),
-      clock: { now: clock, date: day ?? clock },
-      destination: null,
-      sourceNoteId,
-    }),
+    ) => {
+      const session = actual.newSession(choice, port, variables, day ?? clock, sourceNoteId)
+      session.clock = { now: clock, date: day ?? clock }
+      return session
+    },
   }
 })
 
 beforeEach(() => {
   answers.queue = []
+  answers.calls = []
 })
 
 function captureOn(title: string, over: Partial<QuickAddCaptureChoice> = {}): QuickAddCaptureChoice {
@@ -191,8 +191,40 @@ describe('capturing into a note', () => {
     expect(fake.content('Inbox')).toBe('today\nan idea')
   })
 
-  it('writes a formatted capture below the properties, above the body, when asked to', async () => {
-    const fake = harness({ Log: '---\ntitle: x\n---\n# Log\nold\n' })
+  it('lets what the reader selected answer the value instead of asking', async () => {
+    const fake = harness({ Inbox: 'today\n' }, {}, 'a phrase in the note')
+    const choice = newCaptureChoice('qa-c', 'Inbox capture', 0)
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'a selection is an answer, not a pre-fill').toEqual([])
+    expect(fake.content('Inbox')).toBe('today\na phrase in the note')
+  })
+
+  it('asks anyway when the choice says this capture always asks', async () => {
+    const fake = harness({ Inbox: 'today\n' }, {}, 'a phrase in the note')
+    const choice = captureOn('Inbox', { useSelectionAsValue: false })
+    answers.queue = [['typed instead']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls).toEqual([['value']])
+    expect(fake.content('Inbox')).toBe('today\ntyped instead')
+  })
+
+  it('asks when the selection is only whitespace, and when the account says never', async () => {
+    const blank = harness({ Inbox: 'today\n' }, {}, '   \n ')
+    answers.queue = [['typed']]
+    expect((await runCaptureChoice(captureOn('Inbox'), blank.port)).kind).toBe('written')
+    expect(answers.calls).toEqual([['value']])
+    expect(blank.content('Inbox')).toBe('today\ntyped')
+
+    const off = harness({ Inbox: 'today\n' }, { selectionAsValue: false }, 'a phrase in the note')
+    answers.queue = [['typed anyway']]
+    expect((await runCaptureChoice(captureOn('Inbox'), off.port)).kind).toBe('written')
+    expect(answers.calls).toEqual([['value'], ['value']])
+    expect(off.content('Inbox')).toBe('today\ntyped anyway')
+  })
+
+  it('writes a formatted capture below the properties, above the body, when asked to', async () => {    const fake = harness({ Log: '---\ntitle: x\n---\n# Log\nold\n' })
     const choice = captureOn('Log', {
       writePosition: 'top',
       format: { enabled: true, format: '{{DATE:YYYY-MM-DD}} entry' },
@@ -545,6 +577,30 @@ describe('creating a note from a template', () => {
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('written')
     expect(fake.created[0]).toMatchObject({ title: '2026-10-08', folderPath: 'Journal', content: 'Daily body' })
+  })
+
+  it('creates a blank note when the choice names no template', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Daily note', 0),
+      nameFormat: { enabled: true, format: '{{DATE:YYYY-MM-DD}}' },
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind, '“No template” is a choice the editor offers, not a broken reference').toBe('written')
+    expect(fake.created[0]).toMatchObject({ title: '2026-10-08', content: '' })
+  })
+
+  it('says so when inserting an empty template at the caret writes nothing', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    fake.setActive('Inbox')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Blank insert', 0),
+      templateId: 'tpl-cleared',
+      mode: 'insert-here' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('empty')
+    expect(fake.inserted).toEqual([])
   })
 
   it('asks for a name when the choice has no format', async () => {

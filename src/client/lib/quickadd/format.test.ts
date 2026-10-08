@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { collectRequirements, formatQuickAddText, inertFormat, type FormatRuntime, type PromptRequest } from './format'
+import { getLocale, initI18n, setLocaleAsync } from '../../lib/i18n'
+import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
+
+beforeAll(async () => {
+  await initI18n()
+})
 
 interface Harness {
   runtime: FormatRuntime
@@ -339,5 +345,23 @@ describe('pathological formats', () => {
     const started = performance.now()
     await render(text)
     expect(performance.now() - started).toBeLessThan(1500)
+  })
+})
+
+describe('the prompt a bare token raises', () => {
+  it('names itself in the language the reader is using', async () => {
+    const starting = getLocale()
+    await setLocaleAsync('zh-CN', false)
+    try {
+      const [value] = collectRequirements('{{VALUE}}', harness().runtime)
+      const [named] = collectRequirements('{{NAME}}', harness().runtime)
+      expect(value.label, 'the hint is copy, so it cannot be an English literal').toBe(ZH_CN_MESSAGES['quickadd.var_value'])
+      expect(named.label).toBe(ZH_CN_MESSAGES['quickadd.field_name'])
+      const asking = harness()
+      await formatQuickAddText('{{VALUE}}', asking.runtime)
+      expect(asking.asked[0]?.label, 'the run path asks in the same words the preview promises').toBe(value.label)
+    } finally {
+      await setLocaleAsync(starting, false)
+    }
   })
 })

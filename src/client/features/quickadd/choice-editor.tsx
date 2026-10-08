@@ -429,9 +429,6 @@ function CaptureFields({ draft, patch, renderFormat }: {
       {draft.targetMode === 'note' && (
         <Field label={t('quickadd.field_target_title')} hint={t('quickadd.field_target_title_hint')}>
           <Input aria-label={t('quickadd.field_target_title')} value={draft.targetTitle} onChange={(event) => set({ targetTitle: event.target.value })}/>
-          <p className="mt-1 text-[11.5px] text-[var(--text-quaternary)]">
-            <span className="font-mono">{draft.targetTitle}</span>
-          </p>
         </Field>
       )}
       {draft.targetMode === 'note' && (
@@ -530,6 +527,18 @@ function CaptureFields({ draft, patch, renderFormat }: {
         onChange={(format) => set({ format: { enabled: true, format } })}
         onEnabledChange={(enabled) => set({ format: { ...draft.format, enabled } })}
         renderFormat={renderFormat}/>
+      <SettingRow title={t('quickadd.field_use_selection')} description={t('quickadd.field_use_selection_desc')}>
+        <Select
+          aria-label={t('quickadd.field_use_selection')}
+          value={draft.useSelectionAsValue === null || draft.useSelectionAsValue === undefined ? 'account' : draft.useSelectionAsValue ? 'yes' : 'no'}
+          onChange={(event) => set({
+            useSelectionAsValue: event.target.value === 'account' ? null : event.target.value === 'yes',
+          })}>
+          <option value="account">{t('quickadd.selection_account')}</option>
+          <option value="yes">{t('quickadd.selection_yes')}</option>
+          <option value="no">{t('quickadd.selection_no')}</option>
+        </Select>
+      </SettingRow>
       <div className="grid gap-1 md:grid-cols-3">
         <Checkbox checked={draft.task} onChange={(task) => set({ task })} label={t('quickadd.field_task')}/>
         <Checkbox checked={draft.eachLine} onChange={(eachLine) => set({ eachLine })} label={t('quickadd.field_each_line')}/>

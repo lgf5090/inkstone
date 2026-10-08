@@ -47,7 +47,7 @@ export function newSession(
   const now = new Date()
   const date = day ? new Date(day.getTime()) : now
   if (day) date.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds())
-  return {
+  const session: RunSession = {
     choice,
     base: choice,
     settings: port.settings(),
@@ -56,6 +56,15 @@ export function newSession(
     destination: null,
     sourceNoteId,
   }
+  // What the reader has selected answers an un-named `{{VALUE}}` instead of asking: a selection is an
+  // answer, not a pre-fill, so a blank selection leaves the prompt exactly where it was. The choice
+  // overrides the account setting, which is itself the reference's always-on behaviour.
+  const override = (choice as { useSelectionAsValue?: boolean | null }).useSelectionAsValue
+  if ((override ?? session.settings.selectionAsValue) && !session.variables.has('value')) {
+    const selected = port.selection()
+    if (selected.trim() !== '') session.variables.set('value', selected)
+  }
+  return session
 }
 
 /** The day a run measures its dates from, when the choice says "ask me each time". */

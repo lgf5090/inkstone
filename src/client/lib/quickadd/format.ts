@@ -29,6 +29,7 @@ import {
 import { formatDatePattern } from './date-pattern'
 import { weekStartFor } from '../time'
 import { evaluateMathExpression, formatMathValue } from './math'
+import { t } from '../../lib/i18n'
 import type { QuickAddPeriod } from '@shared/quickadd'
 import type { MessageKey } from '@shared/locales/en-US'
 
@@ -187,9 +188,9 @@ async function answerFor(runtime: FormatRuntime, request: PromptRequest): Promis
   return answer
 }
 
-function valueRequest(span: TokenSpan, runtime: FormatRuntime, scopeHint: string): PromptRequest {
+function valueRequest(span: TokenSpan, runtime: FormatRuntime, scopeHintKey: MessageKey): PromptRequest {
   const parsed = parseValueToken(bodyOf(span))
-  const label = parsed.hasOptions ? parsed.label : parsed.variableName || scopeHint
+  const label = parsed.hasOptions ? parsed.label : parsed.variableName || t(scopeHintKey)
   const seeded = readVariable(runtime.variables, parsed.variableName || 'value')
   const defaultText = typeof seeded?.value === 'string' && seeded.value !== '' ? seeded.value : parsed.defaultValue
   const kind: PromptKind = parsed.inputType
@@ -230,7 +231,7 @@ export function collectRequirements(text: string, runtime: FormatRuntime): Promp
     switch (span.name) {
       case 'value':
       case 'name': {
-        const request = valueRequest(span, runtime, span.name === 'name' ? 'Name' : 'Value')
+        const request = valueRequest(span, runtime, span.name === 'name' ? 'quickadd.field_name' : 'quickadd.var_value')
         if (readVariable(runtime.variables, request.key)) break
         push(request)
         break
@@ -307,7 +308,7 @@ export function collectRequirements(text: string, runtime: FormatRuntime): Promp
         push({
           kind: 'math',
           key: 'mvalue',
-          label: 'Math expression',
+          label: t('quickadd.prompt_math'),
           defaultValue: '',
           options: [],
           displayOptions: null,
@@ -471,7 +472,7 @@ export function inertFormat(text: string, runtime: FormatRuntime): string {
       }
       case 'value':
       case 'name': {
-        const request = valueRequest(span, runtime, span.name === 'name' ? 'Name' : 'Value')
+        const request = valueRequest(span, runtime, span.name === 'name' ? 'quickadd.field_name' : 'quickadd.var_value')
         const known = readVariable(runtime.variables, request.key)
         if (known && known.value !== null && known.value !== undefined) return renderAnswer(known.value, request)
         if (request.options.length > 0) return `{${request.options.join(' \| ')}}`
@@ -586,7 +587,7 @@ export async function formatQuickAddText(
     switch (span.name) {
       case 'value':
       case 'name': {
-        const request = valueRequest(span, runtime, span.name === 'name' ? 'Name' : 'Value')
+        const request = valueRequest(span, runtime, span.name === 'name' ? 'quickadd.field_name' : 'quickadd.var_value')
         const answer = await answerFor(runtime, request)
         return renderAnswer(answer ?? request.defaultValue ?? '', request)
       }
@@ -684,7 +685,7 @@ export async function formatQuickAddText(
           : await runtime.prompt({
             kind: 'math',
             key: 'mvalue',
-            label: 'Math expression',
+            label: t('quickadd.prompt_math'),
             defaultValue: '',
             options: [],
             displayOptions: null,

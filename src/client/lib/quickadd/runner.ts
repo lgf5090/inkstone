@@ -72,13 +72,19 @@ function editorSelection(): string {
 }
 
 async function contentOf(id: string): Promise<string> {
-  const state = useNotes.getState()
-  if (Object.prototype.hasOwnProperty.call(state.contents, id)) return state.contents[id] ?? ''
+  const ui = useUi.getState()
+  const openHere = ui.activeNoteId === id || ui.workspaceSecondaryNoteId === id
+  const cached = useNotes.getState().contents[id]
+  // Only the editor holds the truth about a note it has open: unsaved keystrokes live in the store’s
+  // content cache. For every other note that cache can be the text a previous run wrote *before* it
+  // was saved, so the server is asked instead — and a capture that read the body it is about to
+  // extend is the only comparison the write can honestly be guarded by.
+  if (openHere && typeof cached === 'string') return cached
   try {
     const note = await api.notes.get(id)
     return note.content
   } catch {
-    return ''
+    return typeof cached === 'string' ? cached : ''
   }
 }
 
@@ -96,18 +102,25 @@ async function replaceContent(id: string, content: string, previous?: string): P
     await useNotes.getState().flush({ immediate: true })
     return currentCached(id) === content
   }
-  const summary = useNotes.getState().notes[id]
-  if (previous !== undefined && summary) {
-    const cached = await contentOf(id)
-    if (cached !== previous) return false
+  // The summary’s own rev can lag the server right after a create, which the store answers with a
+  // second revision of its own. Ask the server what the note is at now, and write against that.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let fresh
+    try {
+      fresh = await api.notes.get(id)
+    } catch {
+      return false
+    }
+    if (previous !== undefined && fresh.content !== previous) return false
+    try {
+      await api.notes.patch(id, { content, rev: fresh.rev })
+      await useNotes.getState().pull({ force: true })
+      return true
+    } catch {
+      if (attempt === 1) return false
+    }
   }
-  try {
-    await api.notes.patch(id, { content, rev: summary?.rev ?? (await api.notes.get(id)).rev })
-    await useNotes.getState().pull({ force: true })
-    return true
-  } catch {
-    return false
-  }
+  return false
 }
 
 /** Walk a slash path, creating the folders it names. Null when the path cannot be built. */

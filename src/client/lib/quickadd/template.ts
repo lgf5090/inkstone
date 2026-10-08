@@ -93,7 +93,9 @@ export async function runTemplateChoice(
   if (cancelled) return cancelled
 
   const runtime = buildRuntime(session, port)
-  const body = await port.templateBody(choice.templateId ?? '')
+  // "No template" is a choice the editor offers, so it means a blank note. Only a template that was
+  // deleted from under the choice is a failure worth a danger notice.
+  const body = choice.templateId ? await port.templateBody(choice.templateId) : ''
   if (body === null)
     return { kind: 'failed', reason: t('quickadd.error_template_missing') }
 
@@ -104,6 +106,8 @@ export async function runTemplateChoice(
     runtime.folderPath = active.folderPath
     session.destination = active
     const formatted = await formatWithPrompts(body, runtime, session, active.title)
+    if (formatted.text.trim() === '' && formatted.cursor === null)
+      return { kind: 'empty', noteId: active.id }
     if (!port.insertAtCursor(formatted.text, formatted.cursor))
       return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
     port.recordRun(choice.id)

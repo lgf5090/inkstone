@@ -176,7 +176,7 @@ export function QuickAddSettings() {
         <h3 data-setting-title={t('settings.quickadd_periodic')} className="text-[13px] font-semibold text-[var(--text-primary)]">{t('settings.quickadd_periodic')}</h3>
         <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('settings.quickadd_periodic_desc')}</p>
         {PERIODS.map((period) => (
-          <div key={period} className="grid gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5 md:grid-cols-3">
+          <div key={period} role="group" aria-label={t(PERIOD_KEYS[period])} className="grid gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5 md:grid-cols-3">
             <Field label={t(PERIOD_KEYS[period])}>
               <Input
                 aria-label={t(PERIOD_KEYS[period])}
