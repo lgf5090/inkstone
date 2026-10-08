@@ -727,6 +727,26 @@ export function parseQuickAddText(text: string): QuickAddParseResult {
   return parseQuickAddLibrary(value)
 }
 
+/**
+ * Read the `{ savedAt, version, library }` envelope an account stores in `users.quickadd` in the
+ * shape a backup can carry. Junk, an unreadable library and an empty column all come back as null,
+ * so a broken column never takes a whole export down with it.
+ */
+export function quickAddLibraryFromStored(raw: string | null | undefined): QuickAddLibrary | null {
+  if (typeof raw !== 'string' || raw === '') return null
+  let envelope: unknown
+  try {
+    envelope = JSON.parse(raw)
+  }
+  catch {
+    return null
+  }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return null
+  const inner = (envelope as { library?: unknown }).library
+  if (!inner || typeof inner !== 'object' || Array.isArray(inner)) return null
+  return parseQuickAddRecord(inner).data
+}
+
 export function buildQuickAddPayload(
   settings: QuickAddSettings,
   choices: QuickAddChoice[],

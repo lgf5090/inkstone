@@ -16,6 +16,7 @@ import {
 import { APP_VERSION, LIMITS } from '@shared/constants'
 import { extractAttachmentIds } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
+import { quickAddLibraryFromStored } from '@shared/quickadd'
 import type { ExportBundle } from '@shared/types'
 import { estimateZipSizeFromSizes } from '@shared/zip'
 import {
@@ -327,9 +328,10 @@ export async function buildJsonExport(env: Env, userId: string): Promise<Uint8Ar
          FROM folders f WHERE f.user_id = ?1 AND f.deleted_at IS NULL ORDER BY f.position ASC`,
     ).bind(userId),
     env.DB.prepare(`SELECT t.id, t.name, t.color, t.created_at FROM tags t WHERE t.user_id = ?1`).bind(userId),
-    env.DB.prepare(`SELECT login, name FROM users WHERE id = ?1`).bind(userId),
+    env.DB.prepare(`SELECT login, name, quickadd FROM users WHERE id = ?1`).bind(userId),
   ])
-  const user = (userRows.results[0] as { login: string; name: string } | undefined) ?? null
+  const user = (userRows.results[0] as { login: string; name: string; quickadd: string | null } | undefined) ?? null
+  const quickadd = quickAddLibraryFromStored(user?.quickadd)
   const metadata: Omit<ExportBundle, 'notes' | 'attachments'> = {
     format: 'inkstone-export',
     version: 1,
@@ -337,6 +339,7 @@ export async function buildJsonExport(env: Env, userId: string): Promise<Uint8Ar
     user: { login: user?.login ?? 'unknown', name: user?.name ?? '' },
     folders: (folderRows as D1Result<FolderRow>).results.map(toFolder),
     tags: (tagRows as D1Result<TagRow>).results.map(toTag),
+    ...(quickadd ? { quickadd } : {}),
   }
   const chunks: Uint8Array[] = []
   let byteLength = 0

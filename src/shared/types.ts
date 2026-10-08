@@ -731,6 +731,7 @@ export interface ExportBundle {
   user: { login: string; name: string }
   folders: Folder[]
   tags: Tag[]
+  quickadd?: unknown
   notes: Note[]
 
   attachments: ExportAttachment[]

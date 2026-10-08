@@ -42,6 +42,7 @@ import {
 } from '../backup/snapshot'
 import { createBackupArchive } from '../backup/archive'
 import { applyBackupTemplates } from '../backup/templates'
+import { applyBackupQuickAdd } from '../backup/quickadd'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -934,6 +935,8 @@ async function importBundle(
   }
 
   await restoreTagMetadata(c.env.DB, userId, rawTags)
+
+  if (bundle.quickadd !== undefined) await applyBackupQuickAdd(c.env.DB, userId, bundle.quickadd)
 }
 
 interface PreparedAttachmentCandidate {
