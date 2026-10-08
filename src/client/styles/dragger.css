@@ -1,0 +1,245 @@
+/* Block dragging (the dragger): a grip beside every block, the band over the block in hand, and the
+   seam where it will land. All three are drawn by the editor's own overlay layer, which positions them
+   in document coordinates and rides the scroll — a rendered block in live preview has no line element
+   of its own, so nothing here can hang off `.cm-line`. */
+
+.ink-editor .cm-editor.ink-dragger-editor .ink-dragger-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: var(--z-float);
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .ink-dragger-inner {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/* ---- the grip ---- */
+
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ink-dragger-handle-size, 20px);
+  height: max(var(--ink-dragger-handle-size, 20px), var(--ink-dragger-line-height, 24px));
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-dragger-handle-color, var(--accent));
+  cursor: grab;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle:active {
+  cursor: grabbing;
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core {
+  display: block;
+  width: var(--ink-dragger-handle-core-size, 11px);
+  height: var(--ink-dragger-handle-core-size, 11px);
+  background: currentColor;
+}
+
+:root[data-ink-dragger-icon='dot'] .ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core {
+  width: calc(var(--ink-dragger-handle-core-size, 11px) * 0.6);
+  height: calc(var(--ink-dragger-handle-core-size, 11px) * 0.6);
+  border-radius: var(--r-full);
+}
+
+/* Six dots in two columns: the box is tiled and one dot is drawn per tile. */
+:root[data-ink-dragger-icon='grip-dots'] .ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core {
+  width: calc(var(--ink-dragger-handle-core-size, 11px) * 0.72);
+  height: calc(var(--ink-dragger-handle-core-size, 11px) * 1.45);
+  background-image: radial-gradient(currentColor var(--ink-dragger-grip-dots-size, 1.5px), transparent calc(var(--ink-dragger-grip-dots-size, 1.5px) + 0.4px));
+  background-size: 50% 33.333%;
+}
+
+:root[data-ink-dragger-icon='grip-lines'] .ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core {
+  width: var(--ink-dragger-handle-core-size, 11px);
+  height: calc(var(--ink-dragger-handle-core-size, 11px) * 0.8);
+  background-image: repeating-linear-gradient(to bottom, currentColor 0 2px, transparent 2px 5px);
+}
+
+:root[data-ink-dragger-icon='square'] .ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core {
+  border-radius: var(--r-2);
+}
+
+:root[data-ink-dragger-icon='custom'] .ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core {
+  width: auto;
+  height: auto;
+  background: none;
+  font-size: calc(var(--ink-dragger-handle-size, 20px) * 0.75);
+  line-height: 1;
+}
+
+:root[data-ink-dragger-icon='custom'] .ink-editor .cm-editor.ink-dragger-editor .ink-dragger-handle-core::before {
+  content: var(--ink-dragger-handle-glyph, '⠿');
+}
+
+/* ---- when the grip shows ---- */
+
+:root.ink-dragger-handles-always .ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle {
+  opacity: 0.5;
+  pointer-events: auto;
+}
+
+:root.ink-dragger-handles-always .ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle:hover,
+:root.ink-dragger-handles-always .ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle.is-visible {
+  opacity: 1;
+}
+
+/* Hover mode: the editor's hover pass marks the block the pointer is over. */
+:root:not(.ink-dragger-handles-always) .ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:root.ink-dragger-handles-hidden .ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle {
+  display: none;
+}
+
+/* A selected block's grip turns into the tick it was carried by, so a multi-block pick reads as a set
+   of checked rows rather than as a pile of grips. */
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle.is-selected,
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle.is-selected:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle.is-selected .ink-dragger-handle-core {
+  position: relative;
+  width: var(--ink-dragger-handle-core-size, 11px);
+  height: var(--ink-dragger-handle-core-size, 11px);
+  background: transparent;
+  border: 1.5px solid var(--ink-dragger-handle-color, var(--accent));
+  border-radius: var(--r-2);
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle.is-selected .ink-dragger-handle-core::after {
+  content: '';
+  position: absolute;
+  left: 15%;
+  top: 4%;
+  width: 42%;
+  height: 68%;
+  border: solid var(--ink-dragger-handle-color, var(--accent));
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(40deg);
+}
+
+/* ---- the block in hand, and the seam it is heading for ---- */
+
+.ink-editor .cm-editor.ink-dragger-editor .ink-dragger-band {
+  position: absolute;
+  border-radius: var(--r-2);
+  background: var(--ink-dragger-source-bg);
+  box-shadow: inset 2px 0 0 var(--ink-dragger-source-border);
+  pointer-events: none;
+}
+
+:root,
+:root[data-ink-dragger-style='subtle'] {
+  --ink-dragger-source-bg: color-mix(in oklab, var(--accent) 12%, transparent);
+  --ink-dragger-source-border: color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+:root[data-ink-dragger-style='outline'] {
+  --ink-dragger-source-bg: transparent;
+}
+
+:root[data-ink-dragger-style='filled'] {
+  --ink-dragger-source-bg: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+.ink-editor .cm-editor.ink-dragger-editor .ink-dragger-seam {
+  position: absolute;
+  height: 2px;
+  border-radius: var(--r-full);
+  background: var(--ink-dragger-seam-color, var(--ink-dragger-source-border));
+  box-shadow: 0 0 6px color-mix(in oklab, var(--accent) 45%, transparent);
+  pointer-events: none;
+}
+
+/* A refused drop still shows where the pointer is, quietly, so the reader can tell "not here" from
+   "the indicator is broken". */
+.ink-editor .cm-editor.ink-dragger-editor .ink-dragger-seam.is-invalid {
+  background: var(--text-quaternary);
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+/* ---- while a block is in the air ---- */
+
+:root.ink-dragger-dragging,
+:root.ink-dragger-dragging * {
+  cursor: grabbing;
+}
+
+:root.ink-dragger-dragging .ink-editor .cm-content,
+:root.ink-dragger-dragging .ink-editor .cm-line {
+  user-select: none;
+}
+
+/* On a finger, drag mode replaces text selection with carrying, so the caret gesture has to be put
+   down for the length of the session. */
+:root.ink-dragger-drag-mode .ink-editor .cm-scroller,
+:root.ink-dragger-drag-mode .ink-editor .cm-content,
+:root.ink-dragger-drag-mode .ink-editor .cm-line {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:root.ink-dragger-gesture-lock .ink-editor .cm-scroller {
+  touch-action: none;
+}
+
+/* The settings panel draws the same grip the editor will, from the same custom properties. */
+.ink-dragger-sample {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-block: var(--sp-2);
+}
+
+.ink-dragger-sample .md-dragger-handle {
+  position: static;
+  opacity: 1;
+  pointer-events: none;
+  height: var(--ink-dragger-handle-size, 20px);
+}
+
+.ink-dragger-sample .ink-dragger-sample-body {
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-2);
+  background: var(--ink-dragger-source-bg);
+  box-shadow: inset 2px 0 0 var(--ink-dragger-source-border);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-editor .cm-editor.ink-dragger-editor .md-dragger-handle {
+    transition: none;
+  }
+}

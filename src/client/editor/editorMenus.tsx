@@ -58,7 +58,18 @@ import {
 } from './commands'
 import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
 import { openEmojiPicker } from '../store/emoji-picker'
-import { AlignCenter, AlignLeft, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Eraser, FileCode, FileText, GitCommitVertical, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Sigma, Sparkles, SquarePen, Strikethrough, Subscript, Superscript, Table as TableIcon, Underline } from 'lucide-react'
+import { AlignCenter, AlignLeft, ArrowDown, ArrowUp, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Copy, CopyPlus, Eraser, FileCode, FileText, GitCommitVertical, Hand, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Scissors, Sigma, Sparkles, SquarePen, Strikethrough, Subscript, Superscript, Table as TableIcon, Trash2, Underline } from 'lucide-react'
+import {
+  draggerCarryDown,
+  draggerCarryUp,
+  draggerCopyBlock,
+  draggerCutBlock,
+  draggerDeleteBlock,
+  draggerDuplicateBlock,
+} from './dragger'
+
+/** The phone's hold-to-carry mode, offered as a checkable row where a handle cannot be reached. */
+export type DraggerDragModeRow = { enabled: boolean; onToggle: () => void }
 import { openLinkAtCursor } from '../features/links/use-link-editor'
 
 /**
@@ -265,6 +276,31 @@ export function blockMenuItems(run: RunEditorCommand): MenuItem[] {
     },
     { id: 'divider', label: t('workspace.divider'), icon: <Minus size={13} />, separatorBefore: true, onSelect: () => run(insertHorizontalRule) },
   ]
+}
+
+/**
+ * What the editor can do to the block the caret is in, without reaching for a handle: carry it over
+ * its neighbour, take a copy of it, or remove it. The rows exist for the surfaces a drag cannot reach
+ * — a phone in reading layout, and a keyboard.
+ */
+export function blockCarryItems(run: RunEditorCommand, dragMode: DraggerDragModeRow | null): MenuItem[] {
+  const items: MenuItem[] = []
+  if (dragMode) {
+    items.push({
+      id: 'drag-mode',
+      label: t(dragMode.enabled ? 'dragger.drag_mode_on' : 'dragger.drag_mode_off'),
+      icon: <Hand size={13}/>,
+      checked: dragMode.enabled,
+      onSelect: dragMode.onToggle,
+    })
+  }
+  items.push({ id: 'carry-up', label: t('command.move_block_up'), combo: editorCombo('move-block-up'), icon: <ArrowUp size={13}/>, onSelect: () => run(draggerCarryUp) })
+  items.push({ id: 'carry-down', label: t('command.move_block_down'), combo: editorCombo('move-block-down'), icon: <ArrowDown size={13}/>, onSelect: () => run(draggerCarryDown) })
+  items.push({ id: 'carry-copy', label: t('dragger.copy_block'), icon: <Copy size={13}/>, onSelect: () => run(draggerCopyBlock) })
+  items.push({ id: 'carry-cut', label: t('dragger.cut_block'), icon: <Scissors size={13}/>, onSelect: () => run(draggerCutBlock) })
+  items.push({ id: 'carry-duplicate', label: t('dragger.duplicate_block'), icon: <CopyPlus size={13}/>, onSelect: () => run(draggerDuplicateBlock) })
+  items.push({ id: 'carry-delete', label: t('dragger.delete_block'), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => run(draggerDeleteBlock) })
+  return items
 }
 
 /** The context menu's single Insert row: every block the editor can write, one level deeper. */

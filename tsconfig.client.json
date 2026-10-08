@@ -30,7 +30,9 @@
 
     "paths": {
       "@/*": ["./src/client/*"],
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@codemirror/state": ["./node_modules/@codemirror/state/dist/index.d.ts"],
+      "@codemirror/view": ["./node_modules/@codemirror/view/dist/index.d.ts"]
     }
   },
   "include": ["src/client/**/*", "src/shared/**/*", "package.json"],

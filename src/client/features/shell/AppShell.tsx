@@ -5,6 +5,7 @@ import { registerAll, type Hotkey } from '../../lib/hotkeys';
 import { PRESENTATION_HOTKEYS } from '../presentation';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useBreakpoint } from '../../lib/hooks';
+import { useDraggerPresentation } from '../../editor/dragger';
 import { useSyncEngine } from '../../lib/sync';
 import { preloadPinyin, textNeedsReading } from '../../lib/pinyin';
 import { Drawer } from '../../components/overlay';
@@ -50,6 +51,9 @@ export function AppShell() {
     const breakpoint = useBreakpoint();
     const role = useSession((s) => s.user?.role);
     const userId = useSession((s) => s.user?.id);
+    // The dragger paints from custom properties on the document root, so the settings panel's own
+    // sample of a grip shows exactly what the editor will draw.
+    useDraggerPresentation(useSession((s) => s.settings.editor), useUi((s) => s.draggerDragMode));
     useEffect(() => {
       // Keep settings prewarming out of the boot + first-sync window.
       const timer = window.setTimeout(() => {

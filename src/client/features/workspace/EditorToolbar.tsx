@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline } from 'lucide-react';
+import { Blocks, Bold, Braces, CaseUpper, ChevronDown, Code, FileText, Heading, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTodo, MoveVertical, Quote, Sigma, Smile, Sparkles, Strikethrough, Table, Type, Underline } from 'lucide-react';
 import { IconButton } from '../../components/primitives';
 import { Menu, Tooltip } from '../../components/overlay';
 import { cn } from '../../lib/cn';
@@ -8,13 +8,16 @@ import { formatCodeBlock, insertCodeBlock, insertLink, insertTable, toggleBold, 
 import { setFontColor, setHighlightColor, toggleUnderline } from '../../editor/text-format';
 import { EditorColorPanel } from './EditorColorMenu';
 import { useRecentColors } from '../../lib/format-colors';
-import { blockMenuItems, codeMenuItems, formatMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
+import { blockCarryItems, blockMenuItems, codeMenuItems, formatMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
+import { isTouchPointer } from '../../editor/dragger';
+import { useSession } from '../../store/session';
+import { useUi } from '../../store/ui';
 import { t } from '../../lib/i18n';
 import { editorCombo } from '../../editor/shortcuts';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 
-type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'format' | 'text-color' | 'highlight-color';
+type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'text-color' | 'highlight-color';
 
 /**
  * The palette is a menu header, and a header is placed before it is measured. These are what the
@@ -39,10 +42,19 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const codeRef = useRef<HTMLButtonElement>(null);
     const mathRef = useRef<HTMLButtonElement>(null);
     const blockRef = useRef<HTMLButtonElement>(null);
+    const carryRef = useRef<HTMLButtonElement>(null);
     const formatRef = useRef<HTMLButtonElement>(null);
     const textColorRef = useRef<HTMLButtonElement>(null);
     const highlightColorRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
+    const draggerOn = useSession((state) => state.settings.editor.dragger);
+    const draggerTextDrag = useSession((state) => state.settings.editor.draggerMobileTextDrag);
+    const draggerModeButton = useSession((state) => state.settings.editor.draggerDragModeButton);
+    const dragMode = useUi((state) => state.draggerDragMode);
+    // The mode is a finger's shortcut for a handle, so it is only offered where a handle is hard to hit.
+    const dragModeRow = draggerOn && mobile && isTouchPointer() && draggerTextDrag && draggerModeButton
+      ? { enabled: dragMode, onToggle: () => useUi.getState().setDraggerDragMode(!dragMode) }
+      : null;
     const recent = useRecentColors();
     const toggleMenu = (menu: ToolbarMenu) => setToolbarMenu((current) => current === menu ? null : menu);
     // The dropdown closes before the command runs, so a menu still holding the pointer cannot keep
@@ -69,6 +81,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         { id: 'code', anchor: codeRef, label: t('workspace.code_and_diagrams'), items: codeMenuItems(run), width: 192 },
         { id: 'math', anchor: mathRef, label: t('workspace.math'), items: mathMenuItems(run), width: 176 },
         { id: 'block', anchor: blockRef, label: t('workspace.content_blocks'), items: blockMenuItems(run), width: 176 },
+        { id: 'carry', anchor: carryRef, label: t('dragger.block_actions'), items: blockCarryItems(run, dragModeRow), width: 190 },
         { id: 'format', anchor: formatRef, label: t('workspace.more_formats'), items: formatMenuItems(run), width: 200 },
     ] as const;
     const anchors: Record<ToolbarMenu, RefObject<HTMLButtonElement | null>> = {
@@ -79,6 +92,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         code: codeRef,
         math: mathRef,
         block: blockRef,
+        carry: carryRef,
         format: formatRef,
         'text-color': textColorRef,
         'highlight-color': highlightColorRef,
@@ -91,6 +105,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         code: t('workspace.code_and_diagrams'),
         math: t('workspace.math'),
         block: t('workspace.content_blocks'),
+        carry: t('dragger.block_actions'),
         format: t('workspace.more_formats'),
         'text-color': t('workspace.text_color'),
         'highlight-color': t('workspace.highlight_color'),
@@ -138,6 +153,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
       <ToolButton label={t('workspace.table')} onClick={() => run(insertTable)}><Table size={14}/></ToolButton>
       {menuButton('math', <Sigma size={14}/>)}
       {menuButton('block', <Blocks size={14}/>)}
+      {draggerOn && menuButton('carry', <MoveVertical size={14}/>)}
       {menuButton('format', <CaseUpper size={14}/>)}
       {menus.map((menu) => <Menu key={menu.id} anchor={menu.anchor} open={openMenu === menu.id} onClose={() => setToolbarMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
       <Menu anchor={textColorRef} open={openMenu === 'text-color'} onClose={() => setToolbarMenu(null)} items={[]} width={PALETTE_WIDTH} label={t('workspace.text_color')} headerHeight={PALETTE_HEIGHT} header={<EditorColorPanel kind="text" current={recent.text[0]} onPick={color => run(setFontColor(color))}/>}/>
