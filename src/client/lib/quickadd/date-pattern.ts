@@ -8,6 +8,7 @@
  * unknown token, so a typo in a saved format shows up as the typo rather than as a blank note.
  */
 import { localeTag } from '../i18n'
+import { weekStartFor } from '../time'
 
 export interface DateFormatOptions {
   /** BCP 47 tag for month/day names and the first day of the week. */
@@ -20,7 +21,6 @@ const ABBREVIATED_DAY_NAMES_CACHE = new Map<string, string[]>()
 const MONTH_NAMES_CACHE = new Map<string, string[]>()
 const ABBREVIATED_MONTH_NAMES_CACHE = new Map<string, string[]>()
 
-const WEEK_START_CACHE = new Map<string, number>()
 
 function names<T>(cache: Map<string, T>, locale: string, build: () => T): T {
   const known = cache.get(locale)
@@ -56,34 +56,6 @@ function monthNames(locale: string, style: 'long' | 'short'): string[] {
   })
 }
 
-/**
- * 0 for Sunday, 1 for Monday: the locale's first day of the week.
- *
- * `resolvedOptions().weekType` is the only reading that is stable across V8 versions, where the
- * accessor is called `weekInfo` on some builds and `getWeekInfo` on others. `weekType` says which
- * *calendar* the locale uses ('firstDay' here means the 1-to-7 list below), and the ISO rule
- * (Monday) is what CLDR gives every locale that is not Sunday-first, so the fallback is not a guess.
- */
-export function firstDayOfWeek(locale: string): number {
-  return names(WEEK_START_CACHE, locale, () => {
-    let weekType = '001'
-    try {
-      const resolved = new Intl.DateTimeFormat(locale).resolvedOptions() as { weekType?: string }
-      weekType = resolved.weekType ?? '001'
-      const info = new Intl.Locale(locale) as unknown as {
-        weekInfo?: { firstDay?: number }
-        getWeekInfo?: () => { firstDay?: number }
-      }
-      const firstDay = info.getWeekInfo?.()?.firstDay ?? info.weekInfo?.firstDay
-      if (typeof firstDay === 'number' && firstDay >= 1 && firstDay <= 7) return firstDay % 7
-    } catch {
-      // An unknown tag: fall through to the table.
-    }
-    const sundayFirst = ['001', '419', 'US', 'CA', 'AU', 'NZ', 'JP', 'TW', 'KR', 'PH', 'GT', 'HN', 'SV', 'NI', 'PA', 'PR', 'DO', 'CO', 'PE', 'VE', 'BR', 'BZ', 'FM', 'MH', 'SA', 'EG', 'IQ', 'MA', 'QA', 'OM', 'AE', 'YE', 'IR', 'AF', 'TH', 'KH', 'MM', 'MY', 'BN', 'PK', 'IN', 'IL', 'ZW', 'ZM', 'MW', 'BT', 'NP']
-    return sundayFirst.includes(weekType) ? 0 : 1
-  })
-}
-
 function pad(value: number, length: number): string {
   return String(Math.trunc(Math.abs(value))).padStart(length, '0')
 }
@@ -109,7 +81,9 @@ function isoYearWeek(date: Date): { year: number; week: number } {
  * the only locale input here is which weekday the week starts on.
  */
 function localeWeek(date: Date, locale: string): number {
-  const firstDay = firstDayOfWeek(locale)
+  // The app's one week-start derivation, so a `{{DATE:w}}` numbers its weeks the way the month grid
+  // draws its columns.
+  const firstDay = weekStartFor(locale)
   const weekStartOf = (value: Date): Date => {
     const day = (value.getDay() - firstDay + 7) % 7
     return new Date(value.getFullYear(), value.getMonth(), value.getDate() - day)
@@ -318,4 +292,122 @@ function tokenValue(kind: string, f: TokenFields): string | null {
     case 'epochMillis': return String(f.date.getTime())
     default: return null
   }
+}
+
+/** The token kind starting `run`, longest first — the same walk that writes it. */
+function tokenKindAt(run: string): string | null {
+  for (const [expression, kind] of TOKENS) {
+    if (expression.test(run)) return kind
+  }
+  return null
+}
+
+/** The format tokens this app can read back, and what their text looks like. A week, quarter,
+ * weekday or offset token has no inverse: it does not name a day on its own. */
+const READABLE_TOKENS: Readonly<Record<string, { field: string; source: string }>> = {
+  year: { field: 'year', source: '\\d{4}' },
+  year2: { field: 'year2', source: '\\d{2}' },
+  isoYear: { field: 'year', source: '\\d{4}' },
+  month: { field: 'month', source: '\\d{1,2}' },
+  month2: { field: 'month', source: '\\d{2}' },
+  monthLong: { field: 'monthName', source: '[^\\s.,;]+' },
+  monthShort: { field: 'monthName', source: '[^\\s.,;]+' },
+  day: { field: 'day', source: '\\d{1,2}' },
+  day2: { field: 'day', source: '\\d{2}' },
+  hour: { field: 'hour', source: '\\d{1,2}' },
+  hour2: { field: 'hour', source: '\\d{2}' },
+  minute: { field: 'minute', source: '\\d{1,2}' },
+  minute2: { field: 'minute', source: '\\d{2}' },
+  second: { field: 'second', source: '\\d{1,2}' },
+  second2: { field: 'second', source: '\\d{2}' },
+}
+
+/**
+ * The instant a title written with `pattern` names, or null when the text does not fit it.
+ *
+ * An ordered capture has to compare the headings already in the note, and a heading whose year, month
+ * and day are split by the reader's own calendar glyphs is a date only the pattern can find —
+ * `Date.parse` knows ISO and a handful of English forms. A format built
+ * from tokens with no inverse says "unreadable" rather than inventing a day, which is also what the
+ * ordering rule wants: an unreadable heading sinks to the bottom instead of sorting by a guess.
+ */
+export function parseDatePattern(text: string, pattern: string, locale: string = localeTag()): number | null {
+  if (!pattern) return null
+  const groups: string[] = []
+  const fields: Partial<Record<string, number>> = {}
+  let source = ''
+  let rest = pattern
+  while (rest.length > 0) {
+    if (rest[0] === '[') {
+      const close = rest.indexOf(']')
+      if (close === -1) return null
+      source += escapeLiteral(rest.slice(1, close))
+      rest = rest.slice(close + 1)
+      continue
+    }
+    const kind = tokenKindAt(rest)
+    if (kind) {
+      const readable = READABLE_TOKENS[kind]
+      // A token with no inverse (a week, a quarter, a weekday, an offset) means this format cannot
+      // name a day, so the whole pattern is unreadable rather than half-read.
+      if (!readable) return null
+      if (fields[readable.field] === undefined) {
+        fields[readable.field] = groups.length
+        groups.push(readable.field)
+        source += `(${readable.source})`
+      }
+      else source += `(?:${readable.source})`
+      rest = rest.slice(matchedTokenLength(kind))
+      continue
+    }
+    source += escapeLiteral(rest[0]!)
+    rest = rest.slice(1)
+  }
+  if (fields.year === undefined && fields.year2 === undefined) return null
+  const matched = new RegExp(`^${source}`).exec(text.trim())
+  if (!matched) return null
+  const read = (field: string): number => {
+    const at = fields[field]
+    if (at === undefined) return 0
+    const value = matched[at + 1]
+    return value === undefined ? 0 : Number(value)
+  }
+  let year = read('year')
+  const twoDigit = read('year2')
+  if (fields.year === undefined && fields.year2 !== undefined) year = twoDigit <= 68 ? 2000 + twoDigit : 1900 + twoDigit
+  let month = fields.month === undefined ? 1 : read('month')
+  if (fields.monthName !== undefined) {
+    const name = matched[(fields.monthName ?? 0) + 1] ?? ''
+    const at = monthIndexOf(name, locale)
+    if (at === null) return null
+    month = at
+  }
+  const day = fields.day === undefined ? 1 : read('day')
+  const date = new Date(year, month - 1, day, read('hour'), read('minute'), read('second'))
+  // `2026-13-01` is not a day. Rejecting it keeps such a heading unparseable rather than sorting it
+  // by a date the reader never wrote.
+  if (Number.isNaN(date.getTime())) return null
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+  return date.getTime()
+}
+
+/** How many pattern characters the token `kind` occupies, from the same table that prints it. */
+function matchedTokenLength(kind: string): number {
+  for (const [expression, entry] of TOKENS) {
+    if (entry === kind) return expression.source.slice(1).length
+  }
+  return 0
+}
+
+function escapeLiteral(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function monthIndexOf(name: string, locale: string): number | null {
+  const needle = name.trim().toLowerCase()
+  for (const style of ['long', 'short'] as const) {
+    const at = monthNames(locale, style).findIndex((entry) => entry.toLowerCase() === needle)
+    if (at !== -1) return at + 1
+  }
+  return null
 }

@@ -16,6 +16,7 @@ import { Button } from '../../components/primitives'
 import { FIELD_BASE, Slider, Textarea, commitOnEnter } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { fuzzyFilter } from '../../lib/fuzzy'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { randomLocalId } from '../../lib/random-id'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -86,6 +87,7 @@ function SuggesterRows({
   draft: DraftEntry
   onPick: (value: string) => void
 }) {
+  const pinyinVersion = usePinyinVersion()
   const rows = useMemo(() => {
     const base = request.options.map((value, index) => ({
       value,
@@ -93,7 +95,7 @@ function SuggesterRows({
     }))
     if (draft.query.trim() === '') return base
     return fuzzyFilter(base, draft.query, (item) => item.text).map((match) => match.item)
-  }, [draft.query, request.displayOptions, request.options])
+  }, [draft.query, request.displayOptions, request.options, pinyinVersion])
 
   return (
     <div className="space-y-1">

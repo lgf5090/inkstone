@@ -151,8 +151,12 @@ const allowedHanFragments = new Map([
  * A chart table's scatter headers name the columns the author chose, and they must mean the same chart
  * whatever language the reader's interface is in, so they cannot come from the locale catalog. Only these
  * constants' own initializers are exempt — a Han literal anywhere else still fails the gate.
+ *
+ * `CJK_DATE_FIXTURES` is the same argument in a test: a QuickAdd date format and the heading a reader
+ * writes with it are note text the ordering rule has to *read*, so a Chinese user's real headings are
+ * what the test must feed it. ASCII would prove the rule on a shape nobody has.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen

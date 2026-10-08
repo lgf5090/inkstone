@@ -47,6 +47,7 @@ interface QuickAddState {
   removeChoices: (ids: readonly string[]) => number
   duplicateChoice: (id: string) => QuickAddChoice | null
   place: (id: string, parentId: string | null, index: number) => boolean
+  toggleGroupCollapsed: (id: string) => boolean
   restoreUndoable: () => boolean
   recordRun: (id: string) => void
   /** `error` is a message id so the caller can translate it. */
@@ -266,6 +267,17 @@ export const useQuickAdd = create<QuickAddState>((set, get) => ({
       : []
     persist(set, get, { choices: [...choices, copy, ...children] })
     return copy
+  },
+  toggleGroupCollapsed: (id) => {
+    const choices = get().choices
+    const group = choices.find((choice) => choice.id === id && choice.type === 'group')
+    if (!group || group.type !== 'group') return false
+    persist(set, get, {
+      choices: choices.map((choice) => (choice.id === id && choice.type === 'group'
+        ? { ...choice, collapsed: !choice.collapsed }
+        : choice)),
+    })
+    return true
   },
   place: (id, parentId, index) => {
     const choices = get().choices

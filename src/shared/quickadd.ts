@@ -24,6 +24,7 @@ export const QUICKADD_LIMITS = {
   maxGlobalVars: 100,
   maxRecent: 12,
   maxIdLength: 64,
+  maxEachLineEntries: 500,
   maxPayloadLength: 4 * 1024 * 1024,
 } as const
 
@@ -36,7 +37,7 @@ export type QuickAddCaptureTargetMode = 'active' | 'note'
 export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor'
 export type QuickAddCreateAt = 'top' | 'bottom' | 'cursor' | 'ordered'
 export type QuickAddBlankLineMode = 'auto' | 'skip' | 'none'
-export type QuickAddOrderKey = 'lexical' | 'date' | 'numeric'
+export type QuickAddOrderKey = 'lexical' | 'date' | 'numeric' | 'semver' | 'insertion'
 export type QuickAddDirection = 'asc' | 'desc'
 export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
@@ -53,6 +54,10 @@ export interface QuickAddChoiceBase {
   asCommand: boolean
   hotkey: string | null
   dateOrigin: QuickAddDateOrigin
+  /** Ask everything on one page, one at a time, or follow the account setting when absent. */
+  onePage?: QuickAddOnePageMode
+  /** Offer a copy of the created note's link on the clipboard once the run is done. */
+  copyText?: string
 }
 
 export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
@@ -84,6 +89,8 @@ export interface QuickAddCaptureChoice extends QuickAddChoiceBase {
   createAt: QuickAddCreateAt
   inline: boolean
   replaceExisting: boolean
+  /** Ask which heading to insert under, from the target note's own headings, at run time. */
+  promptHeading: boolean
   blankLine: QuickAddBlankLineMode
   orderBy: { by: QuickAddOrderKey; direction: QuickAddDirection; dateFormat: string }
   format: { enabled: boolean; format: string }
@@ -226,6 +233,8 @@ function baseChoice(over: Partial<QuickAddChoiceBase>): QuickAddChoiceBase {
     asCommand: over.asCommand ?? false,
     hotkey: over.hotkey ?? null,
     dateOrigin: over.dateOrigin ?? 'run',
+    onePage: over.onePage,
+    copyText: over.copyText,
   }
 }
 
@@ -263,6 +272,7 @@ export function newCaptureChoice(id: string, name: string, position: number): Qu
     createAt: 'bottom',
     inline: false,
     replaceExisting: false,
+    promptHeading: false,
     blankLine: 'auto',
     orderBy: { by: 'lexical', direction: 'desc', dateFormat: 'YYYY-MM-DD' },
     format: { enabled: false, format: '{{VALUE}}' },
@@ -465,6 +475,10 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
     asCommand: boolOf(value.asCommand, false),
     hotkey: normalizeHotkey(value.hotkey),
     dateOrigin: pick(value.dateOrigin, ['run', 'note', 'ask'] as const, 'run'),
+    onePage: value.onePage === undefined || value.onePage === null
+      ? undefined
+      : pick(value.onePage, ['always', 'auto', 'never'] as const, 'auto'),
+    copyText: value.copyText === undefined ? undefined : textOf(value.copyText, QUICKADD_LIMITS.maxTextLength),
   })
   if (!base.name) return null
 
@@ -510,9 +524,10 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         createAt: pick(value.createAt, ['top', 'bottom', 'cursor', 'ordered'] as const, 'bottom'),
         inline: boolOf(value.inline, false),
         replaceExisting: boolOf(value.replaceExisting, false),
+        promptHeading: boolOf(value.promptHeading, false),
         blankLine: pick(value.blankLine, ['auto', 'skip', 'none'] as const, 'auto'),
         orderBy: {
-          by: pick(orderBy.by, ['lexical', 'date', 'numeric'] as const, 'lexical'),
+          by: pick(orderBy.by, ['lexical', 'date', 'numeric', 'semver', 'insertion'] as const, 'lexical'),
           direction: pick(orderBy.direction, ['asc', 'desc'] as const, 'desc'),
           dateFormat: oneLine(orderBy.dateFormat, 40) || 'YYYY-MM-DD',
         },

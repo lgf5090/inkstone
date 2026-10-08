@@ -26,7 +26,8 @@ import {
   type ParsedValueToken,
   type TokenSpan,
 } from './token-grammar'
-import { formatDatePattern, firstDayOfWeek } from './date-pattern'
+import { formatDatePattern } from './date-pattern'
+import { weekStartFor } from '../time'
 import { evaluateMathExpression, formatMathValue } from './math'
 import type { QuickAddPeriod } from '@shared/quickadd'
 
@@ -79,6 +80,34 @@ export interface FormatRuntime {
   periodicPath: (period: QuickAddPeriod, offset: number, link: boolean) => string
   /** A message the surface can show without aborting the run: a misspelled snap unit, say. */
   warn: (message: string) => void
+}
+
+/**
+ * A runtime where a macro or an included template expands once per run, no matter how many times the
+ * text is formatted. `{{MVALUE}}` asks once and gives every line the same answer, and a macro with a
+ * side effect does not repeat it for each line of a one-entry-per-line capture — but a `{{DATE}}` or
+ * `{{RANDOM:}}` in that same text still resolves afresh, which is what each line is asking for.
+ */
+export function memoizeStructure(runtime: FormatRuntime): FormatRuntime {
+  const macros = new Map<string, string>()
+  const templates = new Map<string, string | null>()
+  return {
+    ...runtime,
+    runMacroByName: async (name, label) => {
+      const key = name.trim().toLowerCase()
+      const cached = macros.get(key)
+      if (cached !== undefined) return cached
+      const expanded = await runtime.runMacroByName(name, label)
+      macros.set(key, expanded)
+      return expanded
+    },
+    templateBody: async (name) => {
+      if (templates.has(name)) return templates.get(name) ?? null
+      const body = await runtime.templateBody(name)
+      templates.set(name, body)
+      return body
+    },
+  }
 }
 
 export interface FormattedText {
@@ -360,7 +389,7 @@ export function expandEscapes(text: string): string {
 
 export function snapDate(date: Date, snap: { boundary: 'start' | 'end'; unit: string }, locale: string): Date {
   const next = new Date(date.getTime())
-  const weekStart = snap.unit === 'isoweek' ? 1 : firstDayOfWeek(locale)
+  const weekStart = snap.unit === 'isoweek' ? 1 : weekStartFor(locale)
   switch (snap.unit) {
     case 'year':
       next.setFullYear(snap.boundary === 'start' ? next.getFullYear() : next.getFullYear(), snap.boundary === 'start' ? 0 : 11, 1)
