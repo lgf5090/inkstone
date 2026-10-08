@@ -7422,6 +7422,8 @@ const allowed = new Map([
     "// emits one lands where the author put it rather than at its offset in the raw format.",
     "/**\n * A `{{VDATE:}}` answer is stored as the text the author gave and rendered through the token's own\n * format, so an ISO date is reformatted while anything the parser cannot read is copied through —\n * the reference's back-compat branch, which keeps a script-set value working.\n */",
     "/** The token list a settings surface can render as a cheat sheet or an autocomplete source. */",
+    "// A token inside a quoted property has to be written the way that property holds it, or the",
+    "// reader's own answer silently breaks the note's front matter.",
   ]],
   ["src/client/lib/quickadd/insertion.test.ts", [
     "/**\n * Headings a Chinese-writing reader has in their own journal. `check-i18n.mjs` keeps Han literals out\n * of `src/` because user-facing copy belongs in the catalog; note text a placement rule has to read is\n * not copy, and this is the case the date ordering cannot see with `Date.parse`.\n */",
@@ -7600,6 +7602,17 @@ const allowed = new Map([
     "// Nothing to rebuild, so nothing to write: an all-punctuation answer becomes empty rather than",
     "// keeping punctuation the style would have had to place between words.",
     "/**\n * What `{{MACRO:}}`, `{{TEMPLATE:}}` and `{{GLOBAL_VAR:}}` name: a bare keyword before the first\n * pipe, so `{{TEMPLATE:Daily}}` and `{{TEMPLATE:Daily|label:Pick}}` both name `Daily`.\n */",
+  ]],
+  ["src/client/lib/quickadd/yaml-quotes.ts", [
+    "/**\n * Keeping a formatted token inside a note's own properties from breaking them.\n *\n * A template author writes `title: \"{{VALUE}}\"` and the reader answers `Say \"hi\"` — a plain splice\n * puts a stray quote into a YAML scalar and the note's properties stop parsing. So the engine asks,\n * for every token it replaces, whether that occurrence sits inside a quoted scalar of the front\n * matter, and writes the value the way that scalar would hold it.\n */",
+    "/** `key: \"value\"`, with the quotes balanced and an optional trailing comment. */",
+    "/** The token is the whole scalar, with nothing of the author's own text around it. */",
+    "/** The character range of the note's properties, or null when the text has no closed block. */",
+    "/** Where `text.slice(start, end)` sits, if it is a token inside a quoted front-matter scalar. */",
+    "/**\n * The value as that scalar can hold it. A double-quoted scalar escapes what it must and can carry a\n * line break as `\\n`; a single-quoted one has no escape for a line break at all, so the break folds\n * to a space and the caller says so rather than writing a broken property.\n */",
+    "/**\n * `rating: \"{{VALUE:rating|type:number}}\"` means the number, not a string that happens to look like\n * one, so the author's quotes come off before the token is filled in. Only a scalar that is exactly\n * one such token is touched; text and multiline answers keep their quotes and get escaped instead.\n */",
+    "// The carriage return lives at the end of the raw line, past the text the match saw.",
+    "/** The one token that fills the text entirely, or null when there is author text around it. */",
   ]],
   ["src/client/lib/random-id.ts", [
     "// One helper for local identifiers, so no entry point has to fall back to Math.random().",

@@ -1485,6 +1485,7 @@ export const EN_US_MESSAGES = {
     "quickadd.copy_failed": "Clipboard access was refused",
     "quickadd.link_line": "Linked from this note: {link}",
     "quickadd.warn_each_line_capped": "Only the first {written} of {count} lines were captured.",
+    "quickadd.warn_scalar_folded": "A line break cannot live inside a {quote} property, so it became a space",
     "quickadd.ran_empty": "{name} had nothing to write",
     "quickadd.ran_cancelled": "{name} stopped: the question was closed",
     "quickadd.failed_hint": "{name} could not finish",

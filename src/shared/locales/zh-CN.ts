@@ -1482,6 +1482,7 @@ export const ZH_CN_MESSAGES = {
     "quickadd.error_anchor_blank": "要插入到的那一行填完变量后是空的",
     "quickadd.error_anchor_multiline": "行内定位的锚点只能在一行内，请去掉换行或关闭行内插入",
     "quickadd.warn_each_line_capped": "逐行写入的行数太多，只写了前 {written} 行（共 {count} 行）。",
+    "quickadd.warn_scalar_folded": "{quote} 引号的属性里放不进换行，已改成空格",
     "quickadd.ran_property": "{name} 已设置 {destination} 的 {property}",
     "quickadd.copy_failed": "剪贴板不允许访问",
     "quickadd.link_line": "从本篇链接过来：{link}",
