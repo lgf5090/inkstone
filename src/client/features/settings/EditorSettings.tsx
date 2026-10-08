@@ -1,5 +1,6 @@
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../components/form';
 import { Button } from '../../components/primitives';
+import { DraggerSettings } from './DraggerSettings';
 import { useSession } from '../../store/session';
 import { t } from "../../lib/i18n";
 import { clearRecentEmojis, RECENT_EMOJI_LIMIT, useEmojiPreferences } from '../../lib/emoji-prefs';
@@ -112,6 +113,8 @@ export function EditorSettings() {
             </SettingRow>
           </>}
       </section>
+
+      <DraggerSettings/>
 
       <section>
         <h3 data-setting-title={t("settings.link_editor_group")} className="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">{t("settings.link_editor_group")}</h3>
