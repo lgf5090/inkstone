@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { QUICKADD_LIMITS, type QuickAddOnePageMode, type QuickAddPeriod } from '@shared/quickadd'
+import { QUICKADD_LIMITS, type QuickAddOnePageMode, type QuickAddPeriod, type QuickAddStartupScope } from '@shared/quickadd'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { confirm } from '../../components/overlay'
@@ -117,6 +117,15 @@ export function QuickAddSettings() {
             <option value="auto">{t('quickadd.one_page_auto')}</option>
             <option value="always">{t('quickadd.one_page_always')}</option>
             <option value="never">{t('quickadd.one_page_never')}</option>
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('quickadd.field_startup_scope')} description={t('quickadd.field_startup_scope_desc')}>
+          <Select
+            aria-label={t('quickadd.field_startup_scope')}
+            value={settings.startupScope}
+            onChange={(event) => save({ startupScope: event.target.value as QuickAddStartupScope })}>
+            <option value="day">{t('quickadd.startup_scope_day')}</option>
+            <option value="session">{t('quickadd.startup_scope_session')}</option>
           </Select>
         </SettingRow>
         <SettingRow title={t('settings.quickadd_default_folder')} description={t('settings.quickadd_default_folder_desc')}>

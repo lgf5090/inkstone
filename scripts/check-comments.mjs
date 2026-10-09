@@ -3642,8 +3642,12 @@ const allowed = new Map([
     "// `mount(undefined)` would take the helper's own default, so the prop is set here directly.",
   ]],
   ["src/client/features/quickadd/bridge.ts", [
-    "/**\n * The shell's side of QuickAdd: load the account's library, and turn each choice that carries a\n * shortcut into a real key binding.\n *\n * The bindings are registered while the library is loaded and disposed when it changes, so a renamed\n * or re-keyed choice takes effect on the next keystroke rather than needing a reload. Two choices with\n * the same combo cannot both fire: the registry is walked in insertion order, which is tree order, so\n * the choice the reader sees first in the launcher is the one that owns the key — and the settings\n * editor says so before it lets the collision through.\n */",
     "// The reader is usually inside a note when they press it, and the shortcut has to reach them there.",
+    "/**\n * The shell's side of QuickAdd: load the account's library, turn each choice that carries a shortcut\n * into a real key binding, and fire the startup macro once the notebook is ready.\n *\n * The bindings are registered while the library is loaded and disposed when it changes, so a renamed\n * or re-keyed choice takes effect on the next keystroke rather than needing a reload. Two choices with\n * the same combo cannot both fire: the registry is walked in insertion order, which is tree order, so\n * the choice the reader sees first in the launcher is the one that owns the key — and the settings\n * editor says so before it lets the collision through.\n */",
+    "// loaded would not find the note it means to append to, and would file a second one instead.",
+    "// The startup macros wait for both libraries: a note-creating macro that ran before the notes were",
+    "// One macro that throws must not take the rest of the routine down with it; the reference",
+    "// isolates each one, and a run nobody asked for has no business blocking the shell.",
   ]],
   ["src/client/features/quickadd/choice-editor.tsx", [
     "/**\n * The editor for one QuickAdd choice.\n *\n * A draft copy is edited and only written back on Save: a capture format is built over minutes, and\n * autosaving every keystroke would push a half-typed `{{DATE` to the account. The live preview is what\n * makes the form trustworthy — `inertFormat` is the same pass a run uses, so the preview shows what the\n * note will get, a prompt-shaped token is marked rather than guessed, and nothing here can ask a\n * question or touch a note.\n */",
@@ -3664,6 +3668,7 @@ const allowed = new Map([
     "/**\n * Choice names in the language the app's other readers write in. The filter is a fuzzy + pinyin path,\n * so the test has to feed it Chinese names; `check-i18n.mjs` keeps Han literals out of `src/` because\n * interface copy belongs in the catalog, and a name the reader typed is not interface copy.\n */",
     "// A reorder changes `position` and leaves the array alone, so a list that trusted array order",
     "// would keep showing the old one.",
+    "/** Which row the filter is telling a screen reader is selected. */",
   ]],
   ["src/client/features/quickadd/launcher.tsx", [
     "/**\n * The launcher: one searchable list of the account's QuickAdd choices.\n *\n * This is the surface the reference plugin opens with `Ctrl+Shift+A` — a modal where the reader types a\n * choice's name, or `>` in the command palette, and runs it. Two things are Inkstone's own decision\n * rather than a port: a group drills into its children instead of flattening them into the list (a\n * journal group with six daily captures is not six rows the reader has to read past), and Shift+Enter\n * runs a choice with a chosen day, which is the portable half of the reference's \"pick a date\"\n * commands and covers the backfill-a-past-day case without a command per choice.\n *\n * The engines are not imported here: a run pulls `runner.ts` on demand, so opening the list never\n * parses the capture or macro code.\n */",
@@ -3680,6 +3685,8 @@ const allowed = new Map([
     "// be buried behind a worse one at this level.",
     "// A group the search surfaced from deeper down still names a place: open it where it lives",
     "// rather than running it or pushing it onto the path a second time.",
+    "// The caret stays in the filter while the arrows walk the list, so a screen reader only learns which",
+    "// row is selected from aria-activedescendant naming it.",
   ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
@@ -9392,6 +9399,12 @@ const allowed = new Map([
     "// app's own i18n gate keeps Han-range literals out of `src/`.",
     "// The note is only written once every question has been answered. Creating it up front meant a",
     "// reader who closed the prompt found an empty note in the sidebar.",
+    "/** The text a capture writes, before any of it is formatted: what the opening page can scan. */",
+    "/** The text a property capture writes its value from. */",
+    "// The heading and property-name pickers are not on this page: their choices come from the note the",
+    "// run has to resolve first, so asking them up front would offer a list of nothing.",
+    "// These two write through the open editor, so a note that is not on screen cannot be their target;",
+    "// the whole-document path would drop the reader's unsaved typing on the floor.",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -9426,6 +9439,9 @@ const allowed = new Map([
     "/** Strip what a title cannot carry, the way the app's own new-note flow does. */",
     "/** Every template name in the library, for a choice that asks which one to use. */",
     "/**\n   * Run one of the app's own commands by id, the way the palette entry does. False when the id is\n   * unknown or not offered right now, so the step can say so instead of looking like it worked.\n   */",
+    "/** One row of the \"which template?\" picker: what to run, and what to call it on screen. */",
+    "/**\n   * The templates a \"ask which one\" choice offers: everything, or only what sits in one library\n   * category. The id is the answer, so two templates called the same thing stay distinguishable.\n   */",
+    "/**\n   * Insert text on a new line above or below the caret's own line. False when the caret is not on\n   * screen — the same promise `insertAtCursor` makes.\n   */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9466,6 +9482,11 @@ const allowed = new Map([
     "// \"Add to task list\" makes the format itself end with a newline, so each entry is already a line.",
     "// The macro ran once for the whole capture, not once per line.",
     "// The app's own YAML writer emits a block sequence, so that is what a tagged new note carries.",
+    "/** Whether each group went up as a single page — the promise the whole-choice precollect makes. */",
+    "/** A template whose body asks for something, which is what makes a page worth having. */",
+    "// The day the page collected has to reach the body, which only formats after the page is answered.",
+    "/** The full requests of each group, so a test can read the choices and their display text. */",
+    "/** Where each group said the run was about to write, which the reader reads as “into what”. */",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -9545,6 +9566,10 @@ const allowed = new Map([
     "/** Where the siblings whose key cannot be read belong. Omitted means `bottom`. */",
     "// With the unreadable ones floated up, the new sibling joins the readable run rather than the",
     "// physical end of the band, which the floated headings now own.",
+    "/** Offset just past the note's properties block, or 0 when it opens with text. */",
+    "/**\n * Where a new line goes next to the caret's own line, and where the caret ends up afterwards.\n *\n * \"Above the caret\" means above the whole line it sits on, which is a hazard when that line belongs to\n * the note's properties: a capture must never split a front matter block, so a caret parked inside the\n * block writes just below it instead, whichever side was asked for.\n */",
+    "// A caret sitting on an empty line has that line to fill, so the capture takes it rather than",
+    "// pushing a blank one above or below what is already blank.",
   ]],
   ["src/client/lib/quickadd/macro-script.ts", [
     "/**\n * A macro step that computes something in a Worker, the same hardened sandbox a note's runnable code\n * block already uses.\n *\n * The boundary is deliberate: the script gets a snapshot of the run — its variables, the selection,\n * the note it is writing — as plain JSON, and hands back text and more variables. It has no handle on\n * the app, because a note author's JavaScript must not be able to move the reader's data around. That\n * makes this a transform rather than the reference plugin's user script, which can drive Obsidian; the\n * macro step list covers the driving half with the named steps instead.\n */",
@@ -9562,6 +9587,9 @@ const allowed = new Map([
     "/** Look a macro up by name, the way `{{MACRO:Cleanup}}` does. */",
     "// The id is authored from the same list the palette shows, so a refusal means the command was",
     "// renamed or needs a note that is no longer open.",
+    "/** The question an `ask` step puts up, shared by the step and by the opening page. */",
+    "/**\n * What the opening page of a macro can ask for: the steps that certainly run.\n *\n * The walk stops at the first step whose later prompts are not knowable yet — a branch, because half\n * of them will not run, and a nested choice or a script, because they own their own asking. A\n * variable an earlier step writes is skipped rather than asked: the page would be collecting an answer\n * that the run overwrites before anything reads it.\n */",
+    "// The opening page has usually asked this already; a variable that exists is an answer.",
   ]],
   ["src/client/lib/quickadd/math.ts", [
     "/**\n * The arithmetic behind `{{MVALUE}}`.\n *\n * The reference plugin evaluates that token with mathjs. Inkstone has no such dependency and the\n * expression arrives as user text that a shared notebook may hand to a stranger's browser, so this\n * is a total re-implementation of the arithmetic half of the language: numbers, `+ - * / % ^`,\n * parentheses, unary minus, a fixed function table and two constants. Anything else — assignment,\n * a unit conversion, an identifier that is not a function — is a parse error naming what it found,\n * never a value. There is no `eval`, no `Function`, and no way to reach a property.\n */",
@@ -9580,6 +9608,10 @@ const allowed = new Map([
     "/**\n * The runtime, with `templateBody` and `fieldValues` left to the caller: those two need the note\n * library, and a preview that fetched them on every keystroke would be a search box in disguise.\n */",
     "// A preview never asks, so a prompt-shaped token renders the default the reader would have been offered.",
     "/** The date-formatter half, for the format-field hint line under the date inputs. */",
+  ]],
+  ["src/client/lib/quickadd/runner-notice.test.ts", [
+    "// Seeded per test, not once: the teardown hands the store back, and a beforeAll seed would leave",
+    "// every test after the first one choosing from an empty library.",
   ]],
   ["src/client/lib/quickadd/runner.ts", [
     "/**\n * The app-backed side of a choice run: what a `NotePort` means when the notes are in the zustand\n * store and the editor is a CodeMirror view, plus the dispatcher that turns a choice id into a write.\n *\n * Two paths are deliberately different. A note that is on screen is written through the store, so the\n * editor, the autosave and the other tab hear about it; a note that is not open is patched through the\n * API with its revision, because a capture must not resurrect a stale editor buffer behind the\n * reader's back. A lost revision race is reported as a failed run rather than retried blind.\n */",
@@ -9609,6 +9641,9 @@ const allowed = new Map([
     "// silently writes nothing. The import is deferred because the macro engine is what runs captures:",
     "// a static edge here would close the cycle at module-evaluation time.",
     "/** A question was closed rather than answered: the run stops instead of writing what was typed. */",
+    "/** Which page mode a run asks in: the choice's own setting wins over the account's. */",
+    "// A getter, not a snapshot: a page can be answered before \"ask me each time\" moves the run's day,",
+    "// and a date token in a name and in a body still has to agree.",
   ]],
   ["src/client/lib/quickadd/session.ts", [
     "/**\n * The parts of a choice run that every engine needs: a session with one clock, the ask-me-which-day\n * prompt, the prompt-request defaulting, and the format-then-ask loop.\n *\n * `formatWithPrompts` exists because a format can grow tokens while it is being formatted — an\n * included template or a macro that emits `{{VALUE:…}}` — and a literal token written into a note is\n * a silent failure. So the pass asks, formats, and asks again for anything that only appeared after\n * the first round.\n */",
@@ -9623,6 +9658,22 @@ const allowed = new Map([
     "// `{{VALUE}}`) has not been asked for yet; ask once more rather than write a literal token.",
     "// A closed question leaves its variable unset, so the second pass below would ask the very same",
     "// thing again — the reader who pressed Escape would watch the dialog reappear.",
+    "/** The \"ask me each time\" day question, shared by the opening page and the engine that applies it. */",
+    "/**\n * One question, taken from the opening page when there is one. Without this the precollect pass would\n * ask the very same thing twice — every engine-level prompt has to look for the answer first.\n */",
+    "// A multi-select keeps its own dialog: the page cannot hold a picker, and the surface that asked",
+    "// for it still asks exactly as it did before this pass existed.",
+    "// `skip` names variables the run writes itself, which only ever arrive out of a scanned format —",
+    "// an engine's own request is one it has decided to ask.",
+    "/**\n * Ask everything the run can already name, once, before it writes anything.\n *\n * The setting promises \"always one page\", and a choice used to honour it one surface at a time: a\n * template asked for its day, then its name, then its folder, then its body — four dialogs for one\n * button press. Only questions whose wording and choices are known before the run starts can share a\n * page, so each engine hands over what it knows statically (`requests` for the engine's own prompts,\n * `texts` for the formats whose tokens can be scanned) and keeps asking the rest where the answer\n * depends on something the earlier answers produced.\n *\n * `auto` deliberately stays out of this: asking the body's questions before the target note is known\n * would cost the prompt the destination it names, which is the one thing the reader is looking at.\n */",
+  ]],
+  ["src/client/lib/quickadd/startup.ts", [
+    "/** The reader's own calendar day, not the UTC one: \"once a day\" means their day. */",
+    "/** Only a test or an account switch needs this; a page load starts with nothing run. */",
+    "/**\n * The startup macros: the runs the notebook makes on its own.\n *\n * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,\n * with no memory of having done so. In a web app \"when the vault opens\" is \"every refresh\", so a\n * macro that files a note would leave one per reload; the day scope remembers the last run per macro\n * in this browser, and the session scope keeps the reference's behaviour for anyone who wants it.\n */",
+    "/** Every macro the reader asked to run by itself, in the order the launcher lists them. */",
+    "// A private-mode write can throw; the session set still keeps this load quiet.",
+    "// Never twice in one load, whatever the scope says: the library changes identity a few times while",
+    "// the shell settles, and a browser that refuses to store anything has no day left to check.",
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",
@@ -9631,6 +9682,13 @@ const allowed = new Map([
     "// deleted from under the choice is a failure worth a danger notice.",
     "/**\n * The choice's tags on the new note. `appendFrontMatterTag` deliberately only edits a note that\n * already has properties, so a body without front matter gets its block written here — a choice that\n * says \"tag this with #meeting\" must not quietly tag nothing.\n */",
     "/** Which library template to use, when the choice says it asks each time. */",
+    "/** What the run asks for a name when the choice has no name format of its own. */",
+    "/** What the run asks for a folder when the choice lets the reader pick one each time. */",
+    "// `null` means the named template is gone, which stays a failure; `''` means the choice genuinely",
+    "// wants a blank note, and a pick-each-time run has no body to scan yet.",
+    "// The page was closed: asking the day question again would put a dialog in front of a reader who",
+    "// just dismissed one.",
+    "/**\n * Which library template to use, when the choice asks each time. The answer is the template's id, so\n * two templates called the same thing stay distinguishable; the row says what the reader is choosing.\n */",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",
@@ -9923,6 +9981,8 @@ const allowed = new Map([
     "/** A merged import re-keys every choice, so a step that runs another choice has to follow. */",
     "// The account moved on while this read was in flight, so its result belongs to nobody:",
     "// publishing it would show one account's library under another.",
+    "// The id lists inside the settings are pruned against the library, so a write that forgot to pass",
+    "// it would answer \"no choice exists\" and quietly empty the reader's run history.",
   ]],
   ["src/client/store/session.ts", [
     "// Push unsaved offline edits before clearing local data, otherwise",
@@ -10221,6 +10281,9 @@ const allowed = new Map([
     "/** Say that a run stopped because the reader closed the question, rather than saying nothing. */",
     "/** The launcher's filter also looks inside groups and lists what it finds with its path. */",
     "/** Use the template named on the choice, or pick one from the library every run. */",
+    "/** Fire this macro when the notebook finishes loading, without anyone asking. */",
+    "/** How often a macro flagged \"run on startup\" may fire: once per load, or once per day. */",
+    "/** When the pick asks, only templates in this library category are offered. */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",
@@ -10622,6 +10685,8 @@ const allowed = new Map([
   ["src/worker/routes/quickadd.ts", [
     "/** Envelope stored in `users.quickadd`: when the account last saved, plus the library. */",
     "/** A property's values across the newest notes, for `{{FIELD:property}}` suggestions.\n *\n * The schema has no property index, so this reads note text and parses it. Two things bound the cost:\n * the scan stops at the newest few hundred notes, and `folder:` matches the note's own folder name\n * rather than walking the tree — a value list is a convenience, and a slow one is worse than the\n * author typing the word.\n */",
+    "/** What a `{{FIELD:property}}` suggestion asks for. */",
+    "/**\n * The values of one property across the newest notes, most-used first.\n *\n * Exported because the three bounds below ARE the behaviour, and a route handler is an awkward place\n * to prove them: the scan stops at the newest few hundred notes, the list stops at two hundred\n * values, and a value longer than two hundred characters is not a suggestion but a paragraph.\n */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -10968,6 +11033,13 @@ const allowed = new Map([
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
+  ]],
+  ["tests/quickadd-field-window.test.ts", [
+    "/** `stamp` is what \"newest\" is measured by, so the window under test is reproducible. */",
+    "// `mood: a, b` is one string to YAML, so a list has to be spelled as a list.",
+    "// 420 notes: the window is the newest 400, so stamps 0..19 fall outside it.",
+    "// The three bounds above are only worth having if the scan they cap is slow enough to notice. This",
+    "// is the measurement behind the round-5 ledger entry: a full window of realistic notes, timed.",
   ]],
   ["tests/register-setup-token.test.ts", [
     "// The server has required this token since S-04, but the console never learned to send",

@@ -1,20 +1,32 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { QuickAddCaptureChoice } from '@shared/quickadd'
+import type { QuickAddCaptureChoice, QuickAddTemplateChoice } from '@shared/quickadd'
 import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddSettings } from '@shared/quickadd'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef } from './context'
+import type { NewNoteInput, NotePort, NoteRef, TemplatePickOption } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
 
-const answers = vi.hoisted(() => ({ queue: [] as (PromptAnswer[] | null)[], calls: [] as string[][] }))
+const answers = vi.hoisted(() => ({
+  queue: [] as (PromptAnswer[] | null)[],
+  calls: [] as string[][],
+  /** The full requests of each group, so a test can read the choices and their display text. */
+  requests: [] as PromptRequest[][],
+  /** Whether each group went up as a single page — the promise the whole-choice precollect makes. */
+  pages: [] as boolean[],
+  /** Where each group said the run was about to write, which the reader reads as “into what”. */
+  destinations: [] as (string | undefined)[],
+}))
 
 vi.mock('../../features/quickadd/prompt-queue', () => ({
-  askQuickAddPrompts: async (group: { requests: PromptRequest[] }) => {
+  askQuickAddPrompts: async (group: { requests: PromptRequest[]; onePage: boolean; destination?: string }) => {
     answers.calls.push(group.requests.map((request) => request.key))
+    answers.requests.push(group.requests)
+    answers.pages.push(group.onePage)
+    answers.destinations.push(group.destination)
     const next = answers.queue.shift()
     // A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.
     if (next === null) return null
@@ -62,9 +74,15 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const copied: string[] = []
   const commands: string[] = []
   const inserted: { text: string; cursor: number | null | undefined }[] = []
+  const lineInserts: { text: string; side: string }[] = []
+  const writes: { id: string; content: string; previous?: string }[] = []
   const opened: string[] = []
   const notifications: string[] = []
   const store: QuickAddChoice[] = []
+  const picks: TemplatePickOption[] = [
+    { id: 'tpl-daily', name: 'Daily', category: 'Journal' },
+    { id: 'tpl-cleared', name: 'Cleared', category: null },
+  ]
   let activeId: string | null = null
   const merged: Partial<QuickAddSettings> = { ...defaultQuickAddSettings(), ...settings }
 
@@ -74,6 +92,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     byId: (id) => ref(id),
     read: async (id) => Object.values(notes).find((note) => note.id === id)?.content ?? '',
     write: async (id, content, previous) => {
+      writes.push({ id, content, previous })
       const note = Object.values(notes).find((entry) => entry.id === id)
       if (!note) return false
       if (previous !== undefined && note.content !== previous) return false
@@ -97,6 +116,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     clipboard: async () => '',
     templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
     templateNames: () => ['Daily', 'Cleared'],
+    templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
     pickFileTitles: async () => [],
     knownNoteTitles: () => Object.keys(notes),
@@ -119,6 +139,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       inserted.push({ text, cursor })
       return true
     },
+    insertRelativeToLine: (text, side) => {
+      lineInserts.push({ text, side })
+      return true
+    },
     prependToActive: async () => false,
     settings: () => merged as QuickAddSettings,
     choices: () => store,
@@ -135,7 +159,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     created,
     copied,
     commands,
+    picks,
     inserted,
+    lineInserts,
+    writes,
     opened,
     notifications,
     store,
@@ -171,6 +198,9 @@ vi.mock('./session', async () => {
 beforeEach(() => {
   answers.queue = []
   answers.calls = []
+  answers.requests = []
+  answers.pages = []
+  answers.destinations = []
 })
 
 function captureOn(title: string, over: Partial<QuickAddCaptureChoice> = {}): QuickAddCaptureChoice {
@@ -634,6 +664,34 @@ describe('capturing into a note', () => {
     expect(fake.content('Source')).toContain('[[Inbox]]')
     expect(fake.content('Inbox')).toBe('in\nin')
   })
+
+  it('writes on a new line beside the caret, through the editor', async () => {
+    const fake = harness({ Inbox: 'one\ntwo\n' })
+    fake.setActive('Inbox')
+    const choice = captureOn('Inbox', {
+      writePosition: 'lineAbove',
+      format: { enabled: true, format: 'captured' },
+    })
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.lineInserts).toEqual([{ text: 'captured', side: 'above' }])
+    expect(fake.content('Inbox'), 'the editor took the write, so no whole-document replace ran')
+      .toBe('one\ntwo\n')
+    expect(fake.writes, 'a second write would drop what the reader has typed but not saved').toEqual([])
+  })
+
+  it('refuses a below-the-caret capture into a note that is not on screen', async () => {
+    const fake = harness({ Inbox: 'one\ntwo\n' })
+    const choice = captureOn('Inbox', {
+      writePosition: 'lineBelow',
+      format: { enabled: true, format: 'captured' },
+    })
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_editor_unavailable'))
+    expect(fake.lineInserts).toEqual([])
+    expect(fake.content('Inbox')).toBe('one\ntwo\n')
+  })
 })
 
 describe('creating a note from a template', () => {
@@ -692,10 +750,42 @@ describe('creating a note from a template', () => {
 
   it('says so when the library has no template to offer', async () => {
     const fake = harness({})
-    fake.port.templateNames = () => []
+    fake.picks.length = 0
     const choice = { ...newTemplateChoice('qa-t', 'Picked', 0), templatePick: 'ask' as const }
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('failed')
+    expect(fake.created).toEqual([])
+  })
+
+  it('narrows the pick to one category and names the rows by it', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Journal ritual', 0),
+      templatePick: 'ask' as const,
+      templatePickCategory: 'Journal',
+      nameFormat: { enabled: true, format: 'Ritual' },
+    }
+    answers.queue = [['tpl-daily']]
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    const request = answers.requests[0]?.find((entry) => entry.key === 'template')
+    expect(request?.options, 'the answer is the id, so two templates can share a name').toEqual(['tpl-daily'])
+    expect(request?.displayOptions, 'the row says which category it came from').toEqual(['Daily (Journal)'])
+    expect(fake.created[0].content).toBe('Daily body')
+  })
+
+  it('refuses a category that has nothing in it, rather than offering the whole library', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Empty bin', 0),
+      templatePick: 'ask' as const,
+      templatePickCategory: 'Nope',
+      nameFormat: { enabled: true, format: 'Anything' },
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('failed')
+    if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_no_templates_to_pick'))
+    expect(answers.calls, 'a run with nothing to choose asks no questions').toEqual([])
     expect(fake.created).toEqual([])
   })
 
@@ -968,5 +1058,126 @@ describe('a group', () => {
     const child = { ...newTemplateChoice('qa-t', 'Daily', 0), parentId: 'qa-g' }
     const choices = [group, child]
     expect(choices.filter((entry) => entry.parentId === 'qa-g').map((entry) => entry.name)).toEqual(['Daily'])
+  })
+})
+
+describe('one page for the whole choice', () => {
+  /** A template whose body asks for something, which is what makes a page worth having. */
+  function ritualChoice(over: Partial<QuickAddTemplateChoice> = {}) {
+    return {
+      ...newTemplateChoice('qa-t', 'Ritual', 0),
+      templateId: 'tpl-ritual',
+      onePage: 'always' as const,
+      dateOrigin: 'ask' as const,
+      folderMode: 'ask' as const,
+      ...over,
+    }
+  }
+
+  it('asks the day, the name, the folder and the body together', async () => {
+    const fake = harness({})
+    fake.port.templateBody = async () => 'On {{DATE:YYYY-MM-DD}}: {{VALUE:idea}}'
+    answers.queue = [['2026-01-02', 'Ritual note', 'Journal', 'milk']]
+    const status = await runTemplateChoice(ritualChoice(), fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'every question the run can already name shares one page').toEqual([['day', 'title', 'folder', 'idea']])
+    expect(answers.pages, 'and it goes up as a page, not as four dialogs').toEqual([true])
+    expect(fake.created[0]).toMatchObject({ title: 'Ritual note', folderPath: 'Journal' })
+    // The day the page collected has to reach the body, which only formats after the page is answered.
+    expect(fake.created[0].content).toBe('On 2026-01-02: milk')
+  })
+
+  it('asks nothing else once the page is closed', async () => {
+    const fake = harness({})
+    fake.port.templateBody = async () => 'Idea: {{VALUE:idea}}'
+    answers.queue = [null]
+    const status = await runTemplateChoice(ritualChoice(), fake.port)
+    expect(status.kind).toBe('cancelled')
+    expect(answers.calls, 'a dismissed page must not be followed by the day question').toEqual([['day', 'title', 'folder', 'idea']])
+    expect(fake.created).toEqual([])
+  })
+
+  it('keeps asking one surface at a time when the reader wants one question at a time', async () => {
+    const fake = harness({})
+    fake.port.templateBody = async () => 'Idea: {{VALUE:idea}}'
+    answers.queue = [['2026-01-02'], ['Slow note'], ['Journal'], ['milk']]
+    const status = await runTemplateChoice(ritualChoice({ onePage: 'never' as const }), fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls.map((call) => call.length), 'no dialog holds two questions').toEqual([1, 1, 1, 1])
+    expect(answers.pages.every((page) => page === false), 'the page mode the reader chose is honoured').toBe(true)
+    expect(fake.created[0].content).toBe('Idea: milk')
+  })
+
+  it('puts a capture’s target and its text on the same page', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Journal line', 0),
+      onePage: 'always' as const,
+      targetTitle: 'Journal/{{VALUE:which}}',
+      createIfMissing: true,
+      format: { enabled: true, format: 'note: {{VALUE:idea}}' },
+    }
+    answers.queue = [['2026-02-03', 'milk']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls).toEqual([['which', 'idea']])
+    expect(answers.pages).toEqual([true])
+    expect(fake.created[0]).toMatchObject({ title: '2026-02-03', folderPath: 'Journal' })
+    expect(fake.content('2026-02-03')).toContain('note: milk')
+  })
+
+  it('leaves the auto mode asking surface by surface, so the prompt still names its destination', async () => {
+    const fake = harness({ Inbox: 'one\n' })
+    const choice = captureOn('Inbox', {
+      onePage: 'auto' as const,
+      format: { enabled: true, format: 'note: {{VALUE:idea}}' },
+    })
+    answers.queue = [['milk']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'one question is one dialog, asked after the target is known').toEqual([['idea']])
+    expect(answers.pages, 'and it is not a page').toEqual([false])
+    expect(answers.destinations, 'the dialog tells the reader which note it is filling').toEqual(['Inbox'])
+  })
+
+  it('gathers a macro’s leading questions and leaves a branch’s off the page', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Morning', 0),
+      onePage: 'always' as const,
+      steps: [
+        { kind: 'ask' as const, variable: 'mood', label: 'Mood?', options: '' },
+        { kind: 'insert' as const, text: 'Mood: {{VALUE:mood}} / {{VALUE:extra}}' },
+        {
+          kind: 'if' as const,
+          variable: 'mood',
+          operator: 'eq' as const,
+          value: 'yes',
+          then: [{ kind: 'ask' as const, variable: 'hidden', label: 'Why?', options: '' }],
+          else: [],
+        },
+      ],
+    }
+    answers.queue = [['no', 'more']]
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'a question inside a branch that did not run was never asked').toEqual([['mood', 'extra']])
+    expect(fake.inserted[0].text).toBe('Mood: no / more')
+  })
+
+  it('does not ask for a variable the macro writes itself', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Quiet', 0),
+      onePage: 'always' as const,
+      steps: [
+        { kind: 'set' as const, variable: 'mood', value: 'calm' },
+        { kind: 'insert' as const, text: 'Mood: {{VALUE:mood}}' },
+      ],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'nothing in this macro needs a reader').toEqual([])
+    expect(fake.inserted[0].text).toBe('Mood: calm')
   })
 })

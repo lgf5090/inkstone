@@ -50,7 +50,7 @@ import { appCommands } from '../command/registry'
 const STEP_KINDS: QuickAddStep['kind'][] = ['ask', 'set', 'insert', 'capture', 'create', 'copy', 'open', 'command', 'notify', 'wait', 'script', 'if', 'choice']
 const OPERATORS: QuickAddConditionOperator[] = ['eq', 'ne', 'has', 'empty', 'gt', 'lt']
 const ORDER_KEYS: QuickAddOrderKey[] = ['lexical', 'date', 'numeric', 'semver', 'insertion']
-const POSITIONS: QuickAddPosition[] = ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor']
+const POSITIONS: QuickAddPosition[] = ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor', 'lineAbove', 'lineBelow']
 const CREATE_AT: QuickAddCreateAt[] = ['top', 'bottom', 'cursor', 'ordered']
 const BLANK_MODES: QuickAddBlankLineMode[] = ['auto', 'skip', 'none']
 const DIRECTIONS: QuickAddDirection[] = ['asc', 'desc']
@@ -67,6 +67,8 @@ const POSITION_KEYS: Record<QuickAddPosition, MessageKey> = {
   top: 'quickadd.position_top',
   insertAfter: 'quickadd.position_insert_after',
   insertBefore: 'quickadd.position_insert_before',
+  lineAbove: 'quickadd.position_line_above',
+  lineBelow: 'quickadd.position_line_below',
   cursor: 'quickadd.position_cursor',
 }
 
@@ -216,10 +218,10 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
         </div>
         <div className="grid gap-1 md:grid-cols-2">
           <SettingRow title={t('quickadd.field_enabled')}>
-            <Switch checked={draft.enabled} onChange={(enabled) => patch({ enabled })}/>
+            <Switch label={t('quickadd.field_enabled')} checked={draft.enabled} onChange={(enabled) => patch({ enabled })}/>
           </SettingRow>
           <SettingRow title={t('quickadd.field_as_command')} description={t('quickadd.field_as_command_desc')}>
-            <Switch checked={draft.asCommand} onChange={(asCommand) => patch({ asCommand })}/>
+            <Switch label={t('quickadd.field_as_command')} checked={draft.asCommand} onChange={(asCommand) => patch({ asCommand })}/>
           </SettingRow>
         </div>
         <Field label={t('quickadd.field_hotkey')} hint={t('quickadd.field_hotkey_hint')}>
@@ -361,6 +363,7 @@ function TemplateFields({ draft, patch, renderFormat }: {
   renderFormat: (text: string) => string
 }) {
   const templates = useNoteTemplates((state) => state.templates)
+  const categories = useNoteTemplates((state) => state.categories)
   return (
     <div className="space-y-3 border-t border-[var(--border-subtle)] pt-3">
       <SettingRow title={t('quickadd.field_mode')}>
@@ -378,6 +381,17 @@ function TemplateFields({ draft, patch, renderFormat }: {
           <option value="ask">{t('quickadd.template_pick_ask')}</option>
         </Select>
       </SettingRow>
+      {draft.templatePick === 'ask' && categories.length > 0 && (
+        <Field label={t('quickadd.field_template_pick_category')}>
+          <Select
+            aria-label={t('quickadd.field_template_pick_category')}
+            value={draft.templatePickCategory ?? ''}
+            onChange={(event) => patch({ templatePickCategory: event.target.value === '' ? null : event.target.value })}>
+            <option value="">{t('quickadd.template_pick_all_categories')}</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </Select>
+        </Field>
+      )}
       {draft.templatePick === 'fixed' && (
         <Field label={t('quickadd.field_template')} hint={t('quickadd.field_template_hint')}>
           <Select
@@ -696,6 +710,12 @@ function MacroFields({ draft, patch }: {
           <StepFields step={step} index={index} runnable={runnable} onChange={(next) => updateStep(index, next)}/>
         </fieldset>
       ))}
+      <SettingRow title={t('quickadd.field_run_on_startup')} description={t('quickadd.field_run_on_startup_desc')}>
+        <Switch
+          label={t('quickadd.field_run_on_startup')}
+          checked={draft.runOnStartup}
+          onChange={(runOnStartup) => patch({ runOnStartup } as Partial<QuickAddChoice>)}/>
+      </SettingRow>
     </div>
   )
 }

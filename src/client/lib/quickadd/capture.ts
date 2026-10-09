@@ -10,10 +10,10 @@
  */
 import { QUICKADD_LIMITS, type QuickAddCaptureChoice } from '@shared/quickadd'
 import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
-import type { FormatRuntime, PromptAnswer } from './format'
+import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
-import { askForInputs, buildRuntime, type RunSession } from './runtime'
-import { applyDateOrigin, formatWithPrompts, newSession, promptRequest } from './session'
+import { buildRuntime, type RunSession } from './runtime'
+import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
 import { folderJoin, sanitizeTitle, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens } from './token-grammar'
 import {
@@ -100,16 +100,26 @@ function answerKeyFor(variables: Map<string, PromptAnswer>, key: string): string
   return matches.length === 1 ? matches[0]! : key
 }
 
+/** The text a capture writes, before any of it is formatted: what the opening page can scan. */
+function payloadFormat(choice: QuickAddCaptureChoice): string {
+  const plain = choice.format.enabled ? choice.format.format : '{{VALUE}}'
+  // "Add to task list" wraps the format, not the answer, so every line of a per-line capture becomes
+  // its own checkbox and an empty answer still yields a task the reader can fill in.
+  return choice.task ? `- [ ] ${plain}\n` : plain
+}
+
+/** The text a property capture writes its value from. */
+function propertyFormat(choice: QuickAddCaptureChoice): string {
+  return choice.property.format.enabled ? choice.property.format.format : '{{VALUE}}'
+}
+
 async function formatPayload(
   choice: QuickAddCaptureChoice,
   runtime: FormatRuntime,
   session: RunSession,
   destination: string,
 ): Promise<{ text: string; cursor: number | null }> {
-  const plain = choice.format.enabled ? choice.format.format : '{{VALUE}}'
-  // "Add to task list" wraps the format, not the answer, so every line of a per-line capture becomes
-  // its own checkbox and an empty answer still yields a task the reader can fill in.
-  const base = choice.task ? `- [ ] ${plain}\n` : plain
+  const base = payloadFormat(choice)
   // One entry per line runs the macros and the includes once, then fills the scalar tokens per line.
   const structured = memoizeStructure(runtime)
   const first = await formatWithPrompts(base, structured, session, destination)
@@ -175,7 +185,7 @@ async function resolveAnchor(
   const raw = side === 'after' ? choice.after : choice.before
   if (side === 'after' && choice.promptHeading) {
     const headings = await headingChoices(port, note.id)
-    const answers = await askForInputs(session, [promptRequest({
+    const value = await askOrReuse(session, promptRequest({
       kind: 'suggester',
       key: 'heading',
       label: t('quickadd.prompt_heading'),
@@ -183,8 +193,7 @@ async function resolveAnchor(
       allowCustom: choice.createLineIfMissing,
       optional: false,
       trim: true,
-    })])
-    const value = answers.get('heading')
+    }), note.title)
     if (typeof value !== 'string' || value.trim() === '') return { kind: 'cancelled' }
     return value.trim()
   }
@@ -314,9 +323,23 @@ export async function runCaptureChoice(
   options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; locale?: string; day?: Date } = {},
 ): Promise<QuickAddRunStatus> {
   const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const runtime = buildRuntime(session, port)
+  // The heading and property-name pickers are not on this page: their choices come from the note the
+  // run has to resolve first, so asking them up front would offer a list of nothing.
+  const asks: PromptRequest[] = []
+  const texts: string[] = []
+  if (choice.dateOrigin === 'ask') asks.push(dayRequest(session))
+  if (choice.targetMode !== 'active') texts.push(choice.targetTitle)
+  if (choice.property.enabled) {
+    texts.push(propertyFormat(choice))
+    if (!choice.property.prompted) texts.push(choice.property.name)
+  }
+  else texts.push(payloadFormat(choice))
+  await precollectInputs(session, runtime, { requests: asks, texts })
+  if (session.dismissed) return { kind: 'cancelled' }
   const cancelled = await applyDateOrigin(session)
   if (cancelled) return cancelled
-  const runtime = buildRuntime(session, port)
+  if (session.dismissed) return { kind: 'cancelled' }
 
   const target = await resolveTarget(choice, session, runtime, port)
   if (session.dismissed) return { kind: 'cancelled' }
@@ -353,7 +376,7 @@ export async function runCaptureChoice(
 
   if (choice.property.enabled) {
     const value = await formatWithPrompts(
-      choice.property.format.enabled ? choice.property.format.format : '{{VALUE}}',
+      propertyFormat(choice),
       { ...runtime, variables: runtime.variables },
       session,
       note.title,
@@ -395,6 +418,13 @@ export async function runCaptureChoice(
     if (note.id !== port.activeNote()?.id || !port.insertAtCursor(payload.text, payload.cursor))
       return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
     outcome = { content: body, cursor: payload.cursor, changed: true }
+  } else if (choice.writePosition === 'lineAbove' || choice.writePosition === 'lineBelow') {
+    // These two write through the open editor, so a note that is not on screen cannot be their target;
+    // the whole-document path would drop the reader's unsaved typing on the floor.
+    const side = choice.writePosition === 'lineAbove' ? 'above' : 'below'
+    if (note.id !== port.activeNote()?.id || !port.insertRelativeToLine(payload.text, side, payload.cursor))
+      return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
+    outcome = { content: body, cursor: payload.cursor, changed: true }
   } else if (choice.writePosition === 'top') {
     outcome = prependAtBodyStart(body, payload.text, payload.cursor ?? undefined)
   } else if (choice.writePosition === 'bottom') {
@@ -413,7 +443,8 @@ export async function runCaptureChoice(
   }
 
   if (!outcome.changed) return { kind: 'empty', noteId: note.id }
-  if (choice.writePosition !== 'cursor' && !(await port.write(note.id, outcome.content, body)))
+  const writtenInEditor = choice.writePosition === 'cursor' || choice.writePosition === 'lineAbove' || choice.writePosition === 'lineBelow'
+  if (!writtenInEditor && !(await port.write(note.id, outcome.content, body)))
     return { kind: 'failed', reason: t('quickadd.error_write_refused') }
 
   if (choice.linkToSource && options.sourceNoteId) {
@@ -441,7 +472,7 @@ async function promptForProperty(
   note: NoteRef,
 ): Promise<string> {
   const keys = Object.keys(parsed.data).filter((key) => key !== '__proto__').sort((a, b) => a.localeCompare(b))
-  const answers = await askForInputs(session, [promptRequest({
+  const value = await askOrReuse(session, promptRequest({
     kind: 'suggester',
     key: 'property',
     label: t('quickadd.prompt_property'),
@@ -449,7 +480,6 @@ async function promptForProperty(
     allowCustom: choice.property.createIfMissing,
     optional: keys.length === 0 && !choice.property.createIfMissing,
     trim: true,
-  })], { destination: note.title })
-  const value = answers.get('property')
+  }), note.title)
   return typeof value === 'string' ? value.trim() : ''
 }

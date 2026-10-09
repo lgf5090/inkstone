@@ -4,20 +4,26 @@ import {
   defaultQuickAddSettings,
   newCaptureChoice,
   newGroupChoice,
+  newMacroChoice,
   newTemplateChoice,
   type QuickAddChoice,
+  type QuickAddSettings,
 } from '@shared/quickadd'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { listHotkeys } from '../../lib/hotkeys'
+import { STARTUP_STAMP_KEY, resetStartupSession, startupDay } from '../../lib/quickadd/startup'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
+import { useUi } from '../../store/ui'
 import { useQuickAddBridge } from './bridge'
 
-const runs = vi.hoisted(() => ({ calls: [] as string[] }))
+const runs = vi.hoisted(() => ({ calls: [] as string[], throws: [] as string[] }))
 
 vi.mock('../../lib/quickadd/runner', () => ({
   runQuickAddChoice: async (id: string) => {
     runs.calls.push(id)
+    if (runs.throws.includes(id)) throw new Error(`the ${id} script blew up`)
     return { kind: 'written', noteId: 'n-target', created: false, summary: 'ran' }
   },
 }))
@@ -69,6 +75,21 @@ function press(combo: 'mod+alt+j' | 'mod+alt+k', target: EventTarget = window): 
 
 const WITH_KEY = { ...newTemplateChoice('qa-one', 'Morning', 0), hotkey: 'mod+alt+j' }
 const OTHER_KEY = { ...newCaptureChoice('qa-two', 'Evening', 1), hotkey: 'mod+alt+k' }
+const MORNING_ROUTINE = { ...newMacroChoice('qa-mac', 'Morning routine', 0), runOnStartup: true }
+const EVENING_REVIEW = { ...newMacroChoice('qa-eve', 'Evening review', 1), runOnStartup: true }
+const notesWereHydrated = useNotes.getState().hydrated
+
+function seedStartup(over: Partial<QuickAddSettings> = {}, choices: QuickAddChoice[] = [MORNING_ROUTINE], notesReady = true): void {
+  act(() => {
+    useNotes.setState({ hydrated: notesReady })
+    useQuickAdd.setState({
+      choices,
+      settings: { ...defaultQuickAddSettings(), ...over },
+      hydrated: true,
+      owner: 'user-1',
+    })
+  })
+}
 
 beforeAll(async () => {
   await initI18n()
@@ -76,12 +97,16 @@ beforeAll(async () => {
 
 beforeEach(() => {
   runs.calls = []
+  runs.throws = []
+  resetStartupSession()
+  localStorage.clear()
   document.body.replaceChildren()
 })
 
 afterEach(() => {
   rendered?.unmount()
   useQuickAdd.setState({ choices: [], settings: defaultQuickAddSettings(), hydrated: false, owner: '' })
+  useNotes.setState({ hydrated: notesWereHydrated })
 })
 
 describe('the shell bridge', () => {
@@ -165,5 +190,94 @@ describe('the shell bridge', () => {
     seed([])
     expect(listHotkeys().map((entry) => entry.id)).not.toContain('quickadd:qa-one')
     expect(press('mod+alt+j')).toBe(false)
+  })
+})
+
+describe('the startup macros', () => {
+  it('run the flagged ones in list order once the library and the notes have loaded', async () => {
+    seedStartup({}, [EVENING_REVIEW, MORNING_ROUTINE])
+    mount()
+    await settle()
+    expect(runs.calls, 'the list position decides, not the array order it was stored in').toEqual(['qa-mac', 'qa-eve'])
+  })
+
+  it('leave a macro alone unless it asked to run at startup', async () => {
+    seedStartup({}, [{ ...MORNING_ROUTINE, runOnStartup: false }, { ...EVENING_REVIEW, enabled: false }])
+    mount()
+    await settle()
+    expect(runs.calls).toEqual([])
+  })
+
+  it('wait for the notes, or a capture would file a second copy of a note it cannot see', async () => {
+    seedStartup({}, [MORNING_ROUTINE], false)
+    mount()
+    await settle()
+    expect(runs.calls).toEqual([])
+    act(() => { useNotes.setState({ hydrated: true }) })
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac'])
+  })
+
+  it('never fire twice while the library settles', async () => {
+    seedStartup()
+    mount()
+    await settle()
+    seedStartup({}, [MORNING_ROUTINE, { ...newTemplateChoice('qa-late', 'Late', 2) }])
+    await settle()
+    expect(runs.calls, 'the shell re-renders as the account loads; one run is one run').toEqual(['qa-mac'])
+  })
+
+  it('keep going when one of them throws, and say which one stopped', async () => {
+    const toasts = vi.spyOn(useUi.getState(), 'toast').mockImplementation(() => 'toast-1')
+    runs.throws = ['qa-eve']
+    seedStartup({}, [EVENING_REVIEW, MORNING_ROUTINE])
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac', 'qa-eve'])
+    expect(toasts).toHaveBeenCalledTimes(1)
+    const notice = toasts.mock.calls[0]?.[0]
+    expect(notice?.title).toBe(t('quickadd.startup_failed', { name: EVENING_REVIEW.name }))
+    expect(notice?.tone).toBe('danger')
+    toasts.mockRestore()
+  })
+
+  it('run nothing when QuickAdd itself is switched off', async () => {
+    seedStartup({ enabled: false })
+    mount()
+    await settle()
+    expect(runs.calls).toEqual([])
+  })
+
+  it('honour the day stamp per macro across a reload, and forget it the next day', async () => {
+    seedStartup({}, [EVENING_REVIEW, MORNING_ROUTINE])
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac', 'qa-eve'])
+    const stored = JSON.parse(localStorage.getItem(STARTUP_STAMP_KEY) ?? '{}') as Record<string, string>
+    expect(Object.keys(stored).sort()).toEqual(['qa-eve', 'qa-mac'])
+
+    resetStartupSession()
+    rendered.unmount()
+    mount()
+    await settle()
+    expect(runs.calls, 'a second load on the same day files nothing twice').toEqual(['qa-mac', 'qa-eve'])
+
+    localStorage.setItem(STARTUP_STAMP_KEY, JSON.stringify({ 'qa-mac': startupDay(new Date()) }))
+    resetStartupSession()
+    rendered.unmount()
+    mount()
+    await settle()
+    expect(runs.calls, 'the macro without today’s stamp runs again').toEqual(['qa-mac', 'qa-eve', 'qa-eve'])
+  })
+
+  it('fire on every load once the reader asks for the session scope', async () => {
+    seedStartup({ startupScope: 'session' })
+    mount()
+    await settle()
+    resetStartupSession()
+    rendered.unmount()
+    mount()
+    await settle()
+    expect(runs.calls).toEqual(['qa-mac', 'qa-mac'])
   })
 })

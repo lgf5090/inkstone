@@ -11,9 +11,9 @@
  */
 import type { QuickAddChoice, QuickAddMacroChoice, QuickAddStep } from '@shared/quickadd'
 import { randomLocalId } from '../../lib/random-id'
-import type { PromptAnswer } from './format'
+import type { PromptAnswer, PromptRequest } from './format'
 import { buildRuntime, askForInputs, type RunSession } from './runtime'
-import { applyDateOrigin, formatWithPrompts, newSession, promptRequest } from './session'
+import { applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
 import type { NotePort, QuickAddRunStatus } from './context'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
@@ -53,21 +53,74 @@ function compare(value: PromptAnswer, operator: string, wanted: string): boolean
   }
 }
 
+/** The question an `ask` step puts up, shared by the step and by the opening page. */
+function askStepRequest(step: QuickAddStep & { kind: 'ask' }): PromptRequest {
+  const options = step.options ? splitPipes(step.options).map((item) => item.trim()).filter(Boolean) : []
+  return promptRequest({
+    kind: options.length > 1 ? 'suggester' : 'text',
+    key: step.variable || 'answer',
+    label: step.label || step.variable || t('quickadd.prompt_answer'),
+    options,
+    allowCustom: options.length > 1,
+    trim: true,
+  })
+}
+
+/**
+ * What the opening page of a macro can ask for: the steps that certainly run.
+ *
+ * The walk stops at the first step whose later prompts are not knowable yet — a branch, because half
+ * of them will not run, and a nested choice or a script, because they own their own asking. A
+ * variable an earlier step writes is skipped rather than asked: the page would be collecting an answer
+ * that the run overwrites before anything reads it.
+ */
+function macroStaticSurfaces(steps: QuickAddStep[]): { requests: PromptRequest[]; texts: string[]; skip: Set<string> } {
+  const requests: PromptRequest[] = []
+  const texts: string[] = []
+  const skip = new Set<string>()
+  for (const step of steps) {
+    switch (step.kind) {
+      case 'ask': {
+        const key = step.variable || 'answer'
+        requests.push(askStepRequest(step))
+        skip.add(key.toLowerCase())
+        break
+      }
+      case 'set':
+        texts.push(step.value)
+        skip.add(step.variable.toLowerCase())
+        break
+      case 'insert':
+      case 'copy':
+      case 'notify':
+        texts.push(step.text)
+        break
+      case 'create':
+        texts.push(step.title, step.folderPath)
+        break
+      case 'open':
+        texts.push(step.title)
+        break
+      case 'capture':
+        texts.push(step.title, step.text)
+        break
+      default:
+        return { requests, texts, skip }
+    }
+  }
+  return { requests, texts, skip }
+}
+
 async function runStep(step: QuickAddStep, state: MacroState): Promise<QuickAddRunStatus | null> {
   const { port, session } = state
   const { choice: owner } = session
   switch (step.kind) {
     case 'ask': {
-      const options = step.options ? splitPipes(step.options).map((item) => item.trim()).filter(Boolean) : []
-      const answers = await askForInputs(session, [promptRequest({
-        kind: options.length > 1 ? 'suggester' : 'text',
-        key: step.variable || 'answer',
-        label: step.label || step.variable || t('quickadd.prompt_answer'),
-        options,
-        allowCustom: options.length > 1,
-        trim: true,
-      })])
-      if (!answers.has(step.variable || 'answer'))
+      const key = step.variable || 'answer'
+      // The opening page has usually asked this already; a variable that exists is an answer.
+      if (session.variables.has(key)) return null
+      const answers = await askForInputs(session, [askStepRequest(step)])
+      if (!answers.has(key))
         return { kind: 'cancelled' }
       return null
     }
@@ -295,8 +348,14 @@ export async function runMacro(
   options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
 ): Promise<MacroOutcome> {
   const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const runtime = buildRuntime(session, port)
+  const surfaces = macroStaticSurfaces(choice.steps)
+  if (choice.dateOrigin === 'ask') surfaces.requests.unshift(dayRequest(session))
+  await precollectInputs(session, runtime, surfaces)
+  if (session.dismissed) return { status: { kind: 'cancelled' }, text: '' }
   const cancelled = await applyDateOrigin(session)
   if (cancelled) return { status: cancelled, text: '' }
+  if (session.dismissed) return { status: { kind: 'cancelled' }, text: '' }
   const state: MacroState = {
     port,
     session,

@@ -9,6 +9,7 @@ import {
   insertAfterInline,
   insertAfterLine,
   insertBeforeLine,
+  lineSlot,
   nonHeadingBlockLines,
   onlyHeadingLines,
   orderedSlotFor,
@@ -273,5 +274,51 @@ describe('creating a heading at its sorted place', () => {
   it('pads the created block away from its neighbours', () => {
     const spliced = spliceAtSlot('# L\n\n## B\n', { mode: 'before', line: 2 }, '## A\ncapture')
     expect(spliced.content).toBe('# L\n\n## A\ncapture\n\n## B\n')
+  })
+})
+
+describe('a new line beside the caret’s own line', () => {
+  const doc = 'first\nsecond\nthird'
+
+  it('writes above the whole line the caret sits on', () => {
+    const slot = lineSlot(doc, 8, 'above', 'CAP', null)
+    expect(slot.at).toBe(6)
+    expect(slot.insert).toBe('CAP\n')
+    expect(doc.slice(0, slot.at) + slot.insert + doc.slice(slot.at)).toBe('first\nCAP\nsecond\nthird')
+    expect(slot.caret).toBe(9)
+  })
+
+  it('writes below it, keeping the caret inside what was captured', () => {
+    const slot = lineSlot(doc, 8, 'below', 'CAP', null)
+    expect(slot.at).toBe(12)
+    expect(doc.slice(0, slot.at) + slot.insert + doc.slice(slot.at)).toBe('first\nsecond\nCAP\nthird')
+    const cursor = lineSlot(doc, 8, 'below', 'a|b', 1)
+    expect(cursor.caret).toBe(cursor.at + 2)
+  })
+
+  it('handles the first and last lines without inventing a blank one', () => {
+    expect(lineSlot(doc, 0, 'above', 'CAP', null).at).toBe(0)
+    const belowLast = lineSlot(doc, 17, 'below', 'CAP', null)
+    expect(doc.slice(0, belowLast.at) + belowLast.insert + doc.slice(belowLast.at)).toBe('first\nsecond\nthird\nCAP')
+  })
+
+  it('refuses to split a note’s properties, from either side', () => {
+    const front = '---\nmood: glad\n---\nbody line\n'
+    const above = lineSlot(front, 4, 'above', 'CAP', null)
+    expect(above.at).toBe(19)
+    expect(front.slice(0, above.at) + above.insert + front.slice(above.at)).toBe('---\nmood: glad\n---\nCAP\nbody line\n')
+    expect(lineSlot(front, 4, 'below', 'CAP', null).at).toBe(19)
+  })
+
+  it('fills an empty line instead of stacking a blank one beside it', () => {
+    const middle = lineSlot('a\n\nb', 2, 'below', 'CAP', null)
+    expect('a\n\nb'.slice(0, middle.at) + middle.insert + 'a\n\nb'.slice(middle.at)).toBe('a\nCAP\n\nb')
+    expect(lineSlot('', 0, 'below', 'CAP', null)).toEqual({ at: 0, insert: 'CAP\n', caret: 3 })
+    expect(lineSlot('a\n', 2, 'above', 'CAP', null)).toEqual({ at: 2, insert: 'CAP', caret: 5 })
+  })
+
+  it('leaves a note that opens with text alone', () => {
+    expect(lineSlot('one line only', 3, 'above', 'CAP', null).at).toBe(0)
+    expect(lineSlot('one line only', 3, 'above', 'CAP', null).insert).toBe('CAP\n')
   })
 })

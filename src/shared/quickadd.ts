@@ -36,7 +36,7 @@ export type QuickAddTemplatePick = 'fixed' | 'ask'
 export type QuickAddFolderMode = 'default' | 'fixed' | 'ask' | 'source'
 export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel'
 export type QuickAddCaptureTargetMode = 'active' | 'note'
-export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor'
+export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor' | 'lineAbove' | 'lineBelow'
 export type QuickAddCreateAt = 'top' | 'bottom' | 'cursor' | 'ordered'
 export type QuickAddBlankLineMode = 'auto' | 'skip' | 'none'
 export type QuickAddOrderKey = 'lexical' | 'date' | 'numeric' | 'semver' | 'insertion'
@@ -45,6 +45,8 @@ export type QuickAddDirection = 'asc' | 'desc'
  * bottom, but a changelog that opens with an `Unreleased` band wants them at the top instead. */
 export type QuickAddUnparseablePolicy = 'top' | 'bottom'
 export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
+
+export type QuickAddStartupScope = 'session' | 'day'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 export type QuickAddConditionOperator = 'eq' | 'ne' | 'has' | 'empty' | 'gt' | 'lt'
 
@@ -69,6 +71,8 @@ export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   type: 'template'
   templateId: string | null
   templatePick: QuickAddTemplatePick
+  /** When the pick asks, only templates in this library category are offered. */
+  templatePickCategory: string | null
   mode: QuickAddTemplateMode
   folderMode: QuickAddFolderMode
   folderPath: string
@@ -134,6 +138,8 @@ export type QuickAddStep =
 export interface QuickAddMacroChoice extends QuickAddChoiceBase {
   type: 'macro'
   steps: QuickAddStep[]
+  /** Fire this macro when the notebook finishes loading, without anyone asking. */
+  runOnStartup: boolean
 }
 
 export interface QuickAddGroupChoice extends QuickAddChoiceBase {
@@ -173,6 +179,8 @@ export interface QuickAddSettings {
   searchNestedChoices: boolean
   onePage: QuickAddOnePageMode
   drafts: boolean
+  /** How often a macro flagged "run on startup" may fire: once per load, or once per day. */
+  startupScope: QuickAddStartupScope
   defaultFolder: string
   dateFormat: string
   timeFormat: string
@@ -223,6 +231,7 @@ export function defaultQuickAddSettings(): QuickAddSettings {
     searchNestedChoices: true,
     onePage: 'auto',
     drafts: true,
+    startupScope: 'day',
     defaultFolder: '',
     dateFormat: 'YYYY-MM-DD',
     timeFormat: 'HH:mm',
@@ -257,6 +266,7 @@ export function newTemplateChoice(id: string, name: string, position: number): Q
     type: 'template',
     templateId: null,
     templatePick: 'fixed',
+    templatePickCategory: null,
     mode: 'new-note',
     folderMode: 'default',
     folderPath: '',
@@ -308,7 +318,7 @@ export function newCaptureChoice(id: string, name: string, position: number): Qu
 }
 
 export function newMacroChoice(id: string, name: string, position: number): QuickAddMacroChoice {
-  return { ...baseChoice({ id, name, position }), type: 'macro', steps: [] }
+  return { ...baseChoice({ id, name, position }), type: 'macro', steps: [], runOnStartup: false }
 }
 
 export function newGroupChoice(id: string, name: string, position: number): QuickAddGroupChoice {
@@ -506,6 +516,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         type: 'template',
         templateId: normalizeRef(value.templateId),
         templatePick: pick(value.templatePick, ['fixed', 'ask'] as const, 'fixed'),
+        templatePickCategory: normalizeRef(value.templatePickCategory),
         mode: pick(value.mode, ['new-note', 'insert-here'] as const, 'new-note'),
         folderMode: pick(value.folderMode, ['default', 'fixed', 'ask', 'source'] as const, 'default'),
         folderPath: normalizeFolderPath(value.folderPath),
@@ -532,7 +543,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         targetTitle: oneLine(value.targetTitle, QUICKADD_LIMITS.maxNameLength),
         createIfMissing: boolOf(value.createIfMissing, true),
         createTemplateId: normalizeRef(value.createTemplateId),
-        writePosition: pick(value.writePosition, ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor'] as const, 'bottom'),
+        writePosition: pick(value.writePosition, ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor', 'lineAbove', 'lineBelow'] as const, 'bottom'),
         after: oneLine(value.after, QUICKADD_LIMITS.maxTextLength),
         before: oneLine(value.before, QUICKADD_LIMITS.maxTextLength),
         atSectionEnd: boolOf(value.atSectionEnd, false),
@@ -573,7 +584,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
       }
     }
     case 'macro':
-      return { ...base, type: 'macro', steps: normalizeSteps(value.steps, 0) }
+      return { ...base, type: 'macro', steps: normalizeSteps(value.steps, 0), runOnStartup: boolOf(value.runOnStartup, false) }
     case 'group':
       return { ...base, type: 'group', collapsed: boolOf(value.collapsed, false) }
     default:
@@ -705,6 +716,7 @@ export function normalizeQuickAddSettings(value: unknown, knownIds: ReadonlySet<
     searchNestedChoices: boolOf(value.searchNestedChoices, fallback.searchNestedChoices),
     onePage: pick(value.onePage, ['always', 'auto', 'never'] as const, fallback.onePage),
     drafts: boolOf(value.drafts, fallback.drafts),
+    startupScope: pick(value.startupScope, ['session', 'day'] as const, fallback.startupScope),
     defaultFolder: normalizeFolderPath(value.defaultFolder),
     dateFormat: oneLine(value.dateFormat, 40) || fallback.dateFormat,
     timeFormat: oneLine(value.timeFormat, 40) || fallback.timeFormat,

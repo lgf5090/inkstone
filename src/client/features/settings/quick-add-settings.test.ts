@@ -181,7 +181,7 @@ beforeEach(async () => {
   calls.toasts = []
   document.body.replaceChildren()
   useSession.setState({ user: { id: 'user-1', username: 'tester', role: 'owner' } as never })
-  useNoteTemplates.setState({ templates: [], hydrated: true, owner: 'user-1', hydrate: async () => {} } as never)
+  useNoteTemplates.setState({ templates: [], categories: [], hydrated: true, owner: 'user-1', hydrate: async () => {} } as never)
   vi.spyOn(useUi.getState(), 'toast').mockImplementation((input) => {
     calls.toasts.push({ title: input.title, tone: input.tone })
     return 'toast-1'
@@ -389,6 +389,56 @@ describe('the choice editor', () => {
     expect(saved.type === 'template' && saved.templatePick).toBe('ask')
   })
 
+  it('offers the category filter only while the run asks which template', async () => {
+    const choice = newTemplateChoice('qa-t', 'Alpha', 0)
+    seed({ choices: [choice] })
+    act(() => {
+      useNoteTemplates.setState({ categories: [{ id: 'cat-j', name: 'Journal', icon: null, color: null, position: 0 }] as never })
+    })
+    editor(choice)
+    const categorySelect = () => document.querySelector(`select[aria-label="${t('quickadd.field_template_pick_category')}"]`)
+    expect(categorySelect(), 'a fixed template needs no filter').toBeNull()
+    selectNamed(t('quickadd.field_template_pick'), 'ask')
+    expect(categorySelect()).not.toBeNull()
+    selectNamed(t('quickadd.field_template_pick_category'), 'cat-j')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.templatePickCategory).toBe('cat-j')
+  })
+
+  it('names every switch in the editor, so a screen reader says what it toggles', () => {
+    seed({ choices: [newMacroChoice('qa-m', 'Morning', 0), newTemplateChoice('qa-t', 'T', 1), newCaptureChoice('qa-c', 'C', 2)] })
+    for (const choice of library()) {
+      editor(choice)
+      const unnamed = [...document.querySelectorAll('button[role="switch"]')]
+        .filter((node) => !(node.getAttribute('aria-label') ?? '').trim())
+        .map((node) => node.closest('[data-setting-title]')?.getAttribute('data-setting-title') ?? 'unknown')
+      expect(unnamed, `the ${choice.name} editor has switches nobody can name`).toEqual([])
+    }
+  })
+
+  it('lists the two caret-relative write positions for a capture', () => {
+    const choice = newCaptureChoice('qa-c', 'Caret', 0)
+    seed({ choices: [choice] })
+    editor(choice)
+    const select = control(t('quickadd.field_position')) as HTMLSelectElement
+    const labels = [...select.querySelectorAll('option')].map((option) => option.textContent?.trim())
+    expect(labels).toEqual([
+      t('quickadd.position_bottom'),
+      t('quickadd.position_top'),
+      t('quickadd.position_insert_after'),
+      t('quickadd.position_insert_before'),
+      t('quickadd.position_cursor'),
+      t('quickadd.position_line_above'),
+      t('quickadd.position_line_below'),
+    ])
+    selectNamed(t('quickadd.field_position'), 'lineBelow')
+    clickNamed(t('common.save'))
+    const saved = library()[0]!
+    expect(saved.type === 'capture' && saved.writePosition).toBe('lineBelow')
+  })
+
   it('refuses to save an empty name', () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })
@@ -564,5 +614,15 @@ describe('the automation page', () => {
     mount(QuickAddSettings)
     clickNamed(t('quickadd.export'))
     expect(transportBox()?.value).toContain('"Alpha"')
+  })
+
+  it('offers the startup throttle the macros are governed by', () => {
+    mount(QuickAddSettings)
+    const name = t('quickadd.field_startup_scope')
+    const select = control(name) as HTMLSelectElement
+    expect([...select.querySelectorAll('option')].map((option) => option.textContent?.trim()))
+      .toEqual([t('quickadd.startup_scope_day'), t('quickadd.startup_scope_session')])
+    selectNamed(name, 'session')
+    expect(useQuickAdd.getState().settings.startupScope).toBe('session')
   })
 })

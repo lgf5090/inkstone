@@ -16,7 +16,7 @@ import { useQuickAdd } from '../../store/quickadd'
 import { api } from '../../lib/api'
 import { folderPath, folderPathLabel } from '../../lib/folders'
 import { getActiveEditorView } from '../../editor/commands'
-import { extractHeadings } from './insertion'
+import { extractHeadings, lineSlot } from './insertion'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
 import { runMacroChoice } from './macro'
@@ -213,6 +213,20 @@ export const notePort: NotePort = {
       .filter((name) => name !== '')
       .sort((a, b) => a.localeCompare(b))
   },
+  templatesForPick(categoryId) {
+    const store = useNoteTemplates.getState()
+    const wanted = categoryId?.trim() ?? ''
+    const names = new Map(store.categories.map((category) => [category.id, category.name]))
+    return store.templates
+      .filter((template) => template.name.trim() !== '')
+      .filter((template) => wanted === '' || (template.categoryId ?? '') === wanted)
+      .map((template) => ({
+        id: template.id,
+        name: template.name.trim(),
+        category: template.categoryId ? names.get(template.categoryId) ?? null : null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  },
   runAppCommand: (id) => runAppCommand(id).ok,
   async fieldValues(name, filter) {
     try {
@@ -280,6 +294,14 @@ export const notePort: NotePort = {
     const { from, to } = view.state.selection.main
     const position = from + (cursor === null || cursor === undefined ? text.length : Math.max(0, Math.min(cursor, text.length)))
     view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: position }, scrollIntoView: true })
+    view.focus()
+    return true
+  },
+  insertRelativeToLine(text, side, cursor) {
+    const view = getActiveEditorView()
+    if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return false
+    const slot = lineSlot(view.state.doc.toString(), view.state.selection.main.head, side, text, cursor ?? null)
+    view.dispatch({ changes: { from: slot.at, insert: slot.insert }, selection: { anchor: slot.caret }, scrollIntoView: true })
     view.focus()
     return true
   },

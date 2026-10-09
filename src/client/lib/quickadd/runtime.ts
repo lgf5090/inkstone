@@ -7,7 +7,7 @@
  * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures
  * every date token from that note's day instead.
  */
-import type { QuickAddChoice, QuickAddChoiceBase, QuickAddPeriod, QuickAddSettings } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddChoiceBase, QuickAddOnePageMode, QuickAddPeriod, QuickAddSettings } from '@shared/quickadd'
 import { formatDatePattern } from './date-pattern'
 import { askQuickAddPrompts, type PromptAnswers } from '../../features/quickadd/prompt-queue'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
@@ -79,6 +79,11 @@ export function periodicNote(
   }
 }
 
+/** Which page mode a run asks in: the choice's own setting wins over the account's. */
+export function pageMode(session: RunSession): QuickAddOnePageMode {
+  return session.base.onePage ?? session.settings.onePage
+}
+
 /**
  * Ask what a format needs. One page is used when the choice or the account says always, or when the
  * run has two or more plain inputs. A run with a single input gets the single dialog, which is what
@@ -91,7 +96,7 @@ export async function askForInputs(
   extra?: { destination?: string },
 ): Promise<PromptAnswers> {
   if (requests.length === 0) return new Map()
-  const mode = session.base.onePage ?? session.settings.onePage
+  const mode = pageMode(session)
   const wantPage = mode === 'always'
     ? true
     : mode === 'never'
@@ -123,7 +128,9 @@ export function buildRuntime(session: RunSession, port: NotePort, hooks: Runtime
     variables: session.variables,
     globalVars: globalVarMap(session.settings),
     locale: localeTag(),
-    clock: session.clock,
+    // A getter, not a snapshot: a page can be answered before "ask me each time" moves the run's day,
+    // and a date token in a name and in a body still has to agree.
+    get clock() { return session.clock },
     defaults: { dateFormat: session.settings.dateFormat, timeFormat: session.settings.timeFormat },
     // The engines fill these in as the run decides where it is writing and what the note is called.
     title: null,

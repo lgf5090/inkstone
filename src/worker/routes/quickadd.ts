@@ -95,40 +95,62 @@ function collectValues(content: unknown, name: string, into: Map<string, number>
   }
 }
 
-quickAddRoutes.get('/field-values', async (c) => {
-  const userId = c.get('userId')
-  const name = c.req.query('name') ?? ''
-  if (!name || name.length > 60) throw ApiError.badRequest('A property name is required')
-  const folder = c.req.query('folder')
-  const tag = c.req.query('tag')
-  const excludeTag = c.req.query('excludeTag')
-  const limit = clampCount(c.req.query('limit'), FIELD_VALUE_LIMIT)
+/** What a `{{FIELD:property}}` suggestion asks for. */
+export interface FieldValueQuery {
+  name: string
+  folder?: string | null
+  tag?: string | null
+  excludeTag?: string | null
+  limit?: string | null
+}
 
+/**
+ * The values of one property across the newest notes, most-used first.
+ *
+ * Exported because the three bounds below ARE the behaviour, and a route handler is an awkward place
+ * to prove them: the scan stops at the newest few hundred notes, the list stops at two hundred
+ * values, and a value longer than two hundred characters is not a suggestion but a paragraph.
+ */
+export async function collectFieldValues(db: D1Database, userId: string, query: FieldValueQuery): Promise<string[]> {
+  const limit = clampCount(query.limit ?? undefined, FIELD_VALUE_LIMIT)
   const where = ['n.user_id = ?1', 'n.deleted_at IS NULL']
   const args: string[] = [userId]
-  if (folder) {
+  if (query.folder) {
     where.push('EXISTS (SELECT 1 FROM folders f WHERE f.id = n.folder_id AND LOWER(f.name) = ?' + String(args.length + 1) + ')')
-    args.push(folder.toLocaleLowerCase())
+    args.push(query.folder.toLocaleLowerCase())
   }
-  if (tag) {
+  if (query.tag) {
     where.push('EXISTS (SELECT 1 FROM note_tags nt JOIN tags tg ON tg.id = nt.tag_id WHERE nt.note_id = n.id AND LOWER(tg.name) = ?' + String(args.length + 1) + ')')
-    args.push(tag.toLocaleLowerCase())
+    args.push(query.tag.toLocaleLowerCase())
   }
-  if (excludeTag) {
+  if (query.excludeTag) {
     where.push('NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags tg ON tg.id = nt.tag_id WHERE nt.note_id = n.id AND LOWER(tg.name) = ?' + String(args.length + 1) + ')')
-    args.push(excludeTag.toLocaleLowerCase())
+    args.push(query.excludeTag.toLocaleLowerCase())
   }
-  const rows = await c.env.DB.prepare(
+  const rows = await db.prepare(
     `SELECT content FROM notes n WHERE ${where.join(' AND ')} ORDER BY updated_at DESC LIMIT ${FIELD_SCAN_LIMIT}`,
   )
     .bind(...args)
     .all<{ content: string }>()
 
   const counts = new Map<string, number>()
-  for (const row of rows.results) collectValues(row.content, name, counts)
-  const values = [...counts.entries()]
+  for (const row of rows.results) collectValues(row.content, query.name, counts)
+  return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, limit)
     .map(([value]) => value)
+}
+
+quickAddRoutes.get('/field-values', async (c) => {
+  const userId = c.get('userId')
+  const name = c.req.query('name') ?? ''
+  if (!name || name.length > 60) throw ApiError.badRequest('A property name is required')
+  const values = await collectFieldValues(c.env.DB, userId, {
+    name,
+    folder: c.req.query('folder'),
+    tag: c.req.query('tag'),
+    excludeTag: c.req.query('excludeTag'),
+    limit: c.req.query('limit'),
+  })
   return c.json({ values })
 })

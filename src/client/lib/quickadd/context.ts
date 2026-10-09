@@ -23,6 +23,13 @@ export interface NewNoteInput {
   cursor?: number | null
 }
 
+/** One row of the "which template?" picker: what to run, and what to call it on screen. */
+export interface TemplatePickOption {
+  id: string
+  name: string
+  category: string | null
+}
+
 export interface NotePort {
   /** The note the reader is looking at, or null when the editor is on nothing. */
   activeNote(): NoteRef | null
@@ -68,6 +75,11 @@ export interface NotePort {
   /** Every template name in the library, for a choice that asks which one to use. */
   templateNames(): string[]
   /**
+   * The templates a "ask which one" choice offers: everything, or only what sits in one library
+   * category. The id is the answer, so two templates called the same thing stay distinguishable.
+   */
+  templatesForPick(categoryId: string | null): TemplatePickOption[]
+  /**
    * Run one of the app's own commands by id, the way the palette entry does. False when the id is
    * unknown or not offered right now, so the step can say so instead of looking like it worked.
    */
@@ -80,6 +92,11 @@ export interface NotePort {
   notify(title: string, description?: string, tone?: 'default' | 'danger' | 'warning'): void
   /** Insert text into the open editor at the caret, replacing the selection. */
   insertAtCursor(text: string, cursorOffset?: number | null): boolean
+  /**
+   * Insert text on a new line above or below the caret's own line. False when the caret is not on
+   * screen — the same promise `insertAtCursor` makes.
+   */
+  insertRelativeToLine(text: string, side: 'above' | 'below', cursorOffset?: number | null): boolean
   /** Prepend text to the open note's body, below its properties. */
   prependToActive(text: string): Promise<boolean>
   settings(): QuickAddSettings

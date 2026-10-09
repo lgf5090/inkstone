@@ -11,7 +11,7 @@
  * The engines are not imported here: a run pulls `runner.ts` on demand, so opening the list never
  * parses the capture or macro code.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, FolderTree, Inbox, LayoutTemplate, Search, Zap } from 'lucide-react'
 import type { QuickAddChoice } from '@shared/quickadd'
 import { childrenOf } from '@shared/quickadd'
@@ -66,6 +66,10 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  // The caret stays in the filter while the arrows walk the list, so a screen reader only learns which
+  // row is selected from aria-activedescendant naming it.
+  const rowId = useCallback((index: number) => `${listId}-row-${index}`, [listId])
   const pinyinVersion = usePinyinVersion()
 
   useEffect(() => {
@@ -241,6 +245,8 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
           <input
             ref={inputRef}
             aria-label={t('quickadd.launcher_filter')}
+            aria-controls={listId}
+            aria-activedescendant={rows.length > 0 ? rowId(Math.min(cursor, rows.length - 1)) : undefined}
             type="search"
             value={query}
             placeholder={t('quickadd.launcher_placeholder')}
@@ -263,6 +269,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
         )}
         <div
           ref={listRef}
+          id={listId}
           role="listbox"
           aria-label={t('quickadd.launcher_results')}
           className="max-h-[46vh] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]"
@@ -277,6 +284,7 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
               key={row.key}
               row={row}
               index={index}
+              id={rowId(index)}
               active={index === cursor}
               onHover={() => setCursor(index)}
               onActivate={(pickDay) => activate(row, pickDay)}
@@ -292,9 +300,10 @@ function isGroup(choice: QuickAddChoice): boolean {
   return choice.type === 'group'
 }
 
-function LauncherRowView({ row, index, active, onHover, onActivate }: {
+function LauncherRowView({ row, index, id, active, onHover, onActivate }: {
   row: LauncherRow
   index: number
+  id: string
   active: boolean
   onHover: () => void
   onActivate: (pickDay: boolean) => void
@@ -305,6 +314,7 @@ function LauncherRowView({ row, index, active, onHover, onActivate }: {
     <button
       type="button"
       role="option"
+      id={id}
       aria-selected={active}
       data-row-index={index}
       onMouseEnter={onHover}
