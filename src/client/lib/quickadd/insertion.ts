@@ -367,9 +367,19 @@ export function appendAtBottom(body: string, text: string, cursor?: number): Pla
   return { content, cursor: start + Math.min(Math.max(offset, 0), text.length), changed: content !== body }
 }
 
+/**
+ * Write at the start of the note's body.
+ *
+ * The blank line that usually sits right under a closing `---` is furniture belonging to the properties
+ * block, not the body's first line: writing above it wedges the payload between the fence and its own
+ * separator, and the note reads as if the two were never apart. So the payload goes below that line —
+ * one line only, since a longer blank run is spacing the reader chose — and not at all when the payload
+ * opens with a blank line of its own, which supplies its separation already.
+ */
 export function prependAtBodyStart(body: string, text: string, cursor?: number): PlacedCapture {
-  const start = bodyStartLine(body)
   const lines = splitLines(body)
+  let start = bodyStartLine(body)
+  if (start > 0 && start < lines.length && lines[start]!.trim() === '' && !LEADING_BLANK_LINE.test(text)) start += 1
   const head = lines.slice(0, start).join('\n')
   const rest = lines.slice(start).join('\n')
   const separator = rest.length > 0 && !text.endsWith('\n') ? '\n' : ''
@@ -726,6 +736,9 @@ export interface TemplatePlacement {
 const TRAILING_BLANK_LINES = /(?:\r?\n[^\S\r\n]*)+$/
 const LEADING_BLANK_LINES = /^(?:[^\S\r\n]*\r?\n)+/
 
+/** One blank line with the break that ends it: the separator a properties block leaves behind. */
+const LEADING_BLANK_LINE = /^[^\S\r\n]*\r?\n/
+
 /**
  * A template dropped into a note that already exists.
  *
@@ -755,7 +768,10 @@ export function placeTemplate(placement: TemplatePlacement): PlacedCapture {
   const shift = merged.length - placement.text.length
   const top = frontMatterEnd(placement.text)
   if (placement.drop === 'top') {
-    const placed = prependAtBodyStart(merged, body, inside)
+    // A template is a block, not a snippet: it terminates its own line so the note's previous first
+    // line keeps a blank between it and what was applied. A capture written at the same place stays
+    // tight, which is what a one-line capture asks for.
+    const placed = prependAtBodyStart(merged, `${body}\n`, inside)
     return { content: placed.content, cursor: placed.cursor ?? inside, changed: placed.content !== placement.text }
   }
   if (placement.drop === 'bottom') {

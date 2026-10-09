@@ -13,8 +13,8 @@ import type { QuickAddChoice, QuickAddMacroChoice, QuickAddStep } from '@shared/
 import { randomLocalId } from '../../lib/random-id'
 import type { PromptAnswer, PromptRequest } from './format'
 import { buildRuntime, askForInputs, type RunSession } from './runtime'
-import { applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
-import type { NotePort, QuickAddRunStatus } from './context'
+import { applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
+import type { NotePort, QuickAddEditorOutcome, QuickAddRunStatus } from './context'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
 import { runMacroScript } from './macro-script'
@@ -51,6 +51,13 @@ function compare(value: PromptAnswer, operator: string, wanted: string): boolean
     case 'lt': return Number(answer) < Number(wanted)
     default: return false
   }
+}
+
+/** Why an editor step did not run, in the reader's language. */
+function editorFailure(outcome: QuickAddEditorOutcome): string {
+  if (outcome === 'clipboard-blocked') return t('quickadd.error_clipboard_blocked')
+  if (outcome === 'no-target') return t('quickadd.error_no_link_on_line')
+  return t('quickadd.error_editor_unavailable')
 }
 
 /** The question an `ask` step puts up, shared by the step and by the opening page. */
@@ -94,6 +101,9 @@ function macroStaticSurfaces(steps: QuickAddStep[]): { requests: PromptRequest[]
       case 'copy':
       case 'notify':
         texts.push(step.text)
+        break
+      case 'editor':
+        // It moves a caret or a selection: nothing to ask, and nothing that stops the walk either.
         break
       case 'create':
         texts.push(step.title, step.folderPath)
@@ -170,6 +180,12 @@ async function runStep(step: QuickAddStep, state: MacroState): Promise<QuickAddR
       const formatted = await formatWithPrompts(step.text, buildRuntime(session, port), session, owner.name)
       port.copyText(formatted.text)
       return null
+    }
+    case 'editor': {
+      // The step acts on the note the reader is looking at, so a missing editor is a named failure
+      // rather than a step that quietly did nothing.
+      const outcome = await port.applyEditorAction(step.action)
+      return outcome === 'done' ? null : { kind: 'failed', reason: editorFailure(outcome) }
     }
     case 'open': {
       const formatted = await formatWithPrompts(step.title, buildRuntime(session, port), session, owner.name)
@@ -336,7 +352,7 @@ async function runMacroSteps(
 export async function runMacroChoice(
   choice: QuickAddMacroChoice,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<QuickAddRunStatus> {
   return (await runMacro(choice, port, options)).status
 }
@@ -345,12 +361,12 @@ export async function runMacroChoice(
 export async function runMacro(
   choice: QuickAddMacroChoice,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<MacroOutcome> {
-  const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const session = newSession(choice, port, options)
   const runtime = buildRuntime(session, port)
   const surfaces = macroStaticSurfaces(choice.steps)
-  if (choice.dateOrigin === 'ask') surfaces.requests.unshift(dayRequest(session))
+  if (asksForDay(session)) surfaces.requests.unshift(dayRequest(session))
   await precollectInputs(session, runtime, surfaces)
   if (session.dismissed) return { status: { kind: 'cancelled' }, text: '' }
   const cancelled = await applyDateOrigin(session)
@@ -371,7 +387,7 @@ export async function runMacro(
 export async function runMacroByName(
   name: string,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<string> {
   const wanted = name.trim().toLowerCase()
   const match = port.choices().find((choice) => choice.type === 'macro' && choice.name.trim().toLowerCase() === wanted)

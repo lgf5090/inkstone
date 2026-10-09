@@ -86,6 +86,13 @@ describe('the startup macro’s own clock', () => {
     expect(shouldRunStartup(once, 'qa-a', 'u2', today, storage)).toBe(true)
   })
 
+  it('lets a second account on the same browser still have its own first run of the day', () => {
+    const storage = memoryStorage()
+    markStartupRun('u1', 'qa-a', today, storage)
+    resetStartupSession()
+    expect(shouldRunStartup(settings(), 'qa-a', 'u2', today, storage), 'the day is remembered per account, not per browser slot').toBe(true)
+  })
+
   it('treats a stamp file it cannot read as no stamps at all', () => {
     expect(loadStartupStamps(memoryStorage({ [STARTUP_STAMP_KEY]: '{not json' }))).toEqual({})
     expect(loadStartupStamps(memoryStorage({ [STARTUP_STAMP_KEY]: '{"qa-a": 3, "__proto__": "polluted"}' }))).toEqual({})

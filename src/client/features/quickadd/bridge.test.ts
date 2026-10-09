@@ -254,7 +254,8 @@ describe('the startup macros', () => {
     await settle()
     expect(runs.calls).toEqual(['qa-mac', 'qa-eve'])
     const stored = JSON.parse(localStorage.getItem(STARTUP_STAMP_KEY) ?? '{}') as Record<string, string>
-    expect(Object.keys(stored).sort()).toEqual(['qa-eve', 'qa-mac'])
+    expect(Object.keys(stored).sort(), 'the day is remembered per account, not per browser')
+      .toEqual(['user-1\u001Fqa-eve', 'user-1\u001Fqa-mac'])
 
     resetStartupSession()
     rendered.unmount()
@@ -262,12 +263,20 @@ describe('the startup macros', () => {
     await settle()
     expect(runs.calls, 'a second load on the same day files nothing twice').toEqual(['qa-mac', 'qa-eve'])
 
-    localStorage.setItem(STARTUP_STAMP_KEY, JSON.stringify({ 'qa-mac': startupDay(new Date()) }))
+    localStorage.setItem(STARTUP_STAMP_KEY, JSON.stringify({ 'user-1\u001Fqa-mac': startupDay(new Date()) }))
     resetStartupSession()
     rendered.unmount()
     mount()
     await settle()
     expect(runs.calls, 'the macro without today’s stamp runs again').toEqual(['qa-mac', 'qa-eve', 'qa-eve'])
+  })
+
+  it('ignores a day stamp another account on this browser left behind', async () => {
+    localStorage.setItem(STARTUP_STAMP_KEY, JSON.stringify({ 'user-2\u001Fqa-mac': startupDay(new Date()) }))
+    seedStartup({}, [MORNING_ROUTINE])
+    mount()
+    await settle()
+    expect(runs.calls, 'the second account gets its own first run of the day').toEqual(['qa-mac'])
   })
 
   it('fire on every load once the reader asks for the session scope', async () => {

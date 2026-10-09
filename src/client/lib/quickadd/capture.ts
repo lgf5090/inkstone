@@ -14,7 +14,7 @@ import { propertyValueKind } from '@shared/property-values'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
-import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
+import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
 import { linkOptions, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import type { PropertyValueKind } from '@shared/property-values'
@@ -373,15 +373,15 @@ function typedPropertyList(items: string[], existing: unknown, declared: ValueIn
 export async function runCaptureChoice(
   choice: QuickAddCaptureChoice,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; locale?: string; day?: Date } = {},
+  options: RunOptions & { locale?: string } = {},
 ): Promise<QuickAddRunStatus> {
-  const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const session = newSession(choice, port, options)
   const runtime = buildRuntime(session, port)
   // The heading and property-name pickers are not on this page: their choices come from the note the
   // run has to resolve first, so asking them up front would offer a list of nothing.
   const asks: PromptRequest[] = []
   const texts: string[] = []
-  if (choice.dateOrigin === 'ask') asks.push(dayRequest(session))
+  if (asksForDay(session)) asks.push(dayRequest(session))
   if (choice.targetMode !== 'active') texts.push(choice.targetTitle)
   if (choice.property.enabled) {
     texts.push(propertyFormat(choice))

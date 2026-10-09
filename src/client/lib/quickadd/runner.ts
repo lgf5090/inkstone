@@ -17,13 +17,14 @@ import { api } from '../../lib/api'
 import { folderPath, folderPathLabel } from '../../lib/folders'
 import { getActiveEditorView } from '../../editor/commands'
 import { extractHeadings, frontMatterEnd, lineSlot } from './insertion'
+import { planEditorAction } from './editor-actions'
 import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
 import { runMacroChoice } from './macro'
 import { t } from '../../lib/i18n'
 import { runAppCommand } from '../../features/command/registry'
-import type { PromptAnswer } from './format'
+import type { RunOptions } from './session'
 import type { QuickAddCaptureChoice, QuickAddChoice, QuickAddMacroChoice, QuickAddSettings, QuickAddTemplateChoice } from '@shared/quickadd'
 
 function noteRef(id: string): NoteRef | null {
@@ -269,9 +270,15 @@ export const notePort: NotePort = {
         : note.title))
       .slice(0, 200)
   },
-  knownNoteTitles() {
+  knownNotes() {
     const store = useNotes.getState()
-    return Object.values(store.notes).filter((note) => !note.deletedAt).map((note) => note.title).slice(0, 500)
+    return Object.values(store.notes)
+      .filter((note) => !note.deletedAt && note.title)
+      .map((note) => {
+        const path = folderPathLabel(store.folders, note.folderId, '/').replace(/^\//, '')
+        return { title: note.title, folderPath: path === '' ? null : path }
+      })
+      .slice(0, 500)
   },
   knownFolderPaths() {
     const store = useNotes.getState()
@@ -309,6 +316,30 @@ export const notePort: NotePort = {
     if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return null
     const { from, to } = view.state.selection.main
     return { text: view.state.doc.toString(), from, to }
+  },
+  async applyEditorAction(action) {
+    const view = getActiveEditorView()
+    if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return 'no-editor'
+    let clipboard: string | null = null
+    if (action === 'paste') {
+      // A browser hands the clipboard over only when it believes the gesture asked for it, so a
+      // refusal is its own answer rather than an empty paste.
+      try {
+        clipboard = await navigator.clipboard?.readText() ?? null
+      } catch {
+        return 'clipboard-blocked'
+      }
+      if (clipboard === null) return 'clipboard-blocked'
+    }
+    const { from, to } = view.state.selection.main
+    const plan = planEditorAction({ text: view.state.doc.toString(), from, to, action, clipboard })
+    if (!plan) return 'no-target'
+    view.dispatch(plan.replace
+      ? { changes: plan.replace, selection: plan.selection, scrollIntoView: true }
+      : { selection: plan.selection, scrollIntoView: true })
+    if (plan.copied !== null) copyText(plan.copied)
+    view.focus()
+    return 'done'
   },
   insertAtCursor(text, cursor) {
     const view = getActiveEditorView()
@@ -437,7 +468,7 @@ function describe(status: QuickAddRunStatus, choice: QuickAddChoice): void {
 
 export async function runQuickAddChoice(
   id: string,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<QuickAddRunStatus> {
   const store = useQuickAdd.getState()
   const choice = findChoiceById(store.choices, id)
@@ -455,7 +486,7 @@ export async function runQuickAddChoice(
 
 async function dispatch(
   choice: QuickAddTemplateChoice | QuickAddCaptureChoice | QuickAddMacroChoice,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date },
+  options: RunOptions,
 ): Promise<QuickAddRunStatus> {
   switch (choice.type) {
     case 'template':

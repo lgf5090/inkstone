@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuickAddCaptureChoice, QuickAddTemplateChoice } from '@shared/quickadd'
 import { parseFrontMatter } from '@shared/markdown-utils'
-import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddSettings } from '@shared/quickadd'
+import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddEditorAction, type QuickAddSettings } from '@shared/quickadd'
 import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
+import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
+import type { RunOptions } from './session'
+import { titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -82,6 +84,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const notifications: string[] = []
   const carets: number[] = []
   const links: { sourceId: string; title: string; options: QuickAddLinkOptions }[] = []
+  const editorActions: QuickAddEditorAction[] = []
+  /** What the editor step is told back: a test that wants a refusal sets it. */
+  let editorOutcome: QuickAddEditorOutcome = 'done'
   /** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */
   let refuseLink = false
   /** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */
@@ -132,7 +137,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
     pickFileTitles: async (token) => (token.folder === 'Numbers' ? ['42'] : []),
-    knownNoteTitles: () => Object.keys(notes),
+    knownNotes: () => Object.values(notes).map((note) => ({ title: note.title, folderPath: note.folderPath })),
     knownFolderPaths: () => ['Journal'],
     appendLink: async (source, target, options) => {
       links.push({ sourceId: source.id, title: target.title, options: options ?? {} })
@@ -165,6 +170,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       return true
     },
     prependToActive: async () => false,
+    async applyEditorAction(action) {
+      editorActions.push(action)
+      return editorOutcome
+    },
     settings: () => merged as QuickAddSettings,
     choices: () => store,
   }
@@ -189,6 +198,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     notifications,
     carets,
     links,
+    editorActions,
+    refuseEditorAction: (outcome: QuickAddEditorOutcome) => {
+      editorOutcome = outcome
+    },
     refuseLink: () => {
       refuseLink = true
     },
@@ -211,15 +224,9 @@ vi.mock('./session', async () => {
     ...actual,
     // The real session, only with the clock pinned: a stub that rebuilt the record would stop
     // exercising whatever `newSession` grows later, and the run would pass on a rule no test sees.
-    newSession: (
-      choice: QuickAddChoice,
-      port: NotePort,
-      variables?: Map<string, PromptAnswer>,
-      day?: Date,
-      sourceNoteId?: string,
-    ) => {
-      const session = actual.newSession(choice, port, variables, day ?? clock, sourceNoteId)
-      session.clock = { now: clock, date: day ?? clock }
+    newSession: (choice: QuickAddChoice, port: NotePort, options: RunOptions = {}) => {
+      const session = actual.newSession(choice, port, options)
+      session.clock = { now: clock, date: options.day ?? clock }
       return session
     },
   }
@@ -1330,6 +1337,33 @@ describe('a name format that routes into a folder', () => {
     expect(fake.created).toEqual([])
   })
 
+  it('asks which day to count from when the entry point says to pick one', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Backfill', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'On {{DATE:YYYY-MM-DD}}' },
+    }
+    answers.queue = [['2024-03-04']]
+    const status = await runTemplateChoice(choice, fake.port, { pickDay: true })
+    expect(status.kind).toBe('written')
+    expect(answers.calls.flat(), 'a choice that runs at today still asked, because the entry point asked to').toContain('day')
+  })
+
+  it('does not ask again when the entry point already has the day', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Chosen', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'On {{DATE:YYYY-MM-DD}}' },
+      dateOrigin: 'ask' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port, { day: new Date(2024, 2, 4) })
+    expect(status.kind).toBe('written')
+    expect(answers.calls.flat(), 'the launcher already asked, so the engine must not ask a second time').not.toContain('day')
+    expect(fake.created[0].title).toBe('On 2024-03-04')
+  })
+
   it('merges the choice tags into the new note’s properties', async () => {
     const fake = harness({})
     const choice = {
@@ -1796,5 +1830,124 @@ describe('one page for the whole choice', () => {
     expect(status.kind).toBe('written')
     expect(answers.calls, 'nothing in this macro needs a reader').toEqual([])
     expect(fake.inserted[0].text).toBe('Mood: calm')
+  })
+})
+
+describe('the names a run suggests', () => {
+  it('names the folder a title lives in, and only that', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Inbox', folderPath: null },
+    ], 'Unfiled')
+    expect(made.options).toEqual(['Standup', 'Inbox'])
+    expect(made.displayOptions).toEqual(['Standup (Work)', 'Inbox'])
+  })
+
+  it('lists every place a shared title was found in', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: 'Archive' },
+      { title: 'Standup', folderPath: 'Work' },
+    ], 'Unfiled')
+    expect(made.options, 'the answer is a title, so one row per title').toEqual(['Standup'])
+    expect(made.displayOptions).toEqual(['Standup (Work, Archive)'])
+  })
+
+  it('says so when one copy of a shared title sits outside every folder', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: null },
+    ], 'Unfiled')
+    expect(made.displayOptions).toEqual(['Standup (Work, Unfiled)'])
+  })
+
+  it('skips the untitled rows and stops at the list the prompt can hold', () => {
+    const many = Array.from({ length: 260 }, (_entry, index) => ({ title: `Note ${index}`, folderPath: null }))
+    const made = titleSuggestions([{ title: '   ', folderPath: ' Nowhere' }, ...many], 'Unfiled')
+    expect(made.options).toHaveLength(200)
+    expect(made.options[0]).toBe('Note 0')
+    expect(made.displayOptions).toHaveLength(200)
+  })
+
+  it('shows the folder on the row the run actually asks with', async () => {
+    const fake = harness({ 'R7 Standup': 'at the root\n' })
+    fake.notes['R7 Standup']!.folderPath = 'R7 Work'
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Nameless', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: false, format: '' },
+    }
+    answers.queue = [['R7 Standup']]
+    await runTemplateChoice(choice, fake.port)
+    const asked = answers.requests.flat().find((request) => request.key === 'title')
+    expect(asked?.displayOptions, 'the reader sees which note they are picking').toEqual(['R7 Standup (R7 Work)'])
+  })
+})
+
+describe('a macro that acts on the editor', () => {
+  it('runs the action the step names', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Trim', 0),
+      steps: [{ kind: 'editor' as const, action: 'selectLine' as const }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.editorActions).toEqual(['selectLine'])
+  })
+
+  it('stops the run and says the editor is not on screen', async () => {
+    const fake = harness({})
+    fake.refuseEditorAction('no-editor')
+    const choice = {
+      ...newMacroChoice('qa-m', 'Trim', 0),
+      steps: [
+        { kind: 'editor' as const, action: 'paste' as const },
+        { kind: 'notify' as const, text: 'after' },
+      ],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_editor_unavailable') })
+    expect(fake.notifications, 'a step that could not run stops the rest').toEqual([])
+  })
+
+  it('names a clipboard the browser kept from it', async () => {
+    const fake = harness({})
+    fake.refuseEditorAction('clipboard-blocked')
+    const choice = {
+      ...newMacroChoice('qa-m', 'Paste', 0),
+      steps: [{ kind: 'editor' as const, action: 'paste' as const }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_clipboard_blocked') })
+  })
+
+  it('says which line had no link to select', async () => {
+    const fake = harness({})
+    fake.refuseEditorAction('no-target')
+    const choice = {
+      ...newMacroChoice('qa-m', 'Link', 0),
+      steps: [{ kind: 'editor' as const, action: 'selectLink' as const }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_no_link_on_line') })
+  })
+
+  it('still asks one page for the steps around it', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      onePage: 'always' as const,
+      steps: [
+        { kind: 'ask' as const, variable: 'a', label: 'First?', options: '' },
+        { kind: 'editor' as const, action: 'lineEnd' as const },
+        { kind: 'ask' as const, variable: 'b', label: 'Second?', options: '' },
+      ],
+    }
+    answers.queue = [['one', 'two']]
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'an editor step is not a reason to split the page').toEqual([['a', 'b']])
+    expect(fake.editorActions).toEqual(['lineEnd'])
   })
 })

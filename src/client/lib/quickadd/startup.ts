@@ -3,8 +3,9 @@
  *
  * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,
  * with no memory of having done so. In a web app "when the vault opens" is "every refresh", so a
- * macro that files a note would leave one per reload; the day scope remembers the last run per macro
- * in this browser, and the session scope keeps the reference's behaviour for anyone who wants it.
+ * macro that files a note would leave one per reload; the day scope remembers the last run per account
+ * and macro in this browser, and the session scope keeps the reference's behaviour for anyone who
+ * wants it.
  */
 import type { QuickAddChoice, QuickAddMacroChoice, QuickAddSettings } from '@shared/quickadd'
 
@@ -76,7 +77,7 @@ export function shouldRunStartup(
   // the shell settles, and a browser that refuses to store anything has no day left to check.
   if (sessionRuns.has(ownerKey(owner, macroId))) return false
   if (settings.startupScope === 'session') return true
-  return loadStartupStamps(storage)[macroId] !== startupDay(now)
+  return loadStartupStamps(storage)[ownerKey(owner, macroId)] !== startupDay(now)
 }
 
 export function markStartupRun(
@@ -87,7 +88,7 @@ export function markStartupRun(
 ): void {
   sessionRuns.add(ownerKey(owner, macroId))
   const stamps = loadStartupStamps(storage)
-  stamps[macroId] = startupDay(now)
+  stamps[ownerKey(owner, macroId)] = startupDay(now)
   saveStartupStamps(stamps, storage)
 }
 

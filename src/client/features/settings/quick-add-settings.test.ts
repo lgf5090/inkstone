@@ -473,6 +473,31 @@ describe('the choice editor', () => {
     ])
   })
 
+  it('offers the pick-a-day switch only where it would add a command', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Alpha', 0), asCommand: false }
+    seed({ choices: [choice] })
+    editor(choice)
+    const twin = () => document.querySelector(`button[role="switch"][aria-label="${t('quickadd.field_pick_day_command')}"]`)
+    expect(twin(), 'a choice that is not a command has no second command to offer').toBeNull()
+    clickNamed(t('quickadd.field_as_command'))
+    expect(twin()).not.toBeNull()
+    clickNamed(t('quickadd.field_pick_day_command'))
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.pickDayCommand).toBe(true)
+  })
+
+  it('withdraws the pick-a-day switch when the run already asks for its day', () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Alpha', 0), asCommand: true, dateOrigin: 'ask' as const }
+    seed({ choices: [choice] })
+    editor(choice)
+    expect(
+      document.querySelector(`button[role="switch"][aria-label="${t('quickadd.field_pick_day_command')}"]`),
+      'a choice that asks every time has nothing left for the second entry to do',
+    ).toBeNull()
+  })
+
   it('offers the category filter only while the run asks which template', async () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })
@@ -585,6 +610,34 @@ describe('the choice editor', () => {
     await settle()
     const saved = library()[0]!
     expect(saved.type === 'macro' && saved.steps).toEqual([{ kind: 'command', commandId: 'cmd-emoji' }])
+  })
+
+  it('lets a macro step name an editor action', async () => {
+    const choice = { ...newMacroChoice('qa-m', 'Routine', 0), steps: [] }
+    seed({ choices: [choice] })
+    editor(choice)
+    clickNamed(t('quickadd.add_step'))
+    selectNamed(t('quickadd.step_kind'), 'editor')
+    const picker = control(t('quickadd.step_editor_action'))
+    expect(picker, 'the step says which thing it does to the editor').toBeInstanceOf(HTMLSelectElement)
+    const node = picker as HTMLSelectElement
+    expect([...node.options].map((option) => option.textContent?.trim())).toEqual([
+      t('quickadd.editor_cut'),
+      t('quickadd.editor_copy'),
+      t('quickadd.editor_paste'),
+      t('quickadd.editor_select_line'),
+      t('quickadd.editor_select_link'),
+      t('quickadd.editor_line_start'),
+      t('quickadd.editor_line_end'),
+      t('quickadd.editor_file_start'),
+      t('quickadd.editor_file_end'),
+    ])
+    expect(node.value, 'a fresh step starts at the line, not at the clipboard').toBe('selectLine')
+    selectNamed(t('quickadd.step_editor_action'), 'selectLink')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'macro' && saved.steps).toEqual([{ kind: 'editor', action: 'selectLink' }])
   })
 
   it('offers the token list without leaving the editor', () => {

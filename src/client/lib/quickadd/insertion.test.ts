@@ -442,9 +442,21 @@ describe('placing a template into a note', () => {
     expect(placed.content.slice(placed.cursor ?? -1, (placed.cursor ?? -1) + 6)).toBe('|OMEGA')
   })
 
-  it('drops the body below the properties when the template starts the note', () => {
+  it('leaves one blank line below a template that starts the note', () => {
     const placed = placeTemplate({ text: '---\na: 1\n---\nbody\n', from: 0, to: 0, drop: 'top', template: '## T\n', cursor: null })
-    expect(placed?.content).toBe('---\na: 1\n---\n## T\nbody\n')
+    expect(placed?.content).toBe('---\na: 1\n---\n## T\n\nbody\n')
+  })
+
+  it('writes below the blank line that separates the properties from the body', () => {
+    expect(prependAtBodyStart('---\ntitle: x\n---\n\n# H\n', 'new').content).toBe('---\ntitle: x\n---\n\nnew\n# H\n')
+  })
+
+  it('does not stack a second blank line when the payload brings its own', () => {
+    expect(prependAtBodyStart('---\ntitle: x\n---\n\n# H\n', '\nnew').content).toBe('---\ntitle: x\n---\n\nnew\n\n# H\n')
+  })
+
+  it('moves past one blank line only, because the rest is spacing the reader chose', () => {
+    expect(prependAtBodyStart('---\ntitle: x\n---\n\n\nbody\n', 'new').content).toBe('---\ntitle: x\n---\n\nnew\n\nbody\n')
   })
 
   it('leaves exactly one blank line above a bottom template', () => {

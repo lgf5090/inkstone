@@ -6,7 +6,7 @@
  * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives
  * in `runner.ts`.
  */
-import type { QuickAddChoice, QuickAddLinkPlacement, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddEditorAction, QuickAddLinkPlacement, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
 
 export interface NoteRef {
   id: string
@@ -54,8 +54,12 @@ export interface NotePort {
    */
   open(id: string, options?: QuickAddOpenOptions): Promise<void>
   byId(id: string): NoteRef | null
-  /** Every title the account has, for a name prompt that should not invent a duplicate. */
-  knownNoteTitles(): string[]
+  /**
+   * Every title the account has, with where each one lives, for a name prompt that should not invent a
+   * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids
+   * — and the reader is the one who has to spot which is which.
+   */
+  knownNotes(): { title: string; folderPath: string | null }[]
   /** Every folder path the account has, for `folderMode: ask`. */
   knownFolderPaths(): string[]
   /**
@@ -103,6 +107,12 @@ export interface NotePort {
    * unsaved typing included, and the block must not land inside the note's own properties.
    */
   activeEditorState(): { text: string; from: number; to: number } | null
+  /**
+   * Move the caret, change the selection, or splice the clipboard in — what a macro's editor step
+   * asks for. The answer says which half could not happen, because “no editor on screen” and “the
+   * browser would not hand over the clipboard” are different things for the reader to hear.
+   */
+  applyEditorAction(action: QuickAddEditorAction): Promise<QuickAddEditorOutcome>
   /** Insert text into the open editor at the caret, replacing the selection. */
   insertAtCursor(text: string, cursorOffset?: number | null): boolean
   /**
@@ -127,6 +137,9 @@ export interface QuickAddOpenOptions {
   layout?: 'inherit' | 'live' | 'split' | 'preview'
   focus?: boolean
 }
+
+/** How an editor step ended: applied, or why it was not. */
+export type QuickAddEditorOutcome = 'done' | 'no-editor' | 'clipboard-blocked' | 'no-target'
 
 /** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */
 export function linkOptions(choice: {
@@ -210,6 +223,40 @@ export function joinRouted(path: string | null, routedFolder: string | null): st
   if (below.startsWith(`${above}/`)) return routedFolder
   if (above.endsWith(`/${below}`)) return path
   return folderJoin(path, routedFolder)
+}
+
+/**
+ * The rows a “what should the note be called?” question shows: one per title, each saying where that
+ * title already lives. The answer stays a bare title — this app resolves a note by its name — so a
+ * title found in several places lists them all rather than pretending to pick one, and a copy sitting
+ * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root
+ * gets no suffix: there is nothing left to tell apart.
+ */
+export function titleSuggestions(
+  notes: { title: string; folderPath: string | null }[],
+  rootLabel = '',
+  limit = 200,
+): { options: string[]; displayOptions: string[] } {
+  const places = new Map<string, { folders: string[]; root: boolean }>()
+  for (const note of notes) {
+    const title = note.title.trim()
+    if (title === '') continue
+    const entry = places.get(title) ?? { folders: [], root: false }
+    const folder = (note.folderPath ?? '').trim()
+    if (folder === '') entry.root = true
+    else if (!entry.folders.includes(folder)) entry.folders.push(folder)
+    places.set(title, entry)
+  }
+  const options = [...places.keys()].slice(0, limit)
+  return {
+    options,
+    displayOptions: options.map((title) => {
+      const entry = places.get(title) ?? { folders: [], root: false }
+      if (entry.folders.length === 0) return title
+      const list = entry.root && rootLabel !== '' ? [...entry.folders, rootLabel] : entry.folders
+      return `${title} (${list.join(', ')})`
+    }),
+  }
 }
 
 /** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */

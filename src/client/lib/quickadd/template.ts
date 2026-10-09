@@ -9,9 +9,9 @@
  */
 import { appendFrontMatterTag, parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
 import type { QuickAddTemplateChoice } from '@shared/quickadd'
-import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
+import type { FormatRuntime, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
-import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
+import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request, type RunOptions } from './session'
 import {
   folderJoin,
   joinRouted,
@@ -19,6 +19,7 @@ import {
   openingOptions,
   sanitizeTitle,
   splitTargetPath,
+  titleSuggestions,
   type NotePort,
   type NoteRef,
   type QuickAddRunStatus,
@@ -26,14 +27,19 @@ import {
 import { placeTemplate, type TemplateDrop } from './insertion'
 import { t } from '../../lib/i18n'
 
-/** What the run asks for a name when the choice has no name format of its own. */
+/**
+ * What the run asks for a name when the choice has no name format of its own. The rows say where each
+ * existing title already lives, because two notes called `Standup` in two folders are one row apiece
+ * and only the folder tells the reader which one they are about to write into.
+ */
 function titleRequest(port: NotePort, runtime: FormatRuntime): PromptRequest {
-  const existing = port.knownNoteTitles()
+  const suggestions = titleSuggestions(port.knownNotes(), t('navigation.unfiled'))
   return request({
     key: 'title',
     label: t('quickadd.prompt_name'),
     kind: 'suggester',
-    options: existing.slice(0, 200),
+    options: suggestions.options,
+    displayOptions: suggestions.displayOptions,
     allowCustom: true,
     trim: true,
     defaultValue: runtime.title ?? '',
@@ -180,9 +186,9 @@ async function dropIntoNote(
 export async function runTemplateChoice(
   choice: QuickAddTemplateChoice,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<QuickAddRunStatus> {
-  const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const session = newSession(choice, port, options)
   const runtime = buildRuntime(session, port)
   // `null` means the named template is gone, which stays a failure; `''` means the choice genuinely
   // wants a blank note, and a pick-each-time run has no body to scan yet.
@@ -190,7 +196,7 @@ export async function runTemplateChoice(
   const pickable = choice.templatePick === 'ask' ? port.templatesForPick(choice.templatePickCategory) : []
   const asks: PromptRequest[] = []
   const texts: string[] = []
-  if (choice.dateOrigin === 'ask') asks.push(dayRequest(session))
+  if (asksForDay(session)) asks.push(dayRequest(session))
   if (choice.templatePick === 'ask') {
     if (pickable.length > 0) asks.push(templateRequest(port, choice.templatePickCategory))
   }
