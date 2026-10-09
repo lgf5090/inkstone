@@ -1408,6 +1408,34 @@ describe('a name format that routes into a folder', () => {
     expect(fake.content('Here')).toBe('body\n\nDaily body')
   })
 
+  it('puts the caret drop where the reader had selected, not at the end', async () => {
+    const fake = harness({ Here: 'head SEL tail' })
+    fake.setActive('Here')
+    fake.setSelection(5, 8)
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Selection', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('head Daily body tail')
+  })
+
+  it('appends to a note that is not on screen, without moving anyone’s caret', async () => {
+    const fake = harness({ Diary: 'old\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append marked', 0),
+      templateId: 'tpl-marked',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendBottom' as const,
+      openAfter: true,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Diary')).toBe('old\n\nHithere\n')
+    expect(fake.carets, 'the caret it opened into is not the one the reader was typing in').toEqual([])
+    expect(fake.opened).toEqual(['n-Diary'])
+  })
+
   it('replaces the open note when that is what the drop says', async () => {
     const fake = harness({ Here: '---\nold: 1\n---\nBody\n' })
     fake.setActive('Here')
