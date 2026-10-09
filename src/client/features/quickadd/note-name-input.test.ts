@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Modal } from '../../components/overlay'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
-import { NoteNameInput, type NoteNameCandidate } from './note-name-input'
+import { decideListPlacement, NoteNameInput, type NoteNameCandidate } from './note-name-input'
 
 const NOTES: NoteNameCandidate[] = [
   { title: 'Standup', folderPath: 'Work' },
@@ -26,6 +26,17 @@ function rows(): string[] {
 
 function open(): boolean {
   return document.querySelector('[role=listbox]') !== null
+}
+
+/** Faked layout boxes, because jsdom reports every rect as zero. */
+const rects = new WeakMap<Element, { top: number; bottom: number; height: number }>()
+
+function side(): string {
+  const list = document.querySelector('[role=listbox]')
+  if (!list) {
+    throw new Error(`the list closed itself (dialog=${document.querySelectorAll('[role=dialog]').length} input=${document.querySelectorAll('input').length} active=${document.activeElement?.tagName})`)
+  }
+  return list.getAttribute('data-placement') ?? ''
 }
 
 function render(notes: NoteNameCandidate[], value = '', onCommit: (next: string) => void = () => {}): void {
@@ -303,6 +314,75 @@ describe('the target-note field', () => {
     focusField()
     expect(open()).toBe(false)
     expect(document.body.textContent).toContain(t('quickadd.suggest_filter_note'))
+    rendered?.unmount()
+  })
+
+  it('turns the list upward only when the room is above', () => {
+    expect(decideListPlacement({ above: 600, below: 40 })).toBe('up')
+    expect(decideListPlacement({ above: 40, below: 600 })).toBe('down')
+    expect(decideListPlacement({ above: 30, below: 40 }), 'neither side fits: keep the normal one').toBe('down')
+    expect(decideListPlacement({ above: 300, below: 220 }), 'a full list does fit below').toBe('down')
+    expect(decideListPlacement({ above: 300, below: 219 })).toBe('up')
+    expect(decideListPlacement({ above: 300, below: 100 }, 94), 'a short list fits where a full one would not').toBe('down')
+    expect(decideListPlacement({ above: 300, below: 60 }, 94)).toBe('up')
+  })
+
+  it('re-decides the side when the room under the field changes', () => {
+    held = NOTES
+    current = 'Read'
+    const host = () => createElement(Modal, {
+      open: true,
+      title: 'Host',
+      onClose: () => {},
+      children: createElement(NoteNameInput, { notes: held, value: current, onChange: () => {} }),
+    })
+    rendered = renderElement(host())
+    focusField()
+    const panel = document.querySelector('[role=dialog]')
+    if (!panel) throw new Error('the modal host lost its dialog')
+    const real = Element.prototype.getBoundingClientRect
+    rects.set(panel, { top: 0, bottom: 600, height: 600 })
+    const box = field().parentElement
+    if (box) rects.set(box, { top: 480, bottom: 500, height: 20 })
+    const list = document.querySelector('[role=listbox]')
+    if (list) rects.set(list, { top: 0, bottom: 200, height: 200 })
+    try {
+      Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+        return (rects.get(this) ?? real.call(this)) as DOMRect
+      }
+      // Low in the form with a tall list: the list has to go up or it leaves the dialog.
+      act(() => { panel.dispatchEvent(new Event('scroll')) })
+      expect(side(), 'a full list at the bottom of the dialog').toBe('up')
+      // The reader scrolls back and the same list has room below again.
+      if (box) rects.set(box, { top: 100, bottom: 120, height: 20 })
+      act(() => { panel.dispatchEvent(new Event('scroll')) })
+      expect(side(), 'the same list with room below').toBe('down')
+      // A short list under a field in the same low spot still fits below, so it stays put.
+      if (box) rects.set(box, { top: 480, bottom: 500, height: 20 })
+      if (list) rects.set(list, { top: 0, bottom: 60, height: 60 })
+      act(() => { panel.dispatchEvent(new Event('scroll')) })
+      expect(side(), 'a one-row list does not jump').toBe('down')
+      // Clearing the draft grows that list past the room it had, with nobody scrolling at all.
+      if (list) rects.set(list, { top: 0, bottom: 200, height: 200 })
+      act(() => {
+        current = ''
+        rendered?.rerender(host())
+      })
+      expect(side(), 'a list that outgrew its room turns upward').toBe('up')
+    } finally {
+      Element.prototype.getBoundingClientRect = real
+      rendered?.unmount()
+    }
+  })
+
+  it('says which way the list went, so a browser can measure it', () => {
+    render(NOTES)
+    focusField()
+    const list = document.querySelector('[role=listbox]')
+    if (!list) throw new Error('the list did not open')
+    // jsdom lays nothing out, so the only honest claim here is that the side is stated on the element.
+    expect(list.getAttribute('data-placement')).toBe('down')
+    expect(list.className).toContain('top-full')
     rendered?.unmount()
   })
 

@@ -23,6 +23,19 @@ const MAX_ROWS = 50
 /** Names looked at before filtering. Titles are deduped first, so this is names, not notes. */
 const MAX_SCANNED = 1000
 
+/** The list's ceiling, and the room assumed for it before the rows are known. */
+const LIST_HEIGHT = 220
+
+/**
+ * Which way the list goes. Down is the normal answer; only when the list genuinely does not fit below
+ * and the other side is roomier does it turn upward, because a field that holds three names has no
+ * reason to jump just because it sits low in a long form.
+ */
+export function decideListPlacement(space: { above: number; below: number }, wanted = LIST_HEIGHT): 'up' | 'down' {
+  if (space.below >= wanted) return 'down'
+  return space.above > space.below ? 'up' : 'down'
+}
+
 export interface NoteNameCandidate {
   title: string
   folderPath: string | null
@@ -64,7 +77,9 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
   const rowId = (index: number): string => `${listId}-${index}`
   const [open, setOpen] = useState(false)
   const [cursor, setCursor] = useState(0)
+  const [placement, setPlacement] = useState<'up' | 'down'>('down')
   const listRef = useRef<HTMLDivElement | null>(null)
+  const boxRef = useRef<HTMLDivElement | null>(null)
 
   const listing = useMemo(() => {
     const made = titleSuggestions(notes, t('navigation.unfiled'), MAX_SCANNED)
@@ -83,6 +98,34 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
   // A target written as a question (#work, folder:Notes, property:type=draft) has no answer until
   // the run, so listing names under it would only pretend the question is already settled.
   const asking = isTargetFilterSyntax(value)
+
+  useEffect(() => {
+    if (!open) return
+    const box = boxRef.current
+    if (!box) return
+    // The dialog's own scroll box is the boundary: a list hanging past its bottom is unreachable,
+    // while the window may still have room on screen below it.
+    const panel = box.closest('[role="dialog"]') ?? box.closest('.app-viewport-fixed') ?? document.documentElement
+    const measure = () => {
+      const inside = panel.getBoundingClientRect()
+      const room = box.getBoundingClientRect()
+      const listed = listRef.current?.getBoundingClientRect().height || LIST_HEIGHT
+      setPlacement(decideListPlacement(
+        { above: room.top - inside.top, below: inside.bottom - room.bottom },
+        // The mt-1/bottom-1 gap rides along with the list, so the room has to pay for it too.
+        listed + 4,
+      ))
+    }
+    measure()
+    // Scrolling the form moves the field out from under an already-open list, and clearing a draft
+    // grows the list under a field that had room for the short one; both re-decide the side.
+    panel.addEventListener('scroll', measure, { passive: true, capture: true })
+    window.addEventListener('resize', measure)
+    return () => {
+      panel.removeEventListener('scroll', measure, { capture: true })
+      window.removeEventListener('resize', measure)
+    }
+  }, [open, rows.length])
 
   useEffect(() => {
     setCursor((current) => (rows.length === 0 ? 0 : Math.min(current, rows.length - 1)))
@@ -123,7 +166,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
   }, [commit, cursor, open, rows])
 
   return (
-    <div className="relative space-y-1">
+    <div ref={boxRef} className="relative space-y-1">
       <Input
         {...aria}
         id={id}
@@ -163,7 +206,11 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
           aria-label={t('quickadd.suggest_results')}
           // Over the rest of the form rather than inside it: a list that pushes the rows below it down
           // moves a control out from under the pointer that was reaching for it.
-          className="absolute right-0 left-0 z-20 max-h-[220px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]"
+          className={cn(
+            'absolute right-0 left-0 z-20 max-h-[220px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]',
+            placement === 'up' ? 'bottom-full mb-1' : 'top-full mt-1',
+          )}
+          data-placement={placement}
         >
           {rows.length === 0 && (
             <p className="px-3 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">
