@@ -3727,6 +3727,9 @@ const allowed = new Map([
     "// A yes/no question needs an explicit press: closing the dialog is a cancelled run, not a \"No\".",
     "// A one-press answer: a single-choice picker or a yes/no question has said everything the OK",
     "// button would say, so waiting for a second click only slows the run down.",
+    "// The same rule the engines use: only ASCII blanks count as nothing. A fullwidth or",
+    "// non-breaking space is what the reader put there on purpose, and a dialog that refused one would",
+    "// make such an answer impossible to give at all.",
   ]],
   ["src/client/features/quickadd/token-help.tsx", [
     "/**\n * The token cheat sheet, and the one place the QuickAdd grammar is spelled out for the author.\n *\n * Each row shows the token as it is typed and what the *same formatter* makes of it right now, so the\n * table cannot disagree with the engine the way a hand-written example eventually does.\n */",
@@ -9676,6 +9679,8 @@ const allowed = new Map([
     "// focus, the target one when it did not.",
     "/**\n * The link at the end of the line the caret was sitting on. This is the one placement that needs the\n * source note to be the note on screen: writing it through the store would drop whatever the reader has\n * typed there and not saved yet.\n */",
     "/**\n * The link added to a property of the source note. An existing scalar grows into a list rather than\n * being replaced, and an entry that is already there is not written twice.\n */",
+    "// A caret parked in the note’s own properties block gets the same rule a capture on either",
+    "// side of it has: the link joins the body below the block rather than splitting the YAML.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
