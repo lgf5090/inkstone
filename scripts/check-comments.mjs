@@ -9806,11 +9806,11 @@ const allowed = new Map([
   ["src/client/lib/quickadd/startup.ts", [
     "/** The reader's own calendar day, not the UTC one: \"once a day\" means their day. */",
     "/** Only a test or an account switch needs this; a page load starts with nothing run. */",
-    "/**\n * The startup macros: the runs the notebook makes on its own.\n *\n * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,\n * with no memory of having done so. In a web app \"when the vault opens\" is \"every refresh\", so a\n * macro that files a note would leave one per reload; the day scope remembers the last run per macro\n * in this browser, and the session scope keeps the reference's behaviour for anyone who wants it.\n */",
     "/** Every macro the reader asked to run by itself, in the order the launcher lists them. */",
     "// A private-mode write can throw; the session set still keeps this load quiet.",
     "// Never twice in one load, whatever the scope says: the library changes identity a few times while",
     "// the shell settles, and a browser that refuses to store anything has no day left to check.",
+    "/**\n * The startup macros: the runs the notebook makes on its own.\n *\n * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,\n * with no memory of having done so. In a web app \"when the vault opens\" is \"every refresh\", so a\n * macro that files a note would leave one per reload; the day scope remembers the last run per account\n * and macro in this browser, and the session scope keeps the reference's behaviour for anyone who\n * wants it.\n */",
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",
