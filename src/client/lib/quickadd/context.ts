@@ -90,6 +90,12 @@ export interface NotePort {
   pickFileTitles(token: { folder: string; types: string[]; mode: 'name' | 'path' | 'link' }): Promise<string[]>
   /** A short user-visible notice. */
   notify(title: string, description?: string, tone?: 'default' | 'danger' | 'warning'): void
+  /**
+   * The open editor's own text and selection, or null when the note is not on screen. A template that
+   * carries its own properties needs this: the text it merges into is what the reader is looking at,
+   * unsaved typing included, and the block must not land inside the note's own properties.
+   */
+  activeEditorState(): { text: string; from: number; to: number } | null
   /** Insert text into the open editor at the caret, replacing the selection. */
   insertAtCursor(text: string, cursorOffset?: number | null): boolean
   /**

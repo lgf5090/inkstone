@@ -288,6 +288,12 @@ export const notePort: NotePort = {
   notify(title, description, tone = 'default') {
     useUi.getState().toast({ title, description, tone: tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'default' })
   },
+  activeEditorState() {
+    const view = getActiveEditorView()
+    if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return null
+    const { from, to } = view.state.selection.main
+    return { text: view.state.doc.toString(), from, to }
+  },
   insertAtCursor(text, cursor) {
     const view = getActiveEditorView()
     if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return false

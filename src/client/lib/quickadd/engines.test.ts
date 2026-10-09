@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuickAddCaptureChoice, QuickAddTemplateChoice } from '@shared/quickadd'
+import { parseFrontMatter } from '@shared/markdown-utils'
 import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddSettings } from '@shared/quickadd'
 import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
@@ -78,6 +79,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const writes: { id: string; content: string; previous?: string }[] = []
   const opened: string[] = []
   const notifications: string[] = []
+  const carets: number[] = []
+  /** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */
+  let caret: { from: number; to: number } | null = null
   const store: QuickAddChoice[] = []
   const picks: TemplatePickOption[] = [
     { id: 'tpl-daily', name: 'Daily', category: 'Journal' },
@@ -114,7 +118,11 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     cursorHeadingPath: () => null,
     selection: () => selection,
     clipboard: async () => '',
-    templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
+    templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body'
+      : name === 'tpl-props' ? '---\nmood: glad\ntags:\n  - journal\n---\nFrom template\n'
+        : name === 'tpl-marked' ? 'Hi{{CURSOR}}there\n'
+          : name === 'tpl-space' ? '　'
+          : name === 'tpl-cleared' ? '' : null),
     templateNames: () => ['Daily', 'Cleared'],
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
@@ -132,9 +140,15 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       commands.push(id)
       return !id.startsWith('missing')
     },
-    placeCursor: () => {},
+    placeCursor: (offset) => { carets.push(offset) },
     recordRun: () => {},
     notify: (title, description) => { notifications.push(`${title}: ${description ?? ''}`) },
+    activeEditorState: () => {
+      const note = Object.values(notes).find((entry) => entry.id === activeId)
+      if (!note) return null
+      const from = caret?.from ?? note.content.length
+      return { text: note.content, from, to: caret?.to ?? from }
+    },
     insertAtCursor: (text, cursor) => {
       inserted.push({ text, cursor })
       return true
@@ -165,9 +179,13 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     writes,
     opened,
     notifications,
+    carets,
     store,
     setActive: (title: string | null) => {
       activeId = title ? (notes[title]?.id ?? null) : null
+    },
+    setSelection: (from: number, to: number) => {
+      caret = { from, to }
     },
     content: (title: string) => notes[title]?.content ?? null,
   }
@@ -800,6 +818,98 @@ describe('creating a note from a template', () => {
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('empty')
     expect(fake.inserted).toEqual([])
+    expect(fake.writes, 'a template with no text does not rewrite the note').toEqual([])
+    expect(fake.content('Inbox')).toBe('today\n')
+  })
+
+  it('keeps a template’s own properties out of the body it inserts', async () => {
+    const fake = harness({ Here: '# Title\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Insert props', 0),
+      templateId: 'tpl-props',
+      mode: 'insert-here' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.content('Here')).toBe('---\nmood: glad\ntags:\n  - journal\n---\n# Title\nFrom template\n')
+    expect(fake.writes.length, 'one write, not an editor splice').toBe(1)
+  })
+
+  it('adds a template’s list to the note’s own instead of overwriting it', async () => {
+    const fake = harness({ Here: '---\ntags: [work]\n---\n# Title\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Insert props', 0),
+      templateId: 'tpl-props',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    const data = parseFrontMatter(fake.content('Here') ?? '').data
+    expect(data.tags).toEqual(['work', 'journal'])
+    expect(data.mood).toBe('glad')
+  })
+
+  it('puts the caret where the template said, past the merged properties', async () => {
+    const fake = harness({ Here: '---\nm: 1\n---\nbody\n' })
+    fake.setActive('Here')
+    fake.setSelection(18, 18)
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Marked', 0),
+      templateId: 'tpl-marked',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('---\nm: 1\n---\nbody\nHithere\n')
+    expect(fake.carets).toEqual([20])
+  })
+
+  it('writes the fullwidth space the reader answered with', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    const choice = newCaptureChoice('qa-c', 'Inbox capture', 0)
+    answers.queue = [['　']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind, 'an ideographic space is content, not a skipped answer').toBe('written')
+    expect(fake.content('Inbox')).toBe('today\n　')
+  })
+
+  it('inserts a template that is only a fullwidth space', async () => {
+    const fake = harness({ Here: 'body\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Pad', 0),
+      templateId: 'tpl-space',
+      mode: 'insert-here' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind, 'an ideographic space is what the template carries').toBe('written')
+    expect(fake.content('Here')).toBe('body\n　')
+  })
+
+  it('does not clear the reader’s selection when the answer came back blank', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    fake.setActive('Inbox')
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Cursor capture', 0),
+      writePosition: 'cursor' as const,
+    }
+    answers.queue = [['']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('empty')
+    expect(fake.inserted, 'an empty insert would delete what the reader has selected').toEqual([])
+  })
+
+  it('refuses to split the note’s own properties when inserting at the caret', async () => {
+    const fake = harness({ Here: '---\na: 1\n---\nbody\n' })
+    fake.setActive('Here')
+    fake.setSelection(4, 4)
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Splitter', 0),
+      templateId: 'tpl-marked',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('---\na: 1\n---\nHithere\nbody\n')
   })
 
   it('asks for a name when the choice has no format', async () => {
@@ -905,7 +1015,7 @@ describe('creating a note from a template', () => {
     }
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('written')
-    expect(fake.inserted[0].text).toBe('Daily body')
+    expect(fake.content('Here')).toBe('body\nDaily body')
   })
 
   it('counts dates from the day the reader picked', async () => {

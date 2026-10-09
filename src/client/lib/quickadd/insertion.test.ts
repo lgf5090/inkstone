@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { parseFrontMatter } from '@shared/markdown-utils'
 import {
   anchorAllowsSubsections,
   appendAtBottom,
@@ -9,15 +10,19 @@ import {
   insertAfterInline,
   insertAfterLine,
   insertBeforeLine,
+  isBlankPayload,
   lineSlot,
+  mergeTemplateProperties,
   nonHeadingBlockLines,
   onlyHeadingLines,
   orderedSlotFor,
+  placeTemplate,
   positionAfterMatch,
   positionAtSectionEnd,
   prependAtBodyStart,
   sectionEndLine,
   splitLines,
+  splitTemplate,
   spliceAtSlot,
   toTargetLines,
 } from './insertion'
@@ -320,5 +325,140 @@ describe('a new line beside the caret’s own line', () => {
   it('leaves a note that opens with text alone', () => {
     expect(lineSlot('one line only', 3, 'above', 'CAP', null).at).toBe(0)
     expect(lineSlot('one line only', 3, 'above', 'CAP', null).insert).toBe('CAP\n')
+  })
+})
+
+describe('what counts as nothing to write', () => {
+  it('treats a fullwidth or non-breaking space as content', () => {
+    expect(isBlankPayload('\u3000')).toBe(false)
+    expect(isBlankPayload('\u00a0')).toBe(false)
+    expect(isBlankPayload('\u3000 done')).toBe(false)
+  })
+
+  it('reads an ASCII blank answer as nothing', () => {
+    expect(isBlankPayload('')).toBe(true)
+    expect(isBlankPayload(' \t')).toBe(true)
+    expect(isBlankPayload('\r\n\n')).toBe(true)
+  })
+})
+
+describe('splitting a template', () => {
+  it('keeps its own properties apart from the body', () => {
+    const parts = splitTemplate('---\nmood: glad\n---\nBody line\n')
+    expect(parts.properties).toBe('mood: glad')
+    expect(parts.data).toEqual({ mood: 'glad' })
+    expect(parts.body).toBe('Body line\n')
+    expect(parts.bodyOffset).toBe(19)
+  })
+
+  it('reports a plain template as all body', () => {
+    const parts = splitTemplate('Body line\n')
+    expect(parts.properties).toBeNull()
+    expect(parts.body).toBe('Body line\n')
+    expect(parts.bodyOffset).toBe(0)
+  })
+
+  it('drops an empty properties block instead of carrying the dashes', () => {
+    const parts = splitTemplate('---\n---\nBody\n')
+    expect(parts.properties).toBeNull()
+    expect(parts.body).toBe('Body\n')
+  })
+})
+
+describe('merging a template’s properties into a note', () => {
+  const TEMPLATE = '---\nmood: glad\nstatus: draft\ntags:\n  - b\n  - c\n---\nTemplate body\n'
+
+  it('carries the whole block when the note has none', () => {
+    expect(mergeTemplateProperties('# Title\n', TEMPLATE)).toBe('---\nmood: glad\nstatus: draft\ntags:\n  - b\n  - c\n---\n# Title\n')
+  })
+
+  it('lets the note keep what it already has and fills the rest', () => {
+    const out = mergeTemplateProperties('---\nmood: sad\nstatus:\n---\nBody\n', TEMPLATE)
+    const data = parseFrontMatter(out).data
+    expect(data.mood).toBe('sad')
+    expect(data.status).toBe('draft')
+    expect(out.endsWith('Body\n')).toBe(true)
+  })
+
+  it('adds to a list-valued key the app treats as a set', () => {
+    const out = mergeTemplateProperties('---\ntags: [a, b]\n---\nBody\n', TEMPLATE)
+    expect(parseFrontMatter(out).data.tags).toEqual(['a', 'b', 'c'])
+  })
+
+  it('leaves an ordinary list alone rather than merging into it', () => {
+    const out = mergeTemplateProperties('---\nsteps: [a]\n---\nBody\n', '---\nsteps:\n  - b\n---\nT\n')
+    expect(parseFrontMatter(out).data.steps).toEqual(['a'])
+  })
+
+  it('skips a value the properties block cannot express', () => {
+    const out = mergeTemplateProperties('---\na: 1\n---\nBody\n', '---\nmeta:\n  name: x\n---\nT\n')
+    expect(out).not.toContain('meta')
+    expect(out).toContain('a: 1')
+  })
+
+  it('refuses a prototype-pollution key from a template written elsewhere', () => {
+    const out = mergeTemplateProperties('# Title\n', '---\n__proto__: polluted\n---\nT\n')
+    expect(out).not.toContain('proto')
+    expect((Object.prototype as unknown as Record<string, unknown>).polluted).toBeUndefined()
+  })
+
+  it('leaves a template without properties untouched', () => {
+    expect(mergeTemplateProperties('---\na: 1\n---\nBody\n', '---\na: 1\n---\nBody\n')).toBe('---\na: 1\n---\nBody\n')
+  })
+})
+
+describe('placing a template into a note', () => {
+  it('merges its properties above and its body at the caret', () => {
+    const placed = placeTemplate({
+      text: '# Title\n', from: 8, to: 8, drop: 'cursor', template: '---\nmood: glad\n---\nCAP\n', cursor: null,
+    })
+    expect(placed).toEqual({ content: '---\nmood: glad\n---\n# Title\nCAP\n', cursor: 31, changed: true })
+  })
+
+  it('replaces what the reader had selected', () => {
+    const placed = placeTemplate({ text: 'start OLD end', from: 6, to: 9, drop: 'cursor', template: 'X', cursor: null })
+    expect(placed?.content).toBe('start X end')
+  })
+
+  it('refuses to write inside the note’s own properties', () => {
+    const placed = placeTemplate({ text: '---\na: 1\n---\nbody\n', from: 4, to: 4, drop: 'cursor', template: 'CAP\n', cursor: null })
+    expect(placed?.content).toBe('---\na: 1\n---\nCAP\nbody\n')
+  })
+
+  it('keeps a caret marker on the text it marked, past the merged properties', () => {
+    const template = '---\nm: 1\n---\nALPHA|OMEGA\n'
+    const placed = placeTemplate({ text: 'body\n', from: 5, to: 5, drop: 'cursor', template, cursor: template.indexOf('|') })
+    expect(placed?.content).toBe('---\nm: 1\n---\nbody\nALPHA|OMEGA\n')
+    expect(placed.content.slice(placed.cursor ?? -1, (placed.cursor ?? -1) + 6)).toBe('|OMEGA')
+  })
+
+  it('drops the body below the properties when the template starts the note', () => {
+    const placed = placeTemplate({ text: '---\na: 1\n---\nbody\n', from: 0, to: 0, drop: 'top', template: '## T\n', cursor: null })
+    expect(placed?.content).toBe('---\na: 1\n---\n## T\nbody\n')
+  })
+
+  it('leaves exactly one blank line above a bottom template', () => {
+    const placed = placeTemplate({ text: 'a\n\n\n', from: 0, to: 0, drop: 'bottom', template: '\n\n## T\nbody\n', cursor: null })
+    expect(placed?.content).toBe('a\n\n## T\nbody\n')
+    const empty = placeTemplate({ text: '   \n\n', from: 0, to: 0, drop: 'bottom', template: '## T\n', cursor: null })
+    expect(empty?.content).toBe('## T\n')
+  })
+
+  it('replaces the whole note when that is what the drop says', () => {
+    const template = '---\nnew: 2\n---\nFresh\n'
+    const placed = placeTemplate({ text: '---\nold: 1\n---\nBody\n', from: 0, to: 0, drop: 'replace', template, cursor: template.indexOf('Fresh') })
+    expect(placed?.content).toBe(template)
+    expect(placed.content.slice(placed.cursor ?? -1, (placed.cursor ?? -1) + 5)).toBe('Fresh')
+  })
+
+  it('still merges when the template has nothing but properties', () => {
+    const placed = placeTemplate({ text: '# Title\n', from: 8, to: 8, drop: 'cursor', template: '---\nm: 1\n---\n\n', cursor: null })
+    expect(placed?.content).toBe('---\nm: 1\n---\n# Title\n')
+    expect(placed?.changed).toBe(true)
+  })
+
+  it('says nothing changed when a plain template lands on an empty drop', () => {
+    const placed = placeTemplate({ text: 'body\n', from: 5, to: 5, drop: 'cursor', template: '', cursor: null })
+    expect(placed?.changed).toBe(false)
   })
 })

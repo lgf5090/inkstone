@@ -34,6 +34,7 @@ import {
   splitLines,
   toTargetLines,
   type BlankLineMode,
+  isBlankPayload,
 } from './insertion'
 import { t } from '../../lib/i18n'
 
@@ -410,9 +411,8 @@ export async function runCaptureChoice(
   if (session.dismissed) return { kind: 'cancelled' }
   const refusedPayload = await materialise()
   if (refusedPayload) return refusedPayload
-  const isEmpty = payload.text.trim() === '' && payload.cursor === null
+  const isEmpty = isBlankPayload(payload.text) && payload.cursor === null
   if (isEmpty && !created) return { kind: 'empty', noteId: note.id }
-
   let outcome: { content: string; cursor: number | null; changed: boolean }
   if (choice.writePosition === 'cursor') {
     if (note.id !== port.activeNote()?.id || !port.insertAtCursor(payload.text, payload.cursor))

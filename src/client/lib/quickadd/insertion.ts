@@ -10,7 +10,7 @@
  * regression it fixed. The rules are reproduced here; the numbering in the test file names which
  * behaviour each rule protects.
  */
-import { parseFrontMatter } from '@shared/markdown-utils'
+import { parseFrontMatter, setFrontMatterValue, type FrontMatterValue } from '@shared/markdown-utils'
 import { parseDatePattern } from './date-pattern'
 
 export interface HeadingLine {
@@ -562,11 +562,17 @@ export function isWithinFrontMatter(content: string, line: number): boolean {
 
 /** Offset just past the note's properties block, or 0 when it opens with text. */
 function frontMatterEnd(content: string): number {
-  if (!content.startsWith('---\n')) return 0
-  const close = content.indexOf('\n---', 4)
-  if (close === -1) return 0
-  const after = close + 4
-  return content[after] === '\n' ? after + 1 : after
+  const opening = /^---[ \t]*\r?\n/.exec(content)
+  if (!opening) return 0
+  let cursor = opening[0].length
+  while (cursor < content.length) {
+    const breakAt = content.indexOf('\n', cursor)
+    const line = (breakAt === -1 ? content.slice(cursor) : content.slice(cursor, breakAt)).replace(/\r$/, '')
+    cursor = breakAt === -1 ? content.length : breakAt + 1
+    if (/^(?:---|\.\.\.)[ \t]*$/.test(line)) return cursor
+  }
+  // An unterminated block is not properties, which is what `parseFrontMatter` concludes too.
+  return 0
 }
 
 /**
@@ -601,4 +607,164 @@ export function lineSlot(
   if (side === 'above')
     return { at: lineStart, insert: `${text}\n`, caret: lineStart + offset }
   return { at: lineEnd, insert: `\n${text}`, caret: lineEnd + 1 + offset }
+}
+
+/**
+ * Only ASCII blanks are "nothing to write". A fullwidth or non-breaking space is something the reader
+ * answered on purpose — the reference plugin learned the hard way (#760) that `String.trim()` erases
+ * exactly the spaces a Chinese or copy-pasted note puts there for a reason.
+ */
+const ASCII_BLANK_ONLY = /^[ \t\r\n\f\v]*$/
+
+export function isBlankPayload(text: string): boolean {
+  return ASCII_BLANK_ONLY.test(text)
+}
+
+export interface TemplateText {
+  /** The template's own properties without their delimiters, or null when the template has none. */
+  properties: string | null
+  data: Record<string, unknown>
+  /** The template's text past its properties block. */
+  body: string
+  /** Where {@link body} starts inside the template. */
+  bodyOffset: number
+}
+
+export function splitTemplate(text: string): TemplateText {
+  const at = frontMatterEnd(text)
+  if (at === 0) return { properties: null, data: {}, body: text, bodyOffset: 0 }
+  const parsed = parseFrontMatter(text)
+  if (parsed.errors.length > 0 || parsed.raw.trim() === '')
+    return { properties: null, data: {}, body: text.slice(at), bodyOffset: at }
+  return { properties: parsed.raw, data: parsed.data, body: text.slice(at), bodyOffset: at }
+}
+
+/** The keys this app treats as a set of distinct values, so a template adds to them instead of losing. */
+const SET_LIKE_KEYS = new Set(['tags', 'tag', 'aliases', 'alias', 'cssclasses'])
+
+/** What a properties block can hold without a nested structure: this app's own value type. */
+function templateScalar(value: unknown): FrontMatterValue | null {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) return value as string[]
+  return null
+}
+
+function isBlankProperty(value: unknown): boolean {
+  return value === undefined
+    || value === null
+    || value === ''
+    || (Array.isArray(value) && value.length === 0)
+}
+
+/**
+ * A template's properties merged into a note's own: the note keeps whatever it already has, an empty or
+ * missing property takes the template's value, and a set-like key grows by what is not in it yet. A
+ * note without a properties block takes the template's block verbatim, which is the only way a nested
+ * value survives — the merge path can only express scalars and lists of strings.
+ */
+export function mergeTemplateProperties(content: string, template: string): string {
+  const parts = splitTemplate(template)
+  if (parts.properties === null) return content
+  // A template authored elsewhere can name a prototype key. Carrying its block verbatim would put that
+  // key in the note for every later reader, so such a template loses the verbatim path and goes through
+  // the key-by-key merge below, which refuses those names — nested values with it, which is the price.
+  const unsafe = Object.keys(parts.data).some((key) => key === '__proto__' || key === 'constructor' || key === 'prototype')
+  if (!unsafe && frontMatterEnd(content) === 0) return `---\n${parts.properties}\n---\n${content}`
+  const note: { data: Record<string, unknown>; errors: string[] } = frontMatterEnd(content) === 0
+    ? { data: {}, errors: [] }
+    : parseFrontMatter(content)
+  if (note.errors.length > 0) return content
+  let next = content
+  for (const key of Object.keys(parts.data)) {
+    // A template authored elsewhere can name a prototype key; the note's own text is not where that
+    // gets answered.
+    if (key === '__proto__') continue
+    const incoming = templateScalar(parts.data[key])
+    if (incoming === null) continue
+    const own = Object.prototype.hasOwnProperty.call(note.data, key)
+      ? key
+      : Object.keys(note.data).find((entry) => entry.toLowerCase() === key.toLowerCase()) ?? null
+    if (own === null) {
+      next = setFrontMatterValue(next, key, incoming)
+      continue
+    }
+    const existing = note.data[own]
+    if (isBlankProperty(existing)) {
+      next = setFrontMatterValue(next, own, incoming)
+      continue
+    }
+    if (!SET_LIKE_KEYS.has(own.toLowerCase())) continue
+    const current = Array.isArray(existing) ? existing.map(String) : [String(existing)]
+    const additions = Array.isArray(incoming) ? incoming : [String(incoming)]
+    const merged = [...current]
+    for (const item of additions) {
+      if (!merged.some((entry) => entry.trim() === item.trim())) merged.push(item)
+    }
+    if (merged.length === current.length) continue
+    next = setFrontMatterValue(next, own, merged)
+  }
+  return next
+}
+
+export type TemplateDrop = 'cursor' | 'top' | 'bottom' | 'replace'
+
+export interface TemplatePlacement {
+  /** The note as it stands. */
+  text: string
+  /** The selection the template replaces when the drop is `cursor`. */
+  from: number
+  to: number
+  drop: TemplateDrop
+  /** The formatted template, its own properties block included. */
+  template: string
+  /** Offset of the caret marker inside {@link template}, or null. */
+  cursor: number | null
+}
+
+const TRAILING_BLANK_LINES = /(?:\r?\n[^\S\r\n]*)+$/
+const LEADING_BLANK_LINES = /^(?:[^\S\r\n]*\r?\n)+/
+
+/**
+ * A template dropped into a note that already exists.
+ *
+ * The properties never belong in the body: they merge into the note's own block, and the text alone is
+ * what lands where the reader asked. Because the merge only ever edits the region above the body, the
+ * caret and the selection shift by the bytes the merge added — and a selection parked inside the
+ * note's properties moves below the block rather than splitting it, the same rule `lineSlot` applies to
+ * a capture on either side of the caret's line.
+ */
+export function placeTemplate(placement: TemplatePlacement): PlacedCapture {
+  const parts = splitTemplate(placement.template)
+  const marker = placement.cursor === null || placement.cursor < parts.bodyOffset
+    ? null
+    : placement.cursor - parts.bodyOffset
+  // A template that is only properties has no text to place, and an ASCII-blank body is that case; a
+  // fullwidth space the author left in the template is content and stays.
+  const body = isBlankPayload(parts.body) && marker === null ? '' : parts.body
+  const inside = marker === null ? body.length : Math.max(0, Math.min(marker, body.length))
+  if (placement.drop === 'replace') {
+    const caret = placement.cursor === null
+      ? placement.template.length
+      : Math.max(parts.bodyOffset, Math.min(placement.cursor, placement.template.length))
+    return { content: placement.template, cursor: caret, changed: placement.template !== placement.text }
+  }
+
+  const merged = mergeTemplateProperties(placement.text, placement.template)
+  const shift = merged.length - placement.text.length
+  const top = frontMatterEnd(placement.text)
+  if (placement.drop === 'top') {
+    const placed = prependAtBodyStart(merged, body, inside)
+    return { content: placed.content, cursor: placed.cursor ?? inside, changed: placed.content !== placement.text }
+  }
+  if (placement.drop === 'bottom') {
+    const block = body.replace(LEADING_BLANK_LINES, '')
+    const note = merged.replace(TRAILING_BLANK_LINES, '')
+    const head = ASCII_BLANK_ONLY.test(note) ? '' : `${note}\n\n`
+    const content = `${head}${block}`
+    return { content, cursor: head.length + inside, changed: content !== placement.text }
+  }
+  const from = placement.from >= top ? placement.from + shift : top + shift
+  const to = Math.max(placement.to >= top ? placement.to + shift : top + shift, from)
+  const content = `${merged.slice(0, from)}${body}${merged.slice(to)}`
+  return { content, cursor: from + inside, changed: content !== placement.text }
 }

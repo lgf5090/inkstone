@@ -13,6 +13,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
 import { folderJoin, sanitizeTitle, type NotePort, type QuickAddRunStatus } from './context'
+import { placeTemplate } from './insertion'
 import { t } from '../../lib/i18n'
 
 /** What the run asks for a name when the choice has no name format of its own. */
@@ -172,10 +173,23 @@ export async function runTemplateChoice(
     session.destination = active
     const formatted = await formatWithPrompts(body, runtime, session, active.title)
     if (session.dismissed) return { kind: 'cancelled' }
-    if (formatted.text.trim() === '' && formatted.cursor === null)
-      return { kind: 'empty', noteId: active.id }
-    if (!port.insertAtCursor(formatted.text, formatted.cursor))
-      return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
+    // The editor holds the truth about the note the reader is in, selection included, so the placement
+    // is computed against that text rather than against a copy that may have been saved since.
+    const caret = port.activeEditorState?.() ?? null
+    if (!caret) return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
+    const placed = placeTemplate({
+      text: caret.text,
+      from: caret.from,
+      to: caret.to,
+      drop: 'cursor',
+      template: formatted.text,
+      cursor: formatted.cursor,
+    })
+    // A template that carries only properties is not "nothing to write": the merge is the write.
+    if (!placed.changed) return { kind: 'empty', noteId: active.id }
+    if (!(await port.write(active.id, placed.content, caret.text)))
+      return { kind: 'failed', reason: t('quickadd.error_write_refused') }
+    if (placed.cursor !== null) port.placeCursor(placed.cursor)
     port.recordRun(choice.id)
     return {
       kind: 'written',
