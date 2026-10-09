@@ -1838,41 +1838,49 @@ describe('the names a run suggests', () => {
     const made = titleSuggestions([
       { title: 'Standup', folderPath: 'Work' },
       { title: 'Inbox', folderPath: null },
-    ])
+    ], 'Unfiled')
     expect(made.options).toEqual(['Standup', 'Inbox'])
     expect(made.displayOptions).toEqual(['Standup (Work)', 'Inbox'])
   })
 
-  it('lists every folder a shared title was found in', () => {
+  it('lists every place a shared title was found in', () => {
     const made = titleSuggestions([
       { title: 'Standup', folderPath: 'Work' },
       { title: 'Standup', folderPath: 'Archive' },
       { title: 'Standup', folderPath: 'Work' },
-    ])
+    ], 'Unfiled')
     expect(made.options, 'the answer is a title, so one row per title').toEqual(['Standup'])
     expect(made.displayOptions).toEqual(['Standup (Work, Archive)'])
   })
 
+  it('says so when one copy of a shared title sits outside every folder', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: null },
+    ], 'Unfiled')
+    expect(made.displayOptions).toEqual(['Standup (Work, Unfiled)'])
+  })
+
   it('skips the untitled rows and stops at the list the prompt can hold', () => {
     const many = Array.from({ length: 260 }, (_entry, index) => ({ title: `Note ${index}`, folderPath: null }))
-    const made = titleSuggestions([{ title: '   ', folderPath: ' Nowhere' }, ...many])
+    const made = titleSuggestions([{ title: '   ', folderPath: ' Nowhere' }, ...many], 'Unfiled')
     expect(made.options).toHaveLength(200)
     expect(made.options[0]).toBe('Note 0')
     expect(made.displayOptions).toHaveLength(200)
   })
 
   it('shows the folder on the row the run actually asks with', async () => {
-    const fake = harness({ Standup: 'kept\n' })
-    fake.notes['Standup']!.folderPath = 'Work'
+    const fake = harness({ 'R7 Standup': 'at the root\n' })
+    fake.notes['R7 Standup']!.folderPath = 'R7 Work'
     const choice = {
       ...newTemplateChoice('qa-t', 'Nameless', 0),
       templateId: 'tpl-daily',
       nameFormat: { enabled: false, format: '' },
     }
-    answers.queue = [['Standup']]
+    answers.queue = [['R7 Standup']]
     await runTemplateChoice(choice, fake.port)
     const asked = answers.requests.flat().find((request) => request.key === 'title')
-    expect(asked?.displayOptions, 'the reader sees which Standup they are picking').toEqual(['Standup (Work)'])
+    expect(asked?.displayOptions, 'the reader sees which note they are picking').toEqual(['R7 Standup (R7 Work)'])
   })
 })
 

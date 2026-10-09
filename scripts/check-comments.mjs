@@ -9503,9 +9503,9 @@ const allowed = new Map([
     "/** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */",
     "/**\n * The folder path a run writes into, as this app spells it. A folder here is a node in a tree of ids,\n * never a filesystem path, so `.` and `..` have no meaning to keep: a route typed as `../Escape` names\n * the folder `Escape` rather than filing the note outside the tree the reader can see.\n */",
     "/**\n   * Every title the account has, with where each one lives, for a name prompt that should not invent a\n   * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids\n   * — and the reader is the one who has to spot which is which.\n   */",
-    "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several folders lists them all rather than pretending to pick one.\n */",
     "/**\n   * Move the caret, change the selection, or splice the clipboard in — what a macro's editor step\n   * asks for. The answer says which half could not happen, because “no editor on screen” and “the\n   * browser would not hand over the clipboard” are different things for the reader to hear.\n   */",
     "/** How an editor step ended: applied, or why it was not. */",
+    "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several places lists them all rather than pretending to pick one, and a copy sitting\n * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root\n * gets no suffix: there is nothing left to tell apart.\n */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",

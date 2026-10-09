@@ -33,7 +33,7 @@ import { t } from '../../lib/i18n'
  * and only the folder tells the reader which one they are about to write into.
  */
 function titleRequest(port: NotePort, runtime: FormatRuntime): PromptRequest {
-  const suggestions = titleSuggestions(port.knownNotes())
+  const suggestions = titleSuggestions(port.knownNotes(), t('navigation.unfiled'))
   return request({
     key: 'title',
     label: t('quickadd.prompt_name'),

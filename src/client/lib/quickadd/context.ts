@@ -228,27 +228,33 @@ export function joinRouted(path: string | null, routedFolder: string | null): st
 /**
  * The rows a “what should the note be called?” question shows: one per title, each saying where that
  * title already lives. The answer stays a bare title — this app resolves a note by its name — so a
- * title found in several folders lists them all rather than pretending to pick one.
+ * title found in several places lists them all rather than pretending to pick one, and a copy sitting
+ * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root
+ * gets no suffix: there is nothing left to tell apart.
  */
 export function titleSuggestions(
   notes: { title: string; folderPath: string | null }[],
+  rootLabel = '',
   limit = 200,
 ): { options: string[]; displayOptions: string[] } {
-  const places = new Map<string, string[]>()
+  const places = new Map<string, { folders: string[]; root: boolean }>()
   for (const note of notes) {
     const title = note.title.trim()
     if (title === '') continue
-    const list = places.get(title) ?? []
+    const entry = places.get(title) ?? { folders: [], root: false }
     const folder = (note.folderPath ?? '').trim()
-    if (folder !== '' && !list.includes(folder)) list.push(folder)
-    if (!places.has(title)) places.set(title, list)
+    if (folder === '') entry.root = true
+    else if (!entry.folders.includes(folder)) entry.folders.push(folder)
+    places.set(title, entry)
   }
   const options = [...places.keys()].slice(0, limit)
   return {
     options,
     displayOptions: options.map((title) => {
-      const list = places.get(title) ?? []
-      return list.length === 0 ? title : `${title} (${list.join(', ')})`
+      const entry = places.get(title) ?? { folders: [], root: false }
+      if (entry.folders.length === 0) return title
+      const list = entry.root && rootLabel !== '' ? [...entry.folders, rootLabel] : entry.folders
+      return `${title} (${list.join(', ')})`
     }),
   }
 }
