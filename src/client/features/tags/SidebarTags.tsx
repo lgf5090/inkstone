@@ -6,7 +6,7 @@ import { compileQuery, queryMatches, type Query } from '../../lib/query-match';
 import { FilterInput } from '../../components/FilterInput';
 import { buildTagTree, childTagPath, collectParentPaths, flattenTagTree, renameTagSegment, searchTagTree, siblingParentPaths } from '../../lib/tag-tree';
 import type { TagTreeNode } from '../../lib/tag-tree';
-import { IconButton, SectionLabel } from '../../components/primitives';
+import { IconButton } from '../../components/primitives';
 import { commitOnEnter } from '../../components/form';
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useNavigationCounts, useNotes } from '../../store/notes';
@@ -118,7 +118,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     return (<>
       <section>
       <div
-        className="group/head flex items-center justify-between pr-1"
+        className={cn('group/head flex items-center', mobile ? 'justify-between pr-1' : 'justify-center')}
         onDragOver={(event) => {
           if (!isTagDrag(event.dataTransfer) || !tagMoveTarget(draggedTag(), null)) return;
           event.preventDefault();
@@ -137,10 +137,8 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
           const source = name ? findDroppedTag(tags, name) : null;
           if (source) void moveTag(source, null);
         }}>
-        {mobile
-            ? <button data-navigation-item type="button" onClick={() => openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button>
-            : <SectionLabel>{t('navigation.tag')}</SectionLabel>}
-        <div className="flex items-center gap-px">
+        {mobile && <button data-navigation-item type="button" onClick={() => openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button>}
+        <div className="flex shrink-0 items-center">
           {parentPaths.length > 0 && (<Tooltip label={allExpanded ? t('tags.collapse_all') : t('tags.expand_all')} side="left">
               <IconButton label={allExpanded ? t('tags.collapse_all') : t('tags.expand_all')} size="sm" onClick={() => {
                     setExpanded(allExpanded ? new Set() : new Set(parentPaths));
@@ -150,7 +148,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
               </IconButton>
             </Tooltip>)}
           <Tooltip label={t('tags.new')} side="left">
-            <IconButton label={t('tags.new')} size="sm" onClick={() => startDraft('')} className="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100">
+            <IconButton label={t('tags.new')} size="sm" onClick={() => startDraft('')}>
               <Plus size={13}/>
             </IconButton>
           </Tooltip>

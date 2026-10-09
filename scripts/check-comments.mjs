@@ -3925,6 +3925,10 @@ const allowed = new Map([
   ["src/client/features/sidebar/sidebar-tabs.test.ts", [
     "/** The dialog only answers when a host is mounted, and `confirm()` resolves false without one. */",
     "// The tab has no printed heading of its own any more, so the tree's name is what remains.",
+    "// No printed heading, the controls own the line, and they are centred in it — the same three",
+    "// rules the folder tab follows, read off the classes because jsdom lays nothing out.",
+    "// This fixture has one flat tag, so the expand-all control is not on offer: the create",
+    "// action is the whole group, and it stays visible without a hover like the folder tab's.",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",

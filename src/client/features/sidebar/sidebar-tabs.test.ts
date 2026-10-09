@@ -60,10 +60,23 @@ describe('sidebar tab strip', () => {
         expect(container.querySelector('[data-tag-row]')).toBeNull();
     });
 
-    it('starts the tag body under the strip without its own margin', async () => {
+    it('gives the tag tab the same header shape as the folder tab', async () => {
         await act(async () => tabs().find((tab) => tab.dataset.tab === 'tags')?.click());
         const section = panel().querySelector('section')!;
         expect(section.className).not.toContain('mt-');
+        const head = section.querySelector(':scope > div')!;
+        // No printed heading, the controls own the line, and they are centred in it — the same three
+        // rules the folder tab follows, read off the classes because jsdom lays nothing out.
+        expect(head.textContent).toBe('');
+        expect(head.className).toContain('justify-center');
+        expect(head.className).not.toContain('justify-between');
+        const group = head.lastElementChild!;
+        // This fixture has one flat tag, so the expand-all control is not on offer: the create
+        // action is the whole group, and it stays visible without a hover like the folder tab's.
+        expect(group.querySelectorAll('button')).toHaveLength(1);
+        expect(group.querySelector('button')!.getAttribute('aria-label')).toBe(t('tags.new'));
+        expect(group.querySelector('button')!.className).not.toContain('md:opacity-0');
+        expect(group.className).toBe('flex shrink-0 items-center');
     });
 
     it('holds the calendar and the view rows outside the panel, above the strip', () => {
