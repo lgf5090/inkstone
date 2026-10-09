@@ -47,6 +47,10 @@ export type QuickAddUnparseablePolicy = 'top' | 'bottom'
 export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
 
 export type QuickAddStartupScope = 'session' | 'day'
+/** Which pane the finished note goes to: the one the reader is in, or the one beside it. */
+export type QuickAddOpenPane = 'active' | 'other'
+/** How the app renders it there: leave the reader's own choice, or ask for a specific mode. */
+export type QuickAddOpenLayout = 'inherit' | 'live' | 'split' | 'preview'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 export type QuickAddConditionOperator = 'eq' | 'ne' | 'has' | 'empty' | 'gt' | 'lt'
 
@@ -79,6 +83,10 @@ export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   nameFormat: { enabled: boolean; format: string }
   existing: QuickAddExistingAction
   openAfter: boolean
+  /** Absent means the app decides, which is what every record written before these fields means. */
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
   linkToSource: boolean
   copyLink: boolean
   tags: string[]
@@ -108,6 +116,9 @@ export interface QuickAddCaptureChoice extends QuickAddChoiceBase {
   eachLine: boolean
   useSelectionAsValue: boolean | null
   openAfter: boolean
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
   linkToSource: boolean
   copyLink: boolean
   property: {
@@ -526,6 +537,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         },
         existing: pick(value.existing, ['ask', 'number', 'overwrite', 'cancel'] as const, 'ask'),
         openAfter: boolOf(value.openAfter, true),
+        ...normalizeOpening(value),
         linkToSource: boolOf(value.linkToSource, false),
         copyLink: boolOf(value.copyLink, false),
         tags: normalizeTags(value.tags),
@@ -568,6 +580,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         eachLine: boolOf(value.eachLine, false),
         useSelectionAsValue: typeof value.useSelectionAsValue === 'boolean' ? value.useSelectionAsValue : null,
         openAfter: boolOf(value.openAfter, false),
+        ...normalizeOpening(value),
         linkToSource: boolOf(value.linkToSource, false),
         copyLink: boolOf(value.copyLink, false),
         property: {
@@ -590,6 +603,24 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
     default:
       return null
   }
+}
+
+/**
+ * The three opening fields are each optional and an unknown value is dropped rather than defaulted: a
+ * record saying `openPane: 'drawer'` should keep behaving like the app's own default instead of being
+ * quietly rewritten to a pane nobody chose.
+ */
+function normalizeOpening(value: Record<string, unknown>): {
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
+} {
+  const out: { openPane?: QuickAddOpenPane; openLayout?: QuickAddOpenLayout; openFocus?: boolean } = {}
+  if (value.openPane === 'active' || value.openPane === 'other') out.openPane = value.openPane
+  if (value.openLayout === 'inherit' || value.openLayout === 'live'
+    || value.openLayout === 'split' || value.openLayout === 'preview') out.openLayout = value.openLayout
+  if (typeof value.openFocus === 'boolean') out.openFocus = value.openFocus
+  return out
 }
 
 function normalizeGlobalVars(value: unknown): QuickAddGlobalVar[] {

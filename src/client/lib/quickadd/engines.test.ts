@@ -6,7 +6,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef, TemplatePickOption } from './context'
+import type { NewNoteInput, NotePort, NoteRef, QuickAddOpenOptions, TemplatePickOption } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -78,6 +78,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const lineInserts: { text: string; side: string }[] = []
   const writes: { id: string; content: string; previous?: string }[] = []
   const opened: string[] = []
+  const opens: QuickAddOpenOptions[] = []
   const notifications: string[] = []
   const carets: number[] = []
   /** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */
@@ -110,8 +111,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       return note
     },
     ensureFolder: async (path) => path,
-    open: async (id) => {
+    open: async (id, options) => {
       opened.push(id)
+      opens.push(options ?? {})
       activeId = id
     },
     linkTo: (target) => `[[${target.title}]]`,
@@ -178,6 +180,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     lineInserts,
     writes,
     opened,
+    opens,
     notifications,
     carets,
     store,
@@ -1073,6 +1076,71 @@ describe('creating a note from a template', () => {
     await runTemplateChoice(choice, fake.port)
     expect(fake.content('Here')).toBe('---\na: 1\n---\nHithere\nbody\n')
   })
+
+describe('where a finished run opens the note', () => {
+  it('opens in the pane and layout the choice says, without taking focus', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Journal', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Note {{VALUE}}' },
+      openAfter: true,
+      openPane: 'other' as const,
+      openLayout: 'preview' as const,
+      openFocus: false,
+    }
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.opens).toEqual([{ pane: 'other', layout: 'preview', focus: false }])
+  })
+
+  it('asks for the current pane, the reader’s own layout and the focus when the choice says nothing', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Plain', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Note {{VALUE}}' },
+    }
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.opens, 'the fields stay absent so the app decides').toEqual([{}])
+  })
+
+  it('carries the same opening to a capture', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Inbox capture', 0),
+      openAfter: true,
+      openPane: 'other' as const,
+      openLayout: 'live' as const,
+      openFocus: true,
+    }
+    answers.queue = [['an idea']]
+    await runCaptureChoice(choice, fake.port)
+    expect(fake.opens).toEqual([{ pane: 'other', layout: 'live', focus: true }])
+  })
+
+  it('does not move the caret into a note the run opened in the background', async () => {
+    const fake = harness({ Diary: 'old\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Overwrite', 0),
+      templateId: 'tpl-marked',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'overwrite' as const,
+      openAfter: true,
+      openFocus: false,
+    }
+    answers.queue = [['true']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Diary')).toBe('Hithere\n')
+    expect(fake.carets, 'the caret of the note on screen stays where the reader left it').toEqual([])
+
+    const other = harness({ Diary: 'old\n' })
+    answers.queue = [['true']]
+    await runTemplateChoice({ ...choice, openFocus: true }, other.port)
+    expect(other.carets, 'with the focus the marker is honoured').toEqual([2])
+  })
+})
 
 describe('a name format that routes into a folder', () => {
   const named = (over: Record<string, unknown>) => ({

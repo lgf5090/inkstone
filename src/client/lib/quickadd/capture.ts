@@ -15,7 +15,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
-import { sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
+import { openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import type { PropertyValueKind } from '@shared/property-values'
 import {
@@ -509,8 +509,8 @@ export async function runCaptureChoice(
   }
   if (choice.copyLink) port.copyText(port.linkTo(note))
   if (choice.openAfter) {
-    await port.open(note.id)
-    if (outcome.cursor !== null) port.placeCursor(outcome.cursor)
+    await port.open(note.id, openingOptions(choice))
+    if (choice.openFocus !== false && outcome.cursor !== null) port.placeCursor(outcome.cursor)
   }
   port.recordRun(choice.id)
   return {

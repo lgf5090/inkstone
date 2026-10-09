@@ -3655,6 +3655,8 @@ const allowed = new Map([
     "// The whole draft is the patch: the store re-normalizes it and refuses a record it cannot read.",
     "// A group cannot live inside its own contents: the store would refuse the write and the reader",
     "// would watch the choice snap back with no explanation.",
+    "/**\n * Where a finished note goes once the run opens it. These stay hidden until the reader asks for the note\n * to be opened at all: a choice that never opens anything has no pane, mode or focus to name. The three\n * mode names are the app’s own editor labels, so the choice says what the toolbar switch says.\n */",
+    "/** The three fields the opening rows write back; the switch that reveals them stays the choice’s own. */",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -9417,7 +9419,6 @@ const allowed = new Map([
     "/**\n   * Replace a note's text. `previous` is the text the caller computed its answer from: when the note\n   * holds something else by the time the write lands, the write is refused rather than eat the\n   * reader's typing. False means nothing was written.\n   */",
     "/** Create a note. Null when the app refused it. */",
     "/** The folder for a slash path, created on the way if it does not exist. */",
-    "/** Bring a note on screen. */",
     "/** Every title the account has, for a name prompt that should not invent a duplicate. */",
     "/** Every folder path the account has, for `folderMode: ask`. */",
     "/** Add a link to `target` at the end of `source`'s body. */",
@@ -9447,6 +9448,8 @@ const allowed = new Map([
     "/**\n   * The open editor's own text and selection, or null when the note is not on screen. A template that\n   * carries its own properties needs this: the text it merges into is what the reader is looking at,\n   * unsaved typing included, and the block must not land inside the note's own properties.\n   */",
     "/**\n * The folder a run writes into when the name itself named one: `Journal/2026` under a choice already\n * pointed at `Journal` is one folder, not `Journal/Journal`, and a deeper route hangs off the choice’s\n * folder rather than replacing it.\n */",
     "/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */",
+    "/**\n   * Bring a note on screen. Which pane it lands in, how that pane renders it and whether the reader's\n   * focus moves there are the run's choice, not the app's: a note captured by a startup macro should not\n   * interrupt what the reader is doing.\n   */",
+    "/**\n * The three opening fields as one request, with whatever the choice does not say left out so the app\n * keeps deciding it. `focus` is the one exception: a run that opens a note takes the caret with it, and\n * that is what the switch has always meant.\n */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9653,6 +9656,8 @@ const allowed = new Map([
     "/**\n * What a finished run says about itself. Kept apart from the toast host so the four outcomes and the\n * two notice switches can be read, and tested, without a store or a screen in the way.\n */",
     "// A cancel that carries a reason is a refusal the engine hit, and that always speaks up; a",
     "// plain closed dialog is the reader's own doing, so only the opt-in notice mentions it.",
+    "// The layout belongs to whichever pane ended up holding the note: the active one when the run took",
+    "// focus, the target one when it did not.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -10314,6 +10319,10 @@ const allowed = new Map([
     "/** Fire this macro when the notebook finishes loading, without anyone asking. */",
     "/** How often a macro flagged \"run on startup\" may fire: once per load, or once per day. */",
     "/** When the pick asks, only templates in this library category are offered. */",
+    "/** Which pane the finished note goes to: the one the reader is in, or the one beside it. */",
+    "/** How the app renders it there: leave the reader's own choice, or ask for a specific mode. */",
+    "/** Absent means the app decides, which is what every record written before these fields means. */",
+    "/**\n * The three opening fields are each optional and an unknown value is dropped rather than defaulted: a\n * record saying `openPane: 'drawer'` should keep behaving like the app's own default instead of being\n * quietly rewritten to a pane nobody chose.\n */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",

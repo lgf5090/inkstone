@@ -24,6 +24,8 @@ import {
   type QuickAddExistingAction,
   type QuickAddFolderMode,
   type QuickAddOnePageMode,
+  type QuickAddOpenLayout,
+  type QuickAddOpenPane,
   type QuickAddTemplateMode,
   type QuickAddTemplatePick,
   type QuickAddMacroChoice,
@@ -444,8 +446,54 @@ function TemplateFields({ draft, patch, renderFormat }: {
         <Checkbox checked={draft.linkToSource} onChange={(linkToSource) => patch({ linkToSource })} label={t('quickadd.field_link_to_source')}/>
         <Checkbox checked={draft.copyLink} onChange={(copyLink) => patch({ copyLink })} label={t('quickadd.field_copy_link')}/>
       </div>
+      <OpeningFields draft={draft} set={patch}/>
     </div>
   )
+}
+
+/**
+ * Where a finished note goes once the run opens it. These stay hidden until the reader asks for the note
+ * to be opened at all: a choice that never opens anything has no pane, mode or focus to name. The three
+ * mode names are the app’s own editor labels, so the choice says what the toolbar switch says.
+ */
+/** The three fields the opening rows write back; the switch that reveals them stays the choice’s own. */
+type OpeningPatch = {
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
+}
+
+function OpeningFields({ draft, set }: {
+  draft: QuickAddTemplateChoice | QuickAddCaptureChoice
+  set: (next: OpeningPatch) => void
+}) {
+  if (!draft.openAfter) return null
+  return (<>
+    <SettingRow title={t('quickadd.field_open_pane')}>
+      <Select
+        aria-label={t('quickadd.field_open_pane')}
+        value={draft.openPane ?? 'active'}
+        onChange={(event) => set({ openPane: event.target.value as QuickAddOpenPane })}>
+        <option value="active">{t('quickadd.open_pane_active')}</option>
+        <option value="other">{t('quickadd.open_pane_other')}</option>
+      </Select>
+    </SettingRow>
+    <SettingRow title={t('quickadd.field_open_layout')}>
+      <Select
+        aria-label={t('quickadd.field_open_layout')}
+        value={draft.openLayout ?? 'inherit'}
+        onChange={(event) => set({ openLayout: event.target.value as QuickAddOpenLayout })}>
+        <option value="inherit">{t('quickadd.open_layout_inherit')}</option>
+        <option value="live">{t('workspace.editing_mode')}</option>
+        <option value="split">{t('workspace.split_view')}</option>
+        <option value="preview">{t('workspace.reading_mode')}</option>
+      </Select>
+    </SettingRow>
+    <Checkbox
+      checked={draft.openFocus !== false}
+      onChange={(openFocus) => set({ openFocus })}
+      label={t('quickadd.field_open_focus')}/>
+  </>)
 }
 
 function CaptureFields({ draft, patch, renderFormat }: {
@@ -595,6 +643,7 @@ function CaptureFields({ draft, patch, renderFormat }: {
         <Checkbox checked={draft.linkToSource} onChange={(linkToSource) => set({ linkToSource })} label={t('quickadd.field_link_to_source')}/>
         <Checkbox checked={draft.copyLink} onChange={(copyLink) => set({ copyLink })} label={t('quickadd.field_copy_link')}/>
       </div>
+      <OpeningFields draft={draft} set={set}/>
       <div className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
         <Checkbox checked={draft.property.enabled} onChange={(enabled) => set({ property: { ...draft.property, enabled } })} label={t('quickadd.field_property')}/>
         {draft.property.enabled && (

@@ -6,7 +6,7 @@
  * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives
  * in `runner.ts`.
  */
-import type { QuickAddChoice, QuickAddSettings } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
 
 export interface NoteRef {
   id: string
@@ -47,8 +47,12 @@ export interface NotePort {
   create(input: NewNoteInput): Promise<NoteRef | null>
   /** The folder for a slash path, created on the way if it does not exist. */
   ensureFolder(path: string | null): Promise<string | null>
-  /** Bring a note on screen. */
-  open(id: string): Promise<void>
+  /**
+   * Bring a note on screen. Which pane it lands in, how that pane renders it and whether the reader's
+   * focus moves there are the run's choice, not the app's: a note captured by a startup macro should not
+   * interrupt what the reader is doing.
+   */
+  open(id: string, options?: QuickAddOpenOptions): Promise<void>
   byId(id: string): NoteRef | null
   /** Every title the account has, for a name prompt that should not invent a duplicate. */
   knownNoteTitles(): string[]
@@ -107,6 +111,29 @@ export interface NotePort {
   prependToActive(text: string): Promise<boolean>
   settings(): QuickAddSettings
   choices(): QuickAddChoice[]
+}
+
+export interface QuickAddOpenOptions {
+  pane?: 'active' | 'other'
+  layout?: 'inherit' | 'live' | 'split' | 'preview'
+  focus?: boolean
+}
+
+/**
+ * The three opening fields as one request, with whatever the choice does not say left out so the app
+ * keeps deciding it. `focus` is the one exception: a run that opens a note takes the caret with it, and
+ * that is what the switch has always meant.
+ */
+export function openingOptions(choice: {
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
+}): QuickAddOpenOptions {
+  const options: QuickAddOpenOptions = {}
+  if (choice.openPane) options.pane = choice.openPane
+  if (choice.openLayout) options.layout = choice.openLayout
+  if (choice.openFocus !== undefined) options.focus = choice.openFocus
+  return options
 }
 
 export interface FieldValueFilter {

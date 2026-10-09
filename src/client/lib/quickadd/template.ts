@@ -12,7 +12,7 @@ import type { QuickAddTemplateChoice } from '@shared/quickadd'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
-import { folderJoin, joinRouted, sanitizeTitle, splitTargetPath, type NotePort, type QuickAddRunStatus } from './context'
+import { folderJoin, joinRouted, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type QuickAddRunStatus } from './context'
 import { placeTemplate } from './insertion'
 import { t } from '../../lib/i18n'
 
@@ -227,8 +227,8 @@ export async function runTemplateChoice(
     const prior = await port.read(existing.id)
     const written = await port.write(existing.id, formatted.text, prior)
     if (!written) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
-    if (formatted.cursor !== null) port.placeCursor(formatted.cursor)
-    if (choice.openAfter) await port.open(existing.id)
+    if (choice.openFocus !== false && formatted.cursor !== null) port.placeCursor(formatted.cursor)
+    if (choice.openAfter) await port.open(existing.id, openingOptions(choice))
     port.recordRun(choice.id)
     return {
       kind: 'written',
@@ -254,7 +254,7 @@ export async function runTemplateChoice(
     if (source) await port.appendLink(source, created)
   }
   if (choice.copyLink) port.copyText(port.linkTo(created))
-  if (choice.openAfter) await port.open(created.id)
+  if (choice.openAfter) await port.open(created.id, openingOptions(choice))
   port.recordRun(choice.id)
   return {
     kind: 'written',

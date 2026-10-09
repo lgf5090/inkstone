@@ -384,3 +384,28 @@ describe('the ordering rule a capture record can carry', () => {
     expect(capture({ by: 'date', unparseable: 'sideways' })?.orderBy.unparseable).toBe('bottom')
   })
 })
+describe('where a run opens the note', () => {
+  const template = (over: Record<string, unknown>) => normalizeQuickAddChoice({
+    ...newTemplateChoice('t1', 'T', 0),
+    ...over,
+  })
+
+  it('keeps an opening the reader chose', () => {
+    expect(template({ openPane: 'other', openLayout: 'preview', openFocus: false }))
+      .toMatchObject({ openPane: 'other', openLayout: 'preview', openFocus: false })
+  })
+
+  it('leaves the fields absent when the record predates them', () => {
+    const made = template({})
+    expect(made && 'openPane' in made).toBe(false)
+    expect(made && 'openLayout' in made).toBe(false)
+    expect(made && 'openFocus' in made).toBe(false)
+  })
+
+  it('drops an opening the app does not have', () => {
+    const made = template({ openPane: 'drawer', openLayout: 42, openFocus: 'yes' })
+    expect(made && 'openPane' in made).toBe(false)
+    expect(made && 'openLayout' in made).toBe(false)
+    expect(made && 'openFocus' in made).toBe(false)
+  })
+})

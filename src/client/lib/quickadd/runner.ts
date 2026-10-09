@@ -182,8 +182,21 @@ export const notePort: NotePort = {
   async ensureFolder(path) {
     return ensureFolderPath(path)
   },
-  async open(id) {
-    await useNotes.getState().openNote(id, { revealOnMobile: true })
+  async open(id, options = {}) {
+    const focus = options.focus !== false
+    const pane = options.pane === 'other'
+      ? (useUi.getState().activeWorkspacePane === 'primary' ? 'secondary' : 'primary')
+      : undefined
+    await useNotes.getState().openNote(id, {
+      ...(pane ? { pane } : {}),
+      activate: focus,
+      revealOnMobile: focus,
+    })
+    if (!options.layout || options.layout === 'inherit') return
+    // The layout belongs to whichever pane ended up holding the note: the active one when the run took
+    // focus, the target one when it did not.
+    const landed = pane ?? (focus ? useUi.getState().activeWorkspacePane : 'primary')
+    useUi.getState().setWorkspacePaneLayout(landed, options.layout)
   },
   linkTo(target) {
     return `[[${target.title || 'Untitled'}]]`
