@@ -12,6 +12,7 @@ import { Check, Plus } from 'lucide-react'
 import type { PromptAnswer, PromptRequest } from '../../lib/quickadd/format'
 import { evaluateMathExpression, formatMathValue } from '../../lib/quickadd/math'
 import { applyCaseStyle } from '../../lib/quickadd/token-grammar'
+import { isBlankPayload } from '../../lib/quickadd/insertion'
 import { Button } from '../../components/primitives'
 import { FIELD_BASE, Slider, Textarea, commitOnEnter } from '../../components/form'
 import { Modal } from '../../components/overlay'
@@ -75,7 +76,10 @@ function hasAnswer(request: PromptRequest, draft: DraftEntry): boolean {
   // A yes/no question needs an explicit press: closing the dialog is a cancelled run, not a "No".
   if (request.kind === 'checkbox' || request.kind === 'confirm')
     return draft.text === 'true' || draft.text === 'false'
-  return draft.text.trim() !== '' || draft.picks.length > 0
+  // The same rule the engines use: only ASCII blanks count as nothing. A fullwidth or
+  // non-breaking space is what the reader put there on purpose, and a dialog that refused one would
+  // make such an answer impossible to give at all.
+  return !isBlankPayload(draft.text) || draft.picks.length > 0
 }
 
 function SuggesterRows({

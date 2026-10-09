@@ -149,6 +149,37 @@ async function untilSettled<T>(promise: Promise<T>): Promise<T> {
   return result
 }
 
+describe('what counts as an answer', () => {
+  function okButton(): HTMLButtonElement {
+    const button = [...panel().parentElement!.querySelectorAll('button')]
+      .find((candidate) => candidate.textContent?.trim() === t('quickadd.prompt_ok'))
+    if (!(button instanceof HTMLButtonElement)) throw new Error('no OK button on the prompt')
+    return button
+  }
+
+  it('accepts the fullwidth space a Chinese reader types on purpose', async () => {
+    const asking = ask(group())
+    type('　')
+    expect(okButton().disabled, 'an ideographic space is an answer, not a blank').toBe(false)
+    clickButton(panel().parentElement ?? panel(), t('quickadd.prompt_ok'))
+    const answered = await untilSettled(asking)
+    expect(answered?.get('who')).toBe('　')
+  })
+
+  it('still refuses an answer made only of ordinary spaces', () => {
+    const asking = ask(group())
+    type('   ')
+    expect(okButton().disabled).toBe(true)
+    expect(asking).not.toBeNull()
+  })
+
+  it('lets a question marked optional go unanswered', () => {
+    const asking = ask(group({ requests: [request({ optional: true })] }))
+    expect(okButton().disabled, 'optional means the OK button is live from the start').toBe(false)
+    expect(asking).not.toBeNull()
+  })
+})
+
 describe('the prompt queue', () => {
   it('shows the group the run asked for and answers it', async () => {
     const asking = ask(group())
