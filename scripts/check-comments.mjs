@@ -3701,6 +3701,7 @@ const allowed = new Map([
     "/** Where the backlink goes, and in what shape. */",
     "/**\n * Where the link back into the note the run started from is written. The two extra fields only appear\n * for the placements that need them: a property has to be named, and only the line the caret was on can\n * hold a transclusion — a property value is link-only, and a labelled line already says what it is.\n */",
     "/* A choice that already asks for its day every time has no second behaviour to offer, so the\n            row appears only where the switch would change what the palette lists. */",
+    "/** What each editor action does, in the reader's words rather than in code names. */",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -9503,6 +9504,8 @@ const allowed = new Map([
     "/**\n * The folder path a run writes into, as this app spells it. A folder here is a node in a tree of ids,\n * never a filesystem path, so `.` and `..` have no meaning to keep: a route typed as `../Escape` names\n * the folder `Escape` rather than filing the note outside the tree the reader can see.\n */",
     "/**\n   * Every title the account has, with where each one lives, for a name prompt that should not invent a\n   * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids\n   * — and the reader is the one who has to spot which is which.\n   */",
     "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several folders lists them all rather than pretending to pick one.\n */",
+    "/**\n   * Move the caret, change the selection, or splice the clipboard in — what a macro's editor step\n   * asks for. The answer says which half could not happen, because “no editor on screen” and “the\n   * browser would not hand over the clipboard” are different things for the reader to hear.\n   */",
+    "/** How an editor step ended: applied, or why it was not. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9532,6 +9535,20 @@ const allowed = new Map([
     "/** How many pattern characters the token `kind` occupies, from the same table that prints it. */",
     "/**\n * The ordinal suffix a day, month or quarter is written with.\n *\n * Only a handful of languages have ordinal forms at all, and this fork's date patterns are written\n * in the two the interface offers plus whatever a reader copies out of a note. French is the one\n * whose suffix actually changes what is read back — `1er` — so it is spelled out here; a language\n * with no ordinal rule keeps the bare number, which is what its own almanac does.\n */",
   ]],
+  ["src/client/lib/quickadd/editor-actions.test.ts", [
+    "/**\n * The rules an editor step follows, worked out on text rather than on a live CodeMirror view: which\n * characters a line owns, what counts as the link on it, and what a cut leaves behind.\n */",
+  ]],
+  ["src/client/lib/quickadd/editor-actions.ts", [
+    "/**\n * What an editor step does, worked out from text and offsets instead of a live CodeMirror view.\n *\n * The macro engine asks the app to move the reader's caret or change the selection; the app can only\n * honour that against the note actually on screen. Keeping the arithmetic here means every rule —\n * where a line begins, what counts as the link on it, what a cut leaves behind — is answerable in a\n * test, and the port that touches the view stays a few lines of dispatch.\n */",
+    "/** A wikilink or an embed sitting on one line. The app has no other link syntax to select. */",
+    "/** The splice to apply, or null when the action only moves the caret. */",
+    "/** Where the selection ends up: equal offsets mean a caret, not a range. */",
+    "/** Text the action hands to the clipboard, when it does. */",
+    "/** The note as the editor holds it, unsaved typing included. */",
+    "/** What the clipboard holds. Only `paste` reads it, and null means the browser refused the read. */",
+    "/** The line an offset sits on, without its trailing break. */",
+    "/**\n * The plan for one action, or null when it cannot be done here: a paste with nothing readable on the\n * clipboard, or a link the caret's line does not carry. A null is a named failure the run says out\n * loud — it is never a silent no-op, because a macro whose step quietly did nothing is worse than one\n * that stops and says which step.\n */",
+  ]],
   ["src/client/lib/quickadd/engines.test.ts", [
     "// A dismissed dialog answers nothing, which is how the engines learn the run was cancelled.",
     "// The script step runs in a Worker for real; here the same code-runner core answers on the",
@@ -9550,6 +9567,7 @@ const allowed = new Map([
     "/** Where each group said the run was about to write, which the reader reads as “into what”. */",
     "/** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */",
     "/** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */",
+    "/** What the editor step is told back: a test that wants a refusal sets it. */",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -9679,6 +9697,10 @@ const allowed = new Map([
     "/** The question an `ask` step puts up, shared by the step and by the opening page. */",
     "/**\n * What the opening page of a macro can ask for: the steps that certainly run.\n *\n * The walk stops at the first step whose later prompts are not knowable yet — a branch, because half\n * of them will not run, and a nested choice or a script, because they own their own asking. A\n * variable an earlier step writes is skipped rather than asked: the page would be collecting an answer\n * that the run overwrites before anything reads it.\n */",
     "// The opening page has usually asked this already; a variable that exists is an answer.",
+    "/** Why an editor step did not run, in the reader's language. */",
+    "// It moves a caret or a selection: nothing to ask, and nothing that stops the walk either.",
+    "// The step acts on the note the reader is looking at, so a missing editor is a named failure",
+    "// rather than a step that quietly did nothing.",
   ]],
   ["src/client/lib/quickadd/math.ts", [
     "/**\n * The arithmetic behind `{{MVALUE}}`.\n *\n * The reference plugin evaluates that token with mathjs. Inkstone has no such dependency and the\n * expression arrives as user text that a shared notebook may hand to a stranger's browser, so this\n * is a total re-implementation of the arithmetic half of the language: numbers, `+ - * / % ^`,\n * parentheses, unary minus, a fixed function table and two constants. Anything else — assignment,\n * a unit conversion, an identifier that is not a function — is a parse error naming what it found,\n * never a value. There is no `eval`, no `Function`, and no way to reach a property.\n */",
@@ -9734,6 +9756,8 @@ const allowed = new Map([
     "/**\n * The link added to a property of the source note. An existing scalar grows into a list rather than\n * being replaced, and an entry that is already there is not written twice.\n */",
     "// A caret parked in the note’s own properties block gets the same rule a capture on either",
     "// side of it has: the link joins the body below the block rather than splitting the YAML.",
+    "// A browser hands the clipboard over only when it believes the gesture asked for it, so a",
+    "// refusal is its own answer rather than an empty paste.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -10424,6 +10448,7 @@ const allowed = new Map([
     "/**\n * Where a template lands in a note that already exists: where the caret is, below the note's own\n * properties, past its last line, or in place of everything in it.\n */",
     "/** Where the template lands when this choice writes into the note the reader is in. */",
     "/**\n   * A second palette command that asks which day the run measures its dates from. Absent means the\n   * choice has one command, which is what every record written before this field means.\n   */",
+    "/**\n * What an editor step does to the note on screen. `pasteWithFormat` from the reference has no twin\n * here: this app has no rich-text paste to reach for, and its “paste as link” is an app command a\n * `command` step can already name.\n */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",

@@ -612,6 +612,34 @@ describe('the choice editor', () => {
     expect(saved.type === 'macro' && saved.steps).toEqual([{ kind: 'command', commandId: 'cmd-emoji' }])
   })
 
+  it('lets a macro step name an editor action', async () => {
+    const choice = { ...newMacroChoice('qa-m', 'Routine', 0), steps: [] }
+    seed({ choices: [choice] })
+    editor(choice)
+    clickNamed(t('quickadd.add_step'))
+    selectNamed(t('quickadd.step_kind'), 'editor')
+    const picker = control(t('quickadd.step_editor_action'))
+    expect(picker, 'the step says which thing it does to the editor').toBeInstanceOf(HTMLSelectElement)
+    const node = picker as HTMLSelectElement
+    expect([...node.options].map((option) => option.textContent?.trim())).toEqual([
+      t('quickadd.editor_cut'),
+      t('quickadd.editor_copy'),
+      t('quickadd.editor_paste'),
+      t('quickadd.editor_select_line'),
+      t('quickadd.editor_select_link'),
+      t('quickadd.editor_line_start'),
+      t('quickadd.editor_line_end'),
+      t('quickadd.editor_file_start'),
+      t('quickadd.editor_file_end'),
+    ])
+    expect(node.value, 'a fresh step starts at the line, not at the clipboard').toBe('selectLine')
+    selectNamed(t('quickadd.step_editor_action'), 'selectLink')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'macro' && saved.steps).toEqual([{ kind: 'editor', action: 'selectLink' }])
+  })
+
   it('offers the token list without leaving the editor', () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })

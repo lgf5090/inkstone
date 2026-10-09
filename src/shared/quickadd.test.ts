@@ -123,6 +123,22 @@ describe('the quickadd record', () => {
     expect(steps).toEqual([{ kind: 'command', commandId: 'cmd-new' }])
   })
 
+  it('keeps an editor action and falls back when it is spelled wrong', () => {
+    const parsed = parse([{
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      steps: [
+        { kind: 'editor', action: 'selectLink' },
+        { kind: 'editor', action: 'foldEverything' },
+        { kind: 'editor' },
+      ],
+    } as QuickAddChoice])
+    expect((parsed.data?.choices[0] as QuickAddMacroChoice).steps).toEqual([
+      { kind: 'editor', action: 'selectLink' },
+      { kind: 'editor', action: 'selectLine' },
+      { kind: 'editor', action: 'selectLine' },
+    ])
+  })
+
   it('keeps a template pick legal and defaults the libraries that predate it', () => {
     const asked = parse([{ ...templateChoice('qa-a', 'A'), templatePick: 'ask' } as QuickAddTemplateChoice])
       .data?.choices[0] as QuickAddTemplateChoice

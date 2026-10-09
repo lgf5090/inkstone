@@ -14,7 +14,7 @@ import { randomLocalId } from '../../lib/random-id'
 import type { PromptAnswer, PromptRequest } from './format'
 import { buildRuntime, askForInputs, type RunSession } from './runtime'
 import { applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
-import type { NotePort, QuickAddRunStatus } from './context'
+import type { NotePort, QuickAddEditorOutcome, QuickAddRunStatus } from './context'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
 import { runMacroScript } from './macro-script'
@@ -51,6 +51,13 @@ function compare(value: PromptAnswer, operator: string, wanted: string): boolean
     case 'lt': return Number(answer) < Number(wanted)
     default: return false
   }
+}
+
+/** Why an editor step did not run, in the reader's language. */
+function editorFailure(outcome: QuickAddEditorOutcome): string {
+  if (outcome === 'clipboard-blocked') return t('quickadd.error_clipboard_blocked')
+  if (outcome === 'no-target') return t('quickadd.error_no_link_on_line')
+  return t('quickadd.error_editor_unavailable')
 }
 
 /** The question an `ask` step puts up, shared by the step and by the opening page. */
@@ -94,6 +101,9 @@ function macroStaticSurfaces(steps: QuickAddStep[]): { requests: PromptRequest[]
       case 'copy':
       case 'notify':
         texts.push(step.text)
+        break
+      case 'editor':
+        // It moves a caret or a selection: nothing to ask, and nothing that stops the walk either.
         break
       case 'create':
         texts.push(step.title, step.folderPath)
@@ -170,6 +180,12 @@ async function runStep(step: QuickAddStep, state: MacroState): Promise<QuickAddR
       const formatted = await formatWithPrompts(step.text, buildRuntime(session, port), session, owner.name)
       port.copyText(formatted.text)
       return null
+    }
+    case 'editor': {
+      // The step acts on the note the reader is looking at, so a missing editor is a named failure
+      // rather than a step that quietly did nothing.
+      const outcome = await port.applyEditorAction(step.action)
+      return outcome === 'done' ? null : { kind: 'failed', reason: editorFailure(outcome) }
     }
     case 'open': {
       const formatted = await formatWithPrompts(step.title, buildRuntime(session, port), session, owner.name)

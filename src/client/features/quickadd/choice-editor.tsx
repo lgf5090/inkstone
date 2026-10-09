@@ -26,6 +26,8 @@ import {
   type QuickAddOnePageMode,
   type QuickAddOpenLayout,
   type QuickAddOpenPane,
+  QUICKADD_EDITOR_ACTIONS,
+  type QuickAddEditorAction,
   type QuickAddLinkPlacement,
   type QuickAddTemplateDrop,
   type QuickAddTemplateMode,
@@ -51,7 +53,7 @@ import { useQuickAdd } from '../../store/quickadd'
 import { QuickAddTokenHelp } from './token-help'
 import { appCommands } from '../command/registry'
 
-const STEP_KINDS: QuickAddStep['kind'][] = ['ask', 'set', 'insert', 'capture', 'create', 'copy', 'open', 'command', 'notify', 'wait', 'script', 'if', 'choice']
+const STEP_KINDS: QuickAddStep['kind'][] = ['ask', 'set', 'insert', 'capture', 'create', 'copy', 'editor', 'open', 'command', 'notify', 'wait', 'script', 'if', 'choice']
 const OPERATORS: QuickAddConditionOperator[] = ['eq', 'ne', 'has', 'empty', 'gt', 'lt']
 const ORDER_KEYS: QuickAddOrderKey[] = ['lexical', 'date', 'numeric', 'semver', 'insertion']
 const POSITIONS: QuickAddPosition[] = ['bottom', 'top', 'insertAfter', 'insertBefore', 'cursor', 'lineAbove', 'lineBelow']
@@ -109,6 +111,7 @@ const STEP_KEYS: Record<QuickAddStep['kind'], MessageKey> = {
   capture: 'quickadd.step_capture',
   create: 'quickadd.step_create',
   copy: 'quickadd.step_copy',
+  editor: 'quickadd.step_editor',
   open: 'quickadd.step_open',
   command: 'quickadd.step_command',
   notify: 'quickadd.step_notify',
@@ -116,6 +119,19 @@ const STEP_KEYS: Record<QuickAddStep['kind'], MessageKey> = {
   script: 'quickadd.step_script',
   if: 'quickadd.step_if',
   choice: 'quickadd.step_choice_step',
+}
+
+/** What each editor action does, in the reader's words rather than in code names. */
+const EDITOR_ACTION_KEYS: Record<QuickAddEditorAction, MessageKey> = {
+  cut: 'quickadd.editor_cut',
+  copy: 'quickadd.editor_copy',
+  paste: 'quickadd.editor_paste',
+  selectLine: 'quickadd.editor_select_line',
+  selectLink: 'quickadd.editor_select_link',
+  lineStart: 'quickadd.editor_line_start',
+  lineEnd: 'quickadd.editor_line_end',
+  fileStart: 'quickadd.editor_file_start',
+  fileEnd: 'quickadd.editor_file_end',
 }
 
 const OPERATOR_KEYS: Record<QuickAddConditionOperator, MessageKey> = {
@@ -767,6 +783,7 @@ function newStep(kind: QuickAddStep['kind']): QuickAddStep {
     case 'capture': return { kind, title: 'Inbox', text: '{{VALUE}}', position: 'bottom' }
     case 'create': return { kind, title: '{{DATE}}', templateId: null, folderPath: '', openAfter: false }
     case 'copy': return { kind, text: '{{VALUE}}' }
+    case 'editor': return { kind, action: 'selectLine' }
     case 'open': return { kind, title: '' }
     case 'command': return { kind, commandId: appCommands()[0]?.id ?? '' }
     case 'notify': return { kind, text: '' }
@@ -875,6 +892,16 @@ function StepFields({ step, index, runnable, onChange }: {
     case 'copy':
     case 'notify':
       return field(t('quickadd.step_text'), step.text, (text) => onChange({ ...step, text }))
+    case 'editor':
+      return (<div>
+        <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{t('quickadd.step_editor_action')}</span>
+        <Select
+          aria-label={t('quickadd.step_editor_action')}
+          value={step.action}
+          onChange={(event) => onChange({ ...step, action: event.target.value as QuickAddEditorAction })}>
+          {QUICKADD_EDITOR_ACTIONS.map((action) => <option key={action} value={action}>{t(EDITOR_ACTION_KEYS[action])}</option>)}
+        </Select>
+      </div>)
     case 'open':
       return field(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))
     case 'create':

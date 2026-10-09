@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuickAddCaptureChoice, QuickAddTemplateChoice } from '@shared/quickadd'
 import { parseFrontMatter } from '@shared/markdown-utils'
-import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddSettings } from '@shared/quickadd'
+import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddEditorAction, type QuickAddSettings } from '@shared/quickadd'
 import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
+import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
 import type { RunOptions } from './session'
 import { titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
@@ -84,6 +84,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const notifications: string[] = []
   const carets: number[] = []
   const links: { sourceId: string; title: string; options: QuickAddLinkOptions }[] = []
+  const editorActions: QuickAddEditorAction[] = []
+  /** What the editor step is told back: a test that wants a refusal sets it. */
+  let editorOutcome: QuickAddEditorOutcome = 'done'
   /** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */
   let refuseLink = false
   /** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */
@@ -167,6 +170,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       return true
     },
     prependToActive: async () => false,
+    async applyEditorAction(action) {
+      editorActions.push(action)
+      return editorOutcome
+    },
     settings: () => merged as QuickAddSettings,
     choices: () => store,
   }
@@ -191,6 +198,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     notifications,
     carets,
     links,
+    editorActions,
+    refuseEditorAction: (outcome: QuickAddEditorOutcome) => {
+      editorOutcome = outcome
+    },
     refuseLink: () => {
       refuseLink = true
     },
@@ -1862,5 +1873,73 @@ describe('the names a run suggests', () => {
     await runTemplateChoice(choice, fake.port)
     const asked = answers.requests.flat().find((request) => request.key === 'title')
     expect(asked?.displayOptions, 'the reader sees which Standup they are picking').toEqual(['Standup (Work)'])
+  })
+})
+
+describe('a macro that acts on the editor', () => {
+  it('runs the action the step names', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Trim', 0),
+      steps: [{ kind: 'editor' as const, action: 'selectLine' as const }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.editorActions).toEqual(['selectLine'])
+  })
+
+  it('stops the run and says the editor is not on screen', async () => {
+    const fake = harness({})
+    fake.refuseEditorAction('no-editor')
+    const choice = {
+      ...newMacroChoice('qa-m', 'Trim', 0),
+      steps: [
+        { kind: 'editor' as const, action: 'paste' as const },
+        { kind: 'notify' as const, text: 'after' },
+      ],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_editor_unavailable') })
+    expect(fake.notifications, 'a step that could not run stops the rest').toEqual([])
+  })
+
+  it('names a clipboard the browser kept from it', async () => {
+    const fake = harness({})
+    fake.refuseEditorAction('clipboard-blocked')
+    const choice = {
+      ...newMacroChoice('qa-m', 'Paste', 0),
+      steps: [{ kind: 'editor' as const, action: 'paste' as const }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_clipboard_blocked') })
+  })
+
+  it('says which line had no link to select', async () => {
+    const fake = harness({})
+    fake.refuseEditorAction('no-target')
+    const choice = {
+      ...newMacroChoice('qa-m', 'Link', 0),
+      steps: [{ kind: 'editor' as const, action: 'selectLink' as const }],
+    }
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_no_link_on_line') })
+  })
+
+  it('still asks one page for the steps around it', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newMacroChoice('qa-m', 'Routine', 0),
+      onePage: 'always' as const,
+      steps: [
+        { kind: 'ask' as const, variable: 'a', label: 'First?', options: '' },
+        { kind: 'editor' as const, action: 'lineEnd' as const },
+        { kind: 'ask' as const, variable: 'b', label: 'Second?', options: '' },
+      ],
+    }
+    answers.queue = [['one', 'two']]
+    const status = await runMacroChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'an editor step is not a reason to split the page').toEqual([['a', 'b']])
+    expect(fake.editorActions).toEqual(['lineEnd'])
   })
 })

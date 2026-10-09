@@ -6,7 +6,7 @@
  * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives
  * in `runner.ts`.
  */
-import type { QuickAddChoice, QuickAddLinkPlacement, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddEditorAction, QuickAddLinkPlacement, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
 
 export interface NoteRef {
   id: string
@@ -107,6 +107,12 @@ export interface NotePort {
    * unsaved typing included, and the block must not land inside the note's own properties.
    */
   activeEditorState(): { text: string; from: number; to: number } | null
+  /**
+   * Move the caret, change the selection, or splice the clipboard in — what a macro's editor step
+   * asks for. The answer says which half could not happen, because “no editor on screen” and “the
+   * browser would not hand over the clipboard” are different things for the reader to hear.
+   */
+  applyEditorAction(action: QuickAddEditorAction): Promise<QuickAddEditorOutcome>
   /** Insert text into the open editor at the caret, replacing the selection. */
   insertAtCursor(text: string, cursorOffset?: number | null): boolean
   /**
@@ -131,6 +137,9 @@ export interface QuickAddOpenOptions {
   layout?: 'inherit' | 'live' | 'split' | 'preview'
   focus?: boolean
 }
+
+/** How an editor step ended: applied, or why it was not. */
+export type QuickAddEditorOutcome = 'done' | 'no-editor' | 'clipboard-blocked' | 'no-target'
 
 /** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */
 export function linkOptions(choice: {

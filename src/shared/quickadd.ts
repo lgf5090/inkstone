@@ -62,6 +62,15 @@ export type QuickAddLinkPlacement = 'noteEnd' | 'lineEnd' | 'property'
 /** How the app renders it there: leave the reader's own choice, or ask for a specific mode. */
 export type QuickAddOpenLayout = 'inherit' | 'live' | 'split' | 'preview'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+/**
+ * What an editor step does to the note on screen. `pasteWithFormat` from the reference has no twin
+ * here: this app has no rich-text paste to reach for, and its “paste as link” is an app command a
+ * `command` step can already name.
+ */
+export const QUICKADD_EDITOR_ACTIONS = [
+  'cut', 'copy', 'paste', 'selectLine', 'selectLink', 'lineStart', 'lineEnd', 'fileStart', 'fileEnd',
+] as const
+export type QuickAddEditorAction = typeof QUICKADD_EDITOR_ACTIONS[number]
 export type QuickAddConditionOperator = 'eq' | 'ne' | 'has' | 'empty' | 'gt' | 'lt'
 
 export interface QuickAddChoiceBase {
@@ -164,6 +173,7 @@ export type QuickAddStep =
   | { kind: 'create'; title: string; templateId: string | null; folderPath: string; openAfter: boolean }
   | { kind: 'capture'; title: string; text: string; position: 'bottom' | 'top' }
   | { kind: 'copy'; text: string }
+  | { kind: 'editor'; action: QuickAddEditorAction }
   | { kind: 'command'; commandId: string }
   | { kind: 'open'; title: string }
   | { kind: 'notify'; text: string }
@@ -484,6 +494,8 @@ function normalizeStep(value: unknown, depth: number): QuickAddStep | null {
       }
     case 'copy':
       return { kind: 'copy', text: textOf(value.text, QUICKADD_LIMITS.maxFormatLength) }
+    case 'editor':
+      return { kind: 'editor', action: pick(value.action, QUICKADD_EDITOR_ACTIONS, 'selectLine') }
     case 'open':
       return { kind: 'open', title: oneLine(value.title, QUICKADD_LIMITS.maxNameLength) }
     case 'command':
