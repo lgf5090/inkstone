@@ -12,6 +12,8 @@ import { Input } from '../../components/form'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { isTargetFilterSyntax, titleSuggestions } from '../../lib/quickadd/context'
+import { folderPathLabel } from '../../lib/folders'
+import { useNotes } from '../../store/notes'
 import { compileQuery, queryMatches } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 
@@ -29,6 +31,23 @@ export interface NoteNameCandidate {
 interface Row {
   title: string
   display: string
+}
+
+/**
+ * The names the library holds, in the shape both the settings field and the engine prompts want.
+ * The cap is the one the run-time port uses too, so the list a reader edits against is the list a
+ * run would have asked from.
+ */
+export function useNoteCandidates(): NoteNameCandidate[] {
+  const notes = useNotes((state) => state.notes)
+  const folders = useNotes((state) => state.folders)
+  return useMemo(() => Object.values(notes)
+    .filter((note) => !note.deletedAt && note.title !== '')
+    .slice(0, 500)
+    .map((note) => ({
+      title: note.title,
+      folderPath: folderPathLabel(folders, note.folderId, '/').replace(/^\//, '') || null,
+    })), [notes, folders])
 }
 
 export function NoteNameInput({ value, onChange, notes, id, className, ...aria }: {

@@ -46,13 +46,11 @@ import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Field, Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
-import { folderPathLabel } from '../../lib/folders'
 import { inertFormat } from '../../lib/quickadd/format'
 import { previewRuntime } from '../../lib/quickadd/preview'
 import { useNoteTemplates } from '../../store/note-templates'
-import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
-import { NoteNameInput } from './note-name-input'
+import { NoteNameInput, useNoteCandidates } from './note-name-input'
 import { QuickAddTokenHelp } from './token-help'
 import { appCommands } from '../command/registry'
 
@@ -597,15 +595,7 @@ function CaptureFields({ draft, patch, renderFormat }: {
   renderFormat: (text: string) => string
 }) {
   const templates = useNoteTemplates((state) => state.templates)
-  const notes = useNotes((state) => state.notes)
-  const folders = useNotes((state) => state.folders)
-  const candidates = useMemo(() => Object.values(notes)
-    .filter((note) => !note.deletedAt && note.title !== '')
-    .slice(0, 500)
-    .map((note) => ({
-      title: note.title,
-      folderPath: folderPathLabel(folders, note.folderId, '/').replace(/^\//, '') || null,
-    })), [notes, folders])
+  const candidates = useNoteCandidates()
   const set = (next: Partial<QuickAddCaptureChoice>) => patch(next as Partial<QuickAddChoice>)
   const anchored = draft.writePosition === 'insertAfter' || draft.writePosition === 'insertBefore'
   return (
@@ -881,12 +871,18 @@ function StepFields({ step, index, runnable, onChange }: {
   runnable: QuickAddChoice[]
   onChange: (next: QuickAddStep) => void
 }) {
+  const candidates = useNoteCandidates()
   const field = (label: string, value: string, next: (text: string) => void) => (<>
     <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
     <Input
       aria-label={`${label} ${index + 1}`}
       value={value}
       onChange={(event) => next(event.target.value)}/>
+  </>)
+  /** A step's note name, with the library's own names offered beside it — the same list the run asks from. */
+  const noteField = (label: string, value: string, next: (text: string) => void) => (<>
+    <span className="block text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
+    <NoteNameInput aria-label={`${label} ${index + 1}`} notes={candidates} value={value} onChange={next}/>
   </>)
   switch (step.kind) {
     case 'ask':
@@ -915,16 +911,16 @@ function StepFields({ step, index, runnable, onChange }: {
         </Select>
       </div>)
     case 'open':
-      return field(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))
+      return noteField(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))
     case 'create':
       return (<div className="grid gap-2 md:grid-cols-2">
-        {field(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))}
+        {noteField(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))}
         {field(t('quickadd.step_folder'), step.folderPath, (folderPath) => onChange({ ...step, folderPath }))}
         <Checkbox checked={step.openAfter} onChange={(openAfter) => onChange({ ...step, openAfter })} label={t('quickadd.field_open_after')}/>
       </div>)
     case 'capture':
       return (<div className="grid gap-2 md:grid-cols-2">
-        {field(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))}
+        {noteField(t('quickadd.step_title'), step.title, (title) => onChange({ ...step, title }))}
         {field(t('quickadd.step_text'), step.text, (text) => onChange({ ...step, text }))}
       </div>)
     case 'wait':

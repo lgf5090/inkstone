@@ -3707,6 +3707,7 @@ const allowed = new Map([
     "/**\n * Where the link back into the note the run started from is written. The two extra fields only appear\n * for the placements that need them: a property has to be named, and only the line the caret was on can\n * hold a transclusion — a property value is link-only, and a labelled line already says what it is.\n */",
     "/* A choice that already asks for its day every time has no second behaviour to offer, so the\n            row appears only where the switch would change what the palette lists. */",
     "/** What each editor action does, in the reader's words rather than in code names. */",
+    "/** A step's note name, with the library's own names offered beside it — the same list the run asks from. */",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -3769,6 +3770,7 @@ const allowed = new Map([
     "// moves a control out from under the pointer that was reaching for it.",
     "// A target written as a question (#work, folder:Notes, property:type=draft) has no answer until",
     "// the run, so listing names under it would only pretend the question is already settled.",
+    "/**\n * The names the library holds, in the shape both the settings field and the engine prompts want.\n * The cap is the one the run-time port uses too, so the list a reader edits against is the list a\n * run would have asked from.\n */",
   ]],
   ["src/client/features/quickadd/pick-day.ts", [
     "/**\n * The one implementation of \"run this choice, but ask which day it counts from first\".\n *\n * Two entries reach for it: the launcher's Shift, and the second palette command a choice can carry\n * when the reader wants that entry to have its own name or hotkey. Asking here rather than inside the\n * engine keeps the shape the launcher has always had — a dismissed question runs nothing at all, no\n * cancelled-run notice — and hands the engine a day it must not ask for a second time.\n */",
@@ -3865,6 +3867,7 @@ const allowed = new Map([
     "// reserves the same slots — a group keeps an empty one where the run button would be.",
     "// Unmounting first: the notes store still has a subscriber while the field is on screen, and an",
     "// update it cannot see is what React calls an update outside `act`.",
+    "// The second step carries the \"2\", so a reader hears which field a screen reader is on.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",

@@ -11,6 +11,7 @@ import {
   newTemplateChoice,
   type QuickAddChoice,
   type QuickAddSettings as QuickAddSettingsModel,
+  type QuickAddStep,
 } from '@shared/quickadd'
 import type { QuickAddData } from '../../lib/db'
 import { initI18n, t } from '../../lib/i18n'
@@ -349,6 +350,82 @@ describe('the choice editor', () => {
     const saved = library()[0]!
     if (saved.type !== 'capture') throw new Error('the choice changed type')
     expect(saved.targetTitle).toBe('Reading')
+  })
+
+  it('offers the same names inside a macro step that names a note', async () => {
+    const summary = (id: string, title: string): NoteSummary => ({
+      id,
+      title,
+      excerpt: '',
+      folderId: null,
+      tags: [],
+      isPinned: false,
+      isStarred: false,
+      isArchived: false,
+      wordCount: 1,
+      charCount: 1,
+      rev: 1,
+      position: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      deletedAt: null,
+    })
+    act(() => useNotes.setState({ notes: { 'n-step': summary('n-step', 'Step Target') }, folders: [], tags: [], contents: {}, hydrated: true, loading: false }))
+    const choice = {
+      ...newMacroChoice('qa-m-step', 'Name a note', 0),
+      steps: [{ kind: 'create', title: '', templateId: null, folderPath: '', openAfter: false }] as QuickAddStep[],
+    }
+    seed({ choices: [choice] })
+    editor(choice)
+    const stepField = control(`${t('quickadd.step_title')} 1`)
+    if (!(stepField instanceof HTMLInputElement)) throw new Error('the step title is not the candidate field')
+    act(() => {
+      stepField.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    const rows = [...document.querySelectorAll('[role=option]')]
+    expect(rows.map((row) => row.textContent)).toEqual(['Step Target'])
+    click(rows[0] as HTMLElement)
+    await settle()
+    expect(stepField.value).toBe('Step Target')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    if (saved.type !== 'macro') throw new Error('the choice changed type')
+    expect(saved.steps[0]).toEqual({ kind: 'create', title: 'Step Target', templateId: null, folderPath: '', openAfter: false })
+  })
+
+  it('offers the names for an open step too, and keeps the step number in its name', async () => {
+    const stepNote: NoteSummary = {
+      id: 'n-open', title: 'Open Target', excerpt: '', folderId: null, tags: [], isPinned: false, isStarred: false,
+      isArchived: false, wordCount: 1, charCount: 1, rev: 1, position: 0, createdAt: 1, updatedAt: 1, deletedAt: null,
+    }
+    act(() => useNotes.setState({ notes: { 'n-open': stepNote }, folders: [], tags: [], contents: {}, hydrated: true, loading: false }))
+    const choice = {
+      ...newMacroChoice('qa-m-open', 'Open one', 0),
+      steps: [
+        { kind: 'notify', text: 'first' },
+        { kind: 'open', title: '' },
+      ] as QuickAddStep[],
+    }
+    seed({ choices: [choice] })
+    editor(choice)
+    // The second step carries the "2", so a reader hears which field a screen reader is on.
+    const second = control(`${t('quickadd.step_title')} 2`)
+    expect(second, 'the open step is the second field').not.toBeNull()
+    const first = control(`${t('quickadd.step_text')} 1`)
+    expect(first?.tagName, 'a step that is not a note name keeps a plain box').toBe('INPUT')
+    act(() => {
+      (first as HTMLElement).dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    expect(document.querySelector('[role=listbox]'), 'the notify text is not a note name').toBeNull()
+    act(() => {
+      (second as HTMLElement).dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    const rows = [...document.querySelectorAll('[role=option]')]
+    expect(rows.map((row) => row.textContent)).toEqual(['Open Target'])
+    click(rows[0] as HTMLElement)
+    await settle()
+    expect((second as HTMLInputElement).value).toBe('Open Target')
   })
 
   it('saves an edited name and format through the store', async () => {
