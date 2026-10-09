@@ -46,10 +46,13 @@ import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Field, Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
+import { folderPathLabel } from '../../lib/folders'
 import { inertFormat } from '../../lib/quickadd/format'
 import { previewRuntime } from '../../lib/quickadd/preview'
 import { useNoteTemplates } from '../../store/note-templates'
+import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
+import { NoteNameInput } from './note-name-input'
 import { QuickAddTokenHelp } from './token-help'
 import { appCommands } from '../command/registry'
 
@@ -594,6 +597,15 @@ function CaptureFields({ draft, patch, renderFormat }: {
   renderFormat: (text: string) => string
 }) {
   const templates = useNoteTemplates((state) => state.templates)
+  const notes = useNotes((state) => state.notes)
+  const folders = useNotes((state) => state.folders)
+  const candidates = useMemo(() => Object.values(notes)
+    .filter((note) => !note.deletedAt && note.title !== '')
+    .slice(0, 500)
+    .map((note) => ({
+      title: note.title,
+      folderPath: folderPathLabel(folders, note.folderId, '/').replace(/^\//, '') || null,
+    })), [notes, folders])
   const set = (next: Partial<QuickAddCaptureChoice>) => patch(next as Partial<QuickAddChoice>)
   const anchored = draft.writePosition === 'insertAfter' || draft.writePosition === 'insertBefore'
   return (
@@ -606,7 +618,7 @@ function CaptureFields({ draft, patch, renderFormat }: {
       </SettingRow>
       {draft.targetMode === 'note' && (
         <Field label={t('quickadd.field_target_title')} hint={t('quickadd.field_target_title_hint')}>
-          <Input aria-label={t('quickadd.field_target_title')} value={draft.targetTitle} onChange={(event) => set({ targetTitle: event.target.value })}/>
+          <NoteNameInput notes={candidates} value={draft.targetTitle} onChange={(targetTitle) => set({ targetTitle })}/>
         </Field>
       )}
       {draft.targetMode === 'note' && (

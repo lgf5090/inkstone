@@ -3740,6 +3740,20 @@ const allowed = new Map([
     "// The caret stays in the filter while the arrows walk the list, so a screen reader only learns which",
     "// row is selected from aria-activedescendant naming it.",
   ]],
+  ["src/client/features/quickadd/note-name-input.test.ts", [
+    "/** The field is controlled, so a keystroke is the draft's own state changing under it. */",
+    "// The first row holds the caret the moment the list opens, so two steps land on the third name.",
+  ]],
+  ["src/client/features/quickadd/note-name-input.tsx", [
+    "/**\n * The field that names a note, offering the names the library already has.\n *\n * The rows say where each name already lives, because two notes called `Standup` in two folders are\n * two rows and only the folder tells the reader which one a capture is about to write into. What gets\n * saved is the bare title — the same answer a run resolves — so picking a row and typing the name\n * cannot come to different things.\n */",
+    "/** Rows a reader can scan at a glance; past this the list is a search result, and it says so. */",
+    "/** Names looked at before filtering. Titles are deduped first, so this is names, not notes. */",
+    "// `pinyinVersion` is a dependency because a Chinese match is computed from a dictionary that",
+    "// arrives after boot: without it the list would keep the answer it made before the dictionary landed.",
+    "// The list swallows the Escape that closed it; the second one is for whatever contains the field.",
+    "// A mousedown has to stay out of the way or the input blurs before the click lands,",
+    "// and the field would close on its own half of the gesture.",
+  ]],
   ["src/client/features/quickadd/pick-day.ts", [
     "/**\n * The one implementation of \"run this choice, but ask which day it counts from first\".\n *\n * Two entries reach for it: the launcher's Shift, and the second palette command a choice can carry\n * when the reader wants that entry to have its own name or hotkey. Asking here rather than inside the\n * engine keeps the shape the launcher has always had — a dismissed question runs nothing at all, no\n * cancelled-run notice — and hands the engine a day it must not ask for a second time.\n */",
   ]],
@@ -3833,6 +3847,8 @@ const allowed = new Map([
     "// Reaching into groups is on until the reader says otherwise.",
     "// The switch sits left of the action cluster, so its column only holds still while every row",
     "// reserves the same slots — a group keeps an empty one where the run button would be.",
+    "// Unmounting first: the notes store still has a subscriber while the field is on screen, and an",
+    "// update it cannot see is what React calls an update outside `act`.",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",

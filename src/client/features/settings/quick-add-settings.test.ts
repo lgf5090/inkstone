@@ -15,13 +15,17 @@ import {
 import type { QuickAddData } from '../../lib/db'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import type { Folder, NoteSummary } from '@shared/types'
 import { useNoteTemplates } from '../../store/note-templates'
+import { useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { QuickAddChoiceEditor } from '../quickadd/choice-editor'
 import { QuickAddChoiceList } from '../quickadd/choice-list'
 import { QuickAddSettings } from './QuickAddSettings'
+
+const originalNotes = useNotes.getState()
 
 const calls = vi.hoisted(() => ({
   runs: [] as string[],
@@ -191,6 +195,9 @@ beforeEach(async () => {
 afterEach(() => {
   rendered?.unmount()
   rendered = undefined
+  // Unmounting first: the notes store still has a subscriber while the field is on screen, and an
+  // update it cannot see is what React calls an update outside `act`.
+  useNotes.setState(originalNotes, true)
   vi.restoreAllMocks()
   seed()
 })
@@ -301,6 +308,48 @@ describe('the choice editor', () => {
     const choice = library()[0]!
     return choice.type === 'macro' ? choice.steps : []
   }
+
+  it('offers the names the library already has and saves the bare title', async () => {
+    const work: Folder = {
+      id: 'f-work', parentId: null, name: 'Work', icon: null, color: null, position: 0, createdAt: 1, updatedAt: 1,
+    }
+    const summary = (id: string, title: string, folderId: string | null): NoteSummary => ({
+      id,
+      title,
+      excerpt: '',
+      folderId,
+      tags: [],
+      isPinned: false,
+      isStarred: false,
+      isArchived: false,
+      wordCount: 1,
+      charCount: 1,
+      rev: 1,
+      position: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      deletedAt: null,
+    })
+    act(() => useNotes.setState({ notes: { 'n-standup': summary('n-standup', 'Standup', 'f-work'), 'n-reading': summary('n-reading', 'Reading', null) }, folders: [work], tags: [], contents: {}, hydrated: true, loading: false }))
+    const choice = { ...newCaptureChoice('qa-cap', 'File the standup', 0), targetMode: 'note' as const, targetTitle: '' }
+    seed({ choices: [choice] })
+    editor(choice)
+    const box = control(t('quickadd.field_target_title'))
+    if (!(box instanceof HTMLInputElement)) throw new Error('the target field is not an input')
+    act(() => {
+      box.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    const rows = [...document.querySelectorAll('[role=option]')]
+    expect(rows.map((row) => row.textContent)).toEqual(['Standup (Work)', 'Reading'])
+    click(rows[1])
+    await settle()
+    expect(box.value).toBe('Reading')
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    if (saved.type !== 'capture') throw new Error('the choice changed type')
+    expect(saved.targetTitle).toBe('Reading')
+  })
 
   it('saves an edited name and format through the store', async () => {
     const choice = { ...newCaptureChoice('qa-c', CJK_CHOICE_FIXTURES.inbox, 0), targetTitle: 'Inbox' }
