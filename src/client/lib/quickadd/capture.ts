@@ -9,13 +9,13 @@
  * the first run wrote.
  */
 import { QUICKADD_LIMITS, type QuickAddCaptureChoice } from '@shared/quickadd'
-import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
+import { parseFrontMatter, setFrontMatterValue, type FrontMatterValue } from '@shared/markdown-utils'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
 import { sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
-import { bodyOf, parseValueToken, scanTokens } from './token-grammar'
+import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import {
   anchorAllowsSubsections,
   appendAtBottom,
@@ -98,6 +98,42 @@ function payloadFormat(choice: QuickAddCaptureChoice): string {
   // "Add to task list" wraps the format, not the answer, so every line of a per-line capture becomes
   // its own checkbox and an empty answer still yields a task the reader can fill in.
   return choice.task ? `- [ ] ${plain}\n` : plain
+}
+
+/**
+ * The value token a property format consists of, and only when it is exactly one: that `|type:` is the
+ * author saying what the property holds. A sentence like `Count: {{VALUE}}` is text, whatever it says.
+ */
+function declaredValueType(format: string): ValueInputType | null {
+  const text = format.trim()
+  const spans = scanTokens(text)
+  if (spans.length !== 1) return null
+  const span = spans[0]!
+  if (span.name !== 'value' && span.name !== 'name') return null
+  if (span.start !== 0 || span.end !== text.length) return null
+  return parseValueToken(bodyOf(span)).inputType
+}
+
+const NUMERIC_TEXT = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i
+const TRUE_WORDS = new Set(['true', 'yes', 'on', '1'])
+const FALSE_WORDS = new Set(['false', 'no', 'off', '0'])
+
+/**
+ * The value in the shape the key already has: a declared `|type:number` or `|type:checkbox` wins, and
+ * otherwise a property that carries a number or a boolean keeps that shape. Text that cannot be read as
+ * the type stays text — a silent `42 → 0` or `soon → false` is a worse surprise than a value the
+ * reader can see.
+ */
+function typedPropertyValue(text: string, declared: ValueInputType | null, existing: unknown): FrontMatterValue {
+  const trimmed = text.trim()
+  if (declared === 'number' || declared === 'slider' || typeof existing === 'number') {
+    if (NUMERIC_TEXT.test(trimmed)) return Number(trimmed)
+  }
+  if (declared === 'checkbox' || typeof existing === 'boolean') {
+    const words = trimmed.toLowerCase()
+    if (TRUE_WORDS.has(words) || FALSE_WORDS.has(words)) return TRUE_WORDS.has(words)
+  }
+  return text
 }
 
 /** The text a property capture writes its value from. */
@@ -384,9 +420,12 @@ export async function runCaptureChoice(
     const key = Object.keys(parsed.data).find((entry) => entry.toLowerCase() === name.toLowerCase()) ?? name
     const existing = key in parsed.data ? (parsed.data[key] as PromptAnswer) : null
     const planned = propertyPlan(choice, existing, value.text)
+    const declared = declaredValueType(propertyFormat(choice))
     if (choice.property.action === 'append' && (planned as string[]).length === 0)
       return { kind: 'empty', noteId: note.id }
-    const next = setFrontMatterValue(body, key, Array.isArray(planned) ? planned.map(String) : String(planned))
+    const next = setFrontMatterValue(body, key, Array.isArray(planned)
+      ? planned.map(String)
+      : typedPropertyValue(String(planned ?? ''), declared, existing))
     if (next === body) return { kind: 'empty', noteId: note.id }
     if (!(await port.write(note.id, next, body))) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
     port.recordRun(choice.id)

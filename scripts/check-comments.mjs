@@ -9404,6 +9404,8 @@ const allowed = new Map([
     "// run has to resolve first, so asking them up front would offer a list of nothing.",
     "// These two write through the open editor, so a note that is not on screen cannot be their target;",
     "// the whole-document path would drop the reader's unsaved typing on the floor.",
+    "/**\n * The value token a property format consists of, and only when it is exactly one: that `|type:` is the\n * author saying what the property holds. A sentence like `Count: {{VALUE}}` is text, whatever it says.\n */",
+    "/**\n * The value in the shape the key already has: a declared `|type:number` or `|type:checkbox` wins, and\n * otherwise a property that carries a number or a boolean keeps that shape. Text that cannot be read as\n * the type stays text — a silent `42 → 0` or `soon → false` is a worse surprise than a value the\n * reader can see.\n */",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",

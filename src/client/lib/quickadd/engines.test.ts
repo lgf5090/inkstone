@@ -126,7 +126,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     templateNames: () => ['Daily', 'Cleared'],
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
-    pickFileTitles: async () => [],
+    pickFileTitles: async (token) => (token.folder === 'Numbers' ? ['42'] : []),
     knownNoteTitles: () => Object.keys(notes),
     knownFolderPaths: () => ['Journal'],
     appendLink: async (source, target) => {
@@ -709,6 +709,118 @@ describe('capturing into a note', () => {
     if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_editor_unavailable'))
     expect(fake.lineInserts).toEqual([])
     expect(fake.content('Inbox')).toBe('one\ntwo\n')
+  })
+})
+
+describe('a property capture keeps the note’s own types', () => {
+  const into = (note: string, over: Record<string, unknown>) => {
+    const fake = harness({ Note: note })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true,
+        prompted: false,
+        name: 'count',
+        action: 'set' as const,
+        createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE}}' },
+      },
+      ...over,
+    }
+    return { fake, choice }
+  }
+
+  it('writes a number into a key that already holds one', async () => {
+    const { fake, choice } = into('---\ncount: 3\n---\nbody\n', {})
+    answers.queue = [['4']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe(4)
+    expect(fake.content('Note')).toContain('count: 4')
+  })
+
+  it('writes a checkbox into a key that already holds one', async () => {
+    const { fake, choice } = into('---\ncount: false\n---\nbody\n', {})
+    answers.queue = [['true']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe(true)
+  })
+
+  it('leaves a brand-new key as text rather than guessing a number', async () => {
+    const { fake, choice } = into('body only\n', { property: {
+      enabled: true, prompted: false, name: 'answer', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: '{{VALUE}}' },
+    } })
+    answers.queue = [['42']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.answer).toBe('42')
+  })
+
+  it('honours a value token that says it is a number', async () => {
+    const { fake, choice } = into('body only\n', { property: {
+      enabled: true, prompted: false, name: 'amount', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: '{{VALUE:amount|type:number}}' },
+    } })
+    answers.queue = [['7']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.amount).toBe(7)
+  })
+
+  it('honours a value token that says it is a checkbox', async () => {
+    const { fake, choice } = into('body only\n', { property: {
+      enabled: true, prompted: false, name: 'flag', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: '{{VALUE:flag|type:checkbox}}' },
+    } })
+    answers.queue = [['true']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.flag).toBe(true)
+  })
+
+  it('leaves a composed format as the sentence it is', async () => {
+    const { fake, choice } = into('---\ncount: 3\n---\nbody\n', { property: {
+      enabled: true, prompted: false, name: 'count', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: 'Count: {{VALUE}}' },
+    } })
+    answers.queue = [['4']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe('Count: 4')
+  })
+
+  it('does not read a file token’s type as the property’s type', async () => {
+    const fake = harness({ Note: 'body only\n' })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true, prompted: false, name: 'answer', action: 'set' as const, createIfMissing: true,
+        format: { enabled: true, format: '{{FILE:Numbers|type:number}}' },
+      },
+    }
+    answers.queue = [['42']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.answer).toBe('42')
+  })
+
+  it('leaves a sentence numeric-free even when its text reads as a number', async () => {
+    const fake = harness({ Note: 'body only\n' })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true, prompted: false, name: 'answer', action: 'set' as const, createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE:a|type:number}}1' },
+      },
+    }
+    answers.queue = [['']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.answer).toBe('1')
+  })
+
+  it('keeps the text when a numeric key is handed words', async () => {
+    const { fake, choice } = into('---\ncount: 3\n---\nbody\n', {})
+    answers.queue = [['soon']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe('soon')
   })
 })
 
