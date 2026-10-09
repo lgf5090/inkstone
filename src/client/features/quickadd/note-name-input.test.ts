@@ -287,6 +287,17 @@ describe('the target-note field', () => {
     rendered?.unmount()
   })
 
+  it('lays the list over the form instead of pushing the form down', () => {
+    render(NOTES)
+    focusField()
+    const list = document.querySelector('[role=listbox]')
+    if (!list) throw new Error('the list did not open')
+    // jsdom has no layout: the classes are what can be pinned here, and a browser measures the rest.
+    expect(list.className).toContain('absolute')
+    expect(list.className).toContain('bg-[var(--bg-overlay)]')
+    rendered?.unmount()
+  })
+
   it('points aria-controls at the list it is actually showing', () => {
     render(NOTES)
     expect(field().getAttribute('aria-controls')).toBeNull()

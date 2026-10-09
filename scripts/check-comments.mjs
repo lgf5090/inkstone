@@ -3748,6 +3748,7 @@ const allowed = new Map([
     "// already gone",
     "// jsdom lays nothing out, so the class is what can be asserted here; the painted height is",
     "// measured in a browser.",
+    "// jsdom has no layout: the classes are what can be pinned here, and a browser measures the rest.",
   ]],
   ["src/client/features/quickadd/note-name-input.tsx", [
     "/**\n * The field that names a note, offering the names the library already has.\n *\n * The rows say where each name already lives, because two notes called `Standup` in two folders are\n * two rows and only the folder tells the reader which one a capture is about to write into. What gets\n * saved is the bare title — the same answer a run resolves — so picking a row and typing the name\n * cannot come to different things.\n */",
@@ -3764,6 +3765,8 @@ const allowed = new Map([
     "// the whole editor with it.",
     "// A finger needs the 44px the app gives every other touch row; a mouse does not, and the",
     "// settings panel is dense enough that the desktop row stays at its text height.",
+    "// Over the rest of the form rather than inside it: a list that pushes the rows below it down",
+    "// moves a control out from under the pointer that was reaching for it.",
   ]],
   ["src/client/features/quickadd/pick-day.ts", [
     "/**\n * The one implementation of \"run this choice, but ask which day it counts from first\".\n *\n * Two entries reach for it: the launcher's Shift, and the second palette command a choice can carry\n * when the reader wants that entry to have its own name or hotkey. Asking here rather than inside the\n * engine keeps the shape the launcher has always had — a dismissed question runs nothing at all, no\n * cancelled-run notice — and hands the engine a day it must not ask for a second time.\n */",

@@ -101,7 +101,7 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
   }, [commit, cursor, open, rows])
 
   return (
-    <div className="space-y-1">
+    <div className="relative space-y-1">
       <Input
         {...aria}
         id={id}
@@ -134,7 +134,9 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
           id={listId}
           role="listbox"
           aria-label={t('quickadd.suggest_results')}
-          className="max-h-[220px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]"
+          // Over the rest of the form rather than inside it: a list that pushes the rows below it down
+          // moves a control out from under the pointer that was reaching for it.
+          className="absolute right-0 left-0 z-20 max-h-[220px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]"
         >
           {rows.length === 0 && (
             <p className="px-3 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">
