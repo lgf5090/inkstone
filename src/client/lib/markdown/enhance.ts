@@ -13,6 +13,7 @@ import { t, type MessageKey } from "../i18n";
 import { getLocale } from "../i18n";
 import { renderStaticMindmaps } from './mindmap/static';
 import { showMindmapSourceAll } from './mindmap/view';
+import { showDataviewSource } from '../dataview/body';
 import { highlightWithPrism } from './prism';
 import {
     ChartBodyTooLargeError,
@@ -994,6 +995,14 @@ export interface EnhanceOptions {
      * forgets it would silently leave a block sitting in its loading state forever.
      */
     mindmap: 'live' | 'snapshot' | 'source';
+    /**
+     * How this surface treats a `dataview` query block. `live` means the caller mounts the answer itself
+     * with `renderDataviewBlocks`, because it has the note store and can wait for bodies; `source` shows
+     * the query text, which is what a surface that must not read other notes — a share page, a printed
+     * sheet — or one with no room for a table — a note card — owes the reader instead of a placeholder
+     * that never resolves.
+     */
+    dataview: 'live' | 'source';
     dark: boolean;
     codeBlockCollapseLines?: number;
 }
@@ -1021,6 +1030,8 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     // forever, because nothing else on this surface ever touches it.
     if (options.mindmap === 'source')
         showMindmapSourceAll(root);
+    if (options.dataview === 'source')
+        showDataviewSource(root);
     if (!options.math)
         showMathSource(root);
     await Promise.allSettled([

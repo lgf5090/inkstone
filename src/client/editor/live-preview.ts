@@ -5,6 +5,7 @@ import { parseWikiTarget, renderMarkdownBlocks, type Heading, type MarkdownBlock
 import { subscribeEmojiUnicode } from '../lib/emoji-unicode';
 import { registerFenceBodies, type FenceBodies } from '../lib/markdown/fence-bodies';
 import { enhancePreview, renderPendingCharts, renderPendingMermaid, toggleCodeBlockCollapse } from '../lib/markdown/enhance';
+import { mountDataview } from '../lib/dataview/blocks';
 import { resolveNoteEmbeds } from '../lib/markdown/embeds';
 import { useSession } from '../store/session';
 import { buildPropertyRenderOptions } from '../lib/property-view';
@@ -82,12 +83,15 @@ class RenderedBlock extends WidgetType {
         const prepare = async () => {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
-            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', mindmap: 'snapshot', dark, codeBlockCollapseLines: 0 });
+            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', mindmap: 'snapshot', dataview: 'live', dark, codeBlockCollapseLines: 0 });
             // A layout block is the one rendered block the reader edits with the pointer, so its settings
             // bar and its drag edges are built here too — on this host, which is the live tree.
             if (settings.mediaToolbar) enhanceMediaLayouts(host, { chart: settings.chart, mediaToolbar: true });
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
             if (alive && settings.chart) await renderPendingCharts(host, dark);
+            // A query block answers from other notes, so it is filled on this live host after the rest of
+            // the enhancement chain — and `this.file.name` inside it means the note being edited.
+            if (alive) mountDataview(host, { originNoteId: useUi.getState().activeNoteId ?? null, editable: false, live: true });
             if (alive) view.requestMeasure();
         };
         void prepare().catch(() => { if (alive) view.requestMeasure(); });

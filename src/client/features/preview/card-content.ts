@@ -194,7 +194,7 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
     // the still has to register the set first — otherwise every board on a card reads as an empty
     // fence and renders the error state instead of the cards the note holds.
     registerFenceBodies(staging, rendered.fences)
-    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]') || staging.querySelector('[data-kanban]') || staging.querySelector('[data-mindmap]')) {
+    if (staging.querySelector('pre code') || staging.querySelector('[data-math]') || staging.querySelector('[data-mermaid]') || staging.querySelector('[data-chart]') || staging.querySelector('[data-kanban]') || staging.querySelector('[data-mindmap]') || staging.querySelector('[data-dataview]')) {
       await enhancePreview(staging, {
         math: args.previewMath,
         mermaid: false,
@@ -210,6 +210,10 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
         // Same reasoning for a map: a card has no room for a canvas and no instance to mount, so the
         // fence body is what it can show.
         mindmap: 'source',
+        // The card's own guard above now names `[data-dataview]`, so a note whose only rich block
+        // is a query still reaches this pass — and here the answer is the query's text, because a card
+        // has no room for a table and must not read the rest of the vault for a preview line.
+        dataview: 'source',
         dark: args.dark,
         codeBlockCollapseLines: 0,
       })

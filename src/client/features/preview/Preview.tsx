@@ -30,6 +30,7 @@ import { KanbanFullscreen } from '../../lib/markdown/kanban'
 import { kanbanIndex } from '../../lib/markdown/kanban/view'
 import { fenceBody, registerFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
 import { useKanbanBlocks } from './use-kanban-blocks'
+import { mountDataview } from '../../lib/dataview/blocks'
 import { updateTaskAtSourceLine } from '../../editor/commands'
 import { useUi } from '../../store/ui'
 import { useNotes, findNoteByTitle } from '../../store/notes'
@@ -254,6 +255,9 @@ export const Preview = memo(function Preview({
         // to leave the placeholder standing: a snapshot drawn here would be swapped in over the live
         // canvas by the next diff, and the registry would then re-parent into a block holding an image.
         mindmap: 'live',
+        // A query block is filled by `renderDataviewBlocks` on this host after the diff, because its
+        // answer depends on note bodies that may still be on their way — which staging cannot wait for.
+        dataview: 'live',
         dark: theme === 'dark',
         codeBlockCollapseLines: preview.codeBlockCollapse
           ? preview.codeBlockCollapseLines
@@ -306,6 +310,10 @@ export const Preview = memo(function Preview({
         onRendered?.()
       }
       setMermaidEpoch((current) => current + 1)
+      // Query blocks and inline fields are filled on the live host after the swap, because their answer
+      // is a store read that may still be arriving; the guard in `patchChildren` above is what lets the
+      // next keystroke keep whatever was already drawn.
+      if (hostRef.current) mountDataview(hostRef.current, { originNoteId: sourceNoteId ?? null, editable: false })
     }
     void prepare()
 
@@ -969,6 +977,17 @@ export function patchDom(dest: Node, src: Node): void {
         if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return
       }
+    }
+
+    // A query block holds an answer built from other notes, and none of it is in the staged markup:
+    // re-syncing the subtree would put the loading placeholder back over a table that did not change,
+    // and the reader would watch it blink on every keystroke. The two hosts are the same block when the
+    // query text in `data-dataview` is identical, which is the one thing a re-render cannot move.
+    if (destEl.hasAttribute('data-dataview') && srcEl.hasAttribute('data-dataview') &&
+      destEl.dataset.dataview === srcEl.dataset.dataview &&
+      !destEl.classList.contains('loading')) {
+      if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
+      return
     }
 
     // A mounted board is a React root living inside this element, and none of it is in innerHTML:

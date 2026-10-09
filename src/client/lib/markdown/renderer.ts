@@ -24,8 +24,7 @@ import type { CrossrefKind, CrossrefRegistry, CrossrefTokenMeta } from './crossr
 import { mediaBlockAttributes, mediaCellAttributes, mediaCellCaption, mediaRowAttributes, renderMediaContainer } from './media-block';
 import type { MediaCellToken, MediaRowToken } from './media-block';
 import type { MediaBlockOptions } from './media-layout';
-import { encodeDataValue } from './data-attr';
-import { parseFenceInfo } from './fence-info';
+import { encodeDataValue, escapeAttr, escapeHtml } from './data-attr';import { parseFenceInfo } from './fence-info';
 import { readCodeOptions } from './code-options';
 import { createFenceBodies, takeFenceIndex, type FenceBodies } from './fence-bodies';
 // From the body module, not the kanban index: the index re-exports the React board, and a fence that
@@ -37,6 +36,7 @@ import type { TimelineItem, TimelineOptions, TimelineStatus } from './timeline-o
 import { readFenceStyle } from './chart/style';
 import { CHART_LANGUAGES } from './chart/body';
 import { detectMindmapMode, MINDMAP_LANGUAGES } from './mindmap/body';
+import { dataviewHostMarkup, dataviewModeOf } from '../dataview/body';
 import { MINDMAP_THEME_ATTR, readFenceAnnotation } from './mindmap/theme';
 import { emojiCharForCode, emojiUnicodeIsLoaded, requestEmojiUnicode } from '../emoji-unicode';
 export interface Heading {
@@ -829,6 +829,11 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         const style = readFenceStyle(token.info);
         return `<div class="chart-block loading"${line}${style === null ? '' : ` data-chart-style="${escapeAttr(style)}"`} data-chart="${escapeAttr(encodeDataValue(token.content))}" aria-busy="true">${escapeHtml(t("markdown.rendering_chart"))}</div>`;
     }
+    if (dataviewModeOf(info.language)) {
+        // A query block answers from other notes, which are behind a store and a throttled endpoint, so
+        // the fence emits an empty host and `renderDataviewBlocks` fills it in after the render.
+        return dataviewHostMarkup(dataviewModeOf(info.language)!, line, token.content);
+    }
     if ((KANBAN_LANGUAGES as readonly string[]).includes(info.language)) {
         // The body goes to the render's fence set rather than into an attribute: a two-hundred-card
         // board is ~17 KB of encoded text that every sanitizer pass and every innerHTML write would
@@ -1034,6 +1039,9 @@ export const PURIFY_CONFIG = {
         'data-mindmap-index',
         'data-mindmap-theme',
         'data-mindmap-placeholder',
+        'data-dataview',
+        'data-dataview-mode',
+        'data-dataview-body',
         'target',
         'loading',
         'decoding',
@@ -1726,13 +1734,6 @@ function plainInline(token: Token): string {
         .join('')
         .trim();
 }
-export function escapeHtml(text: string): string {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
-export function escapeAttr(text: string): string {
-    return escapeHtml(text).replace(/'/g, '&#39;').replace(/\n/g, '&#10;');
-}
+// The escapers live in `./data-attr` so a fence module can build markup without importing this file
+// back; they are re-exported here because every existing caller reaches for them on the renderer.
+export { escapeAttr, escapeHtml };

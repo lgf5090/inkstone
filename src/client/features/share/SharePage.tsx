@@ -112,7 +112,7 @@ export function SharePage({ slug }: {
             // Registered first: a board's cards live in the render's fence set, not in the markup, and
             // the still the share page draws reads that set.
             if (rendered) registerFenceBodies(host, rendered.fences);
-            await enhancePreview(host, { math: true, mermaid: true, chart: true, kanban: 'snapshot', mindmap: 'snapshot', dark, codeBlockCollapseLines: 24 });
+            await enhancePreview(host, { math: true, mermaid: true, chart: true, kanban: 'snapshot', mindmap: 'snapshot', dataview: 'source', dark, codeBlockCollapseLines: 24 });
             if (!isCurrent())
                 return;
             await renderPendingMermaid(host, dark, { isCurrent });

@@ -36,6 +36,9 @@ export function usePresenterSlideMedia(options: {
         mermaid: preview.mermaid,
         chart: preview.chart,
         mindmap: 'snapshot',
+        // The presenter sees the same page the room sees, and the deck's surface shows a query as its
+        // own text: a projector cannot wait on a note store while the show is running.
+        dataview: 'source',
         // The presenter reads the same page the room reads, board layout included (N-36). The pane is
         // laid out at the design canvas's own size and scaled, so a map drawn into it is drawn for the
         // box the projector shows it in.

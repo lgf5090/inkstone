@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Note, SyncResponse } from '@shared/types'
 
 const mocks = vi.hoisted(() => ({
@@ -219,4 +219,47 @@ it('leaves the note untouched when the link request cannot be made', async () =>
   expect(await useNotes.getState().linkMention('01targetnote', PRISTINE)).toBe('error')
   expect(useNotes.getState().contents[PRISTINE]).toBe('see Example now')
   expect(useNotes.getState().notes[PRISTINE].rev).toBe(1)
+})
+
+describe('editRemoteContent', () => {
+  it('writes a note the store has never held a body for', async () => {
+    useNotes.setState({ contents: {} })
+    mocks.get.mockResolvedValue({ ...note, rev: 4, content: 'a\nb' })
+    mocks.patch.mockResolvedValue({ ...note, rev: 5, content: 'a\nB', excerpt: 'a B' })
+    expect(await useNotes.getState().editRemoteContent(note.id, (text) => text.toUpperCase())).toBe('written')
+    expect(mocks.get).toHaveBeenCalledWith(note.id)
+    expect(mocks.patch).toHaveBeenCalledWith(note.id, { rev: 4, content: 'A\nB' })
+    expect(useNotes.getState().contents[note.id]).toBe('a\nB')
+    expect(useNotes.getState().notes[note.id].rev).toBe(5)
+  })
+
+  it('refuses without sending anything when the transform says the line moved', async () => {
+    mocks.get.mockResolvedValue({ ...note, rev: 2, content: 'somebody else' })
+    expect(await useNotes.getState().editRemoteContent(note.id, () => null)).toBe('conflict')
+    expect(mocks.patch).not.toHaveBeenCalled()
+    expect(useNotes.getState().contents[note.id]).toBe('old')
+  })
+
+  it('sends nothing when the transform produces the same text', async () => {
+    mocks.get.mockResolvedValue({ ...note, rev: 2, content: 'old' })
+    expect(await useNotes.getState().editRemoteContent(note.id, (text) => text)).toBe('written')
+    expect(mocks.patch).not.toHaveBeenCalled()
+  })
+
+  it('reports a note that cannot be read or saved as missing', async () => {
+    mocks.get.mockRejectedValue(new ApiError(404, 'not_found', 'gone'))
+    expect(await useNotes.getState().editRemoteContent(note.id, (text) => `${text}!`)).toBe('missing')
+    mocks.get.mockResolvedValue({ ...note, rev: 2, content: 'old' })
+    mocks.patch.mockRejectedValue(new ApiError(409, 'conflict', 'conflict'))
+    expect(await useNotes.getState().editRemoteContent(note.id, (text) => `${text}!`)).toBe('missing')
+  })
+
+  it('flushes what the editor still holds before reading the server copy', async () => {
+    useNotes.getState().editContent(note.id, 'typed locally')
+    mocks.get.mockResolvedValue({ ...note, rev: 2, content: 'typed locally' })
+    mocks.patch.mockResolvedValue({ ...note, rev: 3, content: 'typed locally!', excerpt: 'typed locally!' })
+    expect(await useNotes.getState().editRemoteContent(note.id, (text) => `${text}!`)).toBe('written')
+    expect(mocks.patch).toHaveBeenCalledWith(note.id, { rev: 2, content: 'typed locally!' })
+    expect(mocks.get).toHaveBeenCalled()
+  })
 })
