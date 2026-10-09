@@ -298,6 +298,14 @@ describe('the target-note field', () => {
     rendered?.unmount()
   })
 
+  it('says a question is coming instead of listing names for it', () => {
+    render(NOTES, '#work')
+    focusField()
+    expect(open()).toBe(false)
+    expect(document.body.textContent).toContain(t('quickadd.suggest_filter_note'))
+    rendered?.unmount()
+  })
+
   it('points aria-controls at the list it is actually showing', () => {
     render(NOTES)
     expect(field().getAttribute('aria-controls')).toBeNull()

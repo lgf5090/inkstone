@@ -59,7 +59,9 @@ export interface NotePort {
    * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids
    * — and the reader is the one who has to spot which is which.
    */
-  knownNotes(): { title: string; folderPath: string | null }[]
+  knownNotes(): { id?: string, title: string, folderPath: string | null, tags?: string[] }[]
+  /** The notes whose property holds this value; `value` empty means "has the property at all". */
+  notesWithProperty(name: string, value: string | null): Promise<{ id: string, title: string, folderPath: string | null }[]>
   /** Every folder path the account has, for `folderMode: ask`. */
   knownFolderPaths(): string[]
   /**
@@ -124,6 +126,14 @@ export interface NotePort {
   prependToActive(text: string): Promise<boolean>
   settings(): QuickAddSettings
   choices(): QuickAddChoice[]
+}
+
+/** A note a filter target could point at, in the shape the candidate list needs. */
+export interface TargetCandidate {
+  id?: string
+  title: string
+  folderPath: string | null
+  tags?: string[]
 }
 
 export interface QuickAddLinkOptions {
@@ -266,6 +276,84 @@ export function splitTargetPath(value: string): { title: string; folder: string 
   const title = segments.length > 0 ? (segments[segments.length - 1] ?? '') : ''
   const folder = segments.length > 1 ? segments.slice(0, -1).join('/') : null
   return { title: title.trim(), folder: folder ? folderJoin(folder) : null }
+}
+
+/**
+ * A capture target written as a question rather than a name: `#work`, `tag:work`, `folder:Notes` and
+ * `property:type=draft` each name a set of notes, and `|` puts several of them in one question.
+ * The reference spells the same language in `captureFileFilterTarget.ts` / `propertyTarget.ts`.
+ */
+export interface TargetFilter {
+  tags: string[]
+  folder: string | null
+  property: { name: string; value: string | null } | null
+  /** `multi` asks for several destinations; a capture writes into one. */
+  multi: boolean
+}
+
+const TAG_PREFIX = 'tag:'
+const FOLDER_PREFIX = 'folder:'
+const PROPERTY_PREFIX = 'property:'
+
+/**
+ * `null` means the text is not filter syntax at all, so the caller falls back to reading it as a name.
+ * One unrecognised word is enough for that: `Q3/plan` and `#idea for this` are things people type, and
+ * silently turning them into a query would capture somewhere they never named.
+ */
+export function parseTargetFilter(text: string): TargetFilter | null {
+  const cleaned = text.trim().replace(/^\/+/, '')
+  if (cleaned === '' || !cleaned.includes('|') && !/^(#|tag:|folder:|property:)/i.test(cleaned)) return null
+  const filter: TargetFilter = { tags: [], folder: null, property: null, multi: false }
+  let recognised = 0
+  for (const raw of cleaned.split('|')) {
+    const spec = raw.trim()
+    if (spec === '') continue
+    const lower = spec.toLocaleLowerCase()
+    if (lower === 'multi') {
+      filter.multi = true
+      recognised += 1
+      continue
+    }
+    if (spec.startsWith('#')) {
+      const tag = spec.slice(1).trim()
+      // A tag is one word, so `#idea for this` stays a note name someone typed rather than a query.
+      if (tag === '' || /\s/.test(tag)) return null
+      if (!filter.tags.includes(tag)) filter.tags.push(tag)
+      recognised += 1
+      continue
+    }
+    if (lower.startsWith(TAG_PREFIX)) {
+      const tag = spec.slice(TAG_PREFIX.length).trim()
+      if (tag === '' || /\s/.test(tag)) return null
+      if (!filter.tags.includes(tag)) filter.tags.push(tag)
+      recognised += 1
+      continue
+    }
+    if (lower.startsWith(FOLDER_PREFIX)) {
+      const folder = folderJoin(spec.slice(FOLDER_PREFIX.length))
+      if (folder === '') return null
+      filter.folder = folder
+      recognised += 1
+      continue
+    }
+    if (lower.startsWith(PROPERTY_PREFIX)) {
+      const body = spec.slice(PROPERTY_PREFIX.length)
+      const split = body.indexOf('=')
+      const name = (split < 0 ? body : body.slice(0, split)).trim()
+      if (name === '') return { ...filter, property: { name: '', value: null } }
+      const value = split < 0 ? null : body.slice(split + 1).trim()
+      filter.property = { name, value: value === null ? null : value === '' ? null : value }
+      recognised += 1
+      continue
+    }
+    return null
+  }
+  return recognised > 0 ? filter : null
+}
+
+/** Whether the field is holding a question rather than a name, so a name list would only mislead. */
+export function isTargetFilterSyntax(text: string): boolean {
+  return parseTargetFilter(text) !== null
 }
 
 /**

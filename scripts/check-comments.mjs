@@ -3767,6 +3767,8 @@ const allowed = new Map([
     "// settings panel is dense enough that the desktop row stays at its text height.",
     "// Over the rest of the form rather than inside it: a list that pushes the rows below it down",
     "// moves a control out from under the pointer that was reaching for it.",
+    "// A target written as a question (#work, folder:Notes, property:type=draft) has no answer until",
+    "// the run, so listing names under it would only pretend the question is already settled.",
   ]],
   ["src/client/features/quickadd/pick-day.ts", [
     "/**\n * The one implementation of \"run this choice, but ask which day it counts from first\".\n *\n * Two entries reach for it: the launcher's Shift, and the second palette command a choice can carry\n * when the reader wants that entry to have its own name or hotkey. Asking here rather than inside the\n * engine keeps the shape the launcher has always had — a dismissed question runs nothing at all, no\n * cancelled-run notice — and hands the engine a day it must not ask for a second time.\n */",
@@ -9503,6 +9505,7 @@ const allowed = new Map([
     "/**\n * The value in the shape the key already has, as the app's own property rules read that shape: a declared\n * `|type:number` or `|type:checkbox` wins, and otherwise a number or boolean property keeps its kind.\n * Text that cannot be read as the type stays text — a silent `42 → 0` or `soon → false` is a worse\n * surprise than a value the reader can see.\n */",
     "/**\n * A list keeps the shape it has: `nums: [1, 2]` with a third number stays a list of numbers, and the\n * whole list goes back to text if any one element cannot be read as that type — a half-coerced list is\n * two shapes in one property.\n */",
     "/**\n * The note a run asks for when the target names a folder instead of a note.\n *\n * The rows are the same \"name (folder)\" lines the settings field shows, narrowed to the folder the\n * author wrote — `Journal/` offers what sits in `Journal`, and an empty target offers everything.\n * A typed answer is confined to that folder, so a scoped target cannot be walked out of it.\n */",
+    "/**\n * The notes a filter target points at.\n *\n * `folder:` matches the folder and everything under it, which is what the app's own `folder:` search\n * does; a bare `Journal/` target stays the stricter \"direct children\" question, because there the\n * slash is pointing at a shelf, not a subtree. Several tags are an \"any of them\", and a property is\n * answered by the same server scan `{{FIELD:}}` uses, so the two can never disagree about which\n * notes carry a value.\n */",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -9550,6 +9553,13 @@ const allowed = new Map([
     "/** How an editor step ended: applied, or why it was not. */",
     "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several places lists them all rather than pretending to pick one, and a copy sitting\n * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root\n * gets no suffix: there is nothing left to tell apart.\n */",
     "/**\n * Whether a target names a note or asks for one. `Journal/` names a folder rather than a note — the\n * trailing slash is the author saying \"pick inside here each time\" — and an empty target asks for the\n * whole library. Everything else is a definite name, resolved by `splitTargetPath`.\n */",
+    "/** The notes whose property holds this value; `value` empty means \"has the property at all\". */",
+    "/** A note a filter target could point at, in the shape the candidate list needs. */",
+    "/**\n * A capture target written as a question rather than a name: `#work`, `tag:work`, `folder:Notes` and\n * `property:type=draft` each name a set of notes, and `|` puts several of them in one question.\n * The reference spells the same language in `captureFileFilterTarget.ts` / `propertyTarget.ts`.\n */",
+    "/** `multi` asks for several destinations; a capture writes into one. */",
+    "/**\n * `null` means the text is not filter syntax at all, so the caller falls back to reading it as a name.\n * One unrecognised word is enough for that: `Q3/plan` and `#idea for this` are things people type, and\n * silently turning them into a query would capture somewhere they never named.\n */",
+    "// A tag is one word, so `#idea for this` stays a note name someone typed rather than a query.",
+    "/** Whether the field is holding a question rather than a name, so a name list would only mislead. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9612,6 +9622,8 @@ const allowed = new Map([
     "/** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */",
     "/** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */",
     "/** What the editor step is told back: a test that wants a refusal sets it. */",
+    "/** The notes a `property:` scan is told to return, and the scans it was asked for. */",
+    "/** What a `property:` target's server scan answers; a test sets it. */",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -9802,6 +9814,8 @@ const allowed = new Map([
     "// side of it has: the link joins the body below the block rather than splitting the YAML.",
     "// A browser hands the clipboard over only when it believes the gesture asked for it, so a",
     "// refusal is its own answer rather than an empty paste.",
+    "// The same scan the `{{FIELD:}}` suggestion runs: the schema has no property index, so the server",
+    "// reads note text. Only the newest few hundred notes are looked at, which is the same window.",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -10906,6 +10920,12 @@ const allowed = new Map([
     "/** A property's values across the newest notes, for `{{FIELD:property}}` suggestions.\n *\n * The schema has no property index, so this reads note text and parses it. Two things bound the cost:\n * the scan stops at the newest few hundred notes, and `folder:` matches the note's own folder name\n * rather than walking the tree — a value list is a convenience, and a slow one is worse than the\n * author typing the word.\n */",
     "/** What a `{{FIELD:property}}` suggestion asks for. */",
     "/**\n * The values of one property across the newest notes, most-used first.\n *\n * Exported because the three bounds below ARE the behaviour, and a route handler is an awkward place\n * to prove them: the scan stops at the newest few hundred notes, the list stops at two hundred\n * values, and a value longer than two hundred characters is not a suggestion but a paragraph.\n */",
+    "/** The three optional scopes a property scan may be narrowed by. */",
+    "/**\n * The WHERE half of a property scan. Shared by the value list and the note list because the two must\n * agree about which notes count: a capture target that offered type=draft as a value and then\n * matched a different set of notes against it would be a second truth in one screen.\n */",
+    "/** The scalar values a note's property holds, lowercased for comparison. */",
+    "/** What a `property:field=value` capture target asks for. */",
+    "/**\n * The notes whose property holds this value, newest first — the note-side half of the same scan, for\n * a capture target that names a property instead of a note. With no value it asks \"which notes have\n * this property at all\", which is what `property:type` means.\n */",
+    "/** The notes a `property:field=value` capture target would write into. */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",

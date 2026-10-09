@@ -15,7 +15,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
-import { folderJoin, linkOptions, openingOptions, sanitizeTitle, splitTargetPath, targetScope, titleSuggestions, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
+import { folderJoin, linkOptions, openingOptions, parseTargetFilter, sanitizeTitle, splitTargetPath, targetScope, titleSuggestions, type NotePort, type NoteRef, type QuickAddRunStatus, type TargetCandidate, type TargetFilter } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import type { PropertyValueKind } from '@shared/property-values'
 import {
@@ -53,9 +53,10 @@ async function askTarget(
   session: RunSession,
   port: NotePort,
   folder: string | null,
+  candidates?: TargetCandidate[],
 ): Promise<{ title: string; folder: string | null } | QuickAddRunStatus> {
-  const candidates = port.knownNotes().filter((note) => folder === null || note.folderPath === folder)
-  const made = titleSuggestions(candidates, t('navigation.unfiled'))
+  const scoped = candidates ?? port.knownNotes().filter((note) => folder === null || note.folderPath === folder)
+  const made = titleSuggestions(scoped, t('navigation.unfiled'))
   const value = await askOrReuse(session, promptRequest({
     kind: 'suggester',
     key: 'target',
@@ -76,6 +77,40 @@ async function askTarget(
   return { title: answered.title, folder: confined }
 }
 
+/**
+ * The notes a filter target points at.
+ *
+ * `folder:` matches the folder and everything under it, which is what the app's own `folder:` search
+ * does; a bare `Journal/` target stays the stricter "direct children" question, because there the
+ * slash is pointing at a shelf, not a subtree. Several tags are an "any of them", and a property is
+ * answered by the same server scan `{{FIELD:}}` uses, so the two can never disagree about which
+ * notes carry a value.
+ */
+async function filterCandidates(port: NotePort, filter: TargetFilter): Promise<{ notes: TargetCandidate[]; error: string | null }> {
+  if (filter.multi) return { notes: [], error: t('quickadd.error_target_multi') }
+  if (filter.property && filter.property.name === '') return { notes: [], error: t('quickadd.error_target_property') }
+  const owned = new Map(port.knownNotes().map((note) => [note.id ?? note.title.toLocaleLowerCase(), note]))
+  let notes: TargetCandidate[] = [...owned.values()]
+  if (filter.property) {
+    notes = (await port.notesWithProperty(filter.property.name, filter.property.value)).map((hit) => {
+      const known = owned.get(hit.id ?? hit.title.toLocaleLowerCase())
+      return { id: hit.id, title: hit.title, folderPath: hit.folderPath ?? known?.folderPath ?? null, tags: known?.tags ?? [] }
+    })
+  }
+  if (filter.folder !== null) {
+    const wanted = filter.folder.toLocaleLowerCase()
+    notes = notes.filter((note) => {
+      const path = (note.folderPath ?? '').toLocaleLowerCase()
+      return path === wanted || path.startsWith(`${wanted}/`)
+    })
+  }
+  if (filter.tags.length > 0) {
+    const wanted = filter.tags.map((tag) => tag.toLocaleLowerCase())
+    notes = notes.filter((note) => (note.tags ?? []).some((tag) => wanted.includes(tag.toLocaleLowerCase())))
+  }
+  return { notes, error: null }
+}
+
 async function resolveTarget(
   choice: QuickAddCaptureChoice,
   session: RunSession,
@@ -89,7 +124,19 @@ async function resolveTarget(
   }
   const formatted = await formatWithPrompts(choice.targetTitle, runtime, session)
   const scope = targetScope(formatted.text)
-  const target = scope.ask ? await askTarget(session, port, scope.folder) : splitTargetPath(formatted.text)
+  const filter = parseTargetFilter(formatted.text)
+  let target: { title: string; folder: string | null } | QuickAddRunStatus
+  if (filter) {
+    const found = await filterCandidates(port, filter)
+    if (found.error) return { kind: 'failed', reason: found.error }
+    target = await askTarget(session, port, filter.folder, found.notes)
+  }
+  else if (scope.ask) {
+    target = await askTarget(session, port, scope.folder)
+  }
+  else {
+    target = splitTargetPath(formatted.text)
+  }
   if (session.dismissed) return { kind: 'cancelled' }
   if ('kind' in target) return target
   if (!target.title) return { kind: 'failed', reason: t('quickadd.error_target_missing') }

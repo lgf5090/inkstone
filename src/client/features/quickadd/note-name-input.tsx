@@ -11,7 +11,7 @@ import type { KeyboardEvent } from 'react'
 import { Input } from '../../components/form'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { titleSuggestions } from '../../lib/quickadd/context'
+import { isTargetFilterSyntax, titleSuggestions } from '../../lib/quickadd/context'
 import { compileQuery, queryMatches } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 
@@ -61,6 +61,9 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
     // arrives after boot: without it the list would keep the answer it made before the dictionary landed.
   }, [notes, value, pinyinVersion])
   const { rows, hidden, error } = listing
+  // A target written as a question (#work, folder:Notes, property:type=draft) has no answer until
+  // the run, so listing names under it would only pretend the question is already settled.
+  const asking = isTargetFilterSyntax(value)
 
   useEffect(() => {
     setCursor((current) => (rows.length === 0 ? 0 : Math.min(current, rows.length - 1)))
@@ -128,7 +131,12 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
           {error === 'syntax' ? t('filter.regex_syntax') : t('filter.regex_unsafe')}
         </p>
       )}
-      {open && !error && (
+      {open && asking && (
+        <p className="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
+          {t('quickadd.suggest_filter_note')}
+        </p>
+      )}
+      {open && !error && !asking && (
         <div
           ref={listRef}
           id={listId}
