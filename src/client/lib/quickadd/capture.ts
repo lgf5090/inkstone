@@ -9,13 +9,15 @@
  * the first run wrote.
  */
 import { QUICKADD_LIMITS, type QuickAddCaptureChoice } from '@shared/quickadd'
-import { parseFrontMatter, setFrontMatterValue, type FrontMatterValue } from '@shared/markdown-utils'
+import { parseFrontMatter, setFrontMatterValue, type FrontMatterListItem, type FrontMatterValue } from '@shared/markdown-utils'
+import { propertyValueKind } from '@shared/property-values'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
 import { sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
+import type { PropertyValueKind } from '@shared/property-values'
 import {
   anchorAllowsSubsections,
   appendAtBottom,
@@ -118,20 +120,25 @@ const NUMERIC_TEXT = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i
 const TRUE_WORDS = new Set(['true', 'yes', 'on', '1'])
 const FALSE_WORDS = new Set(['false', 'no', 'off', '0'])
 
+function booleanWord(text: string): boolean | null {
+  const words = text.trim().toLowerCase()
+  return TRUE_WORDS.has(words) ? true : FALSE_WORDS.has(words) ? false : null
+}
+
 /**
- * The value in the shape the key already has: a declared `|type:number` or `|type:checkbox` wins, and
- * otherwise a property that carries a number or a boolean keeps that shape. Text that cannot be read as
- * the type stays text — a silent `42 → 0` or `soon → false` is a worse surprise than a value the
- * reader can see.
+ * The value in the shape the key already has, as the app's own property rules read that shape: a declared
+ * `|type:number` or `|type:checkbox` wins, and otherwise a number or boolean property keeps its kind.
+ * Text that cannot be read as the type stays text — a silent `42 → 0` or `soon → false` is a worse
+ * surprise than a value the reader can see.
  */
-function typedPropertyValue(text: string, declared: ValueInputType | null, existing: unknown): FrontMatterValue {
+function typedPropertyValue(text: string, declared: ValueInputType | null, kind: PropertyValueKind): FrontMatterValue {
   const trimmed = text.trim()
-  if (declared === 'number' || declared === 'slider' || typeof existing === 'number') {
+  if (declared === 'number' || declared === 'slider' || kind === 'number') {
     if (NUMERIC_TEXT.test(trimmed)) return Number(trimmed)
   }
-  if (declared === 'checkbox' || typeof existing === 'boolean') {
-    const words = trimmed.toLowerCase()
-    if (TRUE_WORDS.has(words) || FALSE_WORDS.has(words)) return TRUE_WORDS.has(words)
+  if (declared === 'checkbox' || kind === 'boolean') {
+    const word = booleanWord(trimmed)
+    if (word !== null) return word
   }
   return text
 }
@@ -345,6 +352,24 @@ function propertyPlan(choice: QuickAddCaptureChoice, existing: PromptAnswer, val
   return merged
 }
 
+/**
+ * A list keeps the shape it has: `nums: [1, 2]` with a third number stays a list of numbers, and the
+ * whole list goes back to text if any one element cannot be read as that type — a half-coerced list is
+ * two shapes in one property.
+ */
+function typedPropertyList(items: string[], existing: unknown, declared: ValueInputType | null): FrontMatterListItem[] {
+  const all = (test: (entry: unknown) => boolean): boolean => Array.isArray(existing)
+    && existing.length > 0
+    && existing.every(test)
+  const numeric = declared === 'number' || declared === 'slider' || all((entry) => typeof entry === 'number')
+  if (numeric && items.every((item) => NUMERIC_TEXT.test(item.trim())))
+    return items.map((item) => Number(item.trim()))
+  const booleanish = declared === 'checkbox' || all((entry) => typeof entry === 'boolean')
+  if (booleanish && items.every((item) => booleanWord(item) !== null))
+    return items.map((item) => booleanWord(item) as boolean)
+  return items
+}
+
 export async function runCaptureChoice(
   choice: QuickAddCaptureChoice,
   port: NotePort,
@@ -421,11 +446,12 @@ export async function runCaptureChoice(
     const existing = key in parsed.data ? (parsed.data[key] as PromptAnswer) : null
     const planned = propertyPlan(choice, existing, value.text)
     const declared = declaredValueType(propertyFormat(choice))
+    const kind = propertyValueKind(existing, key)
     if (choice.property.action === 'append' && (planned as string[]).length === 0)
       return { kind: 'empty', noteId: note.id }
     const next = setFrontMatterValue(body, key, Array.isArray(planned)
-      ? planned.map(String)
-      : typedPropertyValue(String(planned ?? ''), declared, existing))
+      ? typedPropertyList(planned.map(String), existing, declared)
+      : typedPropertyValue(String(planned ?? ''), declared, kind))
     if (next === body) return { kind: 'empty', noteId: note.id }
     if (!(await port.write(note.id, next, body))) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
     port.recordRun(choice.id)

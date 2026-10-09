@@ -824,6 +824,56 @@ describe('a property capture keeps the note’s own types', () => {
   })
 })
 
+describe('a property capture keeps the shape of a list', () => {
+  const appendInto = (note: string, key: string, answer: string) => {
+    const fake = harness({ Note: note })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true,
+        prompted: false,
+        name: key,
+        action: 'append' as const,
+        createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE}}' },
+      },
+    }
+    answers.queue = [[answer]]
+    return { fake, choice }
+  }
+
+  it('adds a number to a list of numbers', async () => {
+    const { fake, choice } = appendInto('---\nnums: [1, 2]\n---\nbody\n', 'nums', '3')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual([1, 2, 3])
+  })
+
+  it('adds a checkbox to a list of them', async () => {
+    const { fake, choice } = appendInto('---\nflags: [true]\n---\nbody\n', 'flags', 'false')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.flags).toEqual([true, false])
+  })
+
+  it('leaves a text list as text', async () => {
+    const { fake, choice } = appendInto('---\nwords: [one]\n---\nbody\n', 'words', 'two')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.words).toEqual(['one', 'two'])
+  })
+
+  it('does not turn a list of number-looking text into numbers', async () => {
+    const { fake, choice } = appendInto('---\nnums: [\x271\x27, \x272\x27]\n---\nbody\n', 'nums', '3')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual(['1', '2', '3'])
+  })
+
+  it('falls back to text when one element is not a number', async () => {
+    const { fake, choice } = appendInto('---\nnums: [1, x]\n---\nbody\n', 'nums', '3')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual(['1', 'x', '3'])
+  })
+})
+
 describe('creating a note from a template', () => {
   it('creates a note named by the format, in the configured folder', async () => {
     const fake = harness({})

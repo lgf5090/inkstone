@@ -396,6 +396,16 @@ describe('merging a template’s properties into a note', () => {
     expect(out).toContain('a: 1')
   })
 
+  it('carries a template’s numeric list into a note that has properties', () => {
+    const out = mergeTemplateProperties('---\na: 1\n---\nBody\n', '---\nnums: [1, 2]\n---\nT\n')
+    expect(parseFrontMatter(out).data.nums).toEqual([1, 2])
+  })
+
+  it('does not add an entry the note already has in another shape', () => {
+    const out = mergeTemplateProperties('---\ntags: [1, 2]\n---\nBody\n', '---\ntags:\n  - \'2\'\n---\nT\n')
+    expect(parseFrontMatter(out).data.tags).toEqual([1, 2])
+  })
+
   it('refuses a prototype-pollution key from a template written elsewhere', () => {
     const out = mergeTemplateProperties('# Title\n', '---\n__proto__: polluted\n---\nT\n')
     expect(out).not.toContain('proto')

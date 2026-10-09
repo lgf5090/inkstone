@@ -10,7 +10,7 @@
  * regression it fixed. The rules are reproduced here; the numbering in the test file names which
  * behaviour each rule protects.
  */
-import { parseFrontMatter, setFrontMatterValue, type FrontMatterValue } from '@shared/markdown-utils'
+import { parseFrontMatter, setFrontMatterValue, type FrontMatterListItem, type FrontMatterValue } from '@shared/markdown-utils'
 import { parseDatePattern } from './date-pattern'
 
 export interface HeadingLine {
@@ -645,7 +645,8 @@ const SET_LIKE_KEYS = new Set(['tags', 'tag', 'aliases', 'alias', 'cssclasses'])
 /** What a properties block can hold without a nested structure: this app's own value type. */
 function templateScalar(value: unknown): FrontMatterValue | null {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
-  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) return value as string[]
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'))
+    return value as FrontMatterListItem[]
   return null
 }
 
@@ -695,7 +696,7 @@ export function mergeTemplateProperties(content: string, template: string): stri
     }
     if (!SET_LIKE_KEYS.has(own.toLowerCase())) continue
     const current = Array.isArray(existing) ? existing.map(String) : [String(existing)]
-    const additions = Array.isArray(incoming) ? incoming : [String(incoming)]
+    const additions = (Array.isArray(incoming) ? incoming : [incoming]).map(String)
     const merged = [...current]
     for (const item of additions) {
       if (!merged.some((entry) => entry.trim() === item.trim())) merged.push(item)
