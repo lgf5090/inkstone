@@ -3,7 +3,6 @@ import { Link, Link2 } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
 import { extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils';
 import { t } from '../../lib/i18n';
-import { SectionLabel } from '../../components/primitives';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 
@@ -63,11 +62,10 @@ export function SidebarOutlinks() {
     }, [activeId, content, byKey]);
 
     if (!activeId)
-        return (<><SectionLabel>{t('sidebar.outlinks_heading')}</SectionLabel><p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.links_no_note')}</p></>);
+        return <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.links_no_note')}</p>;
     if (content === undefined)
-        return (<><SectionLabel>{t('sidebar.outlinks_heading')}</SectionLabel><p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t('common.loading')}</p></>);
+        return <p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t('common.loading')}</p>;
     return (<>
-      <SectionLabel>{t('sidebar.outlinks_heading')}</SectionLabel>
       {linked.length === 0 && missing.length === 0 ? (<p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.outlinks_empty')}</p>) : null}
       {linked.length > 0 && (<div role="list" aria-label={t('sidebar.tab_outlinks')} data-outlink-list className="space-y-px">
         {linked.map(({ note, alias }) => (<button key={note.id} type="button" role="listitem" data-outlink-id={note.id} onClick={() => void openNote(note.id)} className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[12.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]">

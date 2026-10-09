@@ -4,7 +4,7 @@ import { useUi } from '../../store/ui';
 import { useBreakpoint, useNow } from '../../lib/hooks';
 import { t } from '../../lib/i18n';
 import { fullTime, shortSince } from '../../lib/time';
-import { IconButton, SectionLabel } from '../../components/primitives';
+import { IconButton } from '../../components/primitives';
 import { ExplorerNote } from './ExplorerNote';
 
 /**
@@ -25,8 +25,7 @@ export function SidebarRecent() {
         .map((id) => notes[id])
         .filter((note) => !!note && !note.deletedAt && !note.isArchived);
     return (<>
-      <div className="flex items-center justify-between pr-1">
-        <SectionLabel className="flex-1">{t('sidebar.tab_recent')}</SectionLabel>
+      <div className="flex items-center justify-center">
         {visible.length > 0 && (
           <IconButton label={t('sidebar.recent_clear')} size="sm" onClick={clearRecentNotes} data-recent-clear>
             <Eraser size={13}/>

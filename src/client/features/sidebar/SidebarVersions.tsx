@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { History, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import type { NoteVersionMeta } from '@shared/types';
 import { formatBytes, fullTime, relativeTime } from '../../lib/time';
 import { api } from '../../lib/api';
@@ -74,8 +74,8 @@ export function SidebarVersions() {
     };
 
     if (!activeId)
-        return (<><SectionRow/><p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.versions_no_note')}</p></>);    return (<>
-      <SectionRow/>
+        return <p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.versions_no_note')}</p>;
+    return (<>
       {error ? (<div className="flex items-center justify-between gap-2 px-2 py-3 text-[12px] text-[var(--text-quaternary)]"><span>{t('sidebar.versions_error')}</span><Button size="sm" variant="ghost" onClick={() => setReload((value) => value + 1)}>{t('common.retry')}</Button></div>) : versions === null ? (<p className="px-2 py-3 text-[12px] text-[var(--text-quaternary)]">{t('common.loading')}</p>) : versions.length === 0 ? (<p className="px-2 py-3 text-[12px] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.versions_empty')}</p>) : (<ol className="space-y-px" aria-label={t('sidebar.tab_history')} data-version-list>
           {versions.map((version) => (<li key={version.id} data-version-id={version.id} className="group flex items-center gap-1.5 rounded-[var(--r-md)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]">
                 <span className="min-w-0 flex-1" title={fullTime(version.createdAt)}>
@@ -92,8 +92,3 @@ export function SidebarVersions() {
     </>);
 }
 
-function SectionRow() {
-    return (<div className="flex items-center gap-1.5 px-2 pt-1 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
-      <History size={11} aria-hidden="true"/>{t('sidebar.tab_history')}
-    </div>);
-}

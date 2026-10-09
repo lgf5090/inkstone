@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, ImageDown, Maximize2, Waypoints, X } from 'lucide-react'
 import type { GraphQuery, GraphResponse } from '@shared/types'
 import { api } from '../../lib/api'
+import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
 import { Select } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
@@ -70,10 +71,10 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
 
   return <section className={fill ? 'flex min-h-0 flex-1 flex-col' : 'flex h-64 shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-base)]'}
     aria-label={t('graph.local_graph')}>
-    <div className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-1 text-[11px] font-semibold tracking-[.04em] text-[var(--text-tertiary)]">
+    <div className={cn('flex min-h-8 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-semibold tracking-[.04em] text-[var(--text-tertiary)]', fill ? 'justify-center px-2 py-1' : 'justify-between border-b border-[var(--border-subtle)] px-3 py-1')}>
       <div className="flex min-w-0 items-center gap-1.5">
         <Waypoints size={12} aria-hidden="true"/>
-        <span className="truncate">{t('graph.local_graph')}</span>
+        {!fill && <span className="truncate">{t('graph.local_graph')}</span>}
         {data && <span className="tabular shrink-0 text-[10.5px]">· {data.nodes.length}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">

@@ -173,6 +173,16 @@ describe('recent files tab', () => {
         expect(container.querySelector('[data-recent-list]')).toBeNull();
     });
 
+    it('centres its one control and prints no tab name of its own', async () => {
+        useNotes.setState({ notes: { a: summary('a', 'Alpha') } });
+        useUi.setState({ recentNoteIds: ['a'] });
+        await open();
+        const row = panel().firstElementChild!;
+        expect(row.textContent).toBe('');
+        expect(row.className).toContain('justify-center');
+        expect(row.querySelector('[data-recent-clear]')).toBeTruthy();
+    });
+
     it('opens the note a row is clicked on', async () => {
         const openNote = vi.fn(async () => {});
         useNotes.setState({ notes: { a: summary('a', 'Alpha') }, openNote });
@@ -224,6 +234,22 @@ describe('link tabs', () => {
         expect(openNote).toHaveBeenCalledWith('tgt');
     });
 
+    it('lists the outgoing links without repeating the tab name above them', async () => {
+        await openTab('outlinks');
+        expect(container.querySelectorAll('[data-outlink-id]').length).toBe(1);
+        expect(panel().textContent).not.toContain(t('sidebar.outlinks_heading'));
+    });
+
+    it('keeps the backlink count and drops the title the tab already carries', async () => {
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({ backlinks: [{ id: 'tgt', title: 'Target note', context: 'points here' }], unlinked: [] });
+        await openTab('backlinks');
+        await vi.waitFor(() => expect(container.textContent).toContain('points here'), { timeout: 4000 });
+        const row = container.querySelector<HTMLElement>('[role="tabpanel"] section > div')!;
+        expect(row.className).toContain('justify-center');
+        expect(row.textContent).not.toContain(t('common.backlinks'));
+        expect(row.textContent).toContain('1');
+    });
+
     it('asks for a note before showing backlinks', async () => {
         useUi.setState({ activeNoteId: null });
         await openTab('backlinks');
@@ -269,6 +295,12 @@ describe('history tab', () => {
         await vi.waitFor(() => expect(container.querySelectorAll('[data-version-id]').length).toBe(1), { timeout: 4000 });
         const row = container.querySelector('[data-version-id="v1"]')!;
         expect(row.textContent).toContain('120 B');
+    });
+
+    it('starts at the snapshots without repeating the tab name', async () => {
+        await openTab('history');
+        await vi.waitFor(() => expect(container.querySelectorAll('[data-version-id]').length).toBe(1), { timeout: 4000 });
+        expect(panel().textContent).not.toContain(t('sidebar.tab_history'));
     });
 
     it('asks before putting an old snapshot back, then restores with the fetched body', async () => {
