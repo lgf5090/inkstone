@@ -205,6 +205,25 @@ describe('the link a run writes back into the note it started from', () => {
     expect(dispatches[0].changes.insert).toBe(' [[Beta]]')
   })
 
+  it('moves a caret parked in the properties block below it', async () => {
+    seed('---\nmood: glad\n---\nfirst body\n')
+    const { view, dispatches } = fakeView('---\nmood: glad\n---\nfirst body\n', 4)
+    editorView.current = view
+    expect(await notePort.appendLink(source, target, { placement: 'lineEnd' })).toBe(true)
+    expect(dispatches).toHaveLength(1)
+    expect(dispatches[0].changes.from, 'the link joins the first line of the body, not the dashes').toBe(29)
+    expect(dispatches[0].changes.insert).toBe(' [[Beta]]')
+  })
+
+  it('still honours a caret on a later line of a note that has properties', async () => {
+    seed('---\nmood: glad\n---\nfirst body\nsecond line\n')
+    const { view, dispatches } = fakeView('---\nmood: glad\n---\nfirst body\nsecond line\n', 32)
+    editorView.current = view
+    expect(await notePort.appendLink(source, target, { placement: 'lineEnd' })).toBe(true)
+    expect(dispatches).toHaveLength(1)
+    expect(dispatches[0].changes.from, 'past the block the guard looks, but still the caret’s own line').toBe(41)
+  })
+
   it('refuses the line placement when a different note is on screen', async () => {
     seed('started here\n')
     const { view, dispatches } = fakeView('someone else\nand their note\n', 3)

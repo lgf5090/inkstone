@@ -16,7 +16,7 @@ import { useQuickAdd } from '../../store/quickadd'
 import { api } from '../../lib/api'
 import { folderPath, folderPathLabel } from '../../lib/folders'
 import { getActiveEditorView } from '../../editor/commands'
-import { extractHeadings, lineSlot } from './insertion'
+import { extractHeadings, frontMatterEnd, lineSlot } from './insertion'
 import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
@@ -350,7 +350,10 @@ function linkAtCaretLine(source: NoteRef, link: string): boolean {
   if (useUi.getState().activeNoteId !== source.id) return false
   const view = getActiveEditorView()
   if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return false
-  const line = view.state.doc.lineAt(view.state.selection.main.head)
+  // A caret parked in the note’s own properties block gets the same rule a capture on either
+  // side of it has: the link joins the body below the block rather than splitting the YAML.
+  const text = view.state.doc.toString()
+  const line = view.state.doc.lineAt(Math.max(view.state.selection.main.head, frontMatterEnd(text)))
   if (line.text.includes(link)) return true
   const insert = line.text.trim() === '' ? link : ` ${link}`
   view.dispatch({

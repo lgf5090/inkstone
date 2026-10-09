@@ -561,7 +561,7 @@ export function isWithinFrontMatter(content: string, line: number): boolean {
 }
 
 /** Offset just past the note's properties block, or 0 when it opens with text. */
-function frontMatterEnd(content: string): number {
+export function frontMatterEnd(content: string): number {
   const opening = /^---[ \t]*\r?\n/.exec(content)
   if (!opening) return 0
   let cursor = opening[0].length
