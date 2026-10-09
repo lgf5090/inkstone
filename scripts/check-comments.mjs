@@ -501,9 +501,10 @@ const allowed = new Map([
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
   ]],
   ["src/client/editor/link-hover-plugin.test.ts", [
-    "// The plugin measures the caret inside `requestMeasure`, which waits for a frame; a loaded machine",
-    "// can starve that frame, and 40ms then reads as \"no proposal yet\". 150ms keeps the wait honest for",
-    "// the negative cases too, since a longer silence can only make \"stays quiet\" harder to satisfy.",
+    "// The plugin measures the caret inside `requestMeasure`, which waits for a frame, so a test that",
+    "// expects a proposal has to wait for *that* rather than for a slice of time: 40ms starved at low",
+    "// load and 150ms still starves when the machine is busy. A test expecting silence has no condition",
+    "// to watch, so it keeps the floor — a longer silence can only make \"stays quiet\" harder to satisfy.",
   ]],
   ["src/client/editor/link-hover-plugin.ts", [
     "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
@@ -1157,6 +1158,10 @@ const allowed = new Map([
     "// The other three passes `prepareDeckSheet` runs are each the only thing that turns one kind of",
     "// placeholder into a picture on the sheet, so each is asserted the same way: a dropped pass has to",
     "// redden a named case rather than export a page of \"Rendering…\" text.",
+    "// Every pass in the sheet is chained through a frame or a dynamic import, so a fixed number of",
+    "// turns is a bet on how fast this machine is: the same deck needed 90 turns idle and over 120",
+    "// while the box was loaded. The probe still decides when the wait ends; a starved run just gets",
+    "// more turns inside the same budget.",
   ]],
   ["src/client/features/presentation/deck-print.tsx", [
     "// Exporting waits for the sheet to draw what the show draws, but not forever: a diagram that never",
@@ -10099,6 +10104,9 @@ const allowed = new Map([
     "/**\n     * Wrap one bare mention of `targetId`'s title in a link inside `sourceId`.\n     *\n     * The source note can be open with keystrokes still in flight, so the write waits for\n     * those to reach the server first: a save queued behind us would land on the pre-link\n     * text and undo the click, and `adoptNote` below deliberately ignores the server copy\n     * while that note is still dirty. Whichever way it goes the reader is told, because\n     * the row they clicked may no longer mean what it said.\n     */",
     "/** Compute a closed note's next body from its current server copy; null refuses the write. */",
     "/**\n     * Rewrite the body of a note the reader is not looking at.\n     *\n     * A query result's checkbox stands for a line in another note, so the write has to land without\n     * touching the workspace: `openNote` would bind that note to a pane, and `editContent` refuses a body\n     * the store has never held. The note is therefore read again from the server inside the same queued\n     * write, which is what makes the transform see the text as it now is rather than as an index cache\n     * copy said it was; the caller's transform returning null is the refusal, and nothing is sent.\n     */",
+    "// The outbox keeps the write, so a failed pass is retried by the next edit, the blur flush or",
+    "// pagehide; nothing here can act on the rejection, and letting it escape turns a retried save",
+    "// into an unhandled rejection in the console.",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",
@@ -11129,6 +11137,10 @@ const allowed = new Map([
     "/**\n * The HTTP shape of \"turn this mention into a link\", which the function-level tests in\n * `backlink-mentions.test.ts` do not cover: which status the reader gets back, and what is\n * left untouched when the row they clicked has already moved on.\n */",
     "// The route checks the source id against the note-id grammar before it looks anything up,",
     "// so every id here has to be shaped like one.",
+  ]],
+  ["tests/local-db-outbox-double.test.ts", [
+    "/**\n * `useNotes.flush()` replays the outbox through `localDb.withOutboxReplayLock`, so a test double for\n * `lib/db` that models the queue without the lock throws a `TypeError` the moment a scheduled flush\n * fires — and because the debounced save is fire-and-forget, that landed as an unhandled rejection\n * attributed to whichever test file happened to be running. The method was added to the real store\n * and only two of the doubles were updated; the rest kept passing until a busy machine moved the\n * timer. This reads the doubles instead: a mock that names one of the outbox methods has to name the\n * lock with it.\n */",
+    "/** The factory a file hands to `vi.mock('…/lib/db', …)`, or null when it mocks none. */",
   ]],
   ["tests/login-throttle-targets.test.ts", [
     "// Malformed names all hash to one identity, so an anonymous caller used to be able",

@@ -97,11 +97,23 @@ function mountEditor(doc = 'Before [[Note B]] after') {
   return { view, proposals, container }
 }
 
-// The plugin measures the caret inside `requestMeasure`, which waits for a frame; a loaded machine
-// can starve that frame, and 40ms then reads as "no proposal yet". 150ms keeps the wait honest for
-// the negative cases too, since a longer silence can only make "stays quiet" harder to satisfy.
-async function waitForMeasure(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 150))
+// The plugin measures the caret inside `requestMeasure`, which waits for a frame, so a test that
+// expects a proposal has to wait for *that* rather than for a slice of time: 40ms starved at low
+// load and 150ms still starves when the machine is busy. A test expecting silence has no condition
+// to watch, so it keeps the floor — a longer silence can only make "stays quiet" harder to satisfy.
+const MEASURE_FLOOR_MS = 150
+const MEASURE_BUDGET_MS = 4000
+
+async function waitForMeasure(settled?: () => boolean): Promise<void> {
+  if (!settled) {
+    await new Promise((resolve) => setTimeout(resolve, MEASURE_FLOOR_MS))
+    return
+  }
+  const deadline = Date.now() + MEASURE_BUDGET_MS
+  while (!settled()) {
+    if (Date.now() > deadline) return
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
 }
 
 describe('caret proposal from link hover plugin', () => {
@@ -109,13 +121,13 @@ describe('caret proposal from link hover plugin', () => {
     const { view, proposals, container } = mountEditor()
     const start = view.state.doc.toString().indexOf('[[Note B]]')
     view.dispatch({ selection: { anchor: start + 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)).not.toBeNull()
     expect(proposals.at(-1)!.textContent).toBe('[[Note B]]')
     expect(proposals.at(-1)!.dataset.wikilink).toBe(encodeDataValue('Note B'))
 
     view.dispatch({ selection: { anchor: 0 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 1)
     expect(proposals.at(-1)).toBeNull()
 
     view.destroy()
@@ -126,7 +138,7 @@ describe('caret proposal from link hover plugin', () => {
     const { view, proposals, container } = mountEditor()
     const start = view.state.doc.toString().indexOf('[[Note B]]')
     view.dispatch({ selection: { anchor: start + 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     const mark = container.querySelector<HTMLElement>('.cm-md-wikilink')!
     const proposalsBefore = proposals.length
 
@@ -151,7 +163,7 @@ describe('hashtag proposals from the editor', () => {
     const { view, proposals, container } = mountEditor('Status #work/deep done')
     const mark = container.querySelector<HTMLElement>('.cm-md-tag')!
     mark.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 40, clientY: 8 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1), 'the hashtag mark itself').toBe(mark)
     expect(mark.dataset.tag).toBe(encodeDataValue('work/deep'))
     view.destroy()
@@ -161,7 +173,7 @@ describe('hashtag proposals from the editor', () => {
   it('proposes the tag the caret sits inside', async () => {
     const { view, proposals, container } = mountEditor('Status #work/deep done')
     view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('work') + 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)!.dataset.tag).toBe(encodeDataValue('work/deep'))
     view.destroy()
     container.remove()
@@ -177,7 +189,7 @@ describe('markdown link proposals from the editor', () => {
     expect(mark.dataset.mdlink).toBe(encodeDataValue('https://example.test/docs'))
 
     mark.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 40, clientY: 8 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)).toBe(mark)
 
     view.destroy()
@@ -197,11 +209,11 @@ describe('markdown link proposals from the editor', () => {
   it('closes the note card when the caret moves from a wiki link into a plain link', async () => {
     const { view, proposals, container } = mountEditor('[[Note B]] then [the docs](https://example.test/docs)')
     view.dispatch({ selection: { anchor: 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)!.textContent).toBe('[[Note B]]')
 
     view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('docs') + 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 1)
     expect(proposals.at(-1)).toBeNull()
 
     view.destroy()
@@ -222,7 +234,7 @@ describe('live preview links and pictures', () => {
     const { view, proposals, container } = mountEditor('Read the docs now')
     const anchor = renderedSpan(container.querySelector<HTMLElement>('.cm-line')!, { href: 'https://example.test/live' })
     anchor.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 8 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)).toBe(anchor)
     expect(anchor.dataset.mdlink, 'a rendered anchor needs no source datum').toBeUndefined()
 
@@ -234,7 +246,7 @@ describe('live preview links and pictures', () => {
     const { view, proposals, container } = mountEditor('Read the docs now')
     const image = renderedSpan(container.querySelector<HTMLElement>('.cm-line')!, { src: 'https://example.test/pic.png' })
     image.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 8 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)).toBe(image)
 
     view.destroy()
@@ -258,7 +270,7 @@ describe('mouse hover behavior of link hover plugin', () => {
     const { view, proposals, container } = mountEditor()
     const start = view.state.doc.toString().indexOf('[[Note B]]')
     view.dispatch({ selection: { anchor: start + 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     const proposalsBefore = proposals.length
 
     const mark = container.querySelector<HTMLElement>('.cm-md-wikilink')!
@@ -276,18 +288,18 @@ describe('mouse hover behavior of link hover plugin', () => {
     )
     const start = view.state.doc.toString().indexOf('[[Note B]]')
     view.dispatch({ selection: { anchor: start + 2 } })
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.at(-1)?.textContent === '[[Note B]]')
     expect(proposals.at(-1)!.textContent).toBe('[[Note B]]')
 
     const marks = [...container.querySelectorAll<HTMLElement>('.cm-md-wikilink')]
     const markC = marks.find((mark) => mark.textContent === '[[Note C]]')!
     markC.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 100 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.at(-1)?.textContent === '[[Note C]]')
     expect(proposals.at(-1)!.textContent).toBe('[[Note C]]')
 
     const line = container.querySelector<HTMLElement>('.cm-line')!
     line.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 50, clientY: 50 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.at(-1)?.textContent === '[[Note B]]')
     expect(proposals.at(-1)!.textContent).toBe('[[Note B]]')
 
     view.destroy()
@@ -304,7 +316,7 @@ describe('mouse hover behavior of link hover plugin', () => {
     line.appendChild(rendered)
 
     rendered.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 100 }))
-    await waitForMeasure()
+    await waitForMeasure(() => proposals.length > 0)
     expect(proposals.at(-1)).toBe(rendered)
     expect(rendered.dataset.wikilink).toBe(encodeDataValue('Note B|shown as C'))
 

@@ -260,8 +260,16 @@ function stubFonts(ready: Promise<unknown> = Promise.resolve()) {
 
 // Bounded, then asserted: a loop that never settles must fail as "this never happened", because a
 // test that hangs instead reports a timeout and says nothing about which promise the code broke.
-async function until(probe: () => boolean, ticks = 120) {
-  for (let index = 0; index < ticks && !probe(); index++) await flush(1)
+async function until(probe: () => boolean, budgetMs = 4000) {
+  // Every pass in the sheet is chained through a frame or a dynamic import, so a fixed number of
+  // turns is a bet on how fast this machine is: the same deck needed 90 turns idle and over 120
+  // while the box was loaded. The probe still decides when the wait ends; a starved run just gets
+  // more turns inside the same budget.
+  const deadline = Date.now() + budgetMs
+  while (!probe()) {
+    if (Date.now() > deadline) break
+    await flush(1)
+  }
   return probe()
 }
 

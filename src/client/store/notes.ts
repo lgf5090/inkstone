@@ -1604,7 +1604,12 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
     scheduleLocalDbFlush();
     const delay = Math.max(100, useSession.getState().settings.editor.autoSaveDelay);
     window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => void get().flush(), delay);
+    // The outbox keeps the write, so a failed pass is retried by the next edit, the blur flush or
+    // pagehide; nothing here can act on the rejection, and letting it escape turns a retried save
+    // into an unhandled rejection in the console.
+    saveTimer = window.setTimeout(() => {
+        void get().flush().catch(() => { });
+    }, delay);
 }
 function normalizeNoteSummaryTags(note: NoteSummary): NoteSummary {
     const tags = sortTagNames(note.tags);
@@ -2633,7 +2638,7 @@ export function acknowledgeOutboxResult(result: OutboxResult): void {
         if (pending.writeId !== result.writeId) {
             if (result.rev !== undefined && result.rev > pending.rev) {
                 advanceDirtyRevision(result.noteId, pending.rev, result.rev, () => useNotes.getState());
-                void useNotes.getState().flush({ immediate: true });
+                void useNotes.getState().flush({ immediate: true }).catch(() => { });
             }
             return;
         }

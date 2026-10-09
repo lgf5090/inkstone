@@ -18,6 +18,7 @@ vi.mock('../lib/db', () => ({
     dropContent: vi.fn(async () => {}),
     getOutbox: async () => mocks.queue,
     enqueueOutbox: async () => {},
+    withOutboxReplayLock: async (_owner: string, task: () => Promise<void>) => { await task(); return true },
   },
   publishBroadcast: vi.fn(),
 }))
