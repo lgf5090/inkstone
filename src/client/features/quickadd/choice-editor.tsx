@@ -26,6 +26,7 @@ import {
   type QuickAddOnePageMode,
   type QuickAddOpenLayout,
   type QuickAddOpenPane,
+  type QuickAddLinkPlacement,
   type QuickAddTemplateMode,
   type QuickAddTemplatePick,
   type QuickAddMacroChoice,
@@ -447,6 +448,7 @@ function TemplateFields({ draft, patch, renderFormat }: {
         <Checkbox checked={draft.copyLink} onChange={(copyLink) => patch({ copyLink })} label={t('quickadd.field_copy_link')}/>
       </div>
       <OpeningFields draft={draft} set={patch}/>
+      <BacklinkFields draft={draft} set={patch}/>
     </div>
   )
 }
@@ -456,11 +458,59 @@ function TemplateFields({ draft, patch, renderFormat }: {
  * to be opened at all: a choice that never opens anything has no pane, mode or focus to name. The three
  * mode names are the app’s own editor labels, so the choice says what the toolbar switch says.
  */
+/** Where the backlink goes, and in what shape. */
+type BacklinkPatch = {
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
+}
+
 /** The three fields the opening rows write back; the switch that reveals them stays the choice’s own. */
 type OpeningPatch = {
   openPane?: QuickAddOpenPane
   openLayout?: QuickAddOpenLayout
   openFocus?: boolean
+}
+
+/**
+ * Where the link back into the note the run started from is written. The two extra fields only appear
+ * for the placements that need them: a property has to be named, and only the line the caret was on can
+ * hold a transclusion — a property value is link-only, and a labelled line already says what it is.
+ */
+function BacklinkFields({ draft, set }: {
+  draft: QuickAddTemplateChoice | QuickAddCaptureChoice
+  set: (next: BacklinkPatch) => void
+}) {
+  if (!draft.linkToSource) return null
+  const placement = draft.linkPlacement ?? 'noteEnd'
+  return (<>
+    <SettingRow title={t('quickadd.field_link_placement')}>
+      <Select
+        aria-label={t('quickadd.field_link_placement')}
+        value={placement}
+        onChange={(event) => set({ linkPlacement: event.target.value as QuickAddLinkPlacement })}>
+        <option value="noteEnd">{t('quickadd.link_placement_note_end')}</option>
+        <option value="lineEnd">{t('quickadd.link_placement_line_end')}</option>
+        <option value="property">{t('quickadd.link_placement_property')}</option>
+      </Select>
+    </SettingRow>
+    {placement === 'property' && (
+      <Field
+        label={t('quickadd.field_link_property')}
+        hint={t('quickadd.field_link_property_hint')}>
+        <Input
+          aria-label={t('quickadd.field_link_property')}
+          value={draft.linkProperty ?? 'source'}
+          onChange={(event) => set({ linkProperty: event.target.value })}/>
+      </Field>
+    )}
+    {placement === 'lineEnd' && (
+      <Checkbox
+        checked={draft.linkEmbed === true}
+        onChange={(linkEmbed) => set({ linkEmbed })}
+        label={t('quickadd.field_link_embed')}/>
+    )}
+  </>)
 }
 
 function OpeningFields({ draft, set }: {
@@ -644,6 +694,7 @@ function CaptureFields({ draft, patch, renderFormat }: {
         <Checkbox checked={draft.copyLink} onChange={(copyLink) => set({ copyLink })} label={t('quickadd.field_copy_link')}/>
       </div>
       <OpeningFields draft={draft} set={set}/>
+      <BacklinkFields draft={draft} set={set}/>
       <div className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
         <Checkbox checked={draft.property.enabled} onChange={(enabled) => set({ property: { ...draft.property, enabled } })} label={t('quickadd.field_property')}/>
         {draft.property.enabled && (

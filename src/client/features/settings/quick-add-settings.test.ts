@@ -389,6 +389,37 @@ describe('the choice editor', () => {
     expect(saved.type === 'template' && saved.templatePick).toBe('ask')
   })
 
+  it('offers one place per kind of backlink, and only the fields that place needs', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Linked', 0), linkToSource: false }
+    seed({ choices: [choice] })
+    editor(choice)
+    const placement = () => document.querySelector(`select[aria-label="${t('quickadd.field_link_placement')}"]`)
+    const propertyField = () => document.querySelector(`input[aria-label="${t('quickadd.field_link_property')}"]`)
+    const embed = () => [...document.querySelectorAll('button[role="checkbox"]')]
+      .some((node) => node.textContent?.trim() === t('quickadd.field_link_embed'))
+    expect(placement(), 'no link, so no place to put it').toBeNull()
+    clickNamed(t('quickadd.field_link_to_source'))
+    expect(placement()).not.toBeNull()
+    expect(embed(), 'a labelled line at the bottom is not something you embed').toBe(false)
+    expect(propertyField(), 'only a property placement names a property').toBeNull()
+
+    selectNamed(t('quickadd.field_link_placement'), 'property')
+    expect(propertyField()).not.toBeNull()
+    expect(embed(), 'a property value is link-only').toBe(false)
+    typeNamed(t('quickadd.field_link_property'), 'origin')
+
+    selectNamed(t('quickadd.field_link_placement'), 'lineEnd')
+    expect(propertyField()).toBeNull()
+    expect(embed()).toBe(true)
+    clickNamed(t('quickadd.field_link_embed'))
+
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.linkPlacement).toBe('lineEnd')
+    expect(saved.type === 'template' && saved.linkEmbed).toBe(true)
+  })
+
   it('holds the opening fields until the run says it opens the note', async () => {
     const choice = { ...newTemplateChoice('qa-t', 'Alpha', 0), openAfter: false }
     seed({ choices: [choice] })

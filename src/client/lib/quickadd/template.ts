@@ -12,7 +12,7 @@ import type { QuickAddTemplateChoice } from '@shared/quickadd'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
-import { folderJoin, joinRouted, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type QuickAddRunStatus } from './context'
+import { folderJoin, joinRouted, linkOptions, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type QuickAddRunStatus } from './context'
 import { placeTemplate } from './insertion'
 import { t } from '../../lib/i18n'
 
@@ -251,7 +251,8 @@ export async function runTemplateChoice(
 
   if (choice.linkToSource && options.sourceNoteId) {
     const source = port.byId(options.sourceNoteId)
-    if (source) await port.appendLink(source, created)
+    if (source && !(await port.appendLink(source, created, linkOptions(choice))))
+      port.notify(t('quickadd.warn_link_failed', { destination: source.title }), undefined, 'warning')
   }
   if (choice.copyLink) port.copyText(port.linkTo(created))
   if (choice.openAfter) await port.open(created.id, openingOptions(choice))

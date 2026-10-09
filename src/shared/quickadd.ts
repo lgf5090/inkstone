@@ -49,6 +49,11 @@ export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
 export type QuickAddStartupScope = 'session' | 'day'
 /** Which pane the finished note goes to: the one the reader is in, or the one beside it. */
 export type QuickAddOpenPane = 'active' | 'other'
+/**
+ * Where the link back to the note the run started from is written: the bottom of that note, the end of
+ * the line the caret was on, or a property of it.
+ */
+export type QuickAddLinkPlacement = 'noteEnd' | 'lineEnd' | 'property'
 /** How the app renders it there: leave the reader's own choice, or ask for a specific mode. */
 export type QuickAddOpenLayout = 'inherit' | 'live' | 'split' | 'preview'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
@@ -88,6 +93,11 @@ export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   openLayout?: QuickAddOpenLayout
   openFocus?: boolean
   linkToSource: boolean
+  linkPlacement?: QuickAddLinkPlacement
+  /** The property the link goes into when `linkPlacement` says so; `source` when absent. */
+  linkProperty?: string
+  /** Write the link as a transclusion (`![[…]]`) instead of a plain link. */
+  linkEmbed?: boolean
   copyLink: boolean
   tags: string[]
 }
@@ -120,6 +130,9 @@ export interface QuickAddCaptureChoice extends QuickAddChoiceBase {
   openLayout?: QuickAddOpenLayout
   openFocus?: boolean
   linkToSource: boolean
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
   copyLink: boolean
   property: {
     enabled: boolean
@@ -538,6 +551,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         existing: pick(value.existing, ['ask', 'number', 'overwrite', 'cancel'] as const, 'ask'),
         openAfter: boolOf(value.openAfter, true),
         ...normalizeOpening(value),
+        ...normalizeBacklink(value),
         linkToSource: boolOf(value.linkToSource, false),
         copyLink: boolOf(value.copyLink, false),
         tags: normalizeTags(value.tags),
@@ -581,6 +595,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         useSelectionAsValue: typeof value.useSelectionAsValue === 'boolean' ? value.useSelectionAsValue : null,
         openAfter: boolOf(value.openAfter, false),
         ...normalizeOpening(value),
+        ...normalizeBacklink(value),
         linkToSource: boolOf(value.linkToSource, false),
         copyLink: boolOf(value.copyLink, false),
         property: {
@@ -620,6 +635,35 @@ function normalizeOpening(value: Record<string, unknown>): {
   if (value.openLayout === 'inherit' || value.openLayout === 'live'
     || value.openLayout === 'split' || value.openLayout === 'preview') out.openLayout = value.openLayout
   if (typeof value.openFocus === 'boolean') out.openFocus = value.openFocus
+  return out
+}
+
+const LINK_PLACEMENTS: readonly string[] = ['noteEnd', 'lineEnd', 'property']
+
+/** A property name the reader typed: no colons, no line breaks, and not longer than a key worth storing. */
+function normalizeLinkProperty(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const clean = value.replace(/[\r\n]+/g, ' ').trim().replace(/\s+/g, ' ').slice(0, 60)
+  // A colon would end the key where YAML reads it, and `__proto__` is never a property worth writing.
+  if (clean === '' || clean.includes(':') || clean === '__proto__') return undefined
+  return clean
+}
+
+/**
+ * Where the backlink goes. A record that predates these fields keeps the behaviour it was written
+ * with: the link at the end of the note, as a plain link, in a property called `source`.
+ */
+function normalizeBacklink(value: Record<string, unknown>): {
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
+} {
+  const out: { linkPlacement?: QuickAddLinkPlacement; linkProperty?: string; linkEmbed?: boolean } = {}
+  if (typeof value.linkPlacement === 'string' && LINK_PLACEMENTS.includes(value.linkPlacement))
+    out.linkPlacement = value.linkPlacement as QuickAddLinkPlacement
+  const property = normalizeLinkProperty(value.linkProperty)
+  if (property) out.linkProperty = property
+  if (typeof value.linkEmbed === 'boolean') out.linkEmbed = value.linkEmbed
   return out
 }
 

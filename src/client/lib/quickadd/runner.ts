@@ -17,6 +17,7 @@ import { api } from '../../lib/api'
 import { folderPath, folderPathLabel } from '../../lib/folders'
 import { getActiveEditorView } from '../../editor/commands'
 import { extractHeadings, lineSlot } from './insertion'
+import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
 import { runMacroChoice } from './macro'
@@ -278,9 +279,11 @@ export const notePort: NotePort = {
       .map((folder) => folderPathLabel(store.folders, folder.id, '/').replace(/^\//, ''))
       .sort((a, b) => a.localeCompare(b))
   },
-  async appendLink(source, target) {
+  async appendLink(source, target, options = {}) {
+    const link = options.embed ? `![[${target.title}]]` : `[[${target.title}]]`
+    if (options.placement === 'lineEnd') return linkAtCaretLine(source, link)
     const body = await contentOf(source.id)
-    const link = `[[${target.title}]]`
+    if (options.placement === 'property') return linkIntoProperty(source, body, options.property ?? 'source', link)
     if (body.includes(link)) return true
     const next = `${body ? `${body.endsWith('\n') ? '' : '\n'}\n` : ''}${t('quickadd.link_line', { link })}\n`
     return replaceContent(source.id, `${body}${next}`, body)
@@ -336,6 +339,42 @@ export const notePort: NotePort = {
   choices() {
     return useQuickAdd.getState().choices
   },
+}
+
+/**
+ * The link at the end of the line the caret was sitting on. This is the one placement that needs the
+ * source note to be the note on screen: writing it through the store would drop whatever the reader has
+ * typed there and not saved yet.
+ */
+function linkAtCaretLine(source: NoteRef, link: string): boolean {
+  if (useUi.getState().activeNoteId !== source.id) return false
+  const view = getActiveEditorView()
+  if (!view || !view.dom.isConnected || view.dom.closest('[inert]')) return false
+  const line = view.state.doc.lineAt(view.state.selection.main.head)
+  if (line.text.includes(link)) return true
+  const insert = line.text.trim() === '' ? link : ` ${link}`
+  view.dispatch({
+    changes: { from: line.to, insert },
+    selection: { anchor: line.to + insert.length },
+    scrollIntoView: true,
+  })
+  return true
+}
+
+/**
+ * The link added to a property of the source note. An existing scalar grows into a list rather than
+ * being replaced, and an entry that is already there is not written twice.
+ */
+async function linkIntoProperty(source: NoteRef, body: string, property: string, link: string): Promise<boolean> {
+  const parsed = parseFrontMatter(body)
+  if (parsed.errors.length > 0) return false
+  const own = Object.keys(parsed.data).find((key) => key.toLowerCase() === property.toLowerCase()) ?? property
+  const current = parsed.data[own]
+  const items = current === undefined || current === null || current === ''
+    ? []
+    : Array.isArray(current) ? current.map((entry) => String(entry)) : [String(current)]
+  if (items.some((entry) => entry.trim() === link)) return true
+  return replaceContent(source.id, setFrontMatterValue(body, own, [...items, link]), body)
 }
 
 function prependInBody(body: string, text: string): string {

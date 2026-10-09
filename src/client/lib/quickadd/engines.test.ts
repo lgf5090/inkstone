@@ -6,7 +6,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef, QuickAddOpenOptions, TemplatePickOption } from './context'
+import type { NewNoteInput, NotePort, NoteRef, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -81,6 +81,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const opens: QuickAddOpenOptions[] = []
   const notifications: string[] = []
   const carets: number[] = []
+  const links: { sourceId: string; title: string; options: QuickAddLinkOptions }[] = []
+  /** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */
+  let refuseLink = false
   /** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */
   let caret: { from: number; to: number } | null = null
   const store: QuickAddChoice[] = []
@@ -131,7 +134,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     pickFileTitles: async (token) => (token.folder === 'Numbers' ? ['42'] : []),
     knownNoteTitles: () => Object.keys(notes),
     knownFolderPaths: () => ['Journal'],
-    appendLink: async (source, target) => {
+    appendLink: async (source, target, options) => {
+      links.push({ sourceId: source.id, title: target.title, options: options ?? {} })
+      if (refuseLink) return false
       const note = Object.values(notes).find((entry) => entry.id === source.id)
       if (!note) return false
       note.content = `${note.content}\n[[${target.title}]]\n`
@@ -183,6 +188,10 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     opens,
     notifications,
     carets,
+    links,
+    refuseLink: () => {
+      refuseLink = true
+    },
     store,
     setActive: (title: string | null) => {
       activeId = title ? (notes[title]?.id ?? null) : null
@@ -1076,6 +1085,56 @@ describe('creating a note from a template', () => {
     await runTemplateChoice(choice, fake.port)
     expect(fake.content('Here')).toBe('---\na: 1\n---\nHithere\nbody\n')
   })
+
+describe('the link back to the note the run started from', () => {
+  const captureFrom = (over: Record<string, unknown>) => ({
+    ...newCaptureChoice('qa-c', 'Link capture', 0),
+    targetMode: 'note' as const,
+    targetTitle: 'Journal',
+    createIfMissing: true,
+    linkToSource: true,
+    ...over,
+  })
+
+  it('asks for the place, the property and the shape the choice says', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    const choice = captureFrom({ linkPlacement: 'property' as const, linkProperty: 'origin', linkEmbed: true })
+    answers.queue = [['an idea']]
+    await runCaptureChoice(choice, fake.port, { sourceNoteId: 'n-Source' })
+    expect(fake.links).toEqual([{ sourceId: 'n-Source', title: 'Journal', options: { placement: 'property', property: 'origin', embed: true } }])
+  })
+
+  it('asks for the note’s end, plainly, in a property called source when the choice says nothing', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    answers.queue = [['an idea']]
+    await runCaptureChoice(captureFrom({}), fake.port, { sourceNoteId: 'n-Source' })
+    expect(fake.links[0].options).toEqual({ placement: 'noteEnd', property: 'source', embed: false })
+  })
+
+  it('says out loud when the app refused the link, and still reports the capture', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    fake.refuseLink()
+    answers.queue = [['an idea']]
+    const status = await runCaptureChoice(captureFrom({}), fake.port, { sourceNoteId: 'n-Source' })
+    expect(status.kind).toBe('written')
+    expect(fake.notifications.join('\n')).toContain('Source')
+    expect(fake.content('Source'), 'the note is not pretending to be linked').toBe('started here\n')
+  })
+
+  it('writes the link back from a template choice too', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Linked note', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Made {{VALUE}}' },
+      linkToSource: true,
+      linkPlacement: 'lineEnd' as const,
+    }
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port, { sourceNoteId: 'n-Source' })
+    expect(fake.links).toEqual([{ sourceId: 'n-Source', title: 'Made one', options: { placement: 'lineEnd', property: 'source', embed: false } }])
+  })
+})
 
 describe('where a finished run opens the note', () => {
   it('opens in the pane and layout the choice says, without taking focus', async () => {

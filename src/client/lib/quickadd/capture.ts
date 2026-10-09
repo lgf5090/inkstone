@@ -15,7 +15,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
-import { openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
+import { linkOptions, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import type { PropertyValueKind } from '@shared/property-values'
 import {
@@ -505,7 +505,8 @@ export async function runCaptureChoice(
 
   if (choice.linkToSource && options.sourceNoteId) {
     const source = port.byId(options.sourceNoteId)
-    if (source) await port.appendLink(source, note)
+    if (source && !(await port.appendLink(source, note, linkOptions(choice))))
+      port.notify(t('quickadd.warn_link_failed', { destination: source.title }), undefined, 'warning')
   }
   if (choice.copyLink) port.copyText(port.linkTo(note))
   if (choice.openAfter) {

@@ -6,7 +6,7 @@
  * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives
  * in `runner.ts`.
  */
-import type { QuickAddChoice, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
+import type { QuickAddChoice, QuickAddLinkPlacement, QuickAddOpenLayout, QuickAddOpenPane, QuickAddSettings } from '@shared/quickadd'
 
 export interface NoteRef {
   id: string
@@ -58,8 +58,11 @@ export interface NotePort {
   knownNoteTitles(): string[]
   /** Every folder path the account has, for `folderMode: ask`. */
   knownFolderPaths(): string[]
-  /** Add a link to `target` at the end of `source`'s body. */
-  appendLink(source: NoteRef, target: NoteRef): Promise<boolean>
+  /**
+   * Write the link back to `target` into `source`, where the choice said. False means it was not written,
+   * which the run says out loud rather than letting the reader believe the two notes are connected.
+   */
+  appendLink(source: NoteRef, target: NoteRef, options?: QuickAddLinkOptions): Promise<boolean>
   /** Put text on the clipboard. */
   copyText(text: string): void
   /** Move the editor caret after a write that was not made through the editor. */
@@ -113,6 +116,12 @@ export interface NotePort {
   choices(): QuickAddChoice[]
 }
 
+export interface QuickAddLinkOptions {
+  placement?: 'noteEnd' | 'lineEnd' | 'property'
+  property?: string
+  embed?: boolean
+}
+
 export interface QuickAddOpenOptions {
   pane?: 'active' | 'other'
   layout?: 'inherit' | 'live' | 'split' | 'preview'
@@ -124,6 +133,19 @@ export interface QuickAddOpenOptions {
  * keeps deciding it. `focus` is the one exception: a run that opens a note takes the caret with it, and
  * that is what the switch has always meant.
  */
+/** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */
+export function linkOptions(choice: {
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
+}): Required<QuickAddLinkOptions> {
+  return {
+    placement: choice.linkPlacement ?? 'noteEnd',
+    property: choice.linkProperty?.trim() || 'source',
+    embed: choice.linkEmbed === true,
+  }
+}
+
 export function openingOptions(choice: {
   openPane?: QuickAddOpenPane
   openLayout?: QuickAddOpenLayout

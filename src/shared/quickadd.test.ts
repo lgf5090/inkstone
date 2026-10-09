@@ -409,3 +409,29 @@ describe('where a run opens the note', () => {
     expect(made && 'openFocus' in made).toBe(false)
   })
 })
+
+describe('the link back to the note the run started from', () => {
+  const template = (over: Record<string, unknown>) => normalizeQuickAddChoice({
+    ...newTemplateChoice('t1', 'T', 0),
+    ...over,
+  })
+
+  it('keeps a placement, a property name and an embed the reader chose', () => {
+    expect(template({ linkPlacement: 'property', linkProperty: 'origin', linkEmbed: true }))
+      .toMatchObject({ linkPlacement: 'property', linkProperty: 'origin', linkEmbed: true })
+  })
+
+  it('leaves the fields absent when the record predates them', () => {
+    const made = template({})
+    expect(made && 'linkPlacement' in made).toBe(false)
+    expect(made && 'linkProperty' in made).toBe(false)
+    expect(made && 'linkEmbed' in made).toBe(false)
+  })
+
+  it('trims a property name and drops one that cannot name a property', () => {
+    expect(template({ linkProperty: '  origin  ' })).toMatchObject({ linkProperty: 'origin' })
+    const made = template({ linkProperty: 'bad: name\nmore', linkPlacement: 'wherever' })
+    expect(made && 'linkPlacement' in made).toBe(false)
+    expect(made && 'linkProperty' in made).toBe(false)
+  })
+})
