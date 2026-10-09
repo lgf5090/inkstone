@@ -1286,6 +1286,12 @@ describe('a name format that routes into a folder', () => {
     await runTemplateChoice(choice, fake.port)
     expect(fake.created[0]).toMatchObject({ title: '2026-10-08', folderPath: 'Journal' })
   })
+
+  it('files the note under the parent-step a mistyped route names', async () => {
+    const fake = harness({})
+    await runTemplateChoice(named({ nameFormat: { enabled: true, format: '../Escape/{{DATE:YYYY-MM-DD}}' } }), fake.port)
+    expect(fake.created[0], 'a folder named .. is not a place in this app’s tree').toMatchObject({ title: '2026-10-08', folderPath: 'Escape' })
+  })
 })
 
   it('asks for a name when the choice has no format', async () => {

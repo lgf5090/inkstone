@@ -666,9 +666,10 @@ function isBlankProperty(value: unknown): boolean {
 export function mergeTemplateProperties(content: string, template: string): string {
   const parts = splitTemplate(template)
   if (parts.properties === null) return content
-  // A template authored elsewhere can name a prototype key. Carrying its block verbatim would put that
-  // key in the note for every later reader, so such a template loses the verbatim path and goes through
-  // the key-by-key merge below, which refuses those names — nested values with it, which is the price.
+  // A template authored elsewhere can carry a prototype key or a nested value. The verbatim path would
+  // hand that whole block, anchors included, to every later reader of the note, so such a template
+  // loses it and goes through the key-by-key merge below instead — which writes nothing but scalars
+  // and flat lists of them, and loses the nested values with it. That is the price.
   const unsafe = Object.keys(parts.data).some((key) => key === '__proto__' || key === 'constructor' || key === 'prototype')
   if (!unsafe && frontMatterEnd(content) === 0) return `---\n${parts.properties}\n---\n${content}`
   const note: { data: Record<string, unknown>; errors: string[] } = frontMatterEnd(content) === 0
@@ -677,8 +678,8 @@ export function mergeTemplateProperties(content: string, template: string): stri
   if (note.errors.length > 0) return content
   let next = content
   for (const key of Object.keys(parts.data)) {
-    // A template authored elsewhere can name a prototype key; the note's own text is not where that
-    // gets answered.
+    // `__proto__` is the one name never to write. Every other key goes in as plain text through
+    // `setFrontMatterValue`, where it is a YAML key in the note and not a property of anyone's object.
     if (key === '__proto__') continue
     const incoming = templateScalar(parts.data[key])
     if (incoming === null) continue

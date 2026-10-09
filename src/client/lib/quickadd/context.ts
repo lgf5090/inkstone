@@ -128,11 +128,6 @@ export interface QuickAddOpenOptions {
   focus?: boolean
 }
 
-/**
- * The three opening fields as one request, with whatever the choice does not say left out so the app
- * keeps deciding it. `focus` is the one exception: a run that opens a note takes the caret with it, and
- * that is what the switch has always meant.
- */
 /** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */
 export function linkOptions(choice: {
   linkPlacement?: QuickAddLinkPlacement
@@ -146,6 +141,11 @@ export function linkOptions(choice: {
   }
 }
 
+/**
+ * The three opening fields as one request, with whatever the choice does not say left out so the app
+ * keeps deciding it. `focus` is the one exception: a run that opens a note takes the caret with it, and
+ * that is what the switch has always meant.
+ */
 export function openingOptions(choice: {
   openPane?: QuickAddOpenPane
   openLayout?: QuickAddOpenLayout
@@ -174,12 +174,17 @@ export type QuickAddRunStatus =
   /** The run could not go ahead, and said why. */
   | { kind: 'failed'; reason: string }
 
+/**
+ * The folder path a run writes into, as this app spells it. A folder here is a node in a tree of ids,
+ * never a filesystem path, so `.` and `..` have no meaning to keep: a route typed as `../Escape` names
+ * the folder `Escape` rather than filing the note outside the tree the reader can see.
+ */
 export function folderJoin(...parts: (string | null | undefined)[]): string {
   const kept: string[] = []
   for (const part of parts) {
     for (const segment of (part ?? '').split(/[\\/]/)) {
       const trimmed = segment.trim()
-      if (trimmed && trimmed !== '.') kept.push(trimmed)
+      if (trimmed && trimmed !== '.' && trimmed !== '..') kept.push(trimmed)
     }
   }
   return kept.join('/')
