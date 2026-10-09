@@ -912,6 +912,93 @@ describe('creating a note from a template', () => {
     expect(fake.content('Here')).toBe('---\na: 1\n---\nHithere\nbody\n')
   })
 
+describe('a name format that routes into a folder', () => {
+  const named = (over: Record<string, unknown>) => ({
+    ...newTemplateChoice('qa-t', 'Routed', 0),
+    templateId: 'tpl-daily',
+    nameFormat: { enabled: true, format: 'Journal/{{DATE:YYYY-MM-DD}}' },
+    ...over,
+  })
+
+  it('creates the note inside the folder the name names', async () => {
+    const fake = harness({})
+    await runTemplateChoice(named({}), fake.port)
+    expect(fake.created[0]).toMatchObject({ title: '2026-10-08', folderPath: 'Journal' })
+  })
+
+  it('does not stack the folder twice when the choice already points at it', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Journal',
+      nameFormat: { enabled: true, format: 'Journal/{{VALUE}}' },
+    })
+    answers.queue = [['Notes']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'Notes', folderPath: 'Journal' })
+  })
+
+  it('keeps a deeper route the name names, under the choice’s folder', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Inbox',
+      nameFormat: { enabled: true, format: 'Deep/Inside/{{VALUE}}' },
+    })
+    answers.queue = [['note']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'note', folderPath: 'Inbox/Deep/Inside' })
+  })
+
+  it('hangs a deeper route off the folder the choice names', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Journal',
+      nameFormat: { enabled: true, format: 'Journal/Deep/{{VALUE}}' },
+    })
+    answers.queue = [['note']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'note', folderPath: 'Journal/Deep' })
+  })
+
+  it('does not repeat a folder the choice path already ends with', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Inbox/Journal',
+      nameFormat: { enabled: true, format: 'journal/{{VALUE}}' },
+    })
+    answers.queue = [['note']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'note', folderPath: 'Inbox/Journal' })
+  })
+
+  it('routes what the reader typed at the name question too', async () => {
+    const fake = harness({})
+    const choice = { ...newTemplateChoice('qa-t', 'Asked', 0), templateId: 'tpl-daily' }
+    answers.queue = [['Notes/2026']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: '2026', folderPath: 'Notes' })
+  })
+
+  it('leaves a slash-free name where the choice says', async () => {
+    const fake = harness({})
+    const choice = named({ folderMode: 'fixed' as const, folderPath: 'Journal', nameFormat: { enabled: true, format: 'Plain {{VALUE}}' } })
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'Plain one', folderPath: 'Journal' })
+  })
+
+  it('counts a routed name as taken only inside the folder it routes to', async () => {
+    const fake = harness({ '2026-10-08': 'elsewhere' })
+    fake.notes['2026-10-08'].folderPath = 'Elsewhere'
+    const choice = named({ existing: 'number' as const })
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: '2026-10-08', folderPath: 'Journal' })
+  })
+})
+
   it('asks for a name when the choice has no format', async () => {
     const fake = harness({})
     const choice = { ...newTemplateChoice('qa-t', 'T', 0), templateId: 'tpl-daily' }

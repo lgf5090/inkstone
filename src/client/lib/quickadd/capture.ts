@@ -14,7 +14,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
-import { folderJoin, sanitizeTitle, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
+import { sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens } from './token-grammar'
 import {
   anchorAllowsSubsections,
@@ -39,15 +39,6 @@ import {
 import { t } from '../../lib/i18n'
 
 const HEADING_RE = /^ {0,3}#{1,6}[ \t]+\S/
-
-/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */
-export function splitTargetPath(value: string): { title: string; folder: string | null } {
-  const cleaned = value.replace(/[\\]/g, '/').replace(/\/+/g, '/').trim().replace(/\uFF0E/g, '.')
-  const segments = cleaned.split('/').filter((segment) => segment !== '')
-  const title = segments.length > 0 ? (segments[segments.length - 1] ?? '') : ''
-  const folder = segments.length > 1 ? segments.slice(0, -1).join('/') : null
-  return { title: title.trim(), folder: folder ? folderJoin(folder) : null }
-}
 
 async function resolveTarget(
   choice: QuickAddCaptureChoice,

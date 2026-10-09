@@ -9372,7 +9372,6 @@ const allowed = new Map([
   ]],
   ["src/client/lib/quickadd/capture.ts", [
     "/**\n * The Capture choice engine: a formatted snippet placed into a note — at the bottom, at the top of\n * the body, under or above a heading line, at the caret, or into a property.\n *\n * Two rules carry most of the complexity. Placement is computed against the note as it read a moment\n * ago, then written as a whole-document replace, because a capture that lost a race with the reader's\n * own typing must not silently eat their edit. And the heading anchor is matched with the same rules\n * whether it is being found or being created, so a second run of the same capture finds the heading\n * the first run wrote.\n */",
-    "/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */",
     "// A capture named `Journal/Today` must not land in an unrelated note called `Today`.",
     "/** One line of a multi-line `{{VALUE}}` answer per copy of the format, the rest of it asked once. */",
     "/** The variable a `{{VALUE}}`/`{{NAME}}` token in this format reads, which per-line splitting rewrites. */",
@@ -9443,6 +9442,8 @@ const allowed = new Map([
     "/**\n   * The templates a \"ask which one\" choice offers: everything, or only what sits in one library\n   * category. The id is the answer, so two templates called the same thing stay distinguishable.\n   */",
     "/**\n   * Insert text on a new line above or below the caret's own line. False when the caret is not on\n   * screen — the same promise `insertAtCursor` makes.\n   */",
     "/**\n   * The open editor's own text and selection, or null when the note is not on screen. A template that\n   * carries its own properties needs this: the text it merges into is what the reader is looking at,\n   * unsaved typing included, and the block must not land inside the note's own properties.\n   */",
+    "/**\n * The folder a run writes into when the name itself named one: `Journal/2026` under a choice already\n * pointed at `Journal` is one folder, not `Journal/Journal`, and a deeper route hangs off the choice’s\n * folder rather than replacing it.\n */",
+    "/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9699,7 +9700,6 @@ const allowed = new Map([
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",
-    "/** A note title, from the name format or from a prompt when the choice has no format. */",
     "// \"No template\" is a choice the editor offers, so it means a blank note. Only a template that was",
     "// deleted from under the choice is a failure worth a danger notice.",
     "/**\n * The choice's tags on the new note. `appendFrontMatterTag` deliberately only edits a note that\n * already has properties, so a body without front matter gets its block written here — a choice that\n * says \"tag this with #meeting\" must not quietly tag nothing.\n */",
@@ -9714,6 +9714,7 @@ const allowed = new Map([
     "// The editor holds the truth about the note the reader is in, selection included, so the placement",
     "// is computed against that text rather than against a copy that may have been saved since.",
     "// A template that carries only properties is not \"nothing to write\": the merge is the write.",
+    "/**\n * A note title and the folder it names: `Journal/{{DATE}}` is a title of `2026-10-08` inside\n * `Journal`, the way a capture target reads, because a title here cannot hold path characters.\n */",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",

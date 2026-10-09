@@ -12,7 +12,7 @@ import type { QuickAddTemplateChoice } from '@shared/quickadd'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
-import { folderJoin, sanitizeTitle, type NotePort, type QuickAddRunStatus } from './context'
+import { folderJoin, joinRouted, sanitizeTitle, splitTargetPath, type NotePort, type QuickAddRunStatus } from './context'
 import { placeTemplate } from './insertion'
 import { t } from '../../lib/i18n'
 
@@ -61,25 +61,28 @@ function templateRequest(port: NotePort, categoryId: string | null): PromptReque
   })
 }
 
-/** A note title, from the name format or from a prompt when the choice has no format. */
+/**
+ * A note title and the folder it names: `Journal/{{DATE}}` is a title of `2026-10-08` inside
+ * `Journal`, the way a capture target reads, because a title here cannot hold path characters.
+ */
 async function resolveTitle(
   choice: QuickAddTemplateChoice,
   session: RunSession,
   runtime: FormatRuntime,
   port: NotePort,
-): Promise<string | null> {
+): Promise<{ title: string; folder: string | null } | null> {
+  let named: { title: string; folder: string | null }
   if (choice.nameFormat.enabled) {
     const formatted = await formatWithPrompts(choice.nameFormat.format, runtime, session)
-    const title = sanitizeTitle(formatted.text, '')
-    if (!title) return null
-    runtime.title = title
-    return title
+    named = splitTargetPath(formatted.text)
+  } else {
+    const value = await askOrReuse(session, titleRequest(port, runtime))
+    named = splitTargetPath(typeof value === 'string' ? value : '')
   }
-  const value = await askOrReuse(session, titleRequest(port, runtime))
-  const title = typeof value === 'string' ? sanitizeTitle(value, '') : ''
+  const title = sanitizeTitle(named.title, '')
   if (!title) return null
   runtime.title = title
-  return title
+  return { title, folder: named.folder }
 }
 
 async function resolveFolder(
@@ -87,6 +90,7 @@ async function resolveFolder(
   session: RunSession,
   runtime: FormatRuntime,
   port: NotePort,
+  routedFolder: string | null,
 ): Promise<string | null> {
   let path: string | null = null
   switch (choice.folderMode) {
@@ -104,7 +108,7 @@ async function resolveFolder(
     default:
       path = port.settings().defaultFolder
   }
-  const folder = folderJoin(path) || null
+  const folder = joinRouted(folderJoin(path), routedFolder) || null
   runtime.folderPath = folder
   return folder
 }
@@ -199,10 +203,11 @@ export async function runTemplateChoice(
     }
   }
 
-  const title = await resolveTitle(choice, session, runtime, port)
+  const named = await resolveTitle(choice, session, runtime, port)
   if (session.dismissed) return { kind: 'cancelled' }
-  if (!title) return { kind: 'cancelled' }
-  const folder = await resolveFolder(choice, session, runtime, port)
+  if (!named) return { kind: 'cancelled' }
+  const title = named.title
+  const folder = await resolveFolder(choice, session, runtime, port, named.folder)
   if (session.dismissed) return { kind: 'cancelled' }
   const existing = port.findByTitle(title)
   const collides = existing !== null && (existing.folderPath ?? '') === (folder ?? '')

@@ -141,3 +141,28 @@ export function sanitizeTitle(value: string, fallback: string): string {
   const cleaned = value.replace(/[\r\n]+/g, ' ').replace(/[\\/]/g, '·').trim()
   return (cleaned || fallback).slice(0, 200)
 }
+
+/**
+ * The folder a run writes into when the name itself named one: `Journal/2026` under a choice already
+ * pointed at `Journal` is one folder, not `Journal/Journal`, and a deeper route hangs off the choice’s
+ * folder rather than replacing it.
+ */
+export function joinRouted(path: string | null, routedFolder: string | null): string | null {
+  if (!routedFolder) return path
+  if (!path) return routedFolder
+  const below = routedFolder.toLowerCase()
+  const above = path.toLowerCase()
+  if (below === above) return path
+  if (below.startsWith(`${above}/`)) return routedFolder
+  if (above.endsWith(`/${below}`)) return path
+  return folderJoin(path, routedFolder)
+}
+
+/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */
+export function splitTargetPath(value: string): { title: string; folder: string | null } {
+  const cleaned = value.replace(/[\\]/g, '/').replace(/\/+/g, '/').trim().replace(/\uFF0E/g, '.')
+  const segments = cleaned.split('/').filter((segment) => segment !== '')
+  const title = segments.length > 0 ? (segments[segments.length - 1] ?? '') : ''
+  const folder = segments.length > 1 ? segments.slice(0, -1).join('/') : null
+  return { title: title.trim(), folder: folder ? folderJoin(folder) : null }
+}
