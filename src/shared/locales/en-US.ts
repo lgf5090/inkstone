@@ -1352,7 +1352,7 @@ export const EN_US_MESSAGES = {
     "quickadd.link_placement_note_end": "The end of the note",
     "quickadd.link_placement_line_end": "The end of the line you were on",
     "quickadd.link_placement_property": "A property",
-    "quickadd.field_link_property": "Property name",
+    "quickadd.field_link_property": "Property to link into",
     "quickadd.field_link_property_hint": "The note’s list of links grows; nothing already there is replaced",
     "quickadd.field_link_embed": "Embed the note instead of linking it",
     "quickadd.field_insert_position": "Put the template",

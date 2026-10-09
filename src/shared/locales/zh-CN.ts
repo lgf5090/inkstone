@@ -1352,7 +1352,7 @@ export const ZH_CN_MESSAGES = {
     "quickadd.link_placement_note_end": "正文末尾",
     "quickadd.link_placement_line_end": "光标所在行末尾",
     "quickadd.link_placement_property": "某个属性里",
-    "quickadd.field_link_property": "属性名",
+    "quickadd.field_link_property": "存放链接的属性",
     "quickadd.field_link_property_hint": "该属性已有的链接会接着列出，不会被整条替换",
     "quickadd.field_link_embed": "用嵌入（![[…]]）而不是链接",
     "quickadd.field_insert_position": "把模板放到",
