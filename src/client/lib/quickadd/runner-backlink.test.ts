@@ -61,6 +61,43 @@ import { notePort } from './runner'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 
+// The port reads the caret line off whatever CodeMirror view the app holds. jsdom has no editor of its
+// own, so the test hands it one — and the rest of the module stays loaded, which other QuickAdd seams need.
+const editorView = vi.hoisted(() => ({ current: null as unknown }))
+
+vi.mock('../../editor/commands', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../editor/commands')>()
+  return { ...actual, getActiveEditorView: () => editorView.current ?? null }
+})
+
+/**
+ * A CodeMirror view as small as the two lines the port reads from it. The caret line placement is the
+ * one that must not touch a note other than the source, and jsdom has no editor of its own to ask.
+ */
+function fakeView(text: string, caret: number) {
+  const dispatches: { changes: { from: number; insert: string } }[] = []
+  const lines = text.split('\n')
+  let offset = 0
+  const rows = lines.map((line) => {
+    const from = offset
+    offset += line.length + 1
+    return { from, to: from + line.length, text: line }
+  })
+  const view = {
+    dom: { isConnected: true, closest: () => null },
+    state: {
+      doc: {
+        toString: () => text,
+        lineAt: (at: number) => rows.find((row) => at >= row.from && at <= row.to) ?? rows[rows.length - 1],
+      },
+      selection: { main: { head: caret, from: caret, to: caret } },
+    },
+    dispatch: (transaction: { changes: { from: number; insert: string } }) => { dispatches.push(transaction) },
+    focus: () => {},
+  }
+  return { view, dispatches, endOfFirstLine: rows[0].to }
+}
+
 function summary(id: string, title: string): NoteSummary {
   return {
     id, title, excerpt: title, folderId: null, tags: [], isPinned: false, isStarred: false,
@@ -106,9 +143,11 @@ const target = { id: 'n-Beta', title: 'Beta', folderPath: null }
 beforeEach(() => {
   notesWere = useNotes.getState()
   uiWere = useUi.getState()
+  editorView.current = null
 })
 
 afterEach(() => {
+  editorView.current = null
   useNotes.setState(notesWere as never)
   useUi.setState(uiWere as never)
 })
@@ -156,9 +195,28 @@ describe('the link a run writes back into the note it started from', () => {
     expect(useNotes.getState().contents['n-Source']).toBe(before)
   })
 
-  it('refuses the line placement when the note is not the one on screen', async () => {
+  it('writes the link onto the end of the caret’s own line in the source note', async () => {
+    seed('started here\nsecond line\n')
+    const { view, dispatches, endOfFirstLine } = fakeView('started here\nsecond line\n', 4)
+    editorView.current = view
+    expect(await notePort.appendLink(source, target, { placement: 'lineEnd' })).toBe(true)
+    expect(dispatches).toHaveLength(1)
+    expect(dispatches[0].changes.from, 'the link lands at the end of the line the caret sat on').toBe(endOfFirstLine)
+    expect(dispatches[0].changes.insert).toBe(' [[Beta]]')
+  })
+
+  it('refuses the line placement when a different note is on screen', async () => {
     seed('started here\n')
+    const { view, dispatches } = fakeView('someone else\nand their note\n', 3)
+    editorView.current = view
     useUi.setState({ activeNoteId: 'n-Beta' } as never)
+    expect(await notePort.appendLink(source, target, { placement: 'lineEnd' })).toBe(false)
+    expect(dispatches, 'the other note on screen keeps its text').toHaveLength(0)
+    expect(useNotes.getState().contents['n-Source']).toBe('started here\n')
+  })
+
+  it('refuses the line placement when no editor is open at all', async () => {
+    seed('started here\n')
     expect(await notePort.appendLink(source, target, { placement: 'lineEnd' })).toBe(false)
     expect(useNotes.getState().contents['n-Source']).toBe('started here\n')
   })

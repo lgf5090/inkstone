@@ -9647,6 +9647,9 @@ const allowed = new Map([
     "// The notes store writes through idb-keyval, which jsdom does not provide, so the local mirror is an",
     "// in-memory map here. What the run wrote is asserted through the store, which is what the reader sees.",
     "/** The source note, open in the store so a write lands on its cached copy. */",
+    "// The port reads the caret line off whatever CodeMirror view the app holds. jsdom has no editor of its",
+    "// own, so the test hands it one — and the rest of the module stays loaded, which other QuickAdd seams need.",
+    "/**\n * A CodeMirror view as small as the two lines the port reads from it. The caret line placement is the\n * one that must not touch a note other than the source, and jsdom has no editor of its own to ask.\n */",
   ]],
   ["src/client/lib/quickadd/runner-notice.test.ts", [
     "// Seeded per test, not once: the teardown hands the store back, and a beforeAll seed would leave",
