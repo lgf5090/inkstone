@@ -105,6 +105,11 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
       <Input
         {...aria}
         id={id}
+        // The overlay layers close a dialog on Escape from a window capture listener, which runs
+        // before this field ever sees the key. Marking the field while its list is open is the app's
+        // own way of saying "Escape means something here" — without it, the first Escape would take
+        // the whole editor with it.
+        data-owns-escape={open ? '' : undefined}
         aria-controls={open ? listId : undefined}
         aria-activedescendant={open && rows.length > 0 ? rowId(Math.min(cursor, rows.length - 1)) : undefined}
         autoComplete="off"
@@ -152,7 +157,10 @@ export function NoteNameInput({ value, onChange, notes, id, className, ...aria }
               onMouseEnter={() => setCursor(index)}
               onClick={() => commit(row)}
               className={cn(
-                'block w-full truncate px-2.5 py-1.5 text-left text-[12.5px] transition-colors',
+                // A finger needs the 44px the app gives every other touch row; a mouse does not, and the
+                // settings panel is dense enough that the desktop row stays at its text height.
+                'block w-full truncate px-2.5 py-1.5 text-left transition-colors min-h-[44px] md:min-h-0',
+                'text-[12.5px]',
                 index === cursor ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
               )}
             >

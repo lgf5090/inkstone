@@ -341,7 +341,7 @@ describe('the choice editor', () => {
     })
     const rows = [...document.querySelectorAll('[role=option]')]
     expect(rows.map((row) => row.textContent)).toEqual(['Standup (Work)', 'Reading'])
-    click(rows[1])
+    click(rows[1] as HTMLElement)
     await settle()
     expect(box.value).toBe('Reading')
     clickNamed(t('common.save'))

@@ -1,5 +1,6 @@
 import { act, createElement, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { Modal } from '../../components/overlay'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { NoteNameInput, type NoteNameCandidate } from './note-name-input'
@@ -14,18 +15,17 @@ const NOTES: NoteNameCandidate[] = [
 let rendered: RenderedElement | null = null
 
 function field(): HTMLInputElement {
-  const input = rendered?.container.querySelector('input')
+  const input = document.querySelector('input')
   if (!input) throw new Error('the field did not render')
   return input
 }
 
 function rows(): string[] {
-  return [...(rendered?.container.querySelectorAll('[role=option]') ?? [])]
-    .map((row) => row.textContent ?? '')
+  return [...document.querySelectorAll('[role=option]')].map((row) => row.textContent ?? '')
 }
 
 function open(): boolean {
-  return rendered?.container.querySelector('[role=listbox]') !== null
+  return document.querySelector('[role=listbox]') !== null
 }
 
 function render(notes: NoteNameCandidate[], value = '', onCommit: (next: string) => void = () => {}): void {
@@ -74,7 +74,7 @@ function press(key: string): KeyboardEvent {
 }
 
 function clickRow(index: number): void {
-  const row = rendered?.container.querySelectorAll('[role=option]')[index]
+  const row = document.querySelectorAll('[role=option]')[index]
   if (!row) throw new Error(`there is no row ${index}`)
   act(() => {
     row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
@@ -84,6 +84,19 @@ function clickRow(index: number): void {
 
 beforeAll(async () => {
   await initI18n()
+})
+
+afterEach(() => {
+  // A dialog renders into document.body through a portal, so the helpers read the document;
+  // tearing down has to clear the same place they look.
+  try {
+    rendered?.unmount()
+  }
+  catch {
+    // already gone
+  }
+  rendered = null
+  document.body.replaceChildren()
 })
 
 describe('the target-note field', () => {
@@ -140,7 +153,7 @@ describe('the target-note field', () => {
     focusField()
     type('/(/')
     expect(open()).toBe(false)
-    expect(rendered?.container.textContent).toContain(t('filter.regex_syntax'))
+    expect(document.body.textContent).toContain(t('filter.regex_syntax'))
     rendered?.unmount()
   })
 
@@ -213,20 +226,20 @@ describe('the target-note field', () => {
     render(many)
     focusField()
     expect(rows().length).toBe(50)
-    expect(rendered?.container.textContent).toContain(t('quickadd.suggest_more').replace('{count}', '1'))
+    expect(document.body.textContent).toContain(t('quickadd.suggest_more').replace('{count}', '1'))
     rendered?.unmount()
   })
 
   it('tells an empty library apart from a name that matches nothing', () => {
     render([])
     focusField()
-    expect(rendered?.container.textContent).toContain(t('quickadd.suggest_none_yet'))
+    expect(document.body.textContent).toContain(t('quickadd.suggest_none_yet'))
     rendered?.unmount()
 
     render(NOTES)
     focusField()
     type('zzzz-no-such-note')
-    expect(rendered?.container.textContent).toContain(t('quickadd.suggest_no_match'))
+    expect(document.body.textContent).toContain(t('quickadd.suggest_no_match'))
     rendered?.unmount()
   })
 
@@ -238,13 +251,49 @@ describe('the target-note field', () => {
     expect(made).toEqual(['Standup (Work)'])
   })
 
+  it('keeps the dialog that hosts it open while its own list is showing', () => {
+    const host = { closed: 0 }
+    current = ''
+    held = NOTES
+    rendered = renderElement(createElement(Modal, {
+      open: true,
+      title: 'Host',
+      onClose: () => { host.closed += 1 },
+      children: createElement(NoteNameInput, {
+        notes: held,
+        value: current,
+        onChange: (next: string) => { current = next },
+      }),
+    }))
+    focusField()
+    expect(open()).toBe(true)
+    press('Escape')
+    expect(open()).toBe(false)
+    expect(host.closed, 'the Escape that shut the list must not also close the editor').toBe(0)
+    press('Escape')
+    expect(host.closed, 'the second Escape belongs to the dialog').toBe(1)
+    rendered?.unmount()
+  })
+
+  it('gives each row the touch floor a finger needs, and nothing more on a desktop', () => {
+    render(NOTES)
+    focusField()
+    const row = document.querySelector('[role=option]')
+    if (!row) throw new Error('no row to measure')
+    // jsdom lays nothing out, so the class is what can be asserted here; the painted height is
+    // measured in a browser.
+    expect(row.className).toContain('min-h-[44px]')
+    expect(row.className).toContain('md:min-h-0')
+    rendered?.unmount()
+  })
+
   it('points aria-controls at the list it is actually showing', () => {
     render(NOTES)
     expect(field().getAttribute('aria-controls')).toBeNull()
     focusField()
     const listId = field().getAttribute('aria-controls')
     if (!listId) throw new Error('the field lost its list id')
-    expect(rendered?.container.querySelector(`#${CSS.escape(listId)}`)).not.toBeNull()
+    expect(document.querySelector(`#${CSS.escape(listId)}`)).not.toBeNull()
     rendered?.unmount()
   })
 })
