@@ -10,6 +10,7 @@ import { installTestGlobals } from '../../lib/test-render';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { Sidebar } from './Sidebar';
+import { BacklinksPanel } from '../workspace/BacklinksPanel';
 import { ConfirmHost } from '../../components/overlay';
 import { SIDEBAR_PANEL_ID, SIDEBAR_TAB_IDS, tabId } from './SidebarTabs';
 
@@ -248,6 +249,17 @@ describe('link tabs', () => {
         expect(row.className).toContain('justify-center');
         expect(row.textContent).not.toContain(t('common.backlinks'));
         expect(row.textContent).toContain('1');
+    });
+
+    it('keeps the title on the panel docked under the editor', async () => {
+        vi.spyOn(api.notes, 'backlinks').mockResolvedValue({ backlinks: [], unlinked: [] });
+        await act(async () => root.unmount());
+        root = createRoot(container);
+        await act(() => root.render(createElement(BacklinksPanel, { noteId: 'src' })));
+        await vi.waitFor(() => expect(container.textContent).toContain(t('common.backlinks')), { timeout: 4000 });
+        const row = container.querySelector('section > div')!;
+        expect(row.className).toContain('sticky');
+        expect(row.className).not.toContain('justify-center');
     });
 
     it('asks for a note before showing backlinks', async () => {

@@ -89,9 +89,11 @@ export function BacklinksPanel({ noteId, fill = false }: {
     </ul>);
 
     return (<section className={fill ? 'min-h-0' : 'max-h-[36%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-base)]'}>
-      {fill ? (<div className="flex items-center justify-center gap-1.5 px-2 pt-1 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
-          <Link2 size={11} aria-hidden="true"/>{links && links.length > 0 && <span className="tabular">· {links.length}</span>}
-        </div>) : (<div className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      {fill
+        ? links && links.length > 0 && (<div className="flex items-center justify-center gap-1.5 px-2 pt-1 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            <Link2 size={11} aria-hidden="true"/><span className="tabular">· {links.length}</span>
+          </div>)
+        : (<div className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
             <Link2 size={11}/>{t("common.backlinks")}{links && links.length > 0 && <span className="tabular">· {links.length}</span>}
           </div>)}
 
