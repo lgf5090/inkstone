@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuickAddCaptureChoice, QuickAddTemplateChoice } from '@shared/quickadd'
+import { parseFrontMatter } from '@shared/markdown-utils'
 import { QUICKADD_LIMITS, newCaptureChoice, newGroupChoice, newMacroChoice, newTemplateChoice, defaultQuickAddSettings, type QuickAddChoice, type QuickAddSettings } from '@shared/quickadd'
 import { initI18n, t } from '../../lib/i18n'
 import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
-import type { NewNoteInput, NotePort, NoteRef, TemplatePickOption } from './context'
+import type { NewNoteInput, NotePort, NoteRef, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -77,7 +78,14 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const lineInserts: { text: string; side: string }[] = []
   const writes: { id: string; content: string; previous?: string }[] = []
   const opened: string[] = []
+  const opens: QuickAddOpenOptions[] = []
   const notifications: string[] = []
+  const carets: number[] = []
+  const links: { sourceId: string; title: string; options: QuickAddLinkOptions }[] = []
+  /** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */
+  let refuseLink = false
+  /** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */
+  let caret: { from: number; to: number } | null = null
   const store: QuickAddChoice[] = []
   const picks: TemplatePickOption[] = [
     { id: 'tpl-daily', name: 'Daily', category: 'Journal' },
@@ -106,22 +114,29 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       return note
     },
     ensureFolder: async (path) => path,
-    open: async (id) => {
+    open: async (id, options) => {
       opened.push(id)
+      opens.push(options ?? {})
       activeId = id
     },
     linkTo: (target) => `[[${target.title}]]`,
     cursorHeadingPath: () => null,
     selection: () => selection,
     clipboard: async () => '',
-    templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body' : name === 'tpl-cleared' ? '' : null),
+    templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body'
+      : name === 'tpl-props' ? '---\nmood: glad\ntags:\n  - journal\n---\nFrom template\n'
+        : name === 'tpl-marked' ? 'Hi{{CURSOR}}there\n'
+          : name === 'tpl-space' ? '　'
+          : name === 'tpl-cleared' ? '' : null),
     templateNames: () => ['Daily', 'Cleared'],
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
-    pickFileTitles: async () => [],
+    pickFileTitles: async (token) => (token.folder === 'Numbers' ? ['42'] : []),
     knownNoteTitles: () => Object.keys(notes),
     knownFolderPaths: () => ['Journal'],
-    appendLink: async (source, target) => {
+    appendLink: async (source, target, options) => {
+      links.push({ sourceId: source.id, title: target.title, options: options ?? {} })
+      if (refuseLink) return false
       const note = Object.values(notes).find((entry) => entry.id === source.id)
       if (!note) return false
       note.content = `${note.content}\n[[${target.title}]]\n`
@@ -132,9 +147,15 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
       commands.push(id)
       return !id.startsWith('missing')
     },
-    placeCursor: () => {},
+    placeCursor: (offset) => { carets.push(offset) },
     recordRun: () => {},
     notify: (title, description) => { notifications.push(`${title}: ${description ?? ''}`) },
+    activeEditorState: () => {
+      const note = Object.values(notes).find((entry) => entry.id === activeId)
+      if (!note) return null
+      const from = caret?.from ?? note.content.length
+      return { text: note.content, from, to: caret?.to ?? from }
+    },
     insertAtCursor: (text, cursor) => {
       inserted.push({ text, cursor })
       return true
@@ -164,10 +185,19 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     lineInserts,
     writes,
     opened,
+    opens,
     notifications,
+    carets,
+    links,
+    refuseLink: () => {
+      refuseLink = true
+    },
     store,
     setActive: (title: string | null) => {
       activeId = title ? (notes[title]?.id ?? null) : null
+    },
+    setSelection: (from: number, to: number) => {
+      caret = { from, to }
     },
     content: (title: string) => notes[title]?.content ?? null,
   }
@@ -694,6 +724,168 @@ describe('capturing into a note', () => {
   })
 })
 
+describe('a property capture keeps the note’s own types', () => {
+  const into = (note: string, over: Record<string, unknown>) => {
+    const fake = harness({ Note: note })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true,
+        prompted: false,
+        name: 'count',
+        action: 'set' as const,
+        createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE}}' },
+      },
+      ...over,
+    }
+    return { fake, choice }
+  }
+
+  it('writes a number into a key that already holds one', async () => {
+    const { fake, choice } = into('---\ncount: 3\n---\nbody\n', {})
+    answers.queue = [['4']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe(4)
+    expect(fake.content('Note')).toContain('count: 4')
+  })
+
+  it('writes a checkbox into a key that already holds one', async () => {
+    const { fake, choice } = into('---\ncount: false\n---\nbody\n', {})
+    answers.queue = [['true']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe(true)
+  })
+
+  it('leaves a brand-new key as text rather than guessing a number', async () => {
+    const { fake, choice } = into('body only\n', { property: {
+      enabled: true, prompted: false, name: 'answer', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: '{{VALUE}}' },
+    } })
+    answers.queue = [['42']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.answer).toBe('42')
+  })
+
+  it('honours a value token that says it is a number', async () => {
+    const { fake, choice } = into('body only\n', { property: {
+      enabled: true, prompted: false, name: 'amount', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: '{{VALUE:amount|type:number}}' },
+    } })
+    answers.queue = [['7']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.amount).toBe(7)
+  })
+
+  it('honours a value token that says it is a checkbox', async () => {
+    const { fake, choice } = into('body only\n', { property: {
+      enabled: true, prompted: false, name: 'flag', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: '{{VALUE:flag|type:checkbox}}' },
+    } })
+    answers.queue = [['true']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.flag).toBe(true)
+  })
+
+  it('leaves a composed format as the sentence it is', async () => {
+    const { fake, choice } = into('---\ncount: 3\n---\nbody\n', { property: {
+      enabled: true, prompted: false, name: 'count', action: 'set', createIfMissing: true,
+      format: { enabled: true, format: 'Count: {{VALUE}}' },
+    } })
+    answers.queue = [['4']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe('Count: 4')
+  })
+
+  it('does not read a file token’s type as the property’s type', async () => {
+    const fake = harness({ Note: 'body only\n' })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true, prompted: false, name: 'answer', action: 'set' as const, createIfMissing: true,
+        format: { enabled: true, format: '{{FILE:Numbers|type:number}}' },
+      },
+    }
+    answers.queue = [['42']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.answer).toBe('42')
+  })
+
+  it('leaves a sentence numeric-free even when its text reads as a number', async () => {
+    const fake = harness({ Note: 'body only\n' })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true, prompted: false, name: 'answer', action: 'set' as const, createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE:a|type:number}}1' },
+      },
+    }
+    answers.queue = [['']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.answer).toBe('1')
+  })
+
+  it('keeps the text when a numeric key is handed words', async () => {
+    const { fake, choice } = into('---\ncount: 3\n---\nbody\n', {})
+    answers.queue = [['soon']]
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.count).toBe('soon')
+  })
+})
+
+describe('a property capture keeps the shape of a list', () => {
+  const appendInto = (note: string, key: string, answer: string) => {
+    const fake = harness({ Note: note })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Prop', 0),
+      targetTitle: 'Note',
+      property: {
+        enabled: true,
+        prompted: false,
+        name: key,
+        action: 'append' as const,
+        createIfMissing: true,
+        format: { enabled: true, format: '{{VALUE}}' },
+      },
+    }
+    answers.queue = [[answer]]
+    return { fake, choice }
+  }
+
+  it('adds a number to a list of numbers', async () => {
+    const { fake, choice } = appendInto('---\nnums: [1, 2]\n---\nbody\n', 'nums', '3')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual([1, 2, 3])
+  })
+
+  it('adds a checkbox to a list of them', async () => {
+    const { fake, choice } = appendInto('---\nflags: [true]\n---\nbody\n', 'flags', 'false')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.flags).toEqual([true, false])
+  })
+
+  it('leaves a text list as text', async () => {
+    const { fake, choice } = appendInto('---\nwords: [one]\n---\nbody\n', 'words', 'two')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.words).toEqual(['one', 'two'])
+  })
+
+  it('does not turn a list of number-looking text into numbers', async () => {
+    const { fake, choice } = appendInto('---\nnums: [\x271\x27, \x272\x27]\n---\nbody\n', 'nums', '3')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual(['1', '2', '3'])
+  })
+
+  it('falls back to text when one element is not a number', async () => {
+    const { fake, choice } = appendInto('---\nnums: [1, x]\n---\nbody\n', 'nums', '3')
+    await runCaptureChoice(choice, fake.port)
+    expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual(['1', 'x', '3'])
+  })
+})
+
 describe('creating a note from a template', () => {
   it('creates a note named by the format, in the configured folder', async () => {
     const fake = harness({})
@@ -800,7 +992,307 @@ describe('creating a note from a template', () => {
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('empty')
     expect(fake.inserted).toEqual([])
+    expect(fake.writes, 'a template with no text does not rewrite the note').toEqual([])
+    expect(fake.content('Inbox')).toBe('today\n')
   })
+
+  it('keeps a template’s own properties out of the body it inserts', async () => {
+    const fake = harness({ Here: '# Title\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Insert props', 0),
+      templateId: 'tpl-props',
+      mode: 'insert-here' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.content('Here')).toBe('---\nmood: glad\ntags:\n  - journal\n---\n# Title\nFrom template\n')
+    expect(fake.writes.length, 'one write, not an editor splice').toBe(1)
+  })
+
+  it('adds a template’s list to the note’s own instead of overwriting it', async () => {
+    const fake = harness({ Here: '---\ntags: [work]\n---\n# Title\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Insert props', 0),
+      templateId: 'tpl-props',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    const data = parseFrontMatter(fake.content('Here') ?? '').data
+    expect(data.tags).toEqual(['work', 'journal'])
+    expect(data.mood).toBe('glad')
+  })
+
+  it('puts the caret where the template said, past the merged properties', async () => {
+    const fake = harness({ Here: '---\nm: 1\n---\nbody\n' })
+    fake.setActive('Here')
+    fake.setSelection(18, 18)
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Marked', 0),
+      templateId: 'tpl-marked',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('---\nm: 1\n---\nbody\nHithere\n')
+    expect(fake.carets).toEqual([20])
+  })
+
+  it('writes the fullwidth space the reader answered with', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    const choice = newCaptureChoice('qa-c', 'Inbox capture', 0)
+    answers.queue = [['　']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind, 'an ideographic space is content, not a skipped answer').toBe('written')
+    expect(fake.content('Inbox')).toBe('today\n　')
+  })
+
+  it('inserts a template that is only a fullwidth space', async () => {
+    const fake = harness({ Here: 'body\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Pad', 0),
+      templateId: 'tpl-space',
+      mode: 'insert-here' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind, 'an ideographic space is what the template carries').toBe('written')
+    expect(fake.content('Here')).toBe('body\n　')
+  })
+
+  it('does not clear the reader’s selection when the answer came back blank', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    fake.setActive('Inbox')
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Cursor capture', 0),
+      writePosition: 'cursor' as const,
+    }
+    answers.queue = [['']]
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('empty')
+    expect(fake.inserted, 'an empty insert would delete what the reader has selected').toEqual([])
+  })
+
+  it('refuses to split the note’s own properties when inserting at the caret', async () => {
+    const fake = harness({ Here: '---\na: 1\n---\nbody\n' })
+    fake.setActive('Here')
+    fake.setSelection(4, 4)
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Splitter', 0),
+      templateId: 'tpl-marked',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('---\na: 1\n---\nHithere\nbody\n')
+  })
+
+describe('the link back to the note the run started from', () => {
+  const captureFrom = (over: Record<string, unknown>) => ({
+    ...newCaptureChoice('qa-c', 'Link capture', 0),
+    targetMode: 'note' as const,
+    targetTitle: 'Journal',
+    createIfMissing: true,
+    linkToSource: true,
+    ...over,
+  })
+
+  it('asks for the place, the property and the shape the choice says', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    const choice = captureFrom({ linkPlacement: 'property' as const, linkProperty: 'origin', linkEmbed: true })
+    answers.queue = [['an idea']]
+    await runCaptureChoice(choice, fake.port, { sourceNoteId: 'n-Source' })
+    expect(fake.links).toEqual([{ sourceId: 'n-Source', title: 'Journal', options: { placement: 'property', property: 'origin', embed: true } }])
+  })
+
+  it('asks for the note’s end, plainly, in a property called source when the choice says nothing', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    answers.queue = [['an idea']]
+    await runCaptureChoice(captureFrom({}), fake.port, { sourceNoteId: 'n-Source' })
+    expect(fake.links[0].options).toEqual({ placement: 'noteEnd', property: 'source', embed: false })
+  })
+
+  it('says out loud when the app refused the link, and still reports the capture', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    fake.refuseLink()
+    answers.queue = [['an idea']]
+    const status = await runCaptureChoice(captureFrom({}), fake.port, { sourceNoteId: 'n-Source' })
+    expect(status.kind).toBe('written')
+    expect(fake.notifications.join('\n')).toContain('Source')
+    expect(fake.content('Source'), 'the note is not pretending to be linked').toBe('started here\n')
+  })
+
+  it('writes the link back from a template choice too', async () => {
+    const fake = harness({ Source: 'started here\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Linked note', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Made {{VALUE}}' },
+      linkToSource: true,
+      linkPlacement: 'lineEnd' as const,
+    }
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port, { sourceNoteId: 'n-Source' })
+    expect(fake.links).toEqual([{ sourceId: 'n-Source', title: 'Made one', options: { placement: 'lineEnd', property: 'source', embed: false } }])
+  })
+})
+
+describe('where a finished run opens the note', () => {
+  it('opens in the pane and layout the choice says, without taking focus', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Journal', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Note {{VALUE}}' },
+      openAfter: true,
+      openPane: 'other' as const,
+      openLayout: 'preview' as const,
+      openFocus: false,
+    }
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.opens).toEqual([{ pane: 'other', layout: 'preview', focus: false }])
+  })
+
+  it('asks for the current pane, the reader’s own layout and the focus when the choice says nothing', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Plain', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Note {{VALUE}}' },
+    }
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.opens, 'the fields stay absent so the app decides').toEqual([{}])
+  })
+
+  it('carries the same opening to a capture', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Inbox capture', 0),
+      openAfter: true,
+      openPane: 'other' as const,
+      openLayout: 'live' as const,
+      openFocus: true,
+    }
+    answers.queue = [['an idea']]
+    await runCaptureChoice(choice, fake.port)
+    expect(fake.opens).toEqual([{ pane: 'other', layout: 'live', focus: true }])
+  })
+
+  it('does not move the caret into a note the run opened in the background', async () => {
+    const fake = harness({ Diary: 'old\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Overwrite', 0),
+      templateId: 'tpl-marked',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'overwrite' as const,
+      openAfter: true,
+      openFocus: false,
+    }
+    answers.queue = [['true']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Diary')).toBe('Hithere\n')
+    expect(fake.carets, 'the caret of the note on screen stays where the reader left it').toEqual([])
+
+    const other = harness({ Diary: 'old\n' })
+    answers.queue = [['true']]
+    await runTemplateChoice({ ...choice, openFocus: true }, other.port)
+    expect(other.carets, 'with the focus the marker is honoured').toEqual([2])
+  })
+})
+
+describe('a name format that routes into a folder', () => {
+  const named = (over: Record<string, unknown>) => ({
+    ...newTemplateChoice('qa-t', 'Routed', 0),
+    templateId: 'tpl-daily',
+    nameFormat: { enabled: true, format: 'Journal/{{DATE:YYYY-MM-DD}}' },
+    ...over,
+  })
+
+  it('creates the note inside the folder the name names', async () => {
+    const fake = harness({})
+    await runTemplateChoice(named({}), fake.port)
+    expect(fake.created[0]).toMatchObject({ title: '2026-10-08', folderPath: 'Journal' })
+  })
+
+  it('does not stack the folder twice when the choice already points at it', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Journal',
+      nameFormat: { enabled: true, format: 'Journal/{{VALUE}}' },
+    })
+    answers.queue = [['Notes']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'Notes', folderPath: 'Journal' })
+  })
+
+  it('keeps a deeper route the name names, under the choice’s folder', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Inbox',
+      nameFormat: { enabled: true, format: 'Deep/Inside/{{VALUE}}' },
+    })
+    answers.queue = [['note']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'note', folderPath: 'Inbox/Deep/Inside' })
+  })
+
+  it('hangs a deeper route off the folder the choice names', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Journal',
+      nameFormat: { enabled: true, format: 'Journal/Deep/{{VALUE}}' },
+    })
+    answers.queue = [['note']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'note', folderPath: 'Journal/Deep' })
+  })
+
+  it('does not repeat a folder the choice path already ends with', async () => {
+    const fake = harness({})
+    const choice = named({
+      folderMode: 'fixed' as const,
+      folderPath: 'Inbox/Journal',
+      nameFormat: { enabled: true, format: 'journal/{{VALUE}}' },
+    })
+    answers.queue = [['note']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'note', folderPath: 'Inbox/Journal' })
+  })
+
+  it('routes what the reader typed at the name question too', async () => {
+    const fake = harness({})
+    const choice = { ...newTemplateChoice('qa-t', 'Asked', 0), templateId: 'tpl-daily' }
+    answers.queue = [['Notes/2026']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: '2026', folderPath: 'Notes' })
+  })
+
+  it('leaves a slash-free name where the choice says', async () => {
+    const fake = harness({})
+    const choice = named({ folderMode: 'fixed' as const, folderPath: 'Journal', nameFormat: { enabled: true, format: 'Plain {{VALUE}}' } })
+    answers.queue = [['one']]
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: 'Plain one', folderPath: 'Journal' })
+  })
+
+  it('counts a routed name as taken only inside the folder it routes to', async () => {
+    const fake = harness({ '2026-10-08': 'elsewhere' })
+    fake.notes['2026-10-08'].folderPath = 'Elsewhere'
+    const choice = named({ existing: 'number' as const })
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.created[0]).toMatchObject({ title: '2026-10-08', folderPath: 'Journal' })
+  })
+
+  it('files the note under the parent-step a mistyped route names', async () => {
+    const fake = harness({})
+    await runTemplateChoice(named({ nameFormat: { enabled: true, format: '../Escape/{{DATE:YYYY-MM-DD}}' } }), fake.port)
+    expect(fake.created[0], 'a folder named .. is not a place in this app’s tree').toMatchObject({ title: '2026-10-08', folderPath: 'Escape' })
+  })
+})
 
   it('asks for a name when the choice has no format', async () => {
     const fake = harness({})
@@ -895,6 +1387,131 @@ describe('creating a note from a template', () => {
     expect(fake.created[0].title).toBe('Twice 2')
   })
 
+  it('drops a template at the top of the open note, below its properties', async () => {
+    const fake = harness({ Here: '---\na: 1\n---\nbody\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Top', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+      insertPosition: 'top' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.content('Here')).toBe('---\na: 1\n---\nDaily body\nbody\n')
+  })
+
+  it('appends the template to the open note with one blank line between', async () => {
+    const fake = harness({ Here: 'body\n\n\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Bottom', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+      insertPosition: 'bottom' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('body\n\nDaily body')
+  })
+
+  it('puts the caret drop where the reader had selected, not at the end', async () => {
+    const fake = harness({ Here: 'head SEL tail' })
+    fake.setActive('Here')
+    fake.setSelection(5, 8)
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Selection', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('head Daily body tail')
+  })
+
+  it('appends to a note that is not on screen, without moving anyone’s caret', async () => {
+    const fake = harness({ Diary: 'old\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append marked', 0),
+      templateId: 'tpl-marked',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendBottom' as const,
+      openAfter: true,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Diary')).toBe('old\n\nHithere\n')
+    expect(fake.carets, 'the caret it opened into is not the one the reader was typing in').toEqual([])
+    expect(fake.opened).toEqual(['n-Diary'])
+  })
+
+  it('replaces the open note when that is what the drop says', async () => {
+    const fake = harness({ Here: '---\nold: 1\n---\nBody\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Replace', 0),
+      templateId: 'tpl-props',
+      mode: 'insert-here' as const,
+      insertPosition: 'replace' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('---\nmood: glad\ntags:\n  - journal\n---\nFrom template\n')
+  })
+
+  it('needs the note on screen for a drop, and says which half is missing', async () => {
+    const fake = harness({ Here: 'body\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Bottom no editor', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+      insertPosition: 'bottom' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_no_open_note') })
+  })
+
+  it('appends the template under a name the library already has', async () => {
+    const fake = harness({ Diary: 'old\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendBottom' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created, 'no second note is made').toEqual([])
+    expect(fake.content('Diary')).toBe('old\n\nDaily body')
+  })
+
+  it('appends under a colliding name without asking first', async () => {
+    const fake = harness({ Diary: '---\nmood: sad\n---\nold\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append bin', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendBottom' as const,
+    }
+    answers.queue = []
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'the reader already said append').toEqual([])
+    expect(fake.content('Diary')).toContain('mood: sad')
+    expect(fake.content('Diary')).toContain('Daily body')
+  })
+
+  it('appends above the note it collides with, merging its properties', async () => {
+    const fake = harness({ Diary: '---\nmood: sad\n---\nold\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append top', 0),
+      templateId: 'tpl-props',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendTop' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    const data = parseFrontMatter(fake.content('Diary') ?? '').data
+    expect(data.mood, 'the note keeps its own value').toBe('sad')
+    expect(data.tags).toEqual(['journal'])
+    expect(fake.content('Diary')).toContain('From template')
+  })
+
   it('splices the template into the open note at the caret', async () => {
     const fake = harness({ Here: 'body\n' })
     fake.setActive('Here')
@@ -905,7 +1522,7 @@ describe('creating a note from a template', () => {
     }
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind).toBe('written')
-    expect(fake.inserted[0].text).toBe('Daily body')
+    expect(fake.content('Here')).toBe('body\nDaily body')
   })
 
   it('counts dates from the day the reader picked', async () => {

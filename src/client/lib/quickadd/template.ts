@@ -12,7 +12,18 @@ import type { QuickAddTemplateChoice } from '@shared/quickadd'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
-import { folderJoin, sanitizeTitle, type NotePort, type QuickAddRunStatus } from './context'
+import {
+  folderJoin,
+  joinRouted,
+  linkOptions,
+  openingOptions,
+  sanitizeTitle,
+  splitTargetPath,
+  type NotePort,
+  type NoteRef,
+  type QuickAddRunStatus,
+} from './context'
+import { placeTemplate, type TemplateDrop } from './insertion'
 import { t } from '../../lib/i18n'
 
 /** What the run asks for a name when the choice has no name format of its own. */
@@ -60,25 +71,28 @@ function templateRequest(port: NotePort, categoryId: string | null): PromptReque
   })
 }
 
-/** A note title, from the name format or from a prompt when the choice has no format. */
+/**
+ * A note title and the folder it names: `Journal/{{DATE}}` is a title of `2026-10-08` inside
+ * `Journal`, the way a capture target reads, because a title here cannot hold path characters.
+ */
 async function resolveTitle(
   choice: QuickAddTemplateChoice,
   session: RunSession,
   runtime: FormatRuntime,
   port: NotePort,
-): Promise<string | null> {
+): Promise<{ title: string; folder: string | null } | null> {
+  let named: { title: string; folder: string | null }
   if (choice.nameFormat.enabled) {
     const formatted = await formatWithPrompts(choice.nameFormat.format, runtime, session)
-    const title = sanitizeTitle(formatted.text, '')
-    if (!title) return null
-    runtime.title = title
-    return title
+    named = splitTargetPath(formatted.text)
+  } else {
+    const value = await askOrReuse(session, titleRequest(port, runtime))
+    named = splitTargetPath(typeof value === 'string' ? value : '')
   }
-  const value = await askOrReuse(session, titleRequest(port, runtime))
-  const title = typeof value === 'string' ? sanitizeTitle(value, '') : ''
+  const title = sanitizeTitle(named.title, '')
   if (!title) return null
   runtime.title = title
-  return title
+  return { title, folder: named.folder }
 }
 
 async function resolveFolder(
@@ -86,6 +100,7 @@ async function resolveFolder(
   session: RunSession,
   runtime: FormatRuntime,
   port: NotePort,
+  routedFolder: string | null,
 ): Promise<string | null> {
   let path: string | null = null
   switch (choice.folderMode) {
@@ -103,7 +118,7 @@ async function resolveFolder(
     default:
       path = port.settings().defaultFolder
   }
-  const folder = folderJoin(path) || null
+  const folder = joinRouted(folderJoin(path), routedFolder) || null
   runtime.folderPath = folder
   return folder
 }
@@ -114,6 +129,52 @@ async function askForTemplate(session: RunSession, port: NotePort, categoryId: s
   const value = await askOrReuse(session, templateRequest(port, categoryId))
   if (session.dismissed) return null
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+}
+
+/**
+ * A template dropped into a note that exists: its properties merge into that note's own block and its
+ * text lands where the drop says. A caret drop reads the editor, because that is where the reader's
+ * unsaved typing and their selection live; every other drop works from the note as stored.
+ */
+async function dropIntoNote(
+  choice: QuickAddTemplateChoice,
+  note: NoteRef,
+  body: string,
+  drop: TemplateDrop,
+  runtime: FormatRuntime,
+  session: RunSession,
+  port: NotePort,
+  openAfter: boolean,
+): Promise<QuickAddRunStatus> {
+  runtime.title = note.title
+  runtime.folderPath = note.folderPath
+  session.destination = note
+  const formatted = await formatWithPrompts(body, runtime, session, note.title)
+  if (session.dismissed) return { kind: 'cancelled' }
+  const caret = drop === 'cursor' ? port.activeEditorState?.() ?? null : null
+  if (drop === 'cursor' && !caret) return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
+  const text = caret ? caret.text : await port.read(note.id)
+  const placed = placeTemplate({
+    text,
+    from: caret?.from ?? text.length,
+    to: caret?.to ?? text.length,
+    drop,
+    template: formatted.text,
+    cursor: formatted.cursor,
+  })
+  // A template that carries only properties is not "nothing to write": the merge is the write.
+  if (!placed.changed) return { kind: 'empty', noteId: note.id }
+  if (!(await port.write(note.id, placed.content, text)))
+    return { kind: 'failed', reason: t('quickadd.error_write_refused') }
+  if (placed.cursor !== null && note.id === port.activeNote()?.id) port.placeCursor(placed.cursor)
+  if (openAfter) await port.open(note.id, openingOptions(choice))
+  port.recordRun(choice.id)
+  return {
+    kind: 'written',
+    noteId: note.id,
+    created: false,
+    summary: t('quickadd.ran_into', { name: choice.name, destination: note.title }),
+  }
 }
 
 export async function runTemplateChoice(
@@ -167,31 +228,30 @@ export async function runTemplateChoice(
   if (choice.mode === 'insert-here') {
     const active = port.activeNote()
     if (!active) return { kind: 'failed', reason: t('quickadd.error_no_open_note') }
-    runtime.title = active.title
-    runtime.folderPath = active.folderPath
-    session.destination = active
-    const formatted = await formatWithPrompts(body, runtime, session, active.title)
-    if (session.dismissed) return { kind: 'cancelled' }
-    if (formatted.text.trim() === '' && formatted.cursor === null)
-      return { kind: 'empty', noteId: active.id }
-    if (!port.insertAtCursor(formatted.text, formatted.cursor))
-      return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
-    port.recordRun(choice.id)
-    return {
-      kind: 'written',
-      noteId: active.id,
-      created: false,
-      summary: t('quickadd.ran_into', { name: choice.name, destination: active.title }),
-    }
+    // The note is already on screen, so there is nothing to open; only a caret drop reads the editor.
+    return dropIntoNote(choice, active, body, choice.insertPosition ?? 'cursor', runtime, session, port, false)
   }
 
-  const title = await resolveTitle(choice, session, runtime, port)
+  const named = await resolveTitle(choice, session, runtime, port)
   if (session.dismissed) return { kind: 'cancelled' }
-  if (!title) return { kind: 'cancelled' }
-  const folder = await resolveFolder(choice, session, runtime, port)
+  if (!named) return { kind: 'cancelled' }
+  const title = named.title
+  const folder = await resolveFolder(choice, session, runtime, port, named.folder)
   if (session.dismissed) return { kind: 'cancelled' }
   const existing = port.findByTitle(title)
   const collides = existing !== null && (existing.folderPath ?? '') === (folder ?? '')
+
+  if (collides && existing && (choice.existing === 'appendTop' || choice.existing === 'appendBottom'))
+    return dropIntoNote(
+      choice,
+      existing,
+      body,
+      choice.existing === 'appendTop' ? 'top' : 'bottom',
+      runtime,
+      session,
+      port,
+      choice.openAfter,
+    )
 
   if (collides && existing && choice.existing !== 'number') {
     if (choice.existing === 'cancel')
@@ -208,8 +268,8 @@ export async function runTemplateChoice(
     const prior = await port.read(existing.id)
     const written = await port.write(existing.id, formatted.text, prior)
     if (!written) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
-    if (formatted.cursor !== null) port.placeCursor(formatted.cursor)
-    if (choice.openAfter) await port.open(existing.id)
+    if (choice.openFocus !== false && formatted.cursor !== null) port.placeCursor(formatted.cursor)
+    if (choice.openAfter) await port.open(existing.id, openingOptions(choice))
     port.recordRun(choice.id)
     return {
       kind: 'written',
@@ -232,10 +292,11 @@ export async function runTemplateChoice(
 
   if (choice.linkToSource && options.sourceNoteId) {
     const source = port.byId(options.sourceNoteId)
-    if (source) await port.appendLink(source, created)
+    if (source && !(await port.appendLink(source, created, linkOptions(choice))))
+      port.notify(t('quickadd.warn_link_failed', { destination: source.title }), undefined, 'warning')
   }
   if (choice.copyLink) port.copyText(port.linkTo(created))
-  if (choice.openAfter) await port.open(created.id)
+  if (choice.openAfter) await port.open(created.id, openingOptions(choice))
   port.recordRun(choice.id)
   return {
     kind: 'written',

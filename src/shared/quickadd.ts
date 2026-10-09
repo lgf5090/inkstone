@@ -34,7 +34,12 @@ export type QuickAddTemplateMode = 'new-note' | 'insert-here'
 /** Use the template named on the choice, or pick one from the library every run. */
 export type QuickAddTemplatePick = 'fixed' | 'ask'
 export type QuickAddFolderMode = 'default' | 'fixed' | 'ask' | 'source'
-export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel'
+export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel' | 'appendTop' | 'appendBottom'
+/**
+ * Where a template lands in a note that already exists: where the caret is, below the note's own
+ * properties, past its last line, or in place of everything in it.
+ */
+export type QuickAddTemplateDrop = 'cursor' | 'top' | 'bottom' | 'replace'
 export type QuickAddCaptureTargetMode = 'active' | 'note'
 export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor' | 'lineAbove' | 'lineBelow'
 export type QuickAddCreateAt = 'top' | 'bottom' | 'cursor' | 'ordered'
@@ -47,6 +52,15 @@ export type QuickAddUnparseablePolicy = 'top' | 'bottom'
 export type QuickAddOnePageMode = 'always' | 'auto' | 'never'
 
 export type QuickAddStartupScope = 'session' | 'day'
+/** Which pane the finished note goes to: the one the reader is in, or the one beside it. */
+export type QuickAddOpenPane = 'active' | 'other'
+/**
+ * Where the link back to the note the run started from is written: the bottom of that note, the end of
+ * the line the caret was on, or a property of it.
+ */
+export type QuickAddLinkPlacement = 'noteEnd' | 'lineEnd' | 'property'
+/** How the app renders it there: leave the reader's own choice, or ask for a specific mode. */
+export type QuickAddOpenLayout = 'inherit' | 'live' | 'split' | 'preview'
 export type QuickAddPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 export type QuickAddConditionOperator = 'eq' | 'ne' | 'has' | 'empty' | 'gt' | 'lt'
 
@@ -78,8 +92,19 @@ export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   folderPath: string
   nameFormat: { enabled: boolean; format: string }
   existing: QuickAddExistingAction
+  /** Where the template lands when this choice writes into the note the reader is in. */
+  insertPosition?: QuickAddTemplateDrop
   openAfter: boolean
+  /** Absent means the app decides, which is what every record written before these fields means. */
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
   linkToSource: boolean
+  linkPlacement?: QuickAddLinkPlacement
+  /** The property the link goes into when `linkPlacement` says so; `source` when absent. */
+  linkProperty?: string
+  /** Write the link as a transclusion (`![[…]]`) instead of a plain link. */
+  linkEmbed?: boolean
   copyLink: boolean
   tags: string[]
 }
@@ -108,7 +133,13 @@ export interface QuickAddCaptureChoice extends QuickAddChoiceBase {
   eachLine: boolean
   useSelectionAsValue: boolean | null
   openAfter: boolean
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
   linkToSource: boolean
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
   copyLink: boolean
   property: {
     enabled: boolean
@@ -524,8 +555,14 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
           enabled: boolOf(nameFormat.enabled, false),
           format: oneLine(nameFormat.format, QUICKADD_LIMITS.maxNameLength),
         },
-        existing: pick(value.existing, ['ask', 'number', 'overwrite', 'cancel'] as const, 'ask'),
+        existing: pick(value.existing, ['ask', 'number', 'overwrite', 'cancel', 'appendTop', 'appendBottom'] as const, 'ask'),
+        ...(value.insertPosition === 'cursor' || value.insertPosition === 'top'
+          || value.insertPosition === 'bottom' || value.insertPosition === 'replace'
+          ? { insertPosition: value.insertPosition }
+          : {}),
         openAfter: boolOf(value.openAfter, true),
+        ...normalizeOpening(value),
+        ...normalizeBacklink(value),
         linkToSource: boolOf(value.linkToSource, false),
         copyLink: boolOf(value.copyLink, false),
         tags: normalizeTags(value.tags),
@@ -568,6 +605,8 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
         eachLine: boolOf(value.eachLine, false),
         useSelectionAsValue: typeof value.useSelectionAsValue === 'boolean' ? value.useSelectionAsValue : null,
         openAfter: boolOf(value.openAfter, false),
+        ...normalizeOpening(value),
+        ...normalizeBacklink(value),
         linkToSource: boolOf(value.linkToSource, false),
         copyLink: boolOf(value.copyLink, false),
         property: {
@@ -590,6 +629,53 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
     default:
       return null
   }
+}
+
+/**
+ * The three opening fields are each optional and an unknown value is dropped rather than defaulted: a
+ * record saying `openPane: 'drawer'` should keep behaving like the app's own default instead of being
+ * quietly rewritten to a pane nobody chose.
+ */
+function normalizeOpening(value: Record<string, unknown>): {
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
+} {
+  const out: { openPane?: QuickAddOpenPane; openLayout?: QuickAddOpenLayout; openFocus?: boolean } = {}
+  if (value.openPane === 'active' || value.openPane === 'other') out.openPane = value.openPane
+  if (value.openLayout === 'inherit' || value.openLayout === 'live'
+    || value.openLayout === 'split' || value.openLayout === 'preview') out.openLayout = value.openLayout
+  if (typeof value.openFocus === 'boolean') out.openFocus = value.openFocus
+  return out
+}
+
+const LINK_PLACEMENTS: readonly string[] = ['noteEnd', 'lineEnd', 'property']
+
+/** A property name the reader typed: no colons, no line breaks, and not longer than a key worth storing. */
+function normalizeLinkProperty(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const clean = value.replace(/[\r\n]+/g, ' ').trim().replace(/\s+/g, ' ').slice(0, 60)
+  // A colon would end the key where YAML reads it, and `__proto__` is never a property worth writing.
+  if (clean === '' || clean.includes(':') || clean === '__proto__') return undefined
+  return clean
+}
+
+/**
+ * Where the backlink goes. A record that predates these fields keeps the behaviour it was written
+ * with: the link at the end of the note, as a plain link, in a property called `source`.
+ */
+function normalizeBacklink(value: Record<string, unknown>): {
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
+} {
+  const out: { linkPlacement?: QuickAddLinkPlacement; linkProperty?: string; linkEmbed?: boolean } = {}
+  if (typeof value.linkPlacement === 'string' && LINK_PLACEMENTS.includes(value.linkPlacement))
+    out.linkPlacement = value.linkPlacement as QuickAddLinkPlacement
+  const property = normalizeLinkProperty(value.linkProperty)
+  if (property) out.linkProperty = property
+  if (typeof value.linkEmbed === 'boolean') out.linkEmbed = value.linkEmbed
+  return out
 }
 
 function normalizeGlobalVars(value: unknown): QuickAddGlobalVar[] {

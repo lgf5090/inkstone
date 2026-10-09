@@ -384,3 +384,78 @@ describe('the ordering rule a capture record can carry', () => {
     expect(capture({ by: 'date', unparseable: 'sideways' })?.orderBy.unparseable).toBe('bottom')
   })
 })
+describe('where a run opens the note', () => {
+  const template = (over: Record<string, unknown>) => normalizeQuickAddChoice({
+    ...newTemplateChoice('t1', 'T', 0),
+    ...over,
+  })
+
+  it('keeps an opening the reader chose', () => {
+    expect(template({ openPane: 'other', openLayout: 'preview', openFocus: false }))
+      .toMatchObject({ openPane: 'other', openLayout: 'preview', openFocus: false })
+  })
+
+  it('leaves the fields absent when the record predates them', () => {
+    const made = template({})
+    expect(made && 'openPane' in made).toBe(false)
+    expect(made && 'openLayout' in made).toBe(false)
+    expect(made && 'openFocus' in made).toBe(false)
+  })
+
+  it('drops an opening the app does not have', () => {
+    const made = template({ openPane: 'drawer', openLayout: 42, openFocus: 'yes' })
+    expect(made && 'openPane' in made).toBe(false)
+    expect(made && 'openLayout' in made).toBe(false)
+    expect(made && 'openFocus' in made).toBe(false)
+  })
+})
+
+describe('the link back to the note the run started from', () => {
+  const template = (over: Record<string, unknown>) => normalizeQuickAddChoice({
+    ...newTemplateChoice('t1', 'T', 0),
+    ...over,
+  })
+
+  it('keeps a placement, a property name and an embed the reader chose', () => {
+    expect(template({ linkPlacement: 'property', linkProperty: 'origin', linkEmbed: true }))
+      .toMatchObject({ linkPlacement: 'property', linkProperty: 'origin', linkEmbed: true })
+  })
+
+  it('leaves the fields absent when the record predates them', () => {
+    const made = template({})
+    expect(made && 'linkPlacement' in made).toBe(false)
+    expect(made && 'linkProperty' in made).toBe(false)
+    expect(made && 'linkEmbed' in made).toBe(false)
+  })
+
+  it('trims a property name and drops one that cannot name a property', () => {
+    expect(template({ linkProperty: '  origin  ' })).toMatchObject({ linkProperty: 'origin' })
+    const made = template({ linkProperty: 'bad: name\nmore', linkPlacement: 'wherever' })
+    expect(made && 'linkPlacement' in made).toBe(false)
+    expect(made && 'linkProperty' in made).toBe(false)
+  })
+})
+describe('where a template lands in a note', () => {
+  const template = (over: Record<string, unknown>) => normalizeQuickAddChoice({
+    ...newTemplateChoice('t1', 'T', 0),
+    ...over,
+  })
+
+  it('keeps the drop and the append action the reader chose', () => {
+    expect(template({ insertPosition: 'bottom', existing: 'appendBottom' }))
+      .toMatchObject({ insertPosition: 'bottom', existing: 'appendBottom' })
+    expect(template({ insertPosition: 'replace', existing: 'appendTop' }))
+      .toMatchObject({ insertPosition: 'replace', existing: 'appendTop' })
+  })
+
+  it('leaves the drop absent when the record predates it', () => {
+    const made = template({})
+    expect(made && 'insertPosition' in made).toBe(false)
+  })
+
+  it('drops a drop nobody can perform and an append action spelled wrong', () => {
+    const made = template({ insertPosition: 'sideways', existing: 'append sidewards' })
+    expect(made && 'insertPosition' in made).toBe(false)
+    expect(made?.type === 'template' && made.existing).toBe('ask')
+  })
+})

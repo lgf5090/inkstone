@@ -389,6 +389,90 @@ describe('the choice editor', () => {
     expect(saved.type === 'template' && saved.templatePick).toBe('ask')
   })
 
+  it('asks where the template lands, and only for the mode that lands it', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Dropper', 0), mode: 'new-note' as const }
+    seed({ choices: [choice] })
+    editor(choice)
+    const drop = () => document.querySelector(`select[aria-label="${t('quickadd.field_insert_position')}"]`)
+    expect(drop(), 'a note that is created has nowhere to be dropped').toBeNull()
+    const existing = () => document.querySelector<HTMLSelectElement>(`select[aria-label="${t('quickadd.field_existing')}"]`)
+    expect([...(existing()?.options ?? [])].map((option) => option.value))
+      .toEqual(['cancel', 'ask', 'number', 'appendTop', 'appendBottom'])
+
+    selectNamed(t('quickadd.field_mode'), 'insert-here')
+    expect(drop()).not.toBeNull()
+    expect(existing(), 'a note that is not created cannot collide').toBeNull()
+    selectNamed(t('quickadd.field_insert_position'), 'replace')
+
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.insertPosition).toBe('replace')
+  })
+
+  it('offers one place per kind of backlink, and only the fields that place needs', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Linked', 0), linkToSource: false }
+    seed({ choices: [choice] })
+    editor(choice)
+    const placement = () => document.querySelector(`select[aria-label="${t('quickadd.field_link_placement')}"]`)
+    const propertyField = () => document.querySelector(`input[aria-label="${t('quickadd.field_link_property')}"]`)
+    const embed = () => [...document.querySelectorAll('button[role="checkbox"]')]
+      .some((node) => node.textContent?.trim() === t('quickadd.field_link_embed'))
+    expect(placement(), 'no link, so no place to put it').toBeNull()
+    clickNamed(t('quickadd.field_link_to_source'))
+    expect(placement()).not.toBeNull()
+    expect(embed(), 'a labelled line at the bottom is not something you embed').toBe(false)
+    expect(propertyField(), 'only a property placement names a property').toBeNull()
+
+    selectNamed(t('quickadd.field_link_placement'), 'property')
+    expect(propertyField()).not.toBeNull()
+    expect(embed(), 'a property value is link-only').toBe(false)
+    typeNamed(t('quickadd.field_link_property'), 'origin')
+
+    selectNamed(t('quickadd.field_link_placement'), 'lineEnd')
+    expect(propertyField()).toBeNull()
+    expect(embed()).toBe(true)
+    clickNamed(t('quickadd.field_link_embed'))
+
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.linkPlacement).toBe('lineEnd')
+    expect(saved.type === 'template' && saved.linkEmbed).toBe(true)
+  })
+
+  it('holds the opening fields until the run says it opens the note', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Alpha', 0), openAfter: false }
+    seed({ choices: [choice] })
+    editor(choice)
+    const pane = () => document.querySelector(`select[aria-label="${t('quickadd.field_open_pane')}"]`)
+    expect(pane(), 'a choice that opens nothing has no pane to name').toBeNull()
+    clickNamed(t('quickadd.field_open_after'))
+    expect(pane()).not.toBeNull()
+    selectNamed(t('quickadd.field_open_pane'), 'other')
+    selectNamed(t('quickadd.field_open_layout'), 'preview')
+    clickNamed(t('quickadd.field_open_focus'))
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.openPane).toBe('other')
+    expect(saved.type === 'template' && saved.openLayout).toBe('preview')
+    expect(saved.type === 'template' && saved.openFocus).toBe(false)
+  })
+
+  it('names the three modes the app itself uses', () => {
+    const choice = { ...newCaptureChoice('qa-c', 'Beta', 0), openAfter: true }
+    seed({ choices: [choice] })
+    editor(choice)
+    const layout = document.querySelector<HTMLSelectElement>(`select[aria-label="${t('quickadd.field_open_layout')}"]`)
+    expect([...(layout?.options ?? [])].map((option) => option.textContent?.trim())).toEqual([
+      t('quickadd.open_layout_inherit'),
+      t('workspace.editing_mode'),
+      t('workspace.split_view'),
+      t('workspace.reading_mode'),
+    ])
+  })
+
   it('offers the category filter only while the run asks which template', async () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })

@@ -9,13 +9,15 @@
  * the first run wrote.
  */
 import { QUICKADD_LIMITS, type QuickAddCaptureChoice } from '@shared/quickadd'
-import { parseFrontMatter, setFrontMatterValue } from '@shared/markdown-utils'
+import { parseFrontMatter, setFrontMatterValue, type FrontMatterListItem, type FrontMatterValue } from '@shared/markdown-utils'
+import { propertyValueKind } from '@shared/property-values'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
-import { folderJoin, sanitizeTitle, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
-import { bodyOf, parseValueToken, scanTokens } from './token-grammar'
+import { linkOptions, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
+import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
+import type { PropertyValueKind } from '@shared/property-values'
 import {
   anchorAllowsSubsections,
   appendAtBottom,
@@ -34,19 +36,11 @@ import {
   splitLines,
   toTargetLines,
   type BlankLineMode,
+  isBlankPayload,
 } from './insertion'
 import { t } from '../../lib/i18n'
 
 const HEADING_RE = /^ {0,3}#{1,6}[ \t]+\S/
-
-/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */
-export function splitTargetPath(value: string): { title: string; folder: string | null } {
-  const cleaned = value.replace(/[\\]/g, '/').replace(/\/+/g, '/').trim().replace(/\uFF0E/g, '.')
-  const segments = cleaned.split('/').filter((segment) => segment !== '')
-  const title = segments.length > 0 ? (segments[segments.length - 1] ?? '') : ''
-  const folder = segments.length > 1 ? segments.slice(0, -1).join('/') : null
-  return { title: title.trim(), folder: folder ? folderJoin(folder) : null }
-}
 
 async function resolveTarget(
   choice: QuickAddCaptureChoice,
@@ -106,6 +100,47 @@ function payloadFormat(choice: QuickAddCaptureChoice): string {
   // "Add to task list" wraps the format, not the answer, so every line of a per-line capture becomes
   // its own checkbox and an empty answer still yields a task the reader can fill in.
   return choice.task ? `- [ ] ${plain}\n` : plain
+}
+
+/**
+ * The value token a property format consists of, and only when it is exactly one: that `|type:` is the
+ * author saying what the property holds. A sentence like `Count: {{VALUE}}` is text, whatever it says.
+ */
+function declaredValueType(format: string): ValueInputType | null {
+  const text = format.trim()
+  const spans = scanTokens(text)
+  if (spans.length !== 1) return null
+  const span = spans[0]!
+  if (span.name !== 'value' && span.name !== 'name') return null
+  if (span.start !== 0 || span.end !== text.length) return null
+  return parseValueToken(bodyOf(span)).inputType
+}
+
+const NUMERIC_TEXT = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i
+const TRUE_WORDS = new Set(['true', 'yes', 'on', '1'])
+const FALSE_WORDS = new Set(['false', 'no', 'off', '0'])
+
+function booleanWord(text: string): boolean | null {
+  const words = text.trim().toLowerCase()
+  return TRUE_WORDS.has(words) ? true : FALSE_WORDS.has(words) ? false : null
+}
+
+/**
+ * The value in the shape the key already has, as the app's own property rules read that shape: a declared
+ * `|type:number` or `|type:checkbox` wins, and otherwise a number or boolean property keeps its kind.
+ * Text that cannot be read as the type stays text — a silent `42 → 0` or `soon → false` is a worse
+ * surprise than a value the reader can see.
+ */
+function typedPropertyValue(text: string, declared: ValueInputType | null, kind: PropertyValueKind): FrontMatterValue {
+  const trimmed = text.trim()
+  if (declared === 'number' || declared === 'slider' || kind === 'number') {
+    if (NUMERIC_TEXT.test(trimmed)) return Number(trimmed)
+  }
+  if (declared === 'checkbox' || kind === 'boolean') {
+    const word = booleanWord(trimmed)
+    if (word !== null) return word
+  }
+  return text
 }
 
 /** The text a property capture writes its value from. */
@@ -317,6 +352,24 @@ function propertyPlan(choice: QuickAddCaptureChoice, existing: PromptAnswer, val
   return merged
 }
 
+/**
+ * A list keeps the shape it has: `nums: [1, 2]` with a third number stays a list of numbers, and the
+ * whole list goes back to text if any one element cannot be read as that type — a half-coerced list is
+ * two shapes in one property.
+ */
+function typedPropertyList(items: string[], existing: unknown, declared: ValueInputType | null): FrontMatterListItem[] {
+  const all = (test: (entry: unknown) => boolean): boolean => Array.isArray(existing)
+    && existing.length > 0
+    && existing.every(test)
+  const numeric = declared === 'number' || declared === 'slider' || all((entry) => typeof entry === 'number')
+  if (numeric && items.every((item) => NUMERIC_TEXT.test(item.trim())))
+    return items.map((item) => Number(item.trim()))
+  const booleanish = declared === 'checkbox' || all((entry) => typeof entry === 'boolean')
+  if (booleanish && items.every((item) => booleanWord(item) !== null))
+    return items.map((item) => booleanWord(item) as boolean)
+  return items
+}
+
 export async function runCaptureChoice(
   choice: QuickAddCaptureChoice,
   port: NotePort,
@@ -392,9 +445,13 @@ export async function runCaptureChoice(
     const key = Object.keys(parsed.data).find((entry) => entry.toLowerCase() === name.toLowerCase()) ?? name
     const existing = key in parsed.data ? (parsed.data[key] as PromptAnswer) : null
     const planned = propertyPlan(choice, existing, value.text)
+    const declared = declaredValueType(propertyFormat(choice))
+    const kind = propertyValueKind(existing, key)
     if (choice.property.action === 'append' && (planned as string[]).length === 0)
       return { kind: 'empty', noteId: note.id }
-    const next = setFrontMatterValue(body, key, Array.isArray(planned) ? planned.map(String) : String(planned))
+    const next = setFrontMatterValue(body, key, Array.isArray(planned)
+      ? typedPropertyList(planned.map(String), existing, declared)
+      : typedPropertyValue(String(planned ?? ''), declared, kind))
     if (next === body) return { kind: 'empty', noteId: note.id }
     if (!(await port.write(note.id, next, body))) return { kind: 'failed', reason: t('quickadd.error_write_refused') }
     port.recordRun(choice.id)
@@ -410,9 +467,8 @@ export async function runCaptureChoice(
   if (session.dismissed) return { kind: 'cancelled' }
   const refusedPayload = await materialise()
   if (refusedPayload) return refusedPayload
-  const isEmpty = payload.text.trim() === '' && payload.cursor === null
+  const isEmpty = isBlankPayload(payload.text) && payload.cursor === null
   if (isEmpty && !created) return { kind: 'empty', noteId: note.id }
-
   let outcome: { content: string; cursor: number | null; changed: boolean }
   if (choice.writePosition === 'cursor') {
     if (note.id !== port.activeNote()?.id || !port.insertAtCursor(payload.text, payload.cursor))
@@ -449,12 +505,13 @@ export async function runCaptureChoice(
 
   if (choice.linkToSource && options.sourceNoteId) {
     const source = port.byId(options.sourceNoteId)
-    if (source) await port.appendLink(source, note)
+    if (source && !(await port.appendLink(source, note, linkOptions(choice))))
+      port.notify(t('quickadd.warn_link_failed', { destination: source.title }), undefined, 'warning')
   }
   if (choice.copyLink) port.copyText(port.linkTo(note))
   if (choice.openAfter) {
-    await port.open(note.id)
-    if (outcome.cursor !== null) port.placeCursor(outcome.cursor)
+    await port.open(note.id, openingOptions(choice))
+    if (choice.openFocus !== false && outcome.cursor !== null) port.placeCursor(outcome.cursor)
   }
   port.recordRun(choice.id)
   return {

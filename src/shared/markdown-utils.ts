@@ -781,7 +781,14 @@ function stringifyFrontMatter(document: FrontMatterDocument): string {
   return document.toString({ flowCollectionPadding: false }).replace(/\n$/, '')
 }
 
-export type FrontMatterValue = string | number | boolean | string[]
+/**
+ * What a property can hold. The list case is deliberately not `string[]`: a note that says
+ * `nums: [1, 2]` has numbers in it, and a run that adds a third item must not rewrite the first two
+ * as text. The reader sees the difference in the properties panel, which colors and sorts by type.
+ */
+export type FrontMatterListItem = string | number | boolean
+
+export type FrontMatterValue = string | number | boolean | FrontMatterListItem[]
 
 type FrontMatterDocument = ReturnType<typeof parseDocument>
 

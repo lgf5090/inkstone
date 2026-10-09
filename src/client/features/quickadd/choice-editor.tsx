@@ -24,6 +24,10 @@ import {
   type QuickAddExistingAction,
   type QuickAddFolderMode,
   type QuickAddOnePageMode,
+  type QuickAddOpenLayout,
+  type QuickAddOpenPane,
+  type QuickAddLinkPlacement,
+  type QuickAddTemplateDrop,
   type QuickAddTemplateMode,
   type QuickAddTemplatePick,
   type QuickAddMacroChoice,
@@ -424,12 +428,27 @@ function TemplateFields({ draft, patch, renderFormat }: {
           <Input aria-label={t('quickadd.field_folder_path')} value={draft.folderPath} onChange={(event) => patch({ folderPath: event.target.value })}/>
         </Field>
       )}
+      {draft.mode === 'insert-here' && (
+        <SettingRow title={t('quickadd.field_insert_position')}>
+          <Select
+            aria-label={t('quickadd.field_insert_position')}
+            value={draft.insertPosition ?? 'cursor'}
+            onChange={(event) => patch({ insertPosition: event.target.value as QuickAddTemplateDrop })}>
+            <option value="cursor">{t('quickadd.insert_position_cursor')}</option>
+            <option value="top">{t('quickadd.insert_position_top')}</option>
+            <option value="bottom">{t('quickadd.insert_position_bottom')}</option>
+            <option value="replace">{t('quickadd.insert_position_replace')}</option>
+          </Select>
+        </SettingRow>
+      )}
       {draft.mode === 'new-note' && (
         <SettingRow title={t('quickadd.field_existing')}>
           <Select aria-label={t('quickadd.field_existing')} value={draft.existing} onChange={(event) => patch({ existing: event.target.value as QuickAddExistingAction })}>
             <option value="cancel">{t('quickadd.existing_cancel')}</option>
             <option value="ask">{t('quickadd.existing_ask')}</option>
             <option value="number">{t('quickadd.existing_number')}</option>
+            <option value="appendTop">{t('quickadd.existing_append_top')}</option>
+            <option value="appendBottom">{t('quickadd.existing_append_bottom')}</option>
           </Select>
         </SettingRow>
       )}
@@ -444,8 +463,103 @@ function TemplateFields({ draft, patch, renderFormat }: {
         <Checkbox checked={draft.linkToSource} onChange={(linkToSource) => patch({ linkToSource })} label={t('quickadd.field_link_to_source')}/>
         <Checkbox checked={draft.copyLink} onChange={(copyLink) => patch({ copyLink })} label={t('quickadd.field_copy_link')}/>
       </div>
+      <OpeningFields draft={draft} set={patch}/>
+      <BacklinkFields draft={draft} set={patch}/>
     </div>
   )
+}
+
+/**
+ * Where a finished note goes once the run opens it. These stay hidden until the reader asks for the note
+ * to be opened at all: a choice that never opens anything has no pane, mode or focus to name. The three
+ * mode names are the app’s own editor labels, so the choice says what the toolbar switch says.
+ */
+/** Where the backlink goes, and in what shape. */
+type BacklinkPatch = {
+  linkPlacement?: QuickAddLinkPlacement
+  linkProperty?: string
+  linkEmbed?: boolean
+}
+
+/** The three fields the opening rows write back; the switch that reveals them stays the choice’s own. */
+type OpeningPatch = {
+  openPane?: QuickAddOpenPane
+  openLayout?: QuickAddOpenLayout
+  openFocus?: boolean
+}
+
+/**
+ * Where the link back into the note the run started from is written. The two extra fields only appear
+ * for the placements that need them: a property has to be named, and only the line the caret was on can
+ * hold a transclusion — a property value is link-only, and a labelled line already says what it is.
+ */
+function BacklinkFields({ draft, set }: {
+  draft: QuickAddTemplateChoice | QuickAddCaptureChoice
+  set: (next: BacklinkPatch) => void
+}) {
+  if (!draft.linkToSource) return null
+  const placement = draft.linkPlacement ?? 'noteEnd'
+  return (<>
+    <SettingRow title={t('quickadd.field_link_placement')}>
+      <Select
+        aria-label={t('quickadd.field_link_placement')}
+        value={placement}
+        onChange={(event) => set({ linkPlacement: event.target.value as QuickAddLinkPlacement })}>
+        <option value="noteEnd">{t('quickadd.link_placement_note_end')}</option>
+        <option value="lineEnd">{t('quickadd.link_placement_line_end')}</option>
+        <option value="property">{t('quickadd.link_placement_property')}</option>
+      </Select>
+    </SettingRow>
+    {placement === 'property' && (
+      <Field
+        label={t('quickadd.field_link_property')}
+        hint={t('quickadd.field_link_property_hint')}>
+        <Input
+          aria-label={t('quickadd.field_link_property')}
+          value={draft.linkProperty ?? 'source'}
+          onChange={(event) => set({ linkProperty: event.target.value })}/>
+      </Field>
+    )}
+    {placement === 'lineEnd' && (
+      <Checkbox
+        checked={draft.linkEmbed === true}
+        onChange={(linkEmbed) => set({ linkEmbed })}
+        label={t('quickadd.field_link_embed')}/>
+    )}
+  </>)
+}
+
+function OpeningFields({ draft, set }: {
+  draft: QuickAddTemplateChoice | QuickAddCaptureChoice
+  set: (next: OpeningPatch) => void
+}) {
+  if (!draft.openAfter) return null
+  return (<>
+    <SettingRow title={t('quickadd.field_open_pane')}>
+      <Select
+        aria-label={t('quickadd.field_open_pane')}
+        value={draft.openPane ?? 'active'}
+        onChange={(event) => set({ openPane: event.target.value as QuickAddOpenPane })}>
+        <option value="active">{t('quickadd.open_pane_active')}</option>
+        <option value="other">{t('quickadd.open_pane_other')}</option>
+      </Select>
+    </SettingRow>
+    <SettingRow title={t('quickadd.field_open_layout')}>
+      <Select
+        aria-label={t('quickadd.field_open_layout')}
+        value={draft.openLayout ?? 'inherit'}
+        onChange={(event) => set({ openLayout: event.target.value as QuickAddOpenLayout })}>
+        <option value="inherit">{t('quickadd.open_layout_inherit')}</option>
+        <option value="live">{t('workspace.editing_mode')}</option>
+        <option value="split">{t('workspace.split_view')}</option>
+        <option value="preview">{t('workspace.reading_mode')}</option>
+      </Select>
+    </SettingRow>
+    <Checkbox
+      checked={draft.openFocus !== false}
+      onChange={(openFocus) => set({ openFocus })}
+      label={t('quickadd.field_open_focus')}/>
+  </>)
 }
 
 function CaptureFields({ draft, patch, renderFormat }: {
@@ -595,6 +709,8 @@ function CaptureFields({ draft, patch, renderFormat }: {
         <Checkbox checked={draft.linkToSource} onChange={(linkToSource) => set({ linkToSource })} label={t('quickadd.field_link_to_source')}/>
         <Checkbox checked={draft.copyLink} onChange={(copyLink) => set({ copyLink })} label={t('quickadd.field_copy_link')}/>
       </div>
+      <OpeningFields draft={draft} set={set}/>
+      <BacklinkFields draft={draft} set={set}/>
       <div className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
         <Checkbox checked={draft.property.enabled} onChange={(enabled) => set({ property: { ...draft.property, enabled } })} label={t('quickadd.field_property')}/>
         {draft.property.enabled && (
