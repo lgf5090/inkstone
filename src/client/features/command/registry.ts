@@ -426,7 +426,10 @@ export function appCommands(): AppCommand[] {
     {
         id: 'cmd-layout-edit',
         kind: 'command',
-        label: t("workspace.live_preview"),
+        // The three layout commands share one prefix on purpose: the palette matches on the label, so a
+        // reader who knows only the word for layout has to land on all three rather than on the one
+        // whose name doubles as the inline-rendering toggle in the toolbar.
+        label: t("command.layout_editor_only"),
         icon: Pencil,
         group: t("common.interface"),
         run: () => void updateSettings({ preview: { layout: 'live' } }),
@@ -442,7 +445,7 @@ export function appCommands(): AppCommand[] {
     {
         id: 'cmd-layout-preview',
         kind: 'command',
-        label: t("workspace.reading_mode"),
+        label: t("command.layout_preview_only"),
         icon: Eye,
         group: t("common.interface"),
         run: () => void updateSettings({ preview: { layout: 'preview' } }),

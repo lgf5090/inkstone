@@ -8,7 +8,7 @@ import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
 import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
 import type { RunOptions } from './session'
-import { titleSuggestions } from './context'
+import { isTargetFilterSyntax, parseTargetFilter, targetScope, titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -67,6 +67,7 @@ afterAll(() => {
 
 interface FakeNote extends NoteRef {
   content: string
+  tags?: string[]
 }
 
 function harness(start: Record<string, string>, settings: Partial<QuickAddSettings> = {}, selection = '') {
@@ -85,6 +86,9 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   const carets: number[] = []
   const links: { sourceId: string; title: string; options: QuickAddLinkOptions }[] = []
   const editorActions: QuickAddEditorAction[] = []
+  /** The notes a `property:` scan is told to return, and the scans it was asked for. */
+  let propertyHits: { title: string, folderPath: string | null }[] = []
+  const propertyScans: { name: string, value: string | null }[] = []
   /** What the editor step is told back: a test that wants a refusal sets it. */
   let editorOutcome: QuickAddEditorOutcome = 'done'
   /** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */
@@ -137,7 +141,12 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
     pickFileTitles: async (token) => (token.folder === 'Numbers' ? ['42'] : []),
-    knownNotes: () => Object.values(notes).map((note) => ({ title: note.title, folderPath: note.folderPath })),
+    knownNotes: () => Object.values(notes).map((note) => ({ id: note.id, title: note.title, folderPath: note.folderPath, tags: note.tags ?? [] })),
+    /** What a `property:` target's server scan answers; a test sets it. */
+    async notesWithProperty(name: string, value: string | null) {
+      propertyScans.push({ name, value })
+      return propertyHits.map((hit) => ({ id: hit.title, title: hit.title, folderPath: hit.folderPath }))
+    },
     knownFolderPaths: () => ['Journal'],
     appendLink: async (source, target, options) => {
       links.push({ sourceId: source.id, title: target.title, options: options ?? {} })
@@ -186,6 +195,14 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
   return {
     port,
     notes,
+    propertyScans,
+    setPropertyHits: (hits: { title: string, folderPath: string | null }[]) => {
+      propertyHits = hits
+    },
+    tagNote: (title: string, ...tags: string[]) => {
+      const note = notes[title]
+      if (note) note.tags = tags
+    },
     created,
     copied,
     commands,
@@ -731,6 +748,122 @@ describe('capturing into a note', () => {
   })
 })
 
+describe('picking the note a capture goes into', () => {
+  function targetPage() {
+    return answers.requests.flat().find((request) => request.key === 'target') ?? null
+  }
+
+  it('asks which note to write into when the target names nothing', async () => {
+    const fake = harness({ Inbox: 'today\n', Journal: 'week\n' })
+    answers.queue = [['Journal'], ['an idea']]
+    const status = await runCaptureChoice(captureOn(''), fake.port)
+    expect(status.kind).toBe('written')
+    expect(targetPage(), 'the run has to ask, not fail').not.toBeNull()
+    expect(fake.content('Journal')).toBe('week\nan idea')
+    expect(fake.created, 'asking is not creating').toEqual([])
+  })
+
+  it('offers every note the library has, and says where each name lives', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    fake.notes.Inbox.folderPath = 'Read/Inbox'
+    answers.queue = [['Inbox'], ['an idea']]
+    await runCaptureChoice(captureOn(''), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options).toEqual(['Inbox'])
+    expect(page.displayOptions).toEqual(['Inbox (Read/Inbox)'])
+  })
+
+  it('writes nothing when the reader closes the target question', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [[null]]
+    const status = await runCaptureChoice(captureOn(''), fake.port)
+    expect(status.kind).toBe('cancelled')
+    expect(fake.content('Inbox')).toBe('today\n')
+    expect(fake.writes).toEqual([])
+  })
+
+  it('narrows the question to the folder a trailing slash names', async () => {
+    const fake = harness({ Filed: 'in the folder\n', Loose: 'at the root\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Filed'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('Journal/'), fake.port)
+    expect(status.kind).toBe('written')
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options, 'a scoped target must not offer the rest of the library').toEqual(['Filed'])
+    expect(fake.content('Filed')).toBe('in the folder\nan idea')
+    expect(fake.content('Loose'), 'the unfiled namesake stays alone').toBe('at the root\n')
+  })
+
+  it('treats a bare slash as the whole library', async () => {
+    const fake = harness({ Filed: 'in the folder\n', Loose: 'at the root\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Loose'], ['an idea']]
+    await runCaptureChoice(captureOn('/'), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options.sort()).toEqual(['Filed', 'Loose'])
+    expect(fake.content('Loose')).toBe('at the root\nan idea')
+  })
+
+  it('keeps a typed name inside the folder it was asked for', async () => {
+    const fake = harness({ Filed: 'in the folder\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Fresh'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('Journal/', { createIfMissing: true }), fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created.map((entry) => [entry.title, entry.folderPath])).toEqual([['Fresh', 'Journal']])
+  })
+
+  it('pulls a folder written into the answer back under the scope', async () => {
+    const fake = harness({ Filed: 'in the folder\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Elsewhere/Fresh'], ['an idea']]
+    await runCaptureChoice(captureOn('Journal/', { createIfMissing: true }), fake.port)
+    expect(fake.created.map((entry) => [entry.title, entry.folderPath])).toEqual([['Fresh', 'Journal/Elsewhere']])
+  })
+
+  it('still fails a scoped name that is not there when creating is off', async () => {
+    const fake = harness({ Filed: 'in the folder\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Absent'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('Journal/', { createIfMissing: false }), fake.port)
+    expect(status.kind).toBe('failed')
+    expect(fake.created).toEqual([])
+  })
+
+  it('asks for nothing when the target already names a note', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [['an idea']]
+    const status = await runCaptureChoice(captureOn('Inbox'), fake.port)
+    expect(status.kind).toBe('written')
+    expect(targetPage(), 'a definite target is not a question').toBeNull()
+    expect(fake.content('Inbox')).toBe('today\nan idea')
+  })
+
+  it('answers the one-page form first and still asks where to write', async () => {
+    const fake = harness({ Inbox: 'today\n', Journal: 'week\n' }, { onePage: 'always' })
+    answers.queue = [['an idea'], ['Journal']]
+    const status = await runCaptureChoice(captureOn(''), fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'the target cannot join the page: it is the page that says what to ask').toEqual([['value'], ['target']])
+    expect(answers.pages, 'a reader who asked for one page always gets the one-page form, even for one question').toEqual([true, true])
+    expect(fake.content('Journal')).toBe('week\nan idea')
+  })
+
+  it('reads a target as a folder only when it ends with a slash', () => {
+    expect(targetScope('')).toEqual({ ask: true, folder: null })
+    expect(targetScope('   ')).toEqual({ ask: true, folder: null })
+    expect(targetScope('/')).toEqual({ ask: true, folder: null })
+    expect(targetScope('Journal/')).toEqual({ ask: true, folder: 'Journal' })
+    expect(targetScope('A/B/')).toEqual({ ask: true, folder: 'A/B' })
+    expect(targetScope('../Journal/')).toEqual({ ask: true, folder: 'Journal' })
+    expect(targetScope('Inbox')).toEqual({ ask: false, folder: null })
+    expect(targetScope('Journal/Today')).toEqual({ ask: false, folder: null })
+  })
+})
+
 describe('a property capture keeps the note’s own types', () => {
   const into = (note: string, over: Record<string, unknown>) => {
     const fake = harness({ Note: note })
@@ -892,6 +1025,153 @@ describe('a property capture keeps the shape of a list', () => {
     expect(parseFrontMatter(fake.content('Note') ?? '').data.nums).toEqual(['1', 'x', '3'])
   })
 })
+
+describe('filtering the notes a capture can go into', () => {
+  function targetPage() {
+    return answers.requests.flat().find((request) => request.key === 'target') ?? null
+  }
+
+  function filed() {
+    const fake = harness({ Draft: 'draft body\n', Plain: 'plain body\n', Other: 'other body\n' })
+    fake.notes.Draft.folderPath = 'Journal/Deep'
+    fake.notes.Plain.folderPath = 'Journal'
+    fake.tagNote('Draft', 'work')
+    fake.tagNote('Other', 'play')
+    return fake
+  }
+
+  it('offers only the notes carrying one of the tags', async () => {
+    const fake = filed()
+    answers.queue = [['Draft'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('#work'), fake.port)
+    expect(status.kind).toBe('written')
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options).toEqual(['Draft'])
+    expect(fake.content('Draft')).toBe('draft body\nan idea')
+  })
+
+  it('reads several tags as “either of them”', async () => {
+    const fake = filed()
+    answers.queue = [['Other'], ['an idea']]
+    await runCaptureChoice(captureOn('tag:work|tag:play'), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options.sort()).toEqual(['Draft', 'Other'])
+  })
+
+  it('takes a folder filter down its whole subtree', async () => {
+    const fake = filed()
+    answers.queue = [['Plain'], ['an idea']]
+    await runCaptureChoice(captureOn('folder:Journal'), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options.sort()).toEqual(['Draft', 'Plain'])
+    expect(fake.content('Plain')).toBe('plain body\nan idea')
+  })
+
+  it('asks the property scan and offers what it returns', async () => {
+    const fake = filed()
+    fake.setPropertyHits([{ title: 'Other', folderPath: null }])
+    answers.queue = [['Other'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('property:type=draft'), fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.propertyScans).toEqual([{ name: 'type', value: 'draft' }])
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options).toEqual(['Other'])
+    expect(fake.content('Other')).toBe('other body\nan idea')
+  })
+
+  it('asks “which notes have this property” when the filter gives no value', async () => {
+    const fake = filed()
+    fake.setPropertyHits([{ title: 'Draft', folderPath: 'Journal/Deep' }])
+    answers.queue = [['Draft'], ['an idea']]
+    await runCaptureChoice(captureOn('property:type'), fake.port)
+    expect(fake.propertyScans).toEqual([{ name: 'type', value: null }])
+  })
+
+  it('combines a property with a folder without letting either widen the other', async () => {
+    const fake = filed()
+    fake.setPropertyHits([
+      { title: 'Draft', folderPath: 'Journal/Deep' },
+      { title: 'Plain', folderPath: 'Journal' },
+    ])
+    answers.queue = [['Draft'], ['an idea']]
+    await runCaptureChoice(captureOn('property:type|folder:Journal/Deep'), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options).toEqual(['Draft'])
+  })
+
+  it('names the reason a property filter with no name cannot run', async () => {
+    const fake = filed()
+    const status = await runCaptureChoice(captureOn('property:=x'), fake.port)
+    expect(status.kind).toBe('failed')
+    expect(status.kind === 'failed' ? status.reason : '').toBe(t('quickadd.error_target_property'))
+  })
+
+  it('refuses a filter that asks for several destinations', async () => {
+    const fake = filed()
+    const status = await runCaptureChoice(captureOn('#work|multi'), fake.port)
+    expect(status.kind).toBe('failed')
+    expect(status.kind === 'failed' ? status.reason : '').toBe(t('quickadd.error_target_multi'))
+    expect(fake.writes, 'a refused filter must not write anywhere').toEqual([])
+  })
+
+  it('creates the name a filter question was answered with', async () => {
+    const fake = filed()
+    answers.queue = [['Brand new'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('#work', { createIfMissing: true }), fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created.map((entry) => [entry.title, entry.folderPath])).toEqual([['Brand new', null]])
+  })
+
+  it('keeps a folder filter’s new note inside that folder', async () => {
+    const fake = filed()
+    answers.queue = [['Fresh'], ['an idea']]
+    await runCaptureChoice(captureOn('folder:Journal', { createIfMissing: true }), fake.port)
+    expect(fake.created.map((entry) => [entry.title, entry.folderPath])).toEqual([['Fresh', 'Journal']])
+  })
+
+  it('leaves a name that merely looks like a question alone', async () => {
+    const fake = harness({ plan: 'the plan\n' })
+    fake.notes.plan.folderPath = 'Q3'
+    answers.queue = [['an idea']]
+    const status = await runCaptureChoice(captureOn('Q3/plan'), fake.port)
+    expect(status.kind).toBe('written')
+    expect(targetPage(), 'a path is not a filter').toBeNull()
+    expect(fake.content('plan')).toBe('the plan\nan idea')
+  })
+
+  it('reads a hash that opens a sentence as a note name', async () => {
+    const fake = harness({ '#idea for this': 'body\n' })
+    answers.queue = [['an idea']]
+    const status = await runCaptureChoice(captureOn('#idea for this'), fake.port)
+    expect(status.kind).toBe('written')
+    expect(targetPage(), 'a tag is one word, and this is not').toBeNull()
+    expect(fake.content('#idea for this')).toBe('body\nan idea')
+  })
+
+  it('parses the filter language and nothing else', () => {
+    expect(parseTargetFilter('#work')).toEqual({ tags: ['work'], folder: null, property: null, multi: false })
+    expect(parseTargetFilter('tag:Work|tag:play')).toEqual({ tags: ['Work', 'play'], folder: null, property: null, multi: false })
+    expect(parseTargetFilter('folder:A/B/')).toEqual({ tags: [], folder: 'A/B', property: null, multi: false })
+    expect(parseTargetFilter('property:type=draft')).toEqual({ tags: [], folder: null, property: { name: 'type', value: 'draft' }, multi: false })
+    expect(parseTargetFilter('property:type')).toEqual({ tags: [], folder: null, property: { name: 'type', value: null }, multi: false })
+    expect(parseTargetFilter('#work|folder:Notes')).toEqual({ tags: ['work'], folder: 'Notes', property: null, multi: false })
+    expect(parseTargetFilter('Inbox')).toBeNull()
+    expect(parseTargetFilter('')).toBeNull()
+    expect(parseTargetFilter('Q3/plan')).toBeNull()
+    expect(parseTargetFilter('#one two')).toBeNull()
+    expect(parseTargetFilter('#work|#')).toBeNull()
+    expect(parseTargetFilter('folder:/')).toBeNull()
+    expect(parseTargetFilter('multi')).toBeNull()
+    expect(isTargetFilterSyntax('#work')).toBe(true)
+    expect(isTargetFilterSyntax('Inbox')).toBe(false)
+  })
+})
+
 
 describe('creating a note from a template', () => {
   it('creates a note named by the format, in the configured folder', async () => {
@@ -1843,14 +2123,41 @@ describe('the names a run suggests', () => {
     expect(made.displayOptions).toEqual(['Standup (Work)', 'Inbox'])
   })
 
-  it('lists every place a shared title was found in', () => {
+  it('lists every place a shared title was found in, and how many sit there', () => {
     const made = titleSuggestions([
       { title: 'Standup', folderPath: 'Work' },
       { title: 'Standup', folderPath: 'Archive' },
       { title: 'Standup', folderPath: 'Work' },
     ], 'Unfiled')
     expect(made.options, 'the answer is a title, so one row per title').toEqual(['Standup'])
-    expect(made.displayOptions).toEqual(['Standup (Work, Archive)'])
+    expect(made.displayOptions).toEqual(['Standup (Work ×2, Archive)'])
+  })
+
+  it('says out loud when a name cannot be resolved to one note', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Reading', folderPath: 'Work' },
+    ], 'Unfiled')
+    expect(made.displayOptions).toEqual(['Standup (Work ×2)', 'Reading (Work)'])
+  })
+
+  it('counts the copies that live outside every folder too', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: null },
+      { title: 'Standup', folderPath: null },
+    ], 'Unfiled')
+    expect(made.displayOptions, 'two unfiled copies are still two copies').toEqual(['Standup (Unfiled ×2)'])
+  })
+
+  it('leaves a name that means one note exactly as it was', () => {
+    const once = titleSuggestions([{ title: 'Standup', folderPath: null }], 'Unfiled')
+    expect(once.displayOptions).toEqual(['Standup'])
+    const each = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: 'Archive' },
+    ], 'Unfiled')
+    expect(each.displayOptions, 'one copy per place needs no counts').toEqual(['Standup (Work, Archive)'])
   })
 
   it('says so when one copy of a shared title sits outside every folder', () => {

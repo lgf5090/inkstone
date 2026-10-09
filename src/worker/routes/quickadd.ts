@@ -111,22 +111,53 @@ export interface FieldValueQuery {
  * to prove them: the scan stops at the newest few hundred notes, the list stops at two hundred
  * values, and a value longer than two hundred characters is not a suggestion but a paragraph.
  */
-export async function collectFieldValues(db: D1Database, userId: string, query: FieldValueQuery): Promise<string[]> {
-  const limit = clampCount(query.limit ?? undefined, FIELD_VALUE_LIMIT)
+/** The three optional scopes a property scan may be narrowed by. */
+interface FieldScope {
+  folder?: string | null
+  tag?: string | null
+  excludeTag?: string | null
+}
+
+/**
+ * The WHERE half of a property scan. Shared by the value list and the note list because the two must
+ * agree about which notes count: a capture target that offered type=draft as a value and then
+ * matched a different set of notes against it would be a second truth in one screen.
+ */
+function fieldScopeWhere(userId: string, scope: FieldScope): { where: string[]; args: string[] } {
   const where = ['n.user_id = ?1', 'n.deleted_at IS NULL']
   const args: string[] = [userId]
-  if (query.folder) {
+  if (scope.folder) {
     where.push('EXISTS (SELECT 1 FROM folders f WHERE f.id = n.folder_id AND LOWER(f.name) = ?' + String(args.length + 1) + ')')
-    args.push(query.folder.toLocaleLowerCase())
+    args.push(scope.folder.toLocaleLowerCase())
   }
-  if (query.tag) {
+  if (scope.tag) {
     where.push('EXISTS (SELECT 1 FROM note_tags nt JOIN tags tg ON tg.id = nt.tag_id WHERE nt.note_id = n.id AND LOWER(tg.name) = ?' + String(args.length + 1) + ')')
-    args.push(query.tag.toLocaleLowerCase())
+    args.push(scope.tag.toLocaleLowerCase())
   }
-  if (query.excludeTag) {
+  if (scope.excludeTag) {
     where.push('NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags tg ON tg.id = nt.tag_id WHERE nt.note_id = n.id AND LOWER(tg.name) = ?' + String(args.length + 1) + ')')
-    args.push(query.excludeTag.toLocaleLowerCase())
+    args.push(scope.excludeTag.toLocaleLowerCase())
   }
+  return { where, args }
+}
+
+/** The scalar values a note's property holds, lowercased for comparison. */
+function propertyItems(content: unknown, name: string): string[] {
+  if (typeof content !== 'string' || !content) return []
+  const parsed = parseFrontMatter(content)
+  if (parsed.errors.length) return []
+  const value = parsed.data[name] ?? parsed.data[name.toLowerCase()] ?? Object.entries(parsed.data)
+    .find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1]
+  const items = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value]
+  return items
+    .filter((item) => typeof item !== 'object')
+    .map((item) => String(item).trim().toLocaleLowerCase())
+    .filter((item) => item !== '' && item.length <= FIELD_VALUE_MAX_LENGTH)
+}
+
+export async function collectFieldValues(db: D1Database, userId: string, query: FieldValueQuery): Promise<string[]> {
+  const limit = clampCount(query.limit ?? undefined, FIELD_VALUE_LIMIT)
+  const { where, args } = fieldScopeWhere(userId, query)
   const rows = await db.prepare(
     `SELECT content FROM notes n WHERE ${where.join(' AND ')} ORDER BY updated_at DESC LIMIT ${FIELD_SCAN_LIMIT}`,
   )
@@ -141,6 +172,39 @@ export async function collectFieldValues(db: D1Database, userId: string, query: 
     .map(([value]) => value)
 }
 
+/** What a `property:field=value` capture target asks for. */
+export interface FieldNoteQuery extends FieldScope {
+  name: string
+  value?: string | null
+  limit?: string | null
+}
+
+/**
+ * The notes whose property holds this value, newest first — the note-side half of the same scan, for
+ * a capture target that names a property instead of a note. With no value it asks "which notes have
+ * this property at all", which is what `property:type` means.
+ */
+export async function collectFieldNotes(db: D1Database, userId: string, query: FieldNoteQuery): Promise<{ id: string; title: string }[]> {
+  const limit = clampCount(query.limit ?? undefined, FIELD_VALUE_LIMIT)
+  const wanted = (query.value ?? '').trim().toLocaleLowerCase()
+  const { where, args } = fieldScopeWhere(userId, query)
+  const rows = await db.prepare(
+    `SELECT id, title, content FROM notes n WHERE ${where.join(' AND ')} ORDER BY updated_at DESC LIMIT ${FIELD_SCAN_LIMIT}`,
+  )
+    .bind(...args)
+    .all<{ id: string; title: string; content: string }>()
+
+  const found: { id: string; title: string }[] = []
+  for (const row of rows.results) {
+    const items = propertyItems(row.content, query.name)
+    if (items.length === 0) continue
+    if (wanted !== '' && !items.includes(wanted)) continue
+    found.push({ id: row.id, title: row.title })
+    if (found.length >= limit) break
+  }
+  return found
+}
+
 quickAddRoutes.get('/field-values', async (c) => {
   const userId = c.get('userId')
   const name = c.req.query('name') ?? ''
@@ -153,4 +217,22 @@ quickAddRoutes.get('/field-values', async (c) => {
     limit: c.req.query('limit'),
   })
   return c.json({ values })
+})
+
+/** The notes a `property:field=value` capture target would write into. */
+quickAddRoutes.get('/field-notes', async (c) => {
+  const userId = c.get('userId')
+  const name = c.req.query('name') ?? ''
+  if (!name || name.length > 60) throw ApiError.badRequest('A property name is required')
+  const value = c.req.query('value') ?? ''
+  if (value.length > FIELD_VALUE_MAX_LENGTH) throw ApiError.badRequest('That property value is too long to match')
+  const notes = await collectFieldNotes(c.env.DB, userId, {
+    name,
+    value,
+    folder: c.req.query('folder'),
+    tag: c.req.query('tag'),
+    excludeTag: c.req.query('excludeTag'),
+    limit: c.req.query('limit'),
+  })
+  return c.json({ notes })
 })

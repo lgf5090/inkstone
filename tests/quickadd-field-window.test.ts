@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { collectFieldValues } from '../src/worker/routes/quickadd'
+import { collectFieldNotes, collectFieldValues } from '../src/worker/routes/quickadd'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -129,5 +129,72 @@ describe('the {{FIELD:}} scan window', () => {
     console.log(`FIELD scan: 400 notes × 3 properties → ${found.length} values in ${elapsed.toFixed(1)}ms`)
     expect(found).toHaveLength(40)
     expect(elapsed, 'the window is a cost ceiling, not a rounding error').toBeLessThan(1500)
+  })
+})
+
+describe('the property: capture target’s note scan', () => {
+  const titles = async (query: Parameters<typeof collectFieldNotes>[2]) =>
+    (await collectFieldNotes(db, MINE, { name: 'mood', ...query })).map((entry) => entry.title)
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:')
+    sqlite.exec(SCHEMA_STATEMENTS.join(';'))
+    db = makeD1(sqlite)
+  })
+
+  it('finds the notes whose property holds the value', async () => {
+    note('n-glad', frontMatter(['glad']), 3)
+    note('n-sad', frontMatter(['sad']), 2)
+    note('n-glad-2', frontMatter(['glad']), 1)
+    expect(await titles({ value: 'glad' })).toEqual(['n-glad', 'n-glad-2'])
+  })
+
+  it('reads a list property as any of its items', async () => {
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, folder_id, title, title_key, content, excerpt, rev,
+         word_count, char_count, is_pinned, is_starred, is_archived, position, content_hash,
+         created_at, updated_at, deleted_at)
+       VALUES ('n-list', ?, NULL, 'n-list', 'n-list', '---\nmood: [glad, tired]\n---\nbody\n', '', 1, 0, 0, 0, 0, 0, 0, '', 1, 1, NULL)`,
+    ).run(MINE)
+    expect(await titles({ value: 'tired' })).toEqual(['n-list'])
+    expect(await titles({ value: 'sleepy' })).toEqual([])
+  })
+
+  it('asks which notes have the property at all when no value is given', async () => {
+    note('n-has', frontMatter(['glad']), 2)
+    note('n-none', '---\ntags: [a]\n---\nbody\n', 1)
+    expect(await titles({})).toEqual(['n-has'])
+  })
+
+  it('matches a value without caring about case or the spaces around it', async () => {
+    note('n-one', frontMatter(['Glad']), 1)
+    expect(await titles({ value: '  glad  ' })).toEqual(['n-one'])
+  })
+
+  it('keeps another account’s notes out of the answer', async () => {
+    note('n-mine', frontMatter(['glad']), 2)
+    note('n-theirs', frontMatter(['glad']), 1, { user: OTHER })
+    expect(await titles({ value: 'glad' })).toEqual(['n-mine'])
+  })
+
+  it('honours the same folder and tag scopes the value list uses', async () => {
+    folder('f-journal', 'Journal')
+    note('n-journal', frontMatter(['glad']), 3, { folderId: 'f-journal' })
+    note('n-root', frontMatter(['glad']), 2)
+    tag('n-tagged', 't-work', 'work')
+    note('n-tagged', frontMatter(['glad']), 1)
+    expect(await titles({ value: 'glad', folder: 'Journal' })).toEqual(['n-journal'])
+    expect(await titles({ value: 'glad', tag: 'work' })).toEqual(['n-tagged'])
+  })
+
+  it('answers newest first and stops at the cap', async () => {
+    for (let index = 0; index < 5; index += 1) note(`n-${index}`, frontMatter(['glad']), index)
+    expect(await titles({ value: 'glad', limit: '2' })).toEqual(['n-4', 'n-3'])
+  })
+
+  it('skips a note whose front matter cannot be read', async () => {
+    note('n-broken', '---\nmood: [unclosed\n---\nbody\n', 1)
+    note('n-good', frontMatter(['glad']), 2)
+    expect(await titles({ value: 'glad' })).toEqual(['n-good'])
   })
 })

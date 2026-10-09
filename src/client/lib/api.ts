@@ -526,6 +526,8 @@ export const api = {
       request<{ savedAt: number }>('/api/quickadd/library', { method: 'PUT', body: { library } }),
     fieldValues: (query: { name: string; folder?: string; tag?: string; excludeTag?: string; limit?: number }) =>
       request<{ values: string[] }>(`/api/quickadd/field-values${toQuery(query)}`),
+    fieldNotes: (query: { name: string; value?: string; folder?: string; tag?: string; excludeTag?: string; limit?: number }) =>
+      request<{ notes: { id: string, title: string }[] }>(`/api/quickadd/field-notes${toQuery(query)}`),
   },
 
   mcp: {

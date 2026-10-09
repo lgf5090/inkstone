@@ -11,6 +11,9 @@ import type { QuickAddChoice, QuickAddMacroChoice, QuickAddSettings } from '@sha
 
 export const STARTUP_STAMP_KEY = 'inkstone.quickadd-startup.v1'
 
+/** The byte no account id or macro id can carry, which is what makes a stamp key readable. */
+const STAMP_SEPARATOR = '\u001F'
+
 export type StartupSettings = Pick<QuickAddSettings, 'enabled' | 'startupScope'>
 
 type StartupStamps = Record<string, string>
@@ -24,7 +27,16 @@ function defaultStorage(): StartupStorage {
 }
 
 function ownerKey(owner: string, macroId: string): string {
-  return `${owner}\u001F${macroId}`
+  return `${owner}${STAMP_SEPARATOR}${macroId}`
+}
+
+/**
+ * A stamp is only ever read back through `ownerKey`, so a key without the separator — what this file
+ * wrote before the day half learned about accounts — can never be looked at again. It is dropped on
+ * the way in, and the write below drops the days that have passed.
+ */
+function isOwnerKey(key: string): boolean {
+  return key.includes(STAMP_SEPARATOR)
 }
 
 /** The reader's own calendar day, not the UTC one: "once a day" means their day. */
@@ -47,7 +59,7 @@ export function loadStartupStamps(storage: StartupStorage = defaultStorage()): S
     const value = JSON.parse(raw) as Record<string, unknown>
     const stamps: StartupStamps = {}
     for (const [key, day] of Object.entries(value)) {
-      if (typeof day === 'string' && key !== '__proto__') stamps[key] = day
+      if (typeof day === 'string' && key !== '__proto__' && isOwnerKey(key)) stamps[key] = day
     }
     return stamps
   }
@@ -87,9 +99,14 @@ export function markStartupRun(
   storage: StartupStorage = defaultStorage(),
 ): void {
   sessionRuns.add(ownerKey(owner, macroId))
-  const stamps = loadStartupStamps(storage)
-  stamps[ownerKey(owner, macroId)] = startupDay(now)
-  saveStartupStamps(stamps, storage)
+  const day = startupDay(now)
+  const kept: StartupStamps = {}
+  // A stamp from an earlier day can never suppress a run, so keeping it would only grow the file.
+  for (const [key, stamp] of Object.entries(loadStartupStamps(storage))) {
+    if (stamp === day) kept[key] = stamp
+  }
+  kept[ownerKey(owner, macroId)] = day
+  saveStartupStamps(kept, storage)
 }
 
 /** Only a test or an account switch needs this; a page load starts with nothing run. */

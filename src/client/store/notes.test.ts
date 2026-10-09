@@ -32,7 +32,7 @@ vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<any>('../lib/api')
   return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create, linkMention: mocks.linkMention } } }
 })
-import { useNotes } from './notes'
+import { findNoteByTitle, useNotes } from './notes'
 import { api } from '../lib/api'
 import { getInboxFolderId, setInboxFolderId } from '../lib/folder-prefs'
 import { ApiError } from '../lib/api'
@@ -261,5 +261,44 @@ describe('editRemoteContent', () => {
     expect(await useNotes.getState().editRemoteContent(note.id, (text) => `${text}!`)).toBe('written')
     expect(mocks.patch).toHaveBeenCalledWith(note.id, { rev: 2, content: 'typed locally!' })
     expect(mocks.get).toHaveBeenCalled()
+  })
+})
+
+describe('the note a [[name]] resolves to', () => {
+  const twin = (id: string, updatedAt: number, deletedAt: number | null = null): Note => ({
+    ...note, id, title: 'Standup', updatedAt, deletedAt,
+  })
+
+  function library(members: Note[]): void {
+    useNotes.setState({ notes: Object.fromEntries(members.map((item) => [item.id, item])) })
+  }
+
+  it('takes the copy that was touched last, whichever order the library arrived in', () => {
+    const older = twin('01older', 100)
+    const newer = twin('02newer', 200)
+    for (const order of [[older, newer], [newer, older]]) {
+      library(order)
+      expect(findNoteByTitle('Standup')?.id, 'the address cannot depend on how the rows were fetched').toBe('02newer')
+    }
+  })
+
+  it('settles a same-instant pair by id', () => {
+    const first = twin('01first', 150)
+    const second = twin('02second', 150)
+    for (const order of [[first, second], [second, first]]) {
+      library(order)
+      expect(findNoteByTitle('Standup')?.id).toBe('01first')
+    }
+  })
+
+  it('will not resolve into a deleted copy, even the newest one', () => {
+    library([twin('01kept', 100), twin('02gone', 200, 250)])
+    expect(findNoteByTitle('Standup')?.id).toBe('01kept')
+  })
+
+  it('reads a link the way it is written: any case, any padding, one space', () => {
+    useNotes.setState({ notes: { '01spaced': { ...note, id: '01spaced', title: 'Stand  Up' } } })
+    expect(findNoteByTitle('  stand  up ')?.id).toBe('01spaced')
+    expect(findNoteByTitle('Standup'), 'a different name is still a different name').toBeUndefined()
   })
 })

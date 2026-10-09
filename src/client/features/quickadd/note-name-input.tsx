@@ -1,0 +1,255 @@
+/**
+ * The field that names a note, offering the names the library already has.
+ *
+ * The rows say where each name already lives, because two notes called `Standup` in two folders are
+ * two rows and only the folder tells the reader which one a capture is about to write into. What gets
+ * saved is the bare title — the same answer a run resolves — so picking a row and typing the name
+ * cannot come to different things.
+ */
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent } from 'react'
+import { Input } from '../../components/form'
+import { cn } from '../../lib/cn'
+import { t } from '../../lib/i18n'
+import { isTargetFilterSyntax, titleSuggestions } from '../../lib/quickadd/context'
+import { folderPathLabel } from '../../lib/folders'
+import { useNotes } from '../../store/notes'
+import { compileQuery, queryMatches } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
+
+/** Rows a reader can scan at a glance; past this the list is a search result, and it says so. */
+const MAX_ROWS = 50
+
+/** Names looked at before filtering. Titles are deduped first, so this is names, not notes. */
+const MAX_SCANNED = 1000
+
+/** The list's ceiling, and the room assumed for it before the rows are known. */
+const LIST_HEIGHT = 220
+
+/**
+ * Which way the list goes. Down is the normal answer; only when the list genuinely does not fit below
+ * and the other side is roomier does it turn upward, because a field that holds three names has no
+ * reason to jump just because it sits low in a long form.
+ */
+export function decideListPlacement(space: { above: number; below: number }, wanted = LIST_HEIGHT): 'up' | 'down' {
+  if (space.below >= wanted) return 'down'
+  return space.above > space.below ? 'up' : 'down'
+}
+
+export interface NoteNameCandidate {
+  title: string
+  folderPath: string | null
+}
+
+interface Row {
+  title: string
+  display: string
+}
+
+/**
+ * The names the library holds, in the shape both the settings field and the engine prompts want.
+ * The cap is the one the run-time port uses too, so the list a reader edits against is the list a
+ * run would have asked from.
+ */
+export function useNoteCandidates(): NoteNameCandidate[] {
+  const notes = useNotes((state) => state.notes)
+  const folders = useNotes((state) => state.folders)
+  return useMemo(() => Object.values(notes)
+    .filter((note) => !note.deletedAt && note.title !== '')
+    .slice(0, 500)
+    .map((note) => ({
+      title: note.title,
+      folderPath: folderPathLabel(folders, note.folderId, '/').replace(/^\//, '') || null,
+    })), [notes, folders])
+}
+
+export function NoteNameInput({ value, onChange, notes, id, className, ...aria }: {
+  value: string
+  onChange: (next: string) => void
+  notes: NoteNameCandidate[]
+  id?: string
+  className?: string
+  'aria-labelledby'?: string
+  'aria-describedby'?: string
+}) {
+  const pinyinVersion = usePinyinVersion()
+  const listId = `${useId()}-list`
+  const rowId = (index: number): string => `${listId}-${index}`
+  const [open, setOpen] = useState(false)
+  const [cursor, setCursor] = useState(0)
+  const [placement, setPlacement] = useState<'up' | 'down'>('down')
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const boxRef = useRef<HTMLDivElement | null>(null)
+
+  const listing = useMemo(() => {
+    const made = titleSuggestions(notes, t('navigation.unfiled'), MAX_SCANNED)
+    const query = compileQuery(value)
+    const matched: Row[] = []
+    made.options.forEach((title, index) => {
+      const display = made.displayOptions[index] ?? title
+      if (query.text !== '' && !queryMatches(query, title) && !queryMatches(query, display)) return
+      matched.push({ title, display })
+    })
+    return { rows: matched.slice(0, MAX_ROWS), hidden: Math.max(0, matched.length - MAX_ROWS), error: query.error }
+    // `pinyinVersion` is a dependency because a Chinese match is computed from a dictionary that
+    // arrives after boot: without it the list would keep the answer it made before the dictionary landed.
+  }, [notes, value, pinyinVersion])
+  const { rows, hidden, error } = listing
+  // A target written as a question (#work, folder:Notes, property:type=draft) has no answer until
+  // the run, so listing names under it would only pretend the question is already settled.
+  const asking = isTargetFilterSyntax(value)
+
+  useEffect(() => {
+    if (!open) return
+    const box = boxRef.current
+    if (!box) return
+    // The dialog's own scroll box is the boundary: a list hanging past its bottom is unreachable,
+    // while the window may still have room on screen below it.
+    const panel = box.closest('[role="dialog"]') ?? box.closest('.app-viewport-fixed') ?? document.documentElement
+    const measure = () => {
+      const inside = panel.getBoundingClientRect()
+      const room = box.getBoundingClientRect()
+      const listed = listRef.current?.getBoundingClientRect().height || LIST_HEIGHT
+      setPlacement(decideListPlacement(
+        { above: room.top - inside.top, below: inside.bottom - room.bottom },
+        // The mt-1/bottom-1 gap rides along with the list, so the room has to pay for it too.
+        listed + 4,
+      ))
+    }
+    measure()
+    // Scrolling the form moves the field out from under an already-open list, and clearing a draft
+    // grows the list under a field that had room for the short one; both re-decide the side.
+    panel.addEventListener('scroll', measure, { passive: true, capture: true })
+    window.addEventListener('resize', measure)
+    return () => {
+      panel.removeEventListener('scroll', measure, { capture: true })
+      window.removeEventListener('resize', measure)
+    }
+  }, [open, rows.length])
+
+  useEffect(() => {
+    setCursor((current) => (rows.length === 0 ? 0 : Math.min(current, rows.length - 1)))
+  }, [rows.length])
+
+  useEffect(() => {
+    if (!open) return
+    listRef.current?.querySelector<HTMLElement>(`[data-row-index="${cursor}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [cursor, open])
+
+  const commit = useCallback((row: Row) => {
+    onChange(row.title)
+    setOpen(false)
+  }, [onChange])
+
+  const onKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      // The list swallows the Escape that closed it; the second one is for whatever contains the field.
+      if (open) {
+        event.stopPropagation()
+        setOpen(false)
+      }
+      return
+    }
+    if (event.key === 'Enter') {
+      if (open && rows.length > 0) {
+        event.preventDefault()
+        commit(rows[Math.min(cursor, rows.length - 1)]!)
+      }
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    if (rows.length === 0) return
+    event.preventDefault()
+    setOpen(true)
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    setCursor((current) => Math.max(0, Math.min(rows.length - 1, open ? current + step : 0)))
+  }, [commit, cursor, open, rows])
+
+  return (
+    <div ref={boxRef} className="relative space-y-1">
+      <Input
+        {...aria}
+        id={id}
+        // The overlay layers close a dialog on Escape from a window capture listener, which runs
+        // before this field ever sees the key. Marking the field while its list is open is the app's
+        // own way of saying "Escape means something here" — without it, the first Escape would take
+        // the whole editor with it.
+        data-owns-escape={open ? '' : undefined}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open && rows.length > 0 ? rowId(Math.min(cursor, rows.length - 1)) : undefined}
+        autoComplete="off"
+        className={className}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value)
+          setCursor(0)
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={onKeyDown}
+      />
+      {open && error && (
+        <p role="status" className="text-[10.5px] text-[var(--danger)]">
+          {error === 'syntax' ? t('filter.regex_syntax') : t('filter.regex_unsafe')}
+        </p>
+      )}
+      {open && asking && (
+        <p className="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
+          {t('quickadd.suggest_filter_note')}
+        </p>
+      )}
+      {open && !error && !asking && (
+        <div
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label={t('quickadd.suggest_results')}
+          // Over the rest of the form rather than inside it: a list that pushes the rows below it down
+          // moves a control out from under the pointer that was reaching for it.
+          className={cn(
+            'absolute right-0 left-0 z-20 max-h-[220px] overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]',
+            placement === 'up' ? 'bottom-full mb-1' : 'top-full mt-1',
+          )}
+          data-placement={placement}
+        >
+          {rows.length === 0 && (
+            <p className="px-3 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">
+              {notes.length === 0 ? t('quickadd.suggest_none_yet') : t('quickadd.suggest_no_match')}
+            </p>
+          )}
+          {rows.map((row, index) => (
+            <button
+              key={row.title}
+              type="button"
+              role="option"
+              id={rowId(index)}
+              aria-selected={index === cursor}
+              title={row.display}
+              data-row-index={index}
+              data-suggestion={row.display}
+              // A mousedown has to stay out of the way or the input blurs before the click lands,
+              // and the field would close on its own half of the gesture.
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setCursor(index)}
+              onClick={() => commit(row)}
+              className={cn(
+                // A finger needs the 44px the app gives every other touch row; a mouse does not, and the
+                // settings panel is dense enough that the desktop row stays at its text height.
+                'block w-full truncate px-2.5 py-1.5 text-left transition-colors min-h-[44px] md:min-h-0',
+                'text-[12.5px]',
+                index === cursor ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+              )}
+            >
+              {row.display}
+            </button>
+          ))}
+          {hidden > 0 && (
+            <p className="px-2.5 py-1.5 text-[11px] text-[var(--text-quaternary)]">
+              {t('quickadd.suggest_more', { count: String(hidden) })}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

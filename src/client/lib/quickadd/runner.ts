@@ -276,9 +276,16 @@ export const notePort: NotePort = {
       .filter((note) => !note.deletedAt && note.title)
       .map((note) => {
         const path = folderPathLabel(store.folders, note.folderId, '/').replace(/^\//, '')
-        return { title: note.title, folderPath: path === '' ? null : path }
+        return { id: note.id, title: note.title, folderPath: path === '' ? null : path, tags: note.tags ?? [] }
       })
       .slice(0, 500)
+  },
+  async notesWithProperty(name, value) {
+    // The same scan the `{{FIELD:}}` suggestion runs: the schema has no property index, so the server
+    // reads note text. Only the newest few hundred notes are looked at, which is the same window.
+    const response = await api.quickadd.fieldNotes({ name, ...(value === null ? {} : { value }), limit: 200 })
+    const store = useNotes.getState()
+    return response.notes.map((entry) => ({ ...entry, folderPath: (folderPathLabel(store.folders, store.notes[entry.id]?.folderId ?? null, '/').replace(/^\//, '') || null) }))
   },
   knownFolderPaths() {
     const store = useNotes.getState()
