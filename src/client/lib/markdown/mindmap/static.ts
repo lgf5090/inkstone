@@ -77,13 +77,11 @@ async function renderStaticBlock(node: HTMLElement, options: StaticMindmapOption
         showMindmapSource(node);
         return;
     }
-    const image = await drawSnapshot(node, vendor, { ...parsed, theme: declared.choice }, options);
-    if (image)
-        node.replaceChildren(image);
+    await drawSnapshot(node, vendor, { ...parsed, theme: declared.choice }, options);
     markMindmapReady(node);
 }
 
-/** Draws the map once and hands back the still it exported, or null when it could not. */
+/** Draws the map once and leaves the still inside the canvas box the live map would have used. */
 async function drawSnapshot(
     node: HTMLElement,
     vendor: MindmapVendor,
@@ -98,19 +96,23 @@ async function drawSnapshot(
     container.className = `${MINDMAP_CANVAS_CLASS} is-static`;
     placeholder.replaceChildren(container);
     const handle = drawInto(container, vendor, body, options);
+    let blob: Blob;
     try {
-        const blob = await handle.exportSvg();
-        const image = document.createElement('img');
-        image.className = MINDMAP_IMAGE_CLASS;
-        image.src = await readBlobAsDataUrl(blob);
-        image.alt = rootTopic(body.data) ?? t('preview.mindmap');
-        image.loading = 'lazy';
-        image.decoding = 'async';
-        return image;
+        blob = await handle.exportSvg();
     }
     finally {
         handle.destroy();
     }
+    const image = document.createElement('img');
+    image.className = MINDMAP_IMAGE_CLASS;
+    image.src = await readBlobAsDataUrl(blob);
+    image.alt = rootTopic(body.data) ?? t('preview.mindmap');
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    // The teardown above removes the tree the library built, so the still it exported goes into the
+    // canvas box only afterwards — otherwise the block is left holding an empty frame.
+    container.replaceChildren(image);
+    return image;
 }
 
 export async function renderStaticMindmapBlocks(nodes: HTMLElement[], options: StaticMindmapOptions): Promise<void> {

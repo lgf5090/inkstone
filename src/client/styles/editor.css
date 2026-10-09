@@ -434,15 +434,20 @@
   font-size: var(--prose-size, 16px);
   line-height: var(--prose-line, 1.65);
 }
+/* The prose column is measured on the text, and the preview puts its 16px gutter outside that
+   measurement while the editor puts it inside. Widening the live column by the two gutters is what
+   lets the same paragraph break at the same word in both. */
+.ink-editor[data-live='true'] .cm-content {
+  max-width: calc(var(--prose-width, 72ch) + 32px);
+}
 .ink-editor .cm-live-block {
-  padding: 4px 16px;
+  padding: 0 16px;
   max-width: none;
   margin: 0;
   cursor: text;
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.ink-editor .cm-live-block > :last-child { margin-bottom: 0; }
 .ink-editor .cm-live-block img { max-width: 100%; }
 .ink-editor .cm-live-block table { display: block; overflow-x: auto; }
 .ink-editor .cm-live-block pre { overflow-x: auto; }

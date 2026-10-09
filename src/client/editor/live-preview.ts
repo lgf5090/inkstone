@@ -14,7 +14,8 @@ import { decodeDataValue } from '../lib/markdown/data-attr';
 import { findNoteByTitle, useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
 import { selectMarkdownTab, moveMarkdownTabFocus } from '../features/preview/markdown-tabs';
-import { enhanceMediaLayouts } from '../features/preview/media-layout';
+import { enhanceBlockToolbars, handleBlockToolbarClick } from '../features/preview/block-actions';
+import type { BlockActionContext } from '../features/preview/block-overlay';
 import { attachMediaLayoutHost } from '../features/preview/media-layout-drag';
 import type { MediaSurface } from '../features/preview/media-layout-drag';
 import type { MediaEdit } from '../lib/markdown/media-layout-source';
@@ -83,10 +84,12 @@ class RenderedBlock extends WidgetType {
         const prepare = async () => {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
-            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', mindmap: 'snapshot', dataview: 'live', dark, codeBlockCollapseLines: 0 });
+            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', kanbanShape: 'board', mindmap: 'snapshot', dataview: 'live', dark, codeBlockCollapseLines: 0 });
             // A layout block is the one rendered block the reader edits with the pointer, so its settings
-            // bar and its drag edges are built here too — on this host, which is the live tree.
-            if (settings.mediaToolbar) enhanceMediaLayouts(host, { chart: settings.chart, mediaToolbar: true });
+            // bar and its drag edges are built here too — on this host, which is the live tree. The rest of
+            // the block families get the same toolbars the preview gives them, so a block looks the same
+            // whatever surface it is read on.
+            enhanceBlockToolbars(host, blockToolbarOptions());
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
             if (alive && settings.chart) await renderPendingCharts(host, dark);
             // A query block answers from other notes, so it is filled on this live host after the rest of
@@ -114,7 +117,10 @@ class RenderedBlock extends WidgetType {
             const collapse = target.closest<HTMLButtonElement>('[data-code-collapse]');
             if (collapse) { toggleCodeBlockCollapse(collapse); return; }
             const tab = target.closest<HTMLButtonElement>('[data-tab-button]');
-            if (tab) { event.preventDefault(); selectMarkdownTab(tab); return; }
+            if (tab) { event.preventDefault(); selectMarkdownTab(tab, blockToolbarOptions().tabScope); return; }
+            // The block toolbars the preview builds are built here too, so their presses have to reach the
+            // same route — with the editor, not the saved note, as the write destination.
+            if (handleBlockToolbarClick(event, target, blockActionContext(view))) return;
             const copy = target.closest<HTMLButtonElement>('[data-copy]');
             if (copy) {
                 event.preventDefault();
@@ -165,7 +171,7 @@ class RenderedBlock extends WidgetType {
         });
         host.addEventListener('keydown', (event) => {
             const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab-button]');
-            if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); moveMarkdownTabFocus(tab, event.key); }
+            if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); moveMarkdownTabFocus(tab, event.key, blockToolbarOptions().tabScope); }
         });
         host.addEventListener('contextmenu', (event) => {
             // A rendered block answers to neither of the two places the note menu is normally asked
@@ -221,19 +227,60 @@ function mediaSurfaceFor(view: EditorView): MediaSurface {
             return true;
         },
         replaceDocument: (next: string) => {
-            const doc = view.state.doc;
-            const head = view.state.selection.main.head;
-            view.dispatch({
-                changes: { from: 0, to: doc.length, insert: next },
-                selection: { anchor: Math.min(head, next.length) },
-                userEvent: 'input.layout',
-                scrollIntoView: false,
-            });
-            view.requestMeasure();
+            replaceDocumentInEditor(view, next);
         },
         toast: (title: string, tone?: 'default' | 'success' | 'warning' | 'danger') => useUi.getState().toast({ title, tone }),
     };
 }
+
+/**
+ * One whole-document write that keeps the caret where the reader was.
+ *
+ * A block toolbar rewrites the fence the block came from, which is a slice of the document the editor
+ * owns — so the replacement goes through a CodeMirror transaction rather than the note store, stays a
+ * single undo step, and leaves the selection and the search intact.
+ */
+function replaceDocumentInEditor(view: EditorView, next: string): void {
+    const doc = view.state.doc;
+    const head = view.state.selection.main.head;
+    view.dispatch({
+        changes: { from: 0, to: doc.length, insert: next },
+        selection: { anchor: Math.min(head, next.length) },
+        userEvent: 'input.layout',
+        scrollIntoView: false,
+    });
+    view.requestMeasure();
+}
+
+function blockToolbarOptions() {
+    const session = useSession.getState().settings;
+    return {
+        chart: session.preview.chart,
+        mediaToolbar: session.preview.mediaToolbar,
+        codeFormat: {
+            enabled: session.preview.codeFormatButton,
+            tabSize: session.editor.tabSize,
+            keywordCase: session.editor.codeFormatKeywordCase,
+        },
+        tabScope: { noteId: useUi.getState().activeNoteId, userId: useSession.getState().user?.id ?? null },
+    };
+}
+
+/** The toolbar modules ask the surface for the note text and one write path; here both are the editor. */
+function blockActionContext(view: EditorView): BlockActionContext {
+    const source = view.state.doc.toString();
+    return {
+        content: source,
+        sourceNoteId: useUi.getState().activeNoteId,
+        committedSourceRef: { current: source },
+        api: {
+            editContent: (_noteId: string, next: string) => replaceDocumentInEditor(view, next),
+            toast: (options) => useUi.getState().toast(options),
+        },
+        codeFormat: blockToolbarOptions().codeFormat,
+    };
+}
+
 let sharedBlockResizeObserver: ResizeObserver | null = null;
 
 function getSharedBlockResizeObserver(): ResizeObserver {
