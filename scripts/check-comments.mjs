@@ -658,6 +658,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/command/registry.test.ts", [
     "// Lucide components are forwardRef objects, so a plain `typeof === 'function'` check is wrong.",
+    "// The palette matches on the label, so the shared prefix is what makes one query find all three.",
   ]],
   ["src/client/features/command/registry.ts", [
     "/**\n * The application commands, as data.\n *\n * The palette used to build this list inside its own component, which made the commands unreachable\n * from anywhere else — a QuickAdd macro could not say \"do what the palette entry called X does\"\n * without opening the palette. Every entry here reads what it needs from the stores when it is\n * called, so the palette, a hotkey and an automation step all run the same one implementation.\n */",
@@ -669,6 +670,9 @@ const allowed = new Map([
     "// The second entry asks which day the run counts from. A choice that already asks",
     "// every time has nothing left to offer, so it gets no twin: two commands that behave",
     "// the same way are one command too many in the palette.",
+    "// The three layout commands share one prefix on purpose: the palette matches on the label, so a",
+    "// reader who knows only the word for layout has to land on all three rather than on the one",
+    "// whose name doubles as the inline-rendering toggle in the toolbar.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",

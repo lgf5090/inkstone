@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SETTINGS, mergeSettings } from '@shared/constants'
 import type { NoteSummary } from '@shared/types'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
@@ -106,4 +106,35 @@ describe('the command registry', () => {
     useUi.setState({ activeNoteId: null })
     expect(runAppCommand('cmd-delete'), 'the id is known but not offered right now').toEqual({ ok: false, reason: 'unavailable' })
   })
+
+  it('names the three layout commands one family and points each at its own mode', () => {
+    const modes = [
+      { id: 'cmd-layout-edit', key: 'command.layout_editor_only', layout: 'live' },
+      { id: 'cmd-layout-split', key: 'command.layout_split_view', layout: 'split' },
+      { id: 'cmd-layout-preview', key: 'command.layout_preview_only', layout: 'preview' },
+    ] as const
+    const saved = vi.spyOn(useSession.getState(), 'updateSettings').mockImplementation(() => {})
+    try {
+      for (const mode of modes) {
+        const command = findAppCommand(mode.id)
+        expect(command, `the palette lost ${mode.id}`).not.toBeNull()
+        expect(command!.label, `${mode.id} has to read as a layout command`).toBe(t(mode.key))
+        expect(runAppCommand(mode.id)).toEqual({ ok: true })
+        expect(saved.mock.lastCall?.[0], `${mode.id} must pick the layout its name promises`)
+          .toEqual({ preview: { layout: mode.layout } })
+        saved.mockClear()
+      }
+      // The palette matches on the label, so the shared prefix is what makes one query find all three.
+      const shared = modes.map((mode) => findAppCommand(mode.id)!.label).reduce(commonPrefix)
+      expect(shared.length, `the three labels no longer start alike: ${JSON.stringify(modes.map((mode) => findAppCommand(mode.id)!.label))}`).toBeGreaterThanOrEqual(3)
+    } finally {
+      saved.mockRestore()
+    }
+  })
 })
+
+function commonPrefix(one: string, two: string): string {
+  let index = 0
+  while (index < one.length && index < two.length && one[index] === two[index]) index += 1
+  return one.slice(0, index)
+}
