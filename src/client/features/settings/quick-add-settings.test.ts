@@ -473,6 +473,31 @@ describe('the choice editor', () => {
     ])
   })
 
+  it('offers the pick-a-day switch only where it would add a command', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Alpha', 0), asCommand: false }
+    seed({ choices: [choice] })
+    editor(choice)
+    const twin = () => document.querySelector(`button[role="switch"][aria-label="${t('quickadd.field_pick_day_command')}"]`)
+    expect(twin(), 'a choice that is not a command has no second command to offer').toBeNull()
+    clickNamed(t('quickadd.field_as_command'))
+    expect(twin()).not.toBeNull()
+    clickNamed(t('quickadd.field_pick_day_command'))
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.pickDayCommand).toBe(true)
+  })
+
+  it('withdraws the pick-a-day switch when the run already asks for its day', () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Alpha', 0), asCommand: true, dateOrigin: 'ask' as const }
+    seed({ choices: [choice] })
+    editor(choice)
+    expect(
+      document.querySelector(`button[role="switch"][aria-label="${t('quickadd.field_pick_day_command')}"]`),
+      'a choice that asks every time has nothing left for the second entry to do',
+    ).toBeNull()
+  })
+
   it('offers the category filter only while the run asks which template', async () => {
     const choice = newTemplateChoice('qa-t', 'Alpha', 0)
     seed({ choices: [choice] })

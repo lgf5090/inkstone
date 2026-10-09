@@ -35,15 +35,24 @@ export function promptRequest(over: Partial<PromptRequest>): PromptRequest {
   }
 }
 
+/** What a caller can tell a run about itself before it starts. */
+export interface RunOptions {
+  /** Variables the reader has already answered — a page, or a macro that shares its session. */
+  variables?: Map<string, PromptAnswer>
+  /** The day a `pick a day` entry was given, before the choice's own origin is applied. */
+  day?: Date
+  /** The note the reader was in, which a macro reached through `{{MACRO:}}` inherits. */
+  sourceNoteId?: string
+  /** Ask which day this run measures from, whatever the choice's own day origin says. */
+  pickDay?: boolean
+}
+
 export function newSession(
   choice: QuickAddChoice,
   port: NotePort,
-  variables?: Map<string, PromptAnswer>,
-  /** The day a `pick a day` command was given, before the choice's own origin is applied. */
-  day?: Date,
-  /** The note the reader was in, which a macro reached through `{{MACRO:}}` inherits. */
-  sourceNoteId?: string,
+  options: RunOptions = {},
 ): RunSession {
+  const { variables, day, sourceNoteId, pickDay } = options
   const now = new Date()
   const date = day ? new Date(day.getTime()) : now
   if (day) date.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds())
@@ -55,6 +64,8 @@ export function newSession(
     clock: { now, date },
     destination: null,
     sourceNoteId,
+    pickDay,
+    dayGiven: day !== undefined,
   }
   // What the reader has selected answers an un-named `{{VALUE}}` instead of asking: a selection is an
   // answer, not a pre-fill, so a blank selection leaves the prompt exactly where it was. The choice
@@ -67,6 +78,19 @@ export function newSession(
   return session
 }
 
+/**
+ * Whether this run still has to ask which day it counts from.
+ *
+ * Two things decide the day besides the clock: the choice's own "ask me each time", and an entry point
+ * that means a second command — the palette twin, the launcher's Shift. When the entry point has
+ * already been given a day, neither of them asks again: the reader would answer the same question
+ * twice, and re-reading a date out of text can land on a different day than the `Date` they picked.
+ */
+export function asksForDay(session: RunSession): boolean {
+  if (session.dayGiven) return false
+  return session.base.dateOrigin === 'ask' || session.pickDay === true
+}
+
 /** The "ask me each time" day question, shared by the opening page and the engine that applies it. */
 export function dayRequest(session: RunSession): PromptRequest {
   return promptRequest({
@@ -77,9 +101,9 @@ export function dayRequest(session: RunSession): PromptRequest {
   })
 }
 
-/** The day a run measures its dates from, when the choice says "ask me each time". */
+/** The day a run measures its dates from, when the choice or the entry point says to ask. */
 export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunStatus | null> {
-  if (session.base.dateOrigin !== 'ask') return null
+  if (!asksForDay(session)) return null
   const value = await askOrReuse(session, dayRequest(session))
   if (value === null) return { kind: 'cancelled' }
   const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN

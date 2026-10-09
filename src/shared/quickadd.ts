@@ -75,6 +75,11 @@ export interface QuickAddChoiceBase {
   asCommand: boolean
   hotkey: string | null
   dateOrigin: QuickAddDateOrigin
+  /**
+   * A second palette command that asks which day the run measures its dates from. Absent means the
+   * choice has one command, which is what every record written before this field means.
+   */
+  pickDayCommand?: boolean
   /** Ask everything on one page, one at a time, or follow the account setting when absent. */
   onePage?: QuickAddOnePageMode
   /** Offer a copy of the created note's link on the clipboard once the run is done. */
@@ -286,6 +291,7 @@ function baseChoice(over: Partial<QuickAddChoiceBase>): QuickAddChoiceBase {
     asCommand: over.asCommand ?? false,
     hotkey: over.hotkey ?? null,
     dateOrigin: over.dateOrigin ?? 'run',
+    pickDayCommand: over.pickDayCommand,
     onePage: over.onePage,
     copyText: over.copyText,
   }
@@ -532,6 +538,7 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
     asCommand: boolOf(value.asCommand, false),
     hotkey: normalizeHotkey(value.hotkey),
     dateOrigin: pick(value.dateOrigin, ['run', 'note', 'ask'] as const, 'run'),
+    ...(value.pickDayCommand === true ? { pickDayCommand: true } : {}),
     onePage: value.onePage === undefined || value.onePage === null
       ? undefined
       : pick(value.onePage, ['always', 'auto', 'never'] as const, 'auto'),

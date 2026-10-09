@@ -24,6 +24,10 @@ export interface RunSession {
   destination: { id: string; title: string } | null
   /** The note the reader was in when the run started, for a macro reached from `{{MACRO:}}`. */
   sourceNoteId?: string
+  /** Ask which day this run counts from even when the choice's origin would not. */
+  pickDay?: boolean
+  /** The entry point handed over a day, so the question has already been answered. */
+  dayGiven?: boolean
   /** Set only while a property capture formats its value. */
   propertyValue?: PromptAnswer
   /** A question was closed rather than answered: the run stops instead of writing what was typed. */

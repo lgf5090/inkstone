@@ -546,17 +546,33 @@ export function appCommands(): AppCommand[] {
     ...(quickAddOn
         ? quickAddChoices
             .filter((choice) => choice.enabled && choice.asCommand && choice.type !== 'group')
-            .map((choice) => ({
-                id: `cmd-quickadd-${choice.id}`,
-                kind: 'command' as const,
-                label: choice.name,
-                detail: t(`quickadd.type_${choice.type}` as MessageKey),
-                icon: Zap,
-                combo: choice.hotkey ?? undefined,
-                group: t("quickadd.group"),
-                run: () => void import('../../lib/quickadd/runner')
-                    .then(({ runQuickAddChoice }) => runQuickAddChoice(choice.id)),
-            }))
+            .flatMap((choice) => {
+                const main = {
+                    id: `cmd-quickadd-${choice.id}`,
+                    kind: 'command' as const,
+                    label: choice.name,
+                    detail: t(`quickadd.type_${choice.type}` as MessageKey),
+                    icon: Zap,
+                    combo: choice.hotkey ?? undefined,
+                    group: t("quickadd.group"),
+                    run: () => void import('../../lib/quickadd/runner')
+                        .then(({ runQuickAddChoice }) => runQuickAddChoice(choice.id)),
+                }
+                // The second entry asks which day the run counts from. A choice that already asks
+                // every time has nothing left to offer, so it gets no twin: two commands that behave
+                // the same way are one command too many in the palette.
+                if (choice.pickDayCommand !== true || choice.dateOrigin === 'ask') return [main]
+                return [main, {
+                    ...main,
+                    id: `cmd-quickadd-${choice.id}:pick-day`,
+                    label: t('quickadd.command_pick_day', { name: choice.name }),
+                    combo: undefined,
+                    run: () => void import('../quickadd/pick-day')
+                        .then(({ runChoiceWithChosenDay }) => runChoiceWithChosenDay(choice, {
+                            sourceNoteId: activeNoteId ?? undefined,
+                        })),
+                }]
+            })
         : []),
     ]
 }

@@ -13,7 +13,7 @@ import type { QuickAddChoice, QuickAddMacroChoice, QuickAddStep } from '@shared/
 import { randomLocalId } from '../../lib/random-id'
 import type { PromptAnswer, PromptRequest } from './format'
 import { buildRuntime, askForInputs, type RunSession } from './runtime'
-import { applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest } from './session'
+import { applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
 import type { NotePort, QuickAddRunStatus } from './context'
 import { runTemplateChoice } from './template'
 import { runCaptureChoice } from './capture'
@@ -336,7 +336,7 @@ async function runMacroSteps(
 export async function runMacroChoice(
   choice: QuickAddMacroChoice,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<QuickAddRunStatus> {
   return (await runMacro(choice, port, options)).status
 }
@@ -345,12 +345,12 @@ export async function runMacroChoice(
 export async function runMacro(
   choice: QuickAddMacroChoice,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<MacroOutcome> {
-  const session = newSession(choice, port, options.variables, options.day, options.sourceNoteId)
+  const session = newSession(choice, port, options)
   const runtime = buildRuntime(session, port)
   const surfaces = macroStaticSurfaces(choice.steps)
-  if (choice.dateOrigin === 'ask') surfaces.requests.unshift(dayRequest(session))
+  if (asksForDay(session)) surfaces.requests.unshift(dayRequest(session))
   await precollectInputs(session, runtime, surfaces)
   if (session.dismissed) return { status: { kind: 'cancelled' }, text: '' }
   const cancelled = await applyDateOrigin(session)
@@ -371,7 +371,7 @@ export async function runMacro(
 export async function runMacroByName(
   name: string,
   port: NotePort,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<string> {
   const wanted = name.trim().toLowerCase()
   const match = port.choices().find((choice) => choice.type === 'macro' && choice.name.trim().toLowerCase() === wanted)

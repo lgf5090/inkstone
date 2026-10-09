@@ -17,6 +17,7 @@ import { useUi } from '../../store/ui'
 import { CommandPalette } from './CommandPalette'
 
 const runs = vi.hoisted(() => ({ calls: [] as string[] }))
+const askedForDay = vi.hoisted(() => ({ calls: [] as string[] }))
 
 vi.mock('../../lib/quickadd/runner', () => ({
   runQuickAddChoice: async (id: string) => {
@@ -25,10 +26,18 @@ vi.mock('../../lib/quickadd/runner', () => ({
   },
 }))
 
+vi.mock('../quickadd/pick-day', () => ({
+  runChoiceWithChosenDay: async (choice: { id: string }) => { askedForDay.calls.push(choice.id) },
+}))
+
 const MORNING = { ...newTemplateChoice('qa-morning', 'Morning note', 0), asCommand: true }
 const NOT_A_COMMAND = { ...newCaptureChoice('qa-inbox', 'Inbox capture', 1), asCommand: false }
 const DISABLED: QuickAddChoice = { ...newMacroChoice('qa-off', 'Off command', 2), asCommand: true, enabled: false }
 const GROUP: QuickAddChoice = { ...newGroupChoice('qa-group', 'Journal group', 3), asCommand: true }
+const BACKFILL = { ...newTemplateChoice('qa-backfill', 'Weekly review', 4), asCommand: true, pickDayCommand: true }
+const ALREADY_ASKS = {
+  ...newTemplateChoice('qa-asks', 'Asked review', 5), asCommand: true, pickDayCommand: true, dateOrigin: 'ask' as const,
+}
 
 let root: Root
 let container: HTMLDivElement
@@ -77,6 +86,7 @@ beforeEach(async () => {
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
   await initI18n()
   runs.calls = []
+  askedForDay.calls = []
   vi.spyOn(api, 'search').mockResolvedValue({
     results: [],
     mode: 'fts',
@@ -155,5 +165,29 @@ describe('QuickAdd in the command palette', () => {
     seed([{ ...MORNING, name: CJK_CHOICE_FIXTURES.name }])
     await open(CJK_CHOICE_FIXTURES.query)
     expect(rowText()).toContain(CJK_CHOICE_FIXTURES.name)
+  })
+
+  it('gives a pick-a-day choice a second entry that asks first', async () => {
+    seed([BACKFILL])
+    await open()
+    const twin = t('quickadd.command_pick_day', { name: 'Weekly review' })
+    expect(rowText()).toContain(twin)
+    await pick(twin)
+    expect(askedForDay.calls).toEqual(['qa-backfill'])
+    expect(runs.calls, 'the twin asks for the day rather than running at today').toEqual([])
+  })
+
+  it('offers no twin to a choice that already asks for its day every time', async () => {
+    seed([ALREADY_ASKS])
+    await open()
+    const text = rowText()
+    expect(text).toContain('Asked review')
+    expect(text, 'two commands that behave the same way are one command too many').not.toContain(t('quickadd.command_pick_day', { name: 'Asked review' }))
+  })
+
+  it('offers no twin to a choice that was not given the flag', async () => {
+    seed([MORNING])
+    await open()
+    expect(rowText()).not.toContain(t('quickadd.command_pick_day', { name: 'Morning note' }))
   })
 })

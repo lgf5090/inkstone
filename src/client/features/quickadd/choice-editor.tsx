@@ -228,6 +228,16 @@ export function QuickAddChoiceEditor({ choice, onClose }: {
             <Switch label={t('quickadd.field_as_command')} checked={draft.asCommand} onChange={(asCommand) => patch({ asCommand })}/>
           </SettingRow>
         </div>
+        {/* A choice that already asks for its day every time has no second behaviour to offer, so the
+            row appears only where the switch would change what the palette lists. */}
+        {draft.asCommand && draft.dateOrigin !== 'ask' && (
+          <SettingRow title={t('quickadd.field_pick_day_command')} description={t('quickadd.field_pick_day_command_desc')}>
+            <Switch
+              label={t('quickadd.field_pick_day_command')}
+              checked={draft.pickDayCommand === true}
+              onChange={(pickDayCommand) => patch({ pickDayCommand })}/>
+          </SettingRow>
+        )}
         <Field label={t('quickadd.field_hotkey')} hint={t('quickadd.field_hotkey_hint')}>
           <Input
             aria-label={t('quickadd.field_hotkey')}

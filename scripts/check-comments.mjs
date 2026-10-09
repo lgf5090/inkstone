@@ -665,6 +665,9 @@ const allowed = new Map([
     "// the list, and a renamed choice has to show its new name here the same second.",
     "/** One command by id, or null when nothing registers that id. */",
     "/**\n * Run a command by id without opening the palette. The three refusals are reported rather than\n * swallowed, because a caller in an automation chain has to say why nothing happened.\n */",
+    "// The second entry asks which day the run counts from. A choice that already asks",
+    "// every time has nothing left to offer, so it gets no twin: two commands that behave",
+    "// the same way are one command too many in the palette.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -3697,6 +3700,7 @@ const allowed = new Map([
     "/** The three fields the opening rows write back; the switch that reveals them stays the choice’s own. */",
     "/** Where the backlink goes, and in what shape. */",
     "/**\n * Where the link back into the note the run started from is written. The two extra fields only appear\n * for the placements that need them: a property has to be named, and only the line the caret was on can\n * hold a transclusion — a property value is link-only, and a labelled line already says what it is.\n */",
+    "/* A choice that already asks for its day every time has no second behaviour to offer, so the\n            row appears only where the switch would change what the palette lists. */",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -3729,6 +3733,9 @@ const allowed = new Map([
     "// rather than running it or pushing it onto the path a second time.",
     "// The caret stays in the filter while the arrows walk the list, so a screen reader only learns which",
     "// row is selected from aria-activedescendant naming it.",
+  ]],
+  ["src/client/features/quickadd/pick-day.ts", [
+    "/**\n * The one implementation of \"run this choice, but ask which day it counts from first\".\n *\n * Two entries reach for it: the launcher's Shift, and the second palette command a choice can carry\n * when the reader wants that entry to have its own name or hotkey. Asking here rather than inside the\n * engine keeps the shape the launcher has always had — a dismissed question runs nothing at all, no\n * cancelled-run notice — and hands the engine a day it must not ask for a second time.\n */",
   ]],
   ["src/client/features/quickadd/prompt-gate.tsx", [
     "/**\n * Mounts the QuickAdd prompt dialogs on demand.\n *\n * A prompt is the only part of a choice run that needs form controls, and it is needed by nobody who\n * never runs a choice, so the dialogs are fetched when the first prompt arrives rather than at boot.\n * The gate subscribes to the same queue the engine pushes into, which keeps the promise contract\n * honest: if the chunk cannot be fetched, the outstanding run is released with no answer instead of\n * waiting forever for a dialog that will never be rendered.\n */",
@@ -9738,15 +9745,15 @@ const allowed = new Map([
     "/** Which page mode a run asks in: the choice's own setting wins over the account's. */",
     "// A getter, not a snapshot: a page can be answered before \"ask me each time\" moves the run's day,",
     "// and a date token in a name and in a body still has to agree.",
+    "/** Ask which day this run counts from even when the choice's origin would not. */",
+    "/** The entry point handed over a day, so the question has already been answered. */",
   ]],
   ["src/client/lib/quickadd/session.ts", [
     "/**\n * The parts of a choice run that every engine needs: a session with one clock, the ask-me-which-day\n * prompt, the prompt-request defaulting, and the format-then-ask loop.\n *\n * `formatWithPrompts` exists because a format can grow tokens while it is being formatted — an\n * included template or a macro that emits `{{VALUE:…}}` — and a literal token written into a note is\n * a silent failure. So the pass asks, formats, and asks again for anything that only appeared after\n * the first round.\n */",
-    "/** The day a `pick a day` command was given, before the choice's own origin is applied. */",
     "/** The note the reader was in, which a macro reached through `{{MACRO:}}` inherits. */",
     "// What the reader has selected answers an un-named `{{VALUE}}` instead of asking: a selection is an",
     "// answer, not a pre-fill, so a blank selection leaves the prompt exactly where it was. The choice",
     "// overrides the account setting, which is itself the reference's always-on behaviour.",
-    "/** The day a run measures its dates from, when the choice says \"ask me each time\". */",
     "/** Ask for the inputs of a text, then format it: the order the one-page form promises. */",
     "// A token that only appeared after the prompts ran (a macro or an included template's own",
     "// `{{VALUE}}`) has not been asked for yet; ask once more rather than write a literal token.",
@@ -9759,6 +9766,12 @@ const allowed = new Map([
     "// `skip` names variables the run writes itself, which only ever arrive out of a scanned format —",
     "// an engine's own request is one it has decided to ask.",
     "/**\n * Ask everything the run can already name, once, before it writes anything.\n *\n * The setting promises \"always one page\", and a choice used to honour it one surface at a time: a\n * template asked for its day, then its name, then its folder, then its body — four dialogs for one\n * button press. Only questions whose wording and choices are known before the run starts can share a\n * page, so each engine hands over what it knows statically (`requests` for the engine's own prompts,\n * `texts` for the formats whose tokens can be scanned) and keeps asking the rest where the answer\n * depends on something the earlier answers produced.\n *\n * `auto` deliberately stays out of this: asking the body's questions before the target note is known\n * would cost the prompt the destination it names, which is the one thing the reader is looking at.\n */",
+    "/** What a caller can tell a run about itself before it starts. */",
+    "/** Variables the reader has already answered — a page, or a macro that shares its session. */",
+    "/** The day a `pick a day` entry was given, before the choice's own origin is applied. */",
+    "/** Ask which day this run measures from, whatever the choice's own day origin says. */",
+    "/**\n * Whether this run still has to ask which day it counts from.\n *\n * Two things decide the day besides the clock: the choice's own \"ask me each time\", and an entry point\n * that means a second command — the palette twin, the launcher's Shift. When the entry point has\n * already been given a day, neither of them asks again: the reader would answer the same question\n * twice, and re-reading a date out of text can land on a different day than the `Date` they picked.\n */",
+    "/** The day a run measures its dates from, when the choice or the entry point says to ask. */",
   ]],
   ["src/client/lib/quickadd/startup.ts", [
     "/** The reader's own calendar day, not the UTC one: \"once a day\" means their day. */",
@@ -10404,6 +10417,7 @@ const allowed = new Map([
     "/**\n * Where the backlink goes. A record that predates these fields keeps the behaviour it was written\n * with: the link at the end of the note, as a plain link, in a property called `source`.\n */",
     "/**\n * Where a template lands in a note that already exists: where the caret is, below the note's own\n * properties, past its last line, or in place of everything in it.\n */",
     "/** Where the template lands when this choice writes into the note the reader is in. */",
+    "/**\n   * A second palette command that asks which day the run measures its dates from. Absent means the\n   * choice has one command, which is what every record written before this field means.\n   */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",

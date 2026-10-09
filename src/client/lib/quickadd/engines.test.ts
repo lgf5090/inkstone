@@ -7,6 +7,7 @@ import { executeUserCode } from '../../features/preview/js-runner-core'
 import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
 import type { NewNoteInput, NotePort, NoteRef, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
+import type { RunOptions } from './session'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -211,15 +212,9 @@ vi.mock('./session', async () => {
     ...actual,
     // The real session, only with the clock pinned: a stub that rebuilt the record would stop
     // exercising whatever `newSession` grows later, and the run would pass on a rule no test sees.
-    newSession: (
-      choice: QuickAddChoice,
-      port: NotePort,
-      variables?: Map<string, PromptAnswer>,
-      day?: Date,
-      sourceNoteId?: string,
-    ) => {
-      const session = actual.newSession(choice, port, variables, day ?? clock, sourceNoteId)
-      session.clock = { now: clock, date: day ?? clock }
+    newSession: (choice: QuickAddChoice, port: NotePort, options: RunOptions = {}) => {
+      const session = actual.newSession(choice, port, options)
+      session.clock = { now: clock, date: options.day ?? clock }
       return session
     },
   }
@@ -1328,6 +1323,33 @@ describe('a name format that routes into a folder', () => {
     const status = await runTemplateChoice(choice, fake.port)
     expect(status.kind, 'closing a question is not a broken date').toBe('cancelled')
     expect(fake.created).toEqual([])
+  })
+
+  it('asks which day to count from when the entry point says to pick one', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Backfill', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'On {{DATE:YYYY-MM-DD}}' },
+    }
+    answers.queue = [['2024-03-04']]
+    const status = await runTemplateChoice(choice, fake.port, { pickDay: true })
+    expect(status.kind).toBe('written')
+    expect(answers.calls.flat(), 'a choice that runs at today still asked, because the entry point asked to').toContain('day')
+  })
+
+  it('does not ask again when the entry point already has the day', async () => {
+    const fake = harness({})
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Chosen', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'On {{DATE:YYYY-MM-DD}}' },
+      dateOrigin: 'ask' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port, { day: new Date(2024, 2, 4) })
+    expect(status.kind).toBe('written')
+    expect(answers.calls.flat(), 'the launcher already asked, so the engine must not ask a second time').not.toContain('day')
+    expect(fake.created[0].title).toBe('On 2024-03-04')
   })
 
   it('merges the choice tags into the new note’s properties', async () => {

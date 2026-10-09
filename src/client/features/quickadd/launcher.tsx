@@ -24,8 +24,7 @@ import { t } from '../../lib/i18n'
 import type { MessageKey } from '@shared/locales/en-US'
 import { useUi } from '../../store/ui'
 import { useQuickAdd } from '../../store/quickadd'
-import { askQuickAddPrompts } from './prompt-queue'
-import { promptRequest } from '../../lib/quickadd/session'
+import { runChoiceWithChosenDay } from './pick-day'
 
 const TYPE_ICON = {
   template: LayoutTemplate,
@@ -169,30 +168,13 @@ export default function QuickAddLauncher({ onClose }: { onClose: () => void }) {
       return
     }
     onClose()
-    let day: Date | undefined
     if (pickDay) {
-      const answers = await askQuickAddPrompts({
-        requests: [promptRequest({
-          kind: 'date',
-          key: 'day',
-          label: t('quickadd.prompt_day'),
-          dateFormat: settings.dateFormat,
-        })],
-        onePage: false,
-        choiceId: choice.id,
-        choiceName: choice.name,
-      })
-      const value = answers?.get('day')
-      const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
-      if (!Number.isFinite(stamp)) return
-      day = new Date(stamp)
+      await runChoiceWithChosenDay(choice, { sourceNoteId: activeNoteId ?? undefined })
+      return
     }
     const { runQuickAddChoice } = await import('../../lib/quickadd/runner')
-    await runQuickAddChoice(choice.id, {
-      sourceNoteId: activeNoteId ?? undefined,
-      day,
-    })
-  }, [activeNoteId, onClose, settings.dateFormat])
+    await runQuickAddChoice(choice.id, { sourceNoteId: activeNoteId ?? undefined })
+  }, [activeNoteId, onClose])
 
   const activate = useCallback((row: LauncherRow, pickDay: boolean) => {
     // A group the search surfaced from deeper down still names a place: open it where it lives

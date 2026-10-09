@@ -458,4 +458,11 @@ describe('where a template lands in a note', () => {
     expect(made && 'insertPosition' in made).toBe(false)
     expect(made?.type === 'template' && made.existing).toBe('ask')
   })
+
+  it('keeps only a pick-a-day command that was really asked for', () => {
+    expect(template({ pickDayCommand: true })?.pickDayCommand).toBe(true)
+    expect(template({ pickDayCommand: 'yes' })?.pickDayCommand, 'a string is not a yes').toBeUndefined()
+    expect(template({ pickDayCommand: false })?.pickDayCommand, 'off is what a record without the field means').toBeUndefined()
+    expect(template({})?.type).toBe('template')
+  })
 })

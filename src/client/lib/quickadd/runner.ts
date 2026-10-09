@@ -23,7 +23,7 @@ import { runCaptureChoice } from './capture'
 import { runMacroChoice } from './macro'
 import { t } from '../../lib/i18n'
 import { runAppCommand } from '../../features/command/registry'
-import type { PromptAnswer } from './format'
+import type { RunOptions } from './session'
 import type { QuickAddCaptureChoice, QuickAddChoice, QuickAddMacroChoice, QuickAddSettings, QuickAddTemplateChoice } from '@shared/quickadd'
 
 function noteRef(id: string): NoteRef | null {
@@ -437,7 +437,7 @@ function describe(status: QuickAddRunStatus, choice: QuickAddChoice): void {
 
 export async function runQuickAddChoice(
   id: string,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date } = {},
+  options: RunOptions = {},
 ): Promise<QuickAddRunStatus> {
   const store = useQuickAdd.getState()
   const choice = findChoiceById(store.choices, id)
@@ -455,7 +455,7 @@ export async function runQuickAddChoice(
 
 async function dispatch(
   choice: QuickAddTemplateChoice | QuickAddCaptureChoice | QuickAddMacroChoice,
-  options: { sourceNoteId?: string; variables?: Map<string, PromptAnswer>; day?: Date },
+  options: RunOptions,
 ): Promise<QuickAddRunStatus> {
   switch (choice.type) {
     case 'template':
