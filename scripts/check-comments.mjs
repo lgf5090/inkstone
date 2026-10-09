@@ -9814,6 +9814,9 @@ const allowed = new Map([
   ["src/client/lib/quickadd/runner-open.test.ts", [
     "/**\n * The app-backed half of opening a note after a run: which pane receives it, whether that pane keeps the\n * reader's own display mode, and whether the focus moves. The engines only ever ask for these through\n * `NotePort.open`, so this is where a wrong answer would silently land a note in front of someone.\n */",
   ]],
+  ["src/client/lib/quickadd/runner-write.test.ts", [
+    "/**\n * The app-backed half of writing a run's result into a note: a capture has to refuse rather than\n * overwrite text the reader typed a moment ago, and a note that is not on screen is written against\n * what the server holds now, not against the revision the run happened to read.\n */",
+  ]],
   ["src/client/lib/quickadd/runner.ts", [
     "/**\n * The app-backed side of a choice run: what a `NotePort` means when the notes are in the zustand\n * store and the editor is a CodeMirror view, plus the dispatcher that turns a choice id into a write.\n *\n * Two paths are deliberately different. A note that is on screen is written through the store, so the\n * editor, the autosave and the other tab hear about it; a note that is not open is patched through the\n * API with its revision, because a capture must not resurrect a stale editor buffer behind the\n * reader's back. A lost revision race is reported as a failed run rather than retried blind.\n */",
     "/** The line the caret is on, and the heading above it, in the note's current text. */",
