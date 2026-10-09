@@ -500,6 +500,11 @@ const allowed = new Map([
   ["src/client/editor/emoji-completion.test.ts", [
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
   ]],
+  ["src/client/editor/link-hover-plugin.test.ts", [
+    "// The plugin measures the caret inside `requestMeasure`, which waits for a frame; a loaded machine",
+    "// can starve that frame, and 40ms then reads as \"no proposal yet\". 150ms keeps the wait honest for",
+    "// the negative cases too, since a longer silence can only make \"stays quiet\" harder to satisfy.",
+  ]],
   ["src/client/editor/link-hover-plugin.ts", [
     "// The caret path reads whichever datum the mark just got, so a hashtag has to carry",
     "// its own; without this the sidebar and preview hover but the editor does not. A link",

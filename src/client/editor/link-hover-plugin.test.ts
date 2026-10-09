@@ -97,8 +97,11 @@ function mountEditor(doc = 'Before [[Note B]] after') {
   return { view, proposals, container }
 }
 
+// The plugin measures the caret inside `requestMeasure`, which waits for a frame; a loaded machine
+// can starve that frame, and 40ms then reads as "no proposal yet". 150ms keeps the wait honest for
+// the negative cases too, since a longer silence can only make "stays quiet" harder to satisfy.
 async function waitForMeasure(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 40))
+  await new Promise((resolve) => setTimeout(resolve, 150))
 }
 
 describe('caret proposal from link hover plugin', () => {
