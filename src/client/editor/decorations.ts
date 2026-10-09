@@ -2,6 +2,7 @@ import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate
 import { RangeSetBuilder, StateEffect } from '@codemirror/state'
 import { encodeDataValue } from '../lib/markdown/data-attr'
 import { syntaxTree } from '@codemirror/language'
+import { collectLinks } from '../features/links/link-syntax'
 
 
 const taskDone = Decoration.mark({ class: 'cm-md-task-done' })
@@ -9,6 +10,12 @@ const taskDone = Decoration.mark({ class: 'cm-md-task-done' })
 // and the hover and context-menu paths both identify a hashtag by that datum.
 const tagMarkFor = (name: string) => Decoration.mark({ class: 'cm-md-tag', attributes: { 'data-tag': encodeDataValue(name) } })
 const wikiMark = Decoration.mark({ class: 'cm-md-wikilink' })
+// A markdown link carries its destination on the mark for the same reason a hashtag does, and because
+// the text under the mark is the source itself, which the card would otherwise have to re-parse.
+const linkMarkFor = (href: string) => Decoration.mark({ class: 'cm-md-link', attributes: { 'data-mdlink': encodeDataValue(href) } })
+
+/** Everything the link card previews: a markdown link, a picture link, or a bare address. */
+const LINK_KINDS = { wiki: false, markdown: true, url: true, image: true } as const
 
 const TAG_RE = /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/gu
 const WIKI_RE = /\[\[[^[\]\n]{1,200}\]\]/g
@@ -83,6 +90,14 @@ export function collectMarkDecorations(view: EditorView, ranges: readonly { from
           from: line.from + (match.index ?? 0),
           to: line.from + (match.index ?? 0) + match[0].length,
           deco: wikiMark,
+        })
+      }
+
+      for (const link of collectLinks(text, LINK_KINDS)) {
+        marks.push({
+          from: line.from + link.start,
+          to: line.from + link.end,
+          deco: linkMarkFor(link.target),
         })
       }
     }

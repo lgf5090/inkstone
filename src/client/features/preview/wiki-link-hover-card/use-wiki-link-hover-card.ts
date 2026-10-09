@@ -6,6 +6,7 @@ import { findNoteByTitle, useNotes } from '../../../store/notes'
 import { useSession } from '../../../store/session'
 import { getVisibleViewport } from '../../../lib/viewport'
 import { MAX_HOVER_CARD_DEPTH, useLinkHover } from '../link-hover'
+import { linkCardTitle, linkPreviewFromElement } from '../link-preview'
 import { useNoteBacklinks, useNoteCardContent } from '../card-content'
 import { placeHoverCard } from './position'
 import type { PinnedWindowGeometry } from '../../../store/pinned-windows'
@@ -55,8 +56,15 @@ export interface WikiLinkHoverCardProps {
   flash?: boolean
 }
 
-function resolveNestedCandidate(link: HTMLElement, card: WikiLinkHoverCardState, depth: number, path: string[]): WikiLinkHoverCardState | null {
+function resolveNestedCandidate(link: HTMLElement, card: WikiLinkHoverCardState, depth: number, path: string[], linksEnabled: boolean): WikiLinkHoverCardState | null {
   if (depth >= MAX_HOVER_CARD_DEPTH) return null
+  if (linksEnabled) {
+    const preview = linkPreviewFromElement(link)
+    if (preview) return { anchor: link, title: linkCardTitle(preview), noteId: null, missing: false, link: preview }
+  }
+  // The last branch is for `[[#heading]]`, whose target lives in that same datum. A span without one
+  // is not a wiki link, and the card it used to produce only repeated the note already on screen.
+  if (link.dataset.wikilink === undefined) return null
   const parsed = parseWikiTarget(decodeDataValue(link.dataset.wikilink))
   const notes = useNotes.getState().notes
   if (parsed.noteTitle) {
@@ -275,7 +283,7 @@ export function useWikiLinkHoverCard(props: WikiLinkHoverCardProps) {
   const describedBy = useCardAccessibility(card)
   const { pinnedRect, beginDrag, beginResize } = useCardPinnedGeometry(pinnedInit, onGeometryChange, cardRef)
   usePinnedMermaid({ pinned, status, html, dark, mermaidEnabled: preview.mermaid, cardRef })
-  const resolve = useCallback((link: HTMLElement) => resolveNestedCandidate(link, card, depth, path), [card, depth, path])
+  const resolve = useCallback((link: HTMLElement) => resolveNestedCandidate(link, card, depth, path, preview.linkHoverLinks), [card, depth, path, preview.linkHoverLinks])
   const machine = useLinkHover({
     resolve,
     delay: preview.linkHoverDelayMs,

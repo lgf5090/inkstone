@@ -6,6 +6,7 @@ import { t } from '../../../lib/i18n'
 import { Menu } from '../../../components/overlay'
 import { PINNED_MENU_Z, hoverCardStyle, useWikiLinkHoverCard, type WikiLinkHoverCardBundle, type WikiLinkHoverCardProps } from './use-wiki-link-hover-card'
 import { CardBacklinks } from './backlinks'
+import { LinkPreviewBody } from './link-preview-body'
 
 const STACK_MENU_WIDTH = 220
 
@@ -66,7 +67,8 @@ function CardHeader({ b }: { b: WikiLinkHoverCardBundle }) {
         <CardHeaderButton label={t('common.close')} onClick={onClose}>
           <X size={13}/>
         </CardHeaderButton>
-      ) : (
+      ) : card.link ? null : (
+        // Pinning keeps a note window, so a link card has nothing to pin into.
         <CardHeaderButton label={t('preview.pin_card')} onClick={handlePin}>
           <Pin size={13}/>
         </CardHeaderButton>
@@ -77,6 +79,7 @@ function CardHeader({ b }: { b: WikiLinkHoverCardBundle }) {
 
 function CardBody({ b }: { b: WikiLinkHoverCardBundle }) {
   const { status, htmlObj, isTruncated, pinned, pinnedRect, backlinks, openBacklink } = b
+  if (b.card.link) return <LinkPreviewBody preview={b.card.link} onClose={b.onClose}/>
   if (status === 'loading') {
     return (
       <div className="flex h-24 items-center justify-center text-[var(--text-quaternary)]">

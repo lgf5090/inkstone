@@ -397,6 +397,10 @@ export function EditorSettings() {
           <Switch checked={preview.linkHover} onChange={(linkHover) => void update({ preview: { linkHover } })} label={t("settings.link_hover_preview")}/>
         </SettingRow>
 
+        {preview.linkHover && <SettingRow title={t("settings.link_hover_links")} description={t("settings.link_hover_links_description")}>
+          <Switch checked={preview.linkHoverLinks} onChange={(linkHoverLinks) => void update({ preview: { linkHoverLinks } })} label={t("settings.link_hover_links")}/>
+        </SettingRow>}
+
         {preview.linkHover && <SettingRow title={t("settings.link_hover_delay")}>
           <Slider label={t("settings.link_hover_delay")} className="w-[200px]" value={preview.linkHoverDelayMs} min={150} max={1000} step={50} onChange={(linkHoverDelayMs) => void update({ preview: { linkHoverDelayMs } })} suffix="ms"/>
         </SettingRow>}

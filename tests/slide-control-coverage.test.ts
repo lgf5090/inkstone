@@ -60,6 +60,7 @@ const CONTENT_OR_CONTAINER = new Set([
   'data-example-family',
   'data-media',
   'data-mermaid',
+  'data-mdlink',
   'data-tabs',
   'data-tag',
   'data-wikilink',
