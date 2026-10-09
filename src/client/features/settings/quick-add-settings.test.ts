@@ -389,6 +389,27 @@ describe('the choice editor', () => {
     expect(saved.type === 'template' && saved.templatePick).toBe('ask')
   })
 
+  it('asks where the template lands, and only for the mode that lands it', async () => {
+    const choice = { ...newTemplateChoice('qa-t', 'Dropper', 0), mode: 'new-note' as const }
+    seed({ choices: [choice] })
+    editor(choice)
+    const drop = () => document.querySelector(`select[aria-label="${t('quickadd.field_insert_position')}"]`)
+    expect(drop(), 'a note that is created has nowhere to be dropped').toBeNull()
+    const existing = () => document.querySelector<HTMLSelectElement>(`select[aria-label="${t('quickadd.field_existing')}"]`)
+    expect([...(existing()?.options ?? [])].map((option) => option.value))
+      .toEqual(['cancel', 'ask', 'number', 'appendTop', 'appendBottom'])
+
+    selectNamed(t('quickadd.field_mode'), 'insert-here')
+    expect(drop()).not.toBeNull()
+    expect(existing(), 'a note that is not created cannot collide').toBeNull()
+    selectNamed(t('quickadd.field_insert_position'), 'replace')
+
+    clickNamed(t('common.save'))
+    await settle()
+    const saved = library()[0]!
+    expect(saved.type === 'template' && saved.insertPosition).toBe('replace')
+  })
+
   it('offers one place per kind of backlink, and only the fields that place needs', async () => {
     const choice = { ...newTemplateChoice('qa-t', 'Linked', 0), linkToSource: false }
     seed({ choices: [choice] })

@@ -9737,10 +9737,10 @@ const allowed = new Map([
     "// The page was closed: asking the day question again would put a dialog in front of a reader who",
     "// just dismissed one.",
     "/**\n * Which library template to use, when the choice asks each time. The answer is the template's id, so\n * two templates called the same thing stay distinguishable; the row says what the reader is choosing.\n */",
-    "// The editor holds the truth about the note the reader is in, selection included, so the placement",
-    "// is computed against that text rather than against a copy that may have been saved since.",
     "// A template that carries only properties is not \"nothing to write\": the merge is the write.",
     "/**\n * A note title and the folder it names: `Journal/{{DATE}}` is a title of `2026-10-08` inside\n * `Journal`, the way a capture target reads, because a title here cannot hold path characters.\n */",
+    "/**\n * A template dropped into a note that exists: its properties merge into that note's own block and its\n * text lands where the drop says. A caret drop reads the editor, because that is where the reader's\n * unsaved typing and their selection live; every other drop works from the note as stored.\n */",
+    "// The note is already on screen, so there is nothing to open; only a caret drop reads the editor.",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",
@@ -10347,6 +10347,8 @@ const allowed = new Map([
     "/** A property name the reader typed: no colons, no line breaks, and not longer than a key worth storing. */",
     "// A colon would end the key where YAML reads it, and `__proto__` is never a property worth writing.",
     "/**\n * Where the backlink goes. A record that predates these fields keeps the behaviour it was written\n * with: the link at the end of the note, as a plain link, in a property called `source`.\n */",
+    "/**\n * Where a template lands in a note that already exists: where the caret is, below the note's own\n * properties, past its last line, or in place of everything in it.\n */",
+    "/** Where the template lands when this choice writes into the note the reader is in. */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",

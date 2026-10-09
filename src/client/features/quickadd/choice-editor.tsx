@@ -27,6 +27,7 @@ import {
   type QuickAddOpenLayout,
   type QuickAddOpenPane,
   type QuickAddLinkPlacement,
+  type QuickAddTemplateDrop,
   type QuickAddTemplateMode,
   type QuickAddTemplatePick,
   type QuickAddMacroChoice,
@@ -427,12 +428,27 @@ function TemplateFields({ draft, patch, renderFormat }: {
           <Input aria-label={t('quickadd.field_folder_path')} value={draft.folderPath} onChange={(event) => patch({ folderPath: event.target.value })}/>
         </Field>
       )}
+      {draft.mode === 'insert-here' && (
+        <SettingRow title={t('quickadd.field_insert_position')}>
+          <Select
+            aria-label={t('quickadd.field_insert_position')}
+            value={draft.insertPosition ?? 'cursor'}
+            onChange={(event) => patch({ insertPosition: event.target.value as QuickAddTemplateDrop })}>
+            <option value="cursor">{t('quickadd.insert_position_cursor')}</option>
+            <option value="top">{t('quickadd.insert_position_top')}</option>
+            <option value="bottom">{t('quickadd.insert_position_bottom')}</option>
+            <option value="replace">{t('quickadd.insert_position_replace')}</option>
+          </Select>
+        </SettingRow>
+      )}
       {draft.mode === 'new-note' && (
         <SettingRow title={t('quickadd.field_existing')}>
           <Select aria-label={t('quickadd.field_existing')} value={draft.existing} onChange={(event) => patch({ existing: event.target.value as QuickAddExistingAction })}>
             <option value="cancel">{t('quickadd.existing_cancel')}</option>
             <option value="ask">{t('quickadd.existing_ask')}</option>
             <option value="number">{t('quickadd.existing_number')}</option>
+            <option value="appendTop">{t('quickadd.existing_append_top')}</option>
+            <option value="appendBottom">{t('quickadd.existing_append_bottom')}</option>
           </Select>
         </SettingRow>
       )}

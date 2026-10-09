@@ -435,3 +435,27 @@ describe('the link back to the note the run started from', () => {
     expect(made && 'linkProperty' in made).toBe(false)
   })
 })
+describe('where a template lands in a note', () => {
+  const template = (over: Record<string, unknown>) => normalizeQuickAddChoice({
+    ...newTemplateChoice('t1', 'T', 0),
+    ...over,
+  })
+
+  it('keeps the drop and the append action the reader chose', () => {
+    expect(template({ insertPosition: 'bottom', existing: 'appendBottom' }))
+      .toMatchObject({ insertPosition: 'bottom', existing: 'appendBottom' })
+    expect(template({ insertPosition: 'replace', existing: 'appendTop' }))
+      .toMatchObject({ insertPosition: 'replace', existing: 'appendTop' })
+  })
+
+  it('leaves the drop absent when the record predates it', () => {
+    const made = template({})
+    expect(made && 'insertPosition' in made).toBe(false)
+  })
+
+  it('drops a drop nobody can perform and an append action spelled wrong', () => {
+    const made = template({ insertPosition: 'sideways', existing: 'append sidewards' })
+    expect(made && 'insertPosition' in made).toBe(false)
+    expect(made?.type === 'template' && made.existing).toBe('ask')
+  })
+})

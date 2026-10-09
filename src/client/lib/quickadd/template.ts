@@ -12,8 +12,18 @@ import type { QuickAddTemplateChoice } from '@shared/quickadd'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request } from './session'
-import { folderJoin, joinRouted, linkOptions, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type QuickAddRunStatus } from './context'
-import { placeTemplate } from './insertion'
+import {
+  folderJoin,
+  joinRouted,
+  linkOptions,
+  openingOptions,
+  sanitizeTitle,
+  splitTargetPath,
+  type NotePort,
+  type NoteRef,
+  type QuickAddRunStatus,
+} from './context'
+import { placeTemplate, type TemplateDrop } from './insertion'
 import { t } from '../../lib/i18n'
 
 /** What the run asks for a name when the choice has no name format of its own. */
@@ -121,6 +131,52 @@ async function askForTemplate(session: RunSession, port: NotePort, categoryId: s
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
+/**
+ * A template dropped into a note that exists: its properties merge into that note's own block and its
+ * text lands where the drop says. A caret drop reads the editor, because that is where the reader's
+ * unsaved typing and their selection live; every other drop works from the note as stored.
+ */
+async function dropIntoNote(
+  choice: QuickAddTemplateChoice,
+  note: NoteRef,
+  body: string,
+  drop: TemplateDrop,
+  runtime: FormatRuntime,
+  session: RunSession,
+  port: NotePort,
+  openAfter: boolean,
+): Promise<QuickAddRunStatus> {
+  runtime.title = note.title
+  runtime.folderPath = note.folderPath
+  session.destination = note
+  const formatted = await formatWithPrompts(body, runtime, session, note.title)
+  if (session.dismissed) return { kind: 'cancelled' }
+  const caret = drop === 'cursor' ? port.activeEditorState?.() ?? null : null
+  if (drop === 'cursor' && !caret) return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
+  const text = caret ? caret.text : await port.read(note.id)
+  const placed = placeTemplate({
+    text,
+    from: caret?.from ?? text.length,
+    to: caret?.to ?? text.length,
+    drop,
+    template: formatted.text,
+    cursor: formatted.cursor,
+  })
+  // A template that carries only properties is not "nothing to write": the merge is the write.
+  if (!placed.changed) return { kind: 'empty', noteId: note.id }
+  if (!(await port.write(note.id, placed.content, text)))
+    return { kind: 'failed', reason: t('quickadd.error_write_refused') }
+  if (placed.cursor !== null && note.id === port.activeNote()?.id) port.placeCursor(placed.cursor)
+  if (openAfter) await port.open(note.id, openingOptions(choice))
+  port.recordRun(choice.id)
+  return {
+    kind: 'written',
+    noteId: note.id,
+    created: false,
+    summary: t('quickadd.ran_into', { name: choice.name, destination: note.title }),
+  }
+}
+
 export async function runTemplateChoice(
   choice: QuickAddTemplateChoice,
   port: NotePort,
@@ -172,35 +228,8 @@ export async function runTemplateChoice(
   if (choice.mode === 'insert-here') {
     const active = port.activeNote()
     if (!active) return { kind: 'failed', reason: t('quickadd.error_no_open_note') }
-    runtime.title = active.title
-    runtime.folderPath = active.folderPath
-    session.destination = active
-    const formatted = await formatWithPrompts(body, runtime, session, active.title)
-    if (session.dismissed) return { kind: 'cancelled' }
-    // The editor holds the truth about the note the reader is in, selection included, so the placement
-    // is computed against that text rather than against a copy that may have been saved since.
-    const caret = port.activeEditorState?.() ?? null
-    if (!caret) return { kind: 'failed', reason: t('quickadd.error_editor_unavailable') }
-    const placed = placeTemplate({
-      text: caret.text,
-      from: caret.from,
-      to: caret.to,
-      drop: 'cursor',
-      template: formatted.text,
-      cursor: formatted.cursor,
-    })
-    // A template that carries only properties is not "nothing to write": the merge is the write.
-    if (!placed.changed) return { kind: 'empty', noteId: active.id }
-    if (!(await port.write(active.id, placed.content, caret.text)))
-      return { kind: 'failed', reason: t('quickadd.error_write_refused') }
-    if (placed.cursor !== null) port.placeCursor(placed.cursor)
-    port.recordRun(choice.id)
-    return {
-      kind: 'written',
-      noteId: active.id,
-      created: false,
-      summary: t('quickadd.ran_into', { name: choice.name, destination: active.title }),
-    }
+    // The note is already on screen, so there is nothing to open; only a caret drop reads the editor.
+    return dropIntoNote(choice, active, body, choice.insertPosition ?? 'cursor', runtime, session, port, false)
   }
 
   const named = await resolveTitle(choice, session, runtime, port)
@@ -211,6 +240,18 @@ export async function runTemplateChoice(
   if (session.dismissed) return { kind: 'cancelled' }
   const existing = port.findByTitle(title)
   const collides = existing !== null && (existing.folderPath ?? '') === (folder ?? '')
+
+  if (collides && existing && (choice.existing === 'appendTop' || choice.existing === 'appendBottom'))
+    return dropIntoNote(
+      choice,
+      existing,
+      body,
+      choice.existing === 'appendTop' ? 'top' : 'bottom',
+      runtime,
+      session,
+      port,
+      choice.openAfter,
+    )
 
   if (collides && existing && choice.existing !== 'number') {
     if (choice.existing === 'cancel')

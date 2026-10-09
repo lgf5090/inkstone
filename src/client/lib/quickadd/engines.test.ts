@@ -1381,6 +1381,103 @@ describe('a name format that routes into a folder', () => {
     expect(fake.created[0].title).toBe('Twice 2')
   })
 
+  it('drops a template at the top of the open note, below its properties', async () => {
+    const fake = harness({ Here: '---\na: 1\n---\nbody\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Top', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+      insertPosition: 'top' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.content('Here')).toBe('---\na: 1\n---\nDaily body\nbody\n')
+  })
+
+  it('appends the template to the open note with one blank line between', async () => {
+    const fake = harness({ Here: 'body\n\n\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Bottom', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+      insertPosition: 'bottom' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('body\n\nDaily body')
+  })
+
+  it('replaces the open note when that is what the drop says', async () => {
+    const fake = harness({ Here: '---\nold: 1\n---\nBody\n' })
+    fake.setActive('Here')
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Replace', 0),
+      templateId: 'tpl-props',
+      mode: 'insert-here' as const,
+      insertPosition: 'replace' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    expect(fake.content('Here')).toBe('---\nmood: glad\ntags:\n  - journal\n---\nFrom template\n')
+  })
+
+  it('needs the note on screen for a drop, and says which half is missing', async () => {
+    const fake = harness({ Here: 'body\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Bottom no editor', 0),
+      templateId: 'tpl-daily',
+      mode: 'insert-here' as const,
+      insertPosition: 'bottom' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status).toMatchObject({ kind: 'failed', reason: t('quickadd.error_no_open_note') })
+  })
+
+  it('appends the template under a name the library already has', async () => {
+    const fake = harness({ Diary: 'old\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendBottom' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created, 'no second note is made').toEqual([])
+    expect(fake.content('Diary')).toBe('old\n\nDaily body')
+  })
+
+  it('appends under a colliding name without asking first', async () => {
+    const fake = harness({ Diary: '---\nmood: sad\n---\nold\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append bin', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendBottom' as const,
+    }
+    answers.queue = []
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'the reader already said append').toEqual([])
+    expect(fake.content('Diary')).toContain('mood: sad')
+    expect(fake.content('Diary')).toContain('Daily body')
+  })
+
+  it('appends above the note it collides with, merging its properties', async () => {
+    const fake = harness({ Diary: '---\nmood: sad\n---\nold\n' })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Append top', 0),
+      templateId: 'tpl-props',
+      nameFormat: { enabled: true, format: 'Diary' },
+      existing: 'appendTop' as const,
+    }
+    await runTemplateChoice(choice, fake.port)
+    const data = parseFrontMatter(fake.content('Diary') ?? '').data
+    expect(data.mood, 'the note keeps its own value').toBe('sad')
+    expect(data.tags).toEqual(['journal'])
+    expect(fake.content('Diary')).toContain('From template')
+  })
+
   it('splices the template into the open note at the caret', async () => {
     const fake = harness({ Here: 'body\n' })
     fake.setActive('Here')

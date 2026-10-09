@@ -34,7 +34,12 @@ export type QuickAddTemplateMode = 'new-note' | 'insert-here'
 /** Use the template named on the choice, or pick one from the library every run. */
 export type QuickAddTemplatePick = 'fixed' | 'ask'
 export type QuickAddFolderMode = 'default' | 'fixed' | 'ask' | 'source'
-export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel'
+export type QuickAddExistingAction = 'ask' | 'number' | 'overwrite' | 'cancel' | 'appendTop' | 'appendBottom'
+/**
+ * Where a template lands in a note that already exists: where the caret is, below the note's own
+ * properties, past its last line, or in place of everything in it.
+ */
+export type QuickAddTemplateDrop = 'cursor' | 'top' | 'bottom' | 'replace'
 export type QuickAddCaptureTargetMode = 'active' | 'note'
 export type QuickAddPosition = 'bottom' | 'top' | 'insertAfter' | 'insertBefore' | 'cursor' | 'lineAbove' | 'lineBelow'
 export type QuickAddCreateAt = 'top' | 'bottom' | 'cursor' | 'ordered'
@@ -87,6 +92,8 @@ export interface QuickAddTemplateChoice extends QuickAddChoiceBase {
   folderPath: string
   nameFormat: { enabled: boolean; format: string }
   existing: QuickAddExistingAction
+  /** Where the template lands when this choice writes into the note the reader is in. */
+  insertPosition?: QuickAddTemplateDrop
   openAfter: boolean
   /** Absent means the app decides, which is what every record written before these fields means. */
   openPane?: QuickAddOpenPane
@@ -548,7 +555,11 @@ export function normalizeQuickAddChoice(value: unknown): QuickAddChoice | null {
           enabled: boolOf(nameFormat.enabled, false),
           format: oneLine(nameFormat.format, QUICKADD_LIMITS.maxNameLength),
         },
-        existing: pick(value.existing, ['ask', 'number', 'overwrite', 'cancel'] as const, 'ask'),
+        existing: pick(value.existing, ['ask', 'number', 'overwrite', 'cancel', 'appendTop', 'appendBottom'] as const, 'ask'),
+        ...(value.insertPosition === 'cursor' || value.insertPosition === 'top'
+          || value.insertPosition === 'bottom' || value.insertPosition === 'replace'
+          ? { insertPosition: value.insertPosition }
+          : {}),
         openAfter: boolOf(value.openAfter, true),
         ...normalizeOpening(value),
         ...normalizeBacklink(value),
