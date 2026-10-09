@@ -9844,6 +9844,9 @@ const allowed = new Map([
     "/**\n * Whether this run still has to ask which day it counts from.\n *\n * Two things decide the day besides the clock: the choice's own \"ask me each time\", and an entry point\n * that means a second command — the palette twin, the launcher's Shift. When the entry point has\n * already been given a day, neither of them asks again: the reader would answer the same question\n * twice, and re-reading a date out of text can land on a different day than the `Date` they picked.\n */",
     "/** The day a run measures its dates from, when the choice or the entry point says to ask. */",
   ]],
+  ["src/client/lib/quickadd/startup.test.ts", [
+    "/** A stamp file the browser already holds, plus a way to read back what a run wrote. */",
+  ]],
   ["src/client/lib/quickadd/startup.ts", [
     "/** The reader's own calendar day, not the UTC one: \"once a day\" means their day. */",
     "/** Only a test or an account switch needs this; a page load starts with nothing run. */",
@@ -9852,6 +9855,9 @@ const allowed = new Map([
     "// Never twice in one load, whatever the scope says: the library changes identity a few times while",
     "// the shell settles, and a browser that refuses to store anything has no day left to check.",
     "/**\n * The startup macros: the runs the notebook makes on its own.\n *\n * The reference flags each macro `runOnStartup` and fires every flagged one when the vault opens,\n * with no memory of having done so. In a web app \"when the vault opens\" is \"every refresh\", so a\n * macro that files a note would leave one per reload; the day scope remembers the last run per account\n * and macro in this browser, and the session scope keeps the reference's behaviour for anyone who\n * wants it.\n */",
+    "/** The byte no account id or macro id can carry, which is what makes a stamp key readable. */",
+    "/**\n * A stamp is only ever read back through `ownerKey`, so a key without the separator — what this file\n * wrote before the day half learned about accounts — can never be looked at again. It is dropped on\n * the way in, and the write below drops the days that have passed.\n */",
+    "// A stamp from an earlier day can never suppress a run, so keeping it would only grow the file.",
   ]],
   ["src/client/lib/quickadd/template.ts", [
     "/**\n * The Template choice engine: a library template becomes a note, or is spliced into the note the\n * reader is in.\n *\n * Three things are settled before anything is written — the name, the folder and the text — and each\n * is formatted with one run clock and one variable map, so `{{DATE}}` in a title and in the body\n * agree even after a minute at a prompt, and an answer given for a name prompt can be reused by the\n * body.\n */",

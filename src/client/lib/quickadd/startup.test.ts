@@ -109,4 +109,43 @@ describe('the startup macro’s own clock', () => {
     markStartupRun('u1', 'qa-a', today, broken)
     expect(shouldRunStartup(settings(), 'qa-a', 'u1', today, broken), 'the session set still keeps this load quiet').toBe(false)
   })
+
+  it('drops the stamps the pre-account format left behind', () => {
+    const sep = String.fromCharCode(0x1F)
+    const made = stamped(JSON.stringify({ 'qa-a': '2026-10-08', [`u1${sep}qa-b`]: '2026-10-08' }))
+    expect(Object.keys(loadStartupStamps(made.storage))).toEqual([`u1${sep}qa-b`])
+    markStartupRun('u1', 'qa-c', today, made.storage)
+    expect(Object.keys(made.read()).sort()).toEqual([`u1${sep}qa-b`, `u1${sep}qa-c`].sort())
+  })
+
+  it('keeps only the day that can still suppress a run', () => {
+    const sep = String.fromCharCode(0x1F)
+    const made = stamped(JSON.stringify({ [`u1${sep}qa-a`]: '2026-10-07', [`u2${sep}qa-b`]: '2026-10-08' }))
+    markStartupRun('u1', 'qa-c', today, made.storage)
+    const stored = made.read()
+    expect(stored).toEqual({ [`u2${sep}qa-b`]: '2026-10-08', [`u1${sep}qa-c`]: '2026-10-08' })
+    expect(stored[`u1${sep}qa-a`], 'yesterday’s stamp says nothing about today').toBeUndefined()
+  })
+
+  it('still decides the same way after the cleanup', () => {
+    const sep = String.fromCharCode(0x1F)
+    const made = stamped(`{"qa-a":"2026-10-08"}`)
+    expect(shouldRunStartup(settings(), 'qa-a', 'u1', today, made.storage)).toBe(true)
+    markStartupRun('u1', 'qa-a', today, made.storage)
+    resetStartupSession()
+    expect(shouldRunStartup(settings(), 'qa-a', 'u1', today, made.storage)).toBe(false)
+    expect(Object.keys(made.read())).toEqual([`u1${sep}qa-a`])
+  })
 })
+
+/** A stamp file the browser already holds, plus a way to read back what a run wrote. */
+function stamped(initial: string) {
+  const data = new Map<string, string>([[STARTUP_STAMP_KEY, initial]])
+  return {
+    storage: {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => { data.set(key, value) },
+    } as Pick<Storage, 'getItem' | 'setItem'>,
+    read: (): Record<string, string> => JSON.parse(data.get(STARTUP_STAMP_KEY) ?? '{}') as Record<string, string>,
+  }
+}
