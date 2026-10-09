@@ -8,7 +8,7 @@ import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
 import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
 import type { RunOptions } from './session'
-import { titleSuggestions } from './context'
+import { targetScope, titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -728,6 +728,122 @@ describe('capturing into a note', () => {
     if (status.kind === 'failed') expect(status.reason).toBe(t('quickadd.error_editor_unavailable'))
     expect(fake.lineInserts).toEqual([])
     expect(fake.content('Inbox')).toBe('one\ntwo\n')
+  })
+})
+
+describe('picking the note a capture goes into', () => {
+  function targetPage() {
+    return answers.requests.flat().find((request) => request.key === 'target') ?? null
+  }
+
+  it('asks which note to write into when the target names nothing', async () => {
+    const fake = harness({ Inbox: 'today\n', Journal: 'week\n' })
+    answers.queue = [['Journal'], ['an idea']]
+    const status = await runCaptureChoice(captureOn(''), fake.port)
+    expect(status.kind).toBe('written')
+    expect(targetPage(), 'the run has to ask, not fail').not.toBeNull()
+    expect(fake.content('Journal')).toBe('week\nan idea')
+    expect(fake.created, 'asking is not creating').toEqual([])
+  })
+
+  it('offers every note the library has, and says where each name lives', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    fake.notes.Inbox.folderPath = 'Read/Inbox'
+    answers.queue = [['Inbox'], ['an idea']]
+    await runCaptureChoice(captureOn(''), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options).toEqual(['Inbox'])
+    expect(page.displayOptions).toEqual(['Inbox (Read/Inbox)'])
+  })
+
+  it('writes nothing when the reader closes the target question', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [[null]]
+    const status = await runCaptureChoice(captureOn(''), fake.port)
+    expect(status.kind).toBe('cancelled')
+    expect(fake.content('Inbox')).toBe('today\n')
+    expect(fake.writes).toEqual([])
+  })
+
+  it('narrows the question to the folder a trailing slash names', async () => {
+    const fake = harness({ Filed: 'in the folder\n', Loose: 'at the root\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Filed'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('Journal/'), fake.port)
+    expect(status.kind).toBe('written')
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options, 'a scoped target must not offer the rest of the library').toEqual(['Filed'])
+    expect(fake.content('Filed')).toBe('in the folder\nan idea')
+    expect(fake.content('Loose'), 'the unfiled namesake stays alone').toBe('at the root\n')
+  })
+
+  it('treats a bare slash as the whole library', async () => {
+    const fake = harness({ Filed: 'in the folder\n', Loose: 'at the root\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Loose'], ['an idea']]
+    await runCaptureChoice(captureOn('/'), fake.port)
+    const page = targetPage()
+    if (!page) throw new Error('the run never asked for a target')
+    expect(page.options.sort()).toEqual(['Filed', 'Loose'])
+    expect(fake.content('Loose')).toBe('at the root\nan idea')
+  })
+
+  it('keeps a typed name inside the folder it was asked for', async () => {
+    const fake = harness({ Filed: 'in the folder\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Fresh'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('Journal/', { createIfMissing: true }), fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.created.map((entry) => [entry.title, entry.folderPath])).toEqual([['Fresh', 'Journal']])
+  })
+
+  it('pulls a folder written into the answer back under the scope', async () => {
+    const fake = harness({ Filed: 'in the folder\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Elsewhere/Fresh'], ['an idea']]
+    await runCaptureChoice(captureOn('Journal/', { createIfMissing: true }), fake.port)
+    expect(fake.created.map((entry) => [entry.title, entry.folderPath])).toEqual([['Fresh', 'Journal/Elsewhere']])
+  })
+
+  it('still fails a scoped name that is not there when creating is off', async () => {
+    const fake = harness({ Filed: 'in the folder\n' })
+    fake.notes.Filed.folderPath = 'Journal'
+    answers.queue = [['Absent'], ['an idea']]
+    const status = await runCaptureChoice(captureOn('Journal/', { createIfMissing: false }), fake.port)
+    expect(status.kind).toBe('failed')
+    expect(fake.created).toEqual([])
+  })
+
+  it('asks for nothing when the target already names a note', async () => {
+    const fake = harness({ Inbox: 'today\n' })
+    answers.queue = [['an idea']]
+    const status = await runCaptureChoice(captureOn('Inbox'), fake.port)
+    expect(status.kind).toBe('written')
+    expect(targetPage(), 'a definite target is not a question').toBeNull()
+    expect(fake.content('Inbox')).toBe('today\nan idea')
+  })
+
+  it('answers the one-page form first and still asks where to write', async () => {
+    const fake = harness({ Inbox: 'today\n', Journal: 'week\n' }, { onePage: 'always' })
+    answers.queue = [['an idea'], ['Journal']]
+    const status = await runCaptureChoice(captureOn(''), fake.port)
+    expect(status.kind).toBe('written')
+    expect(answers.calls, 'the target cannot join the page: it is the page that says what to ask').toEqual([['value'], ['target']])
+    expect(answers.pages, 'a reader who asked for one page always gets the one-page form, even for one question').toEqual([true, true])
+    expect(fake.content('Journal')).toBe('week\nan idea')
+  })
+
+  it('reads a target as a folder only when it ends with a slash', () => {
+    expect(targetScope('')).toEqual({ ask: true, folder: null })
+    expect(targetScope('   ')).toEqual({ ask: true, folder: null })
+    expect(targetScope('/')).toEqual({ ask: true, folder: null })
+    expect(targetScope('Journal/')).toEqual({ ask: true, folder: 'Journal' })
+    expect(targetScope('A/B/')).toEqual({ ask: true, folder: 'A/B' })
+    expect(targetScope('../Journal/')).toEqual({ ask: true, folder: 'Journal' })
+    expect(targetScope('Inbox')).toEqual({ ask: false, folder: null })
+    expect(targetScope('Journal/Today')).toEqual({ ask: false, folder: null })
   })
 })
 

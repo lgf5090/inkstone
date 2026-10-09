@@ -267,3 +267,16 @@ export function splitTargetPath(value: string): { title: string; folder: string 
   const folder = segments.length > 1 ? segments.slice(0, -1).join('/') : null
   return { title: title.trim(), folder: folder ? folderJoin(folder) : null }
 }
+
+/**
+ * Whether a target names a note or asks for one. `Journal/` names a folder rather than a note — the
+ * trailing slash is the author saying "pick inside here each time" — and an empty target asks for the
+ * whole library. Everything else is a definite name, resolved by `splitTargetPath`.
+ */
+export function targetScope(value: string): { ask: boolean; folder: string | null } {
+  const cleaned = value.replace(/[\\]/g, '/').replace(/\/+/g, '/').trim().replace(/\uFF0E/g, '.')
+  if (cleaned === '' || cleaned === '/') return { ask: true, folder: null }
+  if (!cleaned.endsWith('/')) return { ask: false, folder: null }
+  const folder = folderJoin(cleaned.slice(0, -1))
+  return { ask: true, folder: folder === '' ? null : folder }
+}

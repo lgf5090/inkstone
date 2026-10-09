@@ -9499,6 +9499,7 @@ const allowed = new Map([
     "/**\n * The value token a property format consists of, and only when it is exactly one: that `|type:` is the\n * author saying what the property holds. A sentence like `Count: {{VALUE}}` is text, whatever it says.\n */",
     "/**\n * The value in the shape the key already has, as the app's own property rules read that shape: a declared\n * `|type:number` or `|type:checkbox` wins, and otherwise a number or boolean property keeps its kind.\n * Text that cannot be read as the type stays text — a silent `42 → 0` or `soon → false` is a worse\n * surprise than a value the reader can see.\n */",
     "/**\n * A list keeps the shape it has: `nums: [1, 2]` with a third number stays a list of numbers, and the\n * whole list goes back to text if any one element cannot be read as that type — a half-coerced list is\n * two shapes in one property.\n */",
+    "/**\n * The note a run asks for when the target names a folder instead of a note.\n *\n * The rows are the same \"name (folder)\" lines the settings field shows, narrowed to the folder the\n * author wrote — `Journal/` offers what sits in `Journal`, and an empty target offers everything.\n * A typed answer is confined to that folder, so a scoped target cannot be walked out of it.\n */",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -9545,6 +9546,7 @@ const allowed = new Map([
     "/**\n   * Move the caret, change the selection, or splice the clipboard in — what a macro's editor step\n   * asks for. The answer says which half could not happen, because “no editor on screen” and “the\n   * browser would not hand over the clipboard” are different things for the reader to hear.\n   */",
     "/** How an editor step ended: applied, or why it was not. */",
     "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several places lists them all rather than pretending to pick one, and a copy sitting\n * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root\n * gets no suffix: there is nothing left to tell apart.\n */",
+    "/**\n * Whether a target names a note or asks for one. `Journal/` names a folder rather than a note — the\n * trailing slash is the author saying \"pick inside here each time\" — and an empty target asks for the\n * whole library. Everything else is a definite name, resolved by `splitTargetPath`.\n */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",

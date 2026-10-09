@@ -15,7 +15,7 @@ import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
 import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
-import { linkOptions, openingOptions, sanitizeTitle, splitTargetPath, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
+import { folderJoin, linkOptions, openingOptions, sanitizeTitle, splitTargetPath, targetScope, titleSuggestions, type NotePort, type NoteRef, type QuickAddRunStatus } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
 import type { PropertyValueKind } from '@shared/property-values'
 import {
@@ -42,6 +42,40 @@ import { t } from '../../lib/i18n'
 
 const HEADING_RE = /^ {0,3}#{1,6}[ \t]+\S/
 
+/**
+ * The note a run asks for when the target names a folder instead of a note.
+ *
+ * The rows are the same "name (folder)" lines the settings field shows, narrowed to the folder the
+ * author wrote — `Journal/` offers what sits in `Journal`, and an empty target offers everything.
+ * A typed answer is confined to that folder, so a scoped target cannot be walked out of it.
+ */
+async function askTarget(
+  session: RunSession,
+  port: NotePort,
+  folder: string | null,
+): Promise<{ title: string; folder: string | null } | QuickAddRunStatus> {
+  const candidates = port.knownNotes().filter((note) => folder === null || note.folderPath === folder)
+  const made = titleSuggestions(candidates, t('navigation.unfiled'))
+  const value = await askOrReuse(session, promptRequest({
+    kind: 'suggester',
+    key: 'target',
+    label: t('quickadd.prompt_target'),
+    options: made.options,
+    displayOptions: made.displayOptions,
+    allowCustom: true,
+    optional: false,
+    trim: true,
+  }))
+  if (typeof value !== 'string' || value.trim() === '') return { kind: 'cancelled' }
+  const answered = splitTargetPath(value)
+  if (!answered.title) return { kind: 'failed', reason: t('quickadd.error_target_missing') }
+  if (!folder || !answered.folder) return { title: answered.title, folder: answered.folder ?? folder }
+  const confined = answered.folder === folder || answered.folder.startsWith(`${folder}/`)
+    ? answered.folder
+    : folderJoin(folder, answered.folder)
+  return { title: answered.title, folder: confined }
+}
+
 async function resolveTarget(
   choice: QuickAddCaptureChoice,
   session: RunSession,
@@ -54,7 +88,10 @@ async function resolveTarget(
     return active
   }
   const formatted = await formatWithPrompts(choice.targetTitle, runtime, session)
-  const target = splitTargetPath(formatted.text)
+  const scope = targetScope(formatted.text)
+  const target = scope.ask ? await askTarget(session, port, scope.folder) : splitTargetPath(formatted.text)
+  if (session.dismissed) return { kind: 'cancelled' }
+  if ('kind' in target) return target
   if (!target.title) return { kind: 'failed', reason: t('quickadd.error_target_missing') }
   const found = port.findByTitle(target.title)
   if (found) {
