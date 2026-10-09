@@ -254,12 +254,14 @@ describe('the target-note field', () => {
     rendered?.unmount()
   })
 
-  it('lists two notes that share a name and a folder as one row, because nothing can tell them apart', () => {
+  it('folds two notes that share a name and a folder into one row that says how many', () => {
     const made = renderRows([
       { title: 'Standup', folderPath: 'Work' },
       { title: 'Standup', folderPath: 'Work' },
     ])
-    expect(made).toEqual(['Standup (Work)'])
+    // One address per name, so the row cannot point at either copy — what it can do is say that
+    // choosing it writes into one of two.
+    expect(made).toEqual(['Standup (Work ×2)'])
   })
 
   it('keeps the dialog that hosts it open while its own list is showing', () => {

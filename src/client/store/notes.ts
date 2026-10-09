@@ -3273,7 +3273,24 @@ function workspacePaneForNote(id: string): WorkspacePane | null {
 function restoreWorkspaceState(snapshot: ReturnType<typeof captureWorkspaceState>): void {
     useUi.setState(snapshot);
 }
+/**
+ * The note a `[[name]]` (and a QuickAdd target) resolves to.
+ *
+ * A library may hold two notes with the same title, and this app gives them one address. Which one
+ * wins therefore has to be a property of the notes, not of the order the list happened to arrive in:
+ * the most recently touched copy takes the name, with the id as the last tie-break so two notes
+ * saved in the same instant still resolve the same way on every load. A capture that writes into the
+ * winner keeps it the winner, so repeated runs do not move between copies.
+ */
 export function findNoteByTitle(title: string): NoteSummary | undefined {
     const key = normalizeLinkKey(title);
-    return Object.values(useNotes.getState().notes).find((n) => !n.deletedAt && normalizeLinkKey(n.title) === key);
+    let best: NoteSummary | undefined;
+    for (const note of Object.values(useNotes.getState().notes))
+    {
+        if (note.deletedAt || normalizeLinkKey(note.title) !== key)
+            continue;
+        if (!best || note.updatedAt > best.updatedAt || (note.updatedAt === best.updatedAt && note.id < best.id))
+            best = note;
+    }
+    return best;
 }

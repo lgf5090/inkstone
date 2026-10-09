@@ -241,29 +241,40 @@ export function joinRouted(path: string | null, routedFolder: string | null): st
  * title found in several places lists them all rather than pretending to pick one, and a copy sitting
  * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root
  * gets no suffix: there is nothing left to tell apart.
+ *
+ * Where one place holds several notes with the same title, the place says how many. The row cannot
+ * point at one of them — the app has one address per name and resolves to the most recently touched —
+ * so the count is the honest part: it tells the reader that picking this row writes into one of N.
  */
 export function titleSuggestions(
   notes: { title: string; folderPath: string | null }[],
   rootLabel = '',
   limit = 200,
 ): { options: string[]; displayOptions: string[] } {
-  const places = new Map<string, { folders: string[]; root: boolean }>()
+  type Places = { folders: string[]; counts: Map<string, number>; root: number }
+  const blank = (): Places => ({ folders: [], counts: new Map(), root: 0 })
+  const places = new Map<string, Places>()
   for (const note of notes) {
     const title = note.title.trim()
     if (title === '') continue
-    const entry = places.get(title) ?? { folders: [], root: false }
+    const entry = places.get(title) ?? blank()
     const folder = (note.folderPath ?? '').trim()
-    if (folder === '') entry.root = true
-    else if (!entry.folders.includes(folder)) entry.folders.push(folder)
+    if (folder === '') entry.root += 1
+    else {
+      if (!entry.folders.includes(folder)) entry.folders.push(folder)
+      entry.counts.set(folder, (entry.counts.get(folder) ?? 0) + 1)
+    }
     places.set(title, entry)
   }
   const options = [...places.keys()].slice(0, limit)
+  const said = (label: string, count: number): string => (count > 1 ? `${label} ×${count}` : label)
   return {
     options,
     displayOptions: options.map((title) => {
-      const entry = places.get(title) ?? { folders: [], root: false }
-      if (entry.folders.length === 0) return title
-      const list = entry.root && rootLabel !== '' ? [...entry.folders, rootLabel] : entry.folders
+      const entry = places.get(title) ?? { folders: [], counts: new Map(), root: 0 }
+      const list = entry.folders.map((folder) => said(folder, entry.counts.get(folder) ?? 1))
+      if (entry.root > 0 && rootLabel !== '' && (list.length > 0 || entry.root > 1)) list.push(said(rootLabel, entry.root))
+      if (list.length === 0) return entry.root > 1 ? `${title} (×${entry.root})` : title
       return `${title} (${list.join(', ')})`
     }),
   }

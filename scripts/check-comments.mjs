@@ -3760,6 +3760,8 @@ const allowed = new Map([
     "// A short list under a field in the same low spot still fits below, so it stays put.",
     "// Clearing the draft grows that list past the room it had, with nobody scrolling at all.",
     "// jsdom lays nothing out, so the only honest claim here is that the side is stated on the element.",
+    "// One address per name, so the row cannot point at either copy — what it can do is say that",
+    "// choosing it writes into one of two.",
   ]],
   ["src/client/features/quickadd/note-name-input.tsx", [
     "/**\n * The field that names a note, offering the names the library already has.\n *\n * The rows say where each name already lives, because two notes called `Standup` in two folders are\n * two rows and only the folder tells the reader which one a capture is about to write into. What gets\n * saved is the bare title — the same answer a run resolves — so picking a row and typing the name\n * cannot come to different things.\n */",
@@ -9571,7 +9573,6 @@ const allowed = new Map([
     "/**\n   * Every title the account has, with where each one lives, for a name prompt that should not invent a\n   * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids\n   * — and the reader is the one who has to spot which is which.\n   */",
     "/**\n   * Move the caret, change the selection, or splice the clipboard in — what a macro's editor step\n   * asks for. The answer says which half could not happen, because “no editor on screen” and “the\n   * browser would not hand over the clipboard” are different things for the reader to hear.\n   */",
     "/** How an editor step ended: applied, or why it was not. */",
-    "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several places lists them all rather than pretending to pick one, and a copy sitting\n * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root\n * gets no suffix: there is nothing left to tell apart.\n */",
     "/**\n * Whether a target names a note or asks for one. `Journal/` names a folder rather than a note — the\n * trailing slash is the author saying \"pick inside here each time\" — and an empty target asks for the\n * whole library. Everything else is a definite name, resolved by `splitTargetPath`.\n */",
     "/** The notes whose property holds this value; `value` empty means \"has the property at all\". */",
     "/** A note a filter target could point at, in the shape the candidate list needs. */",
@@ -9580,6 +9581,7 @@ const allowed = new Map([
     "/**\n * `null` means the text is not filter syntax at all, so the caller falls back to reading it as a name.\n * One unrecognised word is enough for that: `Q3/plan` and `#idea for this` are things people type, and\n * silently turning them into a query would capture somewhere they never named.\n */",
     "// A tag is one word, so `#idea for this` stays a note name someone typed rather than a query.",
     "/** Whether the field is holding a question rather than a name, so a name list would only mislead. */",
+    "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several places lists them all rather than pretending to pick one, and a copy sitting\n * at the root is named by the same word the sidebar uses for it. A title only ever seen at the root\n * gets no suffix: there is nothing left to tell apart.\n *\n * Where one place holds several notes with the same title, the place says how many. The row cannot\n * point at one of them — the app has one address per name and resolves to the most recently touched —\n * so the count is the honest part: it tells the reader that picking this row writes into one of N.\n */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -10179,6 +10181,7 @@ const allowed = new Map([
     "// The outbox keeps the write, so a failed pass is retried by the next edit, the blur flush or",
     "// pagehide; nothing here can act on the rejection, and letting it escape turns a retried save",
     "// into an unhandled rejection in the console.",
+    "/**\n * The note a `[[name]]` (and a QuickAdd target) resolves to.\n *\n * A library may hold two notes with the same title, and this app gives them one address. Which one\n * wins therefore has to be a property of the notes, not of the order the list happened to arrive in:\n * the most recently touched copy takes the name, with the id as the last tie-break so two notes\n * saved in the same instant still resolve the same way on every load. A capture that writes into the\n * winner keeps it the winner, so repeated runs do not move between copies.\n */",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",

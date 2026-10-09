@@ -2123,14 +2123,41 @@ describe('the names a run suggests', () => {
     expect(made.displayOptions).toEqual(['Standup (Work)', 'Inbox'])
   })
 
-  it('lists every place a shared title was found in', () => {
+  it('lists every place a shared title was found in, and how many sit there', () => {
     const made = titleSuggestions([
       { title: 'Standup', folderPath: 'Work' },
       { title: 'Standup', folderPath: 'Archive' },
       { title: 'Standup', folderPath: 'Work' },
     ], 'Unfiled')
     expect(made.options, 'the answer is a title, so one row per title').toEqual(['Standup'])
-    expect(made.displayOptions).toEqual(['Standup (Work, Archive)'])
+    expect(made.displayOptions).toEqual(['Standup (Work ×2, Archive)'])
+  })
+
+  it('says out loud when a name cannot be resolved to one note', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Reading', folderPath: 'Work' },
+    ], 'Unfiled')
+    expect(made.displayOptions).toEqual(['Standup (Work ×2)', 'Reading (Work)'])
+  })
+
+  it('counts the copies that live outside every folder too', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: null },
+      { title: 'Standup', folderPath: null },
+    ], 'Unfiled')
+    expect(made.displayOptions, 'two unfiled copies are still two copies').toEqual(['Standup (Unfiled ×2)'])
+  })
+
+  it('leaves a name that means one note exactly as it was', () => {
+    const once = titleSuggestions([{ title: 'Standup', folderPath: null }], 'Unfiled')
+    expect(once.displayOptions).toEqual(['Standup'])
+    const each = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: 'Archive' },
+    ], 'Unfiled')
+    expect(each.displayOptions, 'one copy per place needs no counts').toEqual(['Standup (Work, Archive)'])
   })
 
   it('says so when one copy of a shared title sits outside every folder', () => {
