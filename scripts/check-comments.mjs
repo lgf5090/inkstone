@@ -3521,6 +3521,9 @@ const allowed = new Map([
     "// The count stays the stepper's business: a width list that does not have one part per column",
     "// would reshape the block, so it is refused rather than applied.",
   ]],
+  ["src/client/features/preview/property-surface-parity.test.ts", [
+    "/**\n * The mirror's `<details>` is the panel column plus the collapse semantics a React `useState` gives the\n * reading pane; those two classes are the only markup the reading pane does not share.\n */",
+  ]],
   ["src/client/features/preview/table-bubble/TableBubbleLayer.tsx", [
     "/** A handle's own side, and the strip's. Both are fixed so the panel can be placed before it paints. */",
     "/** The table exactly as the note holds it, which is what a copy should give back. */",
@@ -9370,6 +9373,7 @@ const allowed = new Map([
     "// the fence emits an empty host and `renderDataviewBlocks` fills it in after the render.",
     "// The escapers live in `./data-attr` so a fence module can build markup without importing this file",
     "// back; they are re-exported here because every existing caller reaches for them on the renderer.",
+    "/**\n * How one stored colour travels into the markup.\n *\n * The document pipeline bans `style` outright and exempts exactly one declaration of one plain hex on\n * a text-bearing tag, so a hex goes inline and the accent token goes as a hook the stylesheet paints\n * (`.pp-text-token`, `.pp-pill[data-pp-token]`). Both resolve to the same colour the reading pane's\n * panel sets through the CSSOM, where no sanitizer is involved. Anything else paints nothing here and\n * nothing there either.\n */",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",
@@ -10207,6 +10211,11 @@ const allowed = new Map([
   ]],
   ["src/client/styles/properties.css", [
     "/* The preview pane can be far narrower than the window, so the stack point is measured on the panel. */",
+    "/* The panel is chrome, not prose: in the live editor it sits inside the prose column, whose 1.65\n     leading would make every row taller than the same panel in the reading pane. */",
+    "/* The reading pane lays the panel beside the prose, not inside it, so the panel has to stop where a\n   paragraph does. `ch` resolves against the element's own font, so the column borrows the prose's too\n   — otherwise a 72ch line and a 72ch panel disagree by the ratio between the two fonts. */",
+    "/* Stacked, `flex-start` would align the cross axis instead of the main one, and the rows would\n       collapse to the width of their own text. The cover keeps its own width, so nothing overflows. */",
+    "/* The mirror of the panel header draws the same corner the reading pane gets from its icon, because a\n   `display: flex` summary has no native marker of its own. */",
+    "/* The two hooks the live editor's mirror paints a stored colour with, because the document's style ban\n   lets only a plain hex through inline. The reading pane's panel sets the same two values directly. */",
   ]],
   ["src/client/styles/prose.css", [
     "/* A row split has no definite height to divide, so the ratio caps each panel rather than\n     sizing its track: a generous pane scrolls into its share, a short one costs nothing. */",
@@ -10235,6 +10244,7 @@ const allowed = new Map([
     "/* The block's own settings bar reuses the shared block chrome skin; only the handles below are new. */",
     "/* What the reader is dragging, and where it would land: the lifted picture fades, the picture under the\n   pointer takes the outline, so a reorder is legible before the note is touched. */",
     "/* On a phone the block gets the line to itself and the handles are hit targets, not decorations. */",
+    "/* The plain fold only: the pretty panel brings its own shell, header and rows, shared with the\n   reading pane through `property-markup.ts`, so no prose rule may reach into it. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

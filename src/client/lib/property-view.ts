@@ -19,6 +19,8 @@ export function buildPropertyRenderOptions(properties: PropertySettings, tags: r
         names: decorationNamesOf(properties),
         defaults: decorationDefaultsOf(properties),
         revealHidden: properties.revealHidden,
+        hideHeader: properties.hideHeader,
+        hideWholeBlockWhenEmpty: properties.hideWholeBlockWhenEmpty,
         iconInline: properties.iconInline,
         iconSize: properties.iconSize,
         bannerHeight: properties.bannerHeight,

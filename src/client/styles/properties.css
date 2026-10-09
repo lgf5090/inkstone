@@ -2,6 +2,18 @@
   --pp-gap: var(--sp-3);
   position: relative;
   container-type: inline-size;
+  /* The panel is chrome, not prose: in the live editor it sits inside the prose column, whose 1.65
+     leading would make every row taller than the same panel in the reading pane. */
+  line-height: normal;
+}
+
+/* The reading pane lays the panel beside the prose, not inside it, so the panel has to stop where a
+   paragraph does. `ch` resolves against the element's own font, so the column borrows the prose's too
+   — otherwise a 72ch line and a 72ch panel disagree by the ratio between the two fonts. */
+.pp-prose-column {
+  max-width: var(--prose-width, 72ch);
+  margin-inline: auto;
+  font-size: var(--prose-size, 16px);
 }
 
 .pp-shell-quiet {
@@ -253,6 +265,9 @@
 @container (max-width: 700px) {
   .pp-layout {
     flex-direction: column;
+    /* Stacked, `flex-start` would align the cross axis instead of the main one, and the rows would
+       collapse to the width of their own text. The cover keeps its own width, so nothing overflows. */
+    align-items: stretch;
   }
 
   .pp-layout .pp-cover {
@@ -272,40 +287,34 @@
   }
 }
 
-.pp-block {
-  margin: 0 0 var(--sp-4);
-  container-type: inline-size;
+/* The mirror of the panel header draws the same corner the reading pane gets from its icon, because a
+   `display: flex` summary has no native marker of its own. */
+.pp-chevron {
+  width: 6px;
+  height: 6px;
+  margin-inline: 3px 4px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.pp-block > .pp-layout {
-  margin-top: 0;
+details:not([open]) > .pp-header .pp-chevron {
+  transform: rotate(-45deg);
 }
 
-.ink-prose .frontmatter-properties.pp {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--r-lg);
-  background: var(--bg-surface);
+/* The two hooks the live editor's mirror paints a stored colour with, because the document's style ban
+   lets only a plain hex through inline. The reading pane's panel sets the same two values directly. */
+.pp-text-token {
+  color: var(--accent);
 }
 
-.ink-prose .frontmatter-properties.pp > summary {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1-5);
-  cursor: default;
-}
-
-.pp-count {
-  margin-left: auto;
-  color: var(--text-quaternary);
-  font-variant-numeric: tabular-nums;
+.pp-pill[data-pp-token="accent"] {
+  background-color: var(--accent-soft);
 }
 
 .pp-pill-transparent {
   background: transparent;
-}
-
-.pp-text-token {
-  color: var(--accent);
 }
 
 .pp-row-hidden {

@@ -666,7 +666,7 @@ export const Preview = memo(function Preview({
       data-preview-scroller
       onScroll={(event) => onScroll?.(event.currentTarget)}
     >
-      <div onMouseMove={hover.handleMouseMove} onMouseLeave={onMouseLeave}>
+      <div className="pp-prose-column" onMouseMove={hover.handleMouseMove} onMouseLeave={onMouseLeave}>
         <NoteProperties noteId={sourceNoteId ?? null}/>
       </div>
       <div

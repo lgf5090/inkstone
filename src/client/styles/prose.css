@@ -1683,20 +1683,22 @@
 }
 
 
-.ink-prose .frontmatter-properties {
+/* The plain fold only: the pretty panel brings its own shell, header and rows, shared with the
+   reading pane through `property-markup.ts`, so no prose rule may reach into it. */
+.ink-prose .frontmatter-properties:not(.pp) {
   margin: 0 0 1em;
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-md);
   background: var(--bg-inset);
   font-size: 0.9em;
 }
-.ink-prose .frontmatter-properties > summary {
+.ink-prose .frontmatter-properties:not(.pp) > summary {
   padding: 0.45em 0.7em;
   color: var(--text-tertiary);
   font-weight: 600;
   cursor: pointer;
 }
-.ink-prose .frontmatter-properties dl { margin: 0; padding: 0 0.72em 0.6em; }
+.ink-prose .frontmatter-properties:not(.pp) dl { margin: 0; padding: 0 0.72em 0.6em; }
 .ink-prose .frontmatter-row {
   display: grid;
   grid-template-columns: minmax(7em, 0.35fr) minmax(0, 1fr);

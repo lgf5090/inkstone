@@ -6,9 +6,7 @@ import { t } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
 import { normalizeHexColor } from '../../editor/text-format';
 import { colorContrast, pushRecentColor, useRecentColors } from '../../lib/format-colors';
-import { ACCENT_COLOR_TOKEN } from '@shared/property-style';
-
-const PILL_TINT_ALPHA = '2b';
+import { ACCENT_COLOR_TOKEN, propertyColorCss, propertySwatchCss } from '@shared/property-style';
 
 const PILL_PANEL_WIDTH = 226;
 
@@ -17,18 +15,6 @@ export function propertyColorName(stored: string): string {
         return t('properties.color_accent');
     const key = (ORGANIZER_COLOR_MESSAGE_KEYS as Record<string, MessageKey | undefined>)[stored];
     return key ? t(key) : stored.toLocaleUpperCase();
-}
-
-export function propertyColorCss(stored: string): string {
-    return stored === ACCENT_COLOR_TOKEN ? 'var(--accent)' : stored;
-}
-
-export function propertyPillCss(stored: string): string {
-    return stored === ACCENT_COLOR_TOKEN ? 'var(--accent-soft)' : `${stored}${PILL_TINT_ALPHA}`;
-}
-
-export function propertySwatchCss(stored: string): string {
-    return stored === ACCENT_COLOR_TOKEN ? 'var(--accent-soft)' : `${stored}${PILL_TINT_ALPHA}`;
 }
 
 function paintedSurface(node: HTMLElement | null): string {

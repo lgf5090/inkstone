@@ -9,8 +9,46 @@ import { Menu, Tooltip } from '../../components/overlay';
 import { commitOnEnter } from '../../components/form';
 import type { PropertySettings } from '@shared/types';
 import type { ResolvedProperty } from '@shared/property-style';
+import { propertyColorCss, propertyPillCss } from '@shared/property-style';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
+import {
+    PP_COLUMN,
+    PP_COUNT,
+    PP_HEADER,
+    PP_HEADER_BUTTON,
+    PP_ICON_ROW,
+    PP_KEY,
+    PP_KEY_CELL,
+    PP_KIND,
+    PP_LAYOUT,
+    PP_MARKDOWN,
+    PP_NOTE,
+    PP_NOTE_DANGER,
+    PP_OBJECT,
+    PP_PILLS,
+    PP_PILL,
+    PP_PILL_HASH,
+    PP_PILL_TEXT,
+    PP_PILL_THEME,
+    PP_ROW,
+    PP_ROW_HIDDEN,
+    PP_ROWS,
+    PP_SCALAR,
+    PP_SHELL,
+    PP_SHELL_QUIET,
+    PP_SWITCH,
+    PP_SWITCH_KNOB,
+    PP_SWITCH_KNOB_OFF,
+    PP_SWITCH_KNOB_ON,
+    PP_SWITCH_OFF,
+    PP_SWITCH_ON,
+    PP_TITLE,
+    PP_VALUE,
+    PP_VALUE_INNER,
+    propertyKindGlyph,
+    propertyRowCount,
+} from '../../lib/property-markup';
 import { encodeDataValue } from '../../lib/markdown/data-attr';
 import { renderInlineProperty } from '../../lib/markdown/renderer';
 import { usePropertySettings, usePropertyView } from '../../lib/property-view';
@@ -23,7 +61,6 @@ import { useUi } from '../../store/ui';
 import { TagContextMenuAt, type TagMenuRequest } from '../tags/TagContextMenuAt';
 import { beginTagDrag, endTagDrag } from '../tags/tagDrag';
 import { openTagPageByName, wantsTagPage } from '../tags/tagMutations';
-import { propertyColorCss, propertyPillCss } from './property-colors';
 import { buildPillMenu, buildPropertyMenu, type PropertyMenuHandlers } from './property-menus';
 import { NoteBanner, NoteCover, NoteIcon } from './PropertyDecorations';
 import type { DecorationActions } from './PropertyDecorations';
@@ -112,18 +149,18 @@ export function NoteProperties({ noteId, onLightbox }: {
     const hideWholeBlock = settings.hideWholeBlockWhenEmpty && shown.length === 0 && !readOnly && !adding;
     const headerless = settings.hideHeader;
     const open = !collapsed || headerless;
-    return (<section data-note-properties className={cn('pp-shell mb-4 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]', hideWholeBlock && 'pp-shell-quiet')}>
+    return (<section data-note-properties className={cn(PP_SHELL, hideWholeBlock && PP_SHELL_QUIET)}>
       <NoteBanner banner={view.decorations.banner} settings={settings} actions={actions}/>
-      {!hideWholeBlock && (<div className="pp-layout" data-cover-position={view.decorations.cover?.position ?? 'left'}>
+      {!hideWholeBlock && (<div className={PP_LAYOUT} data-cover-position={view.decorations.cover?.position ?? 'left'}>
           <NoteCover cover={view.decorations.cover} settings={settings} actions={actions} onLightbox={onLightbox}/>
-          <div className="pp-column min-w-0 flex-1">
-            {view.decorations.icon && !settings.iconInline && (<div className="pp-icon-row"><NoteIcon icon={view.decorations.icon} settings={settings} actions={actions} inline={false}/></div>)}
-            {!headerless && (<header className="flex h-9 items-center gap-2 border-b border-[var(--border-subtle)] px-2.5">
-              <button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] font-semibold text-[var(--text-secondary)]">
+          <div className={PP_COLUMN}>
+            {view.decorations.icon && !settings.iconInline && (<div className={PP_ICON_ROW}><NoteIcon icon={view.decorations.icon} settings={settings} actions={actions} inline={false}/></div>)}
+            {!headerless && (<header className={PP_HEADER}>
+              <button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)} className={PP_HEADER_BUTTON}>
                 {view.decorations.icon && settings.iconInline && (<NoteIcon icon={view.decorations.icon} settings={settings} actions={actions} inline={true}/>)}
                 <ChevronDown size={13} className={cn('shrink-0 transition-transform duration-[var(--dur-fast)]', collapsed && '-rotate-90')}/>
-                <span className="truncate">{t('markdown.properties')}</span>
-                <span className="shrink-0 tabular text-[var(--text-quaternary)]">{shown.filter(row => !row.hidden).length}</span>
+                <span className={PP_TITLE}>{t('markdown.properties')}</span>
+                <span className={PP_COUNT}>{propertyRowCount(shown)}</span>
               </button>
               {hiddenCount > 0 && (<button type="button" onClick={() => handlers.patch({ revealHidden: !settings.revealHidden })} aria-pressed={settings.revealHidden} className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
                   {settings.revealHidden ? <Eye size={12}/> : <EyeOff size={12}/>}
@@ -138,10 +175,10 @@ export function NoteProperties({ noteId, onLightbox }: {
                   <Plus size={13}/>
                 </button>)}
             </header>)}
-            {open && (<div className="divide-y divide-[var(--border-subtle)]">
-                {view.errors.length > 0 && <p className="px-3 py-2.5 text-[11.5px] text-[var(--danger)]">{t('properties.invalid')}</p>}
-                {!rows.length && !view.errors.length && <p className="px-3 py-2.5 text-[11.5px] text-[var(--text-quaternary)]">{t('properties.empty')}</p>}
-                {rows.length > 0 && !shown.length && !view.errors.length && <p className="px-3 py-2.5 text-[11.5px] text-[var(--text-quaternary)]">{t('properties.all_hidden')}</p>}
+            {open && (<div className={PP_ROWS}>
+                {view.errors.length > 0 && <p className={PP_NOTE_DANGER}>{t('properties.invalid')}</p>}
+                {!rows.length && !view.errors.length && <p className={PP_NOTE}>{t('properties.empty')}</p>}
+                {rows.length > 0 && !shown.length && !view.errors.length && <p className={PP_NOTE}>{t('properties.all_hidden')}</p>}
                 {shown.map(row => (<PropertyRow key={row.key} row={row} readOnly={readOnly} settings={settings} handlers={handlers} onOpenMenu={(items, label, event) => setMenu({
                         items,
                         label,
@@ -186,12 +223,12 @@ function PropertyRow({ row, readOnly, settings, handlers, onValue, onRename, onD
         onRename: () => setRenaming(true),
         onDelete,
     }), t('properties.menu'), event);
-    return (<div className={cn('group/row flex items-start gap-2 px-2.5 py-1.5', row.hidden && 'pp-row-hidden')} data-property-key={row.key} data-property-hidden={row.hidden ? 'true' : undefined} onContextMenu={readOnly ? undefined : event => {
+    return (<div className={cn(PP_ROW, 'group/row', row.hidden && PP_ROW_HIDDEN)} data-property-key={row.key} data-property-hidden={row.hidden ? 'true' : undefined} onContextMenu={readOnly ? undefined : event => {
             event.preventDefault();
             event.stopPropagation();
             openRowMenu(event);
         }}>
-      <div className="flex min-w-0 flex-1 items-start gap-1.5">
+      <div className={PP_KEY_CELL}>
         <KindGlyph row={row}/>
         {renaming
             ? <InlineInput aria-label={t('properties.rename')} initial={row.key} onCommit={(next) => {
@@ -199,7 +236,7 @@ function PropertyRow({ row, readOnly, settings, handlers, onValue, onRename, onD
                     if (next.trim() && next.trim() !== row.key)
                         onRename(next.trim());
                 }} onCancel={() => setRenaming(false)} className="min-w-0 flex-1"/>
-            : <button type="button" disabled={readOnly} onClick={() => setRenaming(true)} title={t('properties.rename')} className="shrink-0 rounded px-0.5 text-left text-[12px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] disabled:hover:bg-transparent">
+            : <button type="button" disabled={readOnly} onClick={() => setRenaming(true)} title={t('properties.rename')} className={cn(PP_KEY, 'hover:bg-[var(--bg-hover)] disabled:hover:bg-transparent')}>
                 {row.key}
               </button>}
         {row.hiddenReason && !readOnly && (<Tooltip label={row.hiddenReason === 'empty' ? t('properties.hide_when_empty') : t('properties.unhide')} side="top">
@@ -208,7 +245,7 @@ function PropertyRow({ row, readOnly, settings, handlers, onValue, onRename, onD
             </button>
           </Tooltip>)}
       </div>
-      <div className="flex min-w-0 max-w-[62%] flex-1 items-center justify-end gap-1">
+      <div className={PP_VALUE}>
         <ValueArea row={row} readOnly={readOnly} settings={settings} handlers={handlers} onValue={onValue} onTagRemove={onTagRemove} onOpenMenu={onOpenMenu}/>
         {!readOnly && row.kind !== 'object' ? (<button type="button" aria-label={t('properties.delete')} onClick={onDelete} className="flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] opacity-0 transition-opacity hover:text-[var(--danger)] focus-visible:opacity-100 group-hover/row:opacity-100">
             <X size={11}/>
@@ -232,14 +269,14 @@ function ValueArea({ row, readOnly, settings, handlers, onValue, onTagRemove, on
     if (row.kind === 'tags' || row.kind === 'array')
         return (<TagValues names={row.items.map(item => item.raw)} resolved={row} asTags={row.kind === 'tags'} readOnly={readOnly} handlers={handlers} onRemove={onTagRemove} onAdd={(name) => onValue([...row.items.map(item => item.raw), name])} onOpenMenu={onOpenMenu}/>);
     if (row.kind === 'object')
-        return (<span className="min-w-0 truncate text-right text-[12px] text-[var(--text-tertiary)]">{row.display}</span>);
+        return (<span className={PP_OBJECT}>{row.display}</span>);
     if (editing)
         return (<InlineInput aria-label={row.key} initial={row.items[0]?.raw ?? ''} onCommit={(text) => {
                 setEditing(false);
                 onValue(coerce(row.kind, text));
             }} onCancel={() => setEditing(false)} className="min-w-0 flex-1"/>);
     const progress = row.progress;
-    return (<div className="flex min-w-0 items-center justify-end gap-1.5">
+    return (<div className={PP_VALUE_INNER}>
         {progress && (<ProgressCell row={row} label={`${row.items[0]?.raw ?? ''} / ${progress.max}`}/>)}
         <ScalarValue row={row} readOnly={readOnly} settings={settings} handlers={handlers} onValue={onValue} onEdit={() => setEditing(true)} onOpenMenu={onOpenMenu}/>
       </div>);
@@ -261,8 +298,8 @@ function BooleanValue({ row, readOnly, onValue }: {
     onValue: (next: FrontMatterValue) => void;
 }) {
     const on = Boolean(row.value);
-    return (<button type="button" role="switch" aria-label={row.key} aria-checked={on} disabled={readOnly} onClick={() => onValue(!on)} className={cn('relative h-4 w-8 shrink-0 rounded-full transition-colors', on ? 'bg-[var(--accent)]' : 'bg-[var(--bg-inset)] ring-1 ring-[var(--border-default)]')}>
-        <span className={cn('absolute top-0.5 size-3 rounded-full bg-white shadow transition-all', on ? 'left-4' : 'left-0.5')}/>
+    return (<button type="button" role="switch" aria-label={row.key} aria-checked={on} disabled={readOnly} onClick={() => onValue(!on)} className={cn(PP_SWITCH, on ? PP_SWITCH_ON : PP_SWITCH_OFF)}>
+        <span className={cn(PP_SWITCH_KNOB, on ? PP_SWITCH_KNOB_ON : PP_SWITCH_KNOB_OFF)}/>
       </button>);
 }
 
@@ -309,8 +346,8 @@ function ScalarValue({ row, readOnly, settings, handlers, onValue, onEdit, onOpe
     };
     return (<>
         {markdown
-            ? (<button type="button" data-property-value={value} data-property-format="markdown" disabled={readOnly} onClick={onClick} title={value} className="pp-markdown min-w-0 truncate rounded px-1 py-0.5 text-right text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]" dangerouslySetInnerHTML={{ __html: renderInlineProperty(value, settings.enabled) }}/>)
-            : (<button type="button" data-property-value={value} data-property-format={formatted ? 'template' : undefined} disabled={readOnly} onClick={onClick} title={formatted ? value : undefined} style={style} className="min-w-0 truncate rounded px-1 py-0.5 text-right text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:hover:bg-transparent">
+            ? (<button type="button" data-property-value={value} data-property-format="markdown" disabled={readOnly} onClick={onClick} title={value} className={cn(PP_MARKDOWN, 'hover:bg-[var(--bg-hover)]')} dangerouslySetInnerHTML={{ __html: renderInlineProperty(value, settings.enabled) }}/>)
+            : (<button type="button" data-property-value={value} data-property-format={formatted ? 'template' : undefined} disabled={readOnly} onClick={onClick} title={formatted ? value : undefined} style={style} className={cn(PP_SCALAR, 'hover:bg-[var(--bg-hover)] disabled:hover:bg-transparent')}>
                 {item?.display || t('properties.empty_value')}
               </button>)}
         {!readOnly && value && (<Tooltip label={t('properties.pill_color')} side="top">
@@ -361,12 +398,12 @@ function TagValues({ names, resolved, asTags, readOnly, handlers, onRemove, onAd
     const [adding, setAdding] = useState(false);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const openView = useUi(state => state.openView);
-    const pills = (<span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+    const pills = (<span className={PP_PILLS}>
       {resolved.items.map((item, index) => {
         const name = names[index] ?? item.raw;
         const background = item.pillSlot === 'color' && item.pill ? propertyPillCss(item.pill) : item.pillSlot === 'transparent' ? 'transparent' : null;
         const color = item.textSlot === 'color' && item.textColor ? propertyColorCss(item.textColor) : null;
-        return (<span key={`${name}-${index}`} className="flex max-w-full items-center overflow-hidden rounded-[var(--r-sm)]" style={background ? { backgroundColor: background } : undefined}>
+        return (<span key={`${name}-${index}`} className={PP_PILL} style={background ? { backgroundColor: background } : undefined}>
             {asTags
               ? (<button type="button" draggable onDragStart={(event) => beginTagDrag(name, event.dataTransfer)} onDragEnd={endTagDrag} data-tag={encodeDataValue(name)} data-property-pill-value={name} onClick={(event) => {
                         if (wantsTagPage(event)) {
@@ -378,11 +415,11 @@ function TagValues({ names, resolved, asTags, readOnly, handlers, onRemove, onAd
                         event.preventDefault();
                         event.stopPropagation();
                         setTagMenu({ name, x: event.clientX, y: event.clientY });
-                    }} className={cn('min-w-0 truncate py-0.5 pl-1.5 text-[11.5px] text-[var(--text-primary)] hover:underline', !background && 'bg-[var(--accent-soft)]')}>
-                    <span className="text-[var(--text-quaternary)]">#</span>
+                    }} className={cn(PP_PILL_TEXT, 'hover:underline', !background && PP_PILL_THEME)}>
+                    <span className={PP_PILL_HASH}>#</span>
                     <span style={color ? { color } : undefined}>{name}</span>
                   </button>)
-              : (<span className={cn('min-w-0 truncate py-0.5 pl-1.5 text-[11.5px]', !background && 'bg-[var(--accent-soft)]')} style={color ? { color } : undefined}>{item.display}</span>)}
+              : (<span className={cn(PP_PILL_TEXT, !background && PP_PILL_THEME)} style={color ? { color } : undefined}>{item.display}</span>)}
             {!readOnly && asTags && (<button type="button" aria-label={t('properties.remove_tag_value0', { value0: name })} onClick={() => onRemove(name)} className="flex size-5 items-center justify-center text-[var(--text-quaternary)] hover:text-[var(--danger)]">
                 <X size={10}/>
               </button>)}
@@ -469,8 +506,7 @@ function InlineInput({ 'aria-label': ariaLabel, initial, placeholder, className,
 function KindGlyph({ row }: {
     row: ResolvedProperty;
 }) {
-    const glyph = row.kind === 'boolean' ? '✓' : row.kind === 'tags' || row.kind === 'array' ? '#' : row.kind === 'number' ? '1' : row.dateShape ? 'D' : 'T';
-    return <span aria-hidden="true" className="mt-0.5 w-3 shrink-0 text-center text-[10.5px] text-[var(--text-quaternary)]">{glyph}</span>;
+    return <span aria-hidden="true" className={PP_KIND}>{propertyKindGlyph(row)}</span>;
 }
 
 function GlyphMenu({ request, onClose, onPick }: {

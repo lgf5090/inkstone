@@ -10,8 +10,44 @@ import DOMPurify from 'dompurify';
 import { parseFrontMatter, slugifyHeading } from '@shared/markdown-utils';
 import { coverWidthFor, readNoteDecorations } from '@shared/property-decorations';
 import type { DecorationDefaults, NotePropertyNames, PropertyImageValue } from '@shared/property-decorations';
-import { resolveProperties } from '@shared/property-style';
+import { ACCENT_COLOR_TOKEN, propertyColorCss, propertyPillCss, resolveProperties } from '@shared/property-style';
 import type { PropertyResolveContext, PropertyStyleSettings, ResolvedProperty, ResolvedPropertyItem } from '@shared/property-style';
+import {
+    PP_COLUMN,
+    PP_COUNT,
+    PP_HEADER,
+    PP_HEADER_BUTTON,
+    PP_ICON_ROW,
+    PP_KEY,
+    PP_KEY_CELL,
+    PP_KIND,
+    PP_LAYOUT,
+    PP_MARKDOWN,
+    PP_NOTE,
+    PP_OBJECT,
+    PP_PILL,
+    PP_PILLS,
+    PP_PILL_HASH,
+    PP_PILL_TEXT,
+    PP_PILL_THEME,
+    PP_ROW,
+    PP_ROW_HIDDEN,
+    PP_ROWS,
+    PP_SCALAR,
+    PP_SHELL,
+    PP_SHELL_QUIET,
+    PP_SWITCH,
+    PP_SWITCH_KNOB,
+    PP_SWITCH_KNOB_OFF,
+    PP_SWITCH_KNOB_ON,
+    PP_SWITCH_OFF,
+    PP_SWITCH_ON,
+    PP_TITLE,
+    PP_VALUE,
+    PP_VALUE_INNER,
+    propertyKindGlyph,
+    propertyRowCount,
+} from '../property-markup';
 import { getLocale, t, type MessageKey } from '../i18n';
 import { parseEmbedSize, splitAltSize } from './attachments';
 import { blockLine, colonFenceMark, findColonFenceEnd, scanRenderBody, type ColonLineSource } from './colon-fence';
@@ -86,6 +122,8 @@ export interface PropertyRenderOptions {
     names: NotePropertyNames;
     defaults: DecorationDefaults;
     revealHidden: boolean;
+    hideHeader: boolean;
+    hideWholeBlockWhenEmpty: boolean;
     iconInline: boolean;
     iconSize: number;
     bannerHeight: number;
@@ -95,8 +133,6 @@ export interface PropertyRenderOptions {
     now?: number;
     tagColorOf?: (name: string) => string | null;
 }
-
-const PILL_TINT_ALPHA = '2b';
 
 export interface WikiTarget {
     raw: string;
@@ -1342,39 +1378,89 @@ function materializeTrustedTasks(html: string, nonce: string): string {
 }
 const HEX_ONLY = /^#[0-9a-f]{6}$/i;
 
-function prettyColorStyle(color: string, property: 'color' | 'background-color'): string {
-    if (!HEX_ONLY.test(color))
-        return '';
-    const value = property === 'color' ? color : `${color}${PILL_TINT_ALPHA}`;
-    return `style="${property}:${value}"`;
+interface Paint {
+    style: string;
+    extraClass: string;
+    extraAttr: string;
 }
 
-function prettyValueSpan(inner: string, item: ResolvedPropertyItem, row: ResolvedProperty): string {
-    const text = item.textSlot === 'color' && item.textColor
-        ? (HEX_ONLY.test(item.textColor)
-            ? `<span ${prettyColorStyle(item.textColor, 'color')}>${inner}</span>`
-            : `<span class="pp-text-token">${inner}</span>`)
-        : inner;
-    if (item.pillSlot === 'transparent')
-        return `<span class="frontmatter-chip pp-pill pp-pill-transparent">${text}</span>`;
-    if (item.pillSlot === 'color' && item.pill) {
-        const style = prettyColorStyle(item.pill, 'background-color');
-        return `<span class="frontmatter-chip pp-pill"${style ? ` ${style}` : ''}${style ? '' : ' data-pp-token="accent"'}>${text}</span>`;
-    }
-    return row.kind === 'tags' || row.kind === 'array'
-        ? `<span class="frontmatter-chip">${text}</span>`
-        : text;
+const NO_PAINT: Paint = { style: '', extraClass: '', extraAttr: '' };
+
+/**
+ * How one stored colour travels into the markup.
+ *
+ * The document pipeline bans `style` outright and exempts exactly one declaration of one plain hex on
+ * a text-bearing tag, so a hex goes inline and the accent token goes as a hook the stylesheet paints
+ * (`.pp-text-token`, `.pp-pill[data-pp-token]`). Both resolve to the same colour the reading pane's
+ * panel sets through the CSSOM, where no sanitizer is involved. Anything else paints nothing here and
+ * nothing there either.
+ */
+function prettyPaint(role: 'color' | 'background-color', stored: string | null | undefined): Paint {
+    if (!stored)
+        return NO_PAINT;
+    if (stored === ACCENT_COLOR_TOKEN)
+        return role === 'color'
+            ? { style: '', extraClass: ' pp-text-token', extraAttr: '' }
+            : { style: '', extraClass: '', extraAttr: ' data-pp-token="accent"' };
+    if (!HEX_ONLY.test(stored))
+        return NO_PAINT;
+    const css = role === 'color' ? propertyColorCss(stored) : propertyPillCss(stored);
+    return { style: ` style="${escapeAttr(`${role}:${css}`)}"`, extraClass: '', extraAttr: '' };
+}
+
+function prettySwitch(row: ResolvedProperty): string {
+    const on = Boolean(row.value);
+    return `<span role="switch" aria-checked="${on}" class="${PP_SWITCH} ${on ? PP_SWITCH_ON : PP_SWITCH_OFF}"><span class="${PP_SWITCH_KNOB} ${on ? PP_SWITCH_KNOB_ON : PP_SWITCH_KNOB_OFF}"></span></span>`;
+}
+
+function prettyProgress(row: ResolvedProperty): string {
+    const progress = row.progress;
+    if (!progress)
+        return '';
+    const label = escapeAttr(`${row.items[0]?.raw ?? ''} / ${progress.max} · ${progress.percent}%`);
+    if (progress.variant === 'circle')
+        return `<span class="pp-progress-circle" role="img" data-pp-percent="${progress.percent}%" aria-label="${label}"></span>`;
+    return `<progress class="pp-progress" max="${escapeAttr(String(progress.max))}" value="${escapeAttr(String(progress.value))}" aria-label="${label}" title="${progress.percent}%"></progress>`;
+}
+
+function prettyPill(item: ResolvedPropertyItem, row: ResolvedProperty): string {
+    const background = prettyPaint('background-color', item.pillSlot === 'color' ? item.pill : null);
+    const colour = prettyPaint('color', item.textSlot === 'color' ? item.textColor : null);
+    const themed = item.pillSlot === 'theme' ? ` ${PP_PILL_THEME}` : '';
+    const wrapper = ` class="${PP_PILL}${background.extraClass}${item.pillSlot === 'transparent' ? ' pp-pill-transparent' : ''}"${background.style}${background.extraAttr}`;
+    const label = row.kind === 'tags' ? item.raw : item.display;
+    const inner = row.kind === 'tags'
+        ? `<span${wrapper}><span class="${PP_PILL_TEXT}${themed}" data-property-pill-value="${escapeAttr(item.raw)}"><span class="${PP_PILL_HASH}">#</span><span${colour.extraClass ? ` class="${colour.extraClass.trim()}"` : ''}${colour.style}>${escapeHtml(label)}</span></span></span>`
+        : `<span${wrapper}><span class="${PP_PILL_TEXT}${themed}${colour.extraClass}"${colour.style}>${escapeHtml(label)}</span></span>`;
+    return inner;
+}
+
+function prettyValueCell(row: ResolvedProperty): string {
+    if (row.kind === 'boolean')
+        return prettySwitch(row);
+    if (row.kind === 'tags' || row.kind === 'array')
+        return `<span class="${PP_PILLS}">${row.items.map(item => prettyPill(item, row)).join('')}</span>`;
+    if (row.kind === 'object')
+        return `<span class="${PP_OBJECT}">${escapeHtml(row.display)}</span>`;
+    const item = row.items[0];
+    const value = item?.raw ?? '';
+    const formatted = !!item && item.display !== item.raw;
+    const stamp = ` data-property-value="${escapeAttr(value)}"${formatted ? ` data-property-format="template" title="${escapeAttr(value)}"` : ''}`;
+    if (row.markdown)
+        return `<div class="${PP_VALUE_INNER}"><span class="${PP_MARKDOWN}"${stamp} title="${escapeAttr(value)}">${renderInlineProperty(value)}</span></div>`;
+    const background = prettyPaint('background-color', item?.pillSlot === 'color' ? item.pill : null);
+    const colour = prettyPaint('color', item?.textSlot === 'color' ? item.textColor : null);
+    const label = escapeHtml(item?.display || t('properties.empty_value'));
+    const text = colour.style || colour.extraClass
+        ? `<span class="${colour.extraClass.trim()}"${colour.style}>${label}</span>`
+        : label;
+    return `<div class="${PP_VALUE_INNER}">${prettyProgress(row)}<span class="${PP_SCALAR}${background.extraClass}"${background.style}${background.extraAttr}${stamp}>${text}</span></div>`;
 }
 
 function prettyRow(row: ResolvedProperty): string {
-    const values = row.items.map(item => prettyValueSpan(row.markdown ? renderInlineProperty(item.raw) : escapeHtml(item.display), item, row)).join(' ');
-    const progress = row.progress
-        ? (row.progress.variant === 'circle'
-            ? `<span class="pp-progress-circle" role="img" data-pp-percent="${row.progress.percent}%" aria-label="${escapeAttr(`${row.progress.value}/${row.progress.max}`)}"></span>`
-            : `<progress class="pp-progress" max="${escapeAttr(String(row.progress.max))}" value="${escapeAttr(String(row.progress.value))}" aria-label="${escapeAttr(`${row.progress.percent}%`)}"></progress>`)
-        : '';
-    const date = row.dateShape ? ` data-relative-date="${row.relative}"` : '';
-    return `<div class="frontmatter-row pp-row${row.hidden ? ' pp-row-hidden' : ''}" data-property-key="${escapeAttr(row.key)}"${date}><dt>${escapeHtml(row.key)}</dt><dd>${progress}${values || `<span class="frontmatter-empty">—</span>`}</dd></div>`;
+    const cls = `${PP_ROW}${row.hidden ? ` ${PP_ROW_HIDDEN}` : ''}`;
+    const hidden = row.hidden ? ' data-property-hidden="true"' : '';
+    return `<div class="${cls}"${hidden} data-property-key="${escapeAttr(row.key)}"><div class="${PP_KEY_CELL}"><span aria-hidden="true" class="${PP_KIND}">${propertyKindGlyph(row)}</span><span class="${PP_KEY}">${escapeHtml(row.key)}</span></div><div class="${PP_VALUE}">${prettyValueCell(row)}</div></div>`;
 }
 
 function prettyImageMarkup(image: PropertyImageValue, className: string): string {
@@ -1390,24 +1476,27 @@ function prettyFrontMatter(data: Record<string, unknown>, options: PropertyRende
         now: options.now ?? Date.now(),
         tagColorOf: options.tagColorOf,
     };
-    const rows = resolveProperties(data, options.style, context).filter(row => options.revealHidden || !row.hidden);
+    const rows = resolveProperties(data, options.style, context);
+    const shown = options.revealHidden ? rows : rows.filter(row => !row.hidden);
     const decorations = readNoteDecorations(data, options.names, options.defaults);
-    const body = rows.map(prettyRow).join('');
     const icon = decorations.icon
-        ? (decorations.icon.icon.kind === 'glyph'
-            ? `<span class="pp-icon ${options.iconInline ? 'is-inline' : 'is-block'}" data-pp-icon-size="${options.iconSize}">${escapeHtml(decorations.icon.icon.text)}</span>`
-            : `<span class="pp-icon ${options.iconInline ? 'is-inline' : 'is-block'}" data-pp-icon-size="${options.iconSize}">${prettyImageMarkup(decorations.icon.icon.image, 'pp-icon-image')}</span>`)
+        ? `<span class="pp-icon ${options.iconInline ? 'is-inline' : 'is-block'}" data-pp-icon-size="${options.iconSize}">${decorations.icon.icon.kind === 'glyph' ? escapeHtml(decorations.icon.icon.text) : prettyImageMarkup(decorations.icon.icon.image, 'pp-icon-image')}</span>`
         : '';
-    const summary = `<summary>${icon}<span class="pp-title">${escapeHtml(t('markdown.properties'))}</span><span class="pp-count">${rows.length}</span></summary>`;
-    const block = `<details class="frontmatter-properties pp" data-line="0" open>${summary}<dl>${body || `<p class="frontmatter-empty">${escapeHtml(t('properties.empty'))}</p>`}</dl></details>`;
+    const header = options.hideHeader ? '' : `<summary class="${PP_HEADER}"><span class="${PP_HEADER_BUTTON}">${options.iconInline ? icon : ''}<span class="pp-chevron" aria-hidden="true"></span><span class="${PP_TITLE}">${escapeHtml(t('markdown.properties'))}</span><span class="${PP_COUNT}">${propertyRowCount(shown)}</span></span></summary>`;
+    const note = shown.length
+        ? shown.map(prettyRow).join('')
+        : `<div class="${PP_NOTE}">${escapeHtml(t(rows.length ? 'properties.all_hidden' : 'properties.empty'))}</div>`;
+    const iconRow = options.iconInline || !icon ? '' : `<div class="${PP_ICON_ROW}">${icon}</div>`;
+    const column = `<details class="frontmatter-properties pp ${PP_COLUMN}" open>${iconRow}${header}<div class="${PP_ROWS}">${note}</div></details>`;
     const cover = decorations.cover
         ? `<div class="pp-cover is-${decorations.cover.position} is-${decorations.cover.shape}" data-pp-cover-width="${coverWidthFor(options.coverWidths, decorations.cover.shape)}">${prettyImageMarkup(decorations.cover.image, 'pp-cover-image')}</div>`
         : '';
     const banner = decorations.banner && decorations.banner.image.source.kind === 'url'
         ? `<div class="pp-banner" data-pp-banner-height="${options.bannerHeight}" data-pp-banner-position="${decorations.banner.positionPercent}"><img class="pp-banner-image" src="${escapeAttr(decorations.banner.image.source.url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">${options.bannerFade ? '<span class="pp-banner-fade" aria-hidden="true"></span>' : ''}</div>`
         : '';
-    const layout = `<div class="pp-layout" data-cover-position="${decorations.cover?.position ?? options.defaults.coverPosition}">${cover}${block}</div>`;
-    return `<section class="pp-block" data-line="0">${banner}${layout}</section>`;
+    const quiet = options.hideWholeBlockWhenEmpty && !shown.length;
+    const layout = `<div class="${PP_LAYOUT}" data-cover-position="${decorations.cover?.position ?? options.defaults.coverPosition}">${cover}${column}</div>`;
+    return `<section class="${PP_SHELL}${quiet ? ` ${PP_SHELL_QUIET}` : ''}" data-note-properties data-line="0">${banner}${quiet ? '' : layout}</section>`;
 }
 
 function renderFrontMatterValue(value: unknown): string {

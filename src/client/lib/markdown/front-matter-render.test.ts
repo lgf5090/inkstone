@@ -3,6 +3,7 @@ import { mergeSettings } from '@shared/constants'
 import { styleSettingsOf } from '@shared/property-style'
 import type { PropertyRenderOptions } from './renderer'
 import { renderMarkdown } from './renderer'
+import { PP_KIND } from '../property-markup'
 
 const SOURCE = ['---', 'title: Example', 'tags: [demo]', '---', '', '# Heading', '', 'body'].join('\n')
 
@@ -63,6 +64,8 @@ function options(patch: Record<string, unknown> = {}, extra: Partial<PropertyRen
     },
     defaults: { coverShape: properties.coverShape, coverPosition: properties.coverPosition, bannerPosition: properties.bannerPosition },
     revealHidden: properties.revealHidden,
+    hideHeader: properties.hideHeader,
+    hideWholeBlockWhenEmpty: properties.hideWholeBlockWhenEmpty,
     iconInline: properties.iconInline,
     iconSize: properties.iconSize,
     bannerHeight: properties.bannerHeight,
@@ -77,15 +80,15 @@ function options(patch: Record<string, unknown> = {}, extra: Partial<PropertyRen
 describe('renderMarkdown pretty properties', () => {
   it('renders the decorated block instead of the plain fold', () => {
     const html = renderMarkdown(PRETTY, { properties: options() }).html
-    expect(html).toContain('pp-block')
+    expect(html).toContain('pp-shell')
     expect(html).toContain('data-property-key="status"')
     expect(html).toContain('data-property-key="due"')
-    expect(html).toContain('data-relative-date="past"')
+    expect(html).toContain(`class="${PP_KIND}">D<`)
   })
 
   it('keeps the plain fold when the feature is off', () => {
     const html = renderMarkdown(PRETTY, { properties: options({ enabled: false }) }).html
-    expect(html).not.toContain('pp-block')
+    expect(html).not.toContain('pp-shell')
     expect(html).toContain('frontmatter-properties')
   })
 
@@ -99,10 +102,12 @@ describe('renderMarkdown pretty properties', () => {
 
   it('paints a hex value through the colour-only exemption and a token through a class', () => {
     const html = renderMarkdown(PRETTY, {
-      properties: options({ colors: { status: { reading: { text: '#059669' } }, title: { Example: { text: 'accent' } } } }),
+      properties: options({ colors: { status: { reading: { text: '#059669' } }, title: { Example: { text: 'accent' } }, pages: { '120': { text: 'url(javascript:alert(1))' } } } }),
     }).html
     expect(html).toContain('style="color:#059669"')
     expect(html).toContain('class="pp-text-token"')
+    expect(html).not.toContain('javascript:')
+    expect(html).not.toContain('url(javascript')
   })
 
   it('draws a progress element for a numeric rule', () => {
@@ -121,19 +126,30 @@ describe('renderMarkdown pretty properties', () => {
 
   it('refuses a script or an event handler smuggled through a property value', () => {
     const hostile = ['---', 'title: "<img src=x onerror=alert(1)>"', '---', 'body'].join('\n')
-    const html = renderMarkdown(hostile, { properties: options() }).html
-    expect(html).not.toContain('<img src=x')
-    expect(html).not.toContain('<script')
-    expect(html).not.toContain('<svg')
-    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
-    const markdownValue = renderMarkdown(hostile, { properties: options({ formats: { title: { markdown: true } } }) }).html
-    expect(markdownValue).not.toContain('<img src=x')
-    expect(markdownValue).not.toContain('onerror=')
+    const parse = (html: string) => {
+      const host = document.createElement('div')
+      host.innerHTML = html
+      return host
+    }
+    const attributeNames = (root: ParentNode) => [...root.querySelectorAll('*')].flatMap(el => Array.from(el.attributes).map(attr => attr.name.toLowerCase()))
+    const plain = parse(renderMarkdown(hostile, { properties: options() }).html)
+    expect(plain.querySelector('script')).toBeNull()
+    expect(plain.querySelector('svg')).toBeNull()
+    expect(plain.querySelector('img')).toBeNull()
+    expect(attributeNames(plain).filter(name => name.startsWith('on'))).toEqual([])
+    expect(plain.querySelector('[data-property-key="title"] .pp-scalar')?.textContent).toBe('<img src=x onerror=alert(1)>')
+    const markdownValue = parse(renderMarkdown(hostile, { properties: options({ formats: { title: { markdown: true } } }) }).html)
+    expect(markdownValue.querySelector('script')).toBeNull()
+    expect(attributeNames(markdownValue).filter(name => name.startsWith('on'))).toEqual([])
   })
 
   it('renders a formatted value and leaves the raw text in the note', () => {
     const html = renderMarkdown(PRETTY, { properties: options({ formats: { pages: { template: '{{percent propertyValue 480}}' } } }) }).html
-    expect(html).toContain('25%')
-    expect(html).not.toContain('data-property-value="120"')
+    const host = document.createElement('div')
+    host.innerHTML = html
+    const cell = host.querySelector<HTMLElement>('[data-property-key="pages"] .pp-scalar')
+    expect(cell?.textContent).toBe('25%')
+    expect(cell?.getAttribute('data-property-value')).toBe('120')
+    expect(cell?.getAttribute('data-property-format')).toBe('template')
   })
 })

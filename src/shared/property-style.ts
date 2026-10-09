@@ -92,6 +92,21 @@ export const ACCENT_COLOR_TOKEN = 'accent'
 export const DEFAULT_PILL_ALPHA = '2b';
 
 
+export function propertyColorCss(stored: string): string {
+  return stored === ACCENT_COLOR_TOKEN ? 'var(--accent)' : stored
+}
+
+
+export function propertyPillCss(stored: string): string {
+  return stored === ACCENT_COLOR_TOKEN ? 'var(--accent-soft)' : `${stored}${DEFAULT_PILL_ALPHA}`
+}
+
+
+export function propertySwatchCss(stored: string): string {
+  return propertyPillCss(stored)
+}
+
+
 export function settingKey(name: string): string {
   return name.trim().toLocaleLowerCase()
 }
