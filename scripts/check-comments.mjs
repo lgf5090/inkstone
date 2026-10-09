@@ -3657,6 +3657,8 @@ const allowed = new Map([
     "// would watch the choice snap back with no explanation.",
     "/**\n * Where a finished note goes once the run opens it. These stay hidden until the reader asks for the note\n * to be opened at all: a choice that never opens anything has no pane, mode or focus to name. The three\n * mode names are the app’s own editor labels, so the choice says what the toolbar switch says.\n */",
     "/** The three fields the opening rows write back; the switch that reveals them stays the choice’s own. */",
+    "/** Where the backlink goes, and in what shape. */",
+    "/**\n * Where the link back into the note the run started from is written. The two extra fields only appear\n * for the placements that need them: a property has to be named, and only the line the caret was on can\n * hold a transclusion — a property value is link-only, and a labelled line already says what it is.\n */",
   ]],
   ["src/client/features/quickadd/choice-list.tsx", [
     "/**\n * The choice library as a list the author can actually run and rearrange.\n *\n * Rows are the tree the store keeps, flattened in `position` order; a collapsed group hides its\n * children without touching the data. Ordering is `place(id, parentId, index)`, so a drop into a group\n * and a nudge down the list go through the one function that refuses cycles, self-parenting and too\n * deep a nest — the editor never invents a second rule about what a legal tree is.\n */",
@@ -9421,7 +9423,6 @@ const allowed = new Map([
     "/** The folder for a slash path, created on the way if it does not exist. */",
     "/** Every title the account has, for a name prompt that should not invent a duplicate. */",
     "/** Every folder path the account has, for `folderMode: ask`. */",
-    "/** Add a link to `target` at the end of `source`'s body. */",
     "/** Put text on the clipboard. */",
     "/** Move the editor caret after a write that was not made through the editor. */",
     "/** Say that this choice ran, so the launcher can offer it first next time. */",
@@ -9450,6 +9451,8 @@ const allowed = new Map([
     "/** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */",
     "/**\n   * Bring a note on screen. Which pane it lands in, how that pane renders it and whether the reader's\n   * focus moves there are the run's choice, not the app's: a note captured by a startup macro should not\n   * interrupt what the reader is doing.\n   */",
     "/**\n * The three opening fields as one request, with whatever the choice does not say left out so the app\n * keeps deciding it. `focus` is the one exception: a run that opens a note takes the caret with it, and\n * that is what the switch has always meant.\n */",
+    "/**\n   * Write the link back to `target` into `source`, where the choice said. False means it was not written,\n   * which the run says out loud rather than letting the reader believe the two notes are connected.\n   */",
+    "/** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9496,6 +9499,7 @@ const allowed = new Map([
     "/** The full requests of each group, so a test can read the choices and their display text. */",
     "/** Where each group said the run was about to write, which the reader reads as “into what”. */",
     "/** The editor's caret range, which `insert-here` writes around; null means it sits at the end. */",
+    "/** Set by a test that wants the app to refuse the link, so the run’s answer can be heard. */",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -9638,6 +9642,12 @@ const allowed = new Map([
     "// A preview never asks, so a prompt-shaped token renders the default the reader would have been offered.",
     "/** The date-formatter half, for the format-field hint line under the date inputs. */",
   ]],
+  ["src/client/lib/quickadd/runner-backlink.test.ts", [
+    "/**\n * The app-backed half of writing a link back into the note a run started from: the end of its body, the\n * end of the line the caret was on, or a property of it. The engines only ask for a place; which of these\n * the app can actually honour is decided here, against a real note store.\n */",
+    "// The notes store writes through idb-keyval, which jsdom does not provide, so the local mirror is an",
+    "// in-memory map here. What the run wrote is asserted through the store, which is what the reader sees.",
+    "/** The source note, open in the store so a write lands on its cached copy. */",
+  ]],
   ["src/client/lib/quickadd/runner-notice.test.ts", [
     "// Seeded per test, not once: the teardown hands the store back, and a beforeAll seed would leave",
     "// every test after the first one choosing from an empty library.",
@@ -9661,6 +9671,8 @@ const allowed = new Map([
     "// plain closed dialog is the reader's own doing, so only the opt-in notice mentions it.",
     "// The layout belongs to whichever pane ended up holding the note: the active one when the run took",
     "// focus, the target one when it did not.",
+    "/**\n * The link at the end of the line the caret was sitting on. This is the one placement that needs the\n * source note to be the note on screen: writing it through the store would drop whatever the reader has\n * typed there and not saved yet.\n */",
+    "/**\n * The link added to a property of the source note. An existing scalar grows into a list rather than\n * being replaced, and an entry that is already there is not written twice.\n */",
   ]],
   ["src/client/lib/quickadd/runtime.ts", [
     "/**\n * Builds the format engine's runtime out of the app seams, and owns the one behaviour the engine\n * cannot decide for itself: when a run asks its questions one at a time and when it asks them all on\n * a single page.\n *\n * A run's clock is fixed here, once. `{{DATE}}` in a name, a folder and a body has to agree even when\n * the reader spends a minute at a prompt, and a choice whose day origin is a specific note measures\n * every date token from that note's day instead.\n */",
@@ -10326,6 +10338,12 @@ const allowed = new Map([
     "/** How the app renders it there: leave the reader's own choice, or ask for a specific mode. */",
     "/** Absent means the app decides, which is what every record written before these fields means. */",
     "/**\n * The three opening fields are each optional and an unknown value is dropped rather than defaulted: a\n * record saying `openPane: 'drawer'` should keep behaving like the app's own default instead of being\n * quietly rewritten to a pane nobody chose.\n */",
+    "/**\n * Where the link back to the note the run started from is written: the bottom of that note, the end of\n * the line the caret was on, or a property of it.\n */",
+    "/** The property the link goes into when `linkPlacement` says so; `source` when absent. */",
+    "/** Write the link as a transclusion (`![[…]]`) instead of a plain link. */",
+    "/** A property name the reader typed: no colons, no line breaks, and not longer than a key worth storing. */",
+    "// A colon would end the key where YAML reads it, and `__proto__` is never a property worth writing.",
+    "/**\n * Where the backlink goes. A record that predates these fields keeps the behaviour it was written\n * with: the link at the end of the note, as a plain link, in a property called `source`.\n */",
   ]],
   ["src/shared/regex-safety.ts", [
     "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",
