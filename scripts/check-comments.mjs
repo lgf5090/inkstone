@@ -9469,7 +9469,6 @@ const allowed = new Map([
     "/**\n   * Replace a note's text. `previous` is the text the caller computed its answer from: when the note\n   * holds something else by the time the write lands, the write is refused rather than eat the\n   * reader's typing. False means nothing was written.\n   */",
     "/** Create a note. Null when the app refused it. */",
     "/** The folder for a slash path, created on the way if it does not exist. */",
-    "/** Every title the account has, for a name prompt that should not invent a duplicate. */",
     "/** Every folder path the account has, for `folderMode: ask`. */",
     "/** Put text on the clipboard. */",
     "/** Move the editor caret after a write that was not made through the editor. */",
@@ -9502,6 +9501,8 @@ const allowed = new Map([
     "/**\n   * Write the link back to `target` into `source`, where the choice said. False means it was not written,\n   * which the run says out loud rather than letting the reader believe the two notes are connected.\n   */",
     "/** Where the backlink goes, with this app's own defaults for a choice that predates the fields. */",
     "/**\n * The folder path a run writes into, as this app spells it. A folder here is a node in a tree of ids,\n * never a filesystem path, so `.` and `..` have no meaning to keep: a route typed as `../Escape` names\n * the folder `Escape` rather than filing the note outside the tree the reader can see.\n */",
+    "/**\n   * Every title the account has, with where each one lives, for a name prompt that should not invent a\n   * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids\n   * — and the reader is the one who has to spot which is which.\n   */",
+    "/**\n * The rows a “what should the note be called?” question shows: one per title, each saying where that\n * title already lives. The answer stays a bare title — this app resolves a note by its name — so a\n * title found in several folders lists them all rather than pretending to pick one.\n */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -9788,7 +9789,6 @@ const allowed = new Map([
     "// deleted from under the choice is a failure worth a danger notice.",
     "/**\n * The choice's tags on the new note. `appendFrontMatterTag` deliberately only edits a note that\n * already has properties, so a body without front matter gets its block written here — a choice that\n * says \"tag this with #meeting\" must not quietly tag nothing.\n */",
     "/** Which library template to use, when the choice says it asks each time. */",
-    "/** What the run asks for a name when the choice has no name format of its own. */",
     "/** What the run asks for a folder when the choice lets the reader pick one each time. */",
     "// `null` means the named template is gone, which stays a failure; `''` means the choice genuinely",
     "// wants a blank note, and a pick-each-time run has no body to scan yet.",
@@ -9799,6 +9799,7 @@ const allowed = new Map([
     "/**\n * A note title and the folder it names: `Journal/{{DATE}}` is a title of `2026-10-08` inside\n * `Journal`, the way a capture target reads, because a title here cannot hold path characters.\n */",
     "/**\n * A template dropped into a note that exists: its properties merge into that note's own block and its\n * text lands where the drop says. A caret drop reads the editor, because that is where the reader's\n * unsaved typing and their selection live; every other drop works from the note as stored.\n */",
     "// The note is already on screen, so there is nothing to open; only a caret drop reads the editor.",
+    "/**\n * What the run asks for a name when the choice has no name format of its own. The rows say where each\n * existing title already lives, because two notes called `Standup` in two folders are one row apiece\n * and only the folder tells the reader which one they are about to write into.\n */",
   ]],
   ["src/client/lib/quickadd/token-grammar.test.ts", [
     "// The reference reads `{{DATE:YYYY[Q}}` as a format with a stray bracket. Dropping the token is",

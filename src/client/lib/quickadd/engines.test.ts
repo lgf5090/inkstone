@@ -8,6 +8,7 @@ import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
 import type { NewNoteInput, NotePort, NoteRef, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption } from './context'
 import type { RunOptions } from './session'
+import { titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
 import { runMacroChoice } from './macro'
@@ -133,7 +134,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     templatesForPick: (categoryId) => picks.filter((entry) => !categoryId || entry.category === categoryId),
     fieldValues: async () => [],
     pickFileTitles: async (token) => (token.folder === 'Numbers' ? ['42'] : []),
-    knownNoteTitles: () => Object.keys(notes),
+    knownNotes: () => Object.values(notes).map((note) => ({ title: note.title, folderPath: note.folderPath })),
     knownFolderPaths: () => ['Journal'],
     appendLink: async (source, target, options) => {
       links.push({ sourceId: source.id, title: target.title, options: options ?? {} })
@@ -1818,5 +1819,48 @@ describe('one page for the whole choice', () => {
     expect(status.kind).toBe('written')
     expect(answers.calls, 'nothing in this macro needs a reader').toEqual([])
     expect(fake.inserted[0].text).toBe('Mood: calm')
+  })
+})
+
+describe('the names a run suggests', () => {
+  it('names the folder a title lives in, and only that', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Inbox', folderPath: null },
+    ])
+    expect(made.options).toEqual(['Standup', 'Inbox'])
+    expect(made.displayOptions).toEqual(['Standup (Work)', 'Inbox'])
+  })
+
+  it('lists every folder a shared title was found in', () => {
+    const made = titleSuggestions([
+      { title: 'Standup', folderPath: 'Work' },
+      { title: 'Standup', folderPath: 'Archive' },
+      { title: 'Standup', folderPath: 'Work' },
+    ])
+    expect(made.options, 'the answer is a title, so one row per title').toEqual(['Standup'])
+    expect(made.displayOptions).toEqual(['Standup (Work, Archive)'])
+  })
+
+  it('skips the untitled rows and stops at the list the prompt can hold', () => {
+    const many = Array.from({ length: 260 }, (_entry, index) => ({ title: `Note ${index}`, folderPath: null }))
+    const made = titleSuggestions([{ title: '   ', folderPath: ' Nowhere' }, ...many])
+    expect(made.options).toHaveLength(200)
+    expect(made.options[0]).toBe('Note 0')
+    expect(made.displayOptions).toHaveLength(200)
+  })
+
+  it('shows the folder on the row the run actually asks with', async () => {
+    const fake = harness({ Standup: 'kept\n' })
+    fake.notes['Standup']!.folderPath = 'Work'
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Nameless', 0),
+      templateId: 'tpl-daily',
+      nameFormat: { enabled: false, format: '' },
+    }
+    answers.queue = [['Standup']]
+    await runTemplateChoice(choice, fake.port)
+    const asked = answers.requests.flat().find((request) => request.key === 'title')
+    expect(asked?.displayOptions, 'the reader sees which Standup they are picking').toEqual(['Standup (Work)'])
   })
 })

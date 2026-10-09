@@ -19,6 +19,7 @@ import {
   openingOptions,
   sanitizeTitle,
   splitTargetPath,
+  titleSuggestions,
   type NotePort,
   type NoteRef,
   type QuickAddRunStatus,
@@ -26,14 +27,19 @@ import {
 import { placeTemplate, type TemplateDrop } from './insertion'
 import { t } from '../../lib/i18n'
 
-/** What the run asks for a name when the choice has no name format of its own. */
+/**
+ * What the run asks for a name when the choice has no name format of its own. The rows say where each
+ * existing title already lives, because two notes called `Standup` in two folders are one row apiece
+ * and only the folder tells the reader which one they are about to write into.
+ */
 function titleRequest(port: NotePort, runtime: FormatRuntime): PromptRequest {
-  const existing = port.knownNoteTitles()
+  const suggestions = titleSuggestions(port.knownNotes())
   return request({
     key: 'title',
     label: t('quickadd.prompt_name'),
     kind: 'suggester',
-    options: existing.slice(0, 200),
+    options: suggestions.options,
+    displayOptions: suggestions.displayOptions,
     allowCustom: true,
     trim: true,
     defaultValue: runtime.title ?? '',

@@ -269,9 +269,15 @@ export const notePort: NotePort = {
         : note.title))
       .slice(0, 200)
   },
-  knownNoteTitles() {
+  knownNotes() {
     const store = useNotes.getState()
-    return Object.values(store.notes).filter((note) => !note.deletedAt).map((note) => note.title).slice(0, 500)
+    return Object.values(store.notes)
+      .filter((note) => !note.deletedAt && note.title)
+      .map((note) => {
+        const path = folderPathLabel(store.folders, note.folderId, '/').replace(/^\//, '')
+        return { title: note.title, folderPath: path === '' ? null : path }
+      })
+      .slice(0, 500)
   },
   knownFolderPaths() {
     const store = useNotes.getState()

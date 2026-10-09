@@ -54,8 +54,12 @@ export interface NotePort {
    */
   open(id: string, options?: QuickAddOpenOptions): Promise<void>
   byId(id: string): NoteRef | null
-  /** Every title the account has, for a name prompt that should not invent a duplicate. */
-  knownNoteTitles(): string[]
+  /**
+   * Every title the account has, with where each one lives, for a name prompt that should not invent a
+   * duplicate. A title can appear more than once — two folders, or the same folder twice under two ids
+   * — and the reader is the one who has to spot which is which.
+   */
+  knownNotes(): { title: string; folderPath: string | null }[]
   /** Every folder path the account has, for `folderMode: ask`. */
   knownFolderPaths(): string[]
   /**
@@ -210,6 +214,34 @@ export function joinRouted(path: string | null, routedFolder: string | null): st
   if (below.startsWith(`${above}/`)) return routedFolder
   if (above.endsWith(`/${below}`)) return path
   return folderJoin(path, routedFolder)
+}
+
+/**
+ * The rows a “what should the note be called?” question shows: one per title, each saying where that
+ * title already lives. The answer stays a bare title — this app resolves a note by its name — so a
+ * title found in several folders lists them all rather than pretending to pick one.
+ */
+export function titleSuggestions(
+  notes: { title: string; folderPath: string | null }[],
+  limit = 200,
+): { options: string[]; displayOptions: string[] } {
+  const places = new Map<string, string[]>()
+  for (const note of notes) {
+    const title = note.title.trim()
+    if (title === '') continue
+    const list = places.get(title) ?? []
+    const folder = (note.folderPath ?? '').trim()
+    if (folder !== '' && !list.includes(folder)) list.push(folder)
+    if (!places.has(title)) places.set(title, list)
+  }
+  const options = [...places.keys()].slice(0, limit)
+  return {
+    options,
+    displayOptions: options.map((title) => {
+      const list = places.get(title) ?? []
+      return list.length === 0 ? title : `${title} (${list.join(', ')})`
+    }),
+  }
 }
 
 /** `Inbox`, `Journal/2026-10-08` or `Daily/2026/W12`: the last segment is the title. */
