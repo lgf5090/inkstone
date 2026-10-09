@@ -9654,6 +9654,11 @@ const allowed = new Map([
     "// and flat lists of them, and loses the nested values with it. That is the price.",
     "// `__proto__` is the one name never to write. Every other key goes in as plain text through",
     "// `setFrontMatterValue`, where it is a YAML key in the note and not a property of anyone's object.",
+    "/**\n * Write at the start of the note's body.\n *\n * The blank line that usually sits right under a closing `---` is furniture belonging to the properties\n * block, not the body's first line: writing above it wedges the payload between the fence and its own\n * separator, and the note reads as if the two were never apart. So the payload goes below that line —\n * one line only, since a longer blank run is spacing the reader chose — and not at all when the payload\n * opens with a blank line of its own, which supplies its separation already.\n */",
+    "/** One blank line with the break that ends it: the separator a properties block leaves behind. */",
+    "// A template is a block, not a snippet: it terminates its own line so the note's previous first",
+    "// line keeps a blank between it and what was applied. A capture written at the same place stays",
+    "// tight, which is what a one-line capture asks for.",
   ]],
   ["src/client/lib/quickadd/macro-script.ts", [
     "/**\n * A macro step that computes something in a Worker, the same hardened sandbox a note's runnable code\n * block already uses.\n *\n * The boundary is deliberate: the script gets a snapshot of the run — its variables, the selection,\n * the note it is writing — as plain JSON, and hands back text and more variables. It has no handle on\n * the app, because a note author's JavaScript must not be able to move the reader's data around. That\n * makes this a transform rather than the reference plugin's user script, which can drive Obsidian; the\n * macro step list covers the driving half with the named steps instead.\n */",
