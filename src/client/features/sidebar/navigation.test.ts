@@ -751,17 +751,27 @@ describe('folder row menu', () => {
         expect([...scope.querySelectorAll('button')].map((element) => element.textContent?.replace(/✓$/, '').trim())).toContain(t('folders.manage_folders'));
     });
 
-    it('keeps the section header one line wide enough for its label', async () => {
+    it('keeps the section header to its five controls and no printed heading', async () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
         const header = document.querySelector<HTMLElement>('#sidebar-folders > div')!;
-        const label = [...header.querySelectorAll<HTMLElement>('div')].find((element) => element.className.includes('uppercase'))!;
-        // Five controls is the measured ceiling: at 180px of row the label still takes one
-        // unclipped line, and a sixth would push it onto a second.
+        // Five controls is the measured ceiling for the row. The heading text is gone — the selected
+        // tab icon above already says what this panel is — so the controls own the line and centre in it.
         expect(header.querySelectorAll('button')).toHaveLength(5);
-        expect(label.className).toContain('whitespace-nowrap');
-        expect(label.className).toContain('truncate');
+        expect(header.textContent).toBe('');
+        // No layout in jsdom, but the class is the whole story here: the strip already
+        // separates the body, so the section must not add its own top margin.
+        expect(document.querySelector('#sidebar-folders')!.className).not.toContain('mt-');
+        expect(header.className).toContain('justify-center');
+    });
+
+    it('keeps the touch drawer navigation button where the heading was', async () => {
+        useNotes.setState({ folders: [folder], notes: {} });
+        await act(() => root.render(createElement(FolderSection, { mobile: true })));
+        const header = container.querySelector<HTMLElement>('#sidebar-folders > div')!;
+        expect(header.textContent).toContain(t('navigation.all_notes'));
+        expect(header.className).toContain('justify-between');
     });
 
     it('sorts sibling folders by name from the row menu', async () => {

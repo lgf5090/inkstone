@@ -116,7 +116,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
         return name ? findDroppedTag(tags, name) : null;
     };
     return (<>
-      <section className="mt-4">
+      <section>
       <div
         className="group/head flex items-center justify-between pr-1"
         onDragOver={(event) => {

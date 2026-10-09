@@ -3902,8 +3902,10 @@ const allowed = new Map([
     "// claimed a moment that never existed and contradicted the row's real created_at.",
   ]],
   ["src/client/features/sidebar/navigation.test.ts", [
-    "// Five controls is the measured ceiling: at 180px of row the label still takes one",
-    "// unclipped line, and a sixth would push it onto a second.",
+    "// Five controls is the measured ceiling for the row. The heading text is gone — the selected",
+    "// tab icon above already says what this panel is — so the controls own the line and centre in it.",
+    "// No layout in jsdom, but the class is the whole story here: the strip already",
+    "// separates the body, so the section must not add its own top margin.",
   ]],
   ["src/client/features/sidebar/sidebar-calendar.test.ts", [
     "// Collapsing the block hides the heatmap but used to leave the whole-vault",
@@ -3922,6 +3924,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/sidebar/sidebar-tabs.test.ts", [
     "/** The dialog only answers when a host is mounted, and `confirm()` resolves false without one. */",
+    "// The tab has no printed heading of its own any more, so the tree's name is what remains.",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",

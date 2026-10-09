@@ -500,7 +500,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         { id: 'show-inbox', label: t("sidebar.inbox_folder"), checked: inboxVisible, onSelect: () => saveCalendarPrefs({ inboxVisible: !inboxVisible }) },
     ];
     return (<>
-      <section id="sidebar-folders" className={cn('mt-4 rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOverCapture={(event) => {
+      <section id="sidebar-folders" className={cn('rounded-[var(--r-md)]', rootDropping && 'ring-1 ring-[var(--accent)]')} onDragOverCapture={(event) => {
             if (!event.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && !isNoteDrag(event))
                 return;
             if ((event.target instanceof Element && event.target.closest('[data-folder-drop-target]')) || isDropBlockedTarget(event.target)) {
@@ -528,11 +528,11 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             setRootDropping(false);
             void move(folderId, null, null);
         }}>
-      <div ref={headerRef} className="group/head flex items-center justify-between pr-1" onContextMenu={(event) => {
+      <div ref={headerRef} className={cn('group/head flex items-center', mobile ? 'justify-between pr-1' : 'justify-center')} onContextMenu={(event) => {
             setHeaderMenuOpen(false);
             headerMenu.onContextMenu(event);
         }}>
-        {mobile ? <button data-navigation-item type="button" onClick={() => useUi.getState().openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button> : <SectionLabel>{t("navigation.folder")}</SectionLabel>}
+        {mobile && <button data-navigation-item type="button" onClick={() => useUi.getState().openView('all')} className="min-h-11 rounded-lg px-2 text-left text-[13px] text-[var(--accent)]">{t('navigation.all_notes')}</button>}
         <div className="flex shrink-0 items-center">
         <TemplateQuickActions iconSize={13}/>
         <Tooltip label={t("common.new_note")} combo={APP_SHORTCUTS.newNote}>

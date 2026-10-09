@@ -60,6 +60,12 @@ describe('sidebar tab strip', () => {
         expect(container.querySelector('[data-tag-row]')).toBeNull();
     });
 
+    it('starts the tag body under the strip without its own margin', async () => {
+        await act(async () => tabs().find((tab) => tab.dataset.tab === 'tags')?.click());
+        const section = panel().querySelector('section')!;
+        expect(section.className).not.toContain('mt-');
+    });
+
     it('holds the calendar and the view rows outside the panel, above the strip', () => {
         const fixed = container.querySelector<HTMLElement>('[data-sidebar-fixed]')!;
         expect(fixed).toBeTruthy();
@@ -483,7 +489,9 @@ describe('folder filter', () => {
     });
 
     it('leaves the built-in rows out of the way while filtering', async () => {
-        expect(container.textContent).toContain(t('navigation.folder'));
+        // The tab has no printed heading of its own any more, so the tree's name is what remains.
+        expect(container.querySelector(`[role="tree"][aria-label="${t('navigation.folder')}"]`)).toBeTruthy();
+        expect(container.textContent).not.toContain(t('navigation.folder'));
         await typeInto(filter()!, 'games');
         expect(shownFolders()).toEqual(['Games']);
     });
