@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { t } from '../../i18n';
 import { useUi } from '../../../store/ui';
+import { useNotes } from '../../../store/notes';
 import { ExcalidrawToolsPanel } from '../../../features/excalidraw/ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from '../../../features/excalidraw/ExcalidrawFloatingCapsule';
 import {
@@ -113,9 +114,18 @@ function bindToolbar(
                 const elements = api.getSceneElements();
                 const appState = api.getAppState();
                 const files = api.getFiles();
+                const settings = useExcalidrawSettingsStore.getState();
                 const blob = await lib.exportToBlob({
                     elements,
-                    appState: { ...appState, exportWithDarkMode: instance.dark },
+                    appState: {
+                        ...appState,
+                        exportWithDarkMode: instance.dark,
+                        exportBackground: settings.exportWithBackground,
+                        exportScale: settings.pngExportScale,
+                        exportPadding: settings.exportPaddingSVG,
+                    },
+                    exportPadding: settings.exportPaddingSVG,
+                    exportScale: settings.pngExportScale,
                     files,
                     mimeType: 'image/png',
                 });
@@ -266,23 +276,45 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
         const ExcalidrawWrapper: React.FC = () => {
             const excalidrawSettings = useExcalidrawSettingsStore();
-            const [theme, setTheme] = React.useState<'light' | 'dark'>(options.dark ? 'dark' : 'light');
+            const [theme, setTheme] = React.useState<'light' | 'dark'>(() => {
+                if (excalidrawSettings.embedMatchTheme) {
+                    return options.dark ? 'dark' : 'light';
+                }
+                return (parsed.data.appState?.theme as 'light' | 'dark') || (options.dark ? 'dark' : 'light');
+            });
             const [isFullscreen, setIsFullscreen] = React.useState(() => block.classList.contains('excalidraw-fullscreen'));
             const [toolsPanelOpen, setToolsPanelOpen] = React.useState(false);
             const [libraryOpen, setLibraryOpen] = React.useState(false);
 
             React.useEffect(() => {
-                setTheme(options.dark ? 'dark' : 'light');
-            }, [options.dark]);
+                if (excalidrawSettings.embedMatchTheme) {
+                    setTheme(options.dark ? 'dark' : 'light');
+                }
+            }, [options.dark, excalidrawSettings.embedMatchTheme]);
 
             React.useEffect(() => {
                 if (!api) return;
                 api.updateScene({
                     appState: {
                         gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
+                        linkOpacity: excalidrawSettings.linkIndicatorOpacity,
+                        currentItemFontFamily: excalidrawSettings.defaultFontFamily,
+                        currentItemFontSize: excalidrawSettings.defaultFontSize,
+                        currentItemStrokeWidth: excalidrawSettings.defaultStrokeWidth,
+                        currentItemFillStyle: excalidrawSettings.defaultFillStyle,
+                        currentItemRoughness: excalidrawSettings.defaultRoughness,
                     },
                 });
-            }, [excalidrawSettings.gridModeEnabled, excalidrawSettings.gridSize]);
+            }, [
+                excalidrawSettings.gridModeEnabled,
+                excalidrawSettings.gridSize,
+                excalidrawSettings.linkIndicatorOpacity,
+                excalidrawSettings.defaultFontFamily,
+                excalidrawSettings.defaultFontSize,
+                excalidrawSettings.defaultStrokeWidth,
+                excalidrawSettings.defaultFillStyle,
+                excalidrawSettings.defaultRoughness,
+            ]);
 
             const handleToggleLibrary = React.useCallback(() => {
                 if (!api) return;
@@ -386,6 +418,29 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 scheduleSave();
             }, []);
 
+            const handleLinkOpen = React.useCallback((element: any, event: any) => {
+                if (event?.preventDefault) event.preventDefault();
+                const link = element?.link?.trim();
+                if (!link) return;
+                if (/^https?:\/\//i.test(link) || /^mailto:/i.test(link)) {
+                    window.open(link, '_blank', 'noopener,noreferrer');
+                    return;
+                }
+                const cleanTitle = link.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+                const allNotes = Object.values(useNotes.getState().notes || {});
+                const target = allNotes.find(
+                    (n) => n.title.toLowerCase() === cleanTitle.toLowerCase() || n.id === cleanTitle
+                );
+                if (target) {
+                    const settings = useExcalidrawSettingsStore.getState();
+                    const activePane = useUi.getState().activeWorkspacePane;
+                    const targetPane = settings.openInAdjacentPane
+                        ? (activePane === 'primary' ? 'secondary' : 'primary')
+                        : activePane;
+                    void useNotes.getState().openNote(target.id, { pane: targetPane });
+                }
+            }, []);
+
             return (
                 <div
                     style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -398,12 +453,19 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                                 ...parsed.data.appState,
                                 theme,
                                 gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
+                                linkOpacity: excalidrawSettings.linkIndicatorOpacity,
+                                currentItemFontFamily: excalidrawSettings.defaultFontFamily,
+                                currentItemFontSize: excalidrawSettings.defaultFontSize,
+                                currentItemStrokeWidth: excalidrawSettings.defaultStrokeWidth,
+                                currentItemFillStyle: excalidrawSettings.defaultFillStyle,
+                                currentItemRoughness: excalidrawSettings.defaultRoughness,
                             },
                             files: parsed.data.files,
                         }}
                         theme={theme}
                         langCode={options.locale === 'zh-CN' ? 'zh-CN' : 'en'}
                         onChange={handleChange}
+                        onLinkOpen={handleLinkOpen}
                         onExcalidrawAPI={(excalidrawApi: any) => {
                             api = excalidrawApi;
                             if (instance) {

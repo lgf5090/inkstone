@@ -195,9 +195,14 @@ const DEFAULT_SETTINGS = {
   syncExcalidraw: false,
 };
 
-function applySettingsSideEffects(state: { embedCardHeight?: number }): void {
-  if (typeof document !== 'undefined' && state.embedCardHeight) {
-    document.documentElement.style.setProperty('--excalidraw-embed-height', `${state.embedCardHeight}px`);
+function applySettingsSideEffects(state: { embedCardHeight?: number; loadChineseFonts?: boolean }): void {
+  if (typeof document !== 'undefined') {
+    if (state.embedCardHeight) {
+      document.documentElement.style.setProperty('--excalidraw-embed-height', `${state.embedCardHeight}px`);
+    }
+    if (state.loadChineseFonts !== undefined) {
+      document.documentElement.classList.toggle('excalidraw-cjk-fonts', state.loadChineseFonts);
+    }
   }
 }
 

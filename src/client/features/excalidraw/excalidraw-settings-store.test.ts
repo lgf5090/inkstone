@@ -229,4 +229,18 @@ describe('excalidraw-settings-store', () => {
     expect(state.autoSaveIntervalMs).toBe(600);
     expect(state.embedCardHeight).toBe(520);
   });
+
+  it('applies DOM side effects on settings update and reset', () => {
+    useExcalidrawSettingsStore.getState().updateSettings({
+      embedCardHeight: 700,
+      loadChineseFonts: true,
+    });
+    expect(document.documentElement.style.getPropertyValue('--excalidraw-embed-height')).toBe('700px');
+    expect(document.documentElement.classList.contains('excalidraw-cjk-fonts')).toBe(true);
+
+    useExcalidrawSettingsStore.getState().updateSettings({
+      loadChineseFonts: false,
+    });
+    expect(document.documentElement.classList.contains('excalidraw-cjk-fonts')).toBe(false);
+  });
 });

@@ -27,6 +27,7 @@ import { downloadBlob, safeFileName } from '../../lib/export-note';
 import { prompt, Tooltip } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { convertMermaidToExcalidrawElements, type ExcalidrawLib } from '../../lib/markdown/excalidraw';
+import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import {
     getViewportCenterInScene,
     insertEmbedToCanvas,
@@ -101,9 +102,18 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
             const elements = api.getSceneElements();
             const currentAppState = api.getAppState();
             const files = api.getFiles();
+            const settings = useExcalidrawSettingsStore.getState();
             const blob = await lib.exportToBlob({
                 elements,
-                appState: { ...currentAppState, exportWithDarkMode: dark },
+                appState: {
+                    ...currentAppState,
+                    exportWithDarkMode: dark,
+                    exportBackground: settings.exportWithBackground,
+                    exportScale: settings.pngExportScale,
+                    exportPadding: settings.exportPaddingSVG,
+                },
+                exportPadding: settings.exportPaddingSVG,
+                exportScale: settings.pngExportScale,
                 files,
                 mimeType: 'image/png',
             });
@@ -120,9 +130,16 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
             const elements = api.getSceneElements();
             const currentAppState = api.getAppState();
             const files = api.getFiles();
+            const settings = useExcalidrawSettingsStore.getState();
             const svg = await lib.exportToSvg({
                 elements,
-                appState: { ...currentAppState, exportWithDarkMode: dark },
+                appState: {
+                    ...currentAppState,
+                    exportWithDarkMode: dark,
+                    exportBackground: settings.exportWithBackground,
+                    exportPadding: settings.exportPaddingSVG,
+                },
+                exportPadding: settings.exportPaddingSVG,
                 files,
             });
             const serializer = new XMLSerializer();
@@ -141,9 +158,18 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
             const elements = api.getSceneElements();
             const currentAppState = api.getAppState();
             const files = api.getFiles();
+            const settings = useExcalidrawSettingsStore.getState();
             const blob = await lib.exportToBlob({
                 elements,
-                appState: { ...currentAppState, exportWithDarkMode: dark },
+                appState: {
+                    ...currentAppState,
+                    exportWithDarkMode: dark,
+                    exportBackground: settings.exportWithBackground,
+                    exportScale: settings.pngExportScale,
+                    exportPadding: settings.exportPaddingSVG,
+                },
+                exportPadding: settings.exportPaddingSVG,
+                exportScale: settings.pngExportScale,
                 files,
                 mimeType: 'image/png',
             });

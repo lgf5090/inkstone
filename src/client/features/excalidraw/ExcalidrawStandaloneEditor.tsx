@@ -96,13 +96,18 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     useEffect(() => {
         if (!excalidrawSettings.matchTheme) return;
-        const observer = new MutationObserver(() => {
+        const syncCurrentTheme = () => {
             const currentTheme = (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'dark';
             setTheme(currentTheme);
-        });
+            if (api) {
+                api.updateScene({ appState: { theme: currentTheme } });
+            }
+        };
+        syncCurrentTheme();
+        const observer = new MutationObserver(syncCurrentTheme);
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         return () => observer.disconnect();
-    }, [excalidrawSettings.matchTheme]);
+    }, [api, excalidrawSettings.matchTheme]);
 
     useEffect(() => {
         if (!api) return;
@@ -117,19 +122,48 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         if (!api) return;
         api.updateScene({
             appState: {
-                zenModeEnabled: excalidrawSettings.zenModeEnabled,
+                zenModeEnabled: excalidrawSettings.zenModeEnabled || excalidrawSettings.defaultMode === 'zen',
             },
         });
-    }, [api, excalidrawSettings.zenModeEnabled]);
+    }, [api, excalidrawSettings.zenModeEnabled, excalidrawSettings.defaultMode]);
 
     useEffect(() => {
         if (!api) return;
         api.updateScene({
             appState: {
-                viewModeEnabled: excalidrawSettings.viewModeEnabled,
+                viewModeEnabled: excalidrawSettings.viewModeEnabled || excalidrawSettings.defaultMode === 'view',
             },
         });
-    }, [api, excalidrawSettings.viewModeEnabled]);
+    }, [api, excalidrawSettings.viewModeEnabled, excalidrawSettings.defaultMode]);
+
+    useEffect(() => {
+        if (!api) return;
+        api.updateScene({
+            appState: {
+                linkOpacity: excalidrawSettings.linkIndicatorOpacity,
+            },
+        });
+    }, [api, excalidrawSettings.linkIndicatorOpacity]);
+
+    useEffect(() => {
+        if (!api) return;
+        api.updateScene({
+            appState: {
+                currentItemFontFamily: excalidrawSettings.defaultFontFamily,
+                currentItemFontSize: excalidrawSettings.defaultFontSize,
+                currentItemStrokeWidth: excalidrawSettings.defaultStrokeWidth,
+                currentItemFillStyle: excalidrawSettings.defaultFillStyle,
+                currentItemRoughness: excalidrawSettings.defaultRoughness,
+            },
+        });
+    }, [
+        api,
+        excalidrawSettings.defaultFontFamily,
+        excalidrawSettings.defaultFontSize,
+        excalidrawSettings.defaultStrokeWidth,
+        excalidrawSettings.defaultFillStyle,
+        excalidrawSettings.defaultRoughness,
+    ]);
 
     useEffect(() => {
         let mounted = true;
@@ -203,6 +237,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
             setLibraryOpen(isLibOpen);
             setIsSaved(false);
             window.clearTimeout(saveTimerRef.current);
+            const autoSaveMs = useExcalidrawSettingsStore.getState().autoSaveIntervalMs || 600;
             saveTimerRef.current = window.setTimeout(() => {
                 const scene: ExcalidrawSceneData = {
                     elements: elements as any[],
@@ -212,7 +247,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 const nextJson = serializeExcalidrawBody(scene);
                 persistChanges(nextJson);
                 setRawCode(nextJson);
-            }, excalidrawSettings.autoSaveIntervalMs || 600);
+            }, autoSaveMs);
         },
         [persistChanges],
     );
@@ -302,6 +337,29 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         [api],
     );
 
+    const handleLinkOpen = useCallback((element: any, event: any) => {
+        if (event?.preventDefault) event.preventDefault();
+        const link = element?.link?.trim();
+        if (!link) return;
+        if (/^https?:\/\//i.test(link) || /^mailto:/i.test(link)) {
+            window.open(link, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        const cleanTitle = link.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+        const allNotes = Object.values(useNotes.getState().notes || {});
+        const target = allNotes.find(
+            (n) => n.title.toLowerCase() === cleanTitle.toLowerCase() || n.id === cleanTitle
+        );
+        if (target) {
+            const settings = useExcalidrawSettingsStore.getState();
+            const activePane = useUi.getState().activeWorkspacePane;
+            const targetPane = settings.openInAdjacentPane
+                ? (activePane === 'primary' ? 'secondary' : 'primary')
+                : activePane;
+            void useNotes.getState().openNote(target.id, { pane: targetPane });
+        }
+    }, []);
+
     useEffect(() => {
         if (!canvasHostRef.current || !lib) return;
         if (!isolatedRootRef.current) {
@@ -316,8 +374,14 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             ...initialScene.appState,
                             theme,
                             gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
-                            zenModeEnabled: excalidrawSettings.zenModeEnabled,
-                            viewModeEnabled: excalidrawSettings.viewModeEnabled,
+                            zenModeEnabled: excalidrawSettings.zenModeEnabled || excalidrawSettings.defaultMode === 'zen',
+                            viewModeEnabled: excalidrawSettings.viewModeEnabled || excalidrawSettings.defaultMode === 'view',
+                            linkOpacity: excalidrawSettings.linkIndicatorOpacity,
+                            currentItemFontFamily: excalidrawSettings.defaultFontFamily,
+                            currentItemFontSize: excalidrawSettings.defaultFontSize,
+                            currentItemStrokeWidth: excalidrawSettings.defaultStrokeWidth,
+                            currentItemFillStyle: excalidrawSettings.defaultFillStyle,
+                            currentItemRoughness: excalidrawSettings.defaultRoughness,
                         },
                         files: initialScene.files,
                     }}
@@ -325,6 +389,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
                     aiEnabled={true}
                     onChange={handleCanvasChange}
+                    onLinkOpen={handleLinkOpen}
                     onExcalidrawAPI={(excalidrawApi: any) => setApi(excalidrawApi)}
                     UIOptions={{
                         canvasActions: {
@@ -490,7 +555,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 </lib.Excalidraw>
             </div>
         );
-    }, [lib, theme, locale, note.id, handleCanvasChange, handleManualSave, handleToggleViewMode]);
+    }, [lib, theme, locale, note.id, handleCanvasChange, handleLinkOpen, handleManualSave, handleToggleViewMode]);
 
     useEffect(() => {
         return () => {

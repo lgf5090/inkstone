@@ -145,12 +145,15 @@ export function createLatexSvg(latex: string, dark = false): { dataURL: string; 
         html = `<span class="katex">${latex}</span>`;
     }
 
+    const settings = useExcalidrawSettingsStore.getState();
+    const fontSize = settings.latexFontSize || 24;
+
     let width = 240;
     let height = 80;
 
     if (typeof document !== 'undefined') {
         const temp = document.createElement('div');
-        temp.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:-9999px;font-size:20px;display:inline-block;padding:12px;line-height:1.2;';
+        temp.style.cssText = `position:absolute;visibility:hidden;left:-9999px;top:-9999px;font-size:${fontSize}px;display:inline-block;padding:12px;line-height:1.2;`;
         temp.innerHTML = html;
         document.body.appendChild(temp);
         const rect = temp.getBoundingClientRect();
@@ -165,10 +168,10 @@ export function createLatexSvg(latex: string, dark = false): { dataURL: string; 
   <style>
     ${katexPrintCss}
     .katex-display { margin: 0; }
-    .katex { color: ${textColor}; }
+    .katex { color: ${textColor}; font-size: ${fontSize}px; }
   </style>
   <foreignObject width="100%" height="100%">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:${textColor};">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:${textColor};font-size:${fontSize}px;">
       ${html}
     </div>
   </foreignObject>
@@ -341,7 +344,13 @@ export async function promptAndInsertNoteCard(api: any, dark = false): Promise<v
     let snippet = '';
     if (matchedNote) {
         const rawContent = useNotes.getState().contents[matchedNote.id] || '';
-        const cleanContent = rawContent.replace(/^---[\s\S]*?---/, '').trim();
+        let cleanContent = rawContent.replace(/^---[\s\S]*?---/, '').trim();
+        const settings = useExcalidrawSettingsStore.getState();
+        if (settings.parseTODO) {
+            cleanContent = cleanContent
+                .replace(/^- \[\s\] /gm, `${settings.todo} `)
+                .replace(/^- \[[^\s]\] /gm, `${settings.done} `);
+        }
         if (cleanContent) {
             snippet = cleanContent.slice(0, 120).replace(/\n+/g, ' ');
             if (cleanContent.length > 120) snippet += '...';
@@ -464,9 +473,12 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
     if (!api || !fileName.trim()) return;
     const cleanName = fileName.trim();
     const center = getViewportCenterInScene(api);
+    const settings = useExcalidrawSettingsStore.getState();
+    const scale = settings.pdfImportScale || 1.0;
+    const hasBorder = settings.pdfBorderBox;
 
-    const cardW = 260;
-    const cardH = 64;
+    const cardW = Math.round(260 * scale);
+    const cardH = Math.round(64 * scale);
     const cardX = Math.round(center.x - cardW / 2);
     const cardY = Math.round(center.y - cardH / 2);
 
@@ -481,10 +493,10 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
         y: cardY,
         width: cardW,
         height: cardH,
-        strokeColor: dark ? '#f87171' : '#dc2626',
+        strokeColor: hasBorder ? (dark ? '#f87171' : '#dc2626') : 'transparent',
         backgroundColor: dark ? '#450a0a' : '#fef2f2',
         fillStyle: 'solid',
-        strokeWidth: 1.5,
+        strokeWidth: hasBorder ? 1.5 : 0,
         strokeStyle: 'solid',
         roughness: 0,
         opacity: 100,
@@ -502,8 +514,8 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
         height: 24,
         text: pdfText,
         originalText: pdfText,
-        fontSize: 14,
-        fontFamily: 1,
+        fontSize: Math.round(14 * Math.min(scale, 1.5)),
+        fontFamily: settings.defaultFontFamily || 1,
         lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'middle',

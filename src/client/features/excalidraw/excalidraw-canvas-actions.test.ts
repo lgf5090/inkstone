@@ -8,6 +8,7 @@ import {
     insertPdfCardToCanvas,
     zoomToFitScene,
 } from './excalidraw-canvas-actions';
+import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 
 describe('computeElementsBounds', () => {
     it('returns null for empty elements array', () => {
@@ -145,6 +146,15 @@ describe('createLatexSvg and insertLatexToCanvas', () => {
         expect(decodeURIComponent(result.dataURL)).toContain('katex');
         expect(result.width).toBeGreaterThan(0);
         expect(result.height).toBeGreaterThan(0);
+    });
+
+    it('applies configured latexFontSize to SVG output', () => {
+        useExcalidrawSettingsStore.getState().updateSettings({
+            latexFontSize: 36,
+        });
+        const result = createLatexSvg('E=mc^2', false);
+        const decoded = decodeURIComponent(result.dataURL);
+        expect(decoded).toContain('font-size: 36px');
     });
 
     it('inserts image element with SVG file into canvas', () => {
@@ -288,6 +298,37 @@ describe('insertPdfCardToCanvas', () => {
         expect(text.text).toContain('annual-report.pdf');
         expect(text.originalText).toBe(text.text);
         expect(text.width).toBeGreaterThan(0);
+    });
+
+    it('scales pdf card dimensions and removes border when configured', () => {
+        let sceneElements: any[] = [];
+        const mockApi = {
+            getSceneElements: () => sceneElements,
+            getAppState: () => ({
+                width: 800,
+                height: 600,
+                zoom: { value: 1 },
+                scrollX: 0,
+                scrollY: 0,
+            }),
+            updateScene: vi.fn((data) => {
+                sceneElements = data.elements;
+            }),
+        };
+
+        useExcalidrawSettingsStore.getState().updateSettings({
+            pdfImportScale: 2.0,
+            pdfBorderBox: false,
+        });
+
+        insertPdfCardToCanvas(mockApi, 'doc.pdf', false);
+
+        expect(sceneElements.length).toBe(2);
+        const rect = sceneElements.find((e) => e.type === 'rectangle');
+        expect(rect.width).toBe(520);
+        expect(rect.height).toBe(128);
+        expect(rect.strokeColor).toBe('transparent');
+        expect(rect.strokeWidth).toBe(0);
     });
 });
 
