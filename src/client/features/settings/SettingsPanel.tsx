@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Braces, BrainCircuit, Cloud, Database, FilePlus2, Info, Keyboard, Link2, Palette, RefreshCw, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
+import { Braces, BrainCircuit, Brush, Cloud, Database, FilePlus2, Info, Keyboard, Link2, Palette, RefreshCw, ScanSearch, Search, TableProperties, Type, UserRound, X, WandSparkles, Zap } from 'lucide-react';
 import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
@@ -39,6 +39,7 @@ export const SECTIONS: {
     { id: 'automation', label: () => t("settings.automation"), icon: <Zap size={14}/> },
     { id: 'queries', label: () => t("settings.dataview"), icon: <TableProperties size={14}/> },
     { id: 'linter', label: () => t("settings.markdown_linter"), icon: <WandSparkles size={14}/> },
+    { id: 'excalidraw', label: () => t("settings.excalidraw"), icon: <Brush size={14}/> },
     { id: 'about', label: () => t("settings.about"), icon: <Info size={14}/> },
 ];
 function HitTitle({ hit }: {

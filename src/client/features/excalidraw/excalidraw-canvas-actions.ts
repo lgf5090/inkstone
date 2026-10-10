@@ -4,6 +4,7 @@ import { prompt } from '../../components/overlay';
 import { t } from '../../lib/i18n';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
+import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 
 export interface BoundingBox {
     minX: number;
@@ -267,7 +268,10 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         boundElements,
     };
 
-    const titleText = `📝 ${cleanTitle}`;
+    const settings = useExcalidrawSettingsStore.getState();
+    const prefix = settings.linkPrefix ? settings.linkPrefix : '📝 ';
+    const formattedTitle = settings.linkBrackets ? `[[${cleanTitle}]]` : cleanTitle;
+    const titleText = `${prefix}${formattedTitle}`;
     const titleEl = {
         id: titleTextId,
         type: 'text',
@@ -382,8 +386,14 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
 
     const cardId = `link_card_${Date.now()}`;
     const textId = `link_text_${Date.now()}`;
+    const isUrl = /^https?:\/\//i.test(rawLink) || /^mailto:/i.test(rawLink);
+    const settings = useExcalidrawSettingsStore.getState();
+    const prefix = isUrl
+        ? (settings.urlPrefix ? settings.urlPrefix : '🌐 ')
+        : (settings.linkPrefix ? settings.linkPrefix : '🔗 ');
     const displayLabel = rawLink.replace(/^\[\[/, '').replace(/\]\]$/, '');
-    const linkText = `🔗 ${displayLabel}`;
+    const formattedLabel = (!isUrl && settings.linkBrackets) ? `[[${displayLabel}]]` : displayLabel;
+    const linkText = `${prefix}${formattedLabel}`;
 
     const rectEl = {
         id: cardId,

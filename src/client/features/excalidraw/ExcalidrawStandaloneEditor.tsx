@@ -14,6 +14,7 @@ import {
     Sparkles,
     Star,
     Sun,
+    Workflow,
     X,
 } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
@@ -34,11 +35,15 @@ import {
 import { ExcalidrawToolsPanel } from './ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from './ExcalidrawFloatingCapsule';
 import {
+    getViewportCenterInScene,
     promptAndInsertLatex,
     promptAndInsertLink,
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from './excalidraw-canvas-actions';
+import { TextToDiagramModal } from './TextToDiagramModal';
+import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
+import { extractCodeBlock, streamChatCompletion, type AIMessage } from '../../lib/ai';
 
 interface ExcalidrawStandaloneEditorProps {
     note: NoteSummary;
@@ -74,6 +79,8 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
     const [isSaved, setIsSaved] = useState(true);
+    const [aiModalOpen, setAiModalOpen] = useState(false);
+    const [aiModalTab, setAiModalTab] = useState<'ai' | 'mermaid'>('ai');
 
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
         return (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'dark';
@@ -85,14 +92,17 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const saveTimerRef = useRef<number | undefined>(undefined);
     const lastSavedRef = useRef<string>(content);
 
+    const excalidrawSettings = useExcalidrawSettingsStore();
+
     useEffect(() => {
+        if (!excalidrawSettings.matchTheme) return;
         const observer = new MutationObserver(() => {
             const currentTheme = (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'dark';
             setTheme(currentTheme);
         });
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         return () => observer.disconnect();
-    }, []);
+    }, [excalidrawSettings.matchTheme]);
 
     useEffect(() => {
         let mounted = true;
@@ -175,7 +185,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 const nextJson = serializeExcalidrawBody(scene);
                 persistChanges(nextJson);
                 setRawCode(nextJson);
-            }, 600);
+            }, excalidrawSettings.autoSaveIntervalMs || 600);
         },
         [persistChanges],
     );
@@ -243,6 +253,28 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         }
     }, [viewMode, api, rawCode]);
 
+    const handleInsertDiagramFromModal = useCallback(
+        (elements: any[]) => {
+            if (!api || !elements || elements.length === 0) return;
+            const center = getViewportCenterInScene(api);
+            const minX = Math.min(...elements.map((el) => Number(el.x) || 0));
+            const minY = Math.min(...elements.map((el) => Number(el.y) || 0));
+            const maxX = Math.max(...elements.map((el) => (Number(el.x) || 0) + (Number(el.width) || 0)));
+            const maxY = Math.max(...elements.map((el) => (Number(el.y) || 0) + (Number(el.height) || 0)));
+            const width = Math.max(maxX - minX, 100);
+            const height = Math.max(maxY - minY, 100);
+            const shifted = elements.map((el) => ({
+                ...el,
+                x: Math.round(center.x - width / 2 + ((Number(el.x) || 0) - minX)),
+                y: Math.round(center.y - height / 2 + ((Number(el.y) || 0) - minY)),
+            }));
+            const existing = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
+            api.updateScene({ elements: [...existing, ...shifted] });
+            setIsSaved(false);
+        },
+        [api],
+    );
+
     useEffect(() => {
         if (!canvasHostRef.current || !lib) return;
         if (!isolatedRootRef.current) {
@@ -256,6 +288,9 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         appState: {
                             ...initialScene.appState,
                             theme,
+                            gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
+                            zenModeEnabled: excalidrawSettings.zenModeEnabled,
+                            viewModeEnabled: excalidrawSettings.viewModeEnabled,
                         },
                         files: initialScene.files,
                     }}
@@ -271,6 +306,63 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         },
                     }}
                 >
+                    {lib.TTDDialog && (
+                        <lib.TTDDialog
+                            persistenceAdapter={{
+                                loadChats: async () => {
+                                    try {
+                                        const saved = localStorage.getItem('inkstone-excalidraw-ttd-chats');
+                                        return saved ? JSON.parse(saved) : [];
+                                    } catch {
+                                        return [];
+                                    }
+                                },
+                                saveChats: async (chats: any) => {
+                                    try {
+                                        localStorage.setItem('inkstone-excalidraw-ttd-chats', JSON.stringify(chats));
+                                    } catch {
+                                    }
+                                },
+                            }}
+                            onTextSubmit={async (props: any) => {
+                                const { messages = [], onChunk, onStreamCreated, signal } = props ?? {};
+                                onStreamCreated?.();
+                                const settings = useExcalidrawSettingsStore.getState();
+                                const config = settings.aiProviders[settings.aiDefaultProvider] || {
+                                    provider: 'deepseek',
+                                    baseURL: 'https://api.deepseek.com',
+                                    apiKey: '***REMOVED***',
+                                };
+                                const systemPrompt =
+                                    'The user will provide you with a text prompt. Your task is to generate a mermaid diagram based on the prompt. Use the graph, sequenceDiagram, flowchart or classDiagram types based on what best fits the request. Return a single message containing only the mermaid diagram in a codeblock. Avoid the use of () parenthesis in the mermaid script.';
+                                try {
+                                    const aiMsgs: AIMessage[] = messages.map((m: any, i: number) => ({
+                                        id: String(i),
+                                        role: m.role,
+                                        content: m.content,
+                                    }));
+                                    const result = await streamChatCompletion(aiMsgs, config, {
+                                        systemPrompt,
+                                        signal,
+                                        onChunk: (_c: string, full: string) => {
+                                            let code = extractCodeBlock(full) || full;
+                                            if (code.startsWith('mermaid')) {
+                                                code = code.replace(/^mermaid\s*/i, '');
+                                            }
+                                            onChunk?.(code);
+                                        },
+                                    });
+                                    let generatedResponse = extractCodeBlock(result.content) || result.content;
+                                    if (generatedResponse.startsWith('mermaid')) {
+                                        generatedResponse = generatedResponse.replace(/^mermaid\s*/i, '');
+                                    }
+                                    return { generatedResponse, error: null };
+                                } catch (err: unknown) {
+                                    return { error: (err instanceof Error ? err : new Error(String(err))) as any };
+                                }
+                            }}
+                        />
+                    )}
                     {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
                     {lib.DiagramToCodePlugin && (
                         <lib.DiagramToCodePlugin
@@ -278,6 +370,24 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         />
                     )}
                     <lib.MainMenu>
+                        <lib.MainMenu.Item
+                            onSelect={() => {
+                                setAiModalTab('ai');
+                                setAiModalOpen(true);
+                            }}
+                            icon={<Sparkles size={14} />}
+                        >
+                            {`${t('excalidraw.text_to_diagram')} [AI]`}
+                        </lib.MainMenu.Item>
+                        <lib.MainMenu.Item
+                            onSelect={() => {
+                                setAiModalTab('mermaid');
+                                setAiModalOpen(true);
+                            }}
+                            icon={<Workflow size={14} />}
+                        >
+                            {t('excalidraw.mermaid_to_excalidraw')}
+                        </lib.MainMenu.Item>
                         <lib.MainMenu.DefaultItems.ChangeCanvasBackground />
                         <lib.MainMenu.Item
                             onSelect={() => {
@@ -493,6 +603,19 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         </IconButton>
                     </Tooltip>
 
+                    <Tooltip label={`${t('excalidraw.text_to_diagram')} [AI]`}>
+                        <IconButton
+                            label={`${t('excalidraw.text_to_diagram')} [AI]`}
+                            size="sm"
+                            onClick={() => {
+                                setAiModalTab('ai');
+                                setAiModalOpen(true);
+                            }}
+                        >
+                            <Sparkles size={14} className="text-[var(--accent)]" />
+                        </IconButton>
+                    </Tooltip>
+
                     <Tooltip label={t('excalidraw.tools_panel')}>
                         <IconButton
                             label={t('excalidraw.tools_panel')}
@@ -530,8 +653,11 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
                 <div
                     ref={canvasHostRef}
-                    className="h-full w-full"
-                    style={{ display: viewMode === 'canvas' && lib ? 'block' : 'none' }}
+                    className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''}`}
+                    style={{
+                        display: viewMode === 'canvas' && lib ? 'block' : 'none',
+                        ['--default-link-indicator-opacity' as any]: excalidrawSettings.linkIndicatorOpacity,
+                    }}
                 />
 
                 {!lib && !libError && (
@@ -574,8 +700,20 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
                         onToggleFullscreen={handleToggleFullscreen}
                         onSave={handleManualSave}
+                        onOpenAiModal={(tab) => {
+                            setAiModalTab(tab || 'ai');
+                            setAiModalOpen(true);
+                        }}
                     />
                 )}
+
+                <TextToDiagramModal
+                    isOpen={aiModalOpen}
+                    onClose={() => setAiModalOpen(false)}
+                    onInsert={handleInsertDiagramFromModal}
+                    theme={theme}
+                    initialTab={aiModalTab}
+                />
             </div>
         </div>
     );

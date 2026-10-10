@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     convertMermaidToExcalidrawElements,
     parseMermaidFlowchart,
+    parseSequenceDiagram,
 } from './mermaid';
 
 describe('mermaid flowchart to excalidraw conversion', () => {
@@ -47,5 +48,58 @@ flowchart LR
         const code = '%% comment only\n';
         const elements = convertMermaidToExcalidrawElements(code);
         expect(elements).toEqual([]);
+    });
+
+    it('handles chained arrows without creating phantom nodes', () => {
+        const code = `
+flowchart TD
+    A[Start] --> B(Middle) --> C[End]
+`;
+        const graph = parseMermaidFlowchart(code);
+        expect(graph.nodes.size).toBe(3);
+        expect(graph.edges.length).toBe(2);
+        expect(graph.edges[0].from).toBe('A');
+        expect(graph.edges[0].to).toBe('B');
+        expect(graph.edges[1].from).toBe('B');
+        expect(graph.edges[1].to).toBe('C');
+    });
+
+    it('filters out subgraphs, classes, and styles without creating phantom nodes', () => {
+        const code = `
+graph TD
+    subgraph Cluster1
+        A[Step 1] --> B[Step 2]
+    end
+    classDef default fill:#f9f
+    style A stroke:#333
+`;
+        const graph = parseMermaidFlowchart(code);
+        expect(graph.nodes.size).toBe(2);
+        expect(graph.nodes.has('subgraph')).toBe(false);
+        expect(graph.nodes.has('end')).toBe(false);
+        expect(graph.nodes.has('classDef')).toBe(false);
+    });
+
+    it('parses sequence diagrams correctly into participants, lifelines, and messages', () => {
+        const code = `
+sequenceDiagram
+    participant Alice as Alice User
+    participant Bob as Bob Service
+    Alice->>Bob: Hello Bob!
+    Bob-->>Alice: Hi Alice!
+`;
+        const seq = parseSequenceDiagram(code);
+        expect(seq.participants.length).toBe(2);
+        expect(seq.participants[0].label).toBe('Alice User');
+        expect(seq.messages.length).toBe(2);
+        expect(seq.messages[0].label).toBe('Hello Bob!');
+        expect(seq.messages[1].isDashed).toBe(true);
+
+        const elements = convertMermaidToExcalidrawElements(code, 100, 100);
+        expect(elements.length).toBeGreaterThan(6);
+        const lines = elements.filter((el) => el.type === 'line');
+        const arrows = elements.filter((el) => el.type === 'arrow');
+        expect(lines.length).toBe(2);
+        expect(arrows.length).toBe(2);
     });
 });

@@ -35,6 +35,7 @@ function loadStylesheet(href: string): void {
 }
 
 import { t } from '../../i18n';
+import { convertMermaidToExcalidrawElements } from './mermaid';
 
 let activeActionHandler: ((action: string) => void) | null = null;
 
@@ -113,7 +114,15 @@ export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
                 isContextMenuDisabled: () => false,
                 shouldSyncElementLinkWithText: () => true,
                 loadFontFromFile: async () => undefined,
-                getMermaid: async () => (lib.loadMermaid?.() ?? null),
+                getMermaid: async () => ({
+                    loaded: true,
+                    api: Promise.resolve({
+                        parseMermaidToExcalidraw: async (definition: string) => {
+                            const elements = convertMermaidToExcalidrawElements(definition);
+                            return { elements, files: {} };
+                        },
+                    }),
+                }),
                 runAction: (action: string) => {
                     activeActionHandler?.(action);
                 },

@@ -17,6 +17,7 @@ import {
     Search,
     Sigma,
     SlidersHorizontal,
+    Sparkles,
     Trash2,
     Tv,
     Workflow,
@@ -46,6 +47,7 @@ export interface ExcalidrawToolsPanelProps {
     onToggleTheme?: () => void;
     onToggleFullscreen?: () => void;
     onSave?: () => void;
+    onOpenAiModal?: (tab?: 'ai' | 'mermaid') => void;
 }
 
 export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
@@ -57,6 +59,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     dark,
     onToggleFullscreen,
     onSave,
+    onOpenAiModal,
 }) => {
     const toast = useUi((s) => s.toast);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -272,6 +275,11 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     };
 
     const handleInsertMermaid = async () => {
+        if (onOpenAiModal) {
+            onOpenAiModal('mermaid');
+            onClose();
+            return;
+        }
         if (!api) return;
         const defaultCode = 'graph TD\n  A[Start] --> B(Work)\n  B --> C{Done?}\n  C -->|Yes| D[End]';
         const code = await prompt({
@@ -545,6 +553,23 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <Globe size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={`${t('excalidraw.text_to_diagram')} [AI]`}>
+                            <button
+                                type="button"
+                                aria-label={`${t('excalidraw.text_to_diagram')} [AI]`}
+                                onClick={() => {
+                                    if (onOpenAiModal) {
+                                        onOpenAiModal('ai');
+                                        onClose();
+                                    } else {
+                                        void handleInsertMermaid();
+                                    }
+                                }}
+                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors shadow-xs"
+                            >
+                                <Sparkles size={15} />
                             </button>
                         </Tooltip>
                         <Tooltip label={t('excalidraw.mermaid_to_excalidraw')}>

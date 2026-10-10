@@ -338,6 +338,21 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'automation', titleKey: 'settings.quickadd_choices', termKeys: ['quickadd.new_template_choice', 'quickadd.new_capture_choice', 'quickadd.new_macro_choice', 'quickadd.new_group_choice', 'quickadd.no_choices', 'quickadd.run_now', 'quickadd.duplicate'] },
   { section: 'automation', titleKey: 'settings.quickadd_transport', termKeys: ['quickadd.import', 'quickadd.export', 'quickadd.import_merge', 'quickadd.import_replace'] },
   { section: 'about', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_enabled', detailKey: 'settings.excalidraw_ai_enabled_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_provider', detailKey: 'settings.excalidraw_ai_provider_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_model', detailKey: 'settings.excalidraw_ai_model_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_image_model', detailKey: 'settings.excalidraw_ai_image_model_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_link_brackets', detailKey: 'settings.excalidraw_link_brackets_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_link_prefix', detailKey: 'settings.excalidraw_link_prefix_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_url_prefix', detailKey: 'settings.excalidraw_url_prefix_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_link_opacity', detailKey: 'settings.excalidraw_link_opacity_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_autosave_interval', detailKey: 'settings.excalidraw_autosave_interval_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_filename_prefix', detailKey: 'settings.excalidraw_filename_prefix_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_embed_mode', detailKey: 'settings.excalidraw_default_embed_mode_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_grid_size', detailKey: 'settings.excalidraw_grid_size_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_match_theme', detailKey: 'settings.excalidraw_match_theme_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_lefthanded', detailKey: 'settings.excalidraw_lefthanded_desc' },
 ]
 
 const MAX_HITS = 80
