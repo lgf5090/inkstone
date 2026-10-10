@@ -7,10 +7,10 @@ import {
     Eye,
     FileCode,
     Info,
+    Library,
     Maximize,
     Minimize,
     Moon,
-    PanelRight,
     Save,
     SlidersHorizontal,
     Sparkles,
@@ -67,6 +67,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const [rawCode, setRawCode] = useState(content);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
+    const [libraryOpen, setLibraryOpen] = useState(false);
     const [isSaved, setIsSaved] = useState(true);
 
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -209,6 +210,10 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     const handleCanvasChange = useCallback(
         (elements: readonly any[], appState: any, files: any) => {
+            const isLibOpen = Boolean(
+                appState.openSidebar && (appState.openSidebar.name === 'default' || appState.openSidebar.name === 'customSidebar')
+            );
+            setLibraryOpen(isLibOpen);
             setIsSaved(false);
             window.clearTimeout(saveTimerRef.current);
             saveTimerRef.current = window.setTimeout(() => {
@@ -224,6 +229,21 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         },
         [persistChanges],
     );
+
+    const handleToggleLibrary = useCallback(() => {
+        if (!api) return;
+        if (typeof api.toggleSidebar === 'function') {
+            api.toggleSidebar({ name: 'default', tab: 'library' });
+        } else if (typeof api.updateScene === 'function') {
+            const appState = api.getAppState ? api.getAppState() : {};
+            const isOpen = Boolean(appState.openSidebar?.name === 'default' || appState.openSidebar?.name === 'customSidebar');
+            api.updateScene({
+                appState: {
+                    openSidebar: isOpen ? null : { name: 'default', tab: 'library' },
+                },
+            });
+        }
+    }, [api]);
 
     const handleManualSave = useCallback(() => {
         if (!api || !lib) return;
@@ -374,9 +394,15 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     useEffect(() => {
         return () => {
-            if (isolatedRootRef.current) {
-                isolatedRootRef.current.unmount();
+            const root = isolatedRootRef.current;
+            if (root) {
                 isolatedRootRef.current = null;
+                queueMicrotask(() => {
+                    try {
+                        root.unmount();
+                    } catch {
+                    }
+                });
             }
         };
     }, []);
@@ -566,18 +592,18 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             </button>
                         </Tooltip>
 
-                        <Tooltip label={t('excalidraw.tools_panel')}>
+                        <Tooltip label={t('excalidraw.library')}>
                             <button
                                 type="button"
-                                aria-label={t('excalidraw.tools_panel')}
-                                onClick={() => setToolsPanelOpen((o) => !o)}
+                                aria-label={t('excalidraw.library')}
+                                onClick={handleToggleLibrary}
                                 className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
-                                    toolsPanelOpen
+                                    libraryOpen
                                         ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
                                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                                 }`}
                             >
-                                <PanelRight size={14} />
+                                <Library size={14} />
                             </button>
                         </Tooltip>
                     </div>

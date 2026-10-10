@@ -4842,4 +4842,5 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.label_comp_img_from_system": "从本地系统插入图片",
     "excalidraw.label_comp_img_any_file": "从笔记库插入文件",
     "excalidraw.label_insert_card": "插入卡片",
+    "excalidraw.library": "素材库",
 } as const satisfies Record<BaseMessageKey, string>;

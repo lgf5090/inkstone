@@ -1032,6 +1032,14 @@ export function patchDom(dest: Node, src: Node): void {
       }
     }
 
+    if (destEl.hasAttribute('data-excalidraw') && srcEl.hasAttribute('data-excalidraw')) {
+      if (destEl.getAttribute('data-excalidraw') === srcEl.getAttribute('data-excalidraw') &&
+        destEl.classList.contains('is-ready')) {
+        if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
+        return
+      }
+    }
+
     const srcAttrs = srcEl.attributes
     const destAttrs = destEl.attributes
 

@@ -143,3 +143,59 @@ describe('excalidraw fence surgical updates', () => {
         expect(result).toBeNull();
     });
 });
+
+describe('excalidraw view helpers and patch guard', () => {
+    it('marks excalidraw block ready with is-ready and aria-busy false', async () => {
+        const { markExcalidrawReady } = await import('./excalidraw/view');
+        const node = block(renderMarkdown(`\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\``).html) as HTMLElement;
+        expect(node.classList.contains('loading')).toBe(true);
+        expect(node.getAttribute('aria-busy')).toBe('true');
+        expect(node.querySelector('[data-excalidraw-placeholder]')).not.toBeNull();
+
+        markExcalidrawReady(node);
+        expect(node.classList.contains('loading')).toBe(false);
+        expect(node.classList.contains('is-ready')).toBe(true);
+        expect(node.getAttribute('aria-busy')).toBe('false');
+        expect(node.querySelector('[data-excalidraw-placeholder]')).toBeNull();
+    });
+
+    it('marks excalidraw block with error and removes loading/is-ready', async () => {
+        const { showExcalidrawError } = await import('./excalidraw/view');
+        const node = block(renderMarkdown(`\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\``).html) as HTMLElement;
+        showExcalidrawError(node, 'Network error');
+        expect(node.classList.contains('loading')).toBe(false);
+        expect(node.classList.contains('is-ready')).toBe(false);
+        expect(node.classList.contains('has-error')).toBe(true);
+        expect(node.getAttribute('aria-busy')).toBe('false');
+        expect(node.querySelector('.excalidraw-error-message')?.textContent).toBe('Network error');
+    });
+
+    it('patchChildren preserves a mounted ready excalidraw block across typing', async () => {
+        const { patchChildren } = await import('../../features/preview/Preview');
+        const { markExcalidrawReady } = await import('./excalidraw/view');
+
+        const initialDoc = `# Title\n\n\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\``;
+        const live = document.createElement('div');
+        live.innerHTML = renderMarkdown(initialDoc).html;
+
+        const liveBlock = live.querySelector<HTMLElement>('[data-excalidraw]')!;
+        markExcalidrawReady(liveBlock);
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'excalidraw-canvas-container';
+        canvasHost.id = 'live-canvas';
+        liveBlock.append(canvasHost);
+
+        const updatedDoc = `# Title\n\n\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\`\n\nNew paragraph`;
+        const staged = document.createElement('div');
+        staged.innerHTML = renderMarkdown(updatedDoc).html;
+
+        patchChildren(live, staged);
+
+        const preservedBlock = live.querySelector<HTMLElement>('[data-excalidraw]')!;
+        expect(preservedBlock).toBe(liveBlock);
+        expect(preservedBlock.classList.contains('is-ready')).toBe(true);
+        expect(preservedBlock.classList.contains('loading')).toBe(false);
+        expect(preservedBlock.querySelector('#live-canvas')).toBe(canvasHost);
+    });
+});
+

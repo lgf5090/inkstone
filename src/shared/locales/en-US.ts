@@ -4842,6 +4842,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "excalidraw.label_comp_img_from_system": "Insert Image from System",
     "excalidraw.label_comp_img_any_file": "Insert File from Vault",
     "excalidraw.label_insert_card": "Insert Card",
+    "excalidraw.library": "Library",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

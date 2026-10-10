@@ -142,24 +142,27 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         let instance = activeInstances.get(key);
 
         if (instance) {
-            if (instance.entry.container !== block) {
-                instance.entry.container = block;
-                const toolbar = createExcalidrawToolbar(block);
+            instance.entry.container = block;
+            let toolbar = block.querySelector<HTMLElement>('.excalidraw-block-head');
+            if (!toolbar) {
+                toolbar = createExcalidrawToolbar(block);
                 block.prepend(toolbar);
                 decorateExcalidrawControls(block);
+                bindToolbar(block, instance.entry, instance, lib);
+            }
 
+            if (!block.contains(instance.canvasHost)) {
                 const placeholder = block.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR);
                 if (placeholder) {
                     placeholder.replaceWith(instance.canvasHost);
                 } else {
                     block.append(instance.canvasHost);
                 }
-                if (instance.rawPre) {
-                    block.append(instance.rawPre);
-                }
-                markExcalidrawReady(block);
-                bindToolbar(block, instance.entry, instance, lib);
             }
+            if (instance.rawPre && !block.contains(instance.rawPre)) {
+                block.append(instance.rawPre);
+            }
+            markExcalidrawReady(block);
 
             const trimmedBody = ref.rawBody.trim();
             if (trimmedBody !== instance.lastSavedJson) {
@@ -186,7 +189,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
         const canvasHost = document.createElement('div');
         canvasHost.className = EXCALIDRAW_CANVAS_CLASS;
-        block.append(canvasHost);
+        const placeholder = block.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR);
+        if (placeholder) {
+            placeholder.replaceWith(canvasHost);
+        } else {
+            block.append(canvasHost);
+        }
 
         const rawPre = document.createElement('pre');
         rawPre.className = 'excalidraw-block-source';
@@ -296,8 +304,13 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             excalidrawAPI: null,
             destroy: () => {
                 window.clearTimeout(instance?.saveTimeout);
-                reactRoot.unmount();
                 activeInstances.delete(key);
+                queueMicrotask(() => {
+                    try {
+                        reactRoot.unmount();
+                    } catch {
+                    }
+                });
             },
             updateScene: (nextData: ExcalidrawSceneData) => {
                 if (api) {
@@ -341,6 +354,13 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         activeInstances.set(key, instance);
 
         bindToolbar(block, entry, instance, lib);
+    }
+
+    const currentKeys = new Set(blocks.map((b) => makeInstanceKey(options.scope, excalidrawFenceRef(b).index)));
+    for (const [key, inst] of activeInstances.entries()) {
+        if (key.startsWith(`${options.scope}::`) && !currentKeys.has(key)) {
+            inst.entry.destroy();
+        }
     }
 }
 

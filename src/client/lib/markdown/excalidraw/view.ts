@@ -134,15 +134,17 @@ export function createExcalidrawToolbar(_node?: HTMLElement): HTMLElement {
 }
 
 export function markExcalidrawReady(node: HTMLElement): void {
-    node.classList.remove('loading');
-    node.removeAttribute('aria-busy');
+    node.classList.remove('loading', 'has-error');
+    node.classList.add('is-ready');
+    node.setAttribute('aria-busy', 'false');
     const placeholder = node.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR);
     placeholder?.remove();
 }
 
 export function showExcalidrawError(node: HTMLElement, message: string, onRetry?: () => void): void {
-    node.classList.remove('loading');
-    node.removeAttribute('aria-busy');
+    node.classList.remove('loading', 'is-ready');
+    node.classList.add('has-error');
+    node.setAttribute('aria-busy', 'false');
     const placeholder = node.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR);
     placeholder?.remove();
 
