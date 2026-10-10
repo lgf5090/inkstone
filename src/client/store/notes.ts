@@ -28,6 +28,7 @@ import {
 } from '../lib/calendar-tree';
 import { adoptedFrontMatterTitle, buildNewNoteContent, rememberPendingEditorCursor, syncTitleIntoFrontMatter } from './new-note';
 import { createDefaultExcalidrawScene, serializeExcalidrawBody } from '../lib/markdown/excalidraw';
+import { useExcalidrawSettingsStore } from '../features/excalidraw/excalidraw-settings-store';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -839,14 +840,17 @@ export const useNotes = create<NotesState>((set, get) => ({
     },
     async createExcalidrawNote(folderId?: string | null) {
         const initialScene = serializeExcalidrawBody(createDefaultExcalidrawScene());
+        const settings = useExcalidrawSettingsStore.getState();
         const now = new Date();
         const pad = (n: number) => String(n).padStart(2, '0');
         const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
-        const title = `Drawing ${dateStr}.excalidraw`;
+        const prefix = settings.drawingFilenamePrefix || 'Drawing ';
+        const ext = settings.useExcalidrawExtension ? '.excalidraw' : '';
+        const title = `${prefix}${dateStr}${ext}`;
         return get().createNote({
             title,
             content: initialScene,
-            folderId: folderId ?? undefined,
+            folderId: folderId ?? (settings.folder ? settings.folder : undefined),
             open: true,
         });
     },

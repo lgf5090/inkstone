@@ -2427,7 +2427,7 @@
   border-radius: var(--r-lg);
   background: var(--bg-inset);
   overflow: hidden;
-  height: 520px;
+  height: var(--excalidraw-embed-height, 520px);
   display: flex;
   flex-direction: column;
 }

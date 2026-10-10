@@ -20,6 +20,7 @@ import {
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from '../../../features/excalidraw/excalidraw-canvas-actions';
+import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
 import { loadExcalidrawLib, registerExcalidrawActionHandler } from './loader';
 import type {
@@ -244,6 +245,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         const scheduleSave = () => {
             if (!options.writeBack || !options.editable) return;
             window.clearTimeout(instance?.saveTimeout);
+            const debounceMs = useExcalidrawSettingsStore.getState().autoSaveIntervalMs || 600;
             const timeout = window.setTimeout(() => {
                 const currentData: ExcalidrawSceneData = {
                     elements: lastElements,
@@ -256,13 +258,14 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                     rawCode.textContent = nextJson;
                     options.writeBack!(ref, nextJson);
                 }
-            }, 600);
+            }, debounceMs);
             if (instance) {
                 instance.saveTimeout = timeout;
             }
         };
 
         const ExcalidrawWrapper: React.FC = () => {
+            const excalidrawSettings = useExcalidrawSettingsStore();
             const [theme, setTheme] = React.useState<'light' | 'dark'>(options.dark ? 'dark' : 'light');
             const [isFullscreen, setIsFullscreen] = React.useState(() => block.classList.contains('excalidraw-fullscreen'));
             const [toolsPanelOpen, setToolsPanelOpen] = React.useState(false);
@@ -271,6 +274,15 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             React.useEffect(() => {
                 setTheme(options.dark ? 'dark' : 'light');
             }, [options.dark]);
+
+            React.useEffect(() => {
+                if (!api) return;
+                api.updateScene({
+                    appState: {
+                        gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
+                    },
+                });
+            }, [excalidrawSettings.gridModeEnabled, excalidrawSettings.gridSize]);
 
             const handleToggleLibrary = React.useCallback(() => {
                 if (!api) return;
@@ -385,6 +397,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             appState: {
                                 ...parsed.data.appState,
                                 theme,
+                                gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
                             },
                             files: parsed.data.files,
                         }}

@@ -339,20 +339,77 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'automation', titleKey: 'settings.quickadd_transport', termKeys: ['quickadd.import', 'quickadd.export', 'quickadd.import_merge', 'quickadd.import_replace'] },
   { section: 'about', titleKey: 'common.exit', termKeys: ['common.log_out', 'sidebar.log_out'] },
 
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_folder', detailKey: 'settings.excalidraw_folder_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_template_path', detailKey: 'settings.excalidraw_template_path_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_script_folder', detailKey: 'settings.excalidraw_script_folder_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_show_release_notes', detailKey: 'settings.excalidraw_show_release_notes_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_compress', detailKey: 'settings.excalidraw_compress_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_autosave_interval', detailKey: 'settings.excalidraw_autosave_interval_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_filename_prefix', detailKey: 'settings.excalidraw_filename_prefix_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_filename_date_format', detailKey: 'settings.excalidraw_filename_date_format_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_use_extension', detailKey: 'settings.excalidraw_use_extension_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_embed_prefix_filename', detailKey: 'settings.excalidraw_embed_prefix_filename_desc' },
+
   { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_enabled', detailKey: 'settings.excalidraw_ai_enabled_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_provider', detailKey: 'settings.excalidraw_ai_provider_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_model', detailKey: 'settings.excalidraw_ai_model_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_image_model', detailKey: 'settings.excalidraw_ai_image_model_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_ai_verbose_logging', detailKey: 'settings.excalidraw_ai_verbose_logging_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_match_theme', detailKey: 'settings.excalidraw_match_theme_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_dynamic_styling', detailKey: 'settings.excalidraw_dynamic_styling_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_lefthanded', detailKey: 'settings.excalidraw_lefthanded_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_mode', detailKey: 'settings.excalidraw_default_mode_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_grid_mode', detailKey: 'settings.excalidraw_grid_mode_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_grid_size', detailKey: 'settings.excalidraw_grid_size_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_grid_snap', detailKey: 'settings.excalidraw_grid_snap_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_disable_double_click_edit', detailKey: 'settings.excalidraw_disable_double_click_edit_desc' },
+
   { section: 'excalidraw', titleKey: 'settings.excalidraw_link_brackets', detailKey: 'settings.excalidraw_link_brackets_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_link_prefix', detailKey: 'settings.excalidraw_link_prefix_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_url_prefix', detailKey: 'settings.excalidraw_url_prefix_desc' },
   { section: 'excalidraw', titleKey: 'settings.excalidraw_link_opacity', detailKey: 'settings.excalidraw_link_opacity_desc' },
-  { section: 'excalidraw', titleKey: 'settings.excalidraw_autosave_interval', detailKey: 'settings.excalidraw_autosave_interval_desc' },
-  { section: 'excalidraw', titleKey: 'settings.excalidraw_filename_prefix', detailKey: 'settings.excalidraw_filename_prefix_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_allow_ctrl_click', detailKey: 'settings.excalidraw_allow_ctrl_click_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_open_in_adjacent', detailKey: 'settings.excalidraw_open_in_adjacent_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_parse_todo', detailKey: 'settings.excalidraw_parse_todo_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_todo_prefix', detailKey: 'settings.excalidraw_todo_prefix_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_done_prefix', detailKey: 'settings.excalidraw_done_prefix_desc' },
+
   { section: 'excalidraw', titleKey: 'settings.excalidraw_default_embed_mode', detailKey: 'settings.excalidraw_default_embed_mode_desc' },
-  { section: 'excalidraw', titleKey: 'settings.excalidraw_grid_size', detailKey: 'settings.excalidraw_grid_size_desc' },
-  { section: 'excalidraw', titleKey: 'settings.excalidraw_match_theme', detailKey: 'settings.excalidraw_match_theme_desc' },
-  { section: 'excalidraw', titleKey: 'settings.excalidraw_lefthanded', detailKey: 'settings.excalidraw_lefthanded_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_embed_card_height', detailKey: 'settings.excalidraw_embed_card_height_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_embed_match_theme', detailKey: 'settings.excalidraw_embed_match_theme_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_export_with_bg', detailKey: 'settings.excalidraw_export_with_bg_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_png_scale', detailKey: 'settings.excalidraw_png_scale_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_export_padding', detailKey: 'settings.excalidraw_export_padding_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_md_card_width', detailKey: 'settings.excalidraw_md_card_width_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_md_card_height', detailKey: 'settings.excalidraw_md_card_height_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_md_one_click_edit', detailKey: 'settings.excalidraw_md_one_click_edit_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_pdf_import_scale', detailKey: 'settings.excalidraw_pdf_import_scale_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_pdf_border_box', detailKey: 'settings.excalidraw_pdf_border_box_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_num_custom_pens', detailKey: 'settings.excalidraw_num_custom_pens_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_stroke_width', detailKey: 'settings.excalidraw_default_stroke_width_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_fill_style', detailKey: 'settings.excalidraw_default_fill_style_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_roughness', detailKey: 'settings.excalidraw_default_roughness_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_font_family', detailKey: 'settings.excalidraw_default_font_family_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_default_font_size', detailKey: 'settings.excalidraw_default_font_size_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_load_chinese_fonts', detailKey: 'settings.excalidraw_load_chinese_fonts_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_latex_boilerplate', detailKey: 'settings.excalidraw_latex_boilerplate_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_latex_font_size', detailKey: 'settings.excalidraw_latex_font_size_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_property_suggestions', detailKey: 'settings.excalidraw_property_suggestions_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_file_tag', detailKey: 'settings.excalidraw_file_tag_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_enable_onload_scripts', detailKey: 'settings.excalidraw_enable_onload_scripts_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_enable_save_hooks', detailKey: 'settings.excalidraw_enable_save_hooks_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_startup_script_path', detailKey: 'settings.excalidraw_startup_script_path_desc' },
+
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_compatibility_mode', detailKey: 'settings.excalidraw_compatibility_mode_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_embed_md_comments', detailKey: 'settings.excalidraw_embed_md_comments_desc' },
+  { section: 'excalidraw', titleKey: 'settings.excalidraw_sync_excalidraw', detailKey: 'settings.excalidraw_sync_excalidraw_desc' },
 ]
 
 const MAX_HITS = 80

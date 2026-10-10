@@ -105,6 +105,33 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, [excalidrawSettings.matchTheme]);
 
     useEffect(() => {
+        if (!api) return;
+        api.updateScene({
+            appState: {
+                gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
+            },
+        });
+    }, [api, excalidrawSettings.gridModeEnabled, excalidrawSettings.gridSize]);
+
+    useEffect(() => {
+        if (!api) return;
+        api.updateScene({
+            appState: {
+                zenModeEnabled: excalidrawSettings.zenModeEnabled,
+            },
+        });
+    }, [api, excalidrawSettings.zenModeEnabled]);
+
+    useEffect(() => {
+        if (!api) return;
+        api.updateScene({
+            appState: {
+                viewModeEnabled: excalidrawSettings.viewModeEnabled,
+            },
+        });
+    }, [api, excalidrawSettings.viewModeEnabled]);
+
+    useEffect(() => {
         let mounted = true;
         loadExcalidrawLib()
             .then((loaded) => {

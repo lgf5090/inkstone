@@ -220,9 +220,10 @@ export function insertLatexToCanvas(api: any, latex: string, dark = false): void
 
 export async function promptAndInsertLatex(api: any, dark = false): Promise<void> {
     const toast = useUi.getState().toast;
+    const settings = useExcalidrawSettingsStore.getState();
     const latex = await prompt({
         title: t('excalidraw.insert_latex_prompt') || 'Enter LaTeX formula:',
-        placeholder: '\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}',
+        placeholder: settings.latexBoilerplate || '\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}',
     });
     if (latex && latex.trim()) {
         insertLatexToCanvas(api, latex, dark);
@@ -234,9 +235,10 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
     if (!api || !noteTitle.trim()) return;
     const cleanTitle = noteTitle.trim();
     const center = getViewportCenterInScene(api);
+    const settings = useExcalidrawSettingsStore.getState();
 
-    const cardW = 280;
-    const cardH = snippet ? 120 : 64;
+    const cardW = settings.mdCardWidth || 280;
+    const cardH = snippet ? (settings.mdCardHeight || 160) : Math.min(settings.mdCardHeight || 160, 64);
     const cardX = Math.round(center.x - cardW / 2);
     const cardY = Math.round(center.y - cardH / 2);
 
@@ -268,7 +270,6 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         boundElements,
     };
 
-    const settings = useExcalidrawSettingsStore.getState();
     const prefix = settings.linkPrefix ? settings.linkPrefix : '📝 ';
     const formattedTitle = settings.linkBrackets ? `[[${cleanTitle}]]` : cleanTitle;
     const titleText = `${prefix}${formattedTitle}`;
@@ -281,8 +282,8 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         height: 24,
         text: titleText,
         originalText: titleText,
-        fontSize: 16,
-        fontFamily: 1,
+        fontSize: settings.defaultFontSize || 16,
+        fontFamily: settings.defaultFontFamily || 1,
         lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'top',
@@ -423,8 +424,8 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         height: 24,
         text: linkText,
         originalText: linkText,
-        fontSize: 14,
-        fontFamily: 1,
+        fontSize: settings.defaultFontSize || 14,
+        fontFamily: settings.defaultFontFamily || 1,
         lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'middle',

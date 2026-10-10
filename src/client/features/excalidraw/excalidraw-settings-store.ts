@@ -3,6 +3,18 @@ import type { AIConnectionTestResult, AIProviderConfig } from '../../lib/ai/type
 import { testAIConnection } from '../../lib/ai/stream-client';
 
 export interface ExcalidrawSettingsState {
+  folder: string;
+  templateFilePath: string;
+  scriptFolderPath: string;
+  showReleaseNotes: boolean;
+  compress: boolean;
+
+  autoSaveIntervalMs: number;
+  drawingFilenamePrefix: string;
+  drawingFilenameDateFormat: string;
+  useExcalidrawExtension: boolean;
+  drawingEmbedPrefixWithFilename: boolean;
+
   aiEnabled: boolean;
   aiProviders: Record<string, AIProviderConfig>;
   aiDefaultProvider: string;
@@ -10,23 +22,63 @@ export interface ExcalidrawSettingsState {
   aiDefaultImageModel: string;
   aiMaxOutgoingTokens: number;
   aiMaxResponseTokens: number;
+  aiVerboseLogging: boolean;
+
+  matchTheme: boolean;
+  dynamicStyling: boolean;
+  leftHandedMode: boolean;
+  defaultMode: 'normal' | 'zen' | 'view';
+  gridModeEnabled: boolean;
+  gridSize: number;
+  gridSnap: boolean;
+  disableDoubleClickTextEditing: boolean;
+  zenModeEnabled: boolean;
+  viewModeEnabled: boolean;
 
   linkBrackets: boolean;
   linkPrefix: string;
   urlPrefix: string;
   linkIndicatorOpacity: number;
+  allowCtrlClick: boolean;
+  openInAdjacentPane: boolean;
+  parseTODO: boolean;
+  todo: string;
+  done: string;
 
-  autoSaveIntervalMs: number;
-  drawingFilenamePrefix: string;
-  drawingFilenameDateFormat: string;
   defaultCardEmbedMode: 'interactive' | 'image';
+  embedCardHeight: number;
+  embedMatchTheme: boolean;
+  exportWithBackground: boolean;
+  pngExportScale: number;
+  exportPaddingSVG: number;
 
-  gridSize: number;
-  gridModeEnabled: boolean;
-  matchTheme: boolean;
-  leftHandedMode: boolean;
-  zenModeEnabled: boolean;
-  viewModeEnabled: boolean;
+  mdCardWidth: number;
+  mdCardHeight: number;
+  markdownNodeOneClickEditing: boolean;
+  pdfImportScale: number;
+  pdfBorderBox: boolean;
+
+  numberOfCustomPens: number;
+  defaultStrokeWidth: number;
+  defaultFillStyle: 'transparent' | 'semi' | 'solid' | 'cross-hatch';
+  defaultRoughness: number;
+
+  defaultFontFamily: number;
+  defaultFontSize: number;
+  loadChineseFonts: boolean;
+
+  latexBoilerplate: string;
+  latexFontSize: number;
+  loadPropertySuggestions: boolean;
+  experimentalFileTag: string;
+
+  enableOnloadScripts: boolean;
+  enableSaveHooks: boolean;
+  startupScriptPath: string;
+
+  compatibilityMode: boolean;
+  embedMarkdownCommentLinks: boolean;
+  syncExcalidraw: boolean;
 
   updateSettings: (partial: Partial<Omit<ExcalidrawSettingsState, 'updateSettings' | 'resetSettings' | 'getActiveAIConfig' | 'testActiveConnection'>>) => void;
   resetSettings: () => void;
@@ -65,6 +117,18 @@ const DEFAULT_PROVIDERS: Record<string, AIProviderConfig> = {
 };
 
 const DEFAULT_SETTINGS = {
+  folder: '',
+  templateFilePath: '',
+  scriptFolderPath: '',
+  showReleaseNotes: true,
+  compress: true,
+
+  autoSaveIntervalMs: 600,
+  drawingFilenamePrefix: 'Drawing ',
+  drawingFilenameDateFormat: 'YYYY-MM-DD HH.mm.ss',
+  useExcalidrawExtension: true,
+  drawingEmbedPrefixWithFilename: false,
+
   aiEnabled: true,
   aiProviders: DEFAULT_PROVIDERS,
   aiDefaultProvider: 'deepseek',
@@ -72,32 +136,81 @@ const DEFAULT_SETTINGS = {
   aiDefaultImageModel: 'deepseek-flash',
   aiMaxOutgoingTokens: 0,
   aiMaxResponseTokens: 0,
+  aiVerboseLogging: false,
+
+  matchTheme: true,
+  dynamicStyling: true,
+  leftHandedMode: false,
+  defaultMode: 'normal' as const,
+  gridModeEnabled: false,
+  gridSize: 20,
+  gridSnap: false,
+  disableDoubleClickTextEditing: false,
+  zenModeEnabled: false,
+  viewModeEnabled: false,
 
   linkBrackets: false,
   linkPrefix: '',
   urlPrefix: '',
   linkIndicatorOpacity: 1.0,
+  allowCtrlClick: true,
+  openInAdjacentPane: true,
+  parseTODO: false,
+  todo: '- [ ] ',
+  done: '- [x] ',
 
-  autoSaveIntervalMs: 600,
-  drawingFilenamePrefix: 'Drawing ',
-  drawingFilenameDateFormat: 'YYYY-MM-DD HH.mm.ss',
   defaultCardEmbedMode: 'interactive' as const,
+  embedCardHeight: 520,
+  embedMatchTheme: true,
+  exportWithBackground: true,
+  pngExportScale: 2,
+  exportPaddingSVG: 10,
 
-  gridSize: 20,
-  gridModeEnabled: false,
-  matchTheme: true,
-  leftHandedMode: false,
-  zenModeEnabled: false,
-  viewModeEnabled: false,
+  mdCardWidth: 280,
+  mdCardHeight: 160,
+  markdownNodeOneClickEditing: true,
+  pdfImportScale: 1.0,
+  pdfBorderBox: true,
+
+  numberOfCustomPens: 0,
+  defaultStrokeWidth: 1,
+  defaultFillStyle: 'transparent' as const,
+  defaultRoughness: 1,
+
+  defaultFontFamily: 1,
+  defaultFontSize: 20,
+  loadChineseFonts: true,
+
+  latexBoilerplate: '\\begin{aligned}\n\\end{aligned}',
+  latexFontSize: 24,
+  loadPropertySuggestions: true,
+  experimentalFileTag: '#excalidraw',
+
+  enableOnloadScripts: false,
+  enableSaveHooks: false,
+  startupScriptPath: '',
+
+  compatibilityMode: false,
+  embedMarkdownCommentLinks: true,
+  syncExcalidraw: false,
 };
+
+function applySettingsSideEffects(state: { embedCardHeight?: number }): void {
+  if (typeof document !== 'undefined' && state.embedCardHeight) {
+    document.documentElement.style.setProperty('--excalidraw-embed-height', `${state.embedCardHeight}px`);
+  }
+}
 
 function loadInitialSettings(): typeof DEFAULT_SETTINGS {
   if (typeof window === 'undefined') return DEFAULT_SETTINGS;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
+    if (!raw) {
+      applySettingsSideEffects(DEFAULT_SETTINGS);
+      return DEFAULT_SETTINGS;
+    }
     const parsed = JSON.parse(raw);
-    return {
+    const merged = {
       ...DEFAULT_SETTINGS,
       ...parsed,
       aiProviders: {
@@ -105,7 +218,10 @@ function loadInitialSettings(): typeof DEFAULT_SETTINGS {
         ...(parsed.aiProviders || {}),
       },
     };
+    applySettingsSideEffects(merged);
+    return merged;
   } catch {
+    applySettingsSideEffects(DEFAULT_SETTINGS);
     return DEFAULT_SETTINGS;
   }
 }
@@ -124,35 +240,15 @@ export const useExcalidrawSettings = create<ExcalidrawSettingsState>((set, get) 
   updateSettings: (partial) => {
     set((state) => {
       const next = { ...state, ...partial };
-      persistSettings({
-        aiEnabled: next.aiEnabled,
-        aiProviders: next.aiProviders,
-        aiDefaultProvider: next.aiDefaultProvider,
-        aiDefaultTextModel: next.aiDefaultTextModel,
-        aiDefaultImageModel: next.aiDefaultImageModel,
-        aiMaxOutgoingTokens: next.aiMaxOutgoingTokens,
-        aiMaxResponseTokens: next.aiMaxResponseTokens,
-        linkBrackets: next.linkBrackets,
-        linkPrefix: next.linkPrefix,
-        urlPrefix: next.urlPrefix,
-        linkIndicatorOpacity: next.linkIndicatorOpacity,
-        autoSaveIntervalMs: next.autoSaveIntervalMs,
-        drawingFilenamePrefix: next.drawingFilenamePrefix,
-        drawingFilenameDateFormat: next.drawingFilenameDateFormat,
-        defaultCardEmbedMode: next.defaultCardEmbedMode,
-        gridSize: next.gridSize,
-        gridModeEnabled: next.gridModeEnabled,
-        matchTheme: next.matchTheme,
-        leftHandedMode: next.leftHandedMode,
-        zenModeEnabled: next.zenModeEnabled,
-        viewModeEnabled: next.viewModeEnabled,
-      });
+      applySettingsSideEffects(next);
+      persistSettings(next);
       return next;
     });
   },
 
   resetSettings: () => {
     set(() => {
+      applySettingsSideEffects(DEFAULT_SETTINGS);
       persistSettings(DEFAULT_SETTINGS);
       return { ...DEFAULT_SETTINGS };
     });
