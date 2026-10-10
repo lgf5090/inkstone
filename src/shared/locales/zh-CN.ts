@@ -4837,7 +4837,7 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.generate": "生成",
     "settings.excalidraw": "Excalidraw 绘图",
     "settings.excalidraw_desc": "绘图与画板配置",
-    "excalidraw.label_about_libraries": "关于素材库",
+    "excalidraw.label_about_libraries": "如何加载素材库",
     "excalidraw.label_frame_hint": "选择画框以调整大小或移动内部元素",
     "excalidraw.label_comp_img_from_system": "从本地系统插入图片",
     "excalidraw.label_comp_img_any_file": "从笔记库插入文件",

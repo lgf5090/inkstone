@@ -68,8 +68,6 @@ export function serializeExcalidrawBody(data: ExcalidrawSceneData): string {
     return JSON.stringify(cleanData, null, 2);
 }
 
-const FENCE_PATTERN = /(?:^|\n)(```+)[ \t]*excalidraw[^\n]*\n([\s\S]*?)\n\1(?=\n|$)/g;
-
 export interface ExcalidrawFenceMatch {
     matchStart: number;
     matchEnd: number;
@@ -78,31 +76,60 @@ export interface ExcalidrawFenceMatch {
     bodyStart: number;
     bodyEnd: number;
     index: number;
+    line?: number;
 }
 
 export function findExcalidrawFences(content: string): ExcalidrawFenceMatch[] {
-    const matches: ExcalidrawFenceMatch[] = [];
     const normalized = normalizeEol(content);
-    let match: RegExpExecArray | null;
+    const lines = normalized.split('\n');
+    const matches: ExcalidrawFenceMatch[] = [];
+    let charPos = 0;
+    const lineStarts: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+        lineStarts.push(charPos);
+        charPos += lines[i].length + (i < lines.length - 1 ? 1 : 0);
+    }
+
     let index = 0;
-    FENCE_PATTERN.lastIndex = 0;
-    while ((match = FENCE_PATTERN.exec(normalized)) !== null) {
-        const fullMatch = match[0];
-        const matchStart = match.index + (fullMatch.startsWith('\n') ? 1 : 0);
-        const matchEnd = match.index + fullMatch.length;
-        const fenceOpen = match[1];
-        const body = match[2];
-        const bodyStart = match.index + fullMatch.indexOf(body);
-        const bodyEnd = bodyStart + body.length;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const openMatch = /^( {0,3})(`{3,}|~{3,})[ \t]*excalidraw(?:[ \t\r\n][^\n]*)?$/.exec(line);
+        if (!openMatch) continue;
+        const marker = openMatch[2][0];
+        const minLen = openMatch[2].length;
+
+        let closing = -1;
+        for (let j = i + 1; j < lines.length; j++) {
+            const closeMatch = /^( {0,3})(`{3,}|~{3,})[ \t]*$/.exec(lines[j]);
+            if (closeMatch && closeMatch[2][0] === marker && closeMatch[2].length >= minLen) {
+                closing = j;
+                break;
+            }
+        }
+
+        const endLine = closing !== -1 ? closing : lines.length - 1;
+        const matchStart = lineStarts[i];
+        const matchEnd = lineStarts[endLine] + lines[endLine].length;
+
+        const bodyLines = lines.slice(i + 1, closing !== -1 ? closing : lines.length);
+        const body = bodyLines.join('\n');
+        const bodyStart = lineStarts[i] + line.length + (i + 1 < lines.length ? 1 : 0);
+        const bodyEnd = closing !== -1 ? (lineStarts[closing] > 0 && normalized[lineStarts[closing] - 1] === '\n' && bodyLines.length > 0 ? lineStarts[closing] - 1 : lineStarts[closing]) : charPos;
+
         matches.push({
             matchStart,
             matchEnd,
-            fenceOpen,
+            fenceOpen: openMatch[2],
             body,
             bodyStart,
             bodyEnd,
             index: index++,
+            line: i,
         });
+
+        if (closing !== -1) {
+            i = closing;
+        }
     }
     return matches;
 }
@@ -119,7 +146,7 @@ export function findExcalidrawFence(content: string, index: number): ExcalidrawF
 
 export function applyBodyAtFence(content: string, ref: ExcalidrawFenceRef, nextBody: string): string | null {
     const fences = findExcalidrawFences(content);
-    const target = fences.find((f) => f.index === ref.index);
+    const target = (ref.line !== undefined ? fences.find((f) => f.line === ref.line) : null) ?? fences.find((f) => f.index === ref.index);
     if (!target) return null;
 
     const currentTrimmed = target.body.trim();
@@ -132,5 +159,6 @@ export function applyBodyAtFence(content: string, ref: ExcalidrawFenceRef, nextB
     const formattedNext = nextBody.trim();
     const before = normalized.slice(0, target.bodyStart);
     const after = normalized.slice(target.bodyEnd);
-    return before + formattedNext + after;
+    const sep = target.body.length === 0 ? '\n' : '';
+    return before + formattedNext + sep + after;
 }

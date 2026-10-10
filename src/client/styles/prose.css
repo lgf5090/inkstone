@@ -2537,6 +2537,15 @@
   display: none !important;
 }
 
+.excalidraw .library-menu-control-buttons {
+  height: auto !important;
+}
+
+.excalidraw .library-menu-browse-button {
+  height: 36px !important;
+  flex: 0 0 auto !important;
+}
+
 .excalidraw .App-toolbar {
   position: relative !important;
 }

@@ -233,15 +233,22 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const handleToggleLibrary = useCallback(() => {
         if (!api) return;
         if (typeof api.toggleSidebar === 'function') {
-            api.toggleSidebar({ name: 'default', tab: 'library' });
+            const toggled = api.toggleSidebar({ name: 'default', tab: 'library' });
+            const current = typeof api.getAppState === 'function' ? api.getAppState() : null;
+            const isOpen = Boolean(
+                current?.openSidebar && (current.openSidebar.name === 'default' || current.openSidebar.name === 'customSidebar')
+            );
+            setLibraryOpen(toggled !== undefined ? Boolean(toggled) : isOpen);
         } else if (typeof api.updateScene === 'function') {
             const appState = api.getAppState ? api.getAppState() : {};
             const isOpen = Boolean(appState.openSidebar?.name === 'default' || appState.openSidebar?.name === 'customSidebar');
+            const willOpen = !isOpen;
             api.updateScene({
                 appState: {
-                    openSidebar: isOpen ? null : { name: 'default', tab: 'library' },
+                    openSidebar: willOpen ? { name: 'default', tab: 'library' } : null,
                 },
             });
+            setLibraryOpen(willOpen);
         }
     }, [api]);
 
@@ -511,6 +518,17 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}
                         >
                             <Star size={14} className={note.isStarred ? 'fill-current' : undefined} />
+                        </IconButton>
+                    </Tooltip>
+
+                    <Tooltip label={t('excalidraw.tools_panel')}>
+                        <IconButton
+                            label={t('excalidraw.tools_panel')}
+                            size="sm"
+                            active={toolsPanelOpen}
+                            onClick={() => setToolsPanelOpen((o) => !o)}
+                        >
+                            <SlidersHorizontal size={14} />
                         </IconButton>
                     </Tooltip>
 

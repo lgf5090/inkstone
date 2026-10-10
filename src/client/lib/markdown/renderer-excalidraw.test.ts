@@ -142,6 +142,23 @@ describe('excalidraw fence surgical updates', () => {
         const result = applyBodyAtFence(doc, conflictRef, '{}');
         expect(result).toBeNull();
     });
+
+    it('finds and replaces empty excalidraw fences', () => {
+        const emptyDoc = '```excalidraw\n```';
+        const fences = findExcalidrawFences(emptyDoc);
+        expect(fences.length).toBe(1);
+        expect(fences[0].body).toBe('');
+        const updated = applyBodyAtFence(emptyDoc, { index: 0, rawBody: '' }, '{}');
+        expect(updated).toBe('```excalidraw\n{}\n```');
+    });
+
+    it('supports tilde fenced excalidraw blocks', () => {
+        const tildeDoc = '~~~excalidraw\n{}\n~~~';
+        const fences = findExcalidrawFences(tildeDoc);
+        expect(fences.length).toBe(1);
+        expect(fences[0].fenceOpen).toBe('~~~');
+        expect(fences[0].body).toBe('{}');
+    });
 });
 
 describe('excalidraw view helpers and patch guard', () => {
