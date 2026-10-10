@@ -159,7 +159,7 @@ export function ExcalidrawSettings() {
 
   return (
     <div ref={containerRef} className="space-y-6">
-      <div className="sticky top-0 z-10 -mx-1 bg-[var(--bg-overlay)]/95 px-1 pb-3 backdrop-blur-md">
+      <div className="sticky top-0 z-10 -mx-1 bg-[var(--bg-overlay)] px-1 pb-3">
         <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto pb-1">
           {CATEGORY_TABS.map((tab) => {
             const isActive = activeCategory === tab.id;

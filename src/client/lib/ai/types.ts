@@ -35,6 +35,8 @@ export interface AIStreamOptions extends AIStreamCallbacks {
   maxTokens?: number;
   systemPrompt?: string;
   signal?: AbortSignal;
+  useProxy?: boolean;
+  proxyUrl?: string;
 }
 
 export interface AIUsageInfo {

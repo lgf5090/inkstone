@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import ReactDOM from 'react-dom/client';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ArrowLeft,
     Brush,
@@ -88,7 +87,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasHostRef = useRef<HTMLDivElement>(null);
-    const isolatedRootRef = useRef<ReactDOM.Root | null>(null);
     const saveTimerRef = useRef<number | undefined>(undefined);
     const lastSavedRef = useRef<string>(content);
 
@@ -216,18 +214,31 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    const initialScene = parseExcalidrawBody(content).data;
+    const onChangeRef = useRef(onChange);
+    useEffect(() => {
+        onChangeRef.current = onChange;
+    }, [onChange]);
 
-    const persistChanges = useCallback(
-        (nextJson: string) => {
-            if (nextJson !== lastSavedRef.current) {
-                lastSavedRef.current = nextJson;
-                onChange(nextJson);
-                setIsSaved(true);
-            }
-        },
-        [onChange],
-    );
+    const initialData = useMemo(() => {
+        const parsed = parseExcalidrawBody(content).data;
+        return {
+            elements: parsed.elements,
+            appState: {
+                ...parsed.appState,
+                theme,
+                gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
+                zenModeEnabled: excalidrawSettings.zenModeEnabled || excalidrawSettings.defaultMode === 'zen',
+                viewModeEnabled: excalidrawSettings.viewModeEnabled || excalidrawSettings.defaultMode === 'view',
+                linkOpacity: excalidrawSettings.linkIndicatorOpacity,
+                currentItemFontFamily: excalidrawSettings.defaultFontFamily,
+                currentItemFontSize: excalidrawSettings.defaultFontSize,
+                currentItemStrokeWidth: excalidrawSettings.defaultStrokeWidth,
+                currentItemFillStyle: excalidrawSettings.defaultFillStyle,
+                currentItemRoughness: excalidrawSettings.defaultRoughness,
+            },
+            files: parsed.files,
+        };
+    }, [note.id]);
 
     const handleCanvasChange = useCallback(
         (elements: readonly any[], appState: any, files: any) => {
@@ -245,11 +256,15 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     files,
                 };
                 const nextJson = serializeExcalidrawBody(scene);
-                persistChanges(nextJson);
-                setRawCode(nextJson);
+                if (nextJson !== lastSavedRef.current) {
+                    lastSavedRef.current = nextJson;
+                    onChangeRef.current(nextJson);
+                    setRawCode(nextJson);
+                    setIsSaved(true);
+                }
             }, autoSaveMs);
         },
-        [persistChanges],
+        [],
     );
 
     const handleToggleLibrary = useCallback(() => {
@@ -281,9 +296,14 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         const files = api.getFiles();
         const scene: ExcalidrawSceneData = { elements, appState, files };
         const nextJson = serializeExcalidrawBody(scene);
-        persistChanges(nextJson);
+        if (nextJson !== lastSavedRef.current) {
+            lastSavedRef.current = nextJson;
+            onChangeRef.current(nextJson);
+            setRawCode(nextJson);
+            setIsSaved(true);
+        }
         toast({ title: t('workspace.drawing_saved'), tone: 'success' });
-    }, [api, lib, persistChanges, toast]);
+    }, [api, lib, toast]);
 
     const handleToggleViewMode = useCallback(() => {
         if (viewMode === 'canvas') {
@@ -361,220 +381,15 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, []);
 
     useEffect(() => {
-        if (!canvasHostRef.current || !lib) return;
-        if (!isolatedRootRef.current) {
-            isolatedRootRef.current = ReactDOM.createRoot(canvasHostRef.current);
-        }
-        isolatedRootRef.current.render(
-            <div className={`h-full w-full ${theme === 'dark' ? 'theme--dark' : ''}`}>
-                <lib.Excalidraw
-                    initialData={{
-                        elements: initialScene.elements,
-                        appState: {
-                            ...initialScene.appState,
-                            theme,
-                            gridSize: excalidrawSettings.gridModeEnabled ? excalidrawSettings.gridSize : null,
-                            zenModeEnabled: excalidrawSettings.zenModeEnabled || excalidrawSettings.defaultMode === 'zen',
-                            viewModeEnabled: excalidrawSettings.viewModeEnabled || excalidrawSettings.defaultMode === 'view',
-                            linkOpacity: excalidrawSettings.linkIndicatorOpacity,
-                            currentItemFontFamily: excalidrawSettings.defaultFontFamily,
-                            currentItemFontSize: excalidrawSettings.defaultFontSize,
-                            currentItemStrokeWidth: excalidrawSettings.defaultStrokeWidth,
-                            currentItemFillStyle: excalidrawSettings.defaultFillStyle,
-                            currentItemRoughness: excalidrawSettings.defaultRoughness,
-                        },
-                        files: initialScene.files,
-                    }}
-                    theme={theme}
-                    langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
-                    aiEnabled={true}
-                    onChange={handleCanvasChange}
-                    onLinkOpen={handleLinkOpen}
-                    onExcalidrawAPI={(excalidrawApi: any) => setApi(excalidrawApi)}
-                    UIOptions={{
-                        canvasActions: {
-                            loadScene: false,
-                            saveToActiveFile: false,
-                        },
-                    }}
-                >
-                    {lib.TTDDialog && (
-                        <lib.TTDDialog
-                            persistenceAdapter={{
-                                loadChats: async () => {
-                                    try {
-                                        const saved = localStorage.getItem('inkstone-excalidraw-ttd-chats');
-                                        return saved ? JSON.parse(saved) : [];
-                                    } catch {
-                                        return [];
-                                    }
-                                },
-                                saveChats: async (chats: any) => {
-                                    try {
-                                        localStorage.setItem('inkstone-excalidraw-ttd-chats', JSON.stringify(chats));
-                                    } catch {
-                                    }
-                                },
-                            }}
-                            onTextSubmit={async (props: any) => {
-                                const { messages = [], onChunk, onStreamCreated, signal } = props ?? {};
-                                onStreamCreated?.();
-                                const settings = useExcalidrawSettingsStore.getState();
-                                const config = settings.aiProviders[settings.aiDefaultProvider] || {
-                                    provider: 'deepseek',
-                                    baseURL: 'https://api.deepseek.com',
-                                    apiKey: '***REMOVED***',
-                                };
-                                const systemPrompt =
-                                    'The user will provide you with a text prompt. Your task is to generate a mermaid diagram based on the prompt. Use the graph, sequenceDiagram, flowchart or classDiagram types based on what best fits the request. Return a single message containing only the mermaid diagram in a codeblock. Avoid the use of () parenthesis in the mermaid script.';
-                                try {
-                                    const aiMsgs: AIMessage[] = messages.map((m: any, i: number) => ({
-                                        id: String(i),
-                                        role: m.role,
-                                        content: m.content,
-                                    }));
-                                    const result = await streamChatCompletion(aiMsgs, config, {
-                                        systemPrompt,
-                                        signal,
-                                        onChunk: (_c: string, full: string) => {
-                                            let code = extractCodeBlock(full) || full;
-                                            if (code.startsWith('mermaid')) {
-                                                code = code.replace(/^mermaid\s*/i, '');
-                                            }
-                                            onChunk?.(code);
-                                        },
-                                    });
-                                    let generatedResponse = extractCodeBlock(result.content) || result.content;
-                                    if (generatedResponse.startsWith('mermaid')) {
-                                        generatedResponse = generatedResponse.replace(/^mermaid\s*/i, '');
-                                    }
-                                    return { generatedResponse, error: null };
-                                } catch (err: unknown) {
-                                    return { error: (err instanceof Error ? err : new Error(String(err))) as any };
-                                }
-                            }}
-                        />
-                    )}
-                    {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
-                    {lib.DiagramToCodePlugin && (
-                        <lib.DiagramToCodePlugin
-                            generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
-                        />
-                    )}
-                    <lib.MainMenu>
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                setAiModalTab('ai');
-                                setAiModalOpen(true);
-                            }}
-                            icon={<Sparkles size={14} />}
-                        >
-                            {`${t('excalidraw.text_to_diagram')} [AI]`}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                setAiModalTab('mermaid');
-                                setAiModalOpen(true);
-                            }}
-                            icon={<Workflow size={14} />}
-                        >
-                            {t('excalidraw.mermaid_to_excalidraw')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.DefaultItems.ChangeCanvasBackground />
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-                            }}
-                            icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                            shortcut="Shift+Alt+D"
-                        >
-                            {theme === 'dark' ? t('command.switch_to_light_theme') : t('command.switch_to_dark_theme')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                if (api) {
-                                    const appState = api.getAppState();
-                                    api.updateScene({ appState: { viewModeEnabled: !appState.viewModeEnabled } });
-                                }
-                            }}
-                            icon={<Eye size={14} />}
-                        >
-                            {t('excalidraw.view_mode')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => zoomToFitScene(api, canvasHostRef.current)}
-                            icon={<Scan size={14} />}
-                        >
-                            {t('preview.excalidraw_fit')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={handleManualSave}
-                            icon={<Save size={14} />}
-                        >
-                            {t('workspace.save_drawing')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
-                            }}
-                            icon={<Brush size={14} />}
-                        >
-                            {t('excalidraw.script_library')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => setToolsPanelOpen(true)}
-                            icon={<SlidersHorizontal size={14} />}
-                        >
-                            {t('excalidraw.export_drawing')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={handleToggleViewMode}
-                            icon={<FileCode size={14} />}
-                        >
-                            {t('excalidraw.open_as_md')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                toast({ title: 'Excalidraw', description: 'https://excalidraw.com', tone: 'default' });
-                            }}
-                            icon={<Sparkles size={14} />}
-                        >
-                            {t('excalidraw.learn_excalidraw')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Item
-                            onSelect={() => {
-                                toast({ title: t('excalidraw.help_and_issues'), description: 'github.com/zsviczian/obsidian-excalidraw-plugin', tone: 'default' });
-                            }}
-                            icon={<Info size={14} />}
-                        >
-                            {t('excalidraw.help_and_issues')}
-                        </lib.MainMenu.Item>
-                        <lib.MainMenu.Separator />
-                        <lib.MainMenu.DefaultItems.ClearCanvas />
-                    </lib.MainMenu>
-                </lib.Excalidraw>
-            </div>
-        );
-    }, [lib, theme, locale, note.id, handleCanvasChange, handleLinkOpen, handleManualSave, handleToggleViewMode]);
-
-    useEffect(() => {
         return () => {
-            const root = isolatedRootRef.current;
-            if (root) {
-                isolatedRootRef.current = null;
-                queueMicrotask(() => {
-                    try {
-                        root.unmount();
-                    } catch {
-                    }
-                });
-            }
+            window.clearTimeout(saveTimerRef.current);
         };
     }, []);
 
     useEffect(() => {
         if (!canvasHostRef.current || viewMode !== 'canvas') return;
         const host = canvasHostRef.current;
+        let observer: MutationObserver | null = null;
 
         const reparentMenu = () => {
             const trigger =
@@ -590,19 +405,18 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
                     footerSection.prepend(trigger);
                 }
+                if ((undoRedo && undoRedo.contains(trigger)) || (footerSection && footerSection.contains(trigger))) {
+                    observer?.disconnect();
+                }
             }
         };
 
         reparentMenu();
-
-        const observer = new MutationObserver(() => {
-            reparentMenu();
-        });
-
+        observer = new MutationObserver(reparentMenu);
         observer.observe(host, { childList: true, subtree: true });
 
         return () => {
-            observer.disconnect();
+            observer?.disconnect();
         };
     }, [viewMode, lib]);
 
@@ -736,7 +550,11 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             value={rawCode}
                             onChange={(e) => {
                                 setRawCode(e.target.value);
-                                persistChanges(e.target.value);
+                                if (e.target.value !== lastSavedRef.current) {
+                                    lastSavedRef.current = e.target.value;
+                                    onChangeRef.current(e.target.value);
+                                    setIsSaved(true);
+                                }
                             }}
                             className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
                         />
@@ -745,12 +563,187 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
                 <div
                     ref={canvasHostRef}
-                    className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''}`}
+                    className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''} ${theme === 'dark' ? 'theme--dark' : ''}`}
                     style={{
                         display: viewMode === 'canvas' && lib ? 'block' : 'none',
                         ['--default-link-indicator-opacity' as any]: excalidrawSettings.linkIndicatorOpacity,
                     }}
-                />
+                >
+                    {lib && (
+                        <lib.Excalidraw
+                            initialData={initialData}
+                            theme={theme}
+                            langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
+                            aiEnabled={true}
+                            onChange={handleCanvasChange}
+                            onLinkOpen={handleLinkOpen}
+                            onExcalidrawAPI={(excalidrawApi: any) => {
+                                if (excalidrawApi) setApi(excalidrawApi);
+                            }}
+                            UIOptions={{
+                                canvasActions: {
+                                    loadScene: false,
+                                    saveToActiveFile: false,
+                                },
+                            }}
+                        >
+                            {lib.TTDDialog && (
+                                <lib.TTDDialog
+                                    persistenceAdapter={{
+                                        loadChats: async () => {
+                                            try {
+                                                const saved = localStorage.getItem('inkstone-excalidraw-ttd-chats');
+                                                return saved ? JSON.parse(saved) : [];
+                                            } catch {
+                                                return [];
+                                            }
+                                        },
+                                        saveChats: async (chats: any) => {
+                                            try {
+                                                localStorage.setItem('inkstone-excalidraw-ttd-chats', JSON.stringify(chats));
+                                            } catch {
+                                            }
+                                        },
+                                    }}
+                                    onTextSubmit={async (props: any) => {
+                                        const { messages = [], onChunk, onStreamCreated, signal } = props ?? {};
+                                        onStreamCreated?.();
+                                        const settings = useExcalidrawSettingsStore.getState();
+                                        const config = settings.aiProviders[settings.aiDefaultProvider] || {
+                                            provider: 'deepseek',
+                                            baseURL: 'https://api.deepseek.com',
+                                            apiKey: '***REMOVED***',
+                                        };
+                                        const systemPrompt =
+                                            'The user will provide you with a text prompt. Your task is to generate a mermaid diagram based on the prompt. Use the graph, sequenceDiagram, flowchart or classDiagram types based on what best fits the request. Return a single message containing only the mermaid diagram in a codeblock. Avoid the use of () parenthesis in the mermaid script.';
+                                        try {
+                                            const aiMsgs: AIMessage[] = messages.map((m: any, i: number) => ({
+                                                id: String(i),
+                                                role: m.role,
+                                                content: m.content,
+                                            }));
+                                            const result = await streamChatCompletion(aiMsgs, config, {
+                                                systemPrompt,
+                                                signal,
+                                                onChunk: (_c: string, full: string) => {
+                                                    let code = extractCodeBlock(full) || full;
+                                                    if (code.startsWith('mermaid')) {
+                                                        code = code.replace(/^mermaid\s*/i, '');
+                                                    }
+                                                    onChunk?.(code);
+                                                },
+                                            });
+                                            let generatedResponse = extractCodeBlock(result.content) || result.content;
+                                            if (generatedResponse.startsWith('mermaid')) {
+                                                generatedResponse = generatedResponse.replace(/^mermaid\s*/i, '');
+                                            }
+                                            return { generatedResponse, error: null };
+                                        } catch (err: unknown) {
+                                            return { error: (err instanceof Error ? err : new Error(String(err))) as any };
+                                        }
+                                    }}
+                                />
+                            )}
+                            {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
+                            {lib.DiagramToCodePlugin && (
+                                <lib.DiagramToCodePlugin
+                                    generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
+                                />
+                            )}
+                            <lib.MainMenu>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        setAiModalTab('ai');
+                                        setAiModalOpen(true);
+                                    }}
+                                    icon={<Sparkles size={14} />}
+                                >
+                                    {`${t('excalidraw.text_to_diagram')} [AI]`}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        setAiModalTab('mermaid');
+                                        setAiModalOpen(true);
+                                    }}
+                                    icon={<Workflow size={14} />}
+                                >
+                                    {t('excalidraw.mermaid_to_excalidraw')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.DefaultItems.ChangeCanvasBackground />
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+                                    }}
+                                    icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                                    shortcut="Shift+Alt+D"
+                                >
+                                    {theme === 'dark' ? t('command.switch_to_light_theme') : t('command.switch_to_dark_theme')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        if (api) {
+                                            const appState = api.getAppState();
+                                            api.updateScene({ appState: { viewModeEnabled: !appState.viewModeEnabled } });
+                                        }
+                                    }}
+                                    icon={<Eye size={14} />}
+                                >
+                                    {t('excalidraw.view_mode')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => zoomToFitScene(api, canvasHostRef.current)}
+                                    icon={<Scan size={14} />}
+                                >
+                                    {t('preview.excalidraw_fit')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={handleManualSave}
+                                    icon={<Save size={14} />}
+                                >
+                                    {t('workspace.save_drawing')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
+                                    }}
+                                    icon={<Brush size={14} />}
+                                >
+                                    {t('excalidraw.script_library')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => setToolsPanelOpen(true)}
+                                    icon={<SlidersHorizontal size={14} />}
+                                >
+                                    {t('excalidraw.export_drawing')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={handleToggleViewMode}
+                                    icon={<FileCode size={14} />}
+                                >
+                                    {t('excalidraw.open_as_md')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        toast({ title: 'Excalidraw', description: 'https://excalidraw.com', tone: 'default' });
+                                    }}
+                                    icon={<Sparkles size={14} />}
+                                >
+                                    {t('excalidraw.learn_excalidraw')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        toast({ title: t('excalidraw.help_and_issues'), description: 'github.com/zsviczian/obsidian-excalidraw-plugin', tone: 'default' });
+                                    }}
+                                    icon={<Info size={14} />}
+                                >
+                                    {t('excalidraw.help_and_issues')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Separator />
+                                <lib.MainMenu.DefaultItems.ClearCanvas />
+                            </lib.MainMenu>
+                        </lib.Excalidraw>
+                    )}
+                </div>
 
                 {!lib && !libError && (
                     <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">

@@ -1,3 +1,6 @@
+import { layout } from 'dagre-d3-es/src/dagre/index.js';
+import { Graph } from 'dagre-d3-es/src/graphlib/index.js';
+
 export interface MermaidNode {
     id: string;
     text: string;
@@ -410,6 +413,23 @@ export function convertSequenceDiagramToExcalidraw(
     return elements;
 }
 
+function simplifyColinearPoints(pts: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+    if (pts.length <= 2) return pts;
+    const result: Array<{ x: number; y: number }> = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) {
+        const prev = result[result.length - 1];
+        const curr = pts[i];
+        const next = pts[i + 1];
+        const isColinearH = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+        const isColinearV = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
+        if (!isColinearH && !isColinearV) {
+            result.push(curr);
+        }
+    }
+    result.push(pts[pts.length - 1]);
+    return result;
+}
+
 export function convertMermaidToExcalidrawElements(
     code: string,
     startX = 100,
@@ -427,185 +447,175 @@ export function convertMermaidToExcalidrawElements(
     if (graph.nodes.size === 0) return [];
 
     const elements: any[] = [];
-    const isHorizontal = graph.direction === 'LR' || graph.direction === 'RL';
+    const g = new Graph();
+    const rankdir = (graph.direction === 'LR' || graph.direction === 'RL') ? graph.direction : (graph.direction === 'BT' ? 'BT' : 'TB');
+    const isHorizontal = rankdir === 'LR' || rankdir === 'RL';
 
-    const inDegree = new Map<string, number>();
-    const adj = new Map<string, string[]>();
-    for (const [id] of graph.nodes) {
-        inDegree.set(id, 0);
-        adj.set(id, []);
+    g.setGraph({
+        rankdir,
+        nodesep: isHorizontal ? 60 : 70,
+        ranksep: isHorizontal ? 90 : 80,
+        marginx: 40,
+        marginy: 40,
+    });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    for (const [id, node] of graph.nodes) {
+        const textLen = (node.text || node.id).length;
+        const width = Math.max(140, Math.min(260, textLen * 12 + 36));
+        const height = 64;
+        g.setNode(id, { width, height });
     }
+
     for (const edge of graph.edges) {
         if (graph.nodes.has(edge.from) && graph.nodes.has(edge.to)) {
-            inDegree.set(edge.to, (inDegree.get(edge.to) || 0) + 1);
-            adj.get(edge.from)?.push(edge.to);
+            g.setEdge(edge.from, edge.to);
         }
     }
 
-    const rankMap = new Map<string, number>();
-    const queue: string[] = [];
+    layout(g);
 
-    for (const [id, deg] of inDegree) {
-        if (deg === 0) {
-            rankMap.set(id, 0);
-            queue.push(id);
-        }
-    }
+    const nodeCoords = new Map<string, {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        centerX: number;
+        centerY: number;
+        shapeId: string;
+        textId: string;
+    }>();
 
-    if (queue.length === 0) {
-        const first = graph.nodes.keys().next().value;
-        if (first) {
-            rankMap.set(first, 0);
-            queue.push(first);
-        }
-    }
+    let nodeIndex = 0;
+    for (const [id, node] of graph.nodes) {
+        const n = g.node(id) || { x: 100, y: 100, width: 140, height: 64 };
+        const x = Math.round(startX + n.x - n.width / 2);
+        const y = Math.round(startY + n.y - n.height / 2);
+        const shapeId = `node_${id}_${Date.now()}_${nodeIndex}`;
+        const textId = `text_${id}_${Date.now()}_${nodeIndex}`;
+        nodeIndex++;
 
-    while (queue.length > 0) {
-        const u = queue.shift()!;
-        const currentRank = rankMap.get(u) || 0;
-        const neighbors = adj.get(u) || [];
-        for (const v of neighbors) {
-            const nextRank = currentRank + 1;
-            if (!rankMap.has(v) || (rankMap.get(v)! < nextRank && nextRank < 30)) {
-                rankMap.set(v, nextRank);
-                queue.push(v);
-            }
-        }
-    }
-
-    for (const [id] of graph.nodes) {
-        if (!rankMap.has(id)) {
-            rankMap.set(id, 0);
-        }
-    }
-
-    const ranks: Map<number, string[]> = new Map();
-    for (const [id, r] of rankMap) {
-        if (!ranks.has(r)) ranks.set(r, []);
-        ranks.get(r)!.push(id);
-    }
-
-    const nodeCoords = new Map<string, { x: number; y: number; width: number; height: number; shapeId: string; textId: string }>();
-    const nodeWidth = 140;
-    const nodeHeight = 64;
-    const spacingX = isHorizontal ? 240 : 180;
-    const spacingY = isHorizontal ? 120 : 160;
-
-    const sortedRankKeys = Array.from(ranks.keys()).sort((a, b) => a - b);
-
-    sortedRankKeys.forEach((r) => {
-        const nodesInRank = ranks.get(r)!;
-        nodesInRank.forEach((nodeId, idx) => {
-            const node = graph.nodes.get(nodeId)!;
-            const rankCenterOffset = ((nodesInRank.length - 1) / 2) * (isHorizontal ? spacingY : spacingX);
-
-            let x: number;
-            let y: number;
-
-            if (isHorizontal) {
-                x = startX + r * spacingX;
-                y = startY + idx * spacingY - rankCenterOffset + 150;
-            } else {
-                x = startX + idx * spacingX - rankCenterOffset + 250;
-                y = startY + r * spacingY;
-            }
-
-            const shapeId = `node_${node.id}_${Date.now()}_${idx}_${r}`;
-            const textId = `text_${node.id}_${Date.now()}_${idx}_${r}`;
-
-            nodeCoords.set(node.id, { x, y, width: nodeWidth, height: nodeHeight, shapeId, textId });
-
-            const shapeElement = {
-                id: shapeId,
-                type: node.shape,
-                x,
-                y,
-                width: nodeWidth,
-                height: nodeHeight,
-                strokeColor: '#1e1e1e',
-                backgroundColor: node.shape === 'diamond' ? '#fef3c7' : '#e0e7ff',
-                fillStyle: 'solid',
-                strokeWidth: 2,
-                roughness: 1,
-                opacity: 100,
-                roundness: { type: 3 },
-                seed: Math.floor(Math.random() * 100000),
-                version: 1,
-                versionNonce: 1,
-                isDeleted: false,
-                boundElements: [{ id: textId, type: 'text' }],
-            };
-
-            const textElement = {
-                id: textId,
-                type: 'text',
-                x: x + 10,
-                y: y + 20,
-                width: nodeWidth - 20,
-                height: 24,
-                text: node.text,
-                originalText: node.text,
-                fontSize: 15,
-                fontFamily: 1,
-                lineHeight: 1.25,
-                textAlign: 'center',
-                verticalAlign: 'middle',
-                containerId: shapeId,
-                strokeColor: '#1e1e1e',
-                backgroundColor: 'transparent',
-                seed: Math.floor(Math.random() * 100000),
-                version: 1,
-                versionNonce: 1,
-                isDeleted: false,
-            };
-
-            elements.push(shapeElement, textElement);
+        nodeCoords.set(id, {
+            x,
+            y,
+            width: n.width,
+            height: n.height,
+            centerX: Math.round(startX + n.x),
+            centerY: Math.round(startY + n.y),
+            shapeId,
+            textId,
         });
-    });
+
+        const shapeElement = {
+            id: shapeId,
+            type: node.shape,
+            x,
+            y,
+            width: n.width,
+            height: n.height,
+            strokeColor: '#1e1e1e',
+            backgroundColor: node.shape === 'diamond' ? '#fef3c7' : '#e0e7ff',
+            fillStyle: 'solid',
+            strokeWidth: 2,
+            roughness: 0,
+            opacity: 100,
+            roundness: { type: 3 },
+            seed: Math.floor(Math.random() * 100000),
+            version: 1,
+            versionNonce: 1,
+            isDeleted: false,
+            boundElements: [{ id: textId, type: 'text' }],
+        };
+
+        const textElement = {
+            id: textId,
+            type: 'text',
+            x: x + 10,
+            y: y + Math.round((n.height - 24) / 2),
+            width: n.width - 20,
+            height: 24,
+            text: node.text,
+            originalText: node.text,
+            fontSize: 15,
+            fontFamily: 1,
+            lineHeight: 1.25,
+            textAlign: 'center',
+            verticalAlign: 'middle',
+            containerId: shapeId,
+            strokeColor: '#1e1e1e',
+            backgroundColor: 'transparent',
+            seed: Math.floor(Math.random() * 100000),
+            version: 1,
+            versionNonce: 1,
+            isDeleted: false,
+        };
+
+        elements.push(shapeElement, textElement);
+    }
 
     graph.edges.forEach((edge, edgeIndex) => {
         const fromCoord = nodeCoords.get(edge.from);
         const toCoord = nodeCoords.get(edge.to);
         if (!fromCoord || !toCoord) return;
 
+        const layoutEdge = g.edge(edge.from, edge.to);
+        const rawPoints = layoutEdge?.points && layoutEdge.points.length >= 2
+            ? layoutEdge.points
+            : [
+                {
+                    x: fromCoord.centerX - startX,
+                    y: isHorizontal ? fromCoord.centerY - startY : fromCoord.y + fromCoord.height - startY,
+                },
+                {
+                    x: toCoord.centerX - startX,
+                    y: isHorizontal ? toCoord.centerY - startY : toCoord.y - startY,
+                },
+            ];
+
+        const simplified = simplifyColinearPoints(rawPoints);
+        const startPt = simplified[0];
+        const lastPt = simplified[simplified.length - 1];
+
+        const arrowX = Math.round(startX + startPt.x);
+        const arrowY = Math.round(startY + startPt.y);
+
+        const relPoints: Array<[number, number]> = simplified.map((p) => [
+            Math.round(p.x - startPt.x),
+            Math.round(p.y - startPt.y),
+        ]);
+
+        const absXList = simplified.map((p) => p.x);
+        const absYList = simplified.map((p) => p.y);
+        const minX = Math.min(...absXList);
+        const maxX = Math.max(...absXList);
+        const minY = Math.min(...absYList);
+        const maxY = Math.max(...absYList);
+        const arrowWidth = Math.max(Math.round(maxX - minX), 1);
+        const arrowHeight = Math.max(Math.round(maxY - minY), 1);
+
+        const endFocus = isHorizontal
+            ? Math.max(-0.8, Math.min(0.8, (lastPt.y + startY - toCoord.centerY) / (toCoord.height / 2 || 1)))
+            : Math.max(-0.8, Math.min(0.8, (lastPt.x + startX - toCoord.centerX) / (toCoord.width / 2 || 1)));
+
         const arrowId = `arrow_${edge.from}_${edge.to}_${Date.now()}_${edgeIndex}`;
-        let startPointX: number;
-        let startPointY: number;
-        let endPointX: number;
-        let endPointY: number;
-
-        if (isHorizontal) {
-            startPointX = fromCoord.x + fromCoord.width;
-            startPointY = fromCoord.y + fromCoord.height / 2;
-            endPointX = toCoord.x;
-            endPointY = toCoord.y + toCoord.height / 2;
-        } else {
-            startPointX = fromCoord.x + fromCoord.width / 2;
-            startPointY = fromCoord.y + fromCoord.height;
-            endPointX = toCoord.x + toCoord.width / 2;
-            endPointY = toCoord.y;
-        }
-
         const arrowElement = {
             id: arrowId,
             type: 'arrow',
-            x: startPointX,
-            y: startPointY,
-            width: Math.abs(endPointX - startPointX),
-            height: Math.abs(endPointY - startPointY),
-            points: [
-                [0, 0],
-                [endPointX - startPointX, endPointY - startPointY],
-            ],
+            x: arrowX,
+            y: arrowY,
+            width: arrowWidth,
+            height: arrowHeight,
+            points: relPoints,
             strokeColor: '#4f46e5',
             backgroundColor: 'transparent',
-            strokeWidth: edge.style === 'thick' ? 3 : 2,
+            strokeWidth: edge.style === 'thick' ? 2 : 1.5,
             strokeStyle: edge.style === 'dashed' ? 'dashed' : 'solid',
-            roughness: 1,
+            roughness: 0,
+            roundness: { type: 2 },
             startArrowhead: null,
             endArrowhead: 'arrow',
             startBinding: { elementId: fromCoord.shapeId, focus: 0, gap: 4 },
-            endBinding: { elementId: toCoord.shapeId, focus: 0, gap: 4 },
+            endBinding: { elementId: toCoord.shapeId, focus: Number(endFocus.toFixed(2)), gap: 4 },
             seed: Math.floor(Math.random() * 100000),
             version: 1,
             versionNonce: 1,
@@ -615,8 +625,10 @@ export function convertMermaidToExcalidrawElements(
         elements.push(arrowElement);
 
         if (edge.label) {
-            const midX = (startPointX + endPointX) / 2 - 25;
-            const midY = (startPointY + endPointY) / 2 - 14;
+            const midIndex = Math.floor(simplified.length / 2);
+            const midPt = simplified[midIndex] || simplified[0];
+            const midX = Math.round(startX + midPt.x - 25);
+            const midY = Math.round(startY + midPt.y - 12);
             elements.push({
                 id: `arrow_lbl_${edgeIndex}_${Date.now()}`,
                 type: 'text',
@@ -643,3 +655,4 @@ export function convertMermaidToExcalidrawElements(
 
     return elements;
 }
+

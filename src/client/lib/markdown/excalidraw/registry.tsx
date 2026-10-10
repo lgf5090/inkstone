@@ -384,6 +384,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             }, [theme]);
 
             React.useEffect(() => {
+                let observer: MutationObserver | null = null;
                 const reparentMenu = () => {
                     const trigger =
                         canvasHost.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
@@ -398,13 +399,16 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
                             footerSection.prepend(trigger);
                         }
+                        if ((undoRedo && undoRedo.contains(trigger)) || (footerSection && footerSection.contains(trigger))) {
+                            observer?.disconnect();
+                        }
                     }
                 };
 
                 reparentMenu();
-                const observer = new MutationObserver(reparentMenu);
+                observer = new MutationObserver(reparentMenu);
                 observer.observe(canvasHost, { childList: true, subtree: true });
-                return () => observer.disconnect();
+                return () => observer?.disconnect();
             }, []);
 
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
@@ -467,9 +471,11 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         onChange={handleChange}
                         onLinkOpen={handleLinkOpen}
                         onExcalidrawAPI={(excalidrawApi: any) => {
-                            api = excalidrawApi;
-                            if (instance) {
-                                instance.entry.excalidrawAPI = api;
+                            if (excalidrawApi) {
+                                api = excalidrawApi;
+                                if (instance) {
+                                    instance.entry.excalidrawAPI = api;
+                                }
                             }
                         }}
                         UIOptions={{
@@ -605,12 +611,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             destroy: () => {
                 window.clearTimeout(instance?.saveTimeout);
                 activeInstances.delete(key);
-                queueMicrotask(() => {
+                window.setTimeout(() => {
                     try {
                         reactRoot.unmount();
                     } catch {
                     }
-                });
+                }, 0);
             },
             updateScene: (nextData: ExcalidrawSceneData) => {
                 if (api) {

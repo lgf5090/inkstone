@@ -16,7 +16,7 @@ export function securityHeaders(url: string, options: SecurityHeaderOptions = {}
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Content-Security-Policy': [
       `default-src 'self'; base-uri 'self'; ${scriptSrc}style-src 'self' 'unsafe-inline'; `,
-      `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data: https://esm.sh; connect-src 'self'; worker-src 'self' blob:; `,
+      `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data: https://esm.sh; connect-src 'self' https://api.deepseek.com https://api.openai.com https://api.anthropic.com; worker-src 'self' blob:; `,
       "manifest-src 'self'; media-src 'self' blob:; form-action 'self'; frame-src 'none'; ",
       "frame-ancestors 'none'; object-src 'none'",
     ].join(''),

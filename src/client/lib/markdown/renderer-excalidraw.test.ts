@@ -114,6 +114,30 @@ describe('excalidraw body parsing and serialization', () => {
         expect(reParsed.type).toBe('excalidraw');
         expect(reParsed.elements[0].id).toBe('el-1');
     });
+
+    it('prunes deleted elements and unreferenced files on serialization', () => {
+        const scene = {
+            type: 'excalidraw' as const,
+            version: 2,
+            source: 'https://excalidraw.com',
+            elements: [
+                { id: 'el-active', type: 'image', fileId: 'file-1', isDeleted: false },
+                { id: 'el-deleted', type: 'image', fileId: 'file-2', isDeleted: true },
+                { id: 'el-text-deleted', type: 'text', isDeleted: true },
+            ],
+            appState: { viewBackgroundColor: '#ffffff', gridSize: null },
+            files: {
+                'file-1': { id: 'file-1', dataURL: 'data:image/png;base64,active' },
+                'file-2': { id: 'file-2', dataURL: 'data:image/png;base64,deleted' },
+                'file-orphaned': { id: 'file-orphaned', dataURL: 'data:image/png;base64,orphan' },
+            },
+        };
+        const serialized = serializeExcalidrawBody(scene as any);
+        const reParsed = JSON.parse(serialized);
+        expect(reParsed.elements.length).toBe(1);
+        expect(reParsed.elements[0].id).toBe('el-active');
+        expect(Object.keys(reParsed.files)).toEqual(['file-1']);
+    });
 });
 
 describe('excalidraw fence surgical updates', () => {

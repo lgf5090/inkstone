@@ -33,9 +33,49 @@ export function extractCodeBlock(content: string, language = 'mermaid'): string 
   return '';
 }
 
+async function callAIEndpoint(
+  endpoint: string,
+  headers: Record<string, string>,
+  payload: unknown,
+  signal?: AbortSignal,
+  useProxy = true,
+  proxyUrl = '/api/ai/proxy',
+): Promise<Response> {
+  if (useProxy) {
+    try {
+      const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Inkstone-Client': '1',
+        },
+        body: JSON.stringify({
+          endpoint,
+          headers,
+          body: payload,
+        }),
+        signal,
+      });
+      if (res.status !== 404) {
+        return res;
+      }
+    } catch (err: unknown) {
+      if (signal?.aborted) throw err;
+    }
+  }
+
+  return await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    signal,
+  });
+}
+
 export async function testAIConnection(
   config: AIProviderConfig,
   model = 'deepseek-flash',
+  options: { useProxy?: boolean; proxyUrl?: string; signal?: AbortSignal } = {},
 ): Promise<AIConnectionTestResult> {
   const startTime = Date.now();
   const endpoint = buildEndpoint(config);
@@ -59,11 +99,14 @@ export async function testAIConnection(
       max_tokens: 5,
     };
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
+    const res = await callAIEndpoint(
+      endpoint,
       headers,
-      body: JSON.stringify(payload),
-    });
+      payload,
+      options.signal,
+      options.useProxy !== false,
+      options.proxyUrl || '/api/ai/proxy',
+    );
 
     const latencyMs = Date.now() - startTime;
     if (!res.ok) {
@@ -130,12 +173,14 @@ export async function streamChatCompletion(
 
   let res: Response;
   try {
-    res = await fetch(endpoint, {
-      method: 'POST',
+    res = await callAIEndpoint(
+      endpoint,
       headers,
-      body: JSON.stringify(requestBody),
-      signal: options.signal,
-    });
+      requestBody,
+      options.signal,
+      options.useProxy !== false,
+      options.proxyUrl || '/api/ai/proxy',
+    );
   } catch (err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     options.onError?.(e);

@@ -205,5 +205,31 @@ describe('stream-client', () => {
       expect(result.reasoning).toBe('Internal deliberation');
       expect(result.content).toBe('```mermaid\ngraph LR\n  A-->B\n```');
     });
+
+    it('falls back to direct endpoint if proxy returns 404', async () => {
+      const calls: string[] = [];
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        calls.push(url);
+        if (url === '/api/ai/proxy') {
+          return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found' });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ choices: [{ message: { content: 'direct-pong' } }] }),
+        });
+      }) as any;
+
+      const config: AIProviderConfig = {
+        provider: 'deepseek',
+        baseURL: 'https://api.deepseek.com',
+        apiKey: 'key',
+      };
+
+      const result = await testAIConnection(config, 'deepseek-flash');
+      expect(result.ok).toBe(true);
+      expect(calls).toEqual(['/api/ai/proxy', 'https://api.deepseek.com/chat/completions']);
+    });
   });
 });
+

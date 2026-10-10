@@ -66,6 +66,58 @@ const excalidrawVendorPlugin = (): Plugin => {
     if (content.includes(fallbackTarget)) {
       content = content.replace(fallbackTarget, 'F(mu,"ASSETS_FALLBACK_URL","/vendor/excalidraw/");')
     }
+    content = content.replace(
+      'let o=this.app.props.UIOptions.canvasActions;',
+      'let o=this.app?.props?.UIOptions?.canvasActions;if(!this.app||!o)return null;',
+    )
+    content = content.replace(
+      'this.unmounted=!0,this.viewport.destroy(),this.removeEventListeners(),this.library.destroy()',
+      'this.unmounted=!0,this.viewport?.destroy?.(),this.removeEventListeners(),this.library?.destroy?.()',
+    )
+    content = content.replace(
+      'this.iFrameRefs.forEach((i,a)=>{t.has(a)||this.iFrameRefs.delete(a)})',
+      'this.iFrameRefs?.forEach?.((i,a)=>{t.has(a)||this.iFrameRefs.delete(a)})',
+    )
+    content = content.replace(
+      '(0,AB.useEffect)(()=>{A.canvas.style.width=',
+      '(0,AB.useEffect)(()=>{if(!A?.canvas)return;A.canvas.style.width=',
+    )
+    content = content.replace(
+      'this.store.onStoreIncrementEmitter.clear(),this.store.onDurableIncrementEmitter.clear()',
+      'this.store?.onStoreIncrementEmitter?.clear?.(),this.store?.onDurableIncrementEmitter?.clear?.()',
+    )
+    content = content.replace(
+      'componentDidUpdate(t,o){let i=this.renderOverridesUpdatePending;',
+      'componentDidUpdate(t,o){if(this.unmounted)return;let i=this.renderOverridesUpdatePending;',
+    )
+    content = content.replace(
+      'this.store.commit(r,this.state)',
+      'this.store?.commit?.(r,this.state)',
+    )
+    content = content.replace(
+      'this.iFrameRefs.clear(),this.iFrameRefs=null',
+      'this.iFrameRefs?.clear?.(),this.iFrameRefs=null',
+    )
+    content = content.replace(
+      'this.embedsValidationStatus.clear(),this.embedsValidationStatus=null',
+      'this.embedsValidationStatus?.clear?.(),this.embedsValidationStatus=null',
+    )
+    content = content.replace(
+      'this.initializedEmbeds.clear(),this.initializedEmbeds=null',
+      'this.initializedEmbeds?.clear?.(),this.initializedEmbeds=null',
+    )
+    content = content.replace(
+      'this.elementsPendingErasure.clear(),this.elementsPendingErasure=null',
+      'this.elementsPendingErasure?.clear?.(),this.elementsPendingErasure=null',
+    )
+    content = content.replace(
+      'componentWillUnmount(){this.api={...this.api,isDestroyed:!0};',
+      'componentWillUnmount(){if(this.unmounted)return;this.unmounted=!0;this.api={...this.api,isDestroyed:!0};',
+    )
+    content = content.replace(
+      'this.history.clear(),this.store.clear()',
+      'this.history?.clear?.(),this.store?.clear?.()',
+    )
     return content
   }
 
@@ -125,6 +177,48 @@ const excalidrawVendorPlugin = (): Plugin => {
             res.end(fs.readFileSync(target))
             return
           }
+        }
+        if ((cleanUrl === '/api/ai/proxy' || cleanUrl === '/api/excalidraw/ai/proxy') && req.method === 'POST') {
+          const chunks: Buffer[] = []
+          req.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+          req.on('end', async () => {
+            try {
+              const raw = Buffer.concat(chunks).toString('utf8')
+              const parsed = JSON.parse(raw)
+              const { endpoint, headers = {}, body } = parsed
+              const targetUrl = new URL(endpoint)
+              const upstreamHeaders = new Headers()
+              for (const [k, v] of Object.entries(headers)) {
+                const lower = k.toLowerCase()
+                if (lower === 'host' || lower === 'connection' || lower === 'content-length') continue
+                if (typeof v === 'string') upstreamHeaders.set(k, v)
+              }
+              if (!upstreamHeaders.has('content-type')) {
+                upstreamHeaders.set('content-type', 'application/json')
+              }
+              const payload = typeof body === 'string' ? body : JSON.stringify(body ?? {})
+              const upstreamRes = await fetch(targetUrl.toString(), {
+                method: 'POST',
+                headers: upstreamHeaders,
+                body: payload,
+              })
+              const resHeaders: Record<string, string> = {
+                'content-type': upstreamRes.headers.get('content-type') || 'application/json',
+                'cache-control': 'no-cache',
+              }
+              res.writeHead(upstreamRes.status, resHeaders)
+              if (upstreamRes.body) {
+                const { Readable } = await import('node:stream')
+                Readable.fromWeb(upstreamRes.body as any).pipe(res)
+              } else {
+                res.end()
+              }
+            } catch (err: any) {
+              res.writeHead(502, { 'content-type': 'application/json' })
+              res.end(JSON.stringify({ error: { message: err?.message || String(err) } }))
+            }
+          })
+          return
         }
         next()
       })

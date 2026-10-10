@@ -54,18 +54,34 @@ export function parseExcalidrawBody(body: string): { ok: boolean; data: Excalidr
 }
 
 export function serializeExcalidrawBody(data: ExcalidrawSceneData): string {
+    const rawElements = Array.isArray(data.elements) ? data.elements : [];
+    const elements = rawElements.filter((el: any) => el && !el.isDeleted);
+    const referencedFiles = new Set<string>();
+    for (const el of elements) {
+        if (el && el.type === 'image' && typeof el.fileId === 'string' && el.fileId) {
+            referencedFiles.add(el.fileId);
+        }
+    }
+    const cleanFiles: Record<string, any> = {};
+    if (data.files && typeof data.files === 'object') {
+        for (const [key, val] of Object.entries(data.files)) {
+            if (referencedFiles.has(key)) {
+                cleanFiles[key] = val;
+            }
+        }
+    }
     const cleanData: ExcalidrawSceneData = {
         type: 'excalidraw',
         version: 2,
         source: 'https://excalidraw.com',
-        elements: data.elements || [],
+        elements,
         appState: {
             viewBackgroundColor: data.appState?.viewBackgroundColor ?? '#ffffff',
             gridSize: data.appState?.gridSize ?? null,
         },
-        files: data.files || {},
+        files: cleanFiles,
     };
-    return JSON.stringify(cleanData, null, 2);
+    return JSON.stringify(cleanData);
 }
 
 export interface ExcalidrawFenceMatch {
