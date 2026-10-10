@@ -27,6 +27,7 @@ import {
     type VirtualTreeNamespace,
 } from '../lib/calendar-tree';
 import { adoptedFrontMatterTitle, buildNewNoteContent, rememberPendingEditorCursor, syncTitleIntoFrontMatter } from './new-note';
+import { createDefaultExcalidrawScene, serializeExcalidrawBody } from '../lib/markdown/excalidraw';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -71,6 +72,7 @@ interface NotesState {
         /** Caret offset for an explicitly supplied `content`; ignored when the template builds it. */
         cursor?: number | null;
     }) => Promise<string | null>;
+    createExcalidrawNote: (folderId?: string | null) => Promise<string | null>;
     patchNote: (id: string, patch: Partial<Pick<NoteSummary, 'isPinned' | 'isStarred' | 'isArchived'>> & {
         folderId?: string | null;
     }) => Promise<void>;
@@ -833,6 +835,19 @@ export const useNotes = create<NotesState>((set, get) => ({
                     return;
                 }
             }
+        });
+    },
+    async createExcalidrawNote(folderId?: string | null) {
+        const initialScene = serializeExcalidrawBody(createDefaultExcalidrawScene());
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+        const title = `Drawing ${dateStr}.excalidraw`;
+        return get().createNote({
+            title,
+            content: initialScene,
+            folderId: folderId ?? undefined,
+            open: true,
         });
     },
     async deleteNote(id) {

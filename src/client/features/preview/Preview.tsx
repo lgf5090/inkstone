@@ -45,6 +45,7 @@ import type { BlockActionContext } from './block-overlay'
 import { MindmapFullscreen } from './mindmap-fullscreen'
 import { MindmapThemeMenu } from './mindmap-theme-menu'
 import { useMindmapBlocks } from './use-mindmap-blocks'
+import { useExcalidrawBlocks } from './use-excalidraw-blocks'
 import { NoteProperties } from './NoteProperties'
 import { WikiLinkHoverCard } from './wiki-link-hover-card'
 import { useLinkHoverHost } from './link-hover-host'
@@ -146,6 +147,14 @@ export const Preview = memo(function Preview({
   // One scope per preview instance: two panes showing the same note must not claim each other's map.
   const instanceScope = useId()
   const mindmap = useMindmapBlocks({
+    scope: `preview${instanceScope}`,
+    noteId: sourceNoteId ?? null,
+    hostRef,
+    epoch: mermaidEpoch,
+    dark: theme === 'dark',
+  })
+
+  useExcalidrawBlocks({
     scope: `preview${instanceScope}`,
     noteId: sourceNoteId ?? null,
     hostRef,

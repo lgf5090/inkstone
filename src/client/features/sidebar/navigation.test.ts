@@ -390,6 +390,7 @@ describe('folder row menu', () => {
         expect(labels(scope)).toEqual([
             t('sidebar.rename'),
             t('sidebar.create_new_note_here'),
+            t('sidebar.create_new_drawing_here'),
             t('sidebar.new_subfolder'),
             t('folders.color'),
             t('folders.icon'),
@@ -412,6 +413,7 @@ describe('folder row menu', () => {
             expect(labels(scope)).toEqual([
                 t('sidebar.rename'),
                 t('sidebar.create_new_note_here'),
+                t('sidebar.create_new_drawing_here'),
                 t('sidebar.new_subfolder'),
                 t('folders.color'),
                 t('folders.icon'),
@@ -751,14 +753,14 @@ describe('folder row menu', () => {
         expect([...scope.querySelectorAll('button')].map((element) => element.textContent?.replace(/✓$/, '').trim())).toContain(t('folders.manage_folders'));
     });
 
-    it('keeps the section header to its five controls and no printed heading', async () => {
+    it('keeps the section header to its six controls and no printed heading', async () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
         const header = document.querySelector<HTMLElement>('#sidebar-folders > div')!;
         // Five controls is the measured ceiling for the row. The heading text is gone — the selected
         // tab icon above already says what this panel is — so the controls own the line and centre in it.
-        expect(header.querySelectorAll('button')).toHaveLength(5);
+        expect(header.querySelectorAll('button')).toHaveLength(6);
         expect(header.textContent).toBe('');
         // No layout in jsdom, but the class is the whole story here: the strip already
         // separates the body, so the section must not add its own top margin.

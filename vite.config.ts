@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Plugin, UserConfigFnPromise } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -14,7 +15,7 @@ const preservesOnDemandBoundary = (id: string) => {
   const path = normalizeModuleId(id)
   // Keep optional preview renderers and their language modules behind dynamic-import boundaries.
   return (
-    /\/node_modules\/(?:mermaid|@mermaid-js\/[^/]+|cytoscape|cytoscape-cose-bilkent|elkjs|dagre-d3-es|d3-[^/]+|mind-elixir)\//.test(
+    /\/node_modules\/(?:mermaid|@mermaid-js\/[^/]+|cytoscape|cytoscape-cose-bilkent|elkjs|dagre-d3-es|d3-[^/]+|mind-elixir|@zsviczian)\//.test(
       path,
     ) ||
     /\/node_modules\/@lezer\/(?!common\/|highlight\/|lr\/|markdown\/)/.test(path) ||
@@ -48,6 +49,54 @@ const katexWoff2Only = (): Plugin => ({
   },
 })
 
+const excalidrawVendorPlugin = (): Plugin => {
+  const vendorJsPath = r('./node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.production.min.js')
+  const vendorCssPath = r('./node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.production.min.css')
+
+  return {
+    name: 'inkstone:excalidraw-vendor',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url) return next()
+        const cleanUrl = req.url.split('?')[0]
+        if (cleanUrl === '/vendor/excalidraw/excalidraw.production.min.js') {
+          res.setHeader('Content-Type', 'application/javascript')
+          res.setHeader('Cache-Control', 'no-cache')
+          if (fs.existsSync(vendorJsPath)) {
+            res.end(fs.readFileSync(vendorJsPath))
+            return
+          }
+        }
+        if (cleanUrl === '/vendor/excalidraw/excalidraw.production.min.css') {
+          res.setHeader('Content-Type', 'text/css')
+          res.setHeader('Cache-Control', 'no-cache')
+          if (fs.existsSync(vendorCssPath)) {
+            res.end(fs.readFileSync(vendorCssPath))
+            return
+          }
+        }
+        next()
+      })
+    },
+    generateBundle() {
+      if (fs.existsSync(vendorJsPath)) {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'vendor/excalidraw/excalidraw.production.min.js',
+          source: fs.readFileSync(vendorJsPath),
+        })
+      }
+      if (fs.existsSync(vendorCssPath)) {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'vendor/excalidraw/excalidraw.production.min.css',
+          source: fs.readFileSync(vendorCssPath),
+        })
+      }
+    },
+  }
+}
+
 const getVendorChunkName = (id: string) => {
   if (!id.includes('node_modules') || preservesOnDemandBoundary(id)) return null
 
@@ -67,6 +116,7 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
   plugins: [
     react(),
     katexWoff2Only(),
+    excalidrawVendorPlugin(),
     tailwindcss(),
     inkstonePwa(),
     ...(mode === 'demo'
@@ -87,6 +137,8 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
       { find: /^katex$/, replacement: r('./node_modules/katex/dist/katex.mjs') },
       { find: '@', replacement: r('./src/client') },
       { find: '@shared', replacement: r('./src/shared') },
+      { find: '@zsviczian/excalidraw/obsidian-js', replacement: r('./node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.production.min.js') },
+      { find: '@zsviczian/excalidraw/obsidian-css', replacement: r('./node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.production.min.css') },
     ],
   },
 

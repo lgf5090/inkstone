@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { CHART_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES } from './diagram-templates'
+import { CHART_TEMPLATES, EXCALIDRAW_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES } from './diagram-templates'
 import { CHART_SLICE_KINDS, convertChartBody, detectChartMode, readChartTable } from '../lib/markdown/chart'
 import { parseKanbanBody } from '../lib/markdown/kanban/body'
 import { detectMindmapMode } from '../lib/markdown/mindmap/body'
+import { parseExcalidrawBody } from '../lib/markdown/excalidraw/body'
 import { renderMarkdown } from '../lib/markdown/renderer'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 
@@ -11,6 +12,7 @@ const FAMILIES = [
   ['chart', CHART_TEMPLATES],
   ['mindmap', MINDMAP_TEMPLATES],
   ['kanban', KANBAN_TEMPLATES],
+  ['excalidraw', EXCALIDRAW_TEMPLATES],
 ] as const
 
 describe('every diagram template', () => {
@@ -80,3 +82,12 @@ describe('the kanban templates', () => {
     expect(parsed.data.items.map((item) => labelOf(item.properties.status))).toEqual(['To Do', 'To Do', 'Doing', 'Done'])
   })
 })
+
+describe('the excalidraw templates', () => {
+  it.each(EXCALIDRAW_TEMPLATES)('$id parses and renders data-excalidraw block', (template) => {
+    const parsed = parseExcalidrawBody(template.body)
+    expect(parsed.ok).toBe(true)
+    expect(renderMarkdown(`\`\`\`excalidraw\n${template.body}\n\`\`\`\n`).html).toContain('data-excalidraw')
+  })
+})
+

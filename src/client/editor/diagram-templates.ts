@@ -379,3 +379,19 @@ export const DATAVIEW_JS_BODY = [
     'dv.header(3, `Notes: ${pages.length}`)',
     'dv.table(["Name", "Updated"], pages.map((p) => [p.file.link, p.file.mtime]))',
 ].join('\n')
+
+export const EXCALIDRAW_TEMPLATES: DiagramTemplate[] = [
+    {
+        id: 'blank',
+        labelKey: 'common.new_drawing',
+        body: JSON.stringify({
+            type: 'excalidraw',
+            version: 2,
+            source: 'https://excalidraw.com',
+            elements: [],
+            appState: { viewBackgroundColor: '#ffffff', gridSize: null },
+            files: {},
+        }, null, 2),
+    },
+];
+

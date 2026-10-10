@@ -56,7 +56,7 @@ import {
   unwrapMediaLayoutHere,
   wrapLinesAsMediaLayout,
 } from './commands'
-import { CHART_TEMPLATES, DATAVIEW_JS_BODY, DATAVIEW_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
+import { CHART_TEMPLATES, DATAVIEW_JS_BODY, DATAVIEW_TEMPLATES, EXCALIDRAW_TEMPLATES, KANBAN_TEMPLATES, MERMAID_TEMPLATES, MINDMAP_TEMPLATES, type DiagramTemplate } from './diagram-templates'
 import { openEmojiPicker } from '../store/emoji-picker'
 import { AlignCenter, AlignLeft, ArrowDown, ArrowUp, Bold, Braces, CaseUpper, ChevronDown, Code, Columns3, Copy, CopyPlus, Eraser, FileCode, FileText, GitCommitVertical, Hand, Highlighter, Image as ImageIcon, Italic, Link2, List, ListOrdered, ListTree, ListTodo, Minus, Plus, Quote, Scissors, Sigma, Sparkles, SquarePen, Strikethrough, Subscript, Superscript, Table as TableIcon, Trash2, Underline } from 'lucide-react'
 import {
@@ -215,6 +215,7 @@ export function codeMenuItems(run: RunEditorCommand): MenuItem[] {
   const mermaid = diagramSubmenu(run, 'mermaid', '```mermaid', MERMAID_TEMPLATES, 190)
   const chart = diagramSubmenu(run, 'chart', '```chart style=table', CHART_TEMPLATES, 180)
   const mindmap = diagramSubmenu(run, 'mindmap', '```mindmap', MINDMAP_TEMPLATES, 180)
+  const excalidraw = diagramSubmenu(run, 'excalidraw', '```excalidraw', EXCALIDRAW_TEMPLATES, 180)
   const kanban = diagramSubmenu(run, 'kanban', '```kanban', KANBAN_TEMPLATES, 180)
   const dataview = diagramSubmenu(run, 'dataview', '```dataview', DATAVIEW_TEMPLATES, 190)
   return [
@@ -224,6 +225,7 @@ export function codeMenuItems(run: RunEditorCommand): MenuItem[] {
     { id: 'mermaid', label: t('workspace.mermaid_diagram'), separatorBefore: true, subItems: mermaid.items, submenu: mermaid.submenu },
     { id: 'chart', label: t('workspace.chartjs_diagram'), subItems: chart.items, submenu: chart.submenu },
     { id: 'mindmap', label: t('workspace.mind_map'), subItems: mindmap.items, submenu: mindmap.submenu },
+    { id: 'excalidraw', label: t('preview.excalidraw_drawing'), subItems: excalidraw.items, submenu: excalidraw.submenu },
     { id: 'kanban', label: t('workspace.kanban_board'), subItems: kanban.items, submenu: kanban.submenu },
     { id: 'dataview', label: t('workspace.dataview_query'), subItems: dataview.items, submenu: dataview.submenu },
     { id: 'dataview-js', label: t('workspace.dataview_js'), onSelect: () => run(insertDiagramCode('\`\`\`dataviewjs', DATAVIEW_JS_BODY)) },

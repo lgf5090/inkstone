@@ -72,6 +72,7 @@ import type { TimelineItem, TimelineOptions, TimelineStatus } from './timeline-o
 import { readFenceStyle } from './chart/style';
 import { CHART_LANGUAGES } from './chart/body';
 import { detectMindmapMode, MINDMAP_LANGUAGES } from './mindmap/body';
+import { EXCALIDRAW_LANGUAGES } from './excalidraw/body';
 import { dataviewHostMarkup, dataviewModeOf } from '../dataview/body';
 import { MINDMAP_THEME_ATTR, readFenceAnnotation } from './mindmap/theme';
 import { emojiCharForCode, emojiUnicodeIsLoaded, requestEmojiUnicode } from '../emoji-unicode';
@@ -109,6 +110,7 @@ interface RenderEnvironment {
     exampleSequence: number;
     /** Counts the mind map blocks in this document, so each one can name itself. */
     mindmapSequence: number;
+    excalidrawSequence: number;
     /** What `@fig:`, `@eq:` and `@tbl:` names resolve to, numbered in the order the document was written. */
     crossrefs: CrossrefRegistry;
     docId: string;
@@ -822,6 +824,7 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         childEnv.tabSequence = parentEnv.tabSequence;
         childEnv.exampleSequence = parentEnv.exampleSequence;
         childEnv.mindmapSequence = parentEnv.mindmapSequence;
+        childEnv.excalidrawSequence = parentEnv.excalidrawSequence;
         childEnv.docId = `${parentEnv.docId}-example-${exampleId}`;
         // One set for the whole document: a markup string carries no per-subtree registration once it
         // is re-parsed, so a board inside an example answers to the outer numbering.
@@ -833,6 +836,7 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         parentEnv.tabSequence = childEnv.tabSequence;
         parentEnv.exampleSequence = Math.max(parentEnv.exampleSequence, childEnv.exampleSequence);
         parentEnv.mindmapSequence = Math.max(parentEnv.mindmapSequence, childEnv.mindmapSequence);
+        parentEnv.excalidrawSequence = Math.max(parentEnv.excalidrawSequence, childEnv.excalidrawSequence);
         const title = info.title || t("markdown.markdown_example");
         const titleId = `${parentEnv.docId}-markdown-example-${exampleId}`;
         return [
@@ -895,6 +899,8 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
     }
     if ((MINDMAP_LANGUAGES as readonly string[]).includes(info.language))
         return renderMindmapBlock(token, line, rendererEnv);
+    if ((EXCALIDRAW_LANGUAGES as readonly string[]).includes(info.language))
+        return renderExcalidrawBlock(token, line, rendererEnv);
     const title = info.title || info.language || t("markdown.code");
     const code = readCodeOptions(token.info);
     const optionAttrs = [
@@ -931,6 +937,15 @@ function renderMindmapBlock(token: Token, line: string, rendererEnv: unknown): s
     return [
         `<div class="mindmap-block loading"${line} data-mindmap="${escapeAttr(encodeDataValue(token.content))}" data-mindmap-mode="${detectMindmapMode(token.content)}" data-mindmap-index="${index}"${annotation === null ? '' : ` ${MINDMAP_THEME_ATTR}="${escapeAttr(annotation)}"`} aria-busy="true">`,
         `<div class="mindmap-block-placeholder" data-mindmap-placeholder>${escapeHtml(t("preview.mindmap_loading"))}</div>`,
+        `</div>`,
+    ].join('');
+}
+function renderExcalidrawBlock(token: Token, line: string, rendererEnv: unknown): string {
+    const env = renderEnv(rendererEnv);
+    const index = env.excalidrawSequence++;
+    return [
+        `<div class="excalidraw-block loading"${line} data-excalidraw="${escapeAttr(encodeDataValue(token.content))}" data-excalidraw-index="${index}" aria-busy="true">`,
+        `<div class="excalidraw-block-placeholder" data-excalidraw-placeholder>${escapeHtml(t("preview.excalidraw_loading") || "Loading drawing...")}</div>`,
         `</div>`,
     ].join('');
 }
@@ -1075,6 +1090,9 @@ export const PURIFY_CONFIG = {
         'data-mindmap-index',
         'data-mindmap-theme',
         'data-mindmap-placeholder',
+        'data-excalidraw',
+        'data-excalidraw-index',
+        'data-excalidraw-placeholder',
         'data-dataview',
         'data-dataview-mode',
         'data-dataview-body',
@@ -1327,6 +1345,7 @@ function emptyEnvironment(): RenderEnvironment {
         tabSequence: 0,
         exampleSequence: 0,
         mindmapSequence: 0,
+        excalidrawSequence: 0,
         crossrefs: emptyCrossrefRegistry(),
         docId: `ink-${nonce}`,
         emojiShortcodes: true,
