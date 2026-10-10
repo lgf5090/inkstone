@@ -14,9 +14,14 @@ import { t } from '../../i18n';
 import { useUi } from '../../../store/ui';
 import { ExcalidrawToolsPanel } from '../../../features/excalidraw/ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from '../../../features/excalidraw/ExcalidrawFloatingCapsule';
-import { zoomToFitScene } from '../../../features/excalidraw/excalidraw-canvas-actions';
+import {
+    promptAndInsertLatex,
+    promptAndInsertLink,
+    promptAndInsertNoteCard,
+    zoomToFitScene,
+} from '../../../features/excalidraw/excalidraw-canvas-actions';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
-import { loadExcalidrawLib } from './loader';
+import { loadExcalidrawLib, registerExcalidrawActionHandler } from './loader';
 import type {
     ExcalidrawBlockEntry,
     ExcalidrawMountOptions,
@@ -294,7 +299,14 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             React.useEffect(() => {
                 const onFsChange = (e: Event) => {
                     const custom = e as CustomEvent<{ isFullscreen: boolean }>;
-                    setIsFullscreen(custom.detail?.isFullscreen ?? block.classList.contains('excalidraw-fullscreen'));
+                    const nextFs = custom.detail?.isFullscreen ?? block.classList.contains('excalidraw-fullscreen');
+                    setIsFullscreen(nextFs);
+                    requestAnimationFrame(() => {
+                        const currentApi = api || instance?.entry?.excalidrawAPI || entry.excalidrawAPI;
+                        if (currentApi) {
+                            zoomToFitScene(currentApi, canvasHost);
+                        }
+                    });
                 };
                 const onToggleTools = () => setToolsPanelOpen((o) => !o);
                 const onToggleLib = () => handleToggleLibrary();
@@ -309,6 +321,47 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                     block.removeEventListener('excalidraw-toggle-library', onToggleLib);
                 };
             }, [handleToggleLibrary]);
+
+            React.useEffect(() => {
+                if (!api) return;
+                registerExcalidrawActionHandler(async (action) => {
+                    const isDark = theme === 'dark';
+                    if (action === 'LaTeX') {
+                        await promptAndInsertLatex(api, isDark);
+                    } else if (action === 'card') {
+                        await promptAndInsertNoteCard(api, isDark);
+                    } else if (action === 'anyFile') {
+                        await promptAndInsertLink(api, isDark);
+                    }
+                });
+                return () => {
+                    registerExcalidrawActionHandler(null);
+                };
+            }, [theme]);
+
+            React.useEffect(() => {
+                const reparentMenu = () => {
+                    const trigger =
+                        canvasHost.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
+                        canvasHost.querySelector<HTMLElement>('.main-menu-trigger') ||
+                        canvasHost.querySelector<HTMLElement>('.excalidraw-ui-top-left');
+                    const undoRedo = canvasHost.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left .undo-redo-buttons');
+                    const footerSection = canvasHost.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left section');
+
+                    if (trigger) {
+                        if (undoRedo && !undoRedo.contains(trigger)) {
+                            undoRedo.prepend(trigger);
+                        } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
+                            footerSection.prepend(trigger);
+                        }
+                    }
+                };
+
+                reparentMenu();
+                const observer = new MutationObserver(reparentMenu);
+                observer.observe(canvasHost, { childList: true, subtree: true });
+                return () => observer.disconnect();
+            }, []);
 
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
                 lastElements = elements as any[];
@@ -430,6 +483,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             onScriptLibrary={() => {
                                 useUi.getState().toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
                             }}
+                            isDark={theme === 'dark'}
+                            onToggleTheme={() => {
+                                const next = theme === 'dark' ? 'light' : 'dark';
+                                setTheme(next);
+                                entry.setTheme(next);
+                            }}
                         />
                     )}
 
@@ -490,8 +549,9 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 }
             },
             zoomToFit: () => {
-                if (api) {
-                    zoomToFitScene(api, canvasHost);
+                const currentApi = api || instance?.entry?.excalidrawAPI || entry.excalidrawAPI;
+                if (currentApi) {
+                    zoomToFitScene(currentApi, canvasHost);
                 }
             },
             toggleSource: () => {

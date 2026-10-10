@@ -55,6 +55,25 @@ describe('computeElementsBounds', () => {
         expect(bounds!.maxX).toBe(250);
         expect(bounds!.maxY).toBe(130);
     });
+
+    it('computes bounding box for rotated elements', () => {
+        const elements = [
+            {
+                id: 'rect-rot',
+                x: 100,
+                y: 100,
+                width: 200,
+                height: 50,
+                angle: Math.PI / 2,
+            },
+        ];
+        const bounds = computeElementsBounds(elements);
+        expect(bounds).not.toBeNull();
+        expect(bounds!.centerX).toBeCloseTo(200, 0);
+        expect(bounds!.centerY).toBeCloseTo(125, 0);
+        expect(bounds!.width).toBeCloseTo(50, 0);
+        expect(bounds!.height).toBeCloseTo(200, 0);
+    });
 });
 
 describe('zoomToFitScene', () => {
@@ -102,6 +121,21 @@ describe('zoomToFitScene', () => {
         zoomToFitScene(mockApi);
         expect(mockApi.updateScene).not.toHaveBeenCalled();
     });
+
+    it('calls api.zoomToFit fallback when available', () => {
+        const zoomToFitMock = vi.fn();
+        const mockApi = {
+            getSceneElements: () => [
+                { id: '1', x: 0, y: 0, width: 100, height: 100 },
+            ],
+            getAppState: () => ({ width: 800, height: 600, zoom: { value: 1 }, scrollX: 0, scrollY: 0 }),
+            zoomToFit: zoomToFitMock,
+            updateScene: vi.fn(),
+        };
+        zoomToFitScene(mockApi);
+        expect(zoomToFitMock).toHaveBeenCalled();
+        expect(mockApi.updateScene).toHaveBeenCalled();
+    });
 });
 
 describe('createLatexSvg and insertLatexToCanvas', () => {
@@ -135,6 +169,8 @@ describe('createLatexSvg and insertLatexToCanvas', () => {
         expect(sceneElements.length).toBe(1);
         expect(sceneElements[0].type).toBe('image');
         expect(sceneElements[0].fileId).toBe(filesAdded[0].id);
+        expect(sceneElements[0].scale).toEqual([1, 1]);
+        expect(sceneElements[0].crop).toBeNull();
         expect(sceneElements[0].customData.latex).toBe('\\frac{1}{2}');
     });
 });
@@ -159,9 +195,14 @@ describe('insertNoteCardToCanvas', () => {
 
         expect(rect).toBeDefined();
         expect(rect.link).toBe('[[My Project Note]]');
+        expect(rect.boundElements).toEqual([{ id: title.id, type: 'text' }, { id: snippet.id, type: 'text' }]);
         expect(title).toBeDefined();
         expect(title.link).toBe('[[My Project Note]]');
+        expect(title.originalText).toBe(title.text);
+        expect(title.width).toBeGreaterThan(0);
         expect(snippet).toBeDefined();
+        expect(snippet.originalText).toBe(snippet.text);
+        expect(snippet.width).toBeGreaterThan(0);
     });
 });
 
@@ -210,8 +251,13 @@ describe('insertLinkToCanvas', () => {
 
         expect(sceneElements.length).toBe(2);
         const rect = sceneElements.find((e) => e.type === 'rectangle');
+        const text = sceneElements.find((e) => e.type === 'text');
         expect(rect).toBeDefined();
         expect(rect.link).toBe('https://github.com');
+        expect(rect.boundElements).toEqual([{ id: text.id, type: 'text' }]);
+        expect(text).toBeDefined();
+        expect(text.originalText).toBe(text.text);
+        expect(text.width).toBeGreaterThan(0);
     });
 });
 
@@ -238,6 +284,69 @@ describe('insertPdfCardToCanvas', () => {
         const rect = sceneElements.find((e) => e.type === 'rectangle');
         const text = sceneElements.find((e) => e.type === 'text');
         expect(rect.link).toBe('[[annual-report.pdf]]');
+        expect(rect.boundElements).toEqual([{ id: text.id, type: 'text' }]);
         expect(text.text).toContain('annual-report.pdf');
+        expect(text.originalText).toBe(text.text);
+        expect(text.width).toBeGreaterThan(0);
     });
 });
+
+describe('advanced edge cases', () => {
+    it('binds link to multiple selected elements simultaneously', () => {
+        let sceneElements: any[] = [
+            { id: 'el-1', type: 'rectangle', x: 10, y: 10, width: 50, height: 50 },
+            { id: 'el-2', type: 'ellipse', x: 80, y: 80, width: 40, height: 40 },
+            { id: 'el-3', type: 'text', x: 150, y: 150, width: 60, height: 30 },
+            { id: 'el-4', type: 'diamond', x: 250, y: 250, width: 40, height: 40 },
+        ];
+        const mockApi = {
+            getSceneElements: () => sceneElements,
+            getAppState: () => ({
+                selectedElementIds: { 'el-1': true, 'el-2': true, 'el-3': true },
+                width: 800,
+                height: 600,
+            }),
+            updateScene: vi.fn((data) => {
+                sceneElements = data.elements;
+            }),
+        };
+
+        insertLinkToCanvas(mockApi, 'https://inkstone.example.com');
+
+        expect(mockApi.updateScene).toHaveBeenCalled();
+        expect(sceneElements.find((e) => e.id === 'el-1').link).toBe('https://inkstone.example.com');
+        expect(sceneElements.find((e) => e.id === 'el-2').link).toBe('https://inkstone.example.com');
+        expect(sceneElements.find((e) => e.id === 'el-3').link).toBe('https://inkstone.example.com');
+        expect(sceneElements.find((e) => e.id === 'el-4').link).toBeUndefined();
+    });
+
+    it('centers elements placed at extreme coordinate offsets', () => {
+        let updatedScene: any = null;
+        const mockApi = {
+            getSceneElements: () => [
+                { id: 'far-1', x: 12000, y: 15000, width: 200, height: 200 },
+            ],
+            getAppState: () => ({
+                width: 1000,
+                height: 800,
+                zoom: { value: 1 },
+                scrollX: 0,
+                scrollY: 0,
+            }),
+            updateScene: vi.fn((data) => {
+                updatedScene = data;
+            }),
+        };
+
+        zoomToFitScene(mockApi);
+
+        expect(mockApi.updateScene).toHaveBeenCalled();
+        const z = updatedScene.appState.zoom.value;
+        expect(z).toBeGreaterThan(0);
+        const expectedScrollX = (1000 / 2) / z - 12100;
+        const expectedScrollY = (800 / 2) / z - 15100;
+        expect(updatedScene.appState.scrollX).toBeCloseTo(expectedScrollX, 1);
+        expect(updatedScene.appState.scrollY).toBeCloseTo(expectedScrollY, 1);
+    });
+});
+

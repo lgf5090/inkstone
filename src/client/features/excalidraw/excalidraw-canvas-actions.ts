@@ -40,6 +40,17 @@ export function computeElementsBounds(elements: any[]): BoundingBox | null {
                 maxX = Math.max(maxX, px);
                 maxY = Math.max(maxY, py);
             }
+        } else if (el.angle && el.angle !== 0) {
+            const cx = x + w / 2;
+            const cy = y + h / 2;
+            const cos = Math.abs(Math.cos(el.angle));
+            const sin = Math.abs(Math.sin(el.angle));
+            const halfW = (Math.abs(w) / 2) * cos + (Math.abs(h) / 2) * sin;
+            const halfH = (Math.abs(w) / 2) * sin + (Math.abs(h) / 2) * cos;
+            minX = Math.min(minX, cx - halfW);
+            minY = Math.min(minY, cy - halfH);
+            maxX = Math.max(maxX, cx + halfW);
+            maxY = Math.max(maxY, cy + halfH);
         } else {
             minX = Math.min(minX, x, x + w);
             minY = Math.min(minY, y, y + h);
@@ -68,12 +79,12 @@ export function zoomToFitScene(api: any, container?: HTMLElement | null): void {
     if (!bounds) return;
 
     const appState = (typeof api.getAppState === 'function' ? api.getAppState() : {}) as any;
-    const viewportWidth = (container && container.clientWidth > 0)
-        ? container.clientWidth
-        : (appState.width || (typeof window !== 'undefined' ? window.innerWidth : 800));
-    const viewportHeight = (container && container.clientHeight > 0)
-        ? container.clientHeight
-        : (appState.height || (typeof window !== 'undefined' ? window.innerHeight : 600));
+    const viewportWidth = (appState.width && appState.width > 0)
+        ? appState.width
+        : (container && container.clientWidth > 0 ? container.clientWidth : (typeof window !== 'undefined' ? window.innerWidth : 800));
+    const viewportHeight = (appState.height && appState.height > 0)
+        ? appState.height
+        : (container && container.clientHeight > 0 ? container.clientHeight : (typeof window !== 'undefined' ? window.innerHeight : 600));
 
     const zoomX = (viewportWidth * 0.85) / bounds.width;
     const zoomY = (viewportHeight * 0.85) / bounds.height;
@@ -89,8 +100,13 @@ export function zoomToFitScene(api: any, container?: HTMLElement | null): void {
             api.scrollToContent(elements, {
                 fitToViewport: true,
                 viewportZoomFactor: 0.85,
-                animate: false,
+                animate: true,
             });
+        } catch {
+        }
+    } else if (typeof api.zoomToFit === 'function') {
+        try {
+            api.zoomToFit(elements, 2, 0.15);
         } catch {
         }
     }
@@ -190,6 +206,8 @@ export function insertLatexToCanvas(api: any, latex: string, dark = false): void
         height,
         fileId,
         status: 'saved',
+        scale: [1, 1],
+        crop: null,
         customData: { latex: latex.trim() },
         strokeColor: 'transparent',
         backgroundColor: 'transparent',
@@ -223,6 +241,12 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
 
     const cardId = `note_card_${Date.now()}`;
     const titleTextId = `note_title_${Date.now()}`;
+    const snippetTextId = snippet ? `note_snippet_${Date.now()}` : '';
+
+    const boundElements: { id: string; type: string }[] = [{ id: titleTextId, type: 'text' }];
+    if (snippetTextId) {
+        boundElements.push({ id: snippetTextId, type: 'text' });
+    }
 
     const rectEl = {
         id: cardId,
@@ -240,16 +264,22 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         opacity: 100,
         roundness: { type: 3 },
         link: `[[${cleanTitle}]]`,
+        boundElements,
     };
 
+    const titleText = `📝 ${cleanTitle}`;
     const titleEl = {
         id: titleTextId,
         type: 'text',
         x: cardX + 16,
         y: cardY + 14,
-        text: `📝 ${cleanTitle}`,
+        width: Math.min(cardW - 32, (titleText.length + 2) * 14),
+        height: 24,
+        text: titleText,
+        originalText: titleText,
         fontSize: 16,
         fontFamily: 1,
+        lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'top',
         strokeColor: dark ? '#f1f5f9' : '#0f172a',
@@ -261,16 +291,18 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
     const elements = [...current, rectEl, titleEl];
 
     if (snippet) {
-        const snippetTextId = `note_snippet_${Date.now()}`;
         const snippetEl = {
             id: snippetTextId,
             type: 'text',
             x: cardX + 16,
             y: cardY + 44,
             width: cardW - 32,
+            height: 48,
             text: snippet,
+            originalText: snippet,
             fontSize: 12,
             fontFamily: 1,
+            lineHeight: 1.25,
             textAlign: 'left',
             verticalAlign: 'top',
             strokeColor: dark ? '#94a3b8' : '#64748b',
@@ -351,6 +383,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
     const cardId = `link_card_${Date.now()}`;
     const textId = `link_text_${Date.now()}`;
     const displayLabel = rawLink.replace(/^\[\[/, '').replace(/\]\]$/, '');
+    const linkText = `🔗 ${displayLabel}`;
 
     const rectEl = {
         id: cardId,
@@ -368,6 +401,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         opacity: 100,
         roundness: { type: 3 },
         link: finalLink,
+        boundElements: [{ id: textId, type: 'text' }],
     };
 
     const textEl = {
@@ -375,9 +409,13 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         type: 'text',
         x: cardX + 16,
         y: cardY + 16,
-        text: `🔗 ${displayLabel}`,
+        width: Math.min(cardW - 32, (linkText.length + 2) * 12),
+        height: 24,
+        text: linkText,
+        originalText: linkText,
         fontSize: 14,
         fontFamily: 1,
+        lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'middle',
         strokeColor: dark ? '#c7d2fe' : '#312e81',
@@ -423,6 +461,7 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
 
     const cardId = `pdf_card_${Date.now()}`;
     const textId = `pdf_text_${Date.now()}`;
+    const pdfText = `📄 ${cleanName}`;
 
     const rectEl = {
         id: cardId,
@@ -440,6 +479,7 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
         opacity: 100,
         roundness: { type: 3 },
         link: `[[${cleanName}]]`,
+        boundElements: [{ id: textId, type: 'text' }],
     };
 
     const textEl = {
@@ -447,9 +487,13 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
         type: 'text',
         x: cardX + 16,
         y: cardY + 18,
-        text: `📄 ${cleanName}`,
+        width: Math.min(cardW - 32, (pdfText.length + 2) * 12),
+        height: 24,
+        text: pdfText,
+        originalText: pdfText,
         fontSize: 14,
         fontFamily: 1,
+        lineHeight: 1.25,
         textAlign: 'left',
         verticalAlign: 'middle',
         strokeColor: dark ? '#fecaca' : '#991b1b',

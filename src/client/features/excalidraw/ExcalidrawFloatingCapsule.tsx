@@ -4,9 +4,11 @@ import {
     Library,
     Maximize,
     Minimize,
+    Moon,
     Scan,
     SlidersHorizontal,
     Sparkles,
+    Sun,
 } from 'lucide-react';
 import { Tooltip } from '../../components/overlay';
 import { t } from '../../lib/i18n';
@@ -21,6 +23,8 @@ export interface ExcalidrawFloatingCapsuleProps {
     onToggleToolsPanel: () => void;
     onToggleCode?: () => void;
     onScriptLibrary?: () => void;
+    isDark?: boolean;
+    onToggleTheme?: () => void;
 }
 
 export const ExcalidrawFloatingCapsule: React.FC<ExcalidrawFloatingCapsuleProps> = ({
@@ -33,9 +37,23 @@ export const ExcalidrawFloatingCapsule: React.FC<ExcalidrawFloatingCapsuleProps>
     onToggleToolsPanel,
     onToggleCode,
     onScriptLibrary,
+    isDark,
+    onToggleTheme,
 }) => {
     return (
         <div className="absolute right-3 top-3 z-40 flex flex-col items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-md">
+            {onToggleTheme && (
+                <Tooltip label={t('preview.excalidraw_toggle_theme')}>
+                    <button
+                        type="button"
+                        aria-label={t('preview.excalidraw_toggle_theme')}
+                        onClick={onToggleTheme}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                    >
+                        {isDark ? <Sun size={14} /> : <Moon size={14} />}
+                    </button>
+                </Tooltip>
+            )}
             {onScriptLibrary && (
                 <Tooltip label={t('excalidraw.script_library')}>
                     <button

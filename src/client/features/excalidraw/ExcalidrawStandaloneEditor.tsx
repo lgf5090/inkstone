@@ -300,7 +300,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             {t('excalidraw.view_mode')}
                         </lib.MainMenu.Item>
                         <lib.MainMenu.Item
-                            onSelect={() => zoomToFitScene(api, containerRef.current)}
+                            onSelect={() => zoomToFitScene(api, canvasHostRef.current)}
                             icon={<Scan size={14} />}
                         >
                             {t('preview.excalidraw_fit')}
@@ -404,6 +404,22 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         };
     }, [viewMode, lib]);
 
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const isFull = Boolean(document.fullscreenElement);
+            setIsFullscreen(isFull);
+            if (api) {
+                requestAnimationFrame(() => {
+                    zoomToFitScene(api, canvasHostRef.current);
+                });
+            }
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        };
+    }, [api]);
 
     const handleToggleFullscreen = () => {
         if (!containerRef.current) return;
@@ -535,13 +551,15 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     <ExcalidrawFloatingCapsule
                         isFullscreen={isFullscreen}
                         onToggleFullscreen={handleToggleFullscreen}
-                        onZoomToFit={() => zoomToFitScene(api, containerRef.current)}
+                        onZoomToFit={() => zoomToFitScene(api, canvasHostRef.current)}
                         libraryOpen={libraryOpen}
                         onToggleLibrary={handleToggleLibrary}
                         toolsPanelOpen={toolsPanelOpen}
                         onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
                         onToggleCode={handleToggleViewMode}
                         onScriptLibrary={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
+                        isDark={theme === 'dark'}
+                        onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
                     />
                 )}
 

@@ -27,6 +27,7 @@ import { prompt, Tooltip } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { convertMermaidToExcalidrawElements, type ExcalidrawLib } from '../../lib/markdown/excalidraw';
 import {
+    getViewportCenterInScene,
     insertEmbedToCanvas,
     insertPdfCardToCanvas,
     promptAndInsertLatex,
@@ -67,7 +68,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         const handleClickOutside = (e: MouseEvent) => {
             if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
                 const target = e.target as HTMLElement;
-                if (!target.closest?.('button[aria-label="' + t('excalidraw.tools_panel') + '"]')) {
+                if (!target.closest?.('button[aria-label="' + t('excalidraw.tools_panel') + '"]') && !target.closest?.('[data-excalidraw-tools]')) {
                     onClose();
                 }
             }
@@ -199,7 +200,14 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
 
     const handleClearCanvas = () => {
         if (!api) return;
-        api.updateScene({ elements: [] });
+        if (typeof api.resetScene === 'function') {
+            api.resetScene();
+        } else {
+            api.updateScene({ elements: [] });
+        }
+        if (onSave) {
+            onSave();
+        }
         toast({ title: t('excalidraw.clear_canvas'), tone: 'default' });
     };
 
@@ -218,15 +226,18 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         reader.onload = () => {
             const dataUrl = reader.result as string;
             const fileId = `file_${Date.now()}`;
+            const center = getViewportCenterInScene(api);
             const imageElement = {
                 id: `img_${Date.now()}`,
                 type: 'image',
-                x: 100,
-                y: 100,
+                x: Math.round(center.x - 150),
+                y: Math.round(center.y - 100),
                 width: 300,
                 height: 200,
                 fileId,
                 status: 'saved',
+                scale: [1, 1],
+                crop: null,
             };
             if (typeof api.addFiles === 'function') {
                 api.addFiles([
@@ -269,7 +280,12 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         });
         if (!code) return;
         try {
-            const elements = convertMermaidToExcalidrawElements(code);
+            const center = getViewportCenterInScene(api);
+            const elements = convertMermaidToExcalidrawElements(
+                code,
+                Math.round(center.x - 200),
+                Math.round(center.y - 150),
+            );
             if (elements.length > 0) {
                 api.updateScene({ elements: [...(api.getSceneElements?.() || []), ...elements] });
                 toast({ title: t('excalidraw.mermaid_to_excalidraw'), tone: 'success' });
@@ -297,7 +313,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     return (
         <aside
             ref={panelRef}
-            className="absolute top-12 right-14 z-50 flex w-64 flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-2xl"
+            className="absolute top-12 right-14 z-50 flex w-64 max-w-[calc(100%-2rem)] max-h-[calc(100%-4rem)] overflow-y-auto flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-2xl"
             aria-label={t('excalidraw.tools_panel')}
         >
             <div className="flex justify-center pt-0.5 pb-2 cursor-grab select-none">
@@ -318,7 +334,10 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('settings.excalidraw')}
-                                onClick={() => toast({ title: t('settings.excalidraw'), description: 'Obsidian Excalidraw Engine v0.18.140', tone: 'default' })}
+                                onClick={() => {
+                                    useUi.getState().openPanel('settings');
+                                    onClose();
+                                }}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <SlidersHorizontal size={15} />
