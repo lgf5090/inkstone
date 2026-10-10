@@ -74,10 +74,12 @@ export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
     }
 
     libPromise = (async () => {
+        (window as any).EXCALIDRAW_ASSET_PATH = '/vendor/excalidraw/';
         (window as any).React = React;
         (window as any).ReactDOM = ReactDOM;
         (window as any).ReactJSXRuntime = ReactJSXRuntime;
         if (typeof globalThis !== 'undefined') {
+            (globalThis as any).EXCALIDRAW_ASSET_PATH = '/vendor/excalidraw/';
             (globalThis as any).React = React;
             (globalThis as any).ReactDOM = ReactDOM;
             (globalThis as any).ReactJSXRuntime = ReactJSXRuntime;

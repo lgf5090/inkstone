@@ -299,7 +299,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     return (
         <aside
             ref={panelRef}
-            className="absolute top-12 right-14 z-50 flex w-64 flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-2xl backdrop-blur-sm"
+            className="absolute top-12 right-14 z-50 flex w-64 flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-2xl"
             aria-label={t('excalidraw.tools_panel')}
         >
             <div className="flex justify-center pt-0.5 pb-2 cursor-grab select-none">

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Plugin, UserConfigFnPromise } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -52,6 +53,47 @@ const katexWoff2Only = (): Plugin => ({
 const excalidrawVendorPlugin = (): Plugin => {
   const vendorJsPath = r('./node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.production.min.js')
   const vendorCssPath = r('./node_modules/@zsviczian/excalidraw/dist/obsidian/excalidraw.production.min.css')
+  const prodDir = r('./node_modules/@zsviczian/excalidraw/dist/prod')
+
+  const getPatchedJs = () => {
+    if (!fs.existsSync(vendorJsPath)) return Buffer.alloc(0)
+    let content = fs.readFileSync(vendorJsPath, 'utf8')
+    content = content.replace(
+      'return o.push(new URL(t,mu.ASSETS_FALLBACK_URL)),o',
+      'return(o.length||o.push(new URL(t,this.normalizeBaseUrl(mu.ASSETS_FALLBACK_URL)))),o',
+    )
+    const fallbackTarget = 'F(mu,"ASSETS_FALLBACK_URL",`https://esm.sh/${y.PKG_NAME?`${y.PKG_NAME}@${y.PKG_VERSION}`:"@excalidraw/excalidraw"}/dist/prod/`);'
+    if (content.includes(fallbackTarget)) {
+      content = content.replace(fallbackTarget, 'F(mu,"ASSETS_FALLBACK_URL","/vendor/excalidraw/");')
+    }
+    return content
+  }
+
+  const getFilesRecursively = (dir: string, base = ''): { rel: string; full: string }[] => {
+    const result: { rel: string; full: string }[] = []
+    if (!fs.existsSync(dir)) return result
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      const rel = base ? `${base}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        result.push(...getFilesRecursively(full, rel))
+      } else {
+        result.push({ rel, full })
+      }
+    }
+    return result
+  }
+
+  const mimeTypes: Record<string, string> = {
+    '.woff2': 'font/woff2',
+    '.woff': 'font/woff',
+    '.ttf': 'font/ttf',
+    '.js': 'application/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+  }
 
   return {
     name: 'inkstone:excalidraw-vendor',
@@ -62,10 +104,8 @@ const excalidrawVendorPlugin = (): Plugin => {
         if (cleanUrl === '/vendor/excalidraw/excalidraw.production.min.js') {
           res.setHeader('Content-Type', 'application/javascript')
           res.setHeader('Cache-Control', 'no-cache')
-          if (fs.existsSync(vendorJsPath)) {
-            res.end(fs.readFileSync(vendorJsPath))
-            return
-          }
+          res.end(getPatchedJs())
+          return
         }
         if (cleanUrl === '/vendor/excalidraw/excalidraw.production.min.css') {
           res.setHeader('Content-Type', 'text/css')
@@ -75,15 +115,27 @@ const excalidrawVendorPlugin = (): Plugin => {
             return
           }
         }
+        if (cleanUrl.startsWith('/vendor/excalidraw/')) {
+          const rel = cleanUrl.slice('/vendor/excalidraw/'.length)
+          const target = path.join(prodDir, rel)
+          if (target.startsWith(prodDir) && fs.existsSync(target) && fs.statSync(target).isFile()) {
+            const ext = path.extname(target)
+            res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream')
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+            res.end(fs.readFileSync(target))
+            return
+          }
+        }
         next()
       })
     },
     generateBundle() {
-      if (fs.existsSync(vendorJsPath)) {
+      const patchedJs = getPatchedJs()
+      if (patchedJs.length > 0) {
         this.emitFile({
           type: 'asset',
           fileName: 'vendor/excalidraw/excalidraw.production.min.js',
-          source: fs.readFileSync(vendorJsPath),
+          source: patchedJs,
         })
       }
       if (fs.existsSync(vendorCssPath)) {
@@ -91,6 +143,13 @@ const excalidrawVendorPlugin = (): Plugin => {
           type: 'asset',
           fileName: 'vendor/excalidraw/excalidraw.production.min.css',
           source: fs.readFileSync(vendorCssPath),
+        })
+      }
+      for (const { rel, full } of getFilesRecursively(prodDir)) {
+        this.emitFile({
+          type: 'asset',
+          fileName: `vendor/excalidraw/${rel}`,
+          source: fs.readFileSync(full),
         })
       }
     },
