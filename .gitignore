@@ -35,6 +35,16 @@ worker-configuration.d.ts
 .upstream/
 .idea/
 .vscode/
+.zed/
+.freebuff/
+.zcode/
+.qoder/
+.qoder-cn/
+.trae/
+.trae-cn/
+.codebuddy/
+.workbuddy
+.reasonix/
 
 # Private project documentation
 /docs/
