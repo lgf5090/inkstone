@@ -34,6 +34,37 @@ function loadStylesheet(href: string): void {
     document.head.appendChild(link);
 }
 
+import { t } from '../../i18n';
+
+let activeActionHandler: ((action: string) => void) | null = null;
+
+export function registerExcalidrawActionHandler(handler: ((action: string) => void) | null): void {
+    activeActionHandler = handler;
+}
+
+function getHostLabel(key: string): string {
+    switch (key) {
+        case 'ABOUT_LIBRARIES':
+            return t('excalidraw.label_about_libraries');
+        case 'COMP_FRAME':
+            return t('excalidraw.frame_tool');
+        case 'COMP_FRAME_HINT':
+            return t('excalidraw.label_frame_hint');
+        case 'COMP_IMG':
+            return t('excalidraw.insert_image');
+        case 'COMP_IMG_FROM_SYSTEM':
+            return t('excalidraw.label_comp_img_from_system');
+        case 'COMP_IMG_ANY_FILE':
+            return t('excalidraw.label_comp_img_any_file');
+        case 'INSERT_CARD':
+            return t('excalidraw.label_insert_card');
+        case 'COMP_IMG_LaTeX':
+            return t('excalidraw.insert_latex');
+        default:
+            return key;
+    }
+}
+
 export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
     if ((window as any).ExcalidrawLib) {
         return (window as any).ExcalidrawLib as ExcalidrawLib;
@@ -55,11 +86,41 @@ export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
         loadStylesheet('/vendor/excalidraw/excalidraw.production.min.css');
         await loadScript('/vendor/excalidraw/excalidraw.production.min.js');
 
-        if (!(window as any).ExcalidrawLib) {
-            throw new Error('ExcalidrawLib was not defined after loading excalidraw.production.min.js');
+        const lib = (window as any).ExcalidrawLib;
+        if (typeof lib.configureObsidianCommonHost === 'function') {
+            lib.configureObsidianCommonHost({
+                protocolVersion: 1,
+                getCanvasLimits: () => ({ areaLimit: 16777216, widthHeightLimit: 32767 }),
+                getHighlightColor: () => 'rgba(0,118,255,1)',
+                getDeviceInfo: () => null,
+                getDesktopUIMode: () => 'full',
+                getPreferredUIMode: (formFactor: string) => (formFactor === 'phone' ? 'mobile' : 'full'),
+            });
+        }
+        if (typeof lib.configureObsidianExcalidrawHost === 'function') {
+            lib.configureObsidianExcalidrawHost({
+                protocolVersion: 2,
+                isDoubleTapEraserEnabled: () => false,
+                getZoomToFitMaxLevel: () => 2,
+                isPenModeCrosshairVisible: () => false,
+                isSingleFingerPanningEnabled: () => false,
+                isDoubleClickTextEditingDisabled: () => false,
+                getZoomStep: () => 0.1,
+                getZoomMin: () => 0.1,
+                getZoomMax: () => 30,
+                isContextMenuDisabled: () => false,
+                shouldSyncElementLinkWithText: () => true,
+                loadFontFromFile: async () => undefined,
+                getMermaid: async () => (lib.loadMermaid?.() ?? null),
+                runAction: (action: string) => {
+                    activeActionHandler?.(action);
+                },
+                getLabel: getHostLabel,
+                attachInlineLinkSuggester: () => ({ isBlockingKeys: () => false, close: () => {} }),
+            });
         }
 
-        return (window as any).ExcalidrawLib as ExcalidrawLib;
+        return lib as ExcalidrawLib;
     })().catch((err) => {
         libPromise = null;
         throw err;

@@ -2519,6 +2519,78 @@
 .ink-prose .excalidraw-canvas-container .excalidraw {
   height: 100% !important;
 }
+
+.excalidraw .FixedSideContainer_side_top {
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+}
+
+.excalidraw .App-menu_top {
+  width: 100% !important;
+}
+
+.excalidraw .mobile-misc-tools-container,
+.excalidraw .tray-misc-tools-container,
+.excalidraw .sidebar-trigger__label-element,
+.excalidraw .default-sidebar-trigger {
+  display: none !important;
+}
+
+.excalidraw .App-toolbar {
+  position: relative !important;
+}
+
+.excalidraw .HintViewer {
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  width: 100% !important;
+  margin-top: 6px !important;
+  pointer-events: none !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.excalidraw .HintViewer > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left section {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .undo-redo-buttons {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .main-menu-trigger,
+.excalidraw .layer-ui__wrapper__footer-left .dropdown-menu-event-wrapper:has(.main-menu-trigger) {
+  order: -1 !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .undo-button-container {
+  order: 1 !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .redo-button-container {
+  order: 2 !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left section > .zoom-actions {
+  order: 3 !important;
+}
+
 .ink-prose .excalidraw-block-placeholder {
   display: flex;
   align-items: center;

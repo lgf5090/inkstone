@@ -4,40 +4,31 @@ import {
     ArrowLeft,
     Brush,
     Check,
-    ChevronDown,
     Eye,
     FileCode,
-    Frame,
-    Globe,
-    Grid,
-    Image as ImageIcon,
     Info,
-    Lasso,
     Maximize,
     Minimize,
     Moon,
-    PaintBucket,
+    PanelRight,
     Save,
+    SlidersHorizontal,
     Sparkles,
     Star,
     Sun,
-    Target,
-    Workflow,
-    Wrench,
     X,
-    Zap,
 } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
-import { t } from '../../lib/i18n';
+import { t, useLocale } from '../../lib/i18n';
 import { IconButton } from '../../components/primitives';
 import { prompt, Tooltip } from '../../components/overlay';
 import { useBreakpoint } from '../../lib/hooks';
 import { useNotes } from '../../store/notes';
 import { useUi, type WorkspacePane } from '../../store/ui';
 import {
-    convertMermaidToExcalidrawElements,
     loadExcalidrawLib,
     parseExcalidrawBody,
+    registerExcalidrawActionHandler,
     serializeExcalidrawBody,
     type ExcalidrawLib,
     type ExcalidrawSceneData,
@@ -63,6 +54,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     pane = 'active',
 }) => {
     const isMobile = useBreakpoint() === 'mobile';
+    const locale = useLocale();
     const patchNote = useNotes((s) => s.patchNote);
     const closeSecondaryNote = useUi((s) => s.closeSecondaryNote);
     const toast = useUi((s) => s.toast);
@@ -75,15 +67,12 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const [rawCode, setRawCode] = useState(content);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [toolsPanelOpen, setToolsPanelOpen] = useState(false);
-    const [moreToolsOpen, setMoreToolsOpen] = useState(false);
     const [isSaved, setIsSaved] = useState(true);
 
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
         return (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'dark';
     });
 
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const moreToolsRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasHostRef = useRef<HTMLDivElement>(null);
     const isolatedRootRef = useRef<ReactDOM.Root | null>(null);
@@ -97,16 +86,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         });
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         return () => observer.disconnect();
-    }, []);
-
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (moreToolsRef.current && !moreToolsRef.current.contains(e.target as Node)) {
-                setMoreToolsOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     useEffect(() => {
@@ -131,6 +110,89 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         setRawCode(content);
         lastSavedRef.current = content;
     }, [note.id]);
+
+    useEffect(() => {
+        registerExcalidrawActionHandler(async (action) => {
+            if (action === 'LaTeX') {
+                const latex = await prompt({
+                    title: t('excalidraw.insert_latex_prompt') || 'Enter LaTeX formula:',
+                });
+                if (latex && api) {
+                    const appState = api.getAppState();
+                    const centerX = -(appState.scrollX + appState.width / 2) + 200;
+                    const centerY = -(appState.scrollY + appState.height / 2) + 150;
+                    const el = {
+                        type: 'text',
+                        x: centerX,
+                        y: centerY,
+                        text: `$$${latex.trim()}$$`,
+                        fontSize: 20,
+                        fontFamily: 1,
+                        textAlign: 'left',
+                        verticalAlign: 'top',
+                    };
+                    api.updateScene({ elements: [...api.getSceneElements(), el] });
+                    toast({ title: t('excalidraw.insert_latex'), tone: 'success' });
+                }
+            } else if (action === 'card') {
+                const text = await prompt({
+                    title: t('excalidraw.insert_md_prompt') || 'Enter card content:',
+                });
+                if (text && api) {
+                    const appState = api.getAppState();
+                    const centerX = -(appState.scrollX + appState.width / 2) + 200;
+                    const centerY = -(appState.scrollY + appState.height / 2) + 150;
+                    const el = {
+                        type: 'text',
+                        x: centerX,
+                        y: centerY,
+                        text: text.trim(),
+                        fontSize: 20,
+                        fontFamily: 1,
+                        textAlign: 'left',
+                        verticalAlign: 'top',
+                    };
+                    api.updateScene({ elements: [...api.getSceneElements(), el] });
+                    toast({ title: t('excalidraw.insert_md'), tone: 'success' });
+                }
+            } else if (action === 'anyFile') {
+                const noteName = await prompt({
+                    title: t('excalidraw.insert_link') || 'Insert Note Link:',
+                });
+                if (noteName && api) {
+                    const appState = api.getAppState();
+                    const centerX = -(appState.scrollX + appState.width / 2) + 200;
+                    const centerY = -(appState.scrollY + appState.height / 2) + 150;
+                    const el = {
+                        type: 'text',
+                        x: centerX,
+                        y: centerY,
+                        text: `[[${noteName.trim()}]]`,
+                        fontSize: 20,
+                        fontFamily: 1,
+                        textAlign: 'left',
+                        verticalAlign: 'top',
+                    };
+                    api.updateScene({ elements: [...api.getSceneElements(), el] });
+                    toast({ title: t('excalidraw.insert_link'), tone: 'success' });
+                }
+            }
+        });
+        return () => {
+            registerExcalidrawActionHandler(null);
+        };
+    }, [api, toast]);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.shiftKey && e.altKey && (e.code === 'KeyD' || e.key === 'D' || e.key === 'd')) {
+                e.preventDefault();
+                setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     const initialScene = parseExcalidrawBody(content).data;
 
@@ -182,20 +244,20 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     appState: api.getAppState(),
                     files: api.getFiles(),
                 };
-                const nextJson = serializeExcalidrawBody(currentData);
-                setRawCode(nextJson);
+                const json = serializeExcalidrawBody(currentData);
+                setRawCode(json);
             }
             setViewMode('code');
         } else {
             try {
-                const parsed = parseExcalidrawBody(rawCode).data;
+                const parsed = parseExcalidrawBody(rawCode);
                 if (api) {
                     api.updateScene({
-                        elements: parsed.elements,
-                        appState: parsed.appState,
+                        elements: parsed.data.elements,
+                        appState: parsed.data.appState,
                     });
-                    if (parsed.files) {
-                        api.addFiles(Object.values(parsed.files));
+                    if (parsed.data.files) {
+                        api.addFiles(Object.values(parsed.data.files));
                     }
                 }
             } catch {
@@ -221,6 +283,8 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         files: initialScene.files,
                     }}
                     theme={theme}
+                    langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
+                    aiEnabled={true}
                     onChange={handleCanvasChange}
                     onExcalidrawAPI={(excalidrawApi: any) => setApi(excalidrawApi)}
                     UIOptions={{
@@ -230,30 +294,33 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         },
                     }}
                 >
+                    {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
+                    {lib.DiagramToCodePlugin && (
+                        <lib.DiagramToCodePlugin
+                            generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
+                        />
+                    )}
                     <lib.MainMenu>
                         <lib.MainMenu.DefaultItems.ChangeCanvasBackground />
                         <lib.MainMenu.Item
                             onSelect={() => {
-                                if (api) {
-                                    const appState = api.getAppState();
-                                    api.updateScene({ appState: { gridSize: appState.gridSize ? null : 20 } });
-                                }
+                                setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
                             }}
-                            icon={<Grid size={14} />}
+                            icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                            shortcut="Shift+Alt+D"
                         >
-                            {t('excalidraw.grid_mode')}
+                            {theme === 'dark' ? t('command.switch_to_light_theme') : t('command.switch_to_dark_theme')}
                         </lib.MainMenu.Item>
-                        <lib.MainMenu.DefaultItems.ToggleTheme />
                         <lib.MainMenu.Item
                             onSelect={() => {
                                 if (api) {
                                     const appState = api.getAppState();
-                                    api.updateScene({ appState: { zenModeEnabled: !appState.zenModeEnabled } });
+                                    api.updateScene({ appState: { viewModeEnabled: !appState.viewModeEnabled } });
                                 }
                             }}
-                            icon={<Zap size={14} />}
+                            icon={<Eye size={14} />}
                         >
-                            {t('excalidraw.zen_mode')}
+                            {t('excalidraw.view_mode')}
                         </lib.MainMenu.Item>
                         <lib.MainMenu.Item
                             onSelect={handleManualSave}
@@ -271,7 +338,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         </lib.MainMenu.Item>
                         <lib.MainMenu.Item
                             onSelect={() => setToolsPanelOpen(true)}
-                            icon={<FileCode size={14} />}
+                            icon={<SlidersHorizontal size={14} />}
                         >
                             {t('excalidraw.export_drawing')}
                         </lib.MainMenu.Item>
@@ -303,7 +370,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 </lib.Excalidraw>
             </div>
         );
-    }, [lib, theme, note.id, handleCanvasChange, handleManualSave, handleToggleViewMode]);
+    }, [lib, theme, locale, note.id, handleCanvasChange, handleManualSave, handleToggleViewMode]);
 
     useEffect(() => {
         return () => {
@@ -314,6 +381,41 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         };
     }, []);
 
+    useEffect(() => {
+        if (!canvasHostRef.current || viewMode !== 'canvas') return;
+        const host = canvasHostRef.current;
+
+        const reparentMenu = () => {
+            const trigger =
+                host.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
+                host.querySelector<HTMLElement>('.main-menu-trigger') ||
+                host.querySelector<HTMLElement>('.excalidraw-ui-top-left');
+            const undoRedo = host.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left .undo-redo-buttons');
+            const footerSection = host.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left section');
+
+            if (trigger) {
+                if (undoRedo && !undoRedo.contains(trigger)) {
+                    undoRedo.prepend(trigger);
+                } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
+                    footerSection.prepend(trigger);
+                }
+            }
+        };
+
+        reparentMenu();
+
+        const observer = new MutationObserver(() => {
+            reparentMenu();
+        });
+
+        observer.observe(host, { childList: true, subtree: true });
+
+        return () => {
+            observer.disconnect();
+        };
+    }, [viewMode, lib]);
+
+
     const handleToggleFullscreen = () => {
         if (!containerRef.current) return;
         if (!document.fullscreenElement) {
@@ -323,167 +425,11 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         }
     };
 
-    const handlePickImage = () => {
-        fileInputRef.current?.click();
-    };
-
-    const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file || !api) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            const dataUrl = reader.result as string;
-            const fileId = `file_${Date.now()}`;
-            const imageElement = {
-                type: 'image',
-                x: 100,
-                y: 100,
-                width: 300,
-                height: 200,
-                fileId,
-                status: 'saved',
-            };
-            api.addFiles([
-                {
-                    id: fileId,
-                    dataURL: dataUrl,
-                    mimeType: file.type,
-                    created: Date.now(),
-                },
-            ]);
-            api.updateScene({
-                elements: [...api.getSceneElements(), imageElement],
-            });
-            toast({ title: t('excalidraw.insert_image'), tone: 'success' });
-        };
-        reader.readAsDataURL(file);
-        e.target.value = '';
-    };
-
-    const handleActivateTool = (toolName: string) => {
-        setMoreToolsOpen(false);
-        if (!api) return;
-        if (typeof api.setActiveTool === 'function') {
-            api.setActiveTool({ type: toolName });
-        }
-    };
-
-    const handleEmbedWeb = async () => {
-        setMoreToolsOpen(false);
-        const url = await prompt({ title: t('excalidraw.embed_web_prompt') || 'Enter URL to embed:' });
-        if (!url || !api) return;
-        const appState = api.getAppState();
-        const centerX = -(appState.scrollX + appState.width / 2) + 200;
-        const centerY = -(appState.scrollY + appState.height / 2) + 150;
-        const embedElement = {
-            type: 'embeddable',
-            x: centerX,
-            y: centerY,
-            width: 450,
-            height: 320,
-            link: url.trim(),
-        };
-        api.updateScene({ elements: [...api.getSceneElements(), embedElement] });
-    };
-
-    const handleMermaidToExcalidraw = async () => {
-        setMoreToolsOpen(false);
-        if (!api) return;
-        const defaultCode = 'graph TD\n  A[Start] --> B(Work)\n  B --> C{Done?}\n  C -->|Yes| D[End]';
-        const code = await prompt({
-            title: t('excalidraw.mermaid_to_excalidraw') || 'Mermaid to Excalidraw:',
-            defaultValue: defaultCode,
-        });
-        if (!code) return;
-        try {
-            const elements = convertMermaidToExcalidrawElements(code);
-            if (elements.length > 0) {
-                api.updateScene({ elements: [...api.getSceneElements(), ...elements] });
-                toast({ title: t('excalidraw.mermaid_to_excalidraw'), tone: 'success' });
-            } else {
-                toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: 'No elements parsed', tone: 'warning' });
-            }
-        } catch (err: unknown) {
-            toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: String(err), tone: 'danger' });
-        }
-    };
-
-    const handleTextToDiagram = async () => {
-        setMoreToolsOpen(false);
-        if (!api) return;
-        const query = await prompt({
-            title: t('excalidraw.text_to_diagram') || 'Text to diagram:',
-            defaultValue: 'Start -> Process -> Finish',
-        });
-        if (!query) return;
-        const steps = query.split(/->|-->|,/).map((s) => s.trim()).filter(Boolean);
-        const newElements = steps.flatMap((step, idx) => {
-            const x = 120 + idx * 180;
-            const y = 150;
-            const shapeId = `box_${Date.now()}_${idx}`;
-            const textId = `txt_${Date.now()}_${idx}`;
-            return [
-                {
-                    id: shapeId,
-                    type: 'rectangle',
-                    x,
-                    y,
-                    width: 140,
-                    height: 60,
-                    backgroundColor: '#e0e7ff',
-                    fillStyle: 'solid',
-                    strokeWidth: 2,
-                    roundness: { type: 3 },
-                    boundElements: [{ id: textId, type: 'text' }],
-                },
-                {
-                    id: textId,
-                    type: 'text',
-                    x: x + 10,
-                    y: y + 20,
-                    width: 120,
-                    height: 20,
-                    text: step,
-                    fontSize: 14,
-                    fontFamily: 1,
-                    textAlign: 'center',
-                    verticalAlign: 'middle',
-                    containerId: shapeId,
-                },
-            ];
-        });
-        api.updateScene({ elements: [...api.getSceneElements(), ...newElements] });
-        toast({ title: t('excalidraw.text_to_diagram'), tone: 'success' });
-    };
-
-    const handleWireframeToCode = async () => {
-        setMoreToolsOpen(false);
-        if (!api) return;
-        const elements = api.getSceneElements().filter((el: any) => !el.isDeleted);
-        const code = `// Wireframe React Component\nexport const GeneratedView = () => (\n  <div className="relative w-full h-96 border rounded-lg p-4 bg-white">\n    ${elements.map((el: any) => `/* ${el.type} at (${Math.round(el.x)}, ${Math.round(el.y)}) */`).join('\n    ')}\n  </div>\n);`;
-        if (navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(code);
-            toast({
-                title: t('excalidraw.wireframe_to_code') || 'Wireframe to Code',
-                description: 'Component copied to clipboard',
-                tone: 'success',
-            });
-        }
-    };
-
     return (
         <div
             ref={containerRef}
             className="relative flex h-full min-h-0 w-full flex-col bg-[var(--bg-base)] text-[var(--text-primary)]"
         >
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleImageFileSelected}
-            />
-
             <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 select-none">
                 <div className="flex min-w-0 items-center gap-2">
                     {isMobile && onMobileBack && (
@@ -521,145 +467,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         )}
                     </button>
 
-                    <div ref={moreToolsRef} className="relative">
-                        <button
-                            type="button"
-                            aria-label={t('excalidraw.more_tools')}
-                            onClick={() => setMoreToolsOpen((o) => !o)}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Sparkles size={13} className="text-[var(--accent)]" />
-                            <span className="hidden sm:inline text-[11px]">{t('excalidraw.more_tools')}</span>
-                            <ChevronDown size={11} />
-                        </button>
-
-                        {moreToolsOpen && (
-                            <div className="absolute right-0 top-full mt-1 z-50 flex w-52 flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5 shadow-xl text-xs">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setMoreToolsOpen(false);
-                                        handlePickImage();
-                                    }}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <ImageIcon size={14} />
-                                        {t('excalidraw.insert_image')}
-                                    </span>
-                                    <span className="text-[10px] text-[var(--text-tertiary)] font-mono">{'9'}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleActivateTool('frame')}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <Frame size={14} />
-                                        {t('excalidraw.frame_tool')}
-                                    </span>
-                                    <span className="text-[10px] text-[var(--text-tertiary)] font-mono">{'F'}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleEmbedWeb}
-                                    className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <Globe size={14} />
-                                    {t('excalidraw.embed_web')}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleActivateTool('freedraw')}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <Brush size={14} />
-                                        {t('excalidraw.draw_to_shape')}
-                                    </span>
-                                    <span className="text-[10px] text-[var(--text-tertiary)] font-mono">{'Shift+X'}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleActivateTool('laser')}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <Target size={14} />
-                                        {t('excalidraw.laser_pointer')}
-                                    </span>
-                                    <span className="text-[10px] text-[var(--text-tertiary)] font-mono">{'K'}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setMoreToolsOpen(false);
-                                        if (api) {
-                                            api.updateScene({ appState: { currentItemFillStyle: 'solid' } });
-                                        }
-                                    }}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <PaintBucket size={14} />
-                                        {t('excalidraw.bucket_fill')}
-                                    </span>
-                                    <span className="text-[10px] text-[var(--text-tertiary)] font-mono">{'B'}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleActivateTool('selection')}
-                                    className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <Lasso size={14} />
-                                    {t('excalidraw.lasso_tool')}
-                                </button>
-
-                                <div className="my-1 border-t border-[var(--border-subtle)]" />
-                                <div className="px-2 py-0.5 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
-                                    {t('excalidraw.generate')}
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={handleTextToDiagram}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <Sparkles size={14} className="text-[var(--accent)]" />
-                                        {t('excalidraw.text_to_diagram')}
-                                    </span>
-                                    <span className="rounded bg-[var(--accent-soft)] px-1 py-0.2 text-[9px] font-bold text-[var(--accent)]">
-                                        {'AI'}
-                                    </span>
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={handleMermaidToExcalidraw}
-                                    className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <Workflow size={14} className="text-[var(--accent)]" />
-                                    {t('excalidraw.mermaid_to_excalidraw')}
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={handleWireframeToCode}
-                                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <FileCode size={14} className="text-[var(--accent)]" />
-                                        {t('excalidraw.wireframe_to_code')}
-                                    </span>
-                                    <span className="rounded bg-[var(--accent-soft)] px-1 py-0.2 text-[9px] font-bold text-[var(--accent)]">
-                                        {'AI'}
-                                    </span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
                     <Tooltip label={viewMode === 'canvas' ? t('excalidraw.toggle_code') : t('excalidraw.toggle_canvas')}>
                         <IconButton
                             label={viewMode === 'canvas' ? t('excalidraw.toggle_code') : t('excalidraw.toggle_canvas')}
@@ -678,27 +485,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}
                         >
                             <Star size={14} className={note.isStarred ? 'fill-current' : undefined} />
-                        </IconButton>
-                    </Tooltip>
-
-                    <Tooltip label={t('excalidraw.tools_panel')}>
-                        <IconButton
-                            label={t('excalidraw.tools_panel')}
-                            size="sm"
-                            active={toolsPanelOpen}
-                            onClick={() => setToolsPanelOpen((o) => !o)}
-                        >
-                            <Wrench size={14} />
-                        </IconButton>
-                    </Tooltip>
-
-                    <Tooltip label={isFullscreen ? t('preview.excalidraw_exit_fullscreen') : t('preview.excalidraw_fullscreen')}>
-                        <IconButton
-                            label={isFullscreen ? t('preview.excalidraw_exit_fullscreen') : t('preview.excalidraw_fullscreen')}
-                            size="sm"
-                            onClick={handleToggleFullscreen}
-                        >
-                            {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
                         </IconButton>
                     </Tooltip>
 
@@ -746,15 +532,15 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 )}
 
                 {viewMode === 'canvas' && lib && (
-                    <div className="absolute right-3 top-4 z-40 flex flex-col items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-md">
-                        <Tooltip label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}>
+                    <div className="absolute right-3 top-3 z-40 flex flex-col items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-md">
+                        <Tooltip label={t('excalidraw.script_library')}>
                             <button
                                 type="button"
-                                aria-label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-                                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                                aria-label={t('excalidraw.script_library')}
+                                onClick={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
+                                className="flex h-7 w-7 items-center justify-center rounded-full text-purple-500 hover:bg-[var(--bg-hover)]"
                             >
-                                {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                                <Sparkles size={14} />
                             </button>
                         </Tooltip>
 
@@ -763,41 +549,35 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                 type="button"
                                 aria-label={t('excalidraw.open_as_md')}
                                 onClick={handleToggleViewMode}
-                                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                                className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                             >
                                 <FileCode size={14} />
                             </button>
                         </Tooltip>
 
-                        <Tooltip label={t('preview.excalidraw_fit')}>
+                        <Tooltip label={isFullscreen ? t('preview.excalidraw_exit_fullscreen') : t('preview.excalidraw_fullscreen')}>
                             <button
                                 type="button"
-                                aria-label={t('preview.excalidraw_fit')}
-                                onClick={() => {
-                                    if (api && typeof api.scrollToContent === 'function') {
-                                        api.scrollToContent(undefined, { fitToViewport: true });
-                                    }
-                                }}
-                                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                                aria-label={isFullscreen ? t('preview.excalidraw_exit_fullscreen') : t('preview.excalidraw_fullscreen')}
+                                onClick={handleToggleFullscreen}
+                                className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                             >
-                                <Maximize size={14} />
+                                {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
                             </button>
                         </Tooltip>
-
-                        <div className="my-0.5 h-px w-5 bg-[var(--border-subtle)]" />
 
                         <Tooltip label={t('excalidraw.tools_panel')}>
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.tools_panel')}
                                 onClick={() => setToolsPanelOpen((o) => !o)}
-                                className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
+                                className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
                                     toolsPanelOpen
                                         ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
                                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                                 }`}
                             >
-                                <Wrench size={14} />
+                                <PanelRight size={14} />
                             </button>
                         </Tooltip>
                     </div>

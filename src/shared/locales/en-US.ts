@@ -4837,6 +4837,11 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "excalidraw.generate": "Generate",
     "settings.excalidraw": "Excalidraw",
     "settings.excalidraw_desc": "Drawing and canvas configuration",
+    "excalidraw.label_about_libraries": "About Libraries",
+    "excalidraw.label_frame_hint": "Select a frame to resize or move its elements",
+    "excalidraw.label_comp_img_from_system": "Insert Image from System",
+    "excalidraw.label_comp_img_any_file": "Insert File from Vault",
+    "excalidraw.label_insert_card": "Insert Card",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

@@ -254,6 +254,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             files: parsed.data.files,
                         },
                         theme,
+                        langCode: options.locale === 'zh-CN' ? 'zh-CN' : 'en',
                         onChange: handleChange,
                         onExcalidrawAPI: (excalidrawApi: any) => {
                             api = excalidrawApi;
