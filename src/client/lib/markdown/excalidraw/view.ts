@@ -12,6 +12,8 @@ const CONTROL_ICONS: Record<string, string[]> = {
     'data-excalidraw-theme': ['M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z'],
     'data-excalidraw-source': ['m18 16 4-4-4-4', 'm6 8-4 4 4 4', 'm14.5 4-5 16'],
     'data-excalidraw-export': ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'm7 10 5 5 5-5', 'M12 15V3'],
+    'data-excalidraw-tools': ['M4 21v-7', 'M4 10V3', 'M12 21v-9', 'M12 8V3', 'M20 21v-5', 'M20 12V3', 'M1 14h6', 'M9 8h6', 'M17 16h6'],
+    'data-excalidraw-library': ['m16 6 4 14', 'M12 6v14', 'M8 8v12', 'M4 4v16'],
     'data-excalidraw-fit': ['m15 15 6 6', 'm15 9 6-6', 'M21 16v5h-5', 'M21 8V3h-5', 'M3 16v5h5', 'm3 21 6-6', 'M3 8V3h5', 'M9 9 3 3'],
     'data-excalidraw-fullscreen': ['M15 3h6v6', 'm21 3-7 7', 'm3 21 7-7', 'M9 21H3v-6'],
 };
@@ -114,6 +116,20 @@ export function createExcalidrawToolbar(_node?: HTMLElement): HTMLElement {
     exportBtn.setAttribute('aria-label', t('preview.excalidraw_export') || 'Export');
     exportBtn.title = t('preview.excalidraw_export') || 'Export';
 
+    const toolsBtn = document.createElement('button');
+    toolsBtn.type = 'button';
+    toolsBtn.className = 'excalidraw-action-btn';
+    toolsBtn.setAttribute('data-excalidraw-tools', '1');
+    toolsBtn.setAttribute('aria-label', t('excalidraw.tools_panel') || 'Tools');
+    toolsBtn.title = t('excalidraw.tools_panel') || 'Tools';
+
+    const libraryBtn = document.createElement('button');
+    libraryBtn.type = 'button';
+    libraryBtn.className = 'excalidraw-action-btn';
+    libraryBtn.setAttribute('data-excalidraw-library', '1');
+    libraryBtn.setAttribute('aria-label', t('excalidraw.library') || 'Library');
+    libraryBtn.title = t('excalidraw.library') || 'Library';
+
     const fitBtn = document.createElement('button');
     fitBtn.type = 'button';
     fitBtn.className = 'excalidraw-action-btn';
@@ -128,7 +144,7 @@ export function createExcalidrawToolbar(_node?: HTMLElement): HTMLElement {
     fullBtn.setAttribute('aria-label', t('preview.excalidraw_fullscreen') || 'Fullscreen');
     fullBtn.title = t('preview.excalidraw_fullscreen') || 'Fullscreen';
 
-    actions.append(themeBtn, sourceBtn, exportBtn, fitBtn, fullBtn);
+    actions.append(themeBtn, sourceBtn, exportBtn, toolsBtn, libraryBtn, fitBtn, fullBtn);
     header.append(tabsWrap, actions);
     return header;
 }

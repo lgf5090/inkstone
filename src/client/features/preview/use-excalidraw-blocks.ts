@@ -67,6 +67,8 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
                 document.body.style.overflow = '';
             }
 
+            block.dispatchEvent(new CustomEvent('excalidraw-fullscreen-change', { detail: { isFullscreen: isFull } }));
+
             requestAnimationFrame(() => {
                 entry.zoomToFit();
             });
@@ -74,7 +76,7 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                const fullscreenBlock = host.querySelector('.excalidraw-block.excalidraw-fullscreen');
+                const fullscreenBlock = host.querySelector<HTMLElement>('.excalidraw-block.excalidraw-fullscreen');
                 if (fullscreenBlock) {
                     fullscreenBlock.classList.remove('excalidraw-fullscreen');
                     document.body.style.overflow = '';
@@ -82,6 +84,7 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
                     if (fullBtn) {
                         fullBtn.title = t('preview.excalidraw_fullscreen') || 'Fullscreen';
                     }
+                    fullscreenBlock.dispatchEvent(new CustomEvent('excalidraw-fullscreen-change', { detail: { isFullscreen: false } }));
                 }
             }
         };

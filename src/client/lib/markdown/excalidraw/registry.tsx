@@ -1,5 +1,20 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import {
+    Eye,
+    FileCode,
+    Info,
+    Moon,
+    Scan,
+    SlidersHorizontal,
+    Sparkles,
+    Sun,
+} from 'lucide-react';
+import { t } from '../../i18n';
+import { useUi } from '../../../store/ui';
+import { ExcalidrawToolsPanel } from '../../../features/excalidraw/ExcalidrawToolsPanel';
+import { ExcalidrawFloatingCapsule } from '../../../features/excalidraw/ExcalidrawFloatingCapsule';
+import { zoomToFitScene } from '../../../features/excalidraw/excalidraw-canvas-actions';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
 import { loadExcalidrawLib } from './loader';
 import type {
@@ -50,6 +65,8 @@ function bindToolbar(
     const themeBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-theme]');
     const sourceBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-source]');
     const exportBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-export]');
+    const toolsBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-tools]');
+    const libraryBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-library]');
     const fitBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-fit]');
     const fullBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-fullscreen]');
 
@@ -105,6 +122,16 @@ function bindToolbar(
             } catch (err) {
                 console.warn('Excalidraw export failed', err);
             }
+        };
+    }
+    if (toolsBtn) {
+        toolsBtn.onclick = () => {
+            block.dispatchEvent(new CustomEvent('excalidraw-toggle-tools'));
+        };
+    }
+    if (libraryBtn) {
+        libraryBtn.onclick = () => {
+            block.dispatchEvent(new CustomEvent('excalidraw-toggle-library'));
         };
     }
     if (fitBtn) fitBtn.onclick = () => entry.zoomToFit();
@@ -232,64 +259,203 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
         const ExcalidrawWrapper: React.FC = () => {
             const [theme, setTheme] = React.useState<'light' | 'dark'>(options.dark ? 'dark' : 'light');
+            const [isFullscreen, setIsFullscreen] = React.useState(() => block.classList.contains('excalidraw-fullscreen'));
+            const [toolsPanelOpen, setToolsPanelOpen] = React.useState(false);
+            const [libraryOpen, setLibraryOpen] = React.useState(false);
 
             React.useEffect(() => {
                 setTheme(options.dark ? 'dark' : 'light');
             }, [options.dark]);
 
+            const handleToggleLibrary = React.useCallback(() => {
+                if (!api) return;
+                if (typeof api.toggleSidebar === 'function') {
+                    const toggled = api.toggleSidebar({ name: 'default', tab: 'library' });
+                    const current = typeof api.getAppState === 'function' ? api.getAppState() : null;
+                    const isOpen = Boolean(
+                        current?.openSidebar && (current.openSidebar.name === 'default' || current.openSidebar.name === 'customSidebar')
+                    );
+                    setLibraryOpen(toggled !== undefined ? Boolean(toggled) : isOpen);
+                } else if (typeof api.updateScene === 'function') {
+                    const currentAppState = api.getAppState ? api.getAppState() : {};
+                    const isOpen = Boolean(
+                        currentAppState.openSidebar?.name === 'default' || currentAppState.openSidebar?.name === 'customSidebar'
+                    );
+                    const willOpen = !isOpen;
+                    api.updateScene({
+                        appState: {
+                            openSidebar: willOpen ? { name: 'default', tab: 'library' } : null,
+                        },
+                    });
+                    setLibraryOpen(willOpen);
+                }
+            }, []);
+
+            React.useEffect(() => {
+                const onFsChange = (e: Event) => {
+                    const custom = e as CustomEvent<{ isFullscreen: boolean }>;
+                    setIsFullscreen(custom.detail?.isFullscreen ?? block.classList.contains('excalidraw-fullscreen'));
+                };
+                const onToggleTools = () => setToolsPanelOpen((o) => !o);
+                const onToggleLib = () => handleToggleLibrary();
+
+                block.addEventListener('excalidraw-fullscreen-change', onFsChange);
+                block.addEventListener('excalidraw-toggle-tools', onToggleTools);
+                block.addEventListener('excalidraw-toggle-library', onToggleLib);
+
+                return () => {
+                    block.removeEventListener('excalidraw-fullscreen-change', onFsChange);
+                    block.removeEventListener('excalidraw-toggle-tools', onToggleTools);
+                    block.removeEventListener('excalidraw-toggle-library', onToggleLib);
+                };
+            }, [handleToggleLibrary]);
+
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
                 lastElements = elements as any[];
                 lastAppState = appState;
                 lastFiles = files;
+                const isLibOpen = Boolean(
+                    appState.openSidebar && (appState.openSidebar.name === 'default' || appState.openSidebar.name === 'customSidebar')
+                );
+                setLibraryOpen(isLibOpen);
                 scheduleSave();
             }, []);
 
-            return React.createElement(
-                'div',
-                {
-                    style: { width: '100%', height: '100%', position: 'relative' },
-                    className: `excalidraw-embedded-canvas ${theme === 'dark' ? 'theme--dark' : ''}`,
-                },
-                React.createElement(
-                    Excalidraw,
-                    {
-                        initialData: {
+            return (
+                <div
+                    style={{ width: '100%', height: '100%', position: 'relative' }}
+                    className={`excalidraw-embedded-canvas ${theme === 'dark' ? 'theme--dark' : ''}`}
+                >
+                    <Excalidraw
+                        initialData={{
                             elements: parsed.data.elements,
                             appState: {
                                 ...parsed.data.appState,
                                 theme,
                             },
                             files: parsed.data.files,
-                        },
-                        theme,
-                        langCode: options.locale === 'zh-CN' ? 'zh-CN' : 'en',
-                        onChange: handleChange,
-                        onExcalidrawAPI: (excalidrawApi: any) => {
+                        }}
+                        theme={theme}
+                        langCode={options.locale === 'zh-CN' ? 'zh-CN' : 'en'}
+                        onChange={handleChange}
+                        onExcalidrawAPI={(excalidrawApi: any) => {
                             api = excalidrawApi;
                             if (instance) {
                                 instance.entry.excalidrawAPI = api;
                             }
-                        },
-                        UIOptions: {
+                        }}
+                        UIOptions={{
                             canvasActions: {
                                 loadScene: false,
                                 saveToActiveFile: false,
                             },
-                        },
-                    },
-                    React.createElement(
-                        MainMenu,
-                        null,
-                        React.createElement(MainMenu.DefaultItems.ChangeCanvasBackground),
-                        React.createElement(MainMenu.DefaultItems.ToggleTheme),
-                        React.createElement(MainMenu.DefaultItems.ClearCanvas),
-                    ),
-                ),
+                        }}
+                    >
+                        {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
+                        <MainMenu>
+                            <MainMenu.DefaultItems.ChangeCanvasBackground />
+                            <MainMenu.Item
+                                onSelect={() => {
+                                    const next = theme === 'dark' ? 'light' : 'dark';
+                                    setTheme(next);
+                                    entry.setTheme(next);
+                                }}
+                                icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                                shortcut="Shift+Alt+D"
+                            >
+                                {theme === 'dark' ? t('command.switch_to_light_theme') : t('command.switch_to_dark_theme')}
+                            </MainMenu.Item>
+                            <MainMenu.Item
+                                onSelect={() => {
+                                    if (api) {
+                                        const currentAppState = api.getAppState();
+                                        api.updateScene({ appState: { viewModeEnabled: !currentAppState.viewModeEnabled } });
+                                    }
+                                }}
+                                icon={<Eye size={14} />}
+                            >
+                                {t('excalidraw.view_mode')}
+                            </MainMenu.Item>
+                            <MainMenu.Item
+                                onSelect={() => zoomToFitScene(api, canvasHost)}
+                                icon={<Scan size={14} />}
+                            >
+                                {t('preview.excalidraw_fit')}
+                            </MainMenu.Item>
+                            <MainMenu.Item
+                                onSelect={() => setToolsPanelOpen(true)}
+                                icon={<SlidersHorizontal size={14} />}
+                            >
+                                {t('excalidraw.tools_panel')}
+                            </MainMenu.Item>
+                            <MainMenu.Item
+                                onSelect={() => entry.toggleSource()}
+                                icon={<FileCode size={14} />}
+                            >
+                                {t('excalidraw.open_as_md')}
+                            </MainMenu.Item>
+                            <MainMenu.Item
+                                onSelect={() => {
+                                    window.open('https://excalidraw.com', '_blank');
+                                }}
+                                icon={<Sparkles size={14} />}
+                            >
+                                {t('excalidraw.learn_excalidraw')}
+                            </MainMenu.Item>
+                            <MainMenu.Item
+                                onSelect={() => {
+                                    window.open('https://github.com/zsviczian/obsidian-excalidraw-plugin', '_blank');
+                                }}
+                                icon={<Info size={14} />}
+                            >
+                                {t('excalidraw.help_and_issues')}
+                            </MainMenu.Item>
+                            <MainMenu.Separator />
+                            <MainMenu.DefaultItems.ClearCanvas />
+                        </MainMenu>
+                    </Excalidraw>
+
+                    {isFullscreen && (
+                        <ExcalidrawFloatingCapsule
+                            isFullscreen={isFullscreen}
+                            onToggleFullscreen={() => {
+                                block.dispatchEvent(new CustomEvent('excalidraw-fullscreen', { bubbles: true, detail: { entry } }));
+                            }}
+                            onZoomToFit={() => entry.zoomToFit()}
+                            libraryOpen={libraryOpen}
+                            onToggleLibrary={handleToggleLibrary}
+                            toolsPanelOpen={toolsPanelOpen}
+                            onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
+                            onToggleCode={() => entry.toggleSource()}
+                            onScriptLibrary={() => {
+                                useUi.getState().toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
+                            }}
+                        />
+                    )}
+
+                    <ExcalidrawToolsPanel
+                        open={toolsPanelOpen}
+                        onClose={() => setToolsPanelOpen(false)}
+                        api={api}
+                        lib={lib}
+                        title={options.noteId || 'drawing'}
+                        dark={theme === 'dark'}
+                        onToggleTheme={() => {
+                            const next = theme === 'dark' ? 'light' : 'dark';
+                            setTheme(next);
+                            entry.setTheme(next);
+                        }}
+                        onToggleFullscreen={() => {
+                            block.dispatchEvent(new CustomEvent('excalidraw-fullscreen', { bubbles: true, detail: { entry } }));
+                        }}
+                        onSave={() => scheduleSave()}
+                    />
+                </div>
             );
         };
 
         const reactRoot = ReactDOM.createRoot(canvasHost);
-        reactRoot.render(React.createElement(ExcalidrawWrapper));
+        reactRoot.render(<ExcalidrawWrapper />);
 
         markExcalidrawReady(block);
 
@@ -324,8 +490,8 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 }
             },
             zoomToFit: () => {
-                if (api && typeof api.scrollToContent === 'function') {
-                    api.scrollToContent(undefined, { fitToViewport: true });
+                if (api) {
+                    zoomToFitScene(api, canvasHost);
                 }
             },
             toggleSource: () => {

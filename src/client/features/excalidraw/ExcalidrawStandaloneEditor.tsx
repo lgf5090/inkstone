@@ -7,11 +7,9 @@ import {
     Eye,
     FileCode,
     Info,
-    Library,
-    Maximize,
-    Minimize,
     Moon,
     Save,
+    Scan,
     SlidersHorizontal,
     Sparkles,
     Star,
@@ -21,7 +19,7 @@ import {
 import type { NoteSummary } from '@shared/types';
 import { t, useLocale } from '../../lib/i18n';
 import { IconButton } from '../../components/primitives';
-import { prompt, Tooltip } from '../../components/overlay';
+import { Tooltip } from '../../components/overlay';
 import { useBreakpoint } from '../../lib/hooks';
 import { useNotes } from '../../store/notes';
 import { useUi, type WorkspacePane } from '../../store/ui';
@@ -34,6 +32,13 @@ import {
     type ExcalidrawSceneData,
 } from '../../lib/markdown/excalidraw';
 import { ExcalidrawToolsPanel } from './ExcalidrawToolsPanel';
+import { ExcalidrawFloatingCapsule } from './ExcalidrawFloatingCapsule';
+import {
+    promptAndInsertLatex,
+    promptAndInsertLink,
+    promptAndInsertNoteCard,
+    zoomToFitScene,
+} from './excalidraw-canvas-actions';
 
 interface ExcalidrawStandaloneEditorProps {
     note: NoteSummary;
@@ -114,75 +119,20 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     useEffect(() => {
         registerExcalidrawActionHandler(async (action) => {
+            if (!api) return;
+            const isDark = theme === 'dark';
             if (action === 'LaTeX') {
-                const latex = await prompt({
-                    title: t('excalidraw.insert_latex_prompt') || 'Enter LaTeX formula:',
-                });
-                if (latex && api) {
-                    const appState = api.getAppState();
-                    const centerX = -(appState.scrollX + appState.width / 2) + 200;
-                    const centerY = -(appState.scrollY + appState.height / 2) + 150;
-                    const el = {
-                        type: 'text',
-                        x: centerX,
-                        y: centerY,
-                        text: `$$${latex.trim()}$$`,
-                        fontSize: 20,
-                        fontFamily: 1,
-                        textAlign: 'left',
-                        verticalAlign: 'top',
-                    };
-                    api.updateScene({ elements: [...api.getSceneElements(), el] });
-                    toast({ title: t('excalidraw.insert_latex'), tone: 'success' });
-                }
+                await promptAndInsertLatex(api, isDark);
             } else if (action === 'card') {
-                const text = await prompt({
-                    title: t('excalidraw.insert_md_prompt') || 'Enter card content:',
-                });
-                if (text && api) {
-                    const appState = api.getAppState();
-                    const centerX = -(appState.scrollX + appState.width / 2) + 200;
-                    const centerY = -(appState.scrollY + appState.height / 2) + 150;
-                    const el = {
-                        type: 'text',
-                        x: centerX,
-                        y: centerY,
-                        text: text.trim(),
-                        fontSize: 20,
-                        fontFamily: 1,
-                        textAlign: 'left',
-                        verticalAlign: 'top',
-                    };
-                    api.updateScene({ elements: [...api.getSceneElements(), el] });
-                    toast({ title: t('excalidraw.insert_md'), tone: 'success' });
-                }
+                await promptAndInsertNoteCard(api, isDark);
             } else if (action === 'anyFile') {
-                const noteName = await prompt({
-                    title: t('excalidraw.insert_link') || 'Insert Note Link:',
-                });
-                if (noteName && api) {
-                    const appState = api.getAppState();
-                    const centerX = -(appState.scrollX + appState.width / 2) + 200;
-                    const centerY = -(appState.scrollY + appState.height / 2) + 150;
-                    const el = {
-                        type: 'text',
-                        x: centerX,
-                        y: centerY,
-                        text: `[[${noteName.trim()}]]`,
-                        fontSize: 20,
-                        fontFamily: 1,
-                        textAlign: 'left',
-                        verticalAlign: 'top',
-                    };
-                    api.updateScene({ elements: [...api.getSceneElements(), el] });
-                    toast({ title: t('excalidraw.insert_link'), tone: 'success' });
-                }
+                await promptAndInsertLink(api, isDark);
             }
         });
         return () => {
             registerExcalidrawActionHandler(null);
         };
-    }, [api, toast]);
+    }, [api, theme]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -348,6 +298,12 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             icon={<Eye size={14} />}
                         >
                             {t('excalidraw.view_mode')}
+                        </lib.MainMenu.Item>
+                        <lib.MainMenu.Item
+                            onSelect={() => zoomToFitScene(api, containerRef.current)}
+                            icon={<Scan size={14} />}
+                        >
+                            {t('preview.excalidraw_fit')}
                         </lib.MainMenu.Item>
                         <lib.MainMenu.Item
                             onSelect={handleManualSave}
@@ -576,55 +532,17 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 )}
 
                 {viewMode === 'canvas' && lib && (
-                    <div className="absolute right-3 top-3 z-40 flex flex-col items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-md">
-                        <Tooltip label={t('excalidraw.script_library')}>
-                            <button
-                                type="button"
-                                aria-label={t('excalidraw.script_library')}
-                                onClick={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
-                                className="flex h-7 w-7 items-center justify-center rounded-full text-purple-500 hover:bg-[var(--bg-hover)]"
-                            >
-                                <Sparkles size={14} />
-                            </button>
-                        </Tooltip>
-
-                        <Tooltip label={t('excalidraw.open_as_md')}>
-                            <button
-                                type="button"
-                                aria-label={t('excalidraw.open_as_md')}
-                                onClick={handleToggleViewMode}
-                                className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                            >
-                                <FileCode size={14} />
-                            </button>
-                        </Tooltip>
-
-                        <Tooltip label={isFullscreen ? t('preview.excalidraw_exit_fullscreen') : t('preview.excalidraw_fullscreen')}>
-                            <button
-                                type="button"
-                                aria-label={isFullscreen ? t('preview.excalidraw_exit_fullscreen') : t('preview.excalidraw_fullscreen')}
-                                onClick={handleToggleFullscreen}
-                                className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                            >
-                                {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
-                            </button>
-                        </Tooltip>
-
-                        <Tooltip label={t('excalidraw.library')}>
-                            <button
-                                type="button"
-                                aria-label={t('excalidraw.library')}
-                                onClick={handleToggleLibrary}
-                                className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
-                                    libraryOpen
-                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                                }`}
-                            >
-                                <Library size={14} />
-                            </button>
-                        </Tooltip>
-                    </div>
+                    <ExcalidrawFloatingCapsule
+                        isFullscreen={isFullscreen}
+                        onToggleFullscreen={handleToggleFullscreen}
+                        onZoomToFit={() => zoomToFitScene(api, containerRef.current)}
+                        libraryOpen={libraryOpen}
+                        onToggleLibrary={handleToggleLibrary}
+                        toolsPanelOpen={toolsPanelOpen}
+                        onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
+                        onToggleCode={handleToggleViewMode}
+                        onScriptLibrary={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
+                    />
                 )}
 
                 {viewMode === 'canvas' && lib && (
@@ -636,6 +554,8 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         title={note.title}
                         dark={theme === 'dark'}
                         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+                        onToggleFullscreen={handleToggleFullscreen}
+                        onSave={handleManualSave}
                     />
                 )}
             </div>

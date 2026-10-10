@@ -26,15 +26,25 @@ import { downloadBlob, safeFileName } from '../../lib/export-note';
 import { prompt, Tooltip } from '../../components/overlay';
 import { useUi } from '../../store/ui';
 import { convertMermaidToExcalidrawElements, type ExcalidrawLib } from '../../lib/markdown/excalidraw';
+import {
+    insertEmbedToCanvas,
+    insertPdfCardToCanvas,
+    promptAndInsertLatex,
+    promptAndInsertLink,
+    promptAndInsertNoteCard,
+    zoomToFitScene,
+} from './excalidraw-canvas-actions';
 
-interface ExcalidrawToolsPanelProps {
+export interface ExcalidrawToolsPanelProps {
     open: boolean;
     onClose: () => void;
     api: any;
     lib: ExcalidrawLib;
     title: string;
     dark: boolean;
-    onToggleTheme: () => void;
+    onToggleTheme?: () => void;
+    onToggleFullscreen?: () => void;
+    onSave?: () => void;
 }
 
 export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
@@ -44,9 +54,12 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     lib,
     title,
     dark,
+    onToggleFullscreen,
+    onSave,
 }) => {
     const toast = useUi((s) => s.toast);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pdfInputRef = useRef<HTMLInputElement>(null);
     const panelRef = useRef<HTMLElement>(null);
 
     useEffect(() => {
@@ -73,16 +86,20 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     if (!open) return null;
 
     const baseFileName = safeFileName(title.replace(/\.excalidraw$/i, '')) || 'drawing';
+    const appState = (typeof api?.getAppState === 'function' ? api.getAppState() : {}) as any;
+    const isZen = Boolean(appState.zenModeEnabled);
+    const isView = Boolean(appState.viewModeEnabled);
+    const isGrid = Boolean(appState.gridSize);
 
     const handleExportPng = async () => {
         if (!api || !lib) return;
         try {
             const elements = api.getSceneElements();
-            const appState = api.getAppState();
+            const currentAppState = api.getAppState();
             const files = api.getFiles();
             const blob = await lib.exportToBlob({
                 elements,
-                appState: { ...appState, exportWithDarkMode: dark },
+                appState: { ...currentAppState, exportWithDarkMode: dark },
                 files,
                 mimeType: 'image/png',
             });
@@ -97,11 +114,11 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         if (!api || !lib) return;
         try {
             const elements = api.getSceneElements();
-            const appState = api.getAppState();
+            const currentAppState = api.getAppState();
             const files = api.getFiles();
             const svg = await lib.exportToSvg({
                 elements,
-                appState: { ...appState, exportWithDarkMode: dark },
+                appState: { ...currentAppState, exportWithDarkMode: dark },
                 files,
             });
             const serializer = new XMLSerializer();
@@ -118,11 +135,11 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         if (!api || !lib) return;
         try {
             const elements = api.getSceneElements();
-            const appState = api.getAppState();
+            const currentAppState = api.getAppState();
             const files = api.getFiles();
             const blob = await lib.exportToBlob({
                 elements,
-                appState: { ...appState, exportWithDarkMode: dark },
+                appState: { ...currentAppState, exportWithDarkMode: dark },
                 files,
                 mimeType: 'image/png',
             });
@@ -141,9 +158,9 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         if (!api || !lib) return;
         try {
             const elements = api.getSceneElements();
-            const appState = api.getAppState();
+            const currentAppState = api.getAppState();
             const files = api.getFiles();
-            const json = lib.serializeAsJSON(elements, appState, files, 'local');
+            const json = lib.serializeAsJSON(elements, currentAppState, files, 'local');
             const blob = new Blob([json], { type: 'application/json' });
             downloadBlob(`${baseFileName}.excalidraw`, blob);
             toast({ title: t('excalidraw.export_excalidraw'), tone: 'success' });
@@ -153,9 +170,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     };
 
     const handleZoomToFit = () => {
-        if (api && typeof api.scrollToContent === 'function') {
-            api.scrollToContent(undefined, { fitToViewport: true });
-        }
+        zoomToFitScene(api, panelRef.current?.parentElement);
     };
 
     const handleZoom100 = () => {
@@ -166,29 +181,34 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
 
     const handleToggleZenMode = () => {
         if (!api) return;
-        const appState = api.getAppState();
-        api.updateScene({ appState: { zenModeEnabled: !appState.zenModeEnabled } });
+        const current = api.getAppState ? api.getAppState() : {};
+        api.updateScene({ appState: { zenModeEnabled: !current.zenModeEnabled } });
     };
 
     const handleToggleViewMode = () => {
         if (!api) return;
-        const appState = api.getAppState();
-        api.updateScene({ appState: { viewModeEnabled: !appState.viewModeEnabled } });
+        const current = api.getAppState ? api.getAppState() : {};
+        api.updateScene({ appState: { viewModeEnabled: !current.viewModeEnabled } });
     };
 
     const handleToggleGrid = () => {
         if (!api) return;
-        const appState = api.getAppState();
-        api.updateScene({ appState: { gridSize: appState.gridSize ? null : 20 } });
+        const current = api.getAppState ? api.getAppState() : {};
+        api.updateScene({ appState: { gridSize: current.gridSize ? null : 20 } });
     };
 
     const handleClearCanvas = () => {
         if (!api) return;
-        api.resetScene();
+        api.updateScene({ elements: [] });
+        toast({ title: t('excalidraw.clear_canvas'), tone: 'default' });
     };
 
     const handlePickImage = () => {
         fileInputRef.current?.click();
+    };
+
+    const handlePickPdf = () => {
+        pdfInputRef.current?.click();
     };
 
     const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,6 +219,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
             const dataUrl = reader.result as string;
             const fileId = `file_${Date.now()}`;
             const imageElement = {
+                id: `img_${Date.now()}`,
                 type: 'image',
                 x: 100,
                 y: 100,
@@ -207,72 +228,36 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                 fileId,
                 status: 'saved',
             };
-            api.addFiles([
-                {
-                    id: fileId,
-                    dataURL: dataUrl,
-                    mimeType: file.type,
-                    created: Date.now(),
-                },
-            ]);
+            if (typeof api.addFiles === 'function') {
+                api.addFiles([
+                    {
+                        id: fileId,
+                        dataURL: dataUrl,
+                        mimeType: file.type,
+                        created: Date.now(),
+                    },
+                ]);
+            }
             api.updateScene({
-                elements: [...api.getSceneElements(), imageElement],
+                elements: [...(api.getSceneElements?.() || []), imageElement],
             });
             toast({ title: t('excalidraw.insert_image'), tone: 'success' });
         };
         reader.readAsDataURL(file);
     };
 
-    const handleInsertText = async (defaultText = '') => {
-        if (!api) return;
-        const text = await prompt({ title: t('excalidraw.insert_md_prompt') || 'Enter text:', defaultValue: defaultText });
-        if (!text) return;
-        const appState = api.getAppState();
-        const centerX = -(appState.scrollX + appState.width / 2) + 200;
-        const centerY = -(appState.scrollY + appState.height / 2) + 150;
-
-        const newElement = {
-            type: 'text',
-            x: centerX,
-            y: centerY,
-            text,
-            fontSize: 20,
-            fontFamily: 1,
-            textAlign: 'left',
-            verticalAlign: 'top',
-        };
-        api.updateScene({ elements: [...api.getSceneElements(), newElement] });
-    };
-
-    const handleInsertLink = async () => {
-        const noteName = await prompt({ title: t('excalidraw.insert_link') || 'Insert Note Link:' });
-        if (noteName) {
-            void handleInsertText(`[[${noteName.trim()}]]`);
-        }
-    };
-
-    const handleInsertLatex = async () => {
-        const latex = await prompt({ title: t('excalidraw.insert_latex_prompt') || 'Enter LaTeX formula:' });
-        if (latex) {
-            void handleInsertText(`$$${latex.trim()}$$`);
-        }
+    const handlePdfFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !api) return;
+        insertPdfCardToCanvas(api, file.name, dark);
+        toast({ title: t('excalidraw.insert_pdf'), description: file.name, tone: 'success' });
     };
 
     const handleEmbedWeb = async () => {
         const url = await prompt({ title: t('excalidraw.embed_web_prompt') || 'Enter URL to embed:' });
-        if (!url || !api) return;
-        const appState = api.getAppState();
-        const centerX = -(appState.scrollX + appState.width / 2) + 200;
-        const centerY = -(appState.scrollY + appState.height / 2) + 150;
-        const embedElement = {
-            type: 'embeddable',
-            x: centerX,
-            y: centerY,
-            width: 400,
-            height: 300,
-            link: url.trim(),
-        };
-        api.updateScene({ elements: [...api.getSceneElements(), embedElement] });
+        if (!url || !url.trim() || !api) return;
+        insertEmbedToCanvas(api, url.trim());
+        toast({ title: t('excalidraw.embed_web'), tone: 'success' });
     };
 
     const handleInsertMermaid = async () => {
@@ -286,13 +271,26 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         try {
             const elements = convertMermaidToExcalidrawElements(code);
             if (elements.length > 0) {
-                api.updateScene({ elements: [...api.getSceneElements(), ...elements] });
+                api.updateScene({ elements: [...(api.getSceneElements?.() || []), ...elements] });
                 toast({ title: t('excalidraw.mermaid_to_excalidraw'), tone: 'success' });
             } else {
                 toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: 'No elements parsed', tone: 'warning' });
             }
         } catch (err: unknown) {
             toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: String(err), tone: 'danger' });
+        }
+    };
+
+    const handleFullscreenTrigger = () => {
+        if (onToggleFullscreen) {
+            onToggleFullscreen();
+        } else if (typeof document !== 'undefined') {
+            const block = panelRef.current?.closest('.excalidraw-block') || panelRef.current?.parentElement;
+            if (!document.fullscreenElement && block?.requestFullscreen) {
+                void block.requestFullscreen();
+            } else if (document.exitFullscreen) {
+                void document.exitFullscreen();
+            }
         }
     };
 
@@ -320,7 +318,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('settings.excalidraw')}
-                                onClick={() => toast({ title: t('settings.excalidraw'), description: t('settings.excalidraw_desc'), tone: 'default' })}
+                                onClick={() => toast({ title: t('settings.excalidraw'), description: 'Obsidian Excalidraw Engine v0.18.140', tone: 'default' })}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <SlidersHorizontal size={15} />
@@ -330,7 +328,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.help_and_issues')}
-                                onClick={() => toast({ title: 'Excalidraw', description: 'Obsidian Excalidraw Port v2.2.5', tone: 'default' })}
+                                onClick={() => window.open('https://github.com/zsviczian/obsidian-excalidraw-plugin', '_blank')}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <Megaphone size={15} />
@@ -340,7 +338,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.about_excalidraw')}
-                                onClick={() => toast({ title: 'Excalidraw', description: 'https://excalidraw.com', tone: 'default' })}
+                                onClick={() => window.open('https://excalidraw.com', '_blank')}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <Info size={15} />
@@ -351,7 +349,11 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 type="button"
                                 aria-label={t('excalidraw.zen_mode')}
                                 onClick={handleToggleZenMode}
-                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
+                                className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors shadow-xs ${
+                                    isZen
+                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                                        : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                                }`}
                             >
                                 <Tv size={15} />
                             </button>
@@ -360,7 +362,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('preview.excalidraw_fullscreen')}
-                                onClick={handleZoomToFit}
+                                onClick={handleFullscreenTrigger}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <Maximize size={15} />
@@ -391,7 +393,11 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 type="button"
                                 aria-label={t('excalidraw.view_mode')}
                                 onClick={handleToggleViewMode}
-                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
+                                className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors shadow-xs ${
+                                    isView
+                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                                        : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                                }`}
                             >
                                 <Lock size={15} />
                             </button>
@@ -401,7 +407,11 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                                 type="button"
                                 aria-label={t('excalidraw.grid_mode')}
                                 onClick={handleToggleGrid}
-                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
+                                className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors shadow-xs ${
+                                    isGrid
+                                        ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                                        : 'bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                                }`}
                             >
                                 <Grid size={15} />
                             </button>
@@ -410,7 +420,13 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('workspace.save_drawing')}
-                                onClick={handleExportJson}
+                                onClick={() => {
+                                    if (onSave) {
+                                        onSave();
+                                    } else {
+                                        handleExportJson();
+                                    }
+                                }}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <Save size={15} />
@@ -476,7 +492,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.insert_md')}
-                                onClick={() => handleInsertText()}
+                                onClick={() => void promptAndInsertNoteCard(api, dark)}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <FileText size={15} />
@@ -496,7 +512,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.insert_pdf')}
-                                onClick={() => toast({ title: t('excalidraw.insert_pdf'), tone: 'default' })}
+                                onClick={handlePickPdf}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <FileDown size={15} />
@@ -526,7 +542,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.insert_latex')}
-                                onClick={handleInsertLatex}
+                                onClick={() => void promptAndInsertLatex(api, dark)}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <Sigma size={15} />
@@ -536,7 +552,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                             <button
                                 type="button"
                                 aria-label={t('excalidraw.insert_link')}
-                                onClick={handleInsertLink}
+                                onClick={() => void promptAndInsertLink(api, dark)}
                                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-raised)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors shadow-xs"
                             >
                                 <LinkIcon size={15} />
@@ -561,6 +577,13 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                 accept="image/*"
                 className="hidden"
                 onChange={handleImageFileSelected}
+            />
+            <input
+                ref={pdfInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={handlePdfFileSelected}
             />
         </aside>
     );
