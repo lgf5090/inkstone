@@ -15,14 +15,18 @@ import {
     markExcalidrawReady,
     showExcalidrawError,
     EXCALIDRAW_CANVAS_CLASS,
+    EXCALIDRAW_PLACEHOLDER_SELECTOR,
 } from './view';
 
 interface MountedInstance {
     entry: ExcalidrawBlockEntry;
     root: ReactDOM.Root;
+    canvasHost: HTMLElement;
     rawPre?: HTMLElement;
+    rawCode?: HTMLElement;
     saveTimeout?: number;
     lastSavedJson?: string;
+    dark: boolean;
 }
 
 const activeInstances = new Map<string, MountedInstance>();
@@ -33,6 +37,82 @@ function makeInstanceKey(scope: string, index: number): string {
 
 export function getExcalidrawInstance(scope: string, index: number): ExcalidrawBlockEntry | undefined {
     return activeInstances.get(makeInstanceKey(scope, index))?.entry;
+}
+
+function bindToolbar(
+    block: HTMLElement,
+    entry: ExcalidrawBlockEntry,
+    instance: MountedInstance,
+    lib?: any,
+) {
+    const canvasTab = block.querySelector<HTMLButtonElement>('[data-excalidraw-tab="canvas"]');
+    const jsonTab = block.querySelector<HTMLButtonElement>('[data-excalidraw-tab="json"]');
+    const themeBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-theme]');
+    const sourceBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-source]');
+    const exportBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-export]');
+    const fitBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-fit]');
+    const fullBtn = block.querySelector<HTMLButtonElement>('[data-excalidraw-fullscreen]');
+
+    const setMode = (mode: 'canvas' | 'json') => {
+        if (mode === 'canvas') {
+            instance.canvasHost.style.display = 'block';
+            if (instance.rawPre) instance.rawPre.hidden = true;
+            canvasTab?.classList.add('is-active');
+            jsonTab?.classList.remove('is-active');
+        } else {
+            instance.canvasHost.style.display = 'none';
+            if (instance.rawPre) instance.rawPre.hidden = false;
+            jsonTab?.classList.add('is-active');
+            canvasTab?.classList.remove('is-active');
+        }
+    };
+
+    if (canvasTab) canvasTab.onclick = () => setMode('canvas');
+    if (jsonTab) jsonTab.onclick = () => setMode('json');
+    if (sourceBtn) {
+        sourceBtn.onclick = () => {
+            const isJson = instance.rawPre ? !instance.rawPre.hidden : false;
+            setMode(isJson ? 'canvas' : 'json');
+        };
+    }
+    if (themeBtn) {
+        themeBtn.onclick = () => {
+            const nextTheme = instance.dark ? 'light' : 'dark';
+            instance.dark = !instance.dark;
+            entry.setTheme(nextTheme);
+        };
+    }
+    if (exportBtn && lib) {
+        exportBtn.onclick = async () => {
+            try {
+                const api = entry.excalidrawAPI;
+                if (!api) return;
+                const elements = api.getSceneElements();
+                const appState = api.getAppState();
+                const files = api.getFiles();
+                const blob = await lib.exportToBlob({
+                    elements,
+                    appState: { ...appState, exportWithDarkMode: instance.dark },
+                    files,
+                    mimeType: 'image/png',
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'drawing.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.warn('Excalidraw export failed', err);
+            }
+        };
+    }
+    if (fitBtn) fitBtn.onclick = () => entry.zoomToFit();
+    if (fullBtn) {
+        fullBtn.onclick = () => {
+            block.dispatchEvent(new CustomEvent('excalidraw-fullscreen', { bubbles: true, detail: { entry } }));
+        };
+    }
 }
 
 export async function mountExcalidrawBlocks(root: ParentNode, options: ExcalidrawMountOptions): Promise<void> {
@@ -61,17 +141,48 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
         let instance = activeInstances.get(key);
 
-        if (instance && instance.entry.container === block) {
-            continue;
-        }
-
         if (instance) {
-            instance.root.unmount();
-            activeInstances.delete(key);
+            if (instance.entry.container !== block) {
+                instance.entry.container = block;
+                const toolbar = createExcalidrawToolbar(block);
+                block.prepend(toolbar);
+                decorateExcalidrawControls(block);
+
+                const placeholder = block.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR);
+                if (placeholder) {
+                    placeholder.replaceWith(instance.canvasHost);
+                } else {
+                    block.append(instance.canvasHost);
+                }
+                if (instance.rawPre) {
+                    block.append(instance.rawPre);
+                }
+                markExcalidrawReady(block);
+                bindToolbar(block, instance.entry, instance, lib);
+            }
+
+            const trimmedBody = ref.rawBody.trim();
+            if (trimmedBody !== instance.lastSavedJson) {
+                instance.lastSavedJson = trimmedBody;
+                if (instance.rawCode) {
+                    instance.rawCode.textContent = ref.rawBody;
+                }
+                if (parsed.ok && instance.entry.excalidrawAPI) {
+                    instance.entry.updateScene(parsed.data);
+                }
+            }
+
+            if (options.dark !== instance.dark) {
+                instance.dark = options.dark;
+                instance.entry.setTheme(options.dark ? 'dark' : 'light');
+            }
+
+            continue;
         }
 
         const toolbar = createExcalidrawToolbar(block);
         block.prepend(toolbar);
+        decorateExcalidrawControls(block);
 
         const canvasHost = document.createElement('div');
         canvasHost.className = EXCALIDRAW_CANVAS_CLASS;
@@ -86,7 +197,6 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         block.append(rawPre);
 
         let api: any = null;
-        let showSource = false;
         let lastElements: any[] = parsed.data.elements;
         let lastAppState: any = parsed.data.appState;
         let lastFiles: any = parsed.data.files;
@@ -102,7 +212,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 };
                 const nextJson = serializeExcalidrawBody(currentData);
                 if (instance && nextJson !== instance.lastSavedJson) {
-                    instance.lastSavedJson = nextJson;
+                    instance.lastSavedJson = nextJson.trim();
                     rawCode.textContent = nextJson;
                     options.writeBack!(ref, nextJson);
                 }
@@ -194,6 +304,9 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         elements: nextData.elements,
                         appState: nextData.appState,
                     });
+                    if (nextData.files) {
+                        api.addFiles(Object.values(nextData.files));
+                    }
                 }
             },
             zoomToFit: () => {
@@ -202,9 +315,9 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 }
             },
             toggleSource: () => {
-                showSource = !showSource;
-                rawPre.hidden = !showSource;
-                canvasHost.style.display = showSource ? 'none' : 'block';
+                const isJson = !rawPre.hidden;
+                rawPre.hidden = isJson;
+                canvasHost.style.display = isJson ? 'block' : 'none';
             },
             setTheme: (newTheme: 'light' | 'dark') => {
                 if (api) {
@@ -218,27 +331,15 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         instance = {
             entry,
             root: reactRoot,
+            canvasHost,
             rawPre,
+            rawCode,
             lastSavedJson: ref.rawBody.trim(),
+            dark: options.dark,
         };
         activeInstances.set(key, instance);
 
-        const sourceBtn = toolbar.querySelector<HTMLButtonElement>('[data-excalidraw-source]');
-        if (sourceBtn) {
-            sourceBtn.onclick = () => entry.toggleSource();
-        }
-
-        const fitBtn = toolbar.querySelector<HTMLButtonElement>('[data-excalidraw-fit]');
-        if (fitBtn) {
-            fitBtn.onclick = () => entry.zoomToFit();
-        }
-
-        const fullBtn = toolbar.querySelector<HTMLButtonElement>('[data-excalidraw-fullscreen]');
-        if (fullBtn) {
-            fullBtn.onclick = () => {
-                block.dispatchEvent(new CustomEvent('excalidraw-fullscreen', { bubbles: true, detail: { entry } }));
-            };
-        }
+        bindToolbar(block, entry, instance, lib);
     }
 }
 

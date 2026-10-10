@@ -1,27 +1,29 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
     Copy,
     Download,
     Eye,
     FileCode,
     FileText,
-    Grid,
     Globe,
-    Link,
+    Grid,
+    Info,
+    Link as LinkIcon,
     Maximize,
     Moon,
     Sigma,
     Sun,
     Trash2,
+    Workflow,
     Wrench,
     X,
     Zap,
 } from 'lucide-react';
 import { t } from '../../lib/i18n';
 import { downloadBlob, safeFileName } from '../../lib/export-note';
-import { prompt } from '../../components/overlay';
+import { prompt, Tooltip } from '../../components/overlay';
 import { useUi } from '../../store/ui';
-import type { ExcalidrawLib } from '../../lib/markdown/excalidraw';
+import { convertMermaidToExcalidrawElements, type ExcalidrawLib } from '../../lib/markdown/excalidraw';
 
 interface ExcalidrawToolsPanelProps {
     open: boolean;
@@ -43,7 +45,6 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     onToggleTheme,
 }) => {
     const toast = useUi((s) => s.toast);
-    const [activeTab, setActiveTab] = useState<'utility' | 'export' | 'insert'>('utility');
 
     if (!open) return null;
 
@@ -183,13 +184,13 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         const text = await prompt({ title: t('excalidraw.insert_md_prompt') || 'Enter text:', defaultValue: defaultText });
         if (!text) return;
         const appState = api.getAppState();
-        const centerX = appState.scrollX + appState.width / 2;
-        const centerY = appState.scrollY + appState.height / 2;
+        const centerX = -(appState.scrollX + appState.width / 2) + 200;
+        const centerY = -(appState.scrollY + appState.height / 2) + 150;
 
         const newElement = {
             type: 'text',
-            x: -centerX,
-            y: -centerY,
+            x: centerX,
+            y: centerY,
             text,
             fontSize: 20,
             fontFamily: 1,
@@ -230,11 +231,43 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
         api.updateScene({ elements: [...api.getSceneElements(), embedElement] });
     };
 
+    const handleInsertMermaid = async () => {
+        if (!api) return;
+        const defaultCode = 'graph TD\n  A[Start] --> B(Work)\n  B --> C{Done?}\n  C -->|Yes| D[End]';
+        const code = await prompt({
+            title: t('excalidraw.mermaid_to_excalidraw') || 'Mermaid to Excalidraw:',
+            defaultValue: defaultCode,
+        });
+        if (!code) return;
+        try {
+            const elements = convertMermaidToExcalidrawElements(code);
+            if (elements.length > 0) {
+                api.updateScene({ elements: [...api.getSceneElements(), ...elements] });
+                toast({ title: t('excalidraw.mermaid_to_excalidraw'), tone: 'success' });
+            } else {
+                toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: 'No elements parsed', tone: 'warning' });
+            }
+        } catch (err: unknown) {
+            toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: String(err), tone: 'danger' });
+        }
+    };
+
     return (
         <aside
             className="absolute top-12 right-2 bottom-2 z-50 flex w-72 flex-col rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 shadow-xl"
             aria-label={t('excalidraw.tools_panel')}
         >
+            <div className="flex justify-center py-1 cursor-grab text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
+                <svg viewBox="0 0 228 26" className="w-24 h-3.5" aria-hidden="true" focusable="false">
+                    <path
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        d="M40,7 h148 M40,13 h148 M40,19 h148"
+                    />
+                </svg>
+            </div>
+
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">
                 <span className="flex items-center gap-1.5 font-sans text-xs font-semibold text-[var(--text-primary)]">
                     <Wrench size={14} className="text-[var(--accent)]" />
@@ -250,179 +283,210 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                 </button>
             </div>
 
-            <div className="mt-2 flex rounded-lg bg-[var(--bg-inset)] p-0.5 text-xs">
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('utility')}
-                    className={`flex-1 rounded-md py-1 font-medium transition-colors ${
-                        activeTab === 'utility'
-                            ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                >
-                    {t('excalidraw.tool_utility')}
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('export')}
-                    className={`flex-1 rounded-md py-1 font-medium transition-colors ${
-                        activeTab === 'export'
-                            ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                >
-                    {t('excalidraw.tool_export')}
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('insert')}
-                    className={`flex-1 rounded-md py-1 font-medium transition-colors ${
-                        activeTab === 'insert'
-                            ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                >
-                    {t('excalidraw.tool_insert')}
-                </button>
-            </div>
+            <div className="mt-2.5 flex-1 overflow-y-auto space-y-3 pr-0.5 text-xs">
+                <fieldset className="rounded-lg border border-[var(--border-subtle)] p-2">
+                    <legend className="px-1 text-[11px] font-semibold text-[var(--text-tertiary)]">
+                        {t('excalidraw.utility_actions')}
+                    </legend>
+                    <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        <Tooltip label={t('preview.excalidraw_fit')}>
+                            <button
+                                type="button"
+                                aria-label={t('preview.excalidraw_fit')}
+                                onClick={handleZoomToFit}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Maximize size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={dark ? 'Light Mode' : 'Dark Mode'}>
+                            <button
+                                type="button"
+                                aria-label={dark ? 'Light Mode' : 'Dark Mode'}
+                                onClick={onToggleTheme}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                {dark ? <Sun size={15} /> : <Moon size={15} />}
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.zen_mode')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.zen_mode')}
+                                onClick={handleToggleZenMode}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Zap size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.view_mode')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.view_mode')}
+                                onClick={handleToggleViewMode}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Eye size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.grid_mode')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.grid_mode')}
+                                onClick={handleToggleGrid}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Grid size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.script_library')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.script_library')}
+                                onClick={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Wrench size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.about_excalidraw')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.about_excalidraw')}
+                                onClick={() => toast({ title: 'Excalidraw', description: 'Obsidian-Excalidraw Port v2.2.5', tone: 'default' })}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Info size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.clear_canvas')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.clear_canvas')}
+                                onClick={handleClearCanvas}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--danger)] hover:bg-[var(--bg-hover)]"
+                            >
+                                <Trash2 size={15} />
+                            </button>
+                        </Tooltip>
+                    </div>
+                </fieldset>
 
-            <div className="mt-3 flex-1 overflow-y-auto space-y-1 text-xs">
-                {activeTab === 'utility' && (
-                    <>
-                        <button
-                            type="button"
-                            onClick={handleZoomToFit}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Maximize size={14} />
-                            {t('preview.excalidraw_fit')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onToggleTheme}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            {dark ? <Sun size={14} /> : <Moon size={14} />}
-                            {dark ? 'Light Mode' : 'Dark Mode'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleToggleZenMode}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Zap size={14} />
-                            {t('excalidraw.zen_mode')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleToggleViewMode}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Eye size={14} />
-                            {t('excalidraw.view_mode')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleToggleGrid}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Grid size={14} />
-                            {t('excalidraw.grid_mode')}
-                        </button>
-                        <div className="my-1 border-t border-[var(--border-subtle)]" />
-                        <button
-                            type="button"
-                            onClick={handleClearCanvas}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--danger)] hover:bg-[var(--bg-hover)]"
-                        >
-                            <Trash2 size={14} />
-                            {t('excalidraw.clear_canvas')}
-                        </button>
-                    </>
-                )}
+                <fieldset className="rounded-lg border border-[var(--border-subtle)] p-2">
+                    <legend className="px-1 text-[11px] font-semibold text-[var(--text-tertiary)]">
+                        {t('excalidraw.export_actions')}
+                    </legend>
+                    <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        <Tooltip label={t('excalidraw.export_png')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.export_png')}
+                                onClick={handleExportPng}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Download size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.export_svg')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.export_svg')}
+                                onClick={handleExportSvg}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <FileCode size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.copy_png')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.copy_png')}
+                                onClick={handleCopyPng}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Copy size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.copy_svg')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.copy_svg')}
+                                onClick={handleCopySvg}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Copy size={15} className="text-[var(--accent)]" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.export_excalidraw')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.export_excalidraw')}
+                                onClick={handleExportJson}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Download size={15} className="text-[var(--accent)]" />
+                            </button>
+                        </Tooltip>
+                    </div>
+                </fieldset>
 
-                {activeTab === 'export' && (
-                    <>
-                        <button
-                            type="button"
-                            onClick={handleExportPng}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Download size={14} />
-                            {t('excalidraw.export_png')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleExportSvg}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Download size={14} />
-                            {t('excalidraw.export_svg')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleCopyPng}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Copy size={14} />
-                            {t('excalidraw.copy_png')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleCopySvg}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Copy size={14} />
-                            {t('excalidraw.copy_svg')}
-                        </button>
-                        <div className="my-1 border-t border-[var(--border-subtle)]" />
-                        <button
-                            type="button"
-                            onClick={handleExportJson}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <FileCode size={14} />
-                            {t('excalidraw.export_excalidraw')}
-                        </button>
-                    </>
-                )}
-
-                {activeTab === 'insert' && (
-                    <>
-                        <button
-                            type="button"
-                            onClick={handleInsertLatex}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Sigma size={14} />
-                            {t('excalidraw.insert_latex')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleInsertLink}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Link size={14} />
-                            {t('excalidraw.insert_link')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => handleInsertText()}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <FileText size={14} />
-                            {t('excalidraw.insert_md')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleEmbedWeb}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        >
-                            <Globe size={14} />
-                            {t('excalidraw.embed_web')}
-                        </button>
-                    </>
-                )}
+                <fieldset className="rounded-lg border border-[var(--border-subtle)] p-2">
+                    <legend className="px-1 text-[11px] font-semibold text-[var(--text-tertiary)]">
+                        {t('excalidraw.insert_actions')}
+                    </legend>
+                    <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        <Tooltip label={t('excalidraw.insert_latex')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.insert_latex')}
+                                onClick={handleInsertLatex}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Sigma size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.insert_link')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.insert_link')}
+                                onClick={handleInsertLink}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <LinkIcon size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.insert_md')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.insert_md')}
+                                onClick={() => handleInsertText()}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <FileText size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.embed_web')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.embed_web')}
+                                onClick={handleEmbedWeb}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                            >
+                                <Globe size={15} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip label={t('excalidraw.mermaid_to_excalidraw')}>
+                            <button
+                                type="button"
+                                aria-label={t('excalidraw.mermaid_to_excalidraw')}
+                                onClick={handleInsertMermaid}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--accent)] hover:bg-[var(--bg-hover)]"
+                            >
+                                <Workflow size={15} />
+                            </button>
+                        </Tooltip>
+                    </div>
+                </fieldset>
             </div>
         </aside>
     );
