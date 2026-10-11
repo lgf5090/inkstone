@@ -559,6 +559,9 @@ const allowed = new Map([
     "/**\n * One whole-document write that keeps the caret where the reader was.\n *\n * A block toolbar rewrites the fence the block came from, which is a slice of the document the editor\n * owns — so the replacement goes through a CodeMirror transaction rather than the note store, stays a\n * single undo step, and leaves the selection and the search intact.\n */",
     "/** The toolbar modules ask the surface for the note text and one write path; here both are the editor. */",
     "/**\n * Draws the structure and mind-map faces of the note's JSON blocks.\n *\n * The live preview is a second surface with its own enhance pass, so it needs its own mount pass: the\n * React preview pane's hook cannot see this host, and without it a block that asks for a face gets an\n * empty one. The write path is the editor's own transaction, which is what keeps a rename one undo step\n * and leaves the caret where the reader left it.\n */",
+    "// The note has to be part of what the enhance pass carries: the block head and the view",
+    "// mount are two calls, and if they key the block's state differently the head can show a face",
+    "// that the mount pass then declines to draw.",
   ]],
   ["src/client/editor/outliner/adapter.ts", [
     "/**\n * A list written inside a fenced block, a display formula or the note's front matter is not a list the\n * outliner may rewrite: printing the tree back would overwrite the author's own text with the parser's\n * reading of it.\n */",
@@ -2157,6 +2160,9 @@ const allowed = new Map([
     "// of attributes it actually carries, is the same answer for a fraction of the walk.",
     "// The list is static, so a control removed here does not disturb the walk; its own descendants are",
     "// still visited, now detached, which costs nothing and changes nothing.",
+    "// The JSON block's faces: the tabs and head tools, the row buttons, the map's fold handle and its",
+    "// clickable nodes, and the filter box. A slide is turned by a click anywhere, so any of these",
+    "// surviving would both eat a page turn and do nothing when pressed.",
   ]],
   ["src/client/features/presentation/slide-list-render.test.ts", [
     "/**\n * What one turn of the page costs the deck's two list surfaces — the rail beside the projector and\n * the overview grid that roams the whole deck. Every card runs the same three hooks: is it near the\n * viewport, what markup does its slide hold, how is that page sliced. Counting those hooks counts\n * the cards that re-ran, and a turn or a measurement ought to move two of them, not the deck.\n */",
@@ -3191,6 +3197,7 @@ const allowed = new Map([
     "/**\n   * Which face a JSON block opens with, and how deep it arrives folded, when the fence does not say for\n   * itself. A surface with no account to read leaves them out and the block stays as source.\n   */",
     "/**\n   * Which face a JSON block opens with and how deep it arrives folded, for the fences that do not say. A\n   * surface with no account to read leaves them out, and the block stays as source until asked otherwise.\n   */",
     "/** Whether the JSON faces may write back into the note, and whether they read the loose shapes. */",
+    "/**\n   * Whose note the surface is drawing. A block's remembered face is keyed by note and line, so the\n   * pass that builds the head and the pass that fills it have to agree on this or the head shows a face\n   * the mount declines to draw.\n   */",
   ]],
   ["src/client/features/preview/card-content-chart.test.ts", [
     "/**\n * A note card renders a few lines of another note and deliberately draws neither diagrams nor charts,\n * but it only runs the enhancer at all when it spots something that needs it. A chart fence becomes a\n * `div.chart-block`, which is none of `pre code` / `[data-math]` / `[data-mermaid]`, so a note whose\n * only rich content is a chart skipped the pass and the card showed \"Rendering chart…\" forever — a\n * loading state nothing would ever resolve.\n */",
@@ -3280,6 +3287,9 @@ const allowed = new Map([
     "// zero as \"no value given\" and hands back the default instead.",
     "/**\n * Drops the memory of blocks that are no longer on screen.\n *\n * Called from the mount pass with the lines the note currently has, so closing a note or scrolling past a\n * block eventually releases the tree that was parsed for it.\n */",
     "/**\n * Re-applies the head after something other than a tab press changed the face — the map's double-click\n * handing a row to the tree is the one case. Without this the tabs keep saying \"Mind map\" while the body\n * underneath them is a tree.\n */",
+    "// Two rules, one pass: another note's block is never coming back on this surface, and this",
+    "// note's block that is no longer on screen has been deleted or moved out from under its line.",
+    "// Only checking the second one is what left the heap climbing across notes.",
   ]],
   ["src/client/features/preview/json-map-view.ts", [
     "/** A label this wide is cut with an ellipsis; the full text stays in the node's own tooltip. */",
@@ -3328,6 +3338,11 @@ const allowed = new Map([
     "// either. Asserted in json-tree-view.test.ts rather than trusted.",
     "/** How much of a value the filter reads. */",
   ]],
+  ["src/client/features/preview/json-view-loader.ts", [
+    "/**\n * The one place the JSON views' lazy module is held.\n *\n * The module is fetched on demand so a note full of JSON that is only ever read as text never downloads\n * a document model and a layout engine. But a promise resolves after paint, and the preview commits its\n * new markup — with an empty view host — before that resolution lands, so every commit showed the reader\n * an empty box for a frame. This module keeps the resolved value as well as the promise, so a caller\n * running inside a layout effect can paint synchronously once the chunk is warm.\n */",
+    "/** The resolved module, or null when it has not come in yet. */",
+    "/** The module, fetching it the first time anything asks. */",
+  ]],
   ["src/client/features/preview/json-view-mount.ts", [
     "/**\n * The lazy half of the JSON preview: the reader, the two faces, and every press that needs them.\n *\n * Nothing in this file is reachable from the start-up bundle — `json-block-toolbar.ts` fetches it the\n * first time a reader opens the structure or mind-map face of a block, which is the same arrangement the\n * mind map has with its drawing library. A note full of JSON that is only ever read as text pays nothing.\n */",
     "/** The host element a view is drawn into, and the block it belongs to. */",
@@ -3365,6 +3380,15 @@ const allowed = new Map([
     "// the right one; `fitted` is reset so the first frame of the big view is fitted to the big box.",
     "/**\n * The block currently occupying the window, if any.\n *\n * Full screen moves the block into a stage on `<body>`, so if the note is closed or the block is deleted\n * while it is open, nothing is left holding the stage and it stays on the page covering the app. Every\n * mount pass checks the recorded block is still attached and takes the stage back down if it is not.\n */",
     "/** Reaps an orphaned full screen stage. Returns whether one had to go. */",
+    "// The draw signature cannot see this: the body the block still shows is the text from",
+    "// before the write, so the guard would skip the one redraw that matters and the reader",
+    "// would watch the view they just edited go empty until the next commit came around.",
+    "// Put the editor away before anything asks for a redraw. The guard in `renderJsonTree` exists so a",
+    "// keystroke in the other pane cannot pull the caret out mid-word, and while this input still",
+    "// holds focus it correctly refuses every rebuild — including the one that would show the edit",
+    "// the reader just committed, which is what left the view blank for a frame.",
+    "// Read the stage while the block is still inside it: once the block is put back, `closest` from the",
+    "// block can no longer reach the wrapper and the empty stage would stay on the page covering the app.",
   ]],
   ["src/client/features/preview/json-view-security.test.ts", [
     "/**\n * An attempt, not an audit.\n *\n * The security notes in the review were \"reads correct\"; this file is what turns them into \"attacked\".\n * Every case is a string a note could hold that would break a renderer assuming text is only text, and\n * the assertion is always the same shape: nothing became an element, nothing became an attribute, and\n * what was written is what comes back out.\n */",
@@ -3817,6 +3841,9 @@ const allowed = new Map([
     "// the reader can still read; the reason belongs in the console, not in their note.",
     "// A block whose face was closed by the last commit has nothing left to draw, and the host keeps the",
     "// rows it built: dropping them here is what stops a stale tree being read back after a mode change.",
+    "// Once the chunk is warm this runs synchronously, inside the layout effect, so the host is",
+    "// filled before the browser paints. Awaiting a promise here is what showed an empty box for a",
+    "// frame after every edit.",
   ]],
   ["src/client/features/preview/use-kanban-blocks.ts", [
     "/**\n   * The fence bodies this markup was rendered from (P-01), registered on the host before mount. Also a\n   * mount trigger: a body-only edit leaves the markup string identical.\n   *\n   * Null until the pane has committed markup for the first time. Mounting before that reads an empty\n   * fence set, and the root takes its data into `useState` — a later pass carrying the real body cannot\n   * reach that state, so the board would go on showing the empty one it parsed first.\n   */",
@@ -10623,6 +10650,7 @@ const allowed = new Map([
     "/* The map measures labels from this element's computed font, so the nodes inherit from here rather than\n   carrying the size themselves; a mismatch is what made every label ellipsize. */",
     "/* The hover wash names a range, it does not flag it: the accent tint reads as an error on the cinnabar\n   theme, where the accent is a red. */",
     "/* The range a hover names is the innermost container under the pointer. Without the `:has()` clause a\n   hover on a leaf satisfies `:hover` on every ancestor too, so the root's wash covers the whole document\n   and \"highlight the range\" becomes \"highlight everything\". */",
+    "/* The stage carries `.ink-prose` so the block keeps its scoped styling when it is moved to <body>, and\n   the prose column's own measure comes with it. Full screen means the window, not the reading width. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
@@ -11691,6 +11719,11 @@ const allowed = new Map([
     "// a checkbox the stage bails on, and a truncation switch that would hide half a code block behind a",
     "// dead expander. They are asserted against the real renderer rather than hand-written markup, so a",
     "// change to how either block is emitted turns this red instead of quietly turning the slide wrong.",
+    "// The JSON block and the two views inside it. Neither is a control: the block is the",
+    "// container a press is resolved from, the host is the empty area the view is drawn into, and a row",
+    "// and a branch are the content the tree is made of. Stripping them would take the note text with them.",
+    "// The wrapper a full-screen map is moved into. It is found by walking up from the block,",
+    "// never pressed, and removing it would take the block with it.",
   ]],
   ["tests/tag-count-live-sync.test.ts", [
     "// `since <= 0` makes the route answer with a full snapshot, which always carries full facets.",

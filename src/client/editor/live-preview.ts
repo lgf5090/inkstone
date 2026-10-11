@@ -16,6 +16,7 @@ import { useUi } from '../store/ui';
 import { selectMarkdownTab, moveMarkdownTabFocus } from '../features/preview/markdown-tabs';
 import { enhanceBlockToolbars, handleBlockToolbarClick } from '../features/preview/block-actions';
 import { jsonBlockState } from '../features/preview/json-block-toolbar';
+import { jsonViews, jsonViewsSync } from '../features/preview/json-view-loader';
 import type { BlockActionContext } from '../features/preview/block-overlay';
 import { attachMediaLayoutHost } from '../features/preview/media-layout-drag';
 import type { MediaSurface } from '../features/preview/media-layout-drag';
@@ -264,6 +265,10 @@ function blockToolbarOptions() {
             tabSize: session.editor.tabSize,
             keywordCase: session.editor.codeFormatKeywordCase,
         },
+        // The note has to be part of what the enhance pass carries: the block head and the view
+        // mount are two calls, and if they key the block's state differently the head can show a face
+        // that the mount pass then declines to draw.
+        sourceNoteId: useUi.getState().activeNoteId,
         tabScope: { noteId: useUi.getState().activeNoteId, userId: useSession.getState().user?.id ?? null },
         jsonView: session.preview.jsonView,
         jsonFold: session.preview.jsonFold,
@@ -305,7 +310,12 @@ function mountJsonViews(host: HTMLElement, view: EditorView): void {
         .filter(block => jsonBlockState(block, { view: 'source', fold: 2 }, useUi.getState().activeNoteId).mode !== 'source');
     if (open.length === 0)
         return;
-    void import('../features/preview/json-view-mount')
+    const warm = jsonViewsSync();
+    if (warm) {
+        warm.mountJsonBlocks(open, blockActionContext(view));
+        return;
+    }
+    void jsonViews()
         .then(module => module.mountJsonBlocks(open, blockActionContext(view)))
         .catch((error: unknown) => {
             console.warn('[inkstone] JSON view mount failed', error);

@@ -149,6 +149,12 @@ export interface BlockToolbarOptions {
   jsonFold?: number
   jsonEditable?: boolean
   jsonTolerant?: boolean
+  /**
+   * Whose note the surface is drawing. A block's remembered face is keyed by note and line, so the
+   * pass that builds the head and the pass that fills it have to agree on this or the head shows a face
+   * the mount declines to draw.
+   */
+  sourceNoteId?: string | null
 }
 
 export interface BlockToolbarModule {

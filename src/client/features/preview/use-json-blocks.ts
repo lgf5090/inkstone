@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import type { BlockActionContext } from './block-overlay';
 import { JSON_BLOCK_SELECTOR, jsonBlockState } from './json-block-toolbar';
+import { jsonViews, jsonViewsSync } from './json-view-loader';
 
 interface UseJsonBlocksOptions {
     hostRef: RefObject<HTMLDivElement | null>
@@ -29,7 +30,15 @@ export function useJsonBlocks({ hostRef, epoch, context }: UseJsonBlocksOptions)
         const open = blocks.filter((block) => jsonBlockState(block, { view: 'source', fold: 2 }, noteId).mode !== 'source');
         if (open.length === 0)
             return;
-        void import('./json-view-mount')
+        // Once the chunk is warm this runs synchronously, inside the layout effect, so the host is
+        // filled before the browser paints. Awaiting a promise here is what showed an empty box for a
+        // frame after every edit.
+        const warm = jsonViewsSync();
+        if (warm) {
+            warm.mountJsonBlocks(open, context());
+            return;
+        }
+        void jsonViews()
             .then(module => module.mountJsonBlocks(open, context()))
             .catch((error: unknown) => {
                 // A block that could not be drawn keeps its source view standing, which is the state

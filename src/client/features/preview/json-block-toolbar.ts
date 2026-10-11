@@ -11,6 +11,7 @@
  * with it rather than silently swapping two readers' fold states.
  */
 import type { JsonMapView } from './json-map-view';
+import { jsonViews, jsonViewsSync } from './json-view-loader';
 import { t, type MessageKey } from '../../lib/i18n';
 import { escapeAttr, escapeHtml } from '../../lib/markdown/renderer';
 import { jsonViewName, type JsonViewName } from '../../lib/markdown/code-options';
@@ -124,7 +125,10 @@ export function pruneJsonBlockStates(noteId: string | null, lines: Iterable<stri
     const prefix = `${noteId ?? '-'}:`;
     const alive = new Set([...lines].map(line => `${prefix}${line}`));
     for (const key of [...states.keys()]) {
-        if (key.startsWith(prefix) && !alive.has(key))
+        // Two rules, one pass: another note's block is never coming back on this surface, and this
+        // note's block that is no longer on screen has been deleted or moved out from under its line.
+        // Only checking the second one is what left the heap climbing across notes.
+        if (!key.startsWith(prefix) || !alive.has(key))
             states.delete(key);
     }
 }
@@ -246,10 +250,15 @@ function setMode(block: HTMLElement, mode: JsonViewName, ctx: BlockActionContext
     mount(block, ctx);
     // The commit pass only runs when the note changes, and opening a face is not a change to it, so the
     // first draw of a freshly chosen face has to be asked for here.
-    if (mode === 'source')
+    if (mode === 'source') {
         block.querySelector<HTMLElement>(':scope > [data-json-host]')?.replaceChildren();
+        return;
+    }
+    const warm = jsonViewsSync();
+    if (warm)
+        warm.mountJsonBlocks([block], ctx);
     else
-        void import('./json-view-mount').then(module => module.mountJsonBlocks([block], ctx));
+        void jsonViews().then(module => module.mountJsonBlocks([block], ctx));
 }
 
 export const jsonBlockToolbar: BlockToolbarModule = {
@@ -277,14 +286,14 @@ export const jsonBlockToolbar: BlockToolbarModule = {
                 block.querySelector<HTMLInputElement>('[data-json-filter-input]')?.focus();
                 return true;
             }
-            void import('./json-view-mount').then(module => module.runJsonBlockTool(action, block, ctx));
+            void jsonViews().then(module => module.runJsonBlockTool(action, block, ctx));
             return true;
         }
         if (target.closest('[data-json-filter-input]'))
             return true;
         if (target.closest('.json-view, .jt-row, .jm-node, [data-jt], [data-jm]')) {
             event.preventDefault();
-            void import('./json-view-mount').then(module => module.routeJsonViewPress(target, block, ctx));
+            void jsonViews().then(module => module.routeJsonViewPress(target, block, ctx));
             return true;
         }
         return Boolean(target.closest('[data-json-host]'));

@@ -64,6 +64,17 @@ const CONTENT_OR_CONTAINER = new Set([
   'data-tabs',
   'data-tag',
   'data-wikilink',
+  // The JSON block and the two views inside it. Neither is a control: the block is the
+  // container a press is resolved from, the host is the empty area the view is drawn into, and a row
+  // and a branch are the content the tree is made of. Stripping them would take the note text with them.
+  'data-json-block',
+  'data-json-host',
+  'data-jt-node',
+  'data-jt-children',
+  'data-path',
+  // The wrapper a full-screen map is moved into. It is found by walking up from the block,
+  // never pressed, and removing it would take the block with it.
+  'data-json-fullscreen-stage',
 ])
 
 function anyRoutes(files: string[]): Set<string> {

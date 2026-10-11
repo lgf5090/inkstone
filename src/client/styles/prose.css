@@ -3464,3 +3464,9 @@
   z-index: var(--z-modal);
   background: var(--bg-base);
 }
+/* The stage carries `.ink-prose` so the block keeps its scoped styling when it is moved to <body>, and
+   the prose column's own measure comes with it. Full screen means the window, not the reading width. */
+.json-fs-stage {
+  width: 100%;
+  max-width: none;
+}

@@ -121,6 +121,10 @@ function controlFor(block: HTMLElement, ctx: BlockActionContext, state: JsonBloc
             if (!wrote)
                 return false;
             rememberFoldExceptions(state);
+            // The draw signature cannot see this: the body the block still shows is the text from
+            // before the write, so the guard would skip the one redraw that matters and the reader
+            // would watch the view they just edited go empty until the next commit came around.
+            state.rendered = '';
             // Draw the result here rather than waiting for the commit to come back around: the note write
             // lands on the next React pass, and without this the reader watches the view they just edited
             // go empty for a frame first. Measured as `0 1202 1202 …` in the row timeline.
@@ -545,6 +549,12 @@ function startInlineEdit(
             return;
         settled = true;
         const text = input.value;
+        // Put the editor away before anything asks for a redraw. The guard in `renderJsonTree` exists so a
+        // keystroke in the other pane cannot pull the caret out mid-word, and while this input still
+        // holds focus it correctly refuses every rebuild — including the one that would show the edit
+        // the reader just committed, which is what left the view blank for a frame.
+        input.blur();
+        input.remove();
         if (!commit || text === before) {
             // Nothing changed, so the only thing to undo is the editor itself. Re-rendering from the
             // model puts the span back exactly as it was, including the truncation a long value shows.
@@ -663,10 +673,13 @@ function leaveJsonFullscreen(block: HTMLElement): void {
         return;
     block.classList.remove('is-json-fullscreen');
     block.querySelector('[data-json-fullscreen-bar]')?.remove();
+    // Read the stage while the block is still inside it: once the block is put back, `closest` from the
+    // block can no longer reach the wrapper and the empty stage would stay on the page covering the app.
+    const stage = block.closest<HTMLElement>('[data-json-fullscreen-stage]');
     const slot = (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
     slot?.parentNode?.insertBefore(block, slot);
     slot?.remove();
-    block.closest<HTMLElement>('[data-json-fullscreen-stage]')?.remove();
+    stage?.remove();
     delete (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
     if (openStage?.block === block)
         openStage = null;

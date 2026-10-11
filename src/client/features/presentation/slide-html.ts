@@ -354,6 +354,14 @@ export const SLIDE_CONTROL_SELECTORS = [
   '[data-tabs-action]',
   '[data-media-action]',
   '[data-media-handle]',
+  // The JSON block's faces: the tabs and head tools, the row buttons, the map's fold handle and its
+  // clickable nodes, and the filter box. A slide is turned by a click anywhere, so any of these
+  // surviving would both eat a page turn and do nothing when pressed.
+  '[data-jv]',
+  '[data-jt]',
+  '[data-jm]',
+  '[data-jm-path]',
+  '[data-json-filter-input]',
 ]
 
 /**
