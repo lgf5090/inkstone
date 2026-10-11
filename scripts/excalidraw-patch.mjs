@@ -58,20 +58,28 @@ export const EXCALIDRAW_PATCHES = [
     id: 'unmount-releases-fields',
     target: 'this.interactiveCanvas=null,this.iFrameRefs.clear(),this.iFrameRefs=null,this.embedsValidationStatus.clear(),this.embedsValidationStatus=null,this.initializedEmbeds.clear(),this.initializedEmbeds=null,this.elementsPendingErasure.clear(),this.elementsPendingErasure=null,this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history.clear(),this.store.clear(),this.store=null,this.library=null,this.canvas=null,this.rc=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}',
     // The upstream teardown nulls every field, and the mount guard above re-creates each one, so the
-    // nulls stay. Two additions: the canvas backing store is zeroed before it is dropped (a detached
-    // 4096x4096 surface keeps its pixels alive until the element itself is unreachable), and every
-    // `?.` is there because a StrictMode double-mount can reach this before those fields exist.
-    replacement: 'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history?.clear?.(),this.store?.clear?.(),this.canvas&&(this.canvas.width=0,this.canvas.height=0),this.store=null,this.library=null,this.canvas=null,this.rc=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}',
-    // An earlier revision of this table dropped the nulls to survive StrictMode; a bundle carrying
-    // that shape is migrated rather than reported as unmatched.
+    // nulls stay - except for `canvas` and `rc`. Those two belong to React: the element is the one the
+    // engine renders, so a StrictMode remount that re-creates them paints into an orphan and leaves the
+    // visible canvas blank (measured: static canvas 1600x1000 with zero painted pixels while the scene
+    // held two shapes; with the two nulls removed it is 1142x956 with 24958). Zeroing the backing store
+    // had the same failure, so it is gone too; the instance still drops everything else.
+    replacement: 'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history?.clear?.(),this.store?.clear?.(),this.store=null,this.library=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}',
+    // Earlier revisions of this table dropped the nulls to survive StrictMode, and the one before the
+    // canvas fix also nulled (and zeroed) `canvas`/`rc`; a bundle carrying either shape is migrated.
     superseded: [
       'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.history?.clear?.(),this.store?.clear?.()',
+      'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history?.clear?.(),this.store?.clear?.(),this.canvas&&(this.canvas.width=0,this.canvas.height=0),this.store=null,this.library=null,this.canvas=null,this.rc=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}',
     ],
   },
   {
     id: 'mount-recreates-fields',
     target: 'async componentDidMount(){this.unmounted=!1,this.api=this.createExcalidrawAPI(),',
-    replacement: 'async componentDidMount(){if(!this.library)this.library=new DcA(this);if(!this.store)this.store=new Fk(this);if(!this.history)this.history=new gD(this.store);if(!this.elementsPendingErasure)this.elementsPendingErasure=new Set();if(!this.iFrameRefs)this.iFrameRefs=new Map();if(!this.embedsValidationStatus)this.embedsValidationStatus=new Map();if(!this.initializedEmbeds)this.initializedEmbeds=new Set();if(!this.canvas){this.canvas=this.ownerDocument.createElement("canvas");this.rc=xg.canvas(this.canvas);}if(this.actionManager)this.actionManager.app=this;this.unmounted=!1,this.api=this.createExcalidrawAPI(),',
+    replacement: 'async componentDidMount(){if(!this.library)this.library=new DcA(this);if(!this.store)this.store=new Fk(this);if(!this.history)this.history=new gD(this.store);if(!this.elementsPendingErasure)this.elementsPendingErasure=new Set();if(!this.iFrameRefs)this.iFrameRefs=new Map();if(!this.embedsValidationStatus)this.embedsValidationStatus=new Map();if(!this.initializedEmbeds)this.initializedEmbeds=new Set();if(this.actionManager)this.actionManager.app=this;this.unmounted=!1,this.api=this.createExcalidrawAPI(),',
+    // `canvas`/`rc` are deliberately absent: React owns that element, and a fresh one here is not the
+    // one on screen. See the note on `unmount-releases-fields`.
+    superseded: [
+      'async componentDidMount(){if(!this.library)this.library=new DcA(this);if(!this.store)this.store=new Fk(this);if(!this.history)this.history=new gD(this.store);if(!this.elementsPendingErasure)this.elementsPendingErasure=new Set();if(!this.iFrameRefs)this.iFrameRefs=new Map();if(!this.embedsValidationStatus)this.embedsValidationStatus=new Map();if(!this.initializedEmbeds)this.initializedEmbeds=new Set();if(!this.canvas){this.canvas=this.ownerDocument.createElement("canvas");this.rc=xg.canvas(this.canvas);}if(this.actionManager)this.actionManager.app=this;this.unmounted=!1,this.api=this.createExcalidrawAPI(),',
+    ],
   },
   {
     id: 'update-library-optional',

@@ -51,11 +51,15 @@ const allowed = new Map([
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
     "// The upstream teardown nulls every field, and the mount guard above re-creates each one, so the",
-    "// nulls stay. Two additions: the canvas backing store is zeroed before it is dropped (a detached",
-    "// 4096x4096 surface keeps its pixels alive until the element itself is unreachable), and every",
-    "// `?.` is there because a StrictMode double-mount can reach this before those fields exist.",
-    "// An earlier revision of this table dropped the nulls to survive StrictMode; a bundle carrying",
-    "// that shape is migrated rather than reported as unmatched.",
+    "// nulls stay - except for `canvas` and `rc`. Those two belong to React: the element is the one the",
+    "// engine renders, so a StrictMode remount that re-creates them paints into an orphan and leaves the",
+    "// visible canvas blank (measured: static canvas 1600x1000 with zero painted pixels while the scene",
+    "// held two shapes; with the two nulls removed it is 1142x956 with 24958). Zeroing the backing store",
+    "// had the same failure, so it is gone too; the instance still drops everything else.",
+    "// Earlier revisions of this table dropped the nulls to survive StrictMode, and the one before the",
+    "// canvas fix also nulled (and zeroed) `canvas`/`rc`; a bundle carrying either shape is migrated.",
+    "// `canvas`/`rc` are deliberately absent: React owns that element, and a fresh one here is not the",
+    "// one on screen. See the note on `unmount-releases-fields`.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -11230,6 +11234,10 @@ const allowed = new Map([
     "// the canvas. A flag keyed on it loses that touch and stays shut for the life of the canvas, which",
     "// reads to the user as \"drawing does not save at all\" - and no unit test can see it, because the",
     "// tests never run the engine.",
+  ]],
+  ["tests/excalidraw-round-trips.test.ts", [
+    "// Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element",
+    "// on screen is React's, so the teardown must not touch it and the mount must not replace it.",
   ]],
   ["tests/export-hardening.test.ts", [
     "// Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so",

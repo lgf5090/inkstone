@@ -62,11 +62,17 @@ describe('the engine patch table migrates rather than misreports', () => {
     expect(current.applied).toEqual([])
   })
 
-  it('releases the canvas backing store on unmount', () => {
+  it('releases the engine state but leaves the canvas React owns alone', () => {
     const entry = EXCALIDRAW_PATCHES.find((p) => p.id === 'unmount-releases-fields')
-    expect(entry.replacement).toContain('this.canvas&&(this.canvas.width=0,this.canvas.height=0)')
-    expect(entry.replacement).toContain('this.store=null,this.library=null,this.canvas=null,this.rc=null')
+    const mount = EXCALIDRAW_PATCHES.find((p) => p.id === 'mount-recreates-fields')
+    expect(entry.replacement).toContain('this.store=null,this.library=null')
     expect(entry.replacement).toContain('this.excalidrawContainerRef.current=void 0')
+    // Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element
+    // on screen is React's, so the teardown must not touch it and the mount must not replace it.
+    expect(entry.replacement).not.toContain('this.canvas=null')
+    expect(entry.replacement).not.toContain('this.rc=null')
+    expect(entry.replacement).not.toContain('this.canvas.width=0')
+    expect(mount.replacement).not.toContain('createElement("canvas")')
   })
 })
 
