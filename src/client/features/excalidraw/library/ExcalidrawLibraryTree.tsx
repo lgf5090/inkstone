@@ -849,31 +849,41 @@ export const ExcalidrawLibraryPortal: React.FC<{
   api: any
   lib?: any
   hostRef?: React.RefObject<HTMLDivElement | null>
-}> = ({ api, lib, hostRef }) => {
+  /**
+   * Whether the engine's library sidebar is open, which the surface already learns from the engine's
+   * own onChange. Watching the canvas subtree for the slot instead meant a querySelector on every DOM
+   * change the engine makes mid-drag, and the observer never disconnected while the sidebar was closed
+   * because the slot it was looking for never existed.
+   */
+  open: boolean
+}> = ({ api, lib, hostRef, open }) => {
   const [container, setContainer] = useState<Element | null>(null)
 
   useEffect(() => {
-    const findContainer = () => {
-      const root = hostRef?.current || document
+    if (!open) {
+      setContainer(null)
+      return
+    }
+    let cancelled = false
+    let left = 40
+    const locate = () => {
+      if (cancelled) return
+      const root = hostRef?.current ?? document
       const target = root.querySelector('.layer-ui__library')
-      if (target && target !== container) {
+      if (target) {
         setContainer(target)
-      } else if (!target && container) {
-        setContainer(null)
+        return
       }
+      if (--left <= 0) return
+      window.setTimeout(locate, 50)
     }
-
-    findContainer()
-    const targetNode = hostRef?.current || document.body
-    const observer = new MutationObserver(findContainer)
-    observer.observe(targetNode, { childList: true, subtree: true })
-
+    locate()
     return () => {
-      observer.disconnect()
+      cancelled = true
     }
-  }, [hostRef, container])
+  }, [open, hostRef])
 
-  if (!container) return null
+  if (!open || !container || !container.isConnected) return null
 
   return createPortal(
     <div data-ink-library-tree="true" className="h-full w-full flex flex-col overflow-hidden">

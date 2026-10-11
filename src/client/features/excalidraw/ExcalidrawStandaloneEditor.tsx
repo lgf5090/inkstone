@@ -43,6 +43,7 @@ import {
 } from './excalidraw-canvas-actions';
 import { applySceneElements, restoreSceneElements } from '../../lib/markdown/excalidraw/loader';
 import { TextToDiagramModal } from './TextToDiagramModal';
+import { reparentMainMenuIntoFooter } from './chrome';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { extractCodeBlock, streamChatCompletion, type AIMessage } from '../../lib/ai';
 
@@ -389,37 +390,9 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, []);
 
     useEffect(() => {
-        if (!canvasHostRef.current || viewMode !== 'canvas') return;
         const host = canvasHostRef.current;
-        let observer: MutationObserver | null = null;
-
-        const reparentMenu = () => {
-            const trigger =
-                host.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
-                host.querySelector<HTMLElement>('.main-menu-trigger') ||
-                host.querySelector<HTMLElement>('.excalidraw-ui-top-left');
-            const undoRedo = host.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left .undo-redo-buttons');
-            const footerSection = host.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left section');
-
-            if (trigger) {
-                if (undoRedo && !undoRedo.contains(trigger)) {
-                    undoRedo.prepend(trigger);
-                } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
-                    footerSection.prepend(trigger);
-                }
-                if ((undoRedo && undoRedo.contains(trigger)) || (footerSection && footerSection.contains(trigger))) {
-                    observer?.disconnect();
-                }
-            }
-        };
-
-        reparentMenu();
-        observer = new MutationObserver(reparentMenu);
-        observer.observe(host, { childList: true, subtree: true });
-
-        return () => {
-            observer?.disconnect();
-        };
+        if (!host || viewMode !== 'canvas') return;
+        return reparentMainMenuIntoFooter(host);
     }, [viewMode, lib]);
 
 
@@ -652,7 +625,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                     generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
                                 />
                             )}
-                            <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={canvasHostRef} />
+                            <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={canvasHostRef} open={libraryOpen} />
                             <lib.MainMenu>
                                 <lib.MainMenu.Item
                                     onSelect={() => {

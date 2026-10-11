@@ -23,6 +23,7 @@ import {
     zoomToFitScene,
 } from '../../../features/excalidraw/excalidraw-canvas-actions';
 import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
+import { reparentMainMenuIntoFooter } from '../../../features/excalidraw/chrome';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
 import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
@@ -386,33 +387,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 };
             }, [theme]);
 
-            React.useEffect(() => {
-                let observer: MutationObserver | null = null;
-                const reparentMenu = () => {
-                    const trigger =
-                        canvasHost.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
-                        canvasHost.querySelector<HTMLElement>('.main-menu-trigger') ||
-                        canvasHost.querySelector<HTMLElement>('.excalidraw-ui-top-left');
-                    const undoRedo = canvasHost.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left .undo-redo-buttons');
-                    const footerSection = canvasHost.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left section');
-
-                    if (trigger) {
-                        if (undoRedo && !undoRedo.contains(trigger)) {
-                            undoRedo.prepend(trigger);
-                        } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
-                            footerSection.prepend(trigger);
-                        }
-                        if ((undoRedo && undoRedo.contains(trigger)) || (footerSection && footerSection.contains(trigger))) {
-                            observer?.disconnect();
-                        }
-                    }
-                };
-
-                reparentMenu();
-                observer = new MutationObserver(reparentMenu);
-                observer.observe(canvasHost, { childList: true, subtree: true });
-                return () => observer?.disconnect();
-            }, []);
+            React.useEffect(() => reparentMainMenuIntoFooter(canvasHost), []);
 
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
                 lastElements = elements as any[];
@@ -489,7 +464,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         }}
                     >
                         {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
-                        <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={{ current: canvasHost }} />
+                        <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={{ current: canvasHost }} open={libraryOpen} />
                         <MainMenu>
                             <MainMenu.DefaultItems.ChangeCanvasBackground />
                             <MainMenu.Item
