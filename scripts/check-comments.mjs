@@ -4037,9 +4037,12 @@ const allowed = new Map([
   ["src/client/features/sidebar/navigation.test.ts", [
     "// No layout in jsdom, but the class is the whole story here: the strip already",
     "// separates the body, so the section must not add its own top margin.",
-    "// Six controls: the five the row measured out plus the mind map file button beside the",
-    "// drawing one. The heading text is gone — the selected tab icon above already says what",
-    "// this panel is — so the controls own the line and centre in it.",
+    "// The row is named control by control rather than counted: there is no ceiling on how",
+    "// many may sit here, so an addition is a deliberate edit to this list rather than a",
+    "// number to bump. What is *not* negotiable is that the line stays quiet — no printed",
+    "// heading (the selected tab icon above already says what this panel is), the controls",
+    "// own the row and centre in it, and anything that has no room left goes into the",
+    "// common.more_actions menu rather than widening the row.",
   ]],
   ["src/client/features/sidebar/sidebar-calendar.test.ts", [
     "// Collapsing the block hides the heatmap but used to leave the whole-vault",

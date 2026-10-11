@@ -755,15 +755,26 @@ describe('folder row menu', () => {
         expect([...scope.querySelectorAll('button')].map((element) => element.textContent?.replace(/✓$/, '').trim())).toContain(t('folders.manage_folders'));
     });
 
-    it('keeps the section header to its six controls and no printed heading', async () => {
+    it('names the section header controls and prints no heading', async () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
         const header = document.querySelector<HTMLElement>('#sidebar-folders > div')!;
-        // Six controls: the five the row measured out plus the mind map file button beside the
-        // drawing one. The heading text is gone — the selected tab icon above already says what
-        // this panel is — so the controls own the line and centre in it.
-        expect(header.querySelectorAll('button')).toHaveLength(7);
+        // The row is named control by control rather than counted: there is no ceiling on how
+        // many may sit here, so an addition is a deliberate edit to this list rather than a
+        // number to bump. What is *not* negotiable is that the line stays quiet — no printed
+        // heading (the selected tab icon above already says what this panel is), the controls
+        // own the row and centre in it, and anything that has no room left goes into the
+        // common.more_actions menu rather than widening the row.
+        expect([...header.querySelectorAll('button')].map((button) => button.getAttribute('aria-label'))).toEqual([
+            t('templates.new_note_from_template'),
+            t('templates.new_note_from_favorites'),
+            t('common.new_note'),
+            t('common.new_drawing'),
+            t('common.new_mindmap'),
+            t('common.new_folder'),
+            t('common.more_actions'),
+        ]);
         expect(header.textContent).toBe('');
         // No layout in jsdom, but the class is the whole story here: the strip already
         // separates the body, so the section must not add its own top margin.
