@@ -4940,6 +4940,7 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.library_import_skipped": "已导入 {imported} 个素材，跳过 {skipped} 个（丢弃 {dropped} 个不安全元素）",
     "excalidraw.new_folder": "新建文件夹",
     "excalidraw.expand_or_collapse_folder": "展开或收起这个文件夹",
+    "excalidraw.fullscreen_unavailable": "这个浏览器或界面不支持全屏",
     "excalidraw.rename_folder": "重命名文件夹",
     "excalidraw.new_subfolder": "新建子文件夹",
     "excalidraw.add_selected_to_library": "添加选中元素到素材库",

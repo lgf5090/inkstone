@@ -45,6 +45,7 @@ import {
 import { applySceneElements, restoreSceneElements } from '../../lib/markdown/excalidraw/loader';
 import { TextToDiagramModal } from './TextToDiagramModal';
 import { reparentMainMenuIntoFooter } from './chrome';
+import { toggleElementFullscreen } from './fullscreen';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { extractCodeBlock, streamChatCompletion, type AIMessage } from '../../lib/ai';
 
@@ -429,13 +430,15 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         };
     }, [api]);
 
-    const handleToggleFullscreen = () => {
-        if (!containerRef.current) return;
-        if (!document.fullscreenElement) {
-            void containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
-        } else {
-            void document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    const handleToggleFullscreen = async () => {
+        // A rejected request used to vanish into an empty catch: the button did nothing at all and the
+        // reader had no way to learn the surface cannot go fullscreen here.
+        const outcome = await toggleElementFullscreen(containerRef.current);
+        if (outcome === 'unsupported' || outcome === 'denied') {
+            toast({ title: t('excalidraw.fullscreen_unavailable'), tone: 'warning' });
+            return;
         }
+        setIsFullscreen(outcome === 'entered');
     };
 
     // The engine component is memoised on children identity, so this element is built only when something

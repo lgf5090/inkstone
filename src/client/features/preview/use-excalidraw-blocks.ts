@@ -6,6 +6,7 @@ import {
     type ExcalidrawBlockEntry,
 } from '../../lib/markdown/excalidraw';
 import { createExcalidrawWriter } from './excalidraw-sync';
+import { lockBodyScroll } from '../excalidraw/fullscreen';
 
 interface UseExcalidrawBlocksOptions {
     scope: string;
@@ -46,6 +47,12 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
         const host = hostRef.current;
         if (!host) return;
 
+        let releaseScrollLock: (() => void) | null = null;
+        const applyScrollLock = (locked: boolean) => {
+            releaseScrollLock?.();
+            releaseScrollLock = locked ? lockBodyScroll() : null;
+        };
+
         const handleFullscreen = (e: Event) => {
             const customEvent = e as CustomEvent<{ entry: ExcalidrawBlockEntry }>;
             const entry = customEvent.detail?.entry;
@@ -61,11 +68,7 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
                     : t('preview.excalidraw_fullscreen') || 'Fullscreen';
             }
 
-            if (isFull) {
-                document.body.style.overflow = 'hidden';
-            } else {
-                document.body.style.overflow = '';
-            }
+            applyScrollLock(isFull);
 
             block.dispatchEvent(new CustomEvent('excalidraw-fullscreen-change', { detail: { isFullscreen: isFull } }));
 
@@ -79,7 +82,7 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
                 const fullscreenBlock = host.querySelector<HTMLElement>('.excalidraw-block.excalidraw-fullscreen');
                 if (fullscreenBlock) {
                     fullscreenBlock.classList.remove('excalidraw-fullscreen');
-                    document.body.style.overflow = '';
+                    applyScrollLock(false);
                     const fullBtn = fullscreenBlock.querySelector<HTMLButtonElement>('[data-excalidraw-fullscreen]');
                     if (fullBtn) {
                         fullBtn.title = t('preview.excalidraw_fullscreen') || 'Fullscreen';
@@ -95,7 +98,7 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
         return () => {
             host.removeEventListener('excalidraw-fullscreen', handleFullscreen);
             window.removeEventListener('keydown', handleKeyDown);
-            document.body.style.overflow = '';
+            applyScrollLock(false);
         };
     }, [hostRef]);
 }

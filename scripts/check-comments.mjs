@@ -718,6 +718,8 @@ const allowed = new Map([
     "// The engine component is memoised on children identity, so this element is built only when something",
     "// the canvas actually reads changes. Without it, every keystroke in the JSON view - and every autosave",
     "// tick that moves rawCode or isSaved - re-renders the whole engine UI while it is display:none.",
+    "// A rejected request used to vanish into an empty catch: the button did nothing at all and the",
+    "// reader had no way to learn the surface cannot go fullscreen here.",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
