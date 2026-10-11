@@ -65,7 +65,7 @@ describe('sidebar tab strip', () => {
         await act(async () => tabs().find((tab) => tab.dataset.tab === 'tags')?.click());
         const section = panel().querySelector('section')!;
         expect(section.className).not.toContain('mt-');
-        const head = section.querySelector(':scope > div')!;
+        const head = section.querySelector('[data-tag-head]')!;
         // No printed heading, the controls own the line, and they are centred in it — the same three
         // rules the folder tab follows, read off the classes because jsdom lays nothing out.
         expect(head.textContent).toBe('');
@@ -686,5 +686,42 @@ describe('clearing the recent trail', () => {
         expect(container.textContent).toContain(t('sidebar.recent_empty'));
         expect(useNotes.getState().notes.a).toBeTruthy();
         expect(useUi.getState().activeNoteId).toBe('a');
+    });
+});
+
+/**
+ * The pinned chrome is a CSS-only behaviour, so jsdom cannot see it working. What it
+ * can see — and what this holds in place — is that every panel that has a toolbar or a
+ * filter box marks exactly one element as the pinned block, that the block comes before
+ * the list it controls rather than somewhere inside it, and that the rule which makes it
+ * stick is still there with the offset that rule depends on.
+ */
+describe('pinned panel chrome', () => {
+    const chromeTabs = ['library', 'tags', 'recent'] as const;
+
+    // A panel with nothing in it renders no list at all, so the ordering claim needs a
+    // populated tree to be ordered against.
+    beforeEach(() => {
+        const note = summary('chrome-note', 'Chrome note');
+        useNotes.setState({ notes: { 'chrome-note': note }, contents: { 'chrome-note': 'body' } });
+        useUi.setState({ activeNoteId: 'chrome-note', recentNoteIds: ['chrome-note'] });
+    });
+
+    it.each(chromeTabs)('the %s tab pins its toolbar ahead of its list', async (tab) => {
+        await act(async () => useUi.getState().setSidebarTab(tab));
+        const panel = container.querySelector(`#${SIDEBAR_PANEL_ID}`)!;
+        const chrome = panel.querySelectorAll('.sidebar-chrome');
+        expect(chrome).toHaveLength(1);
+        const list = panel.querySelector('[role="tree"], [role="list"], [data-recent-list]');
+        expect(list).not.toBeNull();
+        // Document order is the whole claim: a pinned block that sits after the list
+        // would pin over nothing and let the toolbar scroll away.
+        expect(chrome[0]!.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it.each(chromeTabs)('the %s chrome is opaque, so the list scrolls under it rather than through it', async (tab) => {
+        await act(async () => useUi.getState().setSidebarTab(tab));
+        const chrome = container.querySelector(`#${SIDEBAR_PANEL_ID} .sidebar-chrome`)!;
+        expect(chrome.className).toContain('bg-[var(--bg-sunken)]');
     });
 });

@@ -22,6 +22,21 @@ export {
 } from './body';
 export { loadMindmapVendor } from './loader';
 export {
+    createDefaultMindmapDocument,
+    isMindmapDocumentTitle,
+    isMindmapDocumentBody,
+    MINDMAP_FILE_EXTENSION,
+    mindmapDocumentAsFence,
+    mindmapNodeId,
+    mindmapNodeTopic,
+    readMindmapDocumentFields,
+    writeMindmapDocumentFields,
+    type MindmapDocumentDirection,
+    type MindmapDocumentFields,
+    type MindmapDocumentFieldWrite,
+    type MindmapDocumentPalette,
+} from './document';
+export {
     MINDMAP_BODY_LIMIT_BYTES,
     MINDMAP_NODE_LIMIT,
     MindmapBodyTooLargeError,
@@ -49,6 +64,7 @@ export {
     type MindmapThemeMenuState,
 } from './registry';
 export { applyEntryBody, flushEntry, serializeEntry, serializeEntryAs } from './write';
+export { relayoutMindmap, watchMindmapBox, watchMindmapContainer, type MindmapResizeTarget } from './resize';
 export { openMindmapSession, type MindmapSession } from './session';
 export { markdownToMindmapOutline, mindmapOutlineToMarkdown } from './outline';
 export { parseMindmapNodeLink, splitMindmapTopicLinks, type MindmapTopicSegment } from './links';
@@ -69,6 +85,7 @@ export {
     createMindmapCanvas,
     decorateMindmapControls,
     disarmNativeFullscreen,
+    hasLayoutBox,
     isMindmapWritableHere,
     markMindmapLoading,
     markMindmapReady,

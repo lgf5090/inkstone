@@ -35,6 +35,25 @@ export interface MindmapHandle {
     applyTheme(theme: MindmapThemeInput): void
     toCenter(): void
     /**
+     * The node the map has selected, in the form the three actions below address it
+     * by. Null when nothing is selected — which is the normal state of a map that has
+     * just been opened, and the reason a note action has to say so rather than act on
+     * whatever it guessed at.
+     */
+    selectedNodeId(): string | null
+    /**
+     * Replaces a node's topic through the library rather than by editing the body, so
+     * the map redraws it, records the change in its own history, and tells the writer
+     * to put it back into the note.
+     */
+    renameNode(id: string, topic: string): void
+    /**
+     * Adds one child per topic under a node, in the order given. Applied one at a
+     * time: each add re-lays the tree out, so a second add has to look its parent up
+     * again afterwards rather than hold on to the element the first one replaced.
+     */
+    appendChildren(id: string, topics: readonly string[]): void
+    /**
      * Rebuilds the nodes for the box the map now has. The library draws the connectors in a
      * pass of its own and rebuilding takes the drawn ones with it, so the palette's own
      * branch groups are drawn again here: a caller that only wanted the new geometry still

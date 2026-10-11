@@ -743,3 +743,15 @@
     background: transparent;
   }
 }
+
+/* A tab panel is one scrolling column, so a panel's own toolbar and filter box would
+   drift up and out of sight behind the list they control. Pinning them keeps the
+   controls that choose what the list shows reachable while the reader is in it. One
+   rule rather than per-panel utilities so every tab pins the same way; the background
+   is left to each site, because the sidebar's surface and the right-hand panel's are
+   different colours and a pinned row has to be opaque over what scrolls under it. */
+.sidebar-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}

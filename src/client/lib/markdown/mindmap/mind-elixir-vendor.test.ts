@@ -223,3 +223,126 @@ describe('vendor.serialize', () => {
         expect(back).toContain('B');
     });
 });
+
+describe('the top-level fields a document states', () => {
+    function dataOf(body: string): Record<string, unknown> {
+        const parsed = parse(body);
+        expect(parsed.ok).toBe(true);
+        return parsed.ok ? parsed.data as Record<string, unknown> : {};
+    }
+
+    it('hands direction, compact and meta to the library, which reads them off the data', () => {
+        const data = dataOf('{"nodeData":{"topic":"a"},"direction":3,"compact":true,"meta":{"owner":"inkstone"}}');
+        expect(data).toMatchObject({ direction: 3, compact: true, meta: { owner: 'inkstone' } });
+    });
+
+    it('says nothing about layout when the body does, so the caller default still applies', () => {
+        const data = dataOf('{"nodeData":{"topic":"a"}}');
+        expect('direction' in data).toBe(false);
+        expect('compact' in data).toBe(false);
+    });
+
+    it('draws a downward body differently from a side one, rather than accepting the field and ignoring it', () => {
+        const tree = '{"nodeData":{"topic":"a","children":[{"topic":"b"},{"topic":"c"}]}';
+        const down = parse(`${tree},"direction":3}`);
+        const side = parse(`${tree},"direction":2}`);
+        expect(down.ok && side.ok).toBe(true);
+        if (!down.ok || !side.ok)
+            return;
+        const downEl = draw(down);
+        const sideEl = draw(side);
+        expect(downEl.outerHTML).not.toBe(sideEl.outerHTML);
+        expect(downEl.outerHTML).toContain('down');
+        expect(sideEl.outerHTML).not.toContain('"down"');
+    });
+
+    it.each(['"down"', 'null', '[]', '9'])('refuses a direction of %s and names the field', (value) => {
+        const parsed = parse(`{"nodeData":{"topic":"a"},"direction":${value}}`);
+        expect(parsed.ok).toBe(false);
+        if (parsed.ok)
+            return;
+        expect(parsed.error).toContain('"direction"');
+    });
+
+    it('refuses a compact that is not a flag', () => {
+        const parsed = parse('{"nodeData":{"topic":"a"},"compact":"yes"}');
+        expect(parsed.ok).toBe(false);
+        if (parsed.ok)
+            return;
+        expect(parsed.error).toContain('"compact"');
+    });
+
+    it('ignores a meta that is not an object rather than handing the library a scalar', () => {
+        const data = dataOf('{"nodeData":{"topic":"a"},"meta":"nope"}');
+        expect('meta' in data).toBe(false);
+    });
+
+    it('writes the fields back exactly as they were read, so a map edit keeps the document it came from', () => {
+        const body = '{"nodeData":{"topic":"a"},"direction":3,"compact":true,"meta":{"k":1}}';
+        const parsed = parse(body);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok)
+            return;
+        const out = JSON.parse(vendor.serialize(parsed.data, 'json', parsed.extra)) as Record<string, unknown>;
+        expect(out).toMatchObject({ direction: 3, compact: true, meta: { k: 1 } });
+    });
+});
+
+describe('changes the library does not announce', () => {
+    /** An editable map whose operation bursts are counted, so a silent change shows up. */
+    function liveMap(body: MindmapParsedBody): { handle: ReturnType<typeof vendor.create>; operations: () => number } {
+        const el = document.createElement('div');
+        document.body.append(el);
+        let operations = 0;
+        const handle = vendor.create({
+            el,
+            body,
+            editable: true,
+            dark: false,
+            locale: 'en-US',
+            newTopicName: 'New node',
+            modifierWheelZoom: true,
+            onOperation: () => { operations++; },
+            onEditingChange: () => {},
+        });
+        return { handle, operations: () => operations };
+    }
+
+    const parsed = (): MindmapParsedBody => {
+        // Node ids spelled out, because that is what a document holds: the library never
+        // assigns one itself, and an action addressed by id has nothing to find without it.
+        const result = parse('{"nodeData":{"id":"core","topic":"Core","children":[{"id":"branch","topic":"Branch"}]}}');
+        expect(result.ok).toBe(true);
+        if (!result.ok)
+            throw new Error('fixture did not parse');
+        return result;
+    };
+
+    it('tells the writer when a topic is renamed through the API', async () => {
+        const { handle, operations } = liveMap(parsed());
+        const root = handle.selectedNodeId() ?? (handle.getData() as { nodeData: { id: string } }).nodeData.id;
+        const before = operations();
+        handle.renameNode(root, '[[Another note]]');
+        await new Promise((resolve) => { setTimeout(resolve, 0); });
+        expect(operations()).toBeGreaterThan(before);
+        const data = handle.getData() as { nodeData: { topic: string } };
+        expect(data.nodeData.topic).toBe('[[Another note]]');
+    });
+
+    it('declines an action on a node the map is not showing, instead of throwing on the click', () => {
+        const { handle, operations } = liveMap(parsed());
+        const before = operations();
+        expect(() => handle.renameNode('collapsed-away', 'x')).not.toThrow();
+        expect(() => handle.appendChildren('collapsed-away', ['a', 'b'])).not.toThrow();
+        expect((handle.getData() as { nodeData: { topic: string } }).nodeData.topic).toBe('Core');
+        expect(operations()).toBe(before);
+    });
+
+    it('tells the writer when the map steps through its own history', () => {
+        const { handle, operations } = liveMap(parsed());
+        handle.undo();
+        expect(operations()).toBeGreaterThan(0);
+        handle.redo();
+        expect(operations()).toBeGreaterThan(1);
+    });
+});

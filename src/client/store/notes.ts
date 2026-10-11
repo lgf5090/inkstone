@@ -28,8 +28,10 @@ import {
 } from '../lib/calendar-tree';
 import { adoptedFrontMatterTitle, buildNewNoteContent, rememberPendingEditorCursor, syncTitleIntoFrontMatter } from './new-note';
 import { createDefaultExcalidrawScene, serializeExcalidrawBody } from '../lib/markdown/excalidraw';
+import { createDefaultMindmapDocument, isMindmapDocumentBody, MINDMAP_FILE_EXTENSION, readMindmapDocumentFields, writeMindmapDocumentFields } from '../lib/markdown/mindmap/document';
 import { formatDateStamp } from '@shared/property-formats';
 import { useExcalidrawSettingsStore } from '../features/excalidraw/excalidraw-settings-store';
+import { useMindmapSettingsStore } from '../features/mindmap/mindmap-settings-store';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -75,6 +77,7 @@ interface NotesState {
         cursor?: number | null;
     }) => Promise<string | null>;
     createExcalidrawNote: (folderId?: string | null) => Promise<string | null>;
+    createMindmapNote: (folderId?: string | null) => Promise<string | null>;
     patchNote: (id: string, patch: Partial<Pick<NoteSummary, 'isPinned' | 'isStarred' | 'isArchived'>> & {
         folderId?: string | null;
     }) => Promise<void>;
@@ -872,6 +875,48 @@ export const useNotes = create<NotesState>((set, get) => ({
         return get().createNote({
             title,
             content: initialScene,
+            folderId: resolvedFolderId,
+            open: true,
+        });
+    },
+    async createMindmapNote(folderId?: string | null) {
+        const settings = useMindmapSettingsStore.getState();
+        let body = createDefaultMindmapDocument(t('preview.mindmap_untitled'));
+        if (settings.templateFilePath) {
+            const template = Object.values(get().notes).find(
+                (n) => n.title === settings.templateFilePath || n.id === settings.templateFilePath
+            );
+            const templateBody = template ? get().contents[template.id] : undefined;
+            // A template that is not a map is a mis-set preference, not a body to write:
+            // prose in a `.elixir` file gives the reader a canvas that says nothing.
+            if (templateBody && isMindmapDocumentBody(templateBody))
+                body = templateBody;
+        }
+        // The settings state a default, the template states its own, and the more specific
+        // statement wins: a template drawn one way should not be re-laid-out just because
+        // the reader changed what brand-new files look like.
+        const stated = readMindmapDocumentFields(body);
+        const written = writeMindmapDocumentFields(body, {
+            direction: stated.direction === undefined ? settings.defaultDirection : undefined,
+            compact: stated.compact === undefined ? settings.compact : undefined,
+        });
+        if (written !== null)
+            body = written;
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const fallbackDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+        const date = formatDateStamp(now.getTime(), settings.filenameDateFormat || 'YYYY-MM-DD HH.mm.ss', 'en-US') || fallbackDate;
+        const title = `${settings.filenamePrefix ?? 'Mindmap '}${date}${settings.useElixirExtension ? MINDMAP_FILE_EXTENSION : ''}`;
+        let resolvedFolderId = folderId ?? null;
+        if (resolvedFolderId === null && settings.folder) {
+            const matched = get().folders.find((f) => f.id === settings.folder || f.name.toLowerCase() === settings.folder.toLowerCase());
+            // An unresolvable name stays out of the way: a folderId the folder list has never
+            // heard of files the note where nothing can reach it again.
+            resolvedFolderId = matched?.id ?? null;
+        }
+        return get().createNote({
+            title,
+            content: body,
             folderId: resolvedFolderId,
             open: true,
         });
