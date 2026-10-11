@@ -2592,37 +2592,122 @@
 }
 
 .excalidraw .sidebar .ExcTextField,
+.excalidraw .layer-ui__search .ExcTextField,
 .excalidraw .layer-ui__library .ExcTextField {
-  min-height: 38px !important;
-  height: 38px !important;
-  border-radius: 8px !important;
-  background: var(--island-bg, rgba(0, 0, 0, 0.04)) !important;
-  border: 1px solid var(--border-default, #e5e5e7) !important;
-  padding: 0 12px !important;
-  display: flex !important;
-  align-items: center !important;
-  font-size: 13px !important;
-  margin: 6px 12px 10px 12px !important;
-}
-
-.excalidraw.theme--dark .sidebar .ExcTextField,
-.excalidraw.theme--dark .layer-ui__library .ExcTextField {
-  background: #232329 !important;
-  border-color: #31303b !important;
-  color: #f1f1f1 !important;
-}
-
-.excalidraw .sidebar .ExcTextField input,
-.excalidraw .layer-ui__library .ExcTextField input {
-  font-size: 13px !important;
-  height: 100% !important;
+  position: relative !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: unset !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  display: block !important;
 }
 
 .excalidraw .sidebar .ExcTextField svg,
+.excalidraw .layer-ui__search .ExcTextField svg,
 .excalidraw .layer-ui__library .ExcTextField svg {
+  position: absolute !important;
+  left: 10px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
   width: 16px !important;
   height: 16px !important;
-  opacity: 0.7 !important;
+  color: #8e8e93 !important;
+  stroke: #8e8e93 !important;
+  pointer-events: none !important;
+  z-index: 2 !important;
+  opacity: 1 !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField svg,
+.excalidraw.theme--dark .layer-ui__search .ExcTextField svg,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField svg {
+  color: #a1a1aa !important;
+  stroke: #a1a1aa !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input,
+.excalidraw .layer-ui__search-header .ExcTextField__input,
+.excalidraw .layer-ui__library .ExcTextField__input {
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  border-radius: 8px !important;
+  background-color: var(--bg-sunken, #f4f4f5) !important;
+  border: 1px solid var(--border-subtle, #e4e4e7) !important;
+  padding: 0 12px 0 34px !important;
+  transition: border-color 0.15s ease, background-color 0.15s ease !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input {
+  background-color: #232329 !important;
+  border-color: #31303b !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input:focus-within,
+.excalidraw .layer-ui__search-header .ExcTextField__input:focus-within,
+.excalidraw .layer-ui__library .ExcTextField__input:focus-within {
+  border-color: #6965db !important;
+  background-color: var(--bg-surface, #ffffff) !important;
+  box-shadow: 0 0 0 1px #6965db !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input:focus-within,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input:focus-within,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input:focus-within {
+  border-color: #6965db !important;
+  background-color: #1e1e24 !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input input,
+.excalidraw .layer-ui__search-header .ExcTextField__input input,
+.excalidraw .layer-ui__library .ExcTextField__input input {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-size: 13px !important;
+  line-height: normal !important;
+  color: var(--text-primary, #18181b) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input input,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input input,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input input {
+  color: #f4f4f5 !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input input::placeholder,
+.excalidraw .layer-ui__search-header .ExcTextField__input input::placeholder,
+.excalidraw .layer-ui__library .ExcTextField__input input::placeholder {
+  color: #a1a1aa !important;
+  font-size: 13px !important;
+  opacity: 1 !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input input::placeholder,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input input::placeholder,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input input::placeholder {
+  color: #71717a !important;
+}
+
+.excalidraw .layer-ui__search-header {
+  padding: 0 12px !important;
+  margin-top: 4px !important;
+  margin-bottom: 8px !important;
 }
 
 .excalidraw .layer-ui__library {
