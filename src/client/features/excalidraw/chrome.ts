@@ -8,6 +8,12 @@ const DEFAULT_DELAY_MS = 50
  * shape is being dragged or the viewport panned. The two islands render within a frame or two of mount
  * and never reorder themselves afterwards, so a short bounded poll replaces the observer outright.
  *
+ * The poll stops the moment it has moved the trigger, so a surface that owns the footer pays one or two
+ * ticks. The fence block inside a note does not: there the engine renders no `layer-ui__wrapper` at all
+ * (measured on the real page - the block's canvas is 536x486 and its own trigger sits at 1047,227), so
+ * polling there ran all forty ticks, roughly two hundred selector queries per mount, and could never
+ * succeed. That call site is gone; this one stays because the whole-page editor does have the footer.
+ *
  * Returns the cancel function; callers must run it on cleanup.
  */
 export function reparentMainMenuIntoFooter(

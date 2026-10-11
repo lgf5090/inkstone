@@ -34,4 +34,11 @@ describe('the excalidraw interaction gate', () => {
         expect(source).toContain('const fencesMoved = !committedFencesRef.current || !sameFenceBodies(committedFencesRef.current, rendered.fences)');
         expect(source).toContain('if (markupMoved || fencesMoved) setMermaidEpoch((current) => current + 1)');
     });
+
+    it('only the whole-page editor polls for the engine footer', () => {
+        const editor = fs.readFileSync('src/client/features/excalidraw/ExcalidrawStandaloneEditor.tsx', 'utf8');
+        const block = fs.readFileSync('src/client/lib/markdown/excalidraw/registry.tsx', 'utf8');
+        expect(editor).toContain('return reparentMainMenuIntoFooter(host);');
+        expect(block).not.toContain('reparentMainMenuIntoFooter');
+    });
 });

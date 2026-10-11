@@ -23,7 +23,6 @@ import {
     zoomToFitScene,
 } from '../../../features/excalidraw/excalidraw-canvas-actions';
 import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
-import { reparentMainMenuIntoFooter } from '../../../features/excalidraw/chrome';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
 import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
@@ -398,8 +397,6 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                     }
                 });
             }, [api, theme]);
-
-            React.useEffect(() => reparentMainMenuIntoFooter(canvasHost), []);
 
             React.useEffect(() => {
                 const note = () => { interacted = true; };
