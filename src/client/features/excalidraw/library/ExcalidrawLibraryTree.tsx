@@ -85,6 +85,7 @@ const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api 
             exportWithDarkMode: isDark,
           },
           files: api?.getFiles ? api.getFiles() : {},
+          skipInliningFonts: true,
         })
         if (!active || !svg) return
         svg.style.maxWidth = '100%'
@@ -316,6 +317,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
             exportWithDarkMode: isDark,
           },
           files: api.getFiles ? api.getFiles() : {},
+          skipInliningFonts: true,
         })
         if (svg) {
           svg.style.maxWidth = '100%'
