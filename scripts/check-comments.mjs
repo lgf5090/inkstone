@@ -3171,6 +3171,9 @@ const allowed = new Map([
     "// The scene no longer rides in the attribute (P-01 family), so the two blocks' fence bodies are",
     "// what say whether the drawing changed: the staged one resolves against this pass's set, the live",
     "// one against the set registered when it was mounted, and a canvas is not in `innerHTML` either.",
+    "// Also outside the swap: a drawing's autosave changes only its fence body, and a block mounted into",
+    "// the host resolves that body by walking up from itself to the nearest registered element. The",
+    "// staging copy carries the same set for `patchChildren` above, which compares the two.",
   ]],
   ["src/client/features/preview/block-actions.test.ts", [
     "// i18n is uninitialised in this file, so the fallback tab title arrives as its key.",
@@ -3670,9 +3673,6 @@ const allowed = new Map([
     "// hear about rather than watch silently do nothing.",
     "// The DOM is re-rendered from source shortly; close on the live node now too so the popover never",
     "// lingers over the block while the edit commits.",
-  ]],
-  ["src/client/features/preview/use-excalidraw-blocks.ts", [
-    "/**\n     * The scene bodies this markup was rendered from, registered on the live host before mounting: the\n     * preview registers them on its detached staging copy, and a block that was moved into the host\n     * reads nothing above it without this. Also a mount trigger, because a body-only edit leaves the\n     * markup string identical. Null until the pane has committed markup once — mounting before that\n     * would park every block on an empty scene it can no longer be told out of.\n     */",
   ]],
   ["src/client/features/preview/use-kanban-blocks.ts", [
     "/**\n   * The fence bodies this markup was rendered from (P-01), registered on the host before mount. Also a\n   * mount trigger: a body-only edit leaves the markup string identical.\n   *\n   * Null until the pane has committed markup for the first time. Mounting before that reads an empty\n   * fence set, and the root takes its data into `useState` — a later pass carrying the real body cannot\n   * reach that state, so the board would go on showing the empty one it parsed first.\n   */",

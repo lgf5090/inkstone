@@ -160,7 +160,6 @@ export const Preview = memo(function Preview({
     hostRef,
     epoch: mermaidEpoch,
     dark: theme === 'dark',
-    fences: kanbanCommit?.fences ?? null,
   })
 
   const kanban = useKanbanBlocks({
@@ -298,6 +297,10 @@ export const Preview = memo(function Preview({
           ? current
           : { html: nextHtml, fences: rendered.fences },
       )
+      // Also outside the swap: a drawing's autosave changes only its fence body, and a block mounted into
+      // the host resolves that body by walking up from itself to the nearest registered element. The
+      // staging copy carries the same set for `patchChildren` above, which compares the two.
+      if (hostRef.current) registerFenceBodies(hostRef.current, rendered.fences)
       committedSourceRef.current = debounced
       if (nextHtml !== committedHtmlRef.current) {
         const scroller = scrollerRef.current
