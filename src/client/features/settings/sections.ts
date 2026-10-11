@@ -2,7 +2,7 @@ import { backupRunsResource, backupTargetsResource, mcpResource, sharesResource,
 import { useSession } from '../../store/session'
 import type { MessageKey } from '../../lib/i18n'
 
-export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'queries' | 'linter' | 'excalidraw' | 'about'
+export type SettingsSection = 'appearance' | 'editor' | 'properties' | 'notes' | 'search' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'automation' | 'queries' | 'linter' | 'excalidraw' | 'mindmap' | 'about'
 
 export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   appearance: 'settings.appearance',
@@ -17,6 +17,7 @@ export const SECTION_LABEL_KEYS: Record<SettingsSection, MessageKey> = {
   queries: 'settings.dataview',
   linter: 'settings.markdown_linter',
   excalidraw: 'settings.excalidraw',
+  mindmap: 'settings.mindmap_title',
   account: 'settings.account',
   data: 'settings.data',
   shares: 'share.shared_notes',
@@ -38,6 +39,7 @@ export const settingsLoaders = {
   queries: () => import('./DataviewSettings').then((m) => ({ default: m.DataviewSettings })),
   linter: () => import('./LinterSettings').then((m) => ({ default: m.LinterSettings })),
   excalidraw: () => import('./ExcalidrawSettings').then((m) => ({ default: m.ExcalidrawSettings })),
+  mindmap: () => import('./MindmapSettings').then((m) => ({ default: m.MindmapSettings })),
   about: () => import('./AboutSettings').then((m) => ({ default: m.AboutSettings })),
 }
 

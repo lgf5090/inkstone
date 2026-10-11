@@ -40,6 +40,8 @@ import { captureReadingPosition, readReadingPosition, readingPositionKey, restor
 import { getLocale, t, useLocale } from "../../lib/i18n";
 import { preferredScrollBehavior } from '../../lib/motion';
 import { ExcalidrawStandaloneEditor } from '../excalidraw/ExcalidrawStandaloneEditor';
+import { MindmapStandaloneEditor } from '../mindmap/MindmapStandaloneEditor';
+import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
 const SPLIT_HANDLE_WIDTH = 1;
 const PREVIEW_BORDER_WIDTH = 1;
@@ -524,6 +526,19 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
                 onMobileBack={onMobileBack}
                 pane={pane}
                 grouped={grouped}
+            />
+        );
+    }
+    if (isMindmapDocumentTitle(note.title)) {
+        return (
+            <MindmapStandaloneEditor
+                key={note.id}
+                note={note}
+                content={content}
+                onChange={(next) => editContent(note.id, next)}
+                onTitleChange={(nextTitle) => editTitle(note.id, nextTitle)}
+                onMobileBack={onMobileBack}
+                pane={pane}
             />
         );
     }

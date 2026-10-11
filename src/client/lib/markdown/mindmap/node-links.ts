@@ -21,6 +21,18 @@ export const MINDMAP_NODE_LINK_ATTR = 'data-mindmap-node-link';
 export const MINDMAP_NODE_LINK_CLASS = 'mindmap-node-link';
 
 const TOPIC_SELECTOR = 'me-tpc';
+/** The span the library builds inside each topic and keeps a reference to. */
+const TOPIC_TEXT_SELECTOR = '.text';
+
+/**
+ * Where a topic's text actually lives. The library caches the node's own `.text` span and
+ * reads it back when it draws — its SVG export measures that element — so decorating the
+ * topic element itself would replace the span and leave the library holding a detached
+ * node, which comes out as `NaN` in the exported picture. The anchors go inside the span.
+ */
+function textOf(topic: HTMLElement): HTMLElement {
+    return topic.querySelector<HTMLElement>(TOPIC_TEXT_SELECTOR) ?? topic;
+}
 
 /**
  * Re-decorates every node in the map. Idempotent: a node already carrying an
@@ -31,18 +43,19 @@ export function decorateMindmapLinks(container: HTMLElement | null): void {
     if (!container)
         return;
     for (const topic of container.querySelectorAll<HTMLElement>(TOPIC_SELECTOR)) {
-        if (topic.querySelector(`[${MINDMAP_NODE_LINK_ATTR}]`))
+        const textElement = textOf(topic);
+        if (textElement.querySelector(`[${MINDMAP_NODE_LINK_ATTR}]`))
             continue;
-        const text = topic.textContent ?? '';
+        const text = textElement.textContent ?? '';
         const whole = parseMindmapNodeLink(text);
         if (whole) {
-            topic.replaceChildren(createNodeLink(whole));
+            textElement.replaceChildren(createNodeLink(whole));
             continue;
         }
         const segments = splitMindmapTopicLinks(text);
         if (!segments.some((segment) => segment.target))
             continue;
-        topic.replaceChildren(...segments.map((segment) =>
+        textElement.replaceChildren(...segments.map((segment) =>
             segment.target ? createNodeLink(segment.target) : document.createTextNode(segment.text)));
     }
 }

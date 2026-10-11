@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from 'react';
-import { Archive, Brush, Columns2, FileText, FolderInput, MoreHorizontal, Star, Trash2 } from 'lucide-react';
+import { Archive, Brush, Columns2, FileText, FolderInput, MoreHorizontal, Network, Star, Trash2 } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
+import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { numericCollator } from '../../lib/collator';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
@@ -72,12 +73,14 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
         ...(canOpenToSide ? [{ id: 'side', label: t('notes.open_to_side'), icon: <Columns2 size={13}/>, onSelect: () => open(true) }] : []),
         { id: 'star', label: note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites'), icon: <Star size={13}/>, onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }) },
         { id: 'new-drawing', label: t('common.new_drawing'), icon: <Brush size={13}/>, onSelect: () => void useNotes.getState().createExcalidrawNote(note.folderId) },
+        { id: 'new-mindmap', label: t('common.new_mindmap'), icon: <Network size={13}/>, onSelect: () => void useNotes.getState().createMindmapNote(note.folderId) },
         { id: 'move', label: t('notes.move_to_folder'), icon: <FolderInput size={13}/>, onSelect: () => setMoving(true) },
         { id: 'archive', label: t('navigation.archive'), icon: <Archive size={13}/>, onSelect: () => void patchNote(note.id, { isArchived: true }) },
         ...lintItems,
         { id: 'delete', label: t('common.move_to_trash'), icon: <Trash2 size={13}/>, separatorBefore: true, tone: 'danger', onSelect: () => void deleteNote(note.id) },
     ];
     const isDrawing = note.title.endsWith('.excalidraw');
+    const isMindmap = isMindmapDocumentTitle(note.title);
     return <div role="treeitem" aria-level={depth + 1} aria-selected={active} data-tree-note-id={note.id}>
         <div ref={anchor} draggable onDragStart={(event) => {
             const selected = useUi.getState().selectedIds;
@@ -86,6 +89,8 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
             <span className="w-8 shrink-0 md:w-4"/>
             {isDrawing ? (
                 <Brush size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
+            ) : isMindmap ? (
+                <Network size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             ) : (
                 <FileText size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             )}

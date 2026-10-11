@@ -8,6 +8,7 @@ import type { WikiTarget } from './renderer'
 import { attachmentFileName, isAttachmentTarget, parseEmbedSize, renderAttachmentEmbed } from './attachments'
 import { parseWikiTarget, renderMarkdown } from './renderer'
 import { registerFenceBodies } from './fence-bodies'
+import { isMindmapDocumentBody, isMindmapDocumentTitle, mindmapDocumentAsFence } from './mindmap/document'
 import type { FenceBodies } from './fence-bodies'
 
 interface ResolveOptions {
@@ -246,7 +247,17 @@ async function resolveTarget(
       signature,
     }
   }
-  return { markdown: body, label: title, scope: resolvedScope, signature }
+  return { markdown: embeddableMarkdown(title, body), label: title, scope: resolvedScope, signature }
+}
+
+/**
+ * A `.elixir` note holds a mind map body, not Markdown: embedded as it is, the reader
+ * gets a wall of JSON. Wrapped in a ```mindmap fence it goes through the same drawer a
+ * block does — and, like every other embed, comes out a still picture rather than a
+ * writable map, because writing back would point at lines of a note that is not there.
+ */
+function embeddableMarkdown(title: string, body: string): string {
+  return isMindmapDocumentTitle(title) && isMindmapDocumentBody(body) ? mindmapDocumentAsFence(body) : body
 }
 
 export function extractHeadingSection(markdown: string, heading: string): string | null {

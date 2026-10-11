@@ -391,6 +391,7 @@ describe('folder row menu', () => {
             t('sidebar.rename'),
             t('sidebar.create_new_note_here'),
             t('sidebar.create_new_drawing_here'),
+            t('sidebar.create_new_mindmap_here'),
             t('sidebar.new_subfolder'),
             t('folders.color'),
             t('folders.icon'),
@@ -414,6 +415,7 @@ describe('folder row menu', () => {
                 t('sidebar.rename'),
                 t('sidebar.create_new_note_here'),
                 t('sidebar.create_new_drawing_here'),
+            t('sidebar.create_new_mindmap_here'),
                 t('sidebar.new_subfolder'),
                 t('folders.color'),
                 t('folders.icon'),
@@ -758,9 +760,10 @@ describe('folder row menu', () => {
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
         const header = document.querySelector<HTMLElement>('#sidebar-folders > div')!;
-        // Five controls is the measured ceiling for the row. The heading text is gone — the selected
-        // tab icon above already says what this panel is — so the controls own the line and centre in it.
-        expect(header.querySelectorAll('button')).toHaveLength(6);
+        // Six controls: the five the row measured out plus the mind map file button beside the
+        // drawing one. The heading text is gone — the selected tab icon above already says what
+        // this panel is — so the controls own the line and centre in it.
+        expect(header.querySelectorAll('button')).toHaveLength(7);
         expect(header.textContent).toBe('');
         // No layout in jsdom, but the class is the whole story here: the strip already
         // separates the body, so the section must not add its own top margin.
