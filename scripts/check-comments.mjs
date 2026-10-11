@@ -6769,6 +6769,9 @@ const allowed = new Map([
     "// unmount is flushed here rather than left to contaminate whichever test runs second.",
     "// The panel only exists once the wrapper re-rendered, which is what makes the engine count below",
     "// a statement about the memo rather than about a render that never happened.",
+    "// Passive effects (the ones that attach the gate's listeners) are flushed by the scheduler, so a",
+    "// single macrotask is enough only when React's task queue is already warm - run this file one test at",
+    "// a time and a lone 20 ms wait lets the assertion dispatch before the listener exists.",
   ]],
   ["src/client/lib/markdown/excalidraw/registry.tsx", [
     "/**\n     * What this block believes the fence currently holds, kept current by both directions: a render pass\n     * that arrives from the note, and a save we just pushed into it. The writer's conflict rule compares\n     * the note's fence body against this, so a stale value here rejects every save after the first one -\n     * and the save looks and reads as if it worked, because the scene text under the canvas already\n     * moved. One copy, refreshed on both sides, is what makes the second edit land.\n     */",

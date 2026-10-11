@@ -70,7 +70,13 @@ function sceneWithElement(id: string): string {
 }
 
 function flushReact(): Promise<void> {
-    return new Promise((resolve) => window.setTimeout(resolve, 20));
+    // Passive effects (the ones that attach the gate's listeners) are flushed by the scheduler, so a
+    // single macrotask is enough only when React's task queue is already warm - run this file one test at
+    // a time and a lone 20 ms wait lets the assertion dispatch before the listener exists.
+    return [0, 1, 2, 3].reduce(
+        (chain) => chain.then(() => new Promise<void>((resolve) => window.setTimeout(resolve, 5))),
+        Promise.resolve(),
+    );
 }
 
 /**
