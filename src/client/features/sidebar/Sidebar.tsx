@@ -543,7 +543,10 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
             setRootDropping(false);
             void move(folderId, null, null);
         }}>
-      <div ref={headerRef} className={cn('group/head flex items-center', mobile ? 'justify-between pr-1' : 'justify-center')} onContextMenu={(event) => {
+      {/* The toolbar and the filter box are one pinned block: they decide what the tree
+          below is showing, so they stay put while that tree scrolls. */}
+      <div className="sidebar-chrome bg-[var(--bg-sunken)]">
+      <div ref={headerRef} data-folder-head className={cn('group/head flex items-center', mobile ? 'justify-between pr-1' : 'justify-center')} onContextMenu={(event) => {
             setHeaderMenuOpen(false);
             headerMenu.onContextMenu(event);
         }}>
@@ -597,6 +600,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         />
         {filtering && (searchedFolders.shown > 0 || notesMatched > 0) && (<p data-folder-match-count className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{notesMatched > 0 ? t("folders.note_match_count", { value0: searchedFolders.shown, value1: notesMatched }) : t("folders.match_count", { value0: searchedFolders.shown })}</p>)}
       </>)}
+      </div>
 
       {!filtering && (<>
         <TodoTree />

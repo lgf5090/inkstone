@@ -25,7 +25,7 @@ export function SidebarRecent() {
         .map((id) => notes[id])
         .filter((note) => !!note && !note.deletedAt && !note.isArchived);
     return (<>
-      <div className="flex items-center justify-center">
+      <div className="sidebar-chrome flex items-center justify-center bg-[var(--bg-sunken)]">
         {visible.length > 0 && (
           <IconButton label={t('sidebar.recent_clear')} size="sm" onClick={clearRecentNotes} data-recent-clear>
             <Eraser size={13}/>

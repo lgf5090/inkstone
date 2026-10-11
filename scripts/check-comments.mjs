@@ -4011,6 +4011,7 @@ const allowed = new Map([
     "// A folder the query named shows what it holds; one the query only walks through shows the note",
     "// it walked through, and nothing else.",
     "/**\n * The collapsed rail's Omnisearch entry. It has to be a `RailButton` so it lines up with the other\n * icons, which is the one shape {@link OmnisearchEntry} does not draw.\n */",
+    "/* The toolbar and the filter box are one pinned block: they decide what the tree\n          below is showing, so they stay put while that tree scrolls. */",
   ]],
   ["src/client/features/sidebar/SidebarOutlinks.tsx", [
     "/**\n * The links the note itself points at, read off its own text rather than the server's\n * link table: the table is rebuilt on save, so a link typed a moment ago is already\n * here while the backlink on the other side is not. A target that resolves to no note\n * is kept and shown apart — that is the list a reader uses to find the titles they\n * mis-typed.\n */",
@@ -4066,10 +4067,16 @@ const allowed = new Map([
     "// rules the folder tab follows, read off the classes because jsdom lays nothing out.",
     "// This fixture has one flat tag, so the expand-all control is not on offer: the create",
     "// action is the whole group, and it stays visible without a hover like the folder tab's.",
+    "/**\n * The pinned chrome is a CSS-only behaviour, so jsdom cannot see it working. What it\n * can see — and what this holds in place — is that every panel that has a toolbar or a\n * filter box marks exactly one element as the pinned block, that the block comes before\n * the list it controls rather than somewhere inside it, and that the rule which makes it\n * stick is still there with the offset that rule depends on.\n */",
+    "// A panel with nothing in it renders no list at all, so the ordering claim needs a",
+    "// populated tree to be ordered against.",
+    "// Document order is the whole claim: a pinned block that sits after the list",
+    "// would pin over nothing and let the toolbar scroll away.",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
     "// user was looking at. Replay the path change against the open set as the tags arrive.",
+    "/* Pinned with the filter box below it: same reason as the folder tree's toolbar. */",
   ]],
   ["src/client/features/tags/TagContextMenuAt.tsx", [
     "/**\n * The tag a pointer landed on: markdown hands us `#tag` spans as DOM, so every surface that wants\n * the menu reads the encoded name off the closest one. Returns null when the pointer is not on a\n * tag, which leaves the browser's own context menu alone.\n */",
@@ -10367,6 +10374,7 @@ const allowed = new Map([
   ["src/client/styles/app.css", [
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
     "/* The phone has no icon rail, so the launcher takes the same 44px slot as its siblings. */",
+    "/* A tab panel is one scrolling column, so a panel's own toolbar and filter box would\n   drift up and out of sight behind the list they control. Pinning them keeps the\n   controls that choose what the list shows reachable while the reader is in it. One\n   rule rather than per-panel utilities so every tab pins the same way; the background\n   is left to each site, because the sidebar's surface and the right-hand panel's are\n   different colours and a pinned row has to be opaque over what scrolls under it. */",
   ]],
   ["src/client/styles/dataview.css", [
     "/* Query blocks, inline fields and inline answers. The block shell follows the board and mind-map\n   heads so a note with several rich blocks reads as one family; the table, list and checkbox shapes\n   come from prose.css rather than being drawn again here. */",
@@ -11472,6 +11480,11 @@ const allowed = new Map([
     "// the read budget the public route already spends, so these cases vary only the address a read came",
     "// from, how old it is, and which show it was aimed at.",
     "// An address is only trusted behind the edge, so the harness has to say the request came through it.",
+  ]],
+  ["tests/sidebar-chrome-css.test.ts", [
+    "/**\n * The pinned panel chrome is one CSS rule shared by every sidebar tab, so the rule\n * itself is the thing that has to stay intact — the per-panel guards can only see the\n * class on the element. Read here rather than in the component's own test because this\n * is the project that may touch the filesystem.\n */",
+    "// Without a top the rule pins to the element's own static position, which is exactly",
+    "// the upward drift this exists to stop.",
   ]],
   ["tests/slide-control-coverage.test.ts", [
     "// The projector turns a page by a click anywhere on it and leaves a click on an interactive element",

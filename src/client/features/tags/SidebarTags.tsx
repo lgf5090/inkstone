@@ -117,7 +117,10 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
     };
     return (<>
       <section>
+      {/* Pinned with the filter box below it: same reason as the folder tree's toolbar. */}
+      <div className="sidebar-chrome bg-[var(--bg-sunken)]">
       <div
+        data-tag-head
         className={cn('group/head flex items-center', mobile ? 'justify-between pr-1' : 'justify-center')}
         onDragOver={(event) => {
           if (!isTagDrag(event.dataTransfer) || !tagMoveTarget(draggedTag(), null)) return;
@@ -173,6 +176,7 @@ export function SidebarTags({ mobile = false }: { mobile?: boolean }) {
             }}/>
         {searching && rows.length > 0 && <p className="px-2 pt-1 text-[10.5px] tabular text-[var(--text-quaternary)]">{t('tags.match_count', { value0: searched.hitCount })}</p>}
       </>)}
+      </div>
 
       <div ref={listRef} role="tree" aria-label={t('navigation.tag')} className="mt-0.5 space-y-px" onMouseMove={hover.hover.handleMouseMove} onMouseLeave={hover.onMouseLeave}>
         {!searching && tags.length > 0 && (<button data-navigation-item type="button" aria-current={view === 'untagged' ? 'page' : undefined} onClick={() => {

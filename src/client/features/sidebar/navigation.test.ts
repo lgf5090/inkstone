@@ -733,7 +733,7 @@ describe('folder row menu', () => {
     it('expands and collapses every branch from the section header menu', async () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
         useNotes.setState({ folders: [folder, child], notes: {} });
-        const header = () => document.querySelector<HTMLElement>('#sidebar-folders > div')!;
+        const header = () => document.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!;
         const headerMenu = async () => {
             await act(() => {
                 header().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
@@ -750,7 +750,7 @@ describe('folder row menu', () => {
     it('reaches the header menu from a button, not only from a right click', async () => {
         await act(() => root.render(createElement(Sidebar)));
         expect(document.querySelector('[role="menu"]')).toBeNull();
-        await click(byLabel(document.querySelector<HTMLElement>('#sidebar-folders > div')!, t('common.more_actions')));
+        await click(byLabel(document.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!, t('common.more_actions')));
         const scope = document.querySelector<HTMLElement>('[role="menu"]')!;
         expect([...scope.querySelectorAll('button')].map((element) => element.textContent?.replace(/✓$/, '').trim())).toContain(t('folders.manage_folders'));
     });
@@ -759,7 +759,7 @@ describe('folder row menu', () => {
         const child: Folder = { ...folder, id: 'child', name: 'Child', parentId: folder.id };
         useNotes.setState({ folders: [folder, child], notes: {} });
         await act(() => root.render(createElement(Sidebar)));
-        const header = document.querySelector<HTMLElement>('#sidebar-folders > div')!;
+        const header = document.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!;
         // The row is named control by control rather than counted: there is no ceiling on how
         // many may sit here, so an addition is a deliberate edit to this list rather than a
         // number to bump. What is *not* negotiable is that the line stays quiet — no printed
@@ -785,7 +785,7 @@ describe('folder row menu', () => {
     it('keeps the touch drawer navigation button where the heading was', async () => {
         useNotes.setState({ folders: [folder], notes: {} });
         await act(() => root.render(createElement(FolderSection, { mobile: true })));
-        const header = container.querySelector<HTMLElement>('#sidebar-folders > div')!;
+        const header = container.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!;
         expect(header.textContent).toContain(t('navigation.all_notes'));
         expect(header.className).toContain('justify-between');
     });
@@ -843,7 +843,7 @@ describe('folder tree keyboard', () => {
 
 describe('built-in logical folders', () => {
     const treeRows = () => [...document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-row]')].map((element) => element.textContent?.trim());
-    const header = () => document.querySelector<HTMLElement>('#sidebar-folders > div')!;
+    const header = () => document.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!;
     const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
 
     async function openHeaderMenu() {
