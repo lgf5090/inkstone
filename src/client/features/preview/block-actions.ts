@@ -1,6 +1,7 @@
 import { chartToolbar } from './chart-block-toolbar'
 import { codeBlockToolbar } from './code-block-toolbar'
 import { exampleToolbar } from './example-layout'
+import { jsonBlockToolbar } from './json-block-toolbar'
 import { mediaLayoutToolbar } from './media-layout'
 import { mindmapToolbar } from './mindmap-block-toolbar'
 import { panelBlockToolbar } from './panel-toolbar'
@@ -15,7 +16,7 @@ import type { BlockActionContext, BlockToolbarModule, BlockToolbarOptions } from
  * The runnable block's controls come from `enhanceJsExampleControlsInRoot`, which only this surface
  * calls — a share page draws the same block with no run button.
  */
-const MODULES: BlockToolbarModule[] = [exampleToolbar, codeBlockToolbar, chartToolbar, mindmapToolbar, panelBlockToolbar, tabsBlockToolbar, mediaLayoutToolbar]
+const MODULES: BlockToolbarModule[] = [exampleToolbar, codeBlockToolbar, jsonBlockToolbar, chartToolbar, mindmapToolbar, panelBlockToolbar, tabsBlockToolbar, mediaLayoutToolbar]
 
 export function enhanceBlockToolbars(root: HTMLElement, options: BlockToolbarOptions): void {
   enhanceJsExampleControlsInRoot(root)
