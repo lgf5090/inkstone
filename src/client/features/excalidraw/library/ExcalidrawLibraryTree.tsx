@@ -16,6 +16,7 @@ import {
   X,
   Layers,
   Sparkles,
+  Loader2,
 } from 'lucide-react'
 import { FilterInput } from '../../../components/FilterInput'
 import { compileQuery, queryMatches } from '../../../lib/query-match'
@@ -27,6 +28,7 @@ import {
   useExcalidrawLibraryStore,
 } from './library-store'
 import { ExcalidrawOfficialLibraryModal } from './ExcalidrawOfficialLibraryModal'
+import { loadExcalidrawLib } from '../../../lib/markdown/excalidraw/loader'
 import type {
   ExcalidrawLibraryItem,
   LibraryFolderNode,
@@ -35,6 +37,99 @@ import type {
 interface ExcalidrawLibraryTreeProps {
   api: any
   lib?: any
+}
+
+const previewCache = new Map<string, string>()
+
+interface StencilItemPreviewProps {
+  item: ExcalidrawLibraryItem
+  lib?: any
+  api?: any
+}
+
+const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api }) => {
+  const [svgHtml, setSvgHtml] = useState<string | null>(() => {
+    if (item.svgPreview) return item.svgPreview
+    return previewCache.get(item.id) || null
+  })
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (item.svgPreview) {
+      setSvgHtml(item.svgPreview)
+      previewCache.set(item.id, item.svgPreview)
+      return
+    }
+
+    const cached = previewCache.get(item.id)
+    if (cached) {
+      setSvgHtml(cached)
+      return
+    }
+
+    let active = true
+    const generate = async () => {
+      const activeLib = lib || (typeof window !== 'undefined' ? (window as any).ExcalidrawLib : null)
+      if (!activeLib || typeof activeLib.exportToSvg !== 'function') return
+      if (!item.elements || item.elements.length === 0) return
+
+      setLoading(true)
+      try {
+        const isDark = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark'
+        const restored = activeLib.restoreElements ? activeLib.restoreElements(item.elements, null) : item.elements
+        const svg = await activeLib.exportToSvg({
+          elements: restored,
+          appState: {
+            exportBackground: false,
+            viewBackgroundColor: 'transparent',
+            exportWithDarkMode: isDark,
+          },
+          files: api?.getFiles ? api.getFiles() : {},
+        })
+        if (!active || !svg) return
+        svg.style.maxWidth = '100%'
+        svg.style.maxHeight = '100%'
+        svg.style.width = 'auto'
+        svg.style.height = 'auto'
+        svg.style.objectFit = 'contain'
+        const html = svg.outerHTML
+        previewCache.set(item.id, html)
+        setSvgHtml(html)
+      } catch {
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    generate()
+    return () => {
+      active = false
+    }
+  }, [item.id, item.svgPreview, item.elements, lib, api])
+
+  if (svgHtml) {
+    return (
+      <div
+        className="w-full h-full flex items-center justify-center p-0.5 pointer-events-none select-none [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:w-auto [&>svg]:h-auto [&>svg]:object-contain"
+        dangerouslySetInnerHTML={{ __html: svgHtml }}
+      />
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-1 text-[var(--text-tertiary)]">
+        <Loader2 size={16} className="animate-spin text-[var(--accent)]" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="text-[var(--text-quaternary)] flex flex-col items-center gap-1">
+      <Layers size={20} />
+      <span className="text-[10px] tabular-nums">{item.elements?.length || 0}</span>
+    </div>
+  )
 }
 
 function insertItemToCanvas(item: ExcalidrawLibraryItem, api: any) {
@@ -101,6 +196,19 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   api,
   lib,
 }) => {
+  const [activeLib, setActiveLib] = useState<any>(
+    lib || (typeof window !== 'undefined' ? (window as any).ExcalidrawLib : null),
+  )
+
+  useEffect(() => {
+    if (lib) {
+      setActiveLib(lib)
+      return
+    }
+    loadExcalidrawLib()
+      .then((l) => setActiveLib(l))
+      .catch(() => {})
+  }, [lib])
   const folders = useExcalidrawLibraryStore((s) => s.folders)
   const items = useExcalidrawLibraryStore((s) => s.items)
   const activeFolderId = useExcalidrawLibraryStore((s) => s.activeFolderId)
@@ -196,16 +304,25 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
     }
 
     let svgPreview: string | undefined
-    if (lib && typeof lib.exportToSvg === 'function') {
+    if (activeLib && typeof activeLib.exportToSvg === 'function') {
       try {
-        const svg = await lib.exportToSvg({
-          elements: selected,
+        const isDark = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark'
+        const restored = activeLib.restoreElements ? activeLib.restoreElements(selected, null) : selected
+        const svg = await activeLib.exportToSvg({
+          elements: restored,
           appState: {
             exportBackground: false,
+            viewBackgroundColor: 'transparent',
+            exportWithDarkMode: isDark,
           },
           files: api.getFiles ? api.getFiles() : {},
         })
         if (svg) {
+          svg.style.maxWidth = '100%'
+          svg.style.maxHeight = '100%'
+          svg.style.width = 'auto'
+          svg.style.height = 'auto'
+          svg.style.objectFit = 'contain'
           svgPreview = svg.outerHTML
         }
       } catch {
@@ -578,19 +695,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                       title={t('excalidraw.click_to_insert')}
                     >
                       <div className="h-20 w-full flex items-center justify-center bg-[var(--bg-sunken)]/60 rounded overflow-hidden p-1">
-                        {item.svgPreview ? (
-                          <div
-                            className="w-full h-full flex items-center justify-center [&>svg]:max-w-full [&>svg]:max-h-full"
-                            dangerouslySetInnerHTML={{ __html: item.svgPreview }}
-                          />
-                        ) : (
-                          <div className="text-[var(--text-quaternary)] flex flex-col items-center gap-1">
-                            <Layers size={20} />
-                            <span className="text-[10px] tabular-nums">
-                              {item.elements.length}
-                            </span>
-                          </div>
-                        )}
+                        <StencilItemPreview item={item} lib={activeLib} api={api} />
                       </div>
 
                       {isItemEditing ? (
