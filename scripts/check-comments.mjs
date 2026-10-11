@@ -709,6 +709,10 @@ const allowed = new Map([
   ["src/client/features/emoji/insert-emoji.ts", [
     "/**\n * Where a picked emoji goes: the editor on screen, and the clipboard when there is no editor to\n * write into (a note opened read-only, a phone in the preview tab). Silently dropping the pick is\n * the one answer that is never right.\n */",
   ]],
+  ["src/client/features/excalidraw/ExcalidrawStandaloneEditor.test.ts", [
+    "// The gate is closed until the reader touches this canvas, and a touch that starts inside the",
+    "// engine has to reach the host's capture listener the same way a real pointer event would.",
+  ]],
   ["src/client/features/excalidraw/ExcalidrawStandaloneEditor.tsx", [
     "// Spreading the coordinates into Math.min/Math.max overflows the argument list once a",
     "// generated diagram is large enough; the bounds helper walks the array instead.",
@@ -720,6 +724,10 @@ const allowed = new Map([
     "// tick that moves rawCode or isSaved - re-renders the whole engine UI while it is display:none.",
     "// A rejected request used to vanish into an empty catch: the button did nothing at all and the",
     "// reader had no way to learn the surface cannot go fullscreen here.",
+    "// The note body is the source of truth, and it can move while this editor is open: a sync arriving",
+    "// from another device, an undo, a version restore. Nothing used to push it back into the canvas, so",
+    "// the drawing kept showing an old scene while the note already held a new one. The one change that",
+    "// must not come back around is our own save, which is exactly what lastSavedRef marks.",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
@@ -10802,6 +10810,7 @@ const allowed = new Map([
   ]],
   ["src/shared/text-utils.ts", [
     "/**\n * UTF-8 byte length without allocating an encoded copy (note bodies reach 1.9 MB and\n * this runs on every write). Lone surrogates count as 3 bytes, matching TextEncoder's\n * U+FFFD replacement.\n */",
+    "/**\n * Title suffixes that carry a note's file type. The workspace picks the drawing editor and the mind map\n * editor off the END of the title, so appending the copy marker after the extension turns the duplicate\n * into plain text: `Board.excalidraw` used to become `Board.excalidraw copy`, which no editor claims.\n * The list lives here because this module must not reach into the client; the test pins both consumers\n * (`isMindmapDocumentTitle` and the workspace's drawing check) to it, so adding a type without adding\n * it here goes red.\n */",
   ]],
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",

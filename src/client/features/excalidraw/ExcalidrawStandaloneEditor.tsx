@@ -247,6 +247,26 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         };
     }, [note.id]);
 
+    // The note body is the source of truth, and it can move while this editor is open: a sync arriving
+    // from another device, an undo, a version restore. Nothing used to push it back into the canvas, so
+    // the drawing kept showing an old scene while the note already held a new one. The one change that
+    // must not come back around is our own save, which is exactly what lastSavedRef marks.
+    useEffect(() => {
+        if (!api) return;
+        if (content === lastSavedRef.current) return;
+        const parsed = parseExcalidrawBody(content);
+        if (!parsed.ok) return;
+        api.updateScene({
+            elements: restoreSceneElements(api, parsed.data.elements),
+            appState: parsed.data.appState,
+        });
+        if (parsed.data.files) {
+            api.addFiles(Object.values(parsed.data.files));
+        }
+        lastSavedRef.current = content;
+        setRawCode(content);
+    }, [content, api]);
+
     const handleCanvasChange = useCallback(
         (elements: readonly any[], appState: any, files: any) => {
             if (!interactedRef.current) return;

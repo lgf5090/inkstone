@@ -18,6 +18,16 @@ export function truncateText(value: string, maxLength: number): string {
   return sliceText(value, 0, limit)
 }
 
+/**
+ * Title suffixes that carry a note's file type. The workspace picks the drawing editor and the mind map
+ * editor off the END of the title, so appending the copy marker after the extension turns the duplicate
+ * into plain text: `Board.excalidraw` used to become `Board.excalidraw copy`, which no editor claims.
+ * The list lives here because this module must not reach into the client; the test pins both consumers
+ * (`isMindmapDocumentTitle` and the workspace's drawing check) to it, so adding a type without adding
+ * it here goes red.
+ */
+export const NOTE_TYPE_SUFFIXES = ['.excalidraw', '.elixir']
+
 export function duplicateNoteTitle(
   title: string,
   maxLength: number,
@@ -26,7 +36,11 @@ export function duplicateNoteTitle(
 ): string {
   const normalizedSuffix = truncateText(suffix, maxLength)
   const base = title.trim() || fallback
-  return truncateText(base, Math.max(0, maxLength - normalizedSuffix.length)) + normalizedSuffix
+  const matched = NOTE_TYPE_SUFFIXES.find((candidate) => base.toLowerCase().endsWith(candidate))
+  const type = matched ? base.slice(base.length - matched.length) : ''
+  const head = type ? base.slice(0, base.length - type.length) : base
+  const reserve = normalizedSuffix.length + type.length
+  return truncateText(head, Math.max(0, maxLength - reserve)) + normalizedSuffix + type
 }
 
 /**
