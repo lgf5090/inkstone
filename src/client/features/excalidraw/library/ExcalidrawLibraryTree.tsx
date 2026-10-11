@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { usePinyinVersion } from '../../../lib/pinyin'
 import {
   Folder,
   FolderPlus,
@@ -296,6 +297,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   }, [init])
 
   const compiledQuery = useMemo(() => compileQuery(searchText), [searchText])
+  const pinyinVersion = usePinyinVersion()
   const tree = useMemo(() => buildLibraryTree(folders, items), [folders, items])
 
   const visibleFolders = useMemo(() => {
@@ -325,7 +327,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
       if (f) res.push(f)
     }
     return res
-  }, [tree, searchText, compiledQuery, items, folders])
+  }, [tree, searchText, compiledQuery, items, folders, pinyinVersion])
 
   const displayedItems = useMemo(() => {
     let list = items
@@ -336,14 +338,14 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
       list = list.filter((it) => itemMatchesQuery(it, compiledQuery, folders))
     }
     return list
-  }, [items, activeFolderId, searchText, compiledQuery, folders])
+  }, [items, activeFolderId, searchText, compiledQuery, folders, pinyinVersion])
 
   const otherMatchesCount = useMemo(() => {
     if (!searchText.trim() || !activeFolderId) return 0
     return items.filter(
       (it) => it.folderId !== activeFolderId && itemMatchesQuery(it, compiledQuery, folders),
     ).length
-  }, [items, activeFolderId, searchText, compiledQuery, folders])
+  }, [items, activeFolderId, searchText, compiledQuery, folders, pinyinVersion])
 
   const handleCreateSubfolder = (parentId: string | null) => {
     const name = newSubfolderName.trim() || t('excalidraw.new_folder')
@@ -442,6 +444,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
         >
           <button
             type="button"
+            aria-label={t('excalidraw.expand_or_collapse_folder')}
             onClick={(e) => {
               e.stopPropagation()
               toggleFolder(node.id)
@@ -478,6 +481,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
               />
               <button
                 type="button"
+                aria-label={t('excalidraw.rename_folder')}
                 onClick={() => {
                   renameFolder(node.id, editingFolderName)
                   setEditingFolderId(null)
@@ -564,6 +568,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
             />
             <button
               type="button"
+              aria-label={t('excalidraw.new_subfolder')}
               onClick={() => handleCreateSubfolder(node.id)}
               className="p-1 text-[var(--accent)]"
             >
@@ -571,6 +576,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
             </button>
             <button
               type="button"
+              aria-label={t('common.cancel')}
               onClick={() => setAddingToFolderId(null)}
               className="p-1 text-[var(--text-tertiary)]"
             >
@@ -676,6 +682,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
             />
             <button
               type="button"
+              aria-label={t('excalidraw.new_subfolder')}
               onClick={() => handleCreateSubfolder(null)}
               className="p-1 text-[var(--accent)]"
             >
@@ -683,6 +690,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
             </button>
             <button
               type="button"
+              aria-label={t('common.cancel')}
               onClick={() => setAddingToFolderId(null)}
               className="p-1 text-[var(--text-tertiary)]"
             >
@@ -807,6 +815,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                           />
                           <button
                             type="button"
+                            aria-label={t('excalidraw.rename_item')}
                             onClick={() => {
                               renameItem(item.id, editingItemName)
                               setEditingItemId(null)
@@ -826,7 +835,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                       )}
 
                       <div
-                        className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-surface)]/90 backdrop-blur-xs rounded shadow-xs p-0.5"
+                        className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-surface)] rounded shadow-xs p-0.5"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button

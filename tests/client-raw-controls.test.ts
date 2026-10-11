@@ -64,6 +64,10 @@ const CLIENT_DIR = path.join('src', 'client')
  */
 const COMPONENT_NAMED_BUTTONS = new Map<string, string>([
   [
+    'src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx',
+    'The import buttons switch their own caption: while a download runs they draw a spinner plus a different string, so the read sees a conditional fragment where the name is. A screen reader reads the span the component writes, which is the name the button has at that moment.',
+  ],
+  [
     'src/client/components/form.tsx',
     'The checkbox row takes its name from its `label`, which the row draws inside a `<span>`: this read sees an element where a browser reads that span\'s text. A row created with no label is unnamed, and that is the caller\'s contract, not this element\'s.',
   ],
@@ -320,6 +324,13 @@ function findControl(element: ts.JsxElement): string | null {
  * carries the number of sites in the file, so a new one there fails rather than hiding behind it.
  */
 const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: string }>([
+  [
+    'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
+    {
+      sites: 6,
+      reason: 'Four of the six are wrappers whose only handler is stopPropagation, keeping a click inside an inline rename field or a hover toolbar from reaching the row behind it. The other two are the folder row and the stencil tile: both select on click and carry hover buttons, so the row has to stay a container - a button cannot own the drag, the drop target and the nested actions at once.',
+    },
+  ],
   [
     'src/client/features/preview/wiki-link-hover-card/index.tsx',
     {

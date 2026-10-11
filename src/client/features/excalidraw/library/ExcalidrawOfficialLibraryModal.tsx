@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { FilterInput } from '../../../components/FilterInput'
 import { compileQuery, queryMatches } from '../../../lib/query-match'
+import { usePinyinVersion } from '../../../lib/pinyin'
 import { api } from '../../../lib/api'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
@@ -123,6 +124,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
   }, [isOpen, selectedFolder, importFromLibraryData, onClose])
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
+  const pinyinVersion = usePinyinVersion()
 
   const filteredCatalog = useMemo(() => {
     if (!compiledQuery.text) return catalog
@@ -133,7 +135,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
         queryMatches(compiledQuery, item.authors?.[0]?.name || '')
       )
     })
-  }, [catalog, compiledQuery])
+  }, [catalog, compiledQuery, pinyinVersion])
 
   const handleImportOfficial = async (item: OfficialLibraryEntry) => {
     setImportingSource(item.source)
@@ -262,7 +264,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 animate-in fade-in duration-150">
       <div className="relative flex flex-col h-[88vh] max-h-[820px] w-full max-w-4xl rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xl overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-6 bg-[var(--bg-sunken)]">
           <div className="flex items-center gap-3">
@@ -290,6 +292,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
 
             <button
               type="button"
+              aria-label={t('common.close')}
               onClick={onClose}
               className="rounded-md p-1.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
             >
