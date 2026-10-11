@@ -116,6 +116,23 @@ const DEFAULT_PROVIDERS: Record<string, AIProviderConfig> = {
   },
 };
 
+/**
+ * The delay every drawing surface waits before writing the note body. The settings field carries a
+ * min/max, but that only shapes the widget: a value typed into the middle of the range, one restored
+ * from localStorage, and one synced from another device all bypass it. A 1 ms debounce turns the one
+ * 66-141 ms re-render that follows a gesture into one per engine change, which is what "editing a
+ * drawing stutters" looks like from the inside - so the clamp lives where the delay is read, not in
+ * the input, and a half-typed value can never reach a writer.
+ */
+export const AUTO_SAVE_MIN_MS = 200;
+export const AUTO_SAVE_MAX_MS = 5000;
+
+export function autoSaveDelayMs(value: unknown): number {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_SETTINGS.autoSaveIntervalMs;
+    return Math.min(AUTO_SAVE_MAX_MS, Math.max(AUTO_SAVE_MIN_MS, numeric));
+}
+
 const DEFAULT_SETTINGS = {
   folder: '',
   templateFilePath: '',

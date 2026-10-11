@@ -43,6 +43,7 @@ vi.mock('../../lib/markdown/excalidraw', async (importOriginal) => {
 });
 
 import { ExcalidrawStandaloneEditor } from './ExcalidrawStandaloneEditor';
+import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { serializeExcalidrawBody } from '../../lib/markdown/excalidraw';
 
 function scene(id: string) {
@@ -123,6 +124,24 @@ describe('the whole-page editor follows the note body', () => {
         await renderEditor({ content: '{ this is not a scene' });
 
         expect(elementPayloads()).toEqual([]);
+    });
+
+    it('holds its own autosave delay inside the advertised range', async () => {
+        useExcalidrawSettingsStore.setState({ autoSaveIntervalMs: 1 });
+        try {
+            const onChange = vi.fn();
+            await renderEditor({ content: scene('seed'), onChange });
+            host.querySelector('[data-fake-engine]')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+
+            engineProps.onChange([{ id: 'new-one', type: 'rectangle', x: 1, y: 1, width: 10, height: 10, isDeleted: false }], { viewBackgroundColor: '#ffffff' }, {});
+            await new Promise((resolve) => window.setTimeout(resolve, 60));
+            expect(onChange).not.toHaveBeenCalled();
+
+            await new Promise((resolve) => window.setTimeout(resolve, 400));
+            expect(onChange).toHaveBeenCalledTimes(1);
+        } finally {
+            useExcalidrawSettingsStore.setState({ autoSaveIntervalMs: 600 });
+        }
     });
 
     it('does not write the body it just saved back into the canvas', async () => {

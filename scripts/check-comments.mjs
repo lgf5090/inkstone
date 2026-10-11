@@ -741,6 +741,9 @@ const allowed = new Map([
     "// point. Running both used to make the second call overwrite the animated target the first had just",
     "// set, which is why Fit View snapped instead of easing and sometimes landed on the wrong zoom.",
   ]],
+  ["src/client/features/excalidraw/excalidraw-settings-store.ts", [
+    "/**\n * The delay every drawing surface waits before writing the note body. The settings field carries a\n * min/max, but that only shapes the widget: a value typed into the middle of the range, one restored\n * from localStorage, and one synced from another device all bypass it. A 1 ms debounce turns the one\n * 66-141 ms re-render that follows a gesture into one per engine change, which is what \"editing a\n * drawing stutters\" looks like from the inside - so the clamp lives where the delay is read, not in\n * the input, and a half-typed value can never reach a writer.\n */",
+  ]],
   ["src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx", [
     "/**\n   * Whether the engine's library sidebar is open, which the surface already learns from the engine's\n   * own onChange. Watching the canvas subtree for the slot instead meant a querySelector on every DOM\n   * change the engine makes mid-drag, and the observer never disconnected while the sidebar was closed\n   * because the slot it was looking for never existed.\n   */",
     "/** Bounded: every entry is a full exported SVG string, and this map outlived every surface. */",

@@ -46,7 +46,7 @@ import { applySceneElements, restoreSceneElements } from '../../lib/markdown/exc
 import { TextToDiagramModal } from './TextToDiagramModal';
 import { reparentMainMenuIntoFooter } from './chrome';
 import { toggleElementFullscreen } from './fullscreen';
-import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
+import { autoSaveDelayMs, useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { extractCodeBlock, streamChatCompletion, type AIMessage } from '../../lib/ai';
 
 interface ExcalidrawStandaloneEditorProps {
@@ -276,7 +276,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
             setLibraryOpen(isLibOpen);
             setIsSaved(false);
             window.clearTimeout(saveTimerRef.current);
-            const autoSaveMs = useExcalidrawSettingsStore.getState().autoSaveIntervalMs || 600;
+            const autoSaveMs = autoSaveDelayMs(useExcalidrawSettingsStore.getState().autoSaveIntervalMs);
             saveTimerRef.current = window.setTimeout(() => {
                 const scene: ExcalidrawSceneData = {
                     elements: elements as any[],

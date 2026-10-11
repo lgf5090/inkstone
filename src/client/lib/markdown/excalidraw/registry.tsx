@@ -22,7 +22,7 @@ import {
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from '../../../features/excalidraw/excalidraw-canvas-actions';
-import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
+import { autoSaveDelayMs, useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
 import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
@@ -272,7 +272,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         const scheduleSave = () => {
             if (!options.writeBack || !options.editable) return;
             window.clearTimeout(instance?.saveTimeout);
-            const debounceMs = useExcalidrawSettingsStore.getState().autoSaveIntervalMs || 600;
+            const debounceMs = autoSaveDelayMs(useExcalidrawSettingsStore.getState().autoSaveIntervalMs);
             const timeout = window.setTimeout(() => {
                 const currentData: ExcalidrawSceneData = {
                     elements: lastElements,

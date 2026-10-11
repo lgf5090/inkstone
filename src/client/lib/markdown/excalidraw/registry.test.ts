@@ -5,6 +5,7 @@ import { registerFenceBodies } from '../fence-bodies';
 import { applyBodyAtFence, findExcalidrawFence } from './body';
 import { setExcalidrawLibForTesting } from './loader';
 import { getExcalidrawInstance, mountExcalidrawBlocks, destroyExcalidrawBlocks } from './registry';
+import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import type { ExcalidrawWriteResult, ExcalidrawWriter } from './types';
 
 const SCENE_A = JSON.stringify({
@@ -383,6 +384,32 @@ describe('the fence block writes what the canvas drew', () => {
         expect(note.body).toContain('their-rect');
         expect(note.body).not.toContain('second-rect');
         expect(sourceTextUnderBlock('note-a')).not.toContain('second-rect');
+    });
+
+    it('keeps a nonsense autosave setting from writing on every change', async () => {
+        useExcalidrawSettingsStore.setState({ autoSaveIntervalMs: 1 });
+        try {
+            const note = makeNote(SCENE_A);
+            const host = hostWithFence(SCENE_A);
+            await mountInto(host, note.writer);
+            await flushReact();
+            const props = engineProps;
+            expect(props?.onChange).toBeTypeOf('function');
+
+            vi.useFakeTimers();
+            try {
+                touchCanvas('note-a');
+                drawOnCanvas(props, sceneWithElement('first-rect'));
+                await vi.advanceTimersByTimeAsync(50);
+                expect(note.results).toEqual([]);
+                await vi.advanceTimersByTimeAsync(400);
+                expect(note.results).toEqual(['written']);
+            } finally {
+                vi.useRealTimers();
+            }
+        } finally {
+            useExcalidrawSettingsStore.setState({ autoSaveIntervalMs: 600 });
+        }
     });
 
     it('leaves the engine alone when only the surrounding chrome changed', async () => {
