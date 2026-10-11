@@ -3174,6 +3174,8 @@ const allowed = new Map([
     "// Also outside the swap: a drawing's autosave changes only its fence body, and a block mounted into",
     "// the host resolves that body by walking up from itself to the nearest registered element. The",
     "// staging copy carries the same set for `patchChildren` above, which compares the two.",
+    "// The preview owns the canvas: useExcalidrawBlocks mounts it from the committed markup, so this",
+    "// pass has to leave the placeholder standing rather than swap in source text.",
   ]],
   ["src/client/features/preview/block-actions.test.ts", [
     "// i18n is uninitialised in this file, so the fallback tab title arrives as its key.",
@@ -6633,9 +6635,13 @@ const allowed = new Map([
     "/**\n     * Which still `snapshot` draws. The list is what a card and a share page can carry in the room they\n     * have; a surface that is read from across a room — a projector — owes the reader which column a\n     * card sits in, because that is part of what the card says. Only read when `kanban` is 'snapshot',\n     * so the channel answer stays the one `tests/kanban-render-channel.test.ts` checks.\n     */",
     "/**\n * The prose whitelist strips inline styles, so the geometry a reader configured arrives as data\n * attributes and is painted here. An export keeps the stylesheet defaults instead.\n */",
     "/**\n     * How this surface treats a `dataview` query block. `live` means the caller mounts the answer itself\n     * with `renderDataviewBlocks`, because it has the note store and can wait for bodies; `source` shows\n     * the query text, which is what a surface that must not read other notes — a share page, a printed\n     * sheet — or one with no room for a table — a note card — owes the reader instead of a placeholder\n     * that never resolves.\n     */",
+    "/**\n     * How this surface treats ```excalidraw blocks. 'live' means the caller mounts a writable canvas\n     * itself from the committed markup, so this pass must leave the placeholder alone; 'source' shows\n     * the scene text. Required rather than optional for the reason the mind map channel gives: a\n     * surface that forgets it leaves every block saying \"Loading drawing...\" forever, and nothing else\n     * on that surface will ever touch it.\n     */",
   ]],
   ["src/client/lib/markdown/excalidraw/loader.ts", [
     "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",
+  ]],
+  ["src/client/lib/markdown/excalidraw/view.ts", [
+    "/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */",
   ]],
   ["src/client/lib/markdown/external-images.ts", [
     "/**\n * The one answer to \"does this URL leave this origin?\" that the board reads for a cover, an\n * attachment preview and an attachment link.\n *\n * A note can be shared, so a file served by whoever wrote it is a different trust case from one this\n * app stored: an attachment link wearing `download` would navigate the app's own tab away rather than\n * save the file, and a preview of it is a fetch to somewhere the reader never chose.\n */",

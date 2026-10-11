@@ -264,6 +264,9 @@ export const Preview = memo(function Preview({
         // to leave the placeholder standing: a snapshot drawn here would be swapped in over the live
         // canvas by the next diff, and the registry would then re-parent into a block holding an image.
         mindmap: 'live',
+        // The preview owns the canvas: useExcalidrawBlocks mounts it from the committed markup, so this
+        // pass has to leave the placeholder standing rather than swap in source text.
+        excalidraw: 'live',
         // A query block is filled by `renderDataviewBlocks` on this host after the diff, because its
         // answer depends on note bodies that may still be on their way — which staging cannot wait for.
         dataview: 'live',

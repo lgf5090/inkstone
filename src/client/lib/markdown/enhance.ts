@@ -13,6 +13,7 @@ import { t, type MessageKey } from "../i18n";
 import { getLocale } from "../i18n";
 import { renderStaticMindmaps } from './mindmap/static';
 import { showMindmapSourceAll } from './mindmap/view';
+import { showExcalidrawSourceAll } from './excalidraw/view';
 import { showDataviewSource } from '../dataview/body';
 import { highlightWithPrism } from './prism';
 import {
@@ -1003,6 +1004,14 @@ export interface EnhanceOptions {
      * that never resolves.
      */
     dataview: 'live' | 'source';
+    /**
+     * How this surface treats ```excalidraw blocks. 'live' means the caller mounts a writable canvas
+     * itself from the committed markup, so this pass must leave the placeholder alone; 'source' shows
+     * the scene text. Required rather than optional for the reason the mind map channel gives: a
+     * surface that forgets it leaves every block saying "Loading drawing..." forever, and nothing else
+     * on that surface will ever touch it.
+     */
+    excalidraw: 'live' | 'source';
     dark: boolean;
     codeBlockCollapseLines?: number;
 }
@@ -1030,6 +1039,8 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
     // forever, because nothing else on this surface ever touches it.
     if (options.mindmap === 'source')
         showMindmapSourceAll(root);
+    if (options.excalidraw === 'source')
+        showExcalidrawSourceAll(root);
     if (options.dataview === 'source')
         showDataviewSource(root);
     if (!options.math)

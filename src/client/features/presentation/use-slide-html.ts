@@ -59,6 +59,7 @@ async function prepareStagedSlide(source: {
     kanban: 'snapshot',
     kanbanShape: 'board',
     mindmap: 'snapshot',
+    excalidraw: 'source',
     // A slide carries what the markup can hold: the query text, not an answer pulled from notes the
     // deck never asked for. Exported and printed decks read the same string this pass produces.
     dataview: 'source',

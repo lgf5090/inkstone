@@ -156,6 +156,24 @@ export function markExcalidrawReady(node: HTMLElement): void {
     placeholder?.remove();
 }
 
+/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */
+export function showExcalidrawSource(node: HTMLElement): void {
+    node.querySelector('.excalidraw-block-head')?.remove();
+    node.classList.remove('loading', 'has-error', 'is-ready');
+    node.classList.add('excalidraw-source');
+    node.setAttribute('aria-busy', 'false');
+    const placeholder = node.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR) ?? node;
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = excalidrawBody(node);
+    pre.append(code);
+    placeholder.replaceChildren(pre);
+}
+
+export function showExcalidrawSourceAll(root: ParentNode): void {
+    excalidrawBlocks(root).forEach(showExcalidrawSource);
+}
+
 export function showExcalidrawError(node: HTMLElement, message: string, onRetry?: () => void): void {
     node.classList.remove('loading', 'is-ready');
     node.classList.add('has-error');
