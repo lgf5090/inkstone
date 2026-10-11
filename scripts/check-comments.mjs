@@ -3168,6 +3168,9 @@ const allowed = new Map([
     "// re-syncing the subtree would put the loading placeholder back over a table that did not change,",
     "// and the reader would watch it blink on every keystroke. The two hosts are the same block when the",
     "// query text in `data-dataview` is identical, which is the one thing a re-render cannot move.",
+    "// The scene no longer rides in the attribute (P-01 family), so the two blocks' fence bodies are",
+    "// what say whether the drawing changed: the staged one resolves against this pass's set, the live",
+    "// one against the set registered when it was mounted, and a canvas is not in `innerHTML` either.",
   ]],
   ["src/client/features/preview/block-actions.test.ts", [
     "// i18n is uninitialised in this file, so the fallback tab title arrives as its key.",
@@ -3667,6 +3670,9 @@ const allowed = new Map([
     "// hear about rather than watch silently do nothing.",
     "// The DOM is re-rendered from source shortly; close on the live node now too so the popover never",
     "// lingers over the block while the edit commits.",
+  ]],
+  ["src/client/features/preview/use-excalidraw-blocks.ts", [
+    "/**\n     * The scene bodies this markup was rendered from, registered on the live host before mounting: the\n     * preview registers them on its detached staging copy, and a block that was moved into the host\n     * reads nothing above it without this. Also a mount trigger, because a body-only edit leaves the\n     * markup string identical. Null until the pane has committed markup once — mounting before that\n     * would park every block on an empty scene it can no longer be told out of.\n     */",
   ]],
   ["src/client/features/preview/use-kanban-blocks.ts", [
     "/**\n   * The fence bodies this markup was rendered from (P-01), registered on the host before mount. Also a\n   * mount trigger: a body-only edit leaves the markup string identical.\n   *\n   * Null until the pane has committed markup for the first time. Mounting before that reads an empty\n   * fence set, and the root takes its data into `useState` — a later pass carrying the real body cannot\n   * reach that state, so the board would go on showing the empty one it parsed first.\n   */",
@@ -9439,6 +9445,9 @@ const allowed = new Map([
     "// The escapers live in `./data-attr` so a fence module can build markup without importing this file",
     "// back; they are re-exported here because every existing caller reaches for them on the renderer.",
     "/**\n * How one stored colour travels into the markup.\n *\n * The document pipeline bans `style` outright and exempts exactly one declaration of one plain hex on\n * a text-bearing tag, so a hex goes inline and the accent token goes as a hook the stylesheet paints\n * (`.pp-text-token`, `.pp-pill[data-pp-token]`). Both resolve to the same colour the reading pane's\n * panel sets through the CSSOM, where no sanitizer is involved. Anything else paints nothing here and\n * nothing there either.\n */",
+    "// The scene travels in the render's fence set, not in an attribute: a busy drawing is hundreds of",
+    "// kilobytes of JSON, and an attribute would re-encode it, re-parse it and walk it through the",
+    "// sanitizer on every keystroke of the note beside it.",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",

@@ -1,5 +1,5 @@
 import { t } from '../../i18n';
-import { decodeDataValue } from '../data-attr';
+import { fenceBody } from '../fence-bodies';
 import type { ExcalidrawFenceRef } from './types';
 
 export const EXCALIDRAW_BLOCK_SELECTOR = '[data-excalidraw]';
@@ -50,8 +50,7 @@ export function excalidrawBlocks(root: ParentNode): HTMLElement[] {
 }
 
 export function excalidrawBody(node: HTMLElement): string {
-    const raw = node.getAttribute('data-excalidraw');
-    return raw ? decodeDataValue(raw) : '';
+    return fenceBody(node, 'excalidraw', excalidrawIndex(node));
 }
 
 export function excalidrawIndex(node: HTMLElement): number {

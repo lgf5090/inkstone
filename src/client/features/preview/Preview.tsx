@@ -160,6 +160,7 @@ export const Preview = memo(function Preview({
     hostRef,
     epoch: mermaidEpoch,
     dark: theme === 'dark',
+    fences: kanbanCommit?.fences ?? null,
   })
 
   const kanban = useKanbanBlocks({
@@ -1032,8 +1033,14 @@ export function patchDom(dest: Node, src: Node): void {
       }
     }
 
+    // The scene no longer rides in the attribute (P-01 family), so the two blocks' fence bodies are
+    // what say whether the drawing changed: the staged one resolves against this pass's set, the live
+    // one against the set registered when it was mounted, and a canvas is not in `innerHTML` either.
     if (destEl.hasAttribute('data-excalidraw') && srcEl.hasAttribute('data-excalidraw')) {
-      if (destEl.getAttribute('data-excalidraw') === srcEl.getAttribute('data-excalidraw') &&
+      const destIndex = Number.parseInt(destEl.getAttribute('data-excalidraw-index') ?? '', 10)
+      const srcIndex = Number.parseInt(srcEl.getAttribute('data-excalidraw-index') ?? '', 10)
+      if (Number.isInteger(destIndex) && destIndex === srcIndex &&
+        fenceBody(destEl, 'excalidraw', destIndex) === fenceBody(srcEl, 'excalidraw', srcIndex) &&
         destEl.classList.contains('is-ready')) {
         if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return

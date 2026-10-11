@@ -19,6 +19,7 @@
 
 export interface FenceBodies {
   kanban: string[]
+  excalidraw: string[]
 }
 
 interface FenceBodiesHost {
@@ -26,7 +27,7 @@ interface FenceBodiesHost {
 }
 
 export function createFenceBodies(): FenceBodies {
-  return { kanban: [] }
+  return { kanban: [], excalidraw: [] }
 }
 
 /**
@@ -36,7 +37,7 @@ export function createFenceBodies(): FenceBodies {
  * carrying the embeds of every pass over the same document.
  */
 export function cloneFenceBodies(bodies: FenceBodies): FenceBodies {
-  return { kanban: [...bodies.kanban] }
+  return { kanban: [...bodies.kanban], excalidraw: [...bodies.excalidraw] }
 }
 
 /**
@@ -73,9 +74,13 @@ export function findFenceBodies(node: Element): FenceBodies | null {
  */
 export function sameFenceBodies(current: FenceBodies, next: FenceBodies): boolean {
   if (current === next) return true
-  const a = current.kanban
-  const b = next.kanban
-  return a.length === b.length && a.every((body, index) => body === b[index])
+  const families = Object.keys(current) as Array<keyof FenceBodies>
+  if (families.length !== Object.keys(next).length) return false
+  return families.every((family) => {
+    const a = current[family]
+    const b = next[family]
+    return a.length === b.length && a.every((body, index) => body === b[index])
+  })
 }
 
 /**

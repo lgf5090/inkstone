@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderMarkdown } from '../renderer';
+import { registerFenceBodies } from '../fence-bodies';
 import { setExcalidrawLibForTesting } from './loader';
 import { getExcalidrawInstance, mountExcalidrawBlocks, destroyExcalidrawBlocks } from './registry';
 
@@ -63,8 +64,16 @@ async function countSceneParses(needle: string, run: () => Promise<void>): Promi
 
 function hostWithFence(scene: string): HTMLElement {
     const host = document.createElement('div');
-    host.innerHTML = renderMarkdown(`${FENCE}excalidraw\n${scene}\n${FENCE}`).html;
+    const rendered = renderMarkdown(`${FENCE}excalidraw\n${scene}\n${FENCE}`);
+    host.innerHTML = rendered.html;
+    registerFenceBodies(host, rendered.fences);
     return host;
+}
+
+function swapFenceBody(host: HTMLElement, scene: string): void {
+    const next = hostWithFence(scene);
+    host.replaceChildren(...next.childNodes);
+    registerFenceBodies(host, renderMarkdown(`${FENCE}excalidraw\n${scene}\n${FENCE}`).fences);
 }
 
 beforeEach(() => {
@@ -98,8 +107,7 @@ describe('the excalidraw block registry', () => {
         });
         const first = getExcalidrawInstance('probe-scope', 'note-a', 0);
 
-        const hostB = hostWithFence(SCENE_B);
-        hostA.replaceChildren(...hostB.childNodes);
+        swapFenceBody(hostA, SCENE_B);
         await mountExcalidrawBlocks(hostA, {
             scope: 'probe-scope',
             noteId: 'note-b',
@@ -128,8 +136,7 @@ describe('the excalidraw block registry', () => {
             writeBack: writerA,
         });
 
-        const hostB = hostWithFence(SCENE_B);
-        host.replaceChildren(...hostB.childNodes);
+        swapFenceBody(host, SCENE_B);
         vi.useFakeTimers();
         await mountExcalidrawBlocks(host, {
             scope: 'probe-scope',
@@ -186,8 +193,7 @@ describe('the excalidraw block registry', () => {
             writeBack: vi.fn(),
         });
         await mount();
-        const hostB = hostWithFence(SCENE_B);
-        host.replaceChildren(...hostB.childNodes);
+        swapFenceBody(host, SCENE_B);
         expect(await countSceneParses('b-rect', mount)).toBe(1);
     });
 });
