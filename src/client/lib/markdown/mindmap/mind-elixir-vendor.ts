@@ -17,6 +17,7 @@ import type { MindElixirData, MindElixirInstance, Options } from 'mind-elixir';
 import type { AppLocale } from '@shared/types';
 import { safeReviver } from '../chart';
 import { normalizeEol, type MindmapMode } from './body';
+import { mindmapNodeId } from './document';
 import { assertMindmapBodySize, mindmapTextAsMarkup, sanitizeMindmapData } from './nodes';
 import { APP_THEME_CHOICE, readThemeChoice, resolveThemeChoice, type MindmapPalette } from './theme';
 import type { MindmapCreateOptions, MindmapHandle, MindmapParseResult, MindmapThemeInput, MindmapVendor } from './types';
@@ -49,6 +50,30 @@ function asData(value: unknown): MindElixirData {
     return isRecord(value) ? (value as MindElixirData) : MindElixir.new('');
 }
 
+/**
+ * The top-level fields the library reads off the file itself, checked on the way in.
+ * `init` assigns `direction` to the instance without looking at it, so a body naming
+ * `"direction": "down"` would leave the drawer computing offsets against a string and
+ * drawing `NaN` connectors — the same reason `theme` is refused rather than ignored.
+ */
+function documentFields(extra: Record<string, unknown>): { fields: Record<string, unknown> } | { error: string } {
+    const fields: Record<string, unknown> = {};
+    const { direction, compact, meta } = extra;
+    if (direction !== undefined) {
+        if (direction !== 0 && direction !== 1 && direction !== 2 && direction !== 3)
+            return { error: '"direction" must be 0 (left), 1 (right), 2 (side) or 3 (down)' };
+        fields.direction = direction;
+    }
+    if (compact !== undefined) {
+        if (typeof compact !== 'boolean')
+            return { error: '"compact" must be true or false' };
+        fields.compact = compact;
+    }
+    if (isRecord(meta))
+        fields.meta = meta;
+    return { fields };
+}
+
 /** JSON bodies are validated before use; the outline parser reports its own errors. */
 function parseBody(body: string, mode: MindmapMode, fallbackTitle: string): MindmapParseResult {
     const text = normalizeEol(body).trim();
@@ -71,7 +96,11 @@ function parseBody(body: string, mode: MindmapMode, fallbackTitle: string): Mind
         const theme = readThemeChoice(extra.theme);
         if ('error' in theme)
             return { ok: false, error: theme.error };
+        const fields = documentFields(extra);
+        if ('error' in fields)
+            return { ok: false, error: fields.error };
         const data = sanitizeMindmapData({
+            ...fields.fields,
             ...(present(arrows) ? { arrows } : {}),
             ...(present(summaries) ? { summaries } : {}),
             nodeData,
@@ -155,8 +184,42 @@ function paintTheme(instance: MindElixirInstance, input: MindmapThemeInput): voi
 
 function createHandle(instance: MindElixirInstance, options: MindmapCreateOptions): MindmapHandle {
     const theme: MindmapThemeInput = { dark: options.dark, choice: options.body.theme };
+    /** The library keeps the node's data on the element it drew for it. */
+    const idOf = (node: unknown): string | null => {
+        const obj = (node as { nodeObj?: { id?: unknown } } | null | undefined)?.nodeObj;
+        return typeof obj?.id === 'string' ? obj.id : null;
+    };
+    /**
+     * The node's element, or null when the map is not showing it. `findEle` *throws* for
+     * an id it cannot see — a collapsed branch, a node another tab deleted a moment ago —
+     * and an action that arrives after the selection it was offered has to decline quietly
+     * rather than fail on the click.
+     */
+    const elementOf = (id: string) => {
+        try {
+            return instance.findEle(id) ?? null;
+        }
+        catch {
+            return null;
+        }
+    };
+    const addChild = async (id: string, topic: string): Promise<void> => {
+        const parent = elementOf(id);
+        if (!parent)
+            return;
+        await instance.addChild(parent, { id: mindmapNodeId(), topic, children: [] });
+    };
     return {
         getData: () => instance.getData(),
+        selectedNodeId: () => idOf(instance.currentNode),
+        renameNode: (id, topic) => {
+            const node = elementOf(id);
+            if (node)
+                void instance.setNodeTopic(node, topic);
+        },
+        appendChildren: (id, topics) => {
+            void topics.reduce((chain, topic) => chain.then(() => addChild(id, topic)), Promise.resolve());
+        },
         refresh: (body) => {
             theme.choice = body.theme;
             instance.refresh(asData(body.data));
@@ -206,15 +269,19 @@ function createHandle(instance: MindElixirInstance, options: MindmapCreateOption
 }
 
 /**
- * Puts the write path back in motion when the map steps through its own history. `undo` and `redo` are
- * the one way the map changes shape that the library keeps to itself: they restore a snapshot and
- * re-draw by hand without firing `operation`, so the app is never told and the note goes on holding
- * the edit the map just took back. Both callers look the method up on the instance when they fire —
- * the library binds its Ctrl+Z handler to the container and `createHandle` calls `instance.undo()` —
- * so replacing it here reaches both. A step that changed nothing costs nothing: the write path
- * compares the body it would send with the one the map came from.
+ * Puts the write path back in motion for the changes the library keeps to itself. `undo`
+ * and `redo` restore a snapshot and re-draw by hand; `setNodeTopic` writes the topic,
+ * re-renders the node and re-links the connectors — and none of them fire `operation`, so
+ * the app is never told and the note goes on holding what the map used to say. All three
+ * are wrapped here rather than at the call sites: the callers are the map's own key
+ * bindings and context menu as much as this app's actions, and a write path that only
+ * runs when Inkstone asked for the change is the one that goes stale. Both callers look
+ * the method up on the instance when they fire — the library binds its Ctrl+Z handler to
+ * the container and `createHandle` calls `instance.undo()` — so replacing it here reaches
+ * both. A step that changed nothing costs nothing: the write path compares the body it
+ * would send with the one the map came from.
  */
-function announceHistory(instance: MindElixirInstance, onOperation: () => void): void {
+function announceSilentChanges(instance: MindElixirInstance, onOperation: () => void): void {
     for (const command of ['undo', 'redo'] as const) {
         const step = instance[command];
         // The library installs its history during `init`, and only for a map it may edit.
@@ -223,6 +290,14 @@ function announceHistory(instance: MindElixirInstance, onOperation: () => void):
         instance[command] = function (this: MindElixirInstance) {
             step.call(this);
             onOperation();
+        };
+    }
+    const rename = instance.setNodeTopic;
+    if (typeof rename === 'function') {
+        instance.setNodeTopic = function (this: MindElixirInstance, el, topic) {
+            const done = rename.call(this, el, topic);
+            Promise.resolve(done).then(onOperation, onOperation);
+            return done;
         };
     }
 }
@@ -272,7 +347,7 @@ function createMindmap(options: MindmapCreateOptions): MindmapHandle {
     if (failure)
         throw failure;
     // The library installs its history during `init`, which is why this runs after it.
-    announceHistory(instance, options.onOperation);
+    announceSilentChanges(instance, options.onOperation);
     return createHandle(instance, options);
 }
 

@@ -1,6 +1,7 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Search, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
+import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { groupLabel, parseDateKey } from '../../lib/time';
@@ -349,6 +350,11 @@ export function NoteList() {
                   <Brush size={14}/>
                 </IconButton>
               </Tooltip>)}
+            {view !== 'trash' && view !== 'archived' && (<Tooltip label={t("common.new_mindmap")}>
+                <IconButton label={t("common.new_mindmap")} size="sm" onClick={() => void useNotes.getState().createMindmapNote(folderId ?? undefined)}>
+                  <Network size={14}/>
+                </IconButton>
+              </Tooltip>)}
             <Tooltip label={t('navigation.close_list')} combo={APP_SHORTCUTS.toggleList}>
               <IconButton label={t('navigation.close_list')} size="sm" onClick={() => useUi.getState().toggleList()}><X size={14}/></IconButton>
             </Tooltip>
@@ -560,6 +566,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
             },
             { id: 'duplicate', label: t("notes.create_a_copy"), icon: <Copy size={13}/>, onSelect: () => void duplicateNote(note.id) },
             { id: 'new-drawing', label: t("common.new_drawing"), icon: <Brush size={13}/>, onSelect: () => void useNotes.getState().createExcalidrawNote(note.folderId) },
+            { id: 'new-mindmap', label: t("common.new_mindmap"), icon: <Network size={13}/>, onSelect: () => void useNotes.getState().createMindmapNote(note.folderId) },
             {
                 id: 'archive',
                 label: note.isArchived ? t("common.unarchive") : t("navigation.archive"),
@@ -626,6 +633,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               {note.title.endsWith('.excalidraw') && <Brush size={12} className="shrink-0 text-[var(--accent)]"/>}
+              {isMindmapDocumentTitle(note.title) && <Network size={12} className="shrink-0 text-[var(--accent)]"/>}
               {note.isPinned && <Pin size={10} className="anim-mark-enter shrink-0 text-[var(--accent)]"/>}
               <h3 className={cn('min-w-0 flex-1 truncate text-[13px] leading-snug', active
             ? 'font-semibold text-[var(--accent)]'

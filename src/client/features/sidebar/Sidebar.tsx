@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, ScanSearch, Settings, Settings2, Smile, SortAsc, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, ScanSearch, Settings, Settings2, Smile, SortAsc, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -154,6 +154,7 @@ function SidebarRail({ onExpand }: {
         <RailButton label={t("templates.new_note_from_template")} combo={APP_SHORTCUTS.templates} icon={<LayoutTemplate size={16}/>} active={panel === 'templates'} onClick={() => togglePanel('templates')}/>
         <RailButton label={t("common.new_note")} combo={APP_SHORTCUTS.newNote} accent icon={<FilePlus2 size={16}/>} onClick={() => void createContextualNote()}/>
         <RailButton label={t("common.new_drawing")} icon={<Brush size={16}/>} onClick={() => void useNotes.getState().createExcalidrawNote()}/>
+        <RailButton label={t("common.new_mindmap")} icon={<Network size={16}/>} onClick={() => void useNotes.getState().createMindmapNote()}/>
       </div>
 
       <span className="flex-1"/>
@@ -555,6 +556,9 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
         <Tooltip label={t("common.new_drawing")}>
           <IconButton label={t("common.new_drawing")} size="sm" onClick={() => void useNotes.getState().createExcalidrawNote()}><Brush size={13}/></IconButton>
         </Tooltip>
+        <Tooltip label={t("common.new_mindmap")}>
+          <IconButton label={t("common.new_mindmap")} size="sm" onClick={() => void useNotes.getState().createMindmapNote()}><Network size={13}/></IconButton>
+        </Tooltip>
         <Tooltip label={t("common.new_folder")}>
           <IconButton label={t("common.new_folder")} size="sm" disabled={creating} onClick={() => void create(null)}>
             <FolderPlus size={13}/>
@@ -760,6 +764,11 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             useUi.getState().openExplorer(node.id);
             useUi.getState().expandFolder(node.id);
             void useNotes.getState().createExcalidrawNote(node.id);
+        } },
+        { id: 'new-mindmap', label: t("sidebar.create_new_mindmap_here"), icon: <Network size={13}/>, onSelect: () => {
+            useUi.getState().openExplorer(node.id);
+            useUi.getState().expandFolder(node.id);
+            void useNotes.getState().createMindmapNote(node.id);
         } },
         { id: 'new-child', label: t("sidebar.new_subfolder"), icon: <FolderPlus size={13}/>, disabled: !canCreateChild, onSelect: () => onCreateChild(node.id) },
         { id: 'color', label: t("folders.color"), icon: <Palette size={13}/>, separatorBefore: true, submenu: ({ closeMenu }) => (<FolderColorMenu color={node.color} onSelectColor={(color) => {

@@ -54,6 +54,9 @@ function fakeHandle(payload: unknown): FakeHandle {
             handle.themes.push(input);
         },
         toCenter: () => bump('toCenter'),
+        selectedNodeId: () => null,
+        renameNode: () => bump('renameNode'),
+        appendChildren: () => bump('appendChildren'),
         layout: () => bump('layout'),
         scaleFit: () => bump('scaleFit'),
         focus: () => bump('focus'),
