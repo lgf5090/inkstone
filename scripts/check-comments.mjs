@@ -708,6 +708,9 @@ const allowed = new Map([
   ["src/client/features/excalidraw/ExcalidrawStandaloneEditor.tsx", [
     "// Spreading the coordinates into Math.min/Math.max overflows the argument list once a",
     "// generated diagram is large enough; the bounds helper walks the array instead.",
+    "// Per-editor, not keyed on the api object the engine hands out: the api arrives from a callback that",
+    "// may not have run yet when the first pointerdown lands, and a touch that finds no api is a touch the",
+    "// gate never hears about, which would keep this canvas read-only forever.",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
@@ -6672,8 +6675,19 @@ const allowed = new Map([
     "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",
     "/**\n * The engine's host protocol has one global `runAction` callback, so only one surface can own it at a\n * time — but the previous shape (pass `null` to unregister) let any surface's cleanup blank out the\n * handler that a *different* surface had installed last, which silently killed \"insert LaTeX / note\n * card / link\" on every canvas at once with no error anywhere. The returned disposer now only steps\n * aside if it is still the current owner, restoring whoever held it before.\n */",
     "/* nothing registered, nothing to release */",
-    "/**\n * The engine reports a change immediately after it restores a scene, and the restored JSON is never\n * byte-identical to the text in the note (it gains `version`, `created`, `hasTextLink`, and drops\n * nothing). A surface that writes on every change therefore marks the note dirty, autosaves it, bumps\n * its revision and syncs that bump to every other device — from a look. So both surfaces only write\n * once the reader has actually touched *that* canvas, which is what this flag records: the engine\n * hands out one API object per mount, so the map is keyed on it and dies with the instance.\n */",
-    "/**\n * The engine reports a change immediately after it restores a scene, and the restored JSON is never\n * byte-identical to the text in the note (it gains version, created and hasTextLink fields). A surface\n * that writes on every change therefore marks the note dirty, autosaves it, bumps its revision and\n * syncs that bump to every other device - from a look. Both surfaces therefore write only once the\n * reader has actually touched that canvas. The engine hands out one API object per mount, so the flag\n * is keyed on it and dies with the instance instead of leaking.\n */",
+  ]],
+  ["src/client/lib/markdown/excalidraw/registry.test.ts", [
+    "/**\n * The note, as the preview hands it to a block: one string, a writer that only accepts a body whose\n * fence still looks like the one the block was mounted from, and the scene text now inside that\n * fence, which is what the next render pass reads back out of the DOM.\n */",
+    "/** An edit that reached the note from somewhere other than this block, with no render pass in between. */",
+    "// A destroyed block's React root unmounts on a deferred timer, and a live root keeps calling the fake",
+    "// engine during the next test, which would overwrite the captured props with a dead instance's. So the",
+    "// unmount is flushed here rather than left to contaminate whichever test runs second.",
+  ]],
+  ["src/client/lib/markdown/excalidraw/registry.tsx", [
+    "/**\n     * What this block believes the fence currently holds, kept current by both directions: a render pass\n     * that arrives from the note, and a save we just pushed into it. The writer's conflict rule compares\n     * the note's fence body against this, so a stale value here rejects every save after the first one -\n     * and the save looks and reads as if it worked, because the scene text under the canvas already\n     * moved. One copy, refreshed on both sides, is what makes the second edit land.\n     */",
+    "// One flag per mount, deliberately not keyed on the engine's api object: the api arrives through",
+    "// a callback that may not have run when the reader's first pointerdown lands, and an api-keyed",
+    "// flag swallows that touch and then stays shut for the whole life of the canvas.",
   ]],
   ["src/client/lib/markdown/excalidraw/view.ts", [
     "/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */",
@@ -11191,6 +11205,12 @@ const allowed = new Map([
     "// decided from the SQL text the way D1 does: reads return rows, writes return meta.",
     "// D1 runs a batch in one transaction: a later failing statement must not leave the",
     "// earlier writes applied.",
+  ]],
+  ["tests/excalidraw-interaction-gate.test.ts", [
+    "// That api arrives from onExcalidrawAPI, which may not have run yet when the reader first touches",
+    "// the canvas. A flag keyed on it loses that touch and stays shut for the life of the canvas, which",
+    "// reads to the user as \"drawing does not save at all\" - and no unit test can see it, because the",
+    "// tests never run the engine.",
   ]],
   ["tests/export-hardening.test.ts", [
     "// Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so",

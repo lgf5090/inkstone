@@ -25,9 +25,10 @@ import {
 import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import { reparentMainMenuIntoFooter } from '../../../features/excalidraw/chrome';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
-import { loadExcalidrawLib, markExcalidrawInteracted, excalidrawHasInteracted, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
+import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
     ExcalidrawBlockEntry,
+    ExcalidrawFenceRef,
     ExcalidrawMountOptions,
     ExcalidrawSceneData,
 } from './types';
@@ -50,6 +51,14 @@ interface MountedInstance {
     rawCode?: HTMLElement;
     saveTimeout?: number;
     lastSavedJson?: string;
+    /**
+     * What this block believes the fence currently holds, kept current by both directions: a render pass
+     * that arrives from the note, and a save we just pushed into it. The writer's conflict rule compares
+     * the note's fence body against this, so a stale value here rejects every save after the first one -
+     * and the save looks and reads as if it worked, because the scene text under the canvas already
+     * moved. One copy, refreshed on both sides, is what makes the second edit land.
+     */
+    fenceRef: ExcalidrawFenceRef;
     dark: boolean;
 }
 
@@ -208,6 +217,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             }
             markExcalidrawReady(block);
 
+            instance.fenceRef = ref;
             const trimmedBody = ref.rawBody.trim();
             if (trimmedBody !== instance.lastSavedJson) {
                 instance.lastSavedJson = trimmedBody;
@@ -252,6 +262,10 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         block.append(rawPre);
 
         let api: any = null;
+        // One flag per mount, deliberately not keyed on the engine's api object: the api arrives through
+        // a callback that may not have run when the reader's first pointerdown lands, and an api-keyed
+        // flag swallows that touch and then stays shut for the whole life of the canvas.
+        let interacted = false;
         let lastElements: any[] = parsed.data.elements;
         let lastAppState: any = parsed.data.appState;
         let lastFiles: any = parsed.data.files;
@@ -267,11 +281,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                     files: lastFiles,
                 };
                 const nextJson = serializeExcalidrawBody(currentData);
-                if (instance && nextJson !== instance.lastSavedJson) {
-                    instance.lastSavedJson = nextJson.trim();
-                    rawCode.textContent = nextJson;
-                    options.writeBack!(ref, nextJson);
-                }
+                if (!instance || nextJson === instance.lastSavedJson) return;
+                const target = instance.fenceRef;
+                if (options.writeBack!(target, nextJson) !== 'written') return;
+                instance.lastSavedJson = nextJson.trim();
+                instance.fenceRef = { index: target.index, line: target.line, rawBody: nextJson };
+                rawCode.textContent = nextJson;
             }, debounceMs);
             if (instance) {
                 instance.saveTimeout = timeout;
@@ -387,7 +402,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             React.useEffect(() => reparentMainMenuIntoFooter(canvasHost), []);
 
             React.useEffect(() => {
-                const note = () => markExcalidrawInteracted(api);
+                const note = () => { interacted = true; };
                 canvasHost.addEventListener('pointerdown', note, true);
                 canvasHost.addEventListener('keydown', note, true);
                 return () => {
@@ -397,7 +412,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             }, []);
 
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
-                if (!excalidrawHasInteracted(api)) return;
+                if (!interacted) return;
                 lastElements = elements as any[];
                 lastAppState = appState;
                 lastFiles = files;
@@ -640,6 +655,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             canvasHost,
             rawPre,
             rawCode,
+            fenceRef: ref,
             lastSavedJson: ref.rawBody.trim(),
             dark: options.dark,
         };

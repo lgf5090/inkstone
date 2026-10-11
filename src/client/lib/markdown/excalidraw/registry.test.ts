@@ -2,8 +2,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderMarkdown } from '../renderer';
 import { registerFenceBodies } from '../fence-bodies';
+import { applyBodyAtFence, findExcalidrawFence } from './body';
 import { setExcalidrawLibForTesting } from './loader';
 import { getExcalidrawInstance, mountExcalidrawBlocks, destroyExcalidrawBlocks } from './registry';
+import type { ExcalidrawWriteResult, ExcalidrawWriter } from './types';
 
 const SCENE_A = JSON.stringify({
     type: 'excalidraw',
@@ -37,7 +39,11 @@ function makeLib() {
         Help: () => null,
     };
     return {
-        Excalidraw: () => null,
+        Excalidraw: (props: any) => {
+            engineRenders += 1;
+            engineProps = props;
+            return null;
+        },
         MainMenu,
         exportToBlob: vi.fn(async () => new Blob(['x'], { type: 'image/png' })),
         exportToSvg: vi.fn(async () => document.createElementNS('http://www.w3.org/2000/svg', 'svg')),
@@ -49,6 +55,62 @@ function makeLib() {
 }
 
 const FENCE = '```';
+
+let engineRenders = 0;
+let engineProps: any = null;
+
+function sceneWithElement(id: string): string {
+    return JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        elements: [{ id, type: 'rectangle', x: 1, y: 1, width: 10, height: 10 }],
+        appState: { viewBackgroundColor: '#ffffff', gridSize: null },
+        files: {},
+    });
+}
+
+function flushReact(): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, 20));
+}
+
+/**
+ * The note, as the preview hands it to a block: one string, a writer that only accepts a body whose
+ * fence still looks like the one the block was mounted from, and the scene text now inside that
+ * fence, which is what the next render pass reads back out of the DOM.
+ */
+function makeNote(scene: string) {
+    let body = `${FENCE}excalidraw\n${scene}\n${FENCE}`;
+    const results: ExcalidrawWriteResult[] = [];
+    const writer: ExcalidrawWriter = (ref, nextBody) => {
+        const next = applyBodyAtFence(body, ref, nextBody);
+        if (next === null) {
+            results.push('conflict');
+            return 'conflict';
+        }
+        body = next;
+        results.push('written');
+        return 'written';
+    };
+    return {
+        get body() { return body; },
+        get scene() { return findExcalidrawFence(body, 0)?.rawBody ?? ''; },
+        /** An edit that reached the note from somewhere other than this block, with no render pass in between. */
+        rewriteBySomeoneElse(scene: string) { body = `${FENCE}excalidraw\n${scene}\n${FENCE}`; },
+        results,
+        writer,
+    };
+}
+
+function touchCanvas(noteId: string): void {
+    getExcalidrawInstance('probe-scope', noteId, 0)?.canvasHost.dispatchEvent(
+        new Event('pointerdown', { bubbles: true }),
+    );
+}
+
+function drawOnCanvas(props: any, scene: string): void {
+    const parsed = JSON.parse(scene);
+    props.onChange(parsed.elements, parsed.appState, {});
+}
 
 async function countSceneParses(needle: string, run: () => Promise<void>): Promise<number> {
     const realParse = JSON.parse;
@@ -76,8 +138,14 @@ function swapFenceBody(host: HTMLElement, scene: string): void {
     registerFenceBodies(host, renderMarkdown(`${FENCE}excalidraw\n${scene}\n${FENCE}`).fences);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+    // A destroyed block's React root unmounts on a deferred timer, and a live root keeps calling the fake
+    // engine during the next test, which would overwrite the captured props with a dead instance's. So the
+    // unmount is flushed here rather than left to contaminate whichever test runs second.
     destroyExcalidrawBlocks('probe-scope');
+    await flushReact();
+    engineRenders = 0;
+    engineProps = null;
     setExcalidrawLibForTesting(makeLib() as never);
 });
 
@@ -195,5 +263,119 @@ describe('the excalidraw block registry', () => {
         await mount();
         swapFenceBody(host, SCENE_B);
         expect(await countSceneParses('b-rect', mount)).toBe(1);
+    });
+});
+
+describe('the fence block writes what the canvas drew', () => {
+    const mountInto = (host: HTMLElement, writer: ExcalidrawWriter) => mountExcalidrawBlocks(host, {
+        scope: 'probe-scope',
+        noteId: 'note-a',
+        dark: false,
+        locale: 'zh-CN',
+        editable: true,
+        writeBack: writer,
+    });
+
+    function sourceTextUnderBlock(noteId: string): string {
+        const block = getExcalidrawInstance('probe-scope', noteId, 0)?.container;
+        return block?.querySelector('.excalidraw-block-source code')?.textContent ?? '';
+    }
+
+    it('refuses to touch the note until the reader has touched this canvas', async () => {
+        const note = makeNote(SCENE_A);
+        const host = hostWithFence(SCENE_A);
+        await mountInto(host, note.writer);
+        await flushReact();
+        const props = engineProps;
+        expect(props?.onChange).toBeTypeOf('function');
+
+        vi.useFakeTimers();
+        try {
+            drawOnCanvas(props, sceneWithElement('first-rect'));
+            await vi.advanceTimersByTimeAsync(1500);
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(note.results).toEqual([]);
+        expect(note.body).toContain('a-rect');
+    });
+
+    it('writes the edit that follows the first touch', async () => {
+        const note = makeNote(SCENE_A);
+        const host = hostWithFence(SCENE_A);
+        await mountInto(host, note.writer);
+        await flushReact();
+        const props = engineProps;
+        expect(props?.onChange).toBeTypeOf('function');
+
+        vi.useFakeTimers();
+        try {
+            touchCanvas('note-a');
+            drawOnCanvas(props, sceneWithElement('first-rect'));
+            await vi.advanceTimersByTimeAsync(1500);
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(note.results).toEqual(['written']);
+        expect(note.body).toContain('first-rect');
+    });
+
+    it('writes a second edit once the first one has come back around through the note', async () => {
+        const note = makeNote(SCENE_A);
+        const host = hostWithFence(SCENE_A);
+        await mountInto(host, note.writer);
+        await flushReact();
+        const props = engineProps;
+        expect(props?.onChange).toBeTypeOf('function');
+
+        vi.useFakeTimers();
+        try {
+            touchCanvas('note-a');
+            drawOnCanvas(props, sceneWithElement('first-rect'));
+            await vi.advanceTimersByTimeAsync(1500);
+            expect(note.body).toContain('first-rect');
+
+            swapFenceBody(host, note.scene);
+            await mountInto(host, note.writer);
+            await vi.advanceTimersByTimeAsync(50);
+
+            drawOnCanvas(props, sceneWithElement('second-rect'));
+            await vi.advanceTimersByTimeAsync(1500);
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(note.results).toEqual(['written', 'written']);
+        expect(note.body).toContain('second-rect');
+        expect(sourceTextUnderBlock('note-a')).toContain('second-rect');
+    });
+
+    it('leaves the note and the scene text alone when the write is refused', async () => {
+        const note = makeNote(SCENE_A);
+        const host = hostWithFence(SCENE_A);
+        await mountInto(host, note.writer);
+        await flushReact();
+        const props = engineProps;
+        expect(props?.onChange).toBeTypeOf('function');
+
+        vi.useFakeTimers();
+        try {
+            touchCanvas('note-a');
+            drawOnCanvas(props, sceneWithElement('first-rect'));
+            await vi.advanceTimersByTimeAsync(1500);
+
+            note.rewriteBySomeoneElse(sceneWithElement('their-rect'));
+            drawOnCanvas(props, sceneWithElement('second-rect'));
+            await vi.advanceTimersByTimeAsync(1500);
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(note.results).toEqual(['written', 'conflict']);
+        expect(note.body).toContain('their-rect');
+        expect(note.body).not.toContain('second-rect');
+        expect(sourceTextUnderBlock('note-a')).not.toContain('second-rect');
     });
 });

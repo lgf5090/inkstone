@@ -25,8 +25,6 @@ import { useNotes } from '../../store/notes';
 import { useUi, type WorkspacePane } from '../../store/ui';
 import {
     loadExcalidrawLib,
-    excalidrawHasInteracted,
-    markExcalidrawInteracted,
     parseExcalidrawBody,
     registerExcalidrawActionHandler,
     serializeExcalidrawBody,
@@ -92,6 +90,10 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     });
 
     const apiRef = useRef<any>(null);
+    // Per-editor, not keyed on the api object the engine hands out: the api arrives from a callback that
+    // may not have run yet when the first pointerdown lands, and a touch that finds no api is a touch the
+    // gate never hears about, which would keep this canvas read-only forever.
+    const interactedRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasHostRef = useRef<HTMLDivElement>(null);
     const saveTimerRef = useRef<number | undefined>(undefined);
@@ -246,7 +248,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     const handleCanvasChange = useCallback(
         (elements: readonly any[], appState: any, files: any) => {
-            if (!excalidrawHasInteracted(apiRef.current)) return;
+            if (!interactedRef.current) return;
             const isLibOpen = Boolean(
                 appState.openSidebar && (appState.openSidebar.name === 'default' || appState.openSidebar.name === 'customSidebar')
             );
@@ -401,7 +403,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     useEffect(() => {
         const host = canvasHostRef.current;
         if (!host || viewMode !== 'canvas') return;
-        const note = () => markExcalidrawInteracted(apiRef.current);
+        const note = () => { interactedRef.current = true; };
         host.addEventListener('pointerdown', note, true);
         host.addEventListener('keydown', note, true);
         return () => {
