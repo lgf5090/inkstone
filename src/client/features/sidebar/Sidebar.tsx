@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, ScanSearch, Settings, Settings2, Smile, SortAsc, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Palette, PanelLeft, PanelLeftClose, Pencil, ScanSearch, Settings, Settings2, Smile, SortAsc, SquareChevronRight, Star, Sun, Trash2, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -67,6 +67,7 @@ export function Sidebar({ collapsed = false, onCollapse, }: {
             {t("common.product_name")}
           </span>
         </div>
+        <CommandPaletteEntry/>
         <OmnisearchEntry onCollapse={Boolean(onCollapse)}/>
         {onCollapse && (<Tooltip label={t("sidebar.collapse_navigation")}>
             <IconButton label={t("sidebar.collapse_navigation")} size="sm" onClick={onCollapse}>
@@ -143,6 +144,7 @@ function SidebarRail({ onExpand }: {
 
       <div className="flex w-full flex-col items-center gap-1 py-2">
         <SearchButton variant="icon" />
+        <RailButton label={t("common.command_palette")} combo={APP_SHORTCUTS.command} icon={<SquareChevronRight size={16}/>} active={panel === 'command'} onClick={() => togglePanel('command')}/>
         <OmnisearchRailButton/>
         <RailButton label={t("navigation.all_notes")} active={view === 'all'} icon={<FileText size={16}/>} onClick={() => openView('all')}/>
         <RailButton label={t("navigation.favorites")} active={view === 'starred'} icon={<Star size={16}/>} onClick={() => openView('starred')}/>
@@ -172,6 +174,17 @@ function OmnisearchRailButton() {
         mode: 'vault',
     })}/>;
 
+}
+
+function CommandPaletteEntry() {
+    const panel = useUi((s) => s.panel);
+    const togglePanel = useUi((s) => s.togglePanel);
+    const label = t("common.command_palette");
+    return (<Tooltip label={label} side="bottom" combo={APP_SHORTCUTS.command}>
+        <IconButton label={label} size="sm" active={panel === 'command'} onClick={() => togglePanel('command')}>
+          <SquareChevronRight size={15}/>
+        </IconButton>
+      </Tooltip>);
 }
 
 function RailButton({ label, combo, icon, active, accent, onClick, }: {
