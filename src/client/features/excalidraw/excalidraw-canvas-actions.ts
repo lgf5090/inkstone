@@ -6,6 +6,7 @@ import { escapeHtml } from '../../lib/markdown/data-attr';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
+import { applySceneElements } from '../../lib/markdown/excalidraw/loader';
 
 export interface BoundingBox {
     minX: number;
@@ -219,7 +220,7 @@ export function insertLatexToCanvas(api: any, latex: string, dark = false): void
     };
 
     const current = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
-    api.updateScene({ elements: [...current, imageEl] });
+    applySceneElements(api, [...current, imageEl]);
 }
 
 export async function promptAndInsertLatex(api: any, dark = false): Promise<void> {
@@ -320,7 +321,7 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         elements.push(snippetEl);
     }
 
-    api.updateScene({ elements });
+    applySceneElements(api, elements);
 }
 
 export async function promptAndInsertNoteCard(api: any, dark = false): Promise<void> {
@@ -385,7 +386,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
             }
             return el;
         });
-        api.updateScene({ elements: updated });
+        applySceneElements(api, updated);
         return;
     }
 
@@ -444,7 +445,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         containerId: cardId,
     };
 
-    api.updateScene({ elements: [...sceneElements, rectEl, textEl] });
+    applySceneElements(api, [...sceneElements, rectEl, textEl]);
 }
 
 export async function promptAndInsertLink(api: any, dark = false): Promise<void> {
@@ -526,7 +527,7 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
     };
 
     const sceneElements = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
-    api.updateScene({ elements: [...sceneElements, rectEl, textEl] });
+    applySceneElements(api, [...sceneElements, rectEl, textEl]);
 }
 
 export function insertEmbedToCanvas(api: any, url: string): void {

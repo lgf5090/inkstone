@@ -37,6 +37,7 @@ import {
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from './excalidraw-canvas-actions';
+import { applySceneElements } from '../../lib/markdown/excalidraw/loader';
 
 export interface ExcalidrawToolsPanelProps {
     open: boolean;
@@ -278,9 +279,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                     },
                 ]);
             }
-            api.updateScene({
-                elements: [...(api.getSceneElements?.() || []), imageElement],
-            });
+            applySceneElements(api, [...(api.getSceneElements?.() || []), imageElement]);
             toast({ title: t('excalidraw.insert_image'), tone: 'success' });
         };
         reader.readAsDataURL(file);

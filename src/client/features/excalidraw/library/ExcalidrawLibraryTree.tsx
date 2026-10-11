@@ -30,7 +30,7 @@ import {
   useExcalidrawLibraryStore,
 } from './library-store'
 import { ExcalidrawOfficialLibraryModal } from './ExcalidrawOfficialLibraryModal'
-import { loadExcalidrawLib } from '../../../lib/markdown/excalidraw/loader'
+import { loadExcalidrawLib, restoreSceneElements } from '../../../lib/markdown/excalidraw/loader'
 import type {
   ExcalidrawLibraryFolder,
   ExcalidrawLibraryItem,
@@ -189,7 +189,7 @@ function insertItemToCanvas(item: ExcalidrawLibraryItem, api: any) {
 
   const existing = api.getSceneElements ? api.getSceneElements() : []
   api.updateScene({
-    elements: [...existing, ...cloned],
+    elements: restoreSceneElements(api, [...existing, ...cloned]),
     appState: {
       selectedElementIds: Object.fromEntries(cloned.map((e) => [e.id, true])),
     },

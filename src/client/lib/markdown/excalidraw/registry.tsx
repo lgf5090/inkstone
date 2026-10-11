@@ -24,7 +24,7 @@ import {
 } from '../../../features/excalidraw/excalidraw-canvas-actions';
 import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
-import { loadExcalidrawLib, registerExcalidrawActionHandler } from './loader';
+import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
     ExcalidrawBlockEntry,
     ExcalidrawMountOptions,
@@ -625,7 +625,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             updateScene: (nextData: ExcalidrawSceneData) => {
                 if (api) {
                     api.updateScene({
-                        elements: nextData.elements,
+                        elements: restoreSceneElements(api, nextData.elements),
                         appState: nextData.appState,
                     });
                     if (nextData.files) {

@@ -6634,6 +6634,9 @@ const allowed = new Map([
     "/**\n * The prose whitelist strips inline styles, so the geometry a reader configured arrives as data\n * attributes and is painted here. An export keeps the stylesheet defaults instead.\n */",
     "/**\n     * How this surface treats a `dataview` query block. `live` means the caller mounts the answer itself\n     * with `renderDataviewBlocks`, because it has the note store and can wait for bodies; `source` shows\n     * the query text, which is what a surface that must not read other notes — a share page, a printed\n     * sheet — or one with no room for a table — a note card — owes the reader instead of a placeholder\n     * that never resolves.\n     */",
   ]],
+  ["src/client/lib/markdown/excalidraw/loader.ts", [
+    "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",
+  ]],
   ["src/client/lib/markdown/external-images.ts", [
     "/**\n * The one answer to \"does this URL leave this origin?\" that the board reads for a cover, an\n * attachment preview and an attachment link.\n *\n * A note can be shared, so a file served by whoever wrote it is a different trust case from one this\n * app stored: an attachment link wearing `download` would navigate the app's own tab away rather than\n * save the file, and a preview of it is a fetch to somewhere the reader never chose.\n */",
   ]],

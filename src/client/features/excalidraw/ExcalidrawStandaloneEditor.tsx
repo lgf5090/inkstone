@@ -41,6 +41,7 @@ import {
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from './excalidraw-canvas-actions';
+import { applySceneElements, restoreSceneElements } from '../../lib/markdown/excalidraw/loader';
 import { TextToDiagramModal } from './TextToDiagramModal';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { extractCodeBlock, streamChatCompletion, type AIMessage } from '../../lib/ai';
@@ -323,7 +324,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 const parsed = parseExcalidrawBody(rawCode);
                 if (api) {
                     api.updateScene({
-                        elements: parsed.data.elements,
+                        elements: restoreSceneElements(api, parsed.data.elements),
                         appState: parsed.data.appState,
                     });
                     if (parsed.data.files) {
@@ -352,7 +353,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 y: Math.round(center.y - height / 2 + ((Number(el.y) || 0) - minY)),
             }));
             const existing = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
-            api.updateScene({ elements: [...existing, ...shifted] });
+            applySceneElements(api, [...existing, ...shifted]);
             setIsSaved(false);
         },
         [api],

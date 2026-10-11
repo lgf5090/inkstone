@@ -43,6 +43,25 @@ export function registerExcalidrawActionHandler(handler: ((action: string) => vo
     activeActionHandler = handler;
 }
 
+/**
+ * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and
+ * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand
+ * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the
+ * rough shape re-randomise and the z-order compare against `undefined`.
+ */
+export function restoreSceneElements(api: any, elements: any[]): any[] {
+    const lib: any = typeof window !== 'undefined' ? (window as any).ExcalidrawLib : null;
+    if (lib && typeof lib.restoreElements === 'function') {
+        const local = typeof api?.getSceneElements === 'function' ? api.getSceneElements() : [];
+        return lib.restoreElements(elements, local);
+    }
+    return elements;
+}
+
+export function applySceneElements(api: any, elements: any[]): void {
+    api.updateScene({ elements: restoreSceneElements(api, elements) });
+}
+
 function getHostLabel(key: string): string {
     switch (key) {
         case 'ABOUT_LIBRARIES':
