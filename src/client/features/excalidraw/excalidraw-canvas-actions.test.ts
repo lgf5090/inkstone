@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import katex from 'katex';
 import {
     computeElementsBounds,
     createLatexSvg,
@@ -155,6 +156,20 @@ describe('createLatexSvg and insertLatexToCanvas', () => {
         const result = createLatexSvg('E=mc^2', false);
         const decoded = decodeURIComponent(result.dataURL);
         expect(decoded).toContain('font-size: 36px');
+    });
+
+    it('escapes the source when the compiler itself throws', () => {
+        const spy = vi.spyOn(katex, 'renderToString').mockImplementation(() => {
+            throw new Error('katex internal failure')
+        });
+        try {
+            const result = createLatexSvg('<img src=x onerror=alert(1)>', false);
+            const decoded = decodeURIComponent(result.dataURL);
+            expect(decoded).not.toContain('<img');
+            expect(decoded).toContain('&lt;img');
+        } finally {
+            spy.mockRestore();
+        }
     });
 
     it('inserts image element with SVG file into canvas', () => {

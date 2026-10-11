@@ -122,35 +122,6 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
     }
   }, [isOpen, selectedFolder, importFromLibraryData, onClose])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleMessage = async (event: MessageEvent) => {
-      if (
-        event.origin.includes('excalidraw.com') &&
-        event.data &&
-        (event.data.type === 'excalidraw-library-install' || event.data.libraryItems)
-      ) {
-        try {
-          const count = await importFromLibraryData(
-            event.data.libraryItems || event.data,
-            selectedFolder,
-            event.data.name || 'Official Library',
-          )
-          toast({
-            title: t('excalidraw.import_success', { value0: count }),
-            tone: 'success',
-          })
-          onClose()
-        } catch {
-        }
-      }
-    }
-    window.addEventListener('message', handleMessage)
-    return () => {
-      window.removeEventListener('message', handleMessage)
-    }
-  }, [isOpen, selectedFolder, importFromLibraryData, onClose])
-
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
   const filteredCatalog = useMemo(() => {

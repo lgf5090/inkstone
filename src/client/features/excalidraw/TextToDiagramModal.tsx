@@ -59,7 +59,7 @@ async function getMermaidInstance(isDark: boolean) {
   mermaidApi.initialize({
     startOnLoad: false,
     theme: isDark ? 'dark' : 'default',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     suppressErrorRendering: true,
     fontFamily: 'system-ui, -apple-system, sans-serif',
     themeVariables: {

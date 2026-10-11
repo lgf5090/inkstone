@@ -2,6 +2,7 @@ import katex from 'katex';
 import katexPrintCss from 'katex/dist/katex.min.css?inline';
 import { prompt } from '../../components/overlay';
 import { t } from '../../lib/i18n';
+import { escapeHtml } from '../../lib/markdown/data-attr';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
@@ -142,7 +143,7 @@ export function createLatexSvg(latex: string, dark = false): { dataURL: string; 
     try {
         html = katex.renderToString(latex, { displayMode: true, throwOnError: false });
     } catch {
-        html = `<span class="katex">${latex}</span>`;
+        html = `<span class="katex">${escapeHtml(latex)}</span>`;
     }
 
     const settings = useExcalidrawSettingsStore.getState();

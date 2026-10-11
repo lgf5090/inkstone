@@ -10360,6 +10360,9 @@ const allowed = new Map([
   ["src/client/types/shims.d.ts", [
     "/** A file's own text, imported through Vite's raw loader. */",
   ]],
+  ["src/shared/ai-proxy-guard.ts", [
+    "/**\n * Both AI relays — the worker route and the dev-server middleware — take the provider URL from the request\n * body, because the caller chooses which provider it configured. That makes the target attacker-chosen, so\n * the guard has to live in one place: a relay that reaches a private address reads whatever the deployment\n * can, and does so with this origin's identity.\n */",
+  ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
     "/** Version 2 nested everything under snapshots/<stamp>/, version 3 flattened it and added the\n *  template library, version 4 adds the automation library. All three still restore. */",
@@ -10922,6 +10925,9 @@ const allowed = new Map([
     "// existing template refreshes its text but must not jump it back to the top",
     "// of the directory.",
     "/**\n * One account adopting a template into its own library is the only signal worth\n * counting, so the author's own copy never adds to it. The budget is per account\n * and generous: it stops a script, not a person browsing the directory.\n */",
+  ]],
+  ["src/worker/routes/excalidraw-library.ts", [
+    "/**\n * Only `libraries.excalidraw.com` may be fetched, and only for a `.excalidrawlib` path. The catalog and\n * the download endpoints both run with this app's credentials from Cloudflare's edge, so an unchecked URL\n * would turn them into a general-purpose proxy for whatever host a note or a hash fragment names.\n */",
   ]],
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",

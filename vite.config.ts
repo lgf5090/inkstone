@@ -5,6 +5,7 @@ import type { Plugin, UserConfigFnPromise } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { inkstonePwa } from './pwa.config.ts'
+import { assertRelayableEndpoint, pickRelayHeaders } from './src/shared/ai-proxy-guard.ts'
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url))
 const ephemeralDevState = process.env.INKSTONE_EPHEMERAL_DEV === '1'
@@ -186,19 +187,28 @@ const excalidrawVendorPlugin = (): Plugin => {
         }
         if ((cleanUrl === '/api/ai/proxy' || cleanUrl === '/api/excalidraw/ai/proxy') && req.method === 'POST') {
           const chunks: Buffer[] = []
-          req.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+          let received = 0
+          let rejected = false
+          req.on('data', (chunk) => {
+            const buf = Buffer.from(chunk)
+            received += buf.length
+            if (received > 512 * 1024) {
+              rejected = true
+              res.writeHead(413, { 'content-type': 'application/json' })
+              res.end(JSON.stringify({ error: { message: 'Request body too large' } }))
+              req.destroy()
+              return
+            }
+            chunks.push(buf)
+          })
           req.on('end', async () => {
+            if (rejected) return
             try {
               const raw = Buffer.concat(chunks).toString('utf8')
               const parsed = JSON.parse(raw)
               const { endpoint, headers = {}, body } = parsed
-              const targetUrl = new URL(endpoint)
-              const upstreamHeaders = new Headers()
-              for (const [k, v] of Object.entries(headers)) {
-                const lower = k.toLowerCase()
-                if (lower === 'host' || lower === 'connection' || lower === 'content-length') continue
-                if (typeof v === 'string') upstreamHeaders.set(k, v)
-              }
+              const targetUrl = assertRelayableEndpoint(endpoint)
+              const upstreamHeaders = new Headers(pickRelayHeaders(headers))
               if (!upstreamHeaders.has('content-type')) {
                 upstreamHeaders.set('content-type', 'application/json')
               }
@@ -207,6 +217,7 @@ const excalidrawVendorPlugin = (): Plugin => {
                 method: 'POST',
                 headers: upstreamHeaders,
                 body: payload,
+                redirect: 'error',
               })
               const resHeaders: Record<string, string> = {
                 'content-type': upstreamRes.headers.get('content-type') || 'application/json',

@@ -102,4 +102,76 @@ describe('ai proxy route', () => {
     const json = await res.json() as any
     expect(json.error.message).toContain('connection timeout')
   })
+
+  it.each([
+    ['cloud metadata ipv4', 'http://169.254.169.254/latest/meta-data/'],
+    ['loopback ipv4', 'http://127.0.0.1:8788/api/notes'],
+    ['private 10/8', 'http://10.0.0.5/x'],
+    ['private 192.168/16', 'https://192.168.1.1/x'],
+    ['private 172.16/12', 'https://172.20.0.4/x'],
+    ['cgnat 100.64/10', 'https://100.64.0.1/x'],
+    ['localhost name', 'http://localhost:5173/x'],
+    ['service suffix', 'http://worker.default.svc.cluster.local/x'],
+    ['ipv6 loopback', 'http://[::1]:8788/x'],
+    ['ipv6 unique local', 'http://[fd00::1]/x'],
+    ['ipv4 mapped ipv6', 'http://[::ffff:169.254.169.254]/x'],
+    ['ipv4 mapped ipv6 hex', 'http://[::ffff:a9fe:a9fe]/x'],
+    ['ipv6 unspecified', 'http://[::]/x'],
+    ['credentials in url', 'https://user:pass@api.deepseek.com/chat/completions'],
+  ])('refuses to relay to a %s target', async (_label, endpoint) => {
+    const fetchSpy = vi.fn()
+    globalThis.fetch = fetchSpy as any
+    const res = await app.request('/api/ai/proxy', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint, body: {} }),
+    })
+    expect(res.status).toBe(400)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('forwards only provider headers and drops cookie plus unknown ones', async () => {
+    let sent: Headers | undefined
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      sent = new Headers(init.headers)
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    }) as any
+
+    await app.request('/api/ai/proxy', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: 'https://api.anthropic.com/v1/messages',
+        headers: {
+          Authorization: 'Bearer k',
+          'anthropic-version': '2023-06-01',
+          Cookie: 'inkstone_session=steal-me',
+          'x-inkstone-client': '1',
+          'referer': 'https://internal.example/',
+        },
+        body: {},
+      }),
+    })
+
+    expect(sent?.get('authorization')).toBe('Bearer k')
+    expect(sent?.get('anthropic-version')).toBe('2023-06-01')
+    expect(sent?.get('cookie')).toBeNull()
+    expect(sent?.get('x-inkstone-client')).toBeNull()
+    expect(sent?.get('referer')).toBeNull()
+  })
+
+  it('does not follow an upstream redirect', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      expect(init.redirect).toBe('error')
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    }) as any
+
+    const res = await app.request('/api/ai/proxy', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: 'https://api.openai.com/v1/chat/completions', body: {} }),
+    })
+    expect(res.status).toBe(200)
+    expect(globalThis.fetch).toHaveBeenCalledOnce()
+  })
 })
