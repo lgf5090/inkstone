@@ -378,4 +378,27 @@ describe('the fence block writes what the canvas drew', () => {
         expect(note.body).not.toContain('second-rect');
         expect(sourceTextUnderBlock('note-a')).not.toContain('second-rect');
     });
+
+    it('leaves the engine alone when only the surrounding chrome changed', async () => {
+        const note = makeNote(SCENE_A);
+        const host = hostWithFence(SCENE_A);
+        await mountInto(host, note.writer);
+        await flushReact();
+        const props = engineProps;
+        expect(props?.onChange).toBeTypeOf('function');
+
+        const block = getExcalidrawInstance('probe-scope', 'note-a', 0)?.container;
+        expect(block).toBeDefined();
+        const chromeBefore = host.querySelectorAll('*').length;
+        const engineBefore = engineRenders;
+
+        block!.dispatchEvent(new CustomEvent('excalidraw-toggle-tools'));
+        await flushReact();
+
+        // The panel only exists once the wrapper re-rendered, which is what makes the engine count below
+        // a statement about the memo rather than about a render that never happened.
+        expect(host.querySelectorAll('*').length).toBeGreaterThan(chromeBefore);
+        expect(engineRenders).toBe(engineBefore);
+        expect(engineProps.onChange).toBe(props.onChange);
+    });
 });

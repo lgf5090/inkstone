@@ -446,11 +446,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 }
             }, []);
 
-            return (
-                <div
-                    style={{ width: '100%', height: '100%', position: 'relative' }}
-                    className={`excalidraw-embedded-canvas ${theme === 'dark' ? 'theme--dark' : ''}`}
-                >
+            // The engine's exported component is memoised with a comparator whose first line is
+            // `A.children !== e.children`, so inline children are rebuilt - and the whole engine UI with
+            // them - on any parent render: opening the tools panel, toggling fullscreen, a theme sync.
+            // Holding the element itself here means a chrome-only render hands React the identical
+            // element and the engine is not entered at all.
+            const canvas = React.useMemo(() => (
                     <Excalidraw
                         initialData={{
                             elements: parsed.data.elements,
@@ -550,6 +551,14 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             <MainMenu.DefaultItems.ClearCanvas />
                         </MainMenu>
                     </Excalidraw>
+            ), [api, excalidrawSettings, lib, libraryOpen, theme]);
+
+            return (
+                <div
+                    style={{ width: '100%', height: '100%', position: 'relative' }}
+                    className={`excalidraw-embedded-canvas ${theme === 'dark' ? 'theme--dark' : ''}`}
+                >
+                    {canvas}
 
                     {isFullscreen && (
                         <ExcalidrawFloatingCapsule

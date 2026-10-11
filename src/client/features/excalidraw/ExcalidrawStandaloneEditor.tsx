@@ -438,121 +438,10 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         }
     };
 
-    return (
-        <div
-            ref={containerRef}
-            className="relative flex h-full min-h-0 w-full flex-col bg-[var(--bg-base)] text-[var(--text-primary)]"
-        >
-            <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 select-none">
-                <div className="flex min-w-0 items-center gap-2">
-                    {isMobile && onMobileBack && (
-                        <IconButton label={t('workspace.back_to_notes')} size="sm" onClick={onMobileBack}>
-                            <ArrowLeft size={16} />
-                        </IconButton>
-                    )}
-                    <Brush size={16} className="text-[var(--accent)] shrink-0" />
-                    <input
-                        type="text"
-                        value={note.title}
-                        onChange={(e) => onTitleChange?.(e.target.value)}
-                        className="min-w-0 max-w-[280px] md:max-w-md truncate rounded bg-transparent px-1.5 py-0.5 text-sm font-semibold text-[var(--text-primary)] focus:bg-[var(--bg-surface)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
-                    />
-                </div>
-
-                <div className="flex items-center gap-1">
-                    <button
-                        type="button"
-                        onClick={handleManualSave}
-                        className="mr-1 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-                        title={t('workspace.save_drawing')}
-                        aria-label={t('workspace.save_drawing')}
-                    >
-                        {isSaved ? (
-                            <>
-                                <Check size={13} className="text-[var(--accent)]" />
-                                <span className="hidden sm:inline text-[11px]">{t('workspace.drawing_saved')}</span>
-                            </>
-                        ) : (
-                            <>
-                                <Save size={13} className="text-[var(--warning)]" />
-                                <span className="hidden sm:inline text-[11px]">{t('workspace.save_drawing')}</span>
-                            </>
-                        )}
-                    </button>
-
-                    <Tooltip label={viewMode === 'canvas' ? t('excalidraw.toggle_code') : t('excalidraw.toggle_canvas')}>
-                        <IconButton
-                            label={viewMode === 'canvas' ? t('excalidraw.toggle_code') : t('excalidraw.toggle_canvas')}
-                            size="sm"
-                            onClick={handleToggleViewMode}
-                        >
-                            {viewMode === 'canvas' ? <FileCode size={15} /> : <Eye size={15} />}
-                        </IconButton>
-                    </Tooltip>
-
-                    <Tooltip label={note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites')}>
-                        <IconButton
-                            label={note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites')}
-                            size="sm"
-                            active={note.isStarred}
-                            onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}
-                        >
-                            <Star size={14} className={note.isStarred ? 'fill-current' : undefined} />
-                        </IconButton>
-                    </Tooltip>
-
-                    <Tooltip label={`${t('excalidraw.text_to_diagram')} [AI]`}>
-                        <IconButton
-                            label={`${t('excalidraw.text_to_diagram')} [AI]`}
-                            size="sm"
-                            onClick={() => {
-                                setAiModalTab('ai');
-                                setAiModalOpen(true);
-                            }}
-                        >
-                            <Sparkles size={14} className="text-[var(--accent)]" />
-                        </IconButton>
-                    </Tooltip>
-
-                    <Tooltip label={t('excalidraw.tools_panel')}>
-                        <IconButton
-                            label={t('excalidraw.tools_panel')}
-                            size="sm"
-                            active={toolsPanelOpen}
-                            onClick={() => setToolsPanelOpen((o) => !o)}
-                        >
-                            <SlidersHorizontal size={14} />
-                        </IconButton>
-                    </Tooltip>
-
-                    {pane === 'secondary' && (
-                        <Tooltip label={t('workspace.close_right_note')}>
-                            <IconButton label={t('workspace.close_right_note')} size="sm" onClick={closeSecondaryNote}>
-                                <X size={15} />
-                            </IconButton>
-                        </Tooltip>
-                    )}
-                </div>
-            </header>
-
-            <div className="relative flex-1 min-h-0 w-full overflow-hidden">
-                {viewMode === 'code' && (
-                    <div className="h-full w-full p-4 overflow-auto font-mono text-sm">
-                        <textarea
-                            value={rawCode}
-                            onChange={(e) => {
-                                setRawCode(e.target.value);
-                                if (e.target.value !== lastSavedRef.current) {
-                                    lastSavedRef.current = e.target.value;
-                                    onChangeRef.current(e.target.value);
-                                    setIsSaved(true);
-                                }
-                            }}
-                            className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
-                        />
-                    </div>
-                )}
-
+    // The engine component is memoised on children identity, so this element is built only when something
+    // the canvas actually reads changes. Without it, every keystroke in the JSON view - and every autosave
+    // tick that moves rawCode or isSaved - re-renders the whole engine UI while it is display:none.
+    const engineSurface = useMemo(() => (
                 <div
                     ref={canvasHostRef}
                     className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''} ${theme === 'dark' ? 'theme--dark' : ''}`}
@@ -723,6 +612,124 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         </lib.Excalidraw>
                     )}
                 </div>
+            ), [api, excalidrawSettings, initialData, lib, libraryOpen, locale, theme, viewMode]);
+
+    return (
+        <div
+            ref={containerRef}
+            className="relative flex h-full min-h-0 w-full flex-col bg-[var(--bg-base)] text-[var(--text-primary)]"
+        >
+            <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 select-none">
+                <div className="flex min-w-0 items-center gap-2">
+                    {isMobile && onMobileBack && (
+                        <IconButton label={t('workspace.back_to_notes')} size="sm" onClick={onMobileBack}>
+                            <ArrowLeft size={16} />
+                        </IconButton>
+                    )}
+                    <Brush size={16} className="text-[var(--accent)] shrink-0" />
+                    <input
+                        type="text"
+                        value={note.title}
+                        onChange={(e) => onTitleChange?.(e.target.value)}
+                        className="min-w-0 max-w-[280px] md:max-w-md truncate rounded bg-transparent px-1.5 py-0.5 text-sm font-semibold text-[var(--text-primary)] focus:bg-[var(--bg-surface)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                    />
+                </div>
+
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={handleManualSave}
+                        className="mr-1 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                        title={t('workspace.save_drawing')}
+                        aria-label={t('workspace.save_drawing')}
+                    >
+                        {isSaved ? (
+                            <>
+                                <Check size={13} className="text-[var(--accent)]" />
+                                <span className="hidden sm:inline text-[11px]">{t('workspace.drawing_saved')}</span>
+                            </>
+                        ) : (
+                            <>
+                                <Save size={13} className="text-[var(--warning)]" />
+                                <span className="hidden sm:inline text-[11px]">{t('workspace.save_drawing')}</span>
+                            </>
+                        )}
+                    </button>
+
+                    <Tooltip label={viewMode === 'canvas' ? t('excalidraw.toggle_code') : t('excalidraw.toggle_canvas')}>
+                        <IconButton
+                            label={viewMode === 'canvas' ? t('excalidraw.toggle_code') : t('excalidraw.toggle_canvas')}
+                            size="sm"
+                            onClick={handleToggleViewMode}
+                        >
+                            {viewMode === 'canvas' ? <FileCode size={15} /> : <Eye size={15} />}
+                        </IconButton>
+                    </Tooltip>
+
+                    <Tooltip label={note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites')}>
+                        <IconButton
+                            label={note.isStarred ? t('common.remove_from_favorites') : t('navigation.favorites')}
+                            size="sm"
+                            active={note.isStarred}
+                            onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}
+                        >
+                            <Star size={14} className={note.isStarred ? 'fill-current' : undefined} />
+                        </IconButton>
+                    </Tooltip>
+
+                    <Tooltip label={`${t('excalidraw.text_to_diagram')} [AI]`}>
+                        <IconButton
+                            label={`${t('excalidraw.text_to_diagram')} [AI]`}
+                            size="sm"
+                            onClick={() => {
+                                setAiModalTab('ai');
+                                setAiModalOpen(true);
+                            }}
+                        >
+                            <Sparkles size={14} className="text-[var(--accent)]" />
+                        </IconButton>
+                    </Tooltip>
+
+                    <Tooltip label={t('excalidraw.tools_panel')}>
+                        <IconButton
+                            label={t('excalidraw.tools_panel')}
+                            size="sm"
+                            active={toolsPanelOpen}
+                            onClick={() => setToolsPanelOpen((o) => !o)}
+                        >
+                            <SlidersHorizontal size={14} />
+                        </IconButton>
+                    </Tooltip>
+
+                    {pane === 'secondary' && (
+                        <Tooltip label={t('workspace.close_right_note')}>
+                            <IconButton label={t('workspace.close_right_note')} size="sm" onClick={closeSecondaryNote}>
+                                <X size={15} />
+                            </IconButton>
+                        </Tooltip>
+                    )}
+                </div>
+            </header>
+
+            <div className="relative flex-1 min-h-0 w-full overflow-hidden">
+                {viewMode === 'code' && (
+                    <div className="h-full w-full p-4 overflow-auto font-mono text-sm">
+                        <textarea
+                            value={rawCode}
+                            onChange={(e) => {
+                                setRawCode(e.target.value);
+                                if (e.target.value !== lastSavedRef.current) {
+                                    lastSavedRef.current = e.target.value;
+                                    onChangeRef.current(e.target.value);
+                                    setIsSaved(true);
+                                }
+                            }}
+                            className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+                        />
+                    </div>
+                )}
+
+                    {engineSurface}
 
                 {!lib && !libError && (
                     <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
