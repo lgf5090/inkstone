@@ -59,6 +59,7 @@ function fakeHandle(payload: unknown): FakeHandle {
         appendChildren: () => bump('appendChildren'),
         layout: () => bump('layout'),
         scaleFit: () => bump('scaleFit'),
+        fitFirstFrame: () => bump('fitFirstFrame'),
         focus: () => bump('focus'),
         undo: () => bump('undo'),
         redo: () => bump('redo'),

@@ -64,6 +64,13 @@ export interface MindmapHandle {
      */
     layout(): void
     scaleFit(): void
+    /**
+     * The frame the map is first seen in: whole if it can be shown legibly, otherwise at
+     * reading size with the root in the middle. `scaleFit` is the reader asking to see the
+     * whole map and clamps at the floor instead; this is the map choosing its own opening
+     * shot, and a fit too small to read is not a fit at all.
+     */
+    fitFirstFrame(): void
     /** Puts DOM focus on the map's own keyboard surface, so its shortcuts fire. */
     focus(): void
     undo(): void

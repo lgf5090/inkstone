@@ -213,6 +213,38 @@ export interface MindmapFitViewport {
     scaleFit: () => void
 }
 
+/** What choosing a first frame needs on top of the fit: the way back to the middle. */
+export interface MindmapReadViewport extends MindmapFitViewport {
+    toCenter: () => void
+}
+
+/**
+ * The smallest scale a first frame may be fitted down to and still be a favour. Node text is
+ * 14–16px, so below this the picture is complete and unreadable — which is the trade 0.034
+ * made for a 1000-node document, with 88% of the canvas blank beside it.
+ */
+const LEGIBLE_FIT = 0.6;
+
+/**
+ * The first frame: the whole map if it can be shown legibly, otherwise the map at reading
+ * size with the root in the middle.
+ *
+ * Each half alone was wrong in its own direction. Fitting everything opened a 1000-node
+ * document at 3.4% with most of the canvas blank; never fitting cut the last branch off a
+ * two-node map on a phone. So the number decides, not the surface: a map that still reads at
+ * 60% or better (a 14–16px topic still reads at 9px) is shown whole, and anything smaller stays at 1:1 so the text is
+ * legible and the reader pans. A fit that measured nothing (a detached map reads NaN) counts
+ * as not legible, which leaves the camera where the library put it.
+ */
+export function fitForReading(viewport: MindmapReadViewport): void {
+    const start = viewport.scaleVal;
+    viewport.scaleFit();
+    if (viewport.scaleVal >= LEGIBLE_FIT)
+        return;
+    viewport.scale(start);
+    viewport.toCenter();
+}
+
 /**
  * Wheel pan and zoom, folded into one transform per animation frame.
  *
@@ -438,6 +470,7 @@ function createHandle(instance: MindElixirInstance, options: MindmapCreateOption
             instance.linkDiv();
         },
         scaleFit: () => fitToView(instance),
+        fitFirstFrame: () => fitForReading(instance),
         // The library binds every shortcut to its inner container (which carries
         // tabindex=0) and focuses it itself when an inline edit ends — this exposes
         // that same surface so a pointer interaction can do the same.

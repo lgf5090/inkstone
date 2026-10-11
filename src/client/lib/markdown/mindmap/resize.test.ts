@@ -34,6 +34,7 @@ function fakeHandle(order: string[]): MindmapHandle {
         appendChildren: () => {},
         layout: bump('layout'),
         scaleFit: bump('scaleFit'),
+        fitFirstFrame: bump('fitFirstFrame'),
         focus: () => {},
         undo: () => {},
         redo: () => {},

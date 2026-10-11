@@ -147,12 +147,19 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
             }
             live.current = { vendor, handle, extra, choice };
             entry.handle = handle;
+            // The wait-for-a-box watcher has done its job; leaving it installed would keep
+            // firing on every later resize alongside the one below.
             observer?.disconnect();
-            // `fit` is false because this surface owns its own zoom: a document is read at the
-            // size the reader set, and re-fitting it every time the pane changes size is what
-            // put a 1000-node map at 3.4% (measured) — a thread of a picture no one can read,
-            // with the wheel the only way back. The map still re-lays out, so the geometry
-            // tracks the box; what stays put is the camera the reader chose.
+            // The map decides how it is first seen: whole if that is still legible, otherwise
+            // at reading size. Fitting unconditionally is what opened a 1000-node document at
+            // 3.4% (measured), and never fitting cuts the last branch off a two-node map on a
+            // phone — so this asks the number, once, here.
+            handle.fitFirstFrame();
+            // `fit` is false from here on because this surface owns its zoom: a document is
+            // read at the size the reader set, and re-fitting it every time the pane changes
+            // size is what put a 1000-node map at 3.4% — a thread of a picture no one can
+            // read, with the wheel the only way back. The map still re-lays out, so the
+            // geometry tracks the box; what stays put is the camera the reader chose.
             observer = watchMindmapContainer(entry, false);
             decorateMindmapLinks(host);
             setStatus('ready');

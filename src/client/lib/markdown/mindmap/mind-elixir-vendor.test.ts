@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n';
 import { mindmapError, mindmapErrorCode, mindmapErrorText } from './errors';
-import { coalescedWheel, createMindmapVendor, fitToView, wheelHandler } from './mind-elixir-vendor';
+import { coalescedWheel, createMindmapVendor, fitForReading, fitToView, wheelHandler } from './mind-elixir-vendor';
+import type { MindmapReadViewport } from './mind-elixir-vendor';
 import { MINDMAP_BODY_LIMIT_BYTES, MINDMAP_NODE_LIMIT } from './nodes';
 import type { MindmapMode } from './body';
 import type { MindmapParsedBody } from './types';
@@ -537,6 +538,58 @@ describe('the fit, kept above the floor the reader can read at', () => {
         const viewport = fitter(Number.NaN);
         fitToView(viewport);
         expect(viewport.scale).not.toHaveBeenCalled();
+    });
+});
+
+describe('the frame a map is first seen in', () => {
+    /** A viewport whose fit lands wherever the test says it would, on a map at `start`. */
+    function reader(fitted: number, start = 1) {
+        const viewport: MindmapReadViewport = {
+            scaleVal: start,
+            scale: () => {},
+            scaleFit: () => {},
+            toCenter: () => {},
+        };
+        viewport.scale = vi.fn((value: number) => { viewport.scaleVal = value; });
+        viewport.scaleFit = vi.fn(() => { viewport.scaleVal = fitted; });
+        viewport.toCenter = vi.fn();
+        return viewport;
+    }
+
+    it('shows a map whole when fitting it leaves the text readable', () => {
+        const viewport = reader(0.84);
+        fitForReading(viewport);
+        expect(viewport.scale).not.toHaveBeenCalled();
+        expect(viewport.toCenter).not.toHaveBeenCalled();
+        expect(viewport.scaleVal).toBe(0.84);
+    });
+
+    it('leaves a map that would be crushed at reading size, and puts the root back in the middle', () => {
+        // The 1000-node document measured 0.034 when fitted: complete, and unreadable.
+        const viewport = reader(0.034);
+        fitForReading(viewport);
+        expect(viewport.scale).toHaveBeenCalledWith(1);
+        expect(viewport.toCenter).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a fit that measured nothing as no reason to move the camera', () => {
+        const viewport = reader(Number.NaN);
+        fitForReading(viewport);
+        expect(viewport.scale).toHaveBeenCalledWith(1);
+        expect(viewport.toCenter).toHaveBeenCalledTimes(1);
+    });
+
+    it('sits on the boundary on the legible side of it', () => {
+        expect((() => {
+            const v = reader(0.6);
+            fitForReading(v);
+            return v.scaleVal;
+        })()).toBe(0.6);
+        expect((() => {
+            const v = reader(0.59);
+            fitForReading(v);
+            return v.scaleVal;
+        })()).toBe(1);
     });
 });
 

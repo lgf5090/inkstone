@@ -29,6 +29,7 @@ function fakeHandle(payload: unknown): Handle {
         toCenter: () => handle.calls.push('toCenter'),
         layout: () => handle.calls.push('layout'),
         scaleFit: () => handle.calls.push('scaleFit'),
+        fitFirstFrame: () => handle.calls.push('fitFirstFrame'),
         focus: () => {},
         undo: () => {},
         redo: () => {},
@@ -284,6 +285,7 @@ describe('useMindmapDocument', () => {
             FakeResizeObserver.instances[0]!.report(906, 600);
         });
         expect(latest!.status).toBe('ready');
+        expect(rig.handle.calls).toContain('fitFirstFrame');
         expect(rig.handle.calls).not.toContain('scaleFit');
         // The mount watcher took over from the wait-for-a-box one, and this is a resize.
         expect(FakeResizeObserver.instances).toHaveLength(2);
