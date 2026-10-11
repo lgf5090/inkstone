@@ -2419,6 +2419,408 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.ink-prose .excalidraw-block {
+  position: relative;
+  margin: 1em 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  overflow: hidden;
+  height: var(--excalidraw-embed-height, 520px);
+  display: flex;
+  flex-direction: column;
+}
+.ink-prose .excalidraw-block.excalidraw-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  border-radius: 0;
+  z-index: 9999;
+  background: var(--bg-base);
+}
+.ink-prose .excalidraw-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in oklab, var(--bg-inset) 60%, var(--bg-base));
+  flex-shrink: 0;
+}
+.ink-prose .excalidraw-head-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ink-prose .excalidraw-tab-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: var(--r-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.ink-prose .excalidraw-tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.ink-prose .excalidraw-tab-btn.is-active {
+  color: var(--accent);
+  background: var(--bg-surface);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.ink-prose .excalidraw-head-title {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+.ink-prose .excalidraw-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ink-prose .excalidraw-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.ink-prose .excalidraw-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ink-prose .excalidraw-action-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.ink-prose .excalidraw-canvas-container {
+  flex: 1;
+  width: 100%;
+  height: calc(100% - 32px);
+  position: relative;
+  overflow: hidden;
+}
+.ink-prose .excalidraw-canvas-container .excalidraw {
+  height: 100% !important;
+}
+
+.excalidraw .FixedSideContainer_side_top {
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+}
+
+.excalidraw .App-menu_top {
+  width: 100% !important;
+}
+
+.excalidraw .mobile-misc-tools-container,
+.excalidraw .tray-misc-tools-container,
+.excalidraw .sidebar-trigger__label-element,
+.excalidraw .default-sidebar-trigger {
+  display: none !important;
+}
+
+.excalidraw .library-menu-control-buttons {
+  height: auto !important;
+}
+
+.excalidraw .library-menu-browse-button {
+  height: 36px !important;
+  flex: 0 0 auto !important;
+}
+
+.excalidraw .sidebar-triggers {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 12px !important;
+}
+
+.excalidraw .sidebar-tab-trigger {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  background-color: transparent !important;
+  color: var(--text-primary-color, currentColor) !important;
+  border: none !important;
+  transition: all 0.15s ease !important;
+}
+
+.excalidraw .sidebar-tab-trigger svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.excalidraw .sidebar-tab-trigger:hover {
+  background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06)) !important;
+}
+
+.excalidraw .sidebar-tab-trigger.active,
+.excalidraw .sidebar-tab-trigger[data-state="active"],
+.excalidraw .sidebar-tab-trigger[aria-selected="true"] {
+  background-color: #6965db !important;
+  color: #ffffff !important;
+}
+
+.excalidraw .sidebar-tab-trigger.active svg,
+.excalidraw .sidebar-tab-trigger[data-state="active"] svg,
+.excalidraw .sidebar-tab-trigger[aria-selected="true"] svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.excalidraw .sidebar .ExcTextField,
+.excalidraw .layer-ui__search .ExcTextField,
+.excalidraw .layer-ui__library .ExcTextField {
+  position: relative !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: unset !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  display: block !important;
+}
+
+.excalidraw .sidebar .ExcTextField svg,
+.excalidraw .layer-ui__search .ExcTextField svg,
+.excalidraw .layer-ui__library .ExcTextField svg {
+  position: absolute !important;
+  left: 10px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 16px !important;
+  height: 16px !important;
+  color: #8e8e93 !important;
+  stroke: #8e8e93 !important;
+  pointer-events: none !important;
+  z-index: 2 !important;
+  opacity: 1 !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField svg,
+.excalidraw.theme--dark .layer-ui__search .ExcTextField svg,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField svg {
+  color: #a1a1aa !important;
+  stroke: #a1a1aa !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input,
+.excalidraw .layer-ui__search-header .ExcTextField__input,
+.excalidraw .layer-ui__library .ExcTextField__input {
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  border-radius: 8px !important;
+  background-color: var(--bg-sunken, #f4f4f5) !important;
+  border: 1px solid var(--border-subtle, #e4e4e7) !important;
+  padding: 0 12px 0 34px !important;
+  transition: border-color 0.15s ease, background-color 0.15s ease !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input {
+  background-color: #232329 !important;
+  border-color: #31303b !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input:focus-within,
+.excalidraw .layer-ui__search-header .ExcTextField__input:focus-within,
+.excalidraw .layer-ui__library .ExcTextField__input:focus-within {
+  border-color: #6965db !important;
+  background-color: var(--bg-surface, #ffffff) !important;
+  box-shadow: 0 0 0 1px #6965db !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input:focus-within,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input:focus-within,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input:focus-within {
+  border-color: #6965db !important;
+  background-color: #1e1e24 !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input input,
+.excalidraw .layer-ui__search-header .ExcTextField__input input,
+.excalidraw .layer-ui__library .ExcTextField__input input {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-size: 13px !important;
+  line-height: normal !important;
+  color: var(--text-primary, #18181b) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input input,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input input,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input input {
+  color: #f4f4f5 !important;
+}
+
+.excalidraw .sidebar .ExcTextField__input input::placeholder,
+.excalidraw .layer-ui__search-header .ExcTextField__input input::placeholder,
+.excalidraw .layer-ui__library .ExcTextField__input input::placeholder {
+  color: #a1a1aa !important;
+  font-size: 13px !important;
+  opacity: 1 !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField__input input::placeholder,
+.excalidraw.theme--dark .layer-ui__search-header .ExcTextField__input input::placeholder,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField__input input::placeholder {
+  color: #71717a !important;
+}
+
+.excalidraw .layer-ui__search-header {
+  padding: 0 12px !important;
+  margin-top: 4px !important;
+  margin-bottom: 8px !important;
+}
+
+.excalidraw .layer-ui__library {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.excalidraw .layer-ui__library > *:not([data-ink-library-tree]) {
+  display: none !important;
+}
+
+.excalidraw .layer-ui__library > [data-ink-library-tree] {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.excalidraw .App-toolbar {
+  position: relative !important;
+}
+
+.excalidraw .HintViewer {
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  width: 100% !important;
+  margin-top: 6px !important;
+  pointer-events: none !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.excalidraw .HintViewer > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left section {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .undo-redo-buttons {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .main-menu-trigger,
+.excalidraw .layer-ui__wrapper__footer-left .dropdown-menu-event-wrapper:has(.main-menu-trigger) {
+  order: -1 !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .undo-button-container {
+  order: 1 !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left .redo-button-container {
+  order: 2 !important;
+}
+
+.excalidraw .layer-ui__wrapper__footer-left section > .zoom-actions {
+  order: 3 !important;
+}
+
+.ink-prose .excalidraw-block-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+.ink-prose .excalidraw-block-source {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: var(--code-line);
+  flex: 1;
+}
+.ink-prose .excalidraw-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 24px;
+  color: var(--danger);
+}
+.ink-prose .excalidraw-retry {
+  padding: 4px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-sm);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
 .mindmap-node-link {
   color: var(--accent);
   text-decoration: underline;

@@ -33,6 +33,7 @@ worker-configuration.d.ts
 .codex/
 .codegraph/
 .upstream/
+.freebuff/
 .idea/
 .vscode/
 .zed/

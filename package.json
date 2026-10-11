@@ -37,7 +37,8 @@
     "comments:check": "node scripts/check-comments.mjs",
     "test:e2e": "node scripts/e2e.mjs",
     "cf-typegen": "wrangler types",
-    "cf-typegen:kv": "wrangler types --config wrangler.kv.toml"
+    "cf-typegen:kv": "wrangler types --config wrangler.kv.toml",
+    "postinstall": "node scripts/patch-excalidraw.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.10.2",
@@ -52,6 +53,7 @@
     "@dicebear/micah": "^9.4.3",
     "@fontsource-variable/inter": "^5.3.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "@zsviczian/excalidraw": "^0.18.140",
     "agents": "0.20.1",
     "aws4fetch": "^1.0.20",
     "chart.js": "^4.5.1",
@@ -81,9 +83,9 @@
     "micromark-extension-gfm-footnote": "2.1.0",
     "micromark-extension-math": "3.1.0",
     "micromark-util-combine-extensions": "2.0.1",
-    "moment-parseformat": "^4.0.0",
     "mind-elixir": "^5.15.1",
     "minisearch": "^7.2.0",
+    "moment-parseformat": "^4.0.0",
     "pinyin-pro": "^3.29.4",
     "prismjs": "1.30.0",
     "qrcode.react": "^4.2.0",

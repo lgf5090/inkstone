@@ -27,6 +27,9 @@ import {
     type VirtualTreeNamespace,
 } from '../lib/calendar-tree';
 import { adoptedFrontMatterTitle, buildNewNoteContent, rememberPendingEditorCursor, syncTitleIntoFrontMatter } from './new-note';
+import { createDefaultExcalidrawScene, serializeExcalidrawBody } from '../lib/markdown/excalidraw';
+import { formatDateStamp } from '@shared/property-formats';
+import { useExcalidrawSettingsStore } from '../features/excalidraw/excalidraw-settings-store';
 import { useSession } from './session';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
@@ -71,6 +74,7 @@ interface NotesState {
         /** Caret offset for an explicitly supplied `content`; ignored when the template builds it. */
         cursor?: number | null;
     }) => Promise<string | null>;
+    createExcalidrawNote: (folderId?: string | null) => Promise<string | null>;
     patchNote: (id: string, patch: Partial<Pick<NoteSummary, 'isPinned' | 'isStarred' | 'isArchived'>> & {
         folderId?: string | null;
     }) => Promise<void>;
@@ -833,6 +837,43 @@ export const useNotes = create<NotesState>((set, get) => ({
                     return;
                 }
             }
+        });
+    },
+    async createExcalidrawNote(folderId?: string | null) {
+        const settings = useExcalidrawSettingsStore.getState();
+        let initialScene = serializeExcalidrawBody(createDefaultExcalidrawScene());
+        if (settings.templateFilePath) {
+            const templateNote = Object.values(get().notes).find(
+                (n) => n.title === settings.templateFilePath || n.id === settings.templateFilePath
+            );
+            if (templateNote) {
+                const templateContent = get().contents[templateNote.id];
+                if (templateContent) {
+                    initialScene = templateContent;
+                }
+            }
+        }
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const defaultDateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+        const format = settings.drawingFilenameDateFormat || 'YYYY-MM-DD HH.mm.ss';
+        const formattedDate = formatDateStamp(now.getTime(), format, 'en-US');
+        const dateStr = formattedDate || defaultDateStr;
+        const prefix = settings.drawingFilenamePrefix ?? 'Drawing ';
+        const ext = settings.useExcalidrawExtension ? '.excalidraw' : '';
+        const title = `${prefix}${dateStr}${ext}`;
+        let resolvedFolderId = folderId ?? undefined;
+        if (!resolvedFolderId && settings.folder) {
+            const matchedFolder = get().folders.find(
+                (f) => f.id === settings.folder || f.name.toLowerCase() === settings.folder.toLowerCase()
+            );
+            resolvedFolderId = matchedFolder ? matchedFolder.id : settings.folder;
+        }
+        return get().createNote({
+            title,
+            content: initialScene,
+            folderId: resolvedFolderId,
+            open: true,
         });
     },
     async deleteNote(id) {
@@ -2588,6 +2629,10 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     stoppedOffline = true;
                     set({ online: false, saveStatus: 'offline' });
                     break;
+                }
+                if (err instanceof ApiError && err.status === 413) {
+                    await completeOutboxQuietly(item.id, item.writeId);
+                    continue;
                 }
                 if (err instanceof ApiError && err.isAuth) {
                     location.reload();

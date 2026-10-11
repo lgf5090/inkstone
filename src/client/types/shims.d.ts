@@ -41,3 +41,21 @@ declare module 'moment-parseformat' {
   const parseFormat: (text: string) => string
   export default parseFormat
 }
+
+declare module 'dagre-d3-es/src/dagre/index.js' {
+  export function layout(graph: any): void;
+}
+
+declare module 'dagre-d3-es/src/graphlib/index.js' {
+  export class Graph {
+    constructor(options?: any);
+    setGraph(opt: any): this;
+    setDefaultEdgeLabel(callback: () => any): this;
+    setNode(name: string, label: any): this;
+    setEdge(v: string, w: string, name?: string): this;
+    nodes(): string[];
+    edges(): Array<{ v: string; w: string; name?: string }>;
+    node(name: string): any;
+    edge(v: string, w: string, name?: string): any;
+  }
+}

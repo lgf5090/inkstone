@@ -28,6 +28,7 @@ const BLOCKS: Array<[string, string]> = [
   ['mermaid', '```mermaid\nflowchart LR\n  A-->B\n```\n'],
   ['chart', '```chart style=table\n| :string: | 数量 |\n| --- | --- |\n| r | 1 |\n```\n'],
   ['mindmap', '```mindmap\n# Root\n## A\n## B\n```\n'],
+  ['excalidraw', '```excalidraw\n{}\n```\n'],
   ['kanban', '```kanban\n## 待办\n- [ ] 任务\n```\n'],
   ['dataview', '```dataview\nLIST FROM #x\n```\n'],
   ['inline-field', 'status:: reading\n'],

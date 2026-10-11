@@ -31,6 +31,7 @@
     if (saved && saved.fontScale) {
       root.style.setProperty('--prose-size', saved.fontScale + 'px')
     }
+    window.EXCALIDRAW_ASSET_PATH = '/vendor/excalidraw/'
   } catch (e) {
 
   }
