@@ -3019,7 +3019,8 @@
   height: 20px;
   padding: 0 6px;
   border-radius: var(--r-xs);
-  color: var(--text-tertiary);
+  /* A tab label is the only name the control has, so it is text, not chrome. */
+  color: var(--text-secondary);
   font-size: 10.5px;
   cursor: pointer;
   transition:
@@ -3031,8 +3032,11 @@
   color: var(--text-primary);
 }
 .ink-prose .json-tab.is-active {
+  /* The tint and an underline say which tab is on; the label itself stays in the reading colour,
+     because the accent measured 2.59:1 against its own soft tint in the dark theme. */
   background: var(--accent-soft);
-  color: var(--accent);
+  box-shadow: inset 0 -1.5px 0 var(--accent);
+  color: var(--text-primary);
 }
 .ink-prose .json-tools {
   display: inline-flex;
@@ -3048,7 +3052,7 @@
   height: 20px;
   padding: 0 6px;
   border-radius: var(--r-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 10.5px;
   cursor: pointer;
 }
@@ -3102,13 +3106,14 @@
 .ink-prose .json-view-note {
   margin: 0;
   padding: 7px 12px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 11.5px;
 }
 .ink-prose .json-view-note.is-invalid {
   border-bottom: 1px solid color-mix(in oklab, var(--danger) 26%, transparent);
   background: var(--danger-soft);
-  color: var(--danger);
+  /* The wash and the rule carry the "this is an error"; the sentence has to be readable. */
+  color: var(--text-primary);
   font-family: var(--font-mono);
 }
 
@@ -3146,12 +3151,12 @@
   width: 13px;
   height: 13px;
   margin-right: 1px;
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
 }
 .ink-prose .jt-fold:hover {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 .ink-prose .jt-node.is-collapsed > .jt-fold {
   transform: rotate(-90deg);
@@ -3166,21 +3171,26 @@
   border-radius: var(--r-2);
   padding: 0 2px;
 }
+/* An array index is how a reader addresses an element, so it is content rather than scaffolding and
+   carries the same weight as the value beside it. */
 .ink-prose .jt-index {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
 }
 .ink-prose .jt-key:hover,
 .ink-prose .jt-value:hover {
   background: var(--bg-active);
 }
+/* The tree's quiet parts are set smaller and lighter than the values, but never lighter than
+   `--text-secondary`: the bottom two tiers of the ramp measured 1.75–2.71:1 on a hovered row in the dark
+   theme, which is not a quieter grey, it is an invisible one. */
 .ink-prose .jt-colon {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
 }
 .ink-prose .jt-brace {
   color: var(--syntax-punctuation);
 }
 .ink-prose .jt-count {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
   font-size: 11px;
 }
 .ink-prose .jt-value {
@@ -3200,12 +3210,12 @@
   color: var(--syntax-constant);
 }
 .ink-prose .jt-value--null {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
   font-style: italic;
 }
 .ink-prose .jt-kind {
   margin-left: 5px;
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
   font-size: 9.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3231,7 +3241,8 @@
   height: 15px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-2);
-  color: var(--text-tertiary);
+  /* The glyph is the button's whole accessible name, so it is text like any other. */
+  color: var(--text-secondary);
   background: var(--bg-inset);
   font-size: 10px;
   line-height: 1;
@@ -3239,7 +3250,7 @@
 }
 .ink-prose .jt-op:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--text-primary);
 }
 .ink-prose .jt-input {
   height: 17px;
@@ -3357,7 +3368,7 @@
   color: var(--syntax-constant);
 }
 .jm-value--null {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
 }
 .jm-value--object,
 .jm-value--array {
@@ -3376,11 +3387,13 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--r-2);
 }
+/* The count of what the card left out is the one number the reader cannot get from the picture, so it
+   is not allowed to sit in the decorative tier. */
 .jm-more {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
 }
 .jm-empty {
-  color: var(--text-quaternary);
+  color: var(--text-secondary);
   font-style: italic;
 }
 .jm-fold {
@@ -3391,14 +3404,16 @@
   padding: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-full);
-  color: var(--text-tertiary);
+  /* The glyph is the only label on the button, and `--text-tertiary` measured 3.76:1 on a card in the
+     dark theme — a control's name has to clear AA like any other text. */
+  color: var(--text-secondary);
   background: var(--bg-inset);
   font-size: 10px;
   line-height: 1;
   cursor: pointer;
 }
 .jm-fold:hover {
-  color: var(--accent);
+  color: var(--text-primary);
   border-color: var(--accent);
 }
 
@@ -3432,14 +3447,14 @@
 .jm-detail-close {
   padding: 0 2px;
   border: 0;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   background: none;
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
 .jm-detail-close:hover {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 .jm-detail-body {
   max-height: 118px;
@@ -3450,7 +3465,7 @@
   line-height: 1.45;
 }
 .jm-detail-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 10px;
 }
 .jm-detail-path {
@@ -3478,7 +3493,7 @@
 }
 .jm-detail-copy:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 .json-fullscreen-head {
