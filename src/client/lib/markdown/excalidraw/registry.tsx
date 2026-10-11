@@ -25,7 +25,7 @@ import {
 import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import { reparentMainMenuIntoFooter } from '../../../features/excalidraw/chrome';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
-import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
+import { loadExcalidrawLib, markExcalidrawInteracted, excalidrawHasInteracted, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
     ExcalidrawBlockEntry,
     ExcalidrawMountOptions,
@@ -386,7 +386,18 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
             React.useEffect(() => reparentMainMenuIntoFooter(canvasHost), []);
 
+            React.useEffect(() => {
+                const note = () => markExcalidrawInteracted(api);
+                canvasHost.addEventListener('pointerdown', note, true);
+                canvasHost.addEventListener('keydown', note, true);
+                return () => {
+                    canvasHost.removeEventListener('pointerdown', note, true);
+                    canvasHost.removeEventListener('keydown', note, true);
+                };
+            }, []);
+
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
+                if (!excalidrawHasInteracted(api)) return;
                 lastElements = elements as any[];
                 lastAppState = appState;
                 lastFiles = files;

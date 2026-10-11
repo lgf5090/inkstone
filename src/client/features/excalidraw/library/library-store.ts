@@ -68,10 +68,20 @@ function scheduleSync(get: () => LibraryStoreState) {
   }, 800)
 }
 
+/**
+ * svgPreview is a derived render of elements the manifest already carries, and it is by far the
+ * largest field in an item (a whole exported SVG per shape). Keeping it out of both stores is what
+ * lets a real library fit inside the ~5 MB localStorage quota at all, and keeps a single rename from
+ * uploading megabytes; the preview is recomputed on demand and memoised in memory.
+ */
+function withoutPreviews(items: ExcalidrawLibraryItem[]): ExcalidrawLibraryItem[] {
+  return items.map((item) => (item.svgPreview === undefined ? item : { ...item, svgPreview: undefined }))
+}
+
 function persistLocal(manifest: ExcalidrawLibraryManifest) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(manifest))
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ ...manifest, items: withoutPreviews(manifest.items) }))
   } catch {
   }
 }
@@ -666,7 +676,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
       const manifest: ExcalidrawLibraryManifest = {
         version: 2,
         folders: state.folders,
-        items: state.items,
+        items: withoutPreviews(state.items),
         updatedAt: Date.now(),
       }
       await api.excalidrawLibrary.saveManifest(manifest)

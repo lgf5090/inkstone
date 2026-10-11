@@ -48,6 +48,9 @@ const allowed = new Map([
     "// inside the ported test corpus the same fixtures arrive as plain object literals, so the two",
     "// property names that hold a document are recognized wherever they appear",
   ]],
+  ["scripts/excalidraw-patch.mjs", [
+    "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
+  ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
     "// (scripts/check-contrast.mjs, which measures the painted pairs) and the token",
@@ -705,6 +708,9 @@ const allowed = new Map([
   ["src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx", [
     "/**\n   * Whether the engine's library sidebar is open, which the surface already learns from the engine's\n   * own onChange. Watching the canvas subtree for the slot instead meant a querySelector on every DOM\n   * change the engine makes mid-drag, and the observer never disconnected while the sidebar was closed\n   * because the slot it was looking for never existed.\n   */",
     "/** Bounded: every entry is a full exported SVG string, and this map outlived every surface. */",
+  ]],
+  ["src/client/features/excalidraw/library/library-store.ts", [
+    "/**\n * svgPreview is a derived render of elements the manifest already carries, and it is by far the\n * largest field in an item (a whole exported SVG per shape). Keeping it out of both stores is what\n * lets a real library fit inside the ~5 MB localStorage quota at all, and keeps a single rename from\n * uploading megabytes; the preview is recomputed on demand and memoised in memory.\n */",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
@@ -6654,6 +6660,8 @@ const allowed = new Map([
     "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",
     "/**\n * The engine's host protocol has one global `runAction` callback, so only one surface can own it at a\n * time — but the previous shape (pass `null` to unregister) let any surface's cleanup blank out the\n * handler that a *different* surface had installed last, which silently killed \"insert LaTeX / note\n * card / link\" on every canvas at once with no error anywhere. The returned disposer now only steps\n * aside if it is still the current owner, restoring whoever held it before.\n */",
     "/* nothing registered, nothing to release */",
+    "/**\n * The engine reports a change immediately after it restores a scene, and the restored JSON is never\n * byte-identical to the text in the note (it gains `version`, `created`, `hasTextLink`, and drops\n * nothing). A surface that writes on every change therefore marks the note dirty, autosaves it, bumps\n * its revision and syncs that bump to every other device — from a look. So both surfaces only write\n * once the reader has actually touched *that* canvas, which is what this flag records: the engine\n * hands out one API object per mount, so the map is keyed on it and dies with the instance.\n */",
+    "/**\n * The engine reports a change immediately after it restores a scene, and the restored JSON is never\n * byte-identical to the text in the note (it gains version, created and hasTextLink fields). A surface\n * that writes on every change therefore marks the note dirty, autosaves it, bumps its revision and\n * syncs that bump to every other device - from a look. Both surfaces therefore write only once the\n * reader has actually touched that canvas. The engine hands out one API object per mount, so the flag\n * is keyed on it and dies with the instance instead of leaking.\n */",
   ]],
   ["src/client/lib/markdown/excalidraw/view.ts", [
     "/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */",

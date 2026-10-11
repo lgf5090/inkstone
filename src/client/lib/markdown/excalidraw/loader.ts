@@ -173,6 +173,43 @@ export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
     return libPromise;
 }
 
+/**
+ * The engine reports a change immediately after it restores a scene, and the restored JSON is never
+ * byte-identical to the text in the note (it gains `version`, `created`, `hasTextLink`, and drops
+ * nothing). A surface that writes on every change therefore marks the note dirty, autosaves it, bumps
+ * its revision and syncs that bump to every other device — from a look. So both surfaces only write
+ * once the reader has actually touched *that* canvas, which is what this flag records: the engine
+ * hands out one API object per mount, so the map is keyed on it and dies with the instance.
+ */
+/**
+ * The engine reports a change immediately after it restores a scene, and the restored JSON is never
+ * byte-identical to the text in the note (it gains version, created and hasTextLink fields). A surface
+ * that writes on every change therefore marks the note dirty, autosaves it, bumps its revision and
+ * syncs that bump to every other device - from a look. Both surfaces therefore write only once the
+ * reader has actually touched that canvas. The engine hands out one API object per mount, so the flag
+ * is keyed on it and dies with the instance instead of leaking.
+ */
+const interactedApis = new WeakMap<object, { value: boolean }>()
+
+function interactionState(api: unknown): { value: boolean } | null {
+    if (!api || typeof api !== 'object') return null
+    let state = interactedApis.get(api)
+    if (!state) {
+        state = { value: false }
+        interactedApis.set(api, state)
+    }
+    return state
+}
+
+export function markExcalidrawInteracted(api: unknown): void {
+    const state = interactionState(api)
+    if (state) state.value = true
+}
+
+export function excalidrawHasInteracted(api: unknown): boolean {
+    return interactionState(api)?.value ?? true
+}
+
 export function setExcalidrawLibForTesting(lib: ExcalidrawLib | null): void {
     if (typeof window !== 'undefined') {
         (window as any).ExcalidrawLib = lib;

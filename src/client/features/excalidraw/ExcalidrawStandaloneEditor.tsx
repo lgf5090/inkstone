@@ -25,6 +25,8 @@ import { useNotes } from '../../store/notes';
 import { useUi, type WorkspacePane } from '../../store/ui';
 import {
     loadExcalidrawLib,
+    excalidrawHasInteracted,
+    markExcalidrawInteracted,
     parseExcalidrawBody,
     registerExcalidrawActionHandler,
     serializeExcalidrawBody,
@@ -88,6 +90,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         return (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'dark';
     });
 
+    const apiRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasHostRef = useRef<HTMLDivElement>(null);
     const saveTimerRef = useRef<number | undefined>(undefined);
@@ -242,6 +245,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
     const handleCanvasChange = useCallback(
         (elements: readonly any[], appState: any, files: any) => {
+            if (!excalidrawHasInteracted(apiRef.current)) return;
             const isLibOpen = Boolean(
                 appState.openSidebar && (appState.openSidebar.name === 'default' || appState.openSidebar.name === 'customSidebar')
             );
@@ -391,6 +395,18 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         if (!host || viewMode !== 'canvas') return;
         return reparentMainMenuIntoFooter(host);
     }, [viewMode, lib]);
+
+    useEffect(() => {
+        const host = canvasHostRef.current;
+        if (!host || viewMode !== 'canvas') return;
+        const note = () => markExcalidrawInteracted(apiRef.current);
+        host.addEventListener('pointerdown', note, true);
+        host.addEventListener('keydown', note, true);
+        return () => {
+            host.removeEventListener('pointerdown', note, true);
+            host.removeEventListener('keydown', note, true);
+        };
+    }, [viewMode]);
 
 
     useEffect(() => {
@@ -550,7 +566,10 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             onChange={handleCanvasChange}
                             onLinkOpen={handleLinkOpen}
                             onExcalidrawAPI={(excalidrawApi: any) => {
-                                if (excalidrawApi) setApi(excalidrawApi);
+                                if (excalidrawApi) {
+                                    apiRef.current = excalidrawApi;
+                                    setApi(excalidrawApi);
+                                }
                             }}
                             UIOptions={{
                                 canvasActions: {
