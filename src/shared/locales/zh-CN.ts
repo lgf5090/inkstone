@@ -4885,6 +4885,7 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.template_class": "类图",
     "excalidraw.library_title": "素材库",
     "excalidraw.library_search_placeholder": "搜索素材与文件夹...",
+    "excalidraw.library_import_skipped": "已导入 {imported} 个素材，跳过 {skipped} 个（丢弃 {dropped} 个不安全元素）",
     "excalidraw.new_folder": "新建文件夹",
     "excalidraw.new_subfolder": "新建子文件夹",
     "excalidraw.add_selected_to_library": "添加选中元素到素材库",

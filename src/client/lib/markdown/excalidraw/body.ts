@@ -43,6 +43,14 @@ export const EXCALIDRAW_ALLOWED_MIME = new Set([
     'image/svg+xml',
 ]);
 
+/**
+ * A stencil library is imported whole - one file, dozens of items - and every item it holds is drawn
+ * later by the library tree through `exportToSvg`. The library is therefore capped a little tighter
+ * than a single note: a board has to be readable, while a stencil set only has to be usable.
+ */
+export const EXCALIDRAW_MAX_LIBRARY_ITEMS = 500;
+export const EXCALIDRAW_MAX_LIBRARY_BYTES = 1_400_000;
+
 const ALLOWED_LINK_PREFIXES = ['http://', 'https://', 'mailto:'];
 
 function isAllowedLink(link: unknown): boolean {
@@ -52,7 +60,7 @@ function isAllowedLink(link: unknown): boolean {
     return ALLOWED_LINK_PREFIXES.some((prefix) => lowered.startsWith(prefix));
 }
 
-function sanitizeElements(input: unknown): { elements: any[]; dropped: number; error?: string } {
+export function sanitizeElements(input: unknown): { elements: any[]; dropped: number; error?: string } {
     if (!Array.isArray(input)) return { elements: [], dropped: 0 };
     if (input.length > EXCALIDRAW_MAX_ELEMENTS) {
         return {

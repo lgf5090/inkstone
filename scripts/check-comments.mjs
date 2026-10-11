@@ -729,6 +729,9 @@ const allowed = new Map([
     "/**\n * svgPreview is a derived render of elements the manifest already carries, and it is by far the\n * largest field in an item (a whole exported SVG per shape). Keeping it out of both stores is what\n * lets a real library fit inside the ~5 MB localStorage quota at all, and keeps a single rename from\n * uploading megabytes; the preview is recomputed on demand and memoised in memory.\n */",
     "// A heal renames shapes the store already has; pushing it back on every boot would spend a",
     "// full-manifest upload per device per session. The next real edit carries the names along.",
+    "// A library file is authored somewhere else and drawn here later, so its elements take the same route",
+    "// a note body takes: embeddables, hostile links and oversized point lists are dropped before anything",
+    "// reaches the store - the stencil tree hands these very elements to restoreElements and exportToSvg.",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
@@ -6673,6 +6676,7 @@ const allowed = new Map([
   ]],
   ["src/client/lib/markdown/excalidraw/body.ts", [
     "/**\n * A scene arrives from note text, which is the one input in this app that is never authored by the\n * person reading it: an imported vault, a pasted board, a shared note. Every limit below exists\n * because the renderer turns each element into roughjs work on the main thread and each file into a\n * dataURL that travels back out through the note body, so an unbounded scene is a denial of service\n * against the browser tab. An \"embeddable\" element is worse still: it is an iframe whose src the\n * note chose.\n */",
+    "/**\n * A stencil library is imported whole - one file, dozens of items - and every item it holds is drawn\n * later by the library tree through `exportToSvg`. The library is therefore capped a little tighter\n * than a single note: a board has to be readable, while a stencil set only has to be usable.\n */",
   ]],
   ["src/client/lib/markdown/excalidraw/loader.ts", [
     "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",

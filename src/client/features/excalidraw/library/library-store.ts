@@ -2,6 +2,11 @@ import { create } from 'zustand'
 import { api } from '../../../lib/api'
 import { toast } from './toast'
 import { t } from '../../../lib/i18n'
+import {
+  EXCALIDRAW_MAX_LIBRARY_BYTES,
+  EXCALIDRAW_MAX_LIBRARY_ITEMS,
+  sanitizeElements,
+} from '../../../lib/markdown/excalidraw/body'
 import type {
   ExcalidrawLibraryFolder,
   ExcalidrawLibraryItem,
@@ -580,18 +585,52 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
     }
 
     const cleanPrefix = sourceName ? sourceName.replace(/\.excalidrawlib$/i, '').trim() : 'Item'
-    const importedItems: ExcalidrawLibraryItem[] = rawItems.map((entry, idx) => {
-      const elements = Array.isArray(entry) ? entry : entry.elements || []
-      const name = extractItemName(entry, idx, cleanPrefix)
-      return {
+    // A library file is authored somewhere else and drawn here later, so its elements take the same route
+    // a note body takes: embeddables, hostile links and oversized point lists are dropped before anything
+    // reaches the store - the stencil tree hands these very elements to restoreElements and exportToSvg.
+    const importedItems: ExcalidrawLibraryItem[] = []
+    let droppedElements = 0
+    let skippedItems = 0
+    let budget = EXCALIDRAW_MAX_LIBRARY_BYTES
+    for (const [idx, entry] of rawItems.entries()) {
+      if (importedItems.length >= EXCALIDRAW_MAX_LIBRARY_ITEMS) {
+        skippedItems += rawItems.length - idx
+        break
+      }
+      const rawElements = Array.isArray(entry) ? entry : entry.elements || []
+      const safe = sanitizeElements(rawElements)
+      droppedElements += safe.dropped
+      if (safe.error || safe.elements.length === 0) {
+        skippedItems += 1
+        continue
+      }
+      const size = JSON.stringify(safe.elements).length
+      if (size > budget) {
+        skippedItems += rawItems.length - idx
+        break
+      }
+      budget -= size
+      importedItems.push({
         id: `stencil-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
         folderId,
-        name,
-        elements,
+        name: extractItemName(entry, idx, cleanPrefix),
+        elements: safe.elements,
         status: 'published',
         created: Date.now(),
-      }
-    })
+      })
+    }
+
+    if (droppedElements > 0 || skippedItems > 0) {
+      toast({
+        title: t('excalidraw.library_import_skipped', {
+          imported: importedItems.length,
+          skipped: skippedItems,
+          dropped: droppedElements,
+        }),
+        tone: importedItems.length === 0 ? 'danger' : 'warning',
+      })
+    }
+    if (importedItems.length === 0) return 0
 
     const nextItems = [...importedItems, ...state.items]
     const nextExpanded = folderId
