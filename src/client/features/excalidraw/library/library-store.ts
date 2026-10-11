@@ -627,7 +627,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
           skipped: skippedItems,
           dropped: droppedElements,
         }),
-        tone: importedItems.length === 0 ? 'danger' : 'warning',
+        tone: importedItems.length === 0 ? 'danger' : 'default',
       })
     }
     if (importedItems.length === 0) return 0
