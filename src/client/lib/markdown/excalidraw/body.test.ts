@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     EXCALIDRAW_BODY_LIMIT_BYTES,
     EXCALIDRAW_MAX_ELEMENTS,
+    findExcalidrawFences,
     parseExcalidrawBody,
 } from './body';
 
@@ -96,5 +97,20 @@ describe('the excalidraw scene sanitizer', () => {
     it('still reports malformed json as a failure', () => {
         const result = parseExcalidrawBody('{ not json');
         expect(result.ok).toBe(false);
+    });
+});
+
+describe('findExcalidrawFences', () => {
+    it('reports one fence when it is never closed, because the rest is its body', () => {
+        const fences = findExcalidrawFences('```excalidraw\n{"a":1}\n```excalidraw\n{"b":2}\n');
+        expect(fences).toHaveLength(1);
+        expect(fences[0].index).toBe(0);
+        expect(fences[0].body).toContain('```excalidraw');
+    });
+
+    it('still numbers the fences that follow a closed one', () => {
+        const fences = findExcalidrawFences('```excalidraw\n{"a":1}\n```\ntext\n```excalidraw\n{"b":2}\n```\n');
+        expect(fences.map((f) => f.index)).toEqual([0, 1]);
+        expect(fences[1].body).toBe('{"b":2}');
     });
 });

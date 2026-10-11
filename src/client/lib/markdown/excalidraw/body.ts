@@ -263,6 +263,11 @@ export function findExcalidrawFences(content: string): ExcalidrawFenceMatch[] {
 
         if (closing !== -1) {
             i = closing;
+        } else {
+            // An unclosed fence swallows everything below it, which is exactly what markdown-it does with
+            // it: the rest of the document is body text, not another block. Reporting a second fence from
+            // inside that body would hand the writer an index the renderer never registered.
+            break;
         }
     }
     return matches;

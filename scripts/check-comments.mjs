@@ -725,6 +725,12 @@ const allowed = new Map([
   ["src/client/features/excalidraw/chrome.ts", [
     "/**\n * The engine's own footer owns the undo row, and the main-menu trigger ships in the top-left island,\n * so the app moves it down beside them. Doing it from a MutationObserver on the canvas subtree meant a\n * `querySelector` pass (including a `:has()` match) on *every* DOM change the engine makes while a\n * shape is being dragged or the viewport panned. The two islands render within a frame or two of mount\n * and never reorder themselves afterwards, so a short bounded poll replaces the observer outright.\n *\n * The poll stops the moment it has moved the trigger, so a surface that owns the footer pays one or two\n * ticks. The fence block inside a note does not: there the engine renders no `layer-ui__wrapper` at all\n * (measured on the real page - the block's canvas is 536x486 and its own trigger sits at 1047,227), so\n * polling there ran all forty ticks, roughly two hundred selector queries per mount, and could never\n * succeed. That call site is gone; this one stays because the whole-page editor does have the footer.\n *\n * Returns the cancel function; callers must run it on cleanup.\n */",
   ]],
+  ["src/client/features/excalidraw/excalidraw-canvas-actions.ts", [
+    "// One mechanism drives the view. The engine's own fit knows the padding, the zoom limits and the",
+    "// animation; the hand-computed numbers below are a fallback for a build that exposes neither entry",
+    "// point. Running both used to make the second call overwrite the animated target the first had just",
+    "// set, which is why Fit View snapped instead of easing and sometimes landed on the wrong zoom.",
+  ]],
   ["src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx", [
     "/**\n   * Whether the engine's library sidebar is open, which the surface already learns from the engine's\n   * own onChange. Watching the canvas subtree for the slot instead meant a querySelector on every DOM\n   * change the engine makes mid-drag, and the observer never disconnected while the sidebar was closed\n   * because the slot it was looking for never existed.\n   */",
     "/** Bounded: every entry is a full exported SVG string, and this map outlived every surface. */",
@@ -6755,6 +6761,9 @@ const allowed = new Map([
   ["src/client/lib/markdown/excalidraw/body.ts", [
     "/**\n * A scene arrives from note text, which is the one input in this app that is never authored by the\n * person reading it: an imported vault, a pasted board, a shared note. Every limit below exists\n * because the renderer turns each element into roughjs work on the main thread and each file into a\n * dataURL that travels back out through the note body, so an unbounded scene is a denial of service\n * against the browser tab. An \"embeddable\" element is worse still: it is an iframe whose src the\n * note chose.\n */",
     "/**\n * A stencil library is imported whole - one file, dozens of items - and every item it holds is drawn\n * later by the library tree through `exportToSvg`. The library is therefore capped a little tighter\n * than a single note: a board has to be readable, while a stencil set only has to be usable.\n */",
+    "// An unclosed fence swallows everything below it, which is exactly what markdown-it does with",
+    "// it: the rest of the document is body text, not another block. Reporting a second fence from",
+    "// inside that body would hand the writer an index the renderer never registered.",
   ]],
   ["src/client/lib/markdown/excalidraw/loader.ts", [
     "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",

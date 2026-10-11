@@ -98,6 +98,11 @@ export function zoomToFitScene(api: any, container?: HTMLElement | null): void {
     const scrollX = (viewportWidth / 2) / nextZoom - bounds.centerX;
     const scrollY = (viewportHeight / 2) / nextZoom - bounds.centerY;
 
+    // One mechanism drives the view. The engine's own fit knows the padding, the zoom limits and the
+    // animation; the hand-computed numbers below are a fallback for a build that exposes neither entry
+    // point. Running both used to make the second call overwrite the animated target the first had just
+    // set, which is why Fit View snapped instead of easing and sometimes landed on the wrong zoom.
+    let fitted = false;
     if (typeof api.scrollToContent === 'function') {
         try {
             api.scrollToContent(elements, {
@@ -105,16 +110,19 @@ export function zoomToFitScene(api: any, container?: HTMLElement | null): void {
                 viewportZoomFactor: 0.85,
                 animate: true,
             });
+            fitted = true;
         } catch {
         }
-    } else if (typeof api.zoomToFit === 'function') {
+    }
+    if (!fitted && typeof api.zoomToFit === 'function') {
         try {
             api.zoomToFit(elements, 2, 0.15);
+            fitted = true;
         } catch {
         }
     }
 
-    if (typeof api.updateScene === 'function') {
+    if (!fitted && typeof api.updateScene === 'function') {
         api.updateScene({
             appState: {
                 zoom: { value: nextZoom },
