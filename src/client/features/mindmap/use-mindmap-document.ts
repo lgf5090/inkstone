@@ -5,8 +5,12 @@ import {
     decorateMindmapLinks,
     hasLayoutBox,
     loadMindmapVendor,
+    MINDMAP_UNDO_STEP_LIMIT,
+    mindmapDocumentFieldsFromExtra,
+    readMindmapDocumentFields,
     watchMindmapBox,
     watchMindmapContainer,
+    type MindmapDocumentFields,
     type MindmapHandle,
     type MindmapMode,
     type MindmapThemeChoice,
@@ -21,6 +25,8 @@ export interface MindmapDocumentController {
     hostRef: RefObject<HTMLDivElement | null>
     status: MindmapDocumentStatus
     error: string | null
+    /** What the file states about how it should be drawn, as the map itself reads it. */
+    fields: MindmapDocumentFields
     /** The live map, or null before it is drawn and after it is torn down. */
     map(): MindmapHandle | null
     /** The document as it stands on screen, rendered into the given body format. */
@@ -33,6 +39,8 @@ interface Options {
     dark: boolean
     locale: AppLocale
     autoSaveMs: number
+    /** Ceiling on this map's undo history; see ./mindmap-settings-store for why it needs one. */
+    undoStepLimit?: number
     /** Called with the whole new body after the map settles; the note's text is the document. */
     onBodyChange: (next: string) => void
     /** Stands in for the library chunk in tests; the registry takes the same seam. */
@@ -70,16 +78,23 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
     const bodyChange = useRef(options.onBodyChange);
     const autoSave = useRef(options.autoSaveMs);
     const contentRef = useRef(options.content);
+    const undoLimit = useRef(options.undoStepLimit ?? MINDMAP_UNDO_STEP_LIMIT);
     const loadVendor = useRef<MindmapVendorLoader>(options.loadVendor ?? loadMindmapVendor);
     const darkAtMount = useRef(options.dark);
     const localeAtMount = useRef(options.locale);
     const editableAtMount = useRef(options.editable);
+    // The file's own drawing fields, kept with the map rather than read again by the surface
+    // around it: the parse below already has them in hand, and re-parsing a 144 KB body on
+    // every write tick to answer three toggles was the cost the header was paying. The first
+    // read is the only one that happens without a parse behind it, and it is one per mount.
+    const [fields, setFields] = useState<MindmapDocumentFields>(() => readMindmapDocumentFields(options.content));
 
     useEffect(() => {
         bodyChange.current = options.onBodyChange;
     });
     autoSave.current = options.autoSaveMs;
     contentRef.current = options.content;
+    undoLimit.current = options.undoStepLimit ?? MINDMAP_UNDO_STEP_LIMIT;
     loadVendor.current = options.loadVendor ?? loadMindmapVendor;
     darkAtMount.current = options.dark;
     localeAtMount.current = options.locale;
@@ -133,7 +148,12 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
             live.current = { vendor, handle, extra, choice };
             entry.handle = handle;
             observer?.disconnect();
-            observer = watchMindmapContainer(entry);
+            // `fit` is false because this surface owns its own zoom: a document is read at the
+            // size the reader set, and re-fitting it every time the pane changes size is what
+            // put a 1000-node map at 3.4% (measured) — a thread of a picture no one can read,
+            // with the wheel the only way back. The map still re-lays out, so the geometry
+            // tracks the box; what stays put is the camera the reader chose.
+            observer = watchMindmapContainer(entry, false);
             decorateMindmapLinks(host);
             setStatus('ready');
         };
@@ -151,6 +171,7 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
                 setStatus('error');
                 return;
             }
+            setFields(mindmapDocumentFieldsFromExtra(parsed.extra));
             const create = () => vendor.create({
                 el: host,
                 body: parsed,
@@ -161,6 +182,7 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
                 // The document owns its viewport: plain wheel pans and zooms here, where a
                 // block in a scrolling preview has to leave the wheel to the note.
                 modifierWheelZoom: false,
+                undoStepLimit: undoLimit.current,
                 onOperation: scheduleWrite,
                 onEditingChange: (editing) => {
                     // Finishing an inline edit rebuilds that node from its topic text, so the
@@ -216,6 +238,7 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
         setError(null);
         current.extra = parsed.extra;
         current.choice = parsed.theme;
+        setFields(mindmapDocumentFieldsFromExtra(parsed.extra));
         current.handle.refresh({ ...parsed, theme: parsed.theme });
         decorateMindmapLinks(hostRef.current);
         setStatus('ready');
@@ -238,5 +261,5 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
             : null;
     }, []);
 
-    return { hostRef, status, error, map, serializeAs };
+    return { hostRef, status, error, fields, map, serializeAs };
 }

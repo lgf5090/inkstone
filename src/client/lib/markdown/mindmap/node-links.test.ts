@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { decodeDataValue } from '../data-attr';
 import { decorateMindmapLinks, MINDMAP_NODE_LINK_ATTR } from './node-links';
 
@@ -78,5 +78,34 @@ describe('decorateMindmapLinks', () => {
 
     it('does nothing to a container that is not there', () => {
         expect(() => decorateMindmapLinks(null)).not.toThrow();
+    });
+
+    // The guard these two tests hold is a cost guard: a map of a thousand nodes was being
+    // walked — one text read and two regexes per node — on every write tick, to find links
+    // nearly none of its topics had ever contained.
+    it('skips the walk entirely when the drawn text holds no link opener', () => {
+        const host = canvas(topic('Just a branch').root, topic('Another').root);
+        const walk = vi.spyOn(host, 'querySelectorAll');
+        decorateMindmapLinks(host);
+        expect(walk).not.toHaveBeenCalled();
+        host.remove();
+    });
+
+    it('walks the map as soon as one topic names a note, whichever one it is', () => {
+        const host = canvas(topic('Just a branch').root, topic('[[Reading notes]]').root);
+        const walk = vi.spyOn(host, 'querySelectorAll');
+        decorateMindmapLinks(host);
+        expect(walk).toHaveBeenCalledTimes(1);
+        expect(host.querySelectorAll(`[${MINDMAP_NODE_LINK_ATTR}]`)).toHaveLength(1);
+        host.remove();
+    });
+
+    it('counts an unbalanced opener as a reason to walk, rather than guessing it away', () => {
+        const { root, textSpan } = topic('[[Reading notes');
+        const host = canvas(root);
+        decorateMindmapLinks(host);
+        expect(textSpan.textContent).toBe('[[Reading notes');
+        expect(host.querySelector(`[${MINDMAP_NODE_LINK_ATTR}]`)).toBeNull();
+        host.remove();
     });
 });

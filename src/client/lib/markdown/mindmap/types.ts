@@ -98,6 +98,14 @@ export interface MindmapCreateOptions {
      * and gets the library's default pan/zoom wheel handling.
      */
     modifierWheelZoom: boolean
+    /**
+     * How many steps of undo a map may remember before its history is dropped. The library
+     * keeps a deep copy of the whole document per step and sets no ceiling of its own, so
+     * memory grows with the length of the session rather than the size of the map (0.11 MiB
+     * per copy of a 1000-node body, measured). Zero means unlimited, which is what a surface
+     * that cannot edit — and so cannot undo — passes.
+     */
+    undoStepLimit: number
     onOperation: () => void
     onEditingChange: (editing: boolean) => void
 }

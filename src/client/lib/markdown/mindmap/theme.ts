@@ -1,3 +1,5 @@
+import { mindmapError } from './errors';
+
 /**
  * What a ```mindmap body may say about its own palette, and how that meets the
  * app's light/dark setting.
@@ -37,7 +39,7 @@ export const APP_THEME_CHOICE: MindmapThemeChoice = { kind: 'app' };
 const FOLLOW_APP_NAMES = ['auto', 'app'];
 
 function themeFieldError(): string {
-    return '"theme" must be "light", "dark", "auto" or a theme object';
+    return mindmapError('bad-theme', '"theme" must be "light", "dark", "auto" or a theme object');
 }
 
 /**

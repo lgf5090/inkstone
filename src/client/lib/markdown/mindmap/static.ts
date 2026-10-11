@@ -53,6 +53,9 @@ function drawInto(container: HTMLElement, vendor: MindmapVendor, body: MindmapPa
         locale: options.locale,
         newTopicName: '',
         modifierWheelZoom: false,
+        // A snapshot is drawn, read and thrown away: nothing is edited, so the library
+        // builds no history and there is nothing to bound.
+        undoStepLimit: 0,
         onOperation: () => {},
         onEditingChange: () => {},
     });

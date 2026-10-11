@@ -18,6 +18,7 @@ import { detectMindmapMode, normalizeEol } from './body';
 import type { MindmapBlockEntry } from './entry';
 import { loadMindmapVendor } from './loader';
 import { decorateMindmapLinks } from './node-links';
+import { MINDMAP_UNDO_STEP_LIMIT } from './nodes';
 import { relayoutMindmap, watchMindmapBox, watchMindmapContainer } from './resize';
 import { renderStaticMindmapBlocks } from './static';
 import { APP_THEME_CHOICE, fenceThemeChoice, type MindmapThemeChoice } from './theme';
@@ -34,6 +35,12 @@ export interface MindmapMountOptions {
     dark: boolean
     locale: AppLocale
     editable: boolean
+    /**
+     * Ceiling on the block's undo history, from the reader's mind map settings. Left unset
+     * the block takes the module default; a surface that has no settings of its own (a
+     * share page, an export) passes 0 for unlimited, since it cannot edit and so builds none.
+     */
+    undoStepLimit?: number
     writeBack?: MindmapWriter
     /** How the header's palette control rewrites the fence; without it the control is dead. */
     writeFence?: MindmapFenceWriter
@@ -441,6 +448,10 @@ async function buildInstance(entry: MindmapBlockEntry): Promise<void> {
         locale: entry.locale,
         newTopicName: t('preview.mindmap_new_topic'),
         modifierWheelZoom: true,
+        // The block is built long after the mount pass that asked for it (the vendor chunk
+        // arrives by promise), so the ceiling is read from the options the scope last
+        // reported rather than passed down through the entry.
+        undoStepLimit: scopeOptions.get(entry.scope)?.undoStepLimit ?? MINDMAP_UNDO_STEP_LIMIT,
         onOperation: () => scheduleWrite(entry),
         onEditingChange: (editing) => {
             // Finishing an inline topic edit rebuilds that node, and a rebuilt node is

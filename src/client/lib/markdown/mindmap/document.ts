@@ -65,15 +65,22 @@ export interface MindmapDocumentFieldWrite {
  * a control has no business inventing an error of its own.
  */
 export function readMindmapDocumentFields(content: string): MindmapDocumentFields {
-    const parsed = readJsonObject(content);
-    if (!parsed)
-        return {};
+    return mindmapDocumentFieldsFromExtra(readJsonObject(content) ?? {});
+}
+
+/**
+ * The same three answers from the fields the drawer already read off the body. A surface
+ * that has just parsed its own document asks `readMindmapDocumentFields` to parse it a
+ * second time for three scalars, which on a large map is a full re-read of the text on
+ * every write — this is the half that needs no JSON, only the top-level keys.
+ */
+export function mindmapDocumentFieldsFromExtra(extra: Record<string, unknown>): MindmapDocumentFields {
     const fields: MindmapDocumentFields = {};
-    if (DIRECTIONS.includes(parsed.direction as MindmapDocumentDirection))
-        fields.direction = parsed.direction as MindmapDocumentDirection;
-    if (typeof parsed.compact === 'boolean')
-        fields.compact = parsed.compact;
-    const theme = typeof parsed.theme === 'string' ? parsed.theme.trim().toLowerCase() : '';
+    if (DIRECTIONS.includes(extra.direction as MindmapDocumentDirection))
+        fields.direction = extra.direction as MindmapDocumentDirection;
+    if (typeof extra.compact === 'boolean')
+        fields.compact = extra.compact;
+    const theme = typeof extra.theme === 'string' ? extra.theme.trim().toLowerCase() : '';
     if (theme === 'light' || theme === 'dark')
         fields.palette = theme;
     return fields;

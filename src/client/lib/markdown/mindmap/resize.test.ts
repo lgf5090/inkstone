@@ -157,4 +157,22 @@ describe('watchMindmapContainer', () => {
         FakeResizeObserver.instances[0]?.report(619, 459);
         expect(order).toEqual(['layout', 'scaleFit']);
     });
+
+    // The whole-note document answers these with `false`: it owns its zoom, and a watcher that
+    // re-fits it is the defect that opened a 1000-node map at 3.4% of reading size.
+    it('leaves the camera alone when the surface owns its own zoom', () => {
+        stubObserver();
+        const order: string[] = [];
+        const container = canvasWithTopic('[[Alpha]]');
+        watchMindmapContainer({ container, handle: fakeHandle(order) }, false);
+        FakeResizeObserver.instances[0]?.report(619, 459);
+        expect(order).toEqual(['layout']);
+        expect(container.querySelector('a[data-mindmap-node-link]')?.textContent).toBe('Alpha');
+    });
+
+    it('still re-measures a surface that owns its zoom, because the geometry has to follow the box', () => {
+        const order: string[] = [];
+        relayoutMindmap({ container: canvasWithTopic('Core'), handle: fakeHandle(order) }, false);
+        expect(order).toEqual(['layout']);
+    });
 });

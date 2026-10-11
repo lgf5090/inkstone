@@ -74,6 +74,21 @@ export function MindmapSettings() {
         />
       </SettingRow>
 
+      <SettingRow title={t('settings.mindmap_undo_limit')} description={t('settings.mindmap_undo_limit_desc')}>
+        <Input
+          type="number"
+          min={0}
+          step={5}
+          value={String(settings.undoHistoryLimit)}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isFinite(next))
+              updateSettings({ undoHistoryLimit: Math.max(0, Math.min(1000, Math.round(next))) });
+          }}
+          className="w-28 text-xs"
+        />
+      </SettingRow>
+
       <SettingRow title={t('settings.mindmap_direction')} description={t('settings.mindmap_direction_desc')}>
         <Segmented
           value={String(settings.defaultDirection)}
