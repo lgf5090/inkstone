@@ -67,6 +67,8 @@ export interface ExcalidrawLib {
     TTDDialog?: React.ComponentType<any>;
     TTDDialogTrigger?: React.ComponentType<any>;
     DiagramToCodePlugin?: React.ComponentType<any>;
+    Sidebar?: any;
+    DefaultSidebar?: any;
     exportToBlob: (options: any) => Promise<Blob>;
     exportToSvg: (options: any) => Promise<SVGSVGElement>;
     exportToClipboard: (options: any) => Promise<void>;

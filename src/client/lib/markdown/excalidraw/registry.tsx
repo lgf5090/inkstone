@@ -15,6 +15,7 @@ import { useUi } from '../../../store/ui';
 import { useNotes } from '../../../store/notes';
 import { ExcalidrawToolsPanel } from '../../../features/excalidraw/ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from '../../../features/excalidraw/ExcalidrawFloatingCapsule';
+import { ExcalidrawLibraryPortal } from '../../../features/excalidraw/library/ExcalidrawLibraryTree';
 import {
     promptAndInsertLatex,
     promptAndInsertLink,
@@ -486,6 +487,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         }}
                     >
                         {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
+                        <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={{ current: canvasHost }} />
                         <MainMenu>
                             <MainMenu.DefaultItems.ChangeCanvasBackground />
                             <MainMenu.Item

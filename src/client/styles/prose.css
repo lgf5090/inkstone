@@ -2546,6 +2546,105 @@
   flex: 0 0 auto !important;
 }
 
+.excalidraw .sidebar-triggers {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 12px !important;
+}
+
+.excalidraw .sidebar-tab-trigger {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  background-color: transparent !important;
+  color: var(--text-primary-color, currentColor) !important;
+  border: none !important;
+  transition: all 0.15s ease !important;
+}
+
+.excalidraw .sidebar-tab-trigger svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.excalidraw .sidebar-tab-trigger:hover {
+  background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06)) !important;
+}
+
+.excalidraw .sidebar-tab-trigger.active,
+.excalidraw .sidebar-tab-trigger[data-state="active"],
+.excalidraw .sidebar-tab-trigger[aria-selected="true"] {
+  background-color: #6965db !important;
+  color: #ffffff !important;
+}
+
+.excalidraw .sidebar-tab-trigger.active svg,
+.excalidraw .sidebar-tab-trigger[data-state="active"] svg,
+.excalidraw .sidebar-tab-trigger[aria-selected="true"] svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.excalidraw .sidebar .ExcTextField,
+.excalidraw .layer-ui__library .ExcTextField {
+  min-height: 38px !important;
+  height: 38px !important;
+  border-radius: 8px !important;
+  background: var(--island-bg, rgba(0, 0, 0, 0.04)) !important;
+  border: 1px solid var(--border-default, #e5e5e7) !important;
+  padding: 0 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  font-size: 13px !important;
+  margin: 6px 12px 10px 12px !important;
+}
+
+.excalidraw.theme--dark .sidebar .ExcTextField,
+.excalidraw.theme--dark .layer-ui__library .ExcTextField {
+  background: #232329 !important;
+  border-color: #31303b !important;
+  color: #f1f1f1 !important;
+}
+
+.excalidraw .sidebar .ExcTextField input,
+.excalidraw .layer-ui__library .ExcTextField input {
+  font-size: 13px !important;
+  height: 100% !important;
+}
+
+.excalidraw .sidebar .ExcTextField svg,
+.excalidraw .layer-ui__library .ExcTextField svg {
+  width: 16px !important;
+  height: 16px !important;
+  opacity: 0.7 !important;
+}
+
+.excalidraw .layer-ui__library {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.excalidraw .layer-ui__library > *:not([data-ink-library-tree]) {
+  display: none !important;
+}
+
+.excalidraw .layer-ui__library > [data-ink-library-tree] {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
 .excalidraw .App-toolbar {
   position: relative !important;
 }

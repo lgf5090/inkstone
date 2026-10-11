@@ -616,6 +616,27 @@ export const api = {
       return request<ImportResult>('/api/import', { method: 'POST', formData: form })
     },
   },
+
+  excalidrawLibrary: {
+    getManifest: () => request<{ ok: true; manifest: any }>('/api/excalidraw/library/manifest'),
+    saveManifest: (manifest: any) =>
+      request<{ ok: true; updatedAt: number }>('/api/excalidraw/library/manifest', {
+        method: 'PUT',
+        body: { manifest },
+      }),
+    getOfficialCatalog: () =>
+      request<{ ok: boolean; libraries: any[] }>('/api/excalidraw/library/official-catalog'),
+    downloadOfficialLibrary: (source: string) =>
+      request<{ ok: boolean; data: any }>('/api/excalidraw/library/official-download', {
+        method: 'POST',
+        body: { source },
+      }),
+    saveFile: (filename: string, content: any) =>
+      request<{ ok: true; path: string }>('/api/excalidraw/library/save-file', {
+        method: 'POST',
+        body: { filename, content },
+      }),
+  },
 }
 
 function toQuery(params: Record<string, string | number | undefined>): string {

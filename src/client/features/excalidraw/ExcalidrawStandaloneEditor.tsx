@@ -33,6 +33,7 @@ import {
 } from '../../lib/markdown/excalidraw';
 import { ExcalidrawToolsPanel } from './ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from './ExcalidrawFloatingCapsule';
+import { ExcalidrawLibraryPortal } from './library/ExcalidrawLibraryTree';
 import {
     getViewportCenterInScene,
     promptAndInsertLatex,
@@ -650,6 +651,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                     generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
                                 />
                             )}
+                            <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={canvasHostRef} />
                             <lib.MainMenu>
                                 <lib.MainMenu.Item
                                     onSelect={() => {
