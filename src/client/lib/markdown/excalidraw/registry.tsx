@@ -372,7 +372,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
             React.useEffect(() => {
                 if (!api) return;
-                registerExcalidrawActionHandler(async (action) => {
+                return registerExcalidrawActionHandler(async (action) => {
                     const isDark = theme === 'dark';
                     if (action === 'LaTeX') {
                         await promptAndInsertLatex(api, isDark);
@@ -382,10 +382,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         await promptAndInsertLink(api, isDark);
                     }
                 });
-                return () => {
-                    registerExcalidrawActionHandler(null);
-                };
-            }, [theme]);
+            }, [api, theme]);
 
             React.useEffect(() => reparentMainMenuIntoFooter(canvasHost), []);
 
@@ -540,9 +537,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             toolsPanelOpen={toolsPanelOpen}
                             onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
                             onToggleCode={() => entry.toggleSource()}
-                            onScriptLibrary={() => {
-                                useUi.getState().toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
-                            }}
+                            onScriptLibrary={undefined}
                             isDark={theme === 'dark'}
                             onToggleTheme={() => {
                                 const next = theme === 'dark' ? 'light' : 'dark';

@@ -42,7 +42,29 @@ interface ExcalidrawLibraryTreeProps {
   lib?: any
 }
 
+const PREVIEW_CACHE_LIMIT = 200
+
+/** Bounded: every entry is a full exported SVG string, and this map outlived every surface. */
 const previewCache = new Map<string, string>()
+
+function readCachedPreview(id: string): string | undefined {
+  const hit = previewCache.get(id)
+  if (hit !== undefined) {
+    previewCache.delete(id)
+    previewCache.set(id, hit)
+  }
+  return hit
+}
+
+function rememberPreview(id: string, svg: string): void {
+  previewCache.delete(id)
+  previewCache.set(id, svg)
+  while (previewCache.size > PREVIEW_CACHE_LIMIT) {
+    const oldest = previewCache.keys().next().value
+    if (oldest === undefined) break
+    previewCache.delete(oldest)
+  }
+}
 
 interface StencilItemPreviewProps {
   item: ExcalidrawLibraryItem
@@ -53,18 +75,18 @@ interface StencilItemPreviewProps {
 const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api }) => {
   const [svgHtml, setSvgHtml] = useState<string | null>(() => {
     if (item.svgPreview) return item.svgPreview
-    return previewCache.get(item.id) || null
+    return readCachedPreview(item.id) ?? null
   })
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (item.svgPreview) {
       setSvgHtml(item.svgPreview)
-      previewCache.set(item.id, item.svgPreview)
+      rememberPreview(item.id, item.svgPreview)
       return
     }
 
-    const cached = previewCache.get(item.id)
+    const cached = readCachedPreview(item.id)
     if (cached) {
       setSvgHtml(cached)
       return
@@ -97,7 +119,7 @@ const StencilItemPreview: React.FC<StencilItemPreviewProps> = ({ item, lib, api 
         svg.style.height = 'auto'
         svg.style.objectFit = 'contain'
         const html = svg.outerHTML
-        previewCache.set(item.id, html)
+        rememberPreview(item.id, html)
         setSvgHtml(html)
       } catch {
       } finally {

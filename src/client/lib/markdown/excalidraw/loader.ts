@@ -39,8 +39,22 @@ import { convertMermaidToExcalidrawElements } from './mermaid';
 
 let activeActionHandler: ((action: string) => void) | null = null;
 
-export function registerExcalidrawActionHandler(handler: ((action: string) => void) | null): void {
-    activeActionHandler = handler;
+/**
+ * The engine's host protocol has one global `runAction` callback, so only one surface can own it at a
+ * time — but the previous shape (pass `null` to unregister) let any surface's cleanup blank out the
+ * handler that a *different* surface had installed last, which silently killed "insert LaTeX / note
+ * card / link" on every canvas at once with no error anywhere. The returned disposer now only steps
+ * aside if it is still the current owner, restoring whoever held it before.
+ */
+export function registerExcalidrawActionHandler(
+    handler: ((action: string) => void) | null,
+): () => void {
+    if (!handler) return () => { /* nothing registered, nothing to release */ }
+    const previous = activeActionHandler
+    activeActionHandler = handler
+    return () => {
+        if (activeActionHandler === handler) activeActionHandler = previous
+    }
 }
 
 /**

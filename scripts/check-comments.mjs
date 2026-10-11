@@ -704,6 +704,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx", [
     "/**\n   * Whether the engine's library sidebar is open, which the surface already learns from the engine's\n   * own onChange. Watching the canvas subtree for the slot instead meant a querySelector on every DOM\n   * change the engine makes mid-drag, and the observer never disconnected while the sidebar was closed\n   * because the slot it was looking for never existed.\n   */",
+    "/** Bounded: every entry is a full exported SVG string, and this map outlived every surface. */",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
@@ -6646,8 +6647,13 @@ const allowed = new Map([
     "/**\n     * How this surface treats a `dataview` query block. `live` means the caller mounts the answer itself\n     * with `renderDataviewBlocks`, because it has the note store and can wait for bodies; `source` shows\n     * the query text, which is what a surface that must not read other notes — a share page, a printed\n     * sheet — or one with no room for a table — a note card — owes the reader instead of a placeholder\n     * that never resolves.\n     */",
     "/**\n     * How this surface treats ```excalidraw blocks. 'live' means the caller mounts a writable canvas\n     * itself from the committed markup, so this pass must leave the placeholder alone; 'source' shows\n     * the scene text. Required rather than optional for the reason the mind map channel gives: a\n     * surface that forgets it leaves every block saying \"Loading drawing...\" forever, and nothing else\n     * on that surface will ever touch it.\n     */",
   ]],
+  ["src/client/lib/markdown/excalidraw/body.ts", [
+    "/**\n * A scene arrives from note text, which is the one input in this app that is never authored by the\n * person reading it: an imported vault, a pasted board, a shared note. Every limit below exists\n * because the renderer turns each element into roughjs work on the main thread and each file into a\n * dataURL that travels back out through the note body, so an unbounded scene is a denial of service\n * against the browser tab. An \"embeddable\" element is worse still: it is an iframe whose src the\n * note chose.\n */",
+  ]],
   ["src/client/lib/markdown/excalidraw/loader.ts", [
     "/**\n * The engine only normalises elements it is handed at restore time (`initialData`, its own paste and\n * drop paths). `updateScene` takes whatever it is given, so a caller that builds an element by hand\n * ships one with no `seed`, no fractional `index` and no `versionNonce` — which is enough to make the\n * rough shape re-randomise and the z-order compare against `undefined`.\n */",
+    "/**\n * The engine's host protocol has one global `runAction` callback, so only one surface can own it at a\n * time — but the previous shape (pass `null` to unregister) let any surface's cleanup blank out the\n * handler that a *different* surface had installed last, which silently killed \"insert LaTeX / note\n * card / link\" on every canvas at once with no error anywhere. The returned disposer now only steps\n * aside if it is still the current owner, restoring whoever held it before.\n */",
+    "/* nothing registered, nothing to release */",
   ]],
   ["src/client/lib/markdown/excalidraw/view.ts", [
     "/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */",

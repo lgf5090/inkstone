@@ -190,7 +190,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, [note.id]);
 
     useEffect(() => {
-        registerExcalidrawActionHandler(async (action) => {
+        return registerExcalidrawActionHandler(async (action) => {
             if (!api) return;
             const isDark = theme === 'dark';
             if (action === 'LaTeX') {
@@ -201,9 +201,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 await promptAndInsertLink(api, isDark);
             }
         });
-        return () => {
-            registerExcalidrawActionHandler(null);
-        };
     }, [api, theme]);
 
     useEffect(() => {
@@ -620,11 +617,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                 />
                             )}
                             {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
-                            {lib.DiagramToCodePlugin && (
-                                <lib.DiagramToCodePlugin
-                                    generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
-                                />
-                            )}
                             <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={canvasHostRef} open={libraryOpen} />
                             <lib.MainMenu>
                                 <lib.MainMenu.Item
@@ -677,14 +669,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                     icon={<Save size={14} />}
                                 >
                                     {t('workspace.save_drawing')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
-                                    }}
-                                    icon={<Brush size={14} />}
-                                >
-                                    {t('excalidraw.script_library')}
                                 </lib.MainMenu.Item>
                                 <lib.MainMenu.Item
                                     onSelect={() => setToolsPanelOpen(true)}
@@ -744,7 +728,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         toolsPanelOpen={toolsPanelOpen}
                         onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
                         onToggleCode={handleToggleViewMode}
-                        onScriptLibrary={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
                         isDark={theme === 'dark'}
                         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
                     />
