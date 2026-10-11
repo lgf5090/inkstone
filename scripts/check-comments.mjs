@@ -728,6 +728,11 @@ const allowed = new Map([
     "// from another device, an undo, a version restore. Nothing used to push it back into the canvas, so",
     "// the drawing kept showing an old scene while the note already held a new one. The one change that",
     "// must not come back around is our own save, which is exactly what lastSavedRef marks.",
+    "// Read inside the refill effect rather than taken as a dependency: re-running that effect the moment",
+    "// the flag flips would compare the new body against a prop the parent has not updated yet and refill",
+    "// the canvas with the text it is about to replace.",
+    "// The same note can be open in two panes, each with its own engine. Refilling while this canvas",
+    "// holds an edit it has not written yet would throw that work away, so wait for the save to land.",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",

@@ -99,6 +99,11 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const canvasHostRef = useRef<HTMLDivElement>(null);
     const saveTimerRef = useRef<number | undefined>(undefined);
     const lastSavedRef = useRef<string>(content);
+    // Read inside the refill effect rather than taken as a dependency: re-running that effect the moment
+    // the flag flips would compare the new body against a prop the parent has not updated yet and refill
+    // the canvas with the text it is about to replace.
+    const isSavedRef = useRef(true);
+    const setSaved = (saved: boolean) => { isSavedRef.current = saved; setIsSaved(saved); };
 
     const excalidrawSettings = useExcalidrawSettingsStore();
 
@@ -254,6 +259,9 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     useEffect(() => {
         if (!api) return;
         if (content === lastSavedRef.current) return;
+        // The same note can be open in two panes, each with its own engine. Refilling while this canvas
+        // holds an edit it has not written yet would throw that work away, so wait for the save to land.
+        if (!isSavedRef.current) return;
         const parsed = parseExcalidrawBody(content);
         if (!parsed.ok) return;
         api.updateScene({
@@ -274,7 +282,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 appState.openSidebar && (appState.openSidebar.name === 'default' || appState.openSidebar.name === 'customSidebar')
             );
             setLibraryOpen(isLibOpen);
-            setIsSaved(false);
+            setSaved(false);
             window.clearTimeout(saveTimerRef.current);
             const autoSaveMs = autoSaveDelayMs(useExcalidrawSettingsStore.getState().autoSaveIntervalMs);
             saveTimerRef.current = window.setTimeout(() => {
@@ -288,7 +296,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     lastSavedRef.current = nextJson;
                     onChangeRef.current(nextJson);
                     setRawCode(nextJson);
-                    setIsSaved(true);
+                    setSaved(true);
                 }
             }, autoSaveMs);
         },
@@ -328,7 +336,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
             lastSavedRef.current = nextJson;
             onChangeRef.current(nextJson);
             setRawCode(nextJson);
-            setIsSaved(true);
+            setSaved(true);
         }
         toast({ title: t('workspace.drawing_saved'), tone: 'success' });
     }, [api, lib, toast]);
@@ -381,7 +389,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
             }));
             const existing = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
             applySceneElements(api, [...existing, ...shifted]);
-            setIsSaved(false);
+            setSaved(false);
         },
         [api],
     );
@@ -744,7 +752,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                 if (e.target.value !== lastSavedRef.current) {
                                     lastSavedRef.current = e.target.value;
                                     onChangeRef.current(e.target.value);
-                                    setIsSaved(true);
+                                    setSaved(true);
                                 }
                             }}
                             className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"

@@ -126,6 +126,24 @@ describe('the whole-page editor follows the note body', () => {
         expect(elementPayloads()).toEqual([]);
     });
 
+    it('waits for its own unsaved edit before refilling from the body', async () => {
+        const onChange = vi.fn();
+        await renderEditor({ content: scene('seed'), onChange });
+        host.querySelector('[data-fake-engine]')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+        engineProps.onChange([{ id: 'mine', type: 'rectangle', x: 1, y: 1, width: 10, height: 10, isDeleted: false }], { viewBackgroundColor: '#ffffff' }, {});
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+
+        await renderEditor({ content: scene('from-another-pane'), onChange });
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
+        const payloadsWhileUnsaved = FAKE_API.updateScene.mock.calls
+            .map((c: any[]) => (Array.isArray(c[0]?.elements) ? c[0].elements.map((e: any) => e.id) : null))
+            .filter((p): p is string[] => p !== null);
+        expect(payloadsWhileUnsaved).toEqual([]);
+
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
     it('holds its own autosave delay inside the advertised range', async () => {
         useExcalidrawSettingsStore.setState({ autoSaveIntervalMs: 1 });
         try {
