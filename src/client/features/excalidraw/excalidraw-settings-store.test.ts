@@ -16,7 +16,7 @@ describe('excalidraw-settings-store', () => {
     const deepseekConfig = state.aiProviders.deepseek;
     expect(deepseekConfig).toBeDefined();
     expect(deepseekConfig.baseURL).toBe('https://api.deepseek.com');
-    expect(deepseekConfig.apiKey).toBe('***REMOVED***');
+    expect(deepseekConfig.apiKey).toBe('');
   });
 
   it('returns active AI configuration via getActiveAIConfig', () => {

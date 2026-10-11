@@ -50,6 +50,12 @@ const allowed = new Map([
   ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
+    "// The upstream teardown nulls every field, and the mount guard above re-creates each one, so the",
+    "// nulls stay. Two additions: the canvas backing store is zeroed before it is dropped (a detached",
+    "// 4096x4096 surface keeps its pixels alive until the element itself is unreachable), and every",
+    "// `?.` is there because a StrictMode double-mount can reach this before those fields exist.",
+    "// An earlier revision of this table dropped the nulls to survive StrictMode; a bundle carrying",
+    "// that shape is migrated rather than reported as unmatched.",
   ]],
   ["scripts/lib/contrast.mjs", [
     "// The colour maths behind the contrast gates, shared by the browser gate",
@@ -699,6 +705,10 @@ const allowed = new Map([
   ["src/client/features/emoji/insert-emoji.ts", [
     "/**\n * Where a picked emoji goes: the editor on screen, and the clipboard when there is no editor to\n * write into (a note opened read-only, a phone in the preview tab). Silently dropping the pick is\n * the one answer that is never right.\n */",
   ]],
+  ["src/client/features/excalidraw/ExcalidrawStandaloneEditor.tsx", [
+    "// Spreading the coordinates into Math.min/Math.max overflows the argument list once a",
+    "// generated diagram is large enough; the bounds helper walks the array instead.",
+  ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
   ]],
@@ -711,6 +721,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/excalidraw/library/library-store.ts", [
     "/**\n * svgPreview is a derived render of elements the manifest already carries, and it is by far the\n * largest field in an item (a whole exported SVG per shape). Keeping it out of both stores is what\n * lets a real library fit inside the ~5 MB localStorage quota at all, and keeps a single rename from\n * uploading megabytes; the preview is recomputed on demand and memoised in memory.\n */",
+    "// A heal renames shapes the store already has; pushing it back on every boot would spend a",
+    "// full-manifest upload per device per session. The next real edit carries the names along.",
   ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",

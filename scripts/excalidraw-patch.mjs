@@ -55,9 +55,18 @@ export const EXCALIDRAW_PATCHES = [
     replacement: 'this.store?.commit?.(r,this.state)',
   },
   {
-    id: 'unmount-keeps-fields',
+    id: 'unmount-releases-fields',
     target: 'this.interactiveCanvas=null,this.iFrameRefs.clear(),this.iFrameRefs=null,this.embedsValidationStatus.clear(),this.embedsValidationStatus=null,this.initializedEmbeds.clear(),this.initializedEmbeds=null,this.elementsPendingErasure.clear(),this.elementsPendingErasure=null,this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history.clear(),this.store.clear(),this.store=null,this.library=null,this.canvas=null,this.rc=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}',
-    replacement: 'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.history?.clear?.(),this.store?.clear?.()',
+    // The upstream teardown nulls every field, and the mount guard above re-creates each one, so the
+    // nulls stay. Two additions: the canvas backing store is zeroed before it is dropped (a detached
+    // 4096x4096 surface keeps its pixels alive until the element itself is unreachable), and every
+    // `?.` is there because a StrictMode double-mount can reach this before those fields exist.
+    replacement: 'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history?.clear?.(),this.store?.clear?.(),this.canvas&&(this.canvas.width=0,this.canvas.height=0),this.store=null,this.library=null,this.canvas=null,this.rc=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}',
+    // An earlier revision of this table dropped the nulls to survive StrictMode; a bundle carrying
+    // that shape is migrated rather than reported as unmatched.
+    superseded: [
+      'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.history?.clear?.(),this.store?.clear?.()',
+    ],
   },
   {
     id: 'mount-recreates-fields',
@@ -95,11 +104,19 @@ export function applyExcalidrawPatches(source) {
     if (content.includes(patch.target)) {
       content = content.replace(patch.target, patch.replacement)
       applied.push(patch.id)
-    } else if (content.includes(patch.replacement)) {
-      already.push(patch.id)
-    } else {
-      unmatched.push(patch.id)
+      continue
     }
+    const stale = (patch.superseded ?? []).find((form) => content.includes(form))
+    if (stale !== undefined) {
+      content = content.replace(stale, patch.replacement)
+      applied.push(patch.id)
+      continue
+    }
+    if (content.includes(patch.replacement)) {
+      already.push(patch.id)
+      continue
+    }
+    unmatched.push(patch.id)
   }
   return { content, applied, already, unmatched }
 }

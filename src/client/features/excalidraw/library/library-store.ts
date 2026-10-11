@@ -284,7 +284,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
         const mf = res.manifest as ExcalidrawLibraryManifest
         const remoteFolders = Array.isArray(mf.folders) && mf.folders.length > 0 ? mf.folders : defaultFolders
         const remoteItems = Array.isArray(mf.items) ? mf.items : []
-        const { items: healedRemote, changed: remoteChanged } = healLibraryItems(remoteItems)
+        const { items: healedRemote } = healLibraryItems(remoteItems)
         set({
           folders: remoteFolders,
           items: healedRemote,
@@ -296,9 +296,8 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
           items: healedRemote,
           updatedAt: mf.updatedAt || Date.now(),
         })
-        if (remoteChanged) {
-          scheduleSync(get)
-        }
+        // A heal renames shapes the store already has; pushing it back on every boot would spend a
+        // full-manifest upload per device per session. The next real edit carries the names along.
       }
     } catch {
     } finally {

@@ -37,6 +37,7 @@ import { ExcalidrawToolsPanel } from './ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from './ExcalidrawFloatingCapsule';
 import { ExcalidrawLibraryPortal } from './library/ExcalidrawLibraryTree';
 import {
+    computeElementsBounds,
     getViewportCenterInScene,
     promptAndInsertLatex,
     promptAndInsertLink,
@@ -343,16 +344,17 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         (elements: any[]) => {
             if (!api || !elements || elements.length === 0) return;
             const center = getViewportCenterInScene(api);
-            const minX = Math.min(...elements.map((el) => Number(el.x) || 0));
-            const minY = Math.min(...elements.map((el) => Number(el.y) || 0));
-            const maxX = Math.max(...elements.map((el) => (Number(el.x) || 0) + (Number(el.width) || 0)));
-            const maxY = Math.max(...elements.map((el) => (Number(el.y) || 0) + (Number(el.height) || 0)));
-            const width = Math.max(maxX - minX, 100);
-            const height = Math.max(maxY - minY, 100);
+            // Spreading the coordinates into Math.min/Math.max overflows the argument list once a
+            // generated diagram is large enough; the bounds helper walks the array instead.
+            const bounds = computeElementsBounds(elements);
+            const width = Math.max(bounds?.width ?? 100, 100);
+            const height = Math.max(bounds?.height ?? 100, 100);
+            const originX = bounds?.minX ?? 0;
+            const originY = bounds?.minY ?? 0;
             const shifted = elements.map((el) => ({
                 ...el,
-                x: Math.round(center.x - width / 2 + ((Number(el.x) || 0) - minX)),
-                y: Math.round(center.y - height / 2 + ((Number(el.y) || 0) - minY)),
+                x: Math.round(center.x - width / 2 + ((Number(el.x) || 0) - originX)),
+                y: Math.round(center.y - height / 2 + ((Number(el.y) || 0) - originY)),
             }));
             const existing = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
             applySceneElements(api, [...existing, ...shifted]);
@@ -562,7 +564,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                             initialData={initialData}
                             theme={theme}
                             langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
-                            aiEnabled={true}
+                            aiEnabled={excalidrawSettings.aiEnabled}
                             onChange={handleCanvasChange}
                             onLinkOpen={handleLinkOpen}
                             onExcalidrawAPI={(excalidrawApi: any) => {
@@ -600,11 +602,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                         const { messages = [], onChunk, onStreamCreated, signal } = props ?? {};
                                         onStreamCreated?.();
                                         const settings = useExcalidrawSettingsStore.getState();
-                                        const config = settings.aiProviders[settings.aiDefaultProvider] || {
-                                            provider: 'deepseek',
-                                            baseURL: 'https://api.deepseek.com',
-                                            apiKey: '***REMOVED***',
-                                        };
+                                        const config = settings.aiProviders[settings.aiDefaultProvider]
                                         const systemPrompt =
                                             'The user will provide you with a text prompt. Your task is to generate a mermaid diagram based on the prompt. Use the graph, sequenceDiagram, flowchart or classDiagram types based on what best fits the request. Return a single message containing only the mermaid diagram in a codeblock. Avoid the use of () parenthesis in the mermaid script.';
                                         try {

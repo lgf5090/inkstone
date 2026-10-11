@@ -182,8 +182,8 @@ export function serializeExcalidrawBody(data: ExcalidrawSceneData): string {
     }
     const cleanData: ExcalidrawSceneData = {
         type: 'excalidraw',
-        version: 2,
-        source: 'https://excalidraw.com',
+        version: data.version ?? 2,
+        source: data.source ?? 'https://excalidraw.com',
         elements,
         appState: {
             viewBackgroundColor: data.appState?.viewBackgroundColor ?? '#ffffff',

@@ -92,7 +92,7 @@ const DEFAULT_PROVIDERS: Record<string, AIProviderConfig> = {
   deepseek: {
     provider: 'openai-compatible',
     baseURL: 'https://api.deepseek.com',
-    apiKey: '***REMOVED***',
+    apiKey: '',
   },
   openai: {
     provider: 'openai',
