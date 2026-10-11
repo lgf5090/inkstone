@@ -4922,6 +4922,7 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.web_import_desc": "可在官方素材库中浏览任意素材库，点击素材库的“Add to Excalidraw”或复制素材库链接进行快速导入。",
     "excalidraw.file_limit_hint": "支持 .excalidrawlib 与 .json 格式 (最大 20MB)",
     "excalidraw.url_or_token": "素材库链接或令牌",
+    "excalidraw.token_missing_addlibrary": "链接中未包含素材库地址（请在官方素材库页面点击具体素材卡片上的“Add to Excalidraw”，或在“官方在线素材库”中直接一键导入）",
     "settings.excalidraw_current_default": "当前默认",
     "settings.excalidraw_edit_provider": "编辑提供商",
     "settings.excalidraw_reset_defaults": "重置为默认值",

@@ -626,10 +626,10 @@ export const api = {
       }),
     getOfficialCatalog: () =>
       request<{ ok: boolean; libraries: any[] }>('/api/excalidraw/library/official-catalog'),
-    downloadOfficialLibrary: (source: string) =>
-      request<{ ok: boolean; data: any }>('/api/excalidraw/library/official-download', {
+    downloadOfficialLibrary: (sourceOrUrl: string) =>
+      request<{ ok: boolean; data: any; filename?: string }>('/api/excalidraw/library/official-download', {
         method: 'POST',
-        body: { source },
+        body: /^https?:\/\//i.test(sourceOrUrl) ? { url: sourceOrUrl } : { source: sourceOrUrl },
       }),
     saveFile: (filename: string, content: any) =>
       request<{ ok: true; path: string }>('/api/excalidraw/library/save-file', {

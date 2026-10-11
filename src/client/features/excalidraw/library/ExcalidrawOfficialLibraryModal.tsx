@@ -4,12 +4,13 @@ import {
   FolderInput,
   Globe,
   Loader2,
-  Search,
   UploadCloud,
   X,
   Check,
   ExternalLink,
 } from 'lucide-react'
+import { FilterInput } from '../../../components/FilterInput'
+import { compileQuery, queryMatches } from '../../../lib/query-match'
 import { api } from '../../../lib/api'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
@@ -37,11 +38,19 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
   const [selectedFolder, setSelectedFolder] = useState<string | null>(targetFolderId)
   const [importingSource, setImportingSource] = useState<string | null>(null)
   const [importedSources, setImportedSources] = useState<Set<string>>(new Set())
+  const [failedPreviews, setFailedPreviews] = useState<Set<string>>(new Set())
 
   const [localFile, setLocalFile] = useState<File | null>(null)
   const [localFileLoading, setLocalFileLoading] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
+
+  const officialSiteUrl = useMemo(() => {
+    if (typeof window === 'undefined') return 'https://libraries.excalidraw.com/'
+    const currentBase = window.location.origin + window.location.pathname
+    const token = `inkstone_${Math.random().toString(36).slice(2, 10)}`
+    return `https://libraries.excalidraw.com/?target=_excalidraw&referrer=${encodeURIComponent(currentBase)}&useHash=true&token=${token}&theme=light&version=2&sort=default`
+  }, [])
 
   useEffect(() => {
     setSelectedFolder(targetFolderId)
@@ -72,6 +81,48 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
   }, [isOpen])
 
   useEffect(() => {
+    const handleHash = async () => {
+      if (typeof window === 'undefined') return
+      const hash = window.location.hash
+      if (!hash.includes('addLibrary=')) return
+      const match = hash.match(/addLibrary=([^&#]+)/)
+      if (!match || !match[1]) return
+      const libraryUrl = decodeURIComponent(match[1])
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+
+      try {
+        setUrlLoading(true)
+        const res = await api.excalidrawLibrary.downloadOfficialLibrary(libraryUrl)
+        if (res.ok && res.data) {
+          const libraryName = res.filename?.replace(/\.excalidrawlib$/i, '') || 'Official Library'
+          const count = await importFromLibraryData(res.data, selectedFolder, libraryName)
+          toast({
+            title: t('excalidraw.import_success', { value0: count }),
+            tone: 'success',
+          })
+          if (isOpen) {
+            onClose()
+          }
+        }
+      } catch (err: any) {
+        toast({
+          title: t('excalidraw.import_failed'),
+          description: err?.message || String(err),
+          tone: 'danger',
+        })
+      } finally {
+        setUrlLoading(false)
+      }
+    }
+
+    handleHash()
+    window.addEventListener('hashchange', handleHash)
+    return () => {
+      window.removeEventListener('hashchange', handleHash)
+    }
+  }, [isOpen, selectedFolder, importFromLibraryData, onClose])
+
+  useEffect(() => {
     if (!isOpen) return
     const handleMessage = async (event: MessageEvent) => {
       if (
@@ -100,16 +151,18 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
     }
   }, [isOpen, selectedFolder, importFromLibraryData, onClose])
 
+  const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
+
   const filteredCatalog = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return catalog
+    if (!compiledQuery.text) return catalog
     return catalog.filter((item) => {
-      const name = item.name.toLowerCase()
-      const desc = (item.description || '').toLowerCase()
-      const author = (item.authors?.[0]?.name || '').toLowerCase()
-      return name.includes(q) || desc.includes(q) || author.includes(q)
+      return (
+        queryMatches(compiledQuery, item.name) ||
+        queryMatches(compiledQuery, item.description || '') ||
+        queryMatches(compiledQuery, item.authors?.[0]?.name || '')
+      )
     })
-  }, [catalog, searchQuery])
+  }, [catalog, compiledQuery])
 
   const handleImportOfficial = async (item: OfficialLibraryEntry) => {
     setImportingSource(item.source)
@@ -166,25 +219,64 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
     if (!raw) return
     setUrlLoading(true)
     try {
-      let downloadUrl = raw
+      let downloadTarget = raw
       let name = 'Imported Library'
-      if (raw.includes('libraries.excalidraw.com')) {
-        const urlObj = new URL(raw)
-        const token = urlObj.searchParams.get('token')
-        if (token) {
-          downloadUrl = `https://libraries.excalidraw.com/libraries/${token}.excalidrawlib`
+
+      if (raw.includes('addLibrary=')) {
+        try {
+          const match = raw.match(/addLibrary=([^&#]+)/)
+          if (match && match[1]) {
+            downloadTarget = decodeURIComponent(match[1])
+          }
+        } catch {
         }
       }
-      const response = await fetch(downloadUrl)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const data = await response.json()
-      const count = await importFromLibraryData(data, selectedFolder, name)
-      toast({
-        title: t('excalidraw.import_success', { value0: count }),
-        tone: 'success',
-      })
-      setUrlInput('')
-      onClose()
+
+      if (
+        downloadTarget.includes('libraries.excalidraw.com') &&
+        !downloadTarget.includes('/libraries/') &&
+        !downloadTarget.endsWith('.excalidrawlib') &&
+        !downloadTarget.endsWith('.json')
+      ) {
+        toast({
+          title: t('excalidraw.token_missing_addlibrary'),
+          tone: 'danger',
+        })
+        return
+      }
+
+      const matched = catalog.find(
+        (it) =>
+          it.id === raw ||
+          it.name.toLowerCase() === raw.toLowerCase() ||
+          it.source.toLowerCase() === raw.toLowerCase(),
+      )
+      if (matched) {
+        downloadTarget = matched.source
+        name = matched.name
+      } else if (!downloadTarget.startsWith('http') && !downloadTarget.includes('/')) {
+        if (/^[a-zA-Z0-9_-]+$/.test(downloadTarget)) {
+          toast({
+            title: t('excalidraw.token_missing_addlibrary'),
+            tone: 'danger',
+          })
+          return
+        }
+      }
+
+      const res = await api.excalidrawLibrary.downloadOfficialLibrary(downloadTarget)
+      if (res.ok && res.data) {
+        const libraryName = matched?.name || res.filename?.replace(/\.excalidrawlib$/i, '') || name
+        const count = await importFromLibraryData(res.data, selectedFolder, libraryName)
+        toast({
+          title: t('excalidraw.import_success', { value0: count }),
+          tone: 'success',
+        })
+        setUrlInput('')
+        onClose()
+      } else {
+        throw new Error('Failed to download library')
+      }
     } catch (err: any) {
       toast({
         title: t('excalidraw.import_failed'),
@@ -274,16 +366,15 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
         <div className="flex-1 min-h-0 overflow-y-auto p-6">
           {activeTab === 'online' && (
             <div className="flex flex-col h-full gap-4">
-              <div className="relative flex items-center">
-                <Search size={16} className="absolute left-3 text-[var(--text-tertiary)]" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={t('excalidraw.official_catalog_search')}
-                  className="w-full h-10 pl-9 pr-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-sunken)] text-sm text-[var(--text-primary)] placeholder-[var(--text-quaternary)] focus:bg-[var(--bg-surface)] focus:border-[var(--accent)] focus:outline-none"
-                />
-              </div>
+              <FilterInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                query={compiledQuery}
+                label={t('excalidraw.official_catalog_search')}
+                placeholder={t('excalidraw.official_catalog_search')}
+                size="panel"
+                className="w-full"
+              />
 
               {loadingCatalog && (
                 <div className="flex flex-1 items-center justify-center py-20 text-[var(--text-secondary)] gap-2 text-sm">
@@ -303,8 +394,11 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
                   {filteredCatalog.map((item) => {
                     const isImported = importedSources.has(item.source)
                     const isBusy = importingSource === item.source
-                    const previewUrl = item.preview
-                      ? `https://libraries.excalidraw.com/${item.preview}`
+                    const hasFailed = failedPreviews.has(item.source)
+                    const previewUrl = !hasFailed && item.preview
+                      ? item.preview.startsWith('http')
+                        ? item.preview
+                        : `https://libraries.excalidraw.com/libraries/${item.preview.replace(/^\/+/, '')}`
                       : null
 
                     return (
@@ -319,6 +413,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
                               alt={item.name}
                               className="w-20 h-20 object-contain rounded bg-white p-1 border border-black/5 shrink-0"
                               loading="lazy"
+                              onError={() => setFailedPreviews((prev) => new Set([...prev, item.source]))}
                             />
                           ) : (
                             <div className="w-20 h-20 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-quaternary)] shrink-0">
@@ -437,7 +532,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
                   {t('excalidraw.web_import_desc')}
                 </p>
                 <a
-                  href="https://libraries.excalidraw.com/?target=_excalidraw&referrer=https%3A%2F%2Fexcalidraw.com%2F&useHash=true&token=ZvTU9aLs_8Rao92mGo2Xx&theme=light&version=2&sort=default"
+                  href={officialSiteUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 text-[var(--accent)] hover:underline font-medium pt-1"

@@ -122,37 +122,73 @@ excalidrawLibraryRoutes.get('/official-catalog', async (c) => {
 })
 
 excalidrawLibraryRoutes.post('/official-download', async (c) => {
-  const body = await readJson<{ source?: string }>(c, 64 * 1024)
-  const source = body.source?.trim()
-  if (!source || !/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(source)) {
-    throw ApiError.badRequest('Invalid official library source path')
+  const body = await readJson<{ source?: string; url?: string }>(c, 64 * 1024)
+  let targetUrl = ''
+  let filename = 'library.excalidrawlib'
+
+  if (body.url && /^https?:\/\//i.test(body.url)) {
+    targetUrl = body.url.trim()
+    try {
+      const parsedUrl = new URL(targetUrl)
+      const cleanPath = parsedUrl.pathname.replace(/^\/libraries\//, '').replace(/^\/+/, '')
+      filename = cleanPath.replace(/\//g, '_') || 'library.excalidrawlib'
+    } catch {
+      filename = 'library.excalidrawlib'
+    }
+  } else if (body.source) {
+    const rawSource = body.source.trim()
+    if (/^https?:\/\//i.test(rawSource)) {
+      targetUrl = rawSource
+      try {
+        const parsedUrl = new URL(targetUrl)
+        const cleanPath = parsedUrl.pathname.replace(/^\/libraries\//, '').replace(/^\/+/, '')
+        filename = cleanPath.replace(/\//g, '_') || 'library.excalidrawlib'
+      } catch {
+        filename = 'library.excalidrawlib'
+      }
+    } else {
+      const cleanSource = rawSource.endsWith('.excalidrawlib')
+        ? rawSource
+        : rawSource.endsWith('.json')
+          ? rawSource
+          : `${rawSource}.excalidrawlib`
+      targetUrl = `https://libraries.excalidraw.com/libraries/${cleanSource}`
+      filename = cleanSource.replace(/\//g, '_')
+    }
+  } else {
+    throw ApiError.badRequest('Missing library source or url')
   }
 
-  const url = `https://libraries.excalidraw.com/libraries/${source}`
   try {
-    const res = await fetch(url, {
+    const res = await fetch(targetUrl, {
       headers: {
-        'Accept': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
         'User-Agent': 'Inkstone-Excalidraw/1.0',
       },
     })
     if (!res.ok) {
-      throw new Error(`Upstream download returned ${res.status}`)
+      throw new Error(`Upstream returned HTTP ${res.status}`)
     }
-    const data = await res.json()
+    const text = await res.text()
+    let data: unknown
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error('Downloaded content is not valid Excalidraw library JSON')
+    }
 
     const r2 = c.env.FILES
     if (r2) {
       try {
-        const cleanName = source.split('/')[1] || 'library.excalidrawlib'
-        await r2.put(`excalidraw/libraries/${cleanName}`, JSON.stringify(data), {
+        const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '_')
+        await r2.put(`excalidraw/libraries/${safeName}`, text, {
           httpMetadata: { contentType: 'application/json' },
         })
       } catch {
       }
     }
 
-    return c.json({ ok: true, data })
+    return c.json({ ok: true, data, filename })
   } catch (err: any) {
     return c.json({ ok: false, error: err?.message || String(err) }, 502)
   }
