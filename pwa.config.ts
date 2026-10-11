@@ -143,6 +143,14 @@ function isCoreLazyChunk(chunk: BuildChunk): boolean {
  * same way through `lib/markdown/mindmap/mind-elixir-vendor.ts` — the module is named for the library so
  * this pattern can see it, because a chunk named for the importer (`vendor.ts`) reads as an ordinary
  * vendor bundle and would otherwise join the background download for every visitor.
+ *
+ * `vendor/excalidraw` is the drawing engine's own file tree, which the bundler cannot see: `vite.config.ts`
+ * copies the whole `@zsviczian/excalidraw/prod` directory in as emitted assets, so rollup's dynamic-import
+ * closure never claims it and every one of those files would fall into the background download. Measured on
+ * a real build: 306 files / 24.08 MiB raw, of which 234 are the Xiaolai Chinese font subsets the project
+ * decided not to ship — 87% of the whole warm-up set by bytes, for the few accounts that draw at all. They
+ * stay reachable offline the same way as every other on-demand file: the fetch handler caches any
+ * `OPTIONAL_URLS` path it serves, so an opened drawing keeps its engine and fonts for the next flight.
  */
 function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: string[]): string {
 	return `const BUILD_ID = ${JSON.stringify(buildId)}
@@ -152,7 +160,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	const ALL_OFFLINE_URLS = ${JSON.stringify(allUrls)}
 	const OPTIONAL_URLS = ALL_OFFLINE_URLS.filter((url) => !CORE_URLS.includes(url))
 	const OPTIONAL_URL_SET = new Set(OPTIONAL_URLS)
-	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5|auto-|mind-elixir)/i
+	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5|auto-|mind-elixir|vendor\\/excalidraw)/i
 	const WARMUP_URLS = OPTIONAL_URLS.filter((url) => !ON_DEMAND_PATTERN.test(url))
 	const WARMUP_TOTAL = CORE_URLS.length + WARMUP_URLS.length
 	const CACHE_META_URL = '/.inkstone-cache-meta'
@@ -243,9 +251,11 @@ async function cacheCoreResources() {
 
 function warmOfflineCache(notifyWhenComplete) {
   if (!warmPromise) {
-    warmPromise = runOfflineWarmup(notifyWhenComplete).finally(() => {
-      warmPromise = null
-    })
+    warmPromise = runOfflineWarmup(notifyWhenComplete)
+      .catch(() => broadcastStatus('error', 0, WARMUP_TOTAL, false).catch(() => {}))
+      .finally(() => {
+        warmPromise = null
+      })
   }
   return warmPromise
 }
@@ -258,12 +268,18 @@ async function runOfflineWarmup(notifyWhenComplete) {
   }
   let completed = await countAvailable()
   let processed = 0
+  let failed = 0
   await broadcastStatus('preparing', completed, WARMUP_TOTAL, false)
 
-  try {
-    // Fill the complete offline cache quietly after the app is ready. A single
-    // request at a time plus a short yield keeps foreground traffic responsive.
-    await forEachConcurrent(WARMUP_URLS, 1, async (url) => {
+  // Fill the complete offline cache quietly after the app is ready. A single
+  // request at a time plus a short yield keeps foreground traffic responsive.
+  // A URL the edge drops is skipped instead of ending the run, because the whole
+  // download shares one queue: one reset connection used to abort every file behind
+  // it and leave an uncaught rejection in the console. The manifest stays unwritten
+  // while anything is missing, so the next pass — on 'online', on tab focus, on the
+  // next install — retries just those URLs.
+  await forEachConcurrent(WARMUP_URLS, 1, async (url) => {
+    try {
       if (isImmutableAsset(url) && await assets.match(url)) return
       const reused = isImmutableAsset(url)
         ? await caches.match(url, { ignoreSearch: true })
@@ -271,19 +287,22 @@ async function runOfflineWarmup(notifyWhenComplete) {
       const response = reused || await fetchRequired(url)
       await assets.put(url, response.clone())
       if (!reused) completed++
-      processed++
-      if (processed % 8 === 0) {
-        await broadcastStatus('preparing', completed, WARMUP_TOTAL, false)
-      }
-      await pauseBackgroundWarmup()
-    })
-    await writeCurrentManifest(assets)
-    await pruneAssetCache(assets)
-    await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL, notifyWhenComplete)
-  } catch (error) {
-    await broadcastStatus('error', await countAvailable(), WARMUP_TOTAL, false)
-    throw error
+    } catch {
+      failed++
+    }
+    processed++
+    if (processed % 8 === 0) {
+      await broadcastStatus('preparing', completed, WARMUP_TOTAL, false)
+    }
+    await pauseBackgroundWarmup()
+  })
+  if (failed) {
+    await broadcastStatus('error', completed, WARMUP_TOTAL, false)
+    return
   }
+  await writeCurrentManifest(assets)
+  await pruneAssetCache(assets)
+  await broadcastStatus('ready', WARMUP_TOTAL, WARMUP_TOTAL, notifyWhenComplete)
 }
 
 async function reportOfflineStatus(target) {
