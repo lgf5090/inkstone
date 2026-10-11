@@ -7,6 +7,7 @@
 import { t } from '../../i18n';
 import { decodeDataValue } from '../data-attr';
 import { normalizeEol } from './body';
+import { mindmapErrorText } from './errors';
 import { MINDMAP_THEME_ATTR, type MindmapThemeChoice } from './theme';
 import type { MindmapFenceRef } from './types';
 
@@ -281,7 +282,10 @@ export function showMindmapError(node: HTMLElement, detail: string): void {
     wrap.className = 'mindmap-error';
     const message = document.createElement('span');
     message.className = 'mindmap-error-message';
-    message.textContent = `${t('preview.mindmap_render_failed')}: ${detail.slice(0, 500)}`;
+    // The drawer's own detail travels with it, but only after the code that opens it has
+    // been looked up: a reader who is told `too-large` is being shown a token from the
+    // source of a library they have never opened, in a language they may not read.
+    message.textContent = `${t('preview.mindmap_render_failed')}: ${mindmapErrorText(detail).slice(0, 500)}`;
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.className = 'mindmap-retry';

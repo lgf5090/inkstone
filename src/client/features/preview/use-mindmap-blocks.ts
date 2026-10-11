@@ -11,6 +11,7 @@ import {
     type MindmapThemeMenuState,
 } from '../../lib/markdown/mindmap';
 import { createMindmapFenceWriter, createMindmapWriter } from './mindmap-sync';
+import { useMindmapSettingsStore } from '../mindmap/mindmap-settings-store';
 
 export interface MindmapFullscreenState {
     session: MindmapSession
@@ -46,7 +47,9 @@ export function useMindmapBlocks(options: UseMindmapBlocksOptions) {
         const host = hostRef.current;
         if (!host || !epoch)
             return;
-        void mountMindmaps(host, { scope, noteId, dark, locale, editable: true, writeBack: writer, writeFence: fenceWriter }).catch((err: unknown) => {
+        // Read, not subscribed: a setting change should not re-run a mount pass, and the
+        // ceiling only matters to the instances a pass goes on to build.
+        void mountMindmaps(host, { scope, noteId, dark, locale, editable: true, undoStepLimit: useMindmapSettingsStore.getState().undoHistoryLimit, writeBack: writer, writeFence: fenceWriter }).catch((err: unknown) => {
             // Per-block failures render their own error banner; this only catches a
             // wholesale failure such as a detached host.
             console.warn('[inkstone] mind map mount failed', err);

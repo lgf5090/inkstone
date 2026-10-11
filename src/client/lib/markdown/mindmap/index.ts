@@ -22,11 +22,21 @@ export {
 } from './body';
 export { loadMindmapVendor } from './loader';
 export {
+    isMindmapErrorCode,
+    mindmapError,
+    mindmapErrorCode,
+    mindmapErrorText,
+    MINDMAP_ERROR_CODES,
+    MINDMAP_ERROR_MESSAGES,
+    type MindmapErrorCode,
+} from './errors';
+export {
     createDefaultMindmapDocument,
     isMindmapDocumentTitle,
     isMindmapDocumentBody,
     MINDMAP_FILE_EXTENSION,
     mindmapDocumentAsFence,
+    mindmapDocumentFieldsFromExtra,
     mindmapNodeId,
     mindmapNodeTopic,
     readMindmapDocumentFields,
@@ -39,7 +49,9 @@ export {
 export {
     MINDMAP_BODY_LIMIT_BYTES,
     MINDMAP_NODE_LIMIT,
+    MINDMAP_UNDO_STEP_LIMIT,
     MindmapBodyTooLargeError,
+    MindmapTooManyNodesError,
     assertMindmapBodySize,
     mindmapTextAsMarkup,
     sanitizeMindmapData,

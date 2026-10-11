@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n';
-import { createMindmapVendor } from './mind-elixir-vendor';
-import { MINDMAP_BODY_LIMIT_BYTES } from './nodes';
+import { mindmapError, mindmapErrorCode, mindmapErrorText } from './errors';
+import { coalescedWheel, createMindmapVendor, fitForReading, fitToView, wheelHandler } from './mind-elixir-vendor';
+import type { MindmapReadViewport } from './mind-elixir-vendor';
+import { MINDMAP_BODY_LIMIT_BYTES, MINDMAP_NODE_LIMIT } from './nodes';
 import type { MindmapMode } from './body';
 import type { MindmapParsedBody } from './types';
 
@@ -39,6 +41,7 @@ function draw(body: MindmapParsedBody): HTMLElement {
             locale: 'en-US',
             newTopicName: 'New node',
             modifierWheelZoom: true,
+            undoStepLimit: 0,
             onOperation: () => {},
             onEditingChange: () => {},
         });
@@ -58,12 +61,13 @@ describe('vendor.parse', () => {
         expect((parsed.data as { nodeData: { topic: string } }).nodeData.topic).toBe('Core');
     });
 
-    it('refuses a JSON body with no nodeData, in words that name the field', () => {
+    it('refuses a JSON body with no nodeData as a code the interface can name', () => {
         const parsed = parse('{"topic":"orphan"}');
         expect(parsed).toMatchObject({ ok: false });
         if (parsed.ok)
             return;
-        expect(parsed.error).toMatch(/nodeData/);
+        expect(parsed.error).toBe('no-node-data');
+        expect(mindmapErrorCode(parsed.error)).toBe('no-node-data');
     });
 
     it('refuses a nodeData whose topic is not a string', () => {
@@ -107,13 +111,38 @@ describe('vendor.parse', () => {
         expect(parsed.error).toContain('"light", "dark", "auto"');
     });
 
-    it('declines a body past the size ceiling instead of parsing it', () => {
-        const body = `{"nodeData":{"topic":"a","meta":"${'x'.repeat(MINDMAP_BODY_LIMIT_BYTES)}"}}`;
-        const parsed = parse(body);
+    // The arms below are the ones a measurement caught: a guard that already speaks in codes
+    // was being re-wrapped as a syntax complaint by the `try` it sat inside, so a 300 KB
+    // document was told its JSON was malformed — the one thing it was not.
+    it.each([{'mode': 'json'}, {'mode': 'outline'}] as { mode: MindmapMode }[])('keeps a body past the ceiling refused as $mode, not as bad syntax', ({ mode }) => {
+        const body = mode === 'json'
+            ? `{"nodeData":{"topic":"a","meta":"${'x'.repeat(MINDMAP_BODY_LIMIT_BYTES)}"}}`
+            : `- ${'x'.repeat(MINDMAP_BODY_LIMIT_BYTES)}`;
+        const parsed = parse(body, mode);
         expect(parsed.ok).toBe(false);
         if (parsed.ok)
             return;
-        expect(parsed.error).toBeTruthy();
+        expect(mindmapErrorCode(parsed.error)).toBe('too-large');
+        expect(mindmapErrorText(parsed.error)).not.toContain('JSON');
+    });
+
+    it('keeps a tree past the node budget refused as a count, not as bad syntax', () => {
+        const root: { topic: string, children: unknown[] } = { topic: 'a', children: [] };
+        for (let index = 0; index < MINDMAP_NODE_LIMIT + 10; index++)
+            root.children.push({ topic: `n${index}` });
+        const parsed = parse(JSON.stringify({ nodeData: root }));
+        expect(parsed.ok).toBe(false);
+        if (parsed.ok)
+            return;
+        expect(mindmapErrorCode(parsed.error)).toBe('too-many-nodes');
+    });
+
+    it('still reports a real syntax error as one', () => {
+        const parsed = parse('{"nodeData": {"topic": "a", "children": [');
+        expect(parsed.ok).toBe(false);
+        if (parsed.ok)
+            return;
+        expect(mindmapErrorCode(parsed.error)).toBe('bad-json');
     });
 
     it('does not let a body move the prototype of the object it becomes', () => {
@@ -168,6 +197,34 @@ describe('vendor.parse — the markup the library would inject', () => {
         if (!parsed.ok)
             return;
         expect(JSON.stringify(parsed.data)).not.toContain('javascript:');
+    });
+
+    // The two arms below are the point of the pair: the first proves the picture reaches the
+    // document at all, so the second is a refusal rather than a path that never drew anything.
+    // Asserting our own filter would only have proved the filter — the library is the one that
+    // writes `src`, and it is the DOM it builds that has to come out clean.
+    it('hands a node picture the library can draw, when the note names one it may', () => {
+        const parsed = parse('{"nodeData":{"topic":"a","image":{"url":"https://example.com/a.png","width":9,"height":9}}}');
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok)
+            return;
+        const picture = draw(parsed).querySelector('img');
+        expect(picture?.getAttribute('src')).toBe('https://example.com/a.png');
+    });
+
+    it.each([
+        'javascript:alert(1)',
+        'data:text/html,<script>alert(1)</script>',
+        '//attacker.example/pixel.png',
+    ])('refuses to draw a node picture at %s, in the document as well as in the data', (url) => {
+        const parsed = parse(`{"nodeData":{"topic":"a","image":{"url":"${url}","width":9,"height":9}}}`);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok)
+            return;
+        const el = draw(parsed);
+        expect(el.querySelector('img'), 'the library was never given a picture to make').toBeNull();
+        expect(el.innerHTML).not.toContain('attacker.example');
+        expect(el.innerHTML).not.toContain('javascript');
     });
 });
 
@@ -256,12 +313,15 @@ describe('the top-level fields a document states', () => {
         expect(sideEl.outerHTML).not.toContain('"down"');
     });
 
-    it.each(['"down"', 'null', '[]', '9'])('refuses a direction of %s and names the field', (value) => {
+    it.each(['"down"', 'null', '[]', '9'])('refuses a direction of %s and keeps what the file spelled', (value) => {
         const parsed = parse(`{"nodeData":{"topic":"a"},"direction":${value}}`);
         expect(parsed.ok).toBe(false);
         if (parsed.ok)
             return;
-        expect(parsed.error).toContain('"direction"');
+        expect(mindmapErrorCode(parsed.error)).toBe('bad-direction');
+        // The offending value is the part a reader can act on, and it travels as the file wrote
+        // it — an English sentence here would be the only English in another language's screen.
+        expect(parsed.error).toBe(mindmapError('bad-direction', value));
     });
 
     it('refuses a compact that is not a flag', () => {
@@ -269,7 +329,7 @@ describe('the top-level fields a document states', () => {
         expect(parsed.ok).toBe(false);
         if (parsed.ok)
             return;
-        expect(parsed.error).toContain('"compact"');
+        expect(parsed.error).toBe(mindmapError('bad-compact', '"yes"'));
     });
 
     it('ignores a meta that is not an object rather than handing the library a scalar', () => {
@@ -302,6 +362,7 @@ describe('changes the library does not announce', () => {
             locale: 'en-US',
             newTopicName: 'New node',
             modifierWheelZoom: true,
+            undoStepLimit: 0,
             onOperation: () => { operations++; },
             onEditingChange: () => {},
         });
@@ -344,5 +405,279 @@ describe('changes the library does not announce', () => {
         expect(operations()).toBeGreaterThan(0);
         handle.redo();
         expect(operations()).toBeGreaterThan(1);
+    });
+});
+
+describe('the wheel, folded into one repaint per frame', () => {
+    type Viewport = Parameters<typeof coalescedWheel>[0];
+
+    /** Frames the handler asked for; the test runs them when it wants a repaint. */
+    let frames: FrameRequestCallback[] = [];
+
+    /** A viewport that records every transform instead of painting one. */
+    function viewport(startScale = 1) {
+        frames = [];
+        vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+            frames.push(cb);
+            return frames.length;
+        });
+        const instance: Viewport = { scaleVal: startScale, scale: () => {}, move: () => {} };
+        const scale = vi.fn((value: number) => { instance.scaleVal = value; });
+        const move = vi.fn();
+        instance.scale = scale;
+        instance.move = move;
+        return { instance, scale, move, paint: () => frames.splice(0).forEach((cb) => cb(0)) };
+    }
+
+    function wheel(options: { deltaY?: number; deltaX?: number; ctrlKey?: boolean; shiftKey?: boolean }): WheelEvent {
+        return new WheelEvent('wheel', { cancelable: true, ...options });
+    }
+
+    /** The numbers the handler is asked to move by, with the negative zeros it writes folded away. */
+    function travel(move: ReturnType<typeof vi.fn>): [number, number] {
+        const call = move.mock.calls[0] as [number, number];
+        return [Number(call[0]) + 0, Number(call[1]) + 0];
+    }
+
+    it('pays for one zoom per frame, however many ticks the wheel delivered', () => {
+        const { instance, scale, paint } = viewport();
+        const handler = coalescedWheel(instance, false);
+        handler(wheel({ ctrlKey: true, deltaY: -100 }));
+        handler(wheel({ ctrlKey: true, deltaY: -100 }));
+        handler(wheel({ ctrlKey: true, deltaY: -100 }));
+        expect(frames.length, 'three ticks are one frame of work').toBe(1);
+        expect(scale).not.toHaveBeenCalled();
+        paint();
+        expect(scale).toHaveBeenCalledTimes(1);
+        // Three ticks of -100 at 0.0015 each, multiplied the way the library multiplies them.
+        expect(scale.mock.calls[0]![0]).toBeCloseTo(1.15 ** 3, 6);
+    });
+
+    it('sums a fast wheel into one travel', () => {
+        const { instance, move, paint } = viewport();
+        const handler = coalescedWheel(instance, true);
+        handler(wheel({ deltaY: 40 }));
+        handler(wheel({ deltaY: 60 }));
+        expect(frames.length).toBe(1);
+        paint();
+        expect(move).toHaveBeenCalledTimes(1);
+        expect(travel(move)).toEqual([0, -100]);
+    });
+
+    it('turns the wheel sideways on shift, the way the library does', () => {
+        const { instance, move, paint } = viewport();
+        const handler = coalescedWheel(instance, true);
+        handler(wheel({ deltaY: 50, shiftKey: true }));
+        paint();
+        expect(travel(move)).toEqual([-50, 0]);
+    });
+
+    it('leaves the bare wheel to the note around a block, and still zooms on Ctrl', () => {
+        const { instance, move, scale, paint } = viewport();
+        const handler = coalescedWheel(instance, false);
+        const scroll = wheel({ deltaY: 120 });
+        handler(scroll);
+        expect(scroll.defaultPrevented, 'a block that eats the wheel traps the reader in the map').toBe(false);
+        expect(frames.length).toBe(0);
+        const zoom = wheel({ deltaY: -100, ctrlKey: true });
+        handler(zoom);
+        expect(zoom.defaultPrevented).toBe(true);
+        paint();
+        expect(scale).toHaveBeenCalledTimes(1);
+        expect(move).not.toHaveBeenCalled();
+    });
+
+    it('clamps a gesture that ran past the limits instead of writing them into the transform', () => {
+        const up = viewport(1);
+        const grow = coalescedWheel(up.instance, false);
+        for (let tick = 0; tick < 40; tick++)
+            grow(wheel({ deltaY: -240, ctrlKey: true }));
+        up.paint();
+        expect(up.scale.mock.calls[0]![0]).toBe(2.5);
+        const down = viewport(2.5);
+        const shrink = coalescedWheel(down.instance, false);
+        for (let tick = 0; tick < 40; tick++)
+            shrink(wheel({ deltaY: 240, ctrlKey: true }));
+        down.paint();
+        expect(down.scale.mock.calls[0]![0]).toBe(0.3);
+    });
+
+    it('does nothing at all until there is a viewport to move', () => {
+        frames = [];
+        const handler = wheelHandler({ current: null }, true);
+        const event = wheel({ deltaY: 10 });
+        expect(() => handler(event)).not.toThrow();
+        expect(event.defaultPrevented).toBe(false);
+        expect(frames.length).toBe(0);
+    });
+});
+
+describe('the fit, kept above the floor the reader can read at', () => {
+    function fitter(fitted: number) {
+        const viewport = {
+            scaleVal: 1,
+            scaleFit: () => { viewport.scaleVal = fitted; },
+            scale: vi.fn(),
+        };
+        return viewport;
+    }
+
+    it('pulls a map that fitted below the floor back up to it', () => {
+        const viewport = fitter(0.034);
+        fitToView(viewport);
+        expect(viewport.scale).toHaveBeenCalledWith(0.3);
+    });
+
+    it('leaves a fit that is already legible exactly where the library put it', () => {
+        const viewport = fitter(0.6);
+        fitToView(viewport);
+        expect(viewport.scale).not.toHaveBeenCalled();
+    });
+
+    it('leaves a fit that measured nothing alone, rather than writing NaN into the transform', () => {
+        const viewport = fitter(Number.NaN);
+        fitToView(viewport);
+        expect(viewport.scale).not.toHaveBeenCalled();
+    });
+});
+
+describe('the frame a map is first seen in', () => {
+    /** A viewport whose fit lands wherever the test says it would, on a map at `start`. */
+    function reader(fitted: number, start = 1) {
+        const viewport: MindmapReadViewport = {
+            scaleVal: start,
+            scale: () => {},
+            scaleFit: () => {},
+            toCenter: () => {},
+        };
+        viewport.scale = vi.fn((value: number) => { viewport.scaleVal = value; });
+        viewport.scaleFit = vi.fn(() => { viewport.scaleVal = fitted; });
+        viewport.toCenter = vi.fn();
+        return viewport;
+    }
+
+    it('shows a map whole when fitting it leaves the text readable', () => {
+        const viewport = reader(0.84);
+        fitForReading(viewport);
+        expect(viewport.scale).not.toHaveBeenCalled();
+        expect(viewport.toCenter).not.toHaveBeenCalled();
+        expect(viewport.scaleVal).toBe(0.84);
+    });
+
+    it('leaves a map that would be crushed at reading size, and puts the root back in the middle', () => {
+        // The 1000-node document measured 0.034 when fitted: complete, and unreadable.
+        const viewport = reader(0.034);
+        fitForReading(viewport);
+        expect(viewport.scale).toHaveBeenCalledWith(1);
+        expect(viewport.toCenter).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a fit that measured nothing as no reason to move the camera', () => {
+        const viewport = reader(Number.NaN);
+        fitForReading(viewport);
+        expect(viewport.scale).toHaveBeenCalledWith(1);
+        expect(viewport.toCenter).toHaveBeenCalledTimes(1);
+    });
+
+    it('sits on the boundary on the legible side of it', () => {
+        expect((() => {
+            const v = reader(0.6);
+            fitForReading(v);
+            return v.scaleVal;
+        })()).toBe(0.6);
+        expect((() => {
+            const v = reader(0.59);
+            fitForReading(v);
+            return v.scaleVal;
+        })()).toBe(1);
+    });
+});
+
+describe('the undo history a map is allowed to grow', () => {
+    const body = (): MindmapParsedBody => {
+        const result = parse('{"nodeData":{"id":"core","topic":"Core","children":[]}}');
+        expect(result.ok).toBe(true);
+        if (!result.ok)
+            throw new Error('fixture did not parse');
+        return result;
+    };
+
+    /**
+     * An editable map drawn for real, driven one edit at a time so each lands as its own
+     * step, and left open for the test to walk back through.
+     */
+    async function mapDrivenBy(limit: number, topics: string[]) {
+        const el = document.createElement('div');
+        document.body.append(el);
+        const handle = vendor.create({
+            el,
+            body: body(),
+            editable: true,
+            dark: false,
+            locale: 'en-US',
+            newTopicName: 'New node',
+            modifierWheelZoom: true,
+            undoStepLimit: limit,
+            onOperation: () => {},
+            onEditingChange: () => {},
+        });
+        const children = () => ((handle.getData() as { nodeData: { children: unknown[] } }).nodeData.children).length;
+        for (const topic of topics) {
+            handle.appendChildren('core', [topic]);
+            for (let tick = 0; tick < 8; tick++)
+                await new Promise((resolve) => { setTimeout(resolve, 0); });
+        }
+        return { handle, children, dispose: () => { handle.destroy(); el.remove(); } };
+    }
+
+    /** How many branches are left after stepping back this many times. */
+    async function afterUndos(limit: number, edits: number, undos: number): Promise<number> {
+        const map = await mapDrivenBy(limit, Array.from({ length: edits }, (_, index) => `n${index}`));
+        expect(map.children()).toBe(edits);
+        for (let step = 0; step < undos; step++)
+            map.handle.undo();
+        const left = map.children();
+        await map.dispose();
+        return left;
+    }
+
+    it('keeps the recent past undoable and drops the deep past once the ceiling is passed', async () => {
+        // Five edits, then three steps back. A ceiling of three means the stack was dropped
+        // once, at the third: the two edits after it are still there to give back, and no
+        // further — which is the whole trade, and the reason it is a setting.
+        expect(await afterUndos(3, 5, 3)).toBe(3);
+    });
+
+    it('gives the whole way back when the ceiling says unlimited', async () => {
+        expect(await afterUndos(0, 5, 3)).toBe(2);
+    });
+
+    it('starts counting again when the reader clears the history themselves', async () => {
+        // One edit, emptied on purpose, one more edit: the step they just took has to stay
+        // undoable. Carrying the count across the clear would spend the ceiling on it and
+        // leave the reader pressing a button that no longer moves anything.
+        const map = await mapDrivenBy(2, ['first']);
+        map.handle.clearHistory();
+        map.handle.appendChildren('core', ['second']);
+        for (let tick = 0; tick < 8; tick++)
+            await new Promise((resolve) => { setTimeout(resolve, 0); });
+        expect(map.children()).toBe(2);
+        map.handle.undo();
+        expect(map.children(), 'the edit after a hand-clear must still undo').toBe(1);
+        map.dispose();
+    });
+
+    // What the browser run caught: the library's `clearHistory` calls `clearSelection` along
+    // with dropping the stack, and Enter adds a branch to whatever is selected. The first drop
+    // therefore took the reader's keystrokes with it, and the map looked dead from there on.
+    it('leaves the selection where the reader had it when the ceiling drops the stack', async () => {
+        const map = await mapDrivenBy(2, ['a', 'b', 'c']);
+        expect(map.handle.selectedNodeId(), 'a drop must not cost the reader the node under their keys').not.toBeNull();
+        map.handle.appendChildren('core', ['one more']);
+        for (let tick = 0; tick < 8; tick++)
+            await new Promise((resolve) => { setTimeout(resolve, 0); });
+        expect(map.children()).toBe(4);
+        expect(map.handle.selectedNodeId(), 'and the map is still following the reader').not.toBeNull();
+        map.dispose();
     });
 });

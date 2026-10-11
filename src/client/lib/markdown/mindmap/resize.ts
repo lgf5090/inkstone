@@ -16,11 +16,20 @@ export interface MindmapResizeTarget {
  * `handle.layout()` pairs the library's `layout` with its `linkDiv`, and why the link decorator has to
  * run again afterwards.
  */
-export function relayoutMindmap(entry: MindmapResizeTarget): void {
+/**
+ * `fit` is the caller's answer to "does this surface own its zoom?". A block in a note
+ * does not — it has to fit the column it was drawn into, so it asks for `scaleFit`. A
+ * whole-note document does, and fitting it is the one thing that makes it unreadable:
+ * a 1000-node tree is about 26000px tall, so fitting it to a 906px window lands the
+ * reader at 3.4% zoom with 88% of the canvas empty (measured). Those surfaces relayout
+ * and leave the camera where the reader put it.
+ */
+export function relayoutMindmap(entry: MindmapResizeTarget, fit = true): void {
     if (!entry.handle)
         return;
     entry.handle.layout();
-    entry.handle.scaleFit();
+    if (fit)
+        entry.handle.scaleFit();
     decorateMindmapLinks(entry.container);
 }
 
@@ -56,6 +65,6 @@ export function watchMindmapBox(entry: MindmapResizeTarget, onBoxed: () => void)
  * degraded surfaces that use the registry would not re-fit anyway. The report
  * taken the moment watching starts is also what re-fits a fresh map once for free.
  */
-export function watchMindmapContainer(entry: MindmapResizeTarget): ResizeObserver | null {
-    return watchMindmapBox(entry, () => relayoutMindmap(entry));
+export function watchMindmapContainer(entry: MindmapResizeTarget, fit = true): ResizeObserver | null {
+    return watchMindmapBox(entry, () => relayoutMindmap(entry, fit));
 }

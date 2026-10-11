@@ -346,6 +346,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'mindmap', titleKey: 'settings.mindmap_date_format', detailKey: 'settings.mindmap_date_format_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_extension', detailKey: 'settings.mindmap_extension_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_autosave', detailKey: 'settings.mindmap_autosave_desc' },
+  { section: 'mindmap', titleKey: 'settings.mindmap_undo_limit', detailKey: 'settings.mindmap_undo_limit_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_direction', detailKey: 'settings.mindmap_direction_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_compact', detailKey: 'settings.mindmap_compact_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_adjacent', detailKey: 'settings.mindmap_adjacent_desc' },

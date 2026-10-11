@@ -15,6 +15,15 @@ export interface PickedNote {
     title: string
 }
 
+/** A row once the vault has been walked: the label to match on and the folder to show under it. */
+interface NoteRow {
+    note: NoteSummary
+    label: string
+    path: string
+}
+
+const NO_ROWS: NoteRow[] = [];
+
 /**
  * The note a map action is about: the one to link a node to, or the one whose
  * headings become branches.
@@ -36,23 +45,30 @@ export function MindmapNotePicker({ open, title, excludeNoteId, onClose, onSelec
     const pinyinVersion = usePinyinVersion();
     const [query, setQuery] = useState('');
 
+    // The walk and the sort happen once per open, not once per keystroke. Matching a query is
+    // the only thing that has to keep up with typing, and paying for the folder chain and the
+    // name order on every character is what made a large vault feel the delay.
     const rows = useMemo(() => {
-        const text = query.trim();
-        // Every note is looked at, and the cap is taken after the sort: stopping at the
-        // first N matches would hide the note the reader was about to type, because the
-        // store's order is by recency and this list is ordered by name.
-        const matched: { note: NoteSummary; path: string }[] = [];
+        if (!open)
+            return NO_ROWS;
+        const matched: NoteRow[] = [];
         for (const note of Object.values(notes)) {
             if (note.deletedAt || note.isArchived || note.id === excludeNoteId)
                 continue;
-            const label = note.title || t('common.untitled_note');
-            if (text && !matchesQuery(label, text))
-                continue;
-            matched.push({ note, path: folderPathLabel(folders, note.folderId) });
+            matched.push({ note, label: note.title || t('common.untitled_note'), path: folderPathLabel(folders, note.folderId) });
         }
         matched.sort((a, b) => (a.note.title || '').localeCompare(b.note.title || ''));
-        return matched.slice(0, MAX_ROWS);
-    }, [excludeNoteId, folders, notes, pinyinVersion, query]);
+        return matched;
+    }, [excludeNoteId, folders, notes, open]);
+
+    const visible = useMemo(() => {
+        const text = query.trim();
+        // Every note is matched, and the cap is taken afterwards: stopping at the first N
+        // matches would hide the note the reader was about to type, because the store's order
+        // is by recency and this list is ordered by name.
+        const found = text ? rows.filter((row) => matchesQuery(row.label, text)) : rows;
+        return found.slice(0, MAX_ROWS);
+    }, [pinyinVersion, query, rows]);
 
     const close = () => {
         setQuery('');
@@ -75,10 +91,10 @@ export function MindmapNotePicker({ open, title, excludeNoteId, onClose, onSelec
           </label>
         </div>
         <div className="space-y-1 p-2">
-          {rows.map(({ note, path }) => (
+          {visible.map(({ note, label, path }) => (
             <NoteChoice
               key={note.id}
-              label={note.title || t('common.untitled_note')}
+              label={label}
               path={path}
               onClick={() => {
                                 setQuery('');
@@ -87,7 +103,7 @@ export function MindmapNotePicker({ open, title, excludeNoteId, onClose, onSelec
                             }}
             />
           ))}
-          {rows.length === 0 && <p className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('folders.no_match')}</p>}
+          {visible.length === 0 && <p className="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">{t('folders.no_match')}</p>}
         </div>
       </Drawer>
     );

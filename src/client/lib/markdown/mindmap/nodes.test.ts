@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { mindmapErrorCode } from './errors';
 import {
     MINDMAP_BODY_LIMIT_BYTES,
     MINDMAP_NODE_LIMIT,
     MindmapBodyTooLargeError,
+    MindmapTooManyNodesError,
     assertMindmapBodySize,
     mindmapTextAsMarkup,
     sanitizeMindmapData,
@@ -46,32 +48,80 @@ describe('sanitizeMindmapData', () => {
         expect(topicOf(grandchild)).toBe('b');
     });
 
-    it('walks a tree far deeper than the JavaScript stack, rather than throwing', () => {
+    it('walks a tree far deeper than the JavaScript stack, reporting the budget rather than overflowing', () => {
         const root = deepTree(60_000);
         let cursor: Node = root;
         for (let depth = 0; depth < 60_000; depth++) {
             cursor.dangerouslySetInnerHTML = '<svg onload=alert(1)>';
             cursor = (cursor.children as Node[])[0]!;
         }
-        const clean = sanitizeMindmapData({ nodeData: root }) as { nodeData: Node };
-        // The cap stops the walk short of the bottom, so check the part it covered and the
-        // shape it left behind rather than asserting on a node the cap removed.
-        let node: Node = clean.nodeData;
-        let depth = 0;
-        while ((node.children as Node[]).length > 0 && depth < 500) {
+        let caught: unknown = null;
+        try {
+            sanitizeMindmapData({ nodeData: root });
+        }
+        catch (err) {
+            caught = err;
+        }
+        // A recursive walk would answer this with `Range: Maximum call stack size exceeded`
+        // long before the budget ran out, so which error arrives is the proof it was iterative.
+        expect(caught).toBeInstanceOf(MindmapTooManyNodesError);
+        // Everything it had reached was cleaned where it stood, before the refusal.
+        let node: Node = root;
+        // The walk stops at the budget, so only the part it covered can be checked — and it is
+        // far below the 60 000 levels the tree has, which is what makes the error the proof.
+        for (let depth = 0; depth < Math.min(1500, MINDMAP_NODE_LIMIT - 10); depth++) {
             expect(node.dangerouslySetInnerHTML).toBeUndefined();
             node = (node.children as Node[])[0]!;
-            depth++;
         }
-        expect(depth).toBeGreaterThan(0);
     });
 
-    it('caps how many nodes one map may hold', () => {
+    it('refuses a tree past the node budget rather than drawing it with its tail cut off', () => {
         const root: Node = { topic: 'root', children: [] };
         for (let index = 0; index < MINDMAP_NODE_LIMIT + 500; index++)
             (root.children as Node[]).push({ topic: `n${index}` });
-        const clean = sanitizeMindmapData({ nodeData: root }) as { nodeData: Node };
-        expect((clean.nodeData.children as Node[]).length).toBe(MINDMAP_NODE_LIMIT - 1);
+        let caught: unknown = null;
+        try {
+            sanitizeMindmapData({ nodeData: root });
+        }
+        catch (err) {
+            caught = err;
+        }
+        expect(caught).toBeInstanceOf(MindmapTooManyNodesError);
+        expect(mindmapErrorCode((caught as Error).message)).toBe('too-many-nodes');
+        // Trimming was the old answer and it lost branches for good, because the drawer writes
+        // back what the instance holds. Refusing leaves the tree exactly as it came in.
+        expect((root.children as Node[]).length).toBe(MINDMAP_NODE_LIMIT + 500);
+    });
+
+    it.each(['https://example.com/a.png', 'http://example.com/a.png', 'data:image/png;base64,AAA'])(
+        'keeps a node picture on the %s address',
+        (url) => {
+            const clean = sanitizeMindmapData({ nodeData: { topic: 'a', image: { url, width: 9, height: 9 } } }) as { nodeData: Node };
+            expect((clean.nodeData.image as Node).url).toBe(url);
+        },
+    );
+
+    it.each([
+        'javascript:alert(1)',
+        'data:text/html,<script>alert(1)</script>',
+        'data:image/svg+xml,<svg onload=alert(1)>',
+        'file:///etc/passwd',
+        '//attacker.example/pixel.png',
+        42,
+        null,
+    ])('drops a node picture the browser would be made to fetch: %s', (url) => {
+        const clean = sanitizeMindmapData({ nodeData: { topic: 'a', image: { url } } }) as { nodeData: Node };
+        expect(clean.nodeData.image).toBeUndefined();
+    });
+
+    it('drops a picture that is not an object, since the library reads its url off it', () => {
+        const clean = sanitizeMindmapData({ nodeData: { topic: 'a', image: 'https://example.com/a.png' } }) as { nodeData: Node };
+        expect(clean.nodeData.image).toBeUndefined();
+    });
+
+    it('leaves a percent-encoded scheme alone rather than guessing it was smuggled', () => {
+        const clean = sanitizeMindmapData({ nodeData: { topic: 'a', image: { url: 'https://example.com/a%20b.png' } } }) as { nodeData: Node };
+        expect((clean.nodeData.image as Node).url).toBe('https://example.com/a%20b.png');
     });
 
     it('keeps the per-node style the outline format writes, and the topic beside it', () => {

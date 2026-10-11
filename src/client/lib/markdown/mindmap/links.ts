@@ -12,6 +12,9 @@
 /** The whole topic, nothing around it: a topic that merely mentions a note stays text. */
 const NODE_LINK_RE = /^\[\[([^[\]\n]{1,400})\]\]$/;
 
+/** What every link below opens with. A topic without these two characters has no link in it. */
+export const WIKI_LINK_OPEN = '[[';
+
 /** Any `[[...]]` occurrence inside the topic, so a topic can carry a link among other text. */
 const EMBEDDED_LINK_RE = /\[\[([^[\]\n]{1,400})\]\]/g;
 

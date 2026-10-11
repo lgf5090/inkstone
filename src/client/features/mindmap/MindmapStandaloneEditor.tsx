@@ -7,6 +7,7 @@ import {
     Check,
     Columns2,
     Download,
+    Eraser,
     FileCode,
     FolderTree,
     Link2,
@@ -37,10 +38,10 @@ import { parseWikiTarget } from '../../lib/markdown/renderer';
 import {
     MINDMAP_NODE_LINK_ATTR,
     markdownToMindmapOutline,
+    mindmapErrorText,
     parseMindmapNodeLink,
     mindmapNodeTopic,
     mindmapOutlineToMarkdown,
-    readMindmapDocumentFields,
     writeMindmapDocumentFields,
     type MindmapDocumentDirection,
     type MindmapDocumentPalette,
@@ -84,6 +85,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
     const dark = useThemeDark();
     const openInAdjacentPane = useMindmapSettingsStore((s) => s.openInAdjacentPane);
     const autoSaveIntervalMs = useMindmapSettingsStore((s) => s.autoSaveIntervalMs);
+    const undoHistoryLimit = useMindmapSettingsStore((s) => s.undoHistoryLimit);
     const patchNote = useNotes((s) => s.patchNote);
     const saveStatus = useNotes((s) => s.saveStatus);
     const closeSecondaryNote = useUi((s) => s.closeSecondaryNote);
@@ -111,11 +113,15 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         dark,
         locale,
         autoSaveMs: autoSaveIntervalMs,
+        undoStepLimit: undoHistoryLimit,
         onBodyChange: handleBodyChange,
     });
     const map = surface.map;
 
-    const fields = useMemo(() => readMindmapDocumentFields(content), [content]);
+    // The fields come out of the map's own parse rather than a second one here: this body is
+    // note text, and re-reading 144 KB of JSON on every write tick to answer three toggles
+    // was the price the header paid for showing them.
+    const fields = surface.fields;
     const isSynced = saveStatus === 'synced' || saveStatus === 'idle';
     const { hover, handlePin, onMouseLeave } = useLinkHoverHost(note.id);
 
@@ -260,6 +266,17 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         void useNotes.getState().createNote({ title, content: `${markdown}\n`, open: true });
     }, [map, note.title, surface.serializeAs, toast]);
 
+    /**
+     * The history the reader cannot see is the memory they cannot account for: the library
+     * holds a full copy of the document per step, so a long session on a large map carries
+     * every version it ever had. Bounded by a setting, and worth a button for the moment
+     * the reader notices they are paying for it.
+     */
+    const clearHistory = useCallback(() => {
+        map()?.clearHistory();
+        toast({ title: t('mindmap.history_cleared'), tone: 'success' });
+    }, [map, toast]);
+
     const copy = useCallback(async (text: string | null) => {
         if (!text || !navigator.clipboard?.writeText) {
             toast({ title: t('preview.could_not_copy'), tone: 'danger' });
@@ -295,7 +312,8 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         { id: 'export-png', label: t('preview.mindmap_export_png'), icon: <Download size={13}/>, onSelect: () => void download('png') },
         { id: 'copy-json', label: t('preview.mindmap_copy_json'), icon: <FileCode size={13}/>, onSelect: () => void copy(surface.serializeAs('json')) },
         { id: 'copy-outline', label: t('preview.mindmap_copy_outline'), icon: <ListTree size={13}/>, onSelect: () => void copy(surface.serializeAs('outline')) },
-    ], [copy, createNoteFromSelection, download, surface.serializeAs, writeOutlineNote]);
+        { id: 'clear-history', label: t('mindmap.clear_history'), icon: <Eraser size={13}/>, onSelect: clearHistory, separatorBefore: true },
+    ], [clearHistory, copy, createNoteFromSelection, download, surface.serializeAs, writeOutlineNote]);
 
     return (
       <div ref={shellRef} className="relative flex h-full min-h-0 w-full flex-col bg-[var(--bg-base)] text-[var(--text-primary)]" data-mindmap-document>
@@ -405,7 +423,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
           {view === 'canvas' && surface.status === 'error' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center">
               <p className="text-sm text-[var(--danger)]">{t('preview.mindmap_render_failed')}</p>
-              <p className="max-w-[520px] text-xs break-words text-[var(--text-tertiary)]">{surface.error}</p>
+              <p className="max-w-[520px] text-xs break-words text-[var(--text-tertiary)]">{surface.error ? mindmapErrorText(surface.error) : null}</p>
             </div>
           )}
 

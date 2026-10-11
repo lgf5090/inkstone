@@ -1,3 +1,5 @@
+import { mindmapError } from './errors';
+
 /**
  * What mind-elixir is allowed to do with a body the note wrote.
  *
@@ -32,15 +34,48 @@
  */
 export const MINDMAP_BODY_LIMIT_BYTES = 256 * 1024;
 
-/** How many nodes one map may hold. Past it the deepest branches are dropped, not drawn. */
-export const MINDMAP_NODE_LIMIT = 5000;
+/**
+ * How many nodes one map may hold.
+ *
+ * Past it the map is refused, not drawn with its tail cut off. Truncating was the original
+ * behaviour and it lost data: the drawer writes back what the instance holds, so a body
+ * trimmed to fit the budget would come out of the next edit with the dropped branches gone
+ * for good. Refusing costs the reader one sentence that names the limit, and keeps every
+ * node they wrote.
+ *
+ * The number is the byte ceiling above counted in nodes, so the two doors describe one map
+ * instead of one reachable door and one decorative one. Measured on documents of this
+ * shape: 150 bytes a node with a sentence-long topic, 127 with a two-word one, which makes
+ * 256 KB about 1700–2000 nodes. A 1400-node map was measured opening in 3.9 s and panning
+ * and zooming with no long task at all, so the cap is not a performance wall — it is the
+ * byte wall, spelled in the unit the browser actually pays for.
+ */
+export const MINDMAP_NODE_LIMIT = 2000;
+
+/** A tree past that budget. */
+export class MindmapTooManyNodesError extends Error {
+    constructor(readonly limit: number = MINDMAP_NODE_LIMIT) {
+        super(mindmapError('too-many-nodes', String(limit)));
+    }
+}
 
 /** A body past that ceiling. Every caller turns this into the block's error state. */
 export class MindmapBodyTooLargeError extends Error {
     constructor(readonly limitKb: number = MINDMAP_BODY_LIMIT_BYTES / 1024) {
-        super('too-large');
+        super(mindmapError('too-large', `${limitKb} KB`));
     }
 }
+
+/**
+ * How many undo steps a map keeps before its history is dropped.
+ *
+ * The library snapshots the whole document on every step and sets no ceiling of its own, so
+ * what a session costs is the size of the map times how long the reader has been editing it.
+ * Measured: one deep copy of a 1000-node body is 0.11 MiB of heap, and the library holds one
+ * per step forever. It is a setting (`undoHistoryLimit`) because the trade between a deep
+ * past and memory is the reader's to make, and 0 restores the unlimited behaviour.
+ */
+export const MINDMAP_UNDO_STEP_LIMIT = 50;
 
 /** Checked before the parse runs, so the size is never paid for in order to be declined. */
 export function assertMindmapBodySize(body: string): void {
@@ -50,6 +85,9 @@ export function assertMindmapBodySize(body: string): void {
 
 /** The schemes a note may point a node's link at. Anything else is dropped, not rewritten. */
 const SAFE_LINK_RE = /^(?:https?:|mailto:)/i;
+
+/** What a node's picture may be: a fetchable web URL, or a self-contained base64 image. */
+const SAFE_IMAGE_RE = /^(?:https?:|data:image\/[a-z0-9.+-]{1,32};base64,)/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -87,6 +125,18 @@ function sanitizeNode(node: Record<string, unknown>): void {
     // markup is already handled; a non-string only makes its escape helper throw.
     if (node.icons !== undefined)
         node.icons = Array.isArray(node.icons) ? node.icons.filter((icon) => typeof icon === 'string') : [];
+    // `node.image.url` becomes an `<img src>` verbatim, so the viewer's browser fetches
+    // whatever the note names the moment the map is drawn — no click, no warning. That is
+    // the same class of door as `hyperLink` and gets the same answer, widened for the
+    // inline images the library's own paste path produces.
+    if (node.image !== undefined) {
+        const image = isRecord(node.image) ? node.image : null;
+        const url = image && typeof image.url === 'string' ? image.url.trim() : '';
+        if (image && SAFE_IMAGE_RE.test(url))
+            image.url = url;
+        else
+            delete node.image;
+    }
     if (node.children !== undefined)
         node.children = Array.isArray(node.children) ? node.children.filter(isRecord) : [];
 }
@@ -96,8 +146,9 @@ function sanitizeNode(node: Record<string, unknown>): void {
  *
  * The walk is iterative because the body is note text: a fence of ten thousand nested
  * `{"children":[…]}` overflows a recursive reader's stack and takes the preview down
- * with it, rather than reporting itself. The node cap is enforced on the way down, so
- * the tree is cut where it runs out of budget and everything above it still draws.
+ * with it, rather than reporting itself. The node cap is counted on the way down and
+ * throws when it runs out — see `MindmapTooManyNodesError` for why that is the kinder
+ * answer.
  */
 export function sanitizeMindmapData(data: unknown): unknown {
     if (!isRecord(data))
@@ -110,13 +161,9 @@ export function sanitizeMindmapData(data: unknown): unknown {
             const node = stack.pop()!;
             visited++;
             sanitizeNode(node);
+            if (visited >= MINDMAP_NODE_LIMIT)
+                throw new MindmapTooManyNodesError();
             const children = node.children as Record<string, unknown>[] | undefined ?? [];
-            const room = MINDMAP_NODE_LIMIT - visited;
-            if (children.length > room) {
-                node.children = children.slice(0, Math.max(0, room));
-                stack.push(...node.children as Record<string, unknown>[]);
-                continue;
-            }
             for (const child of children)
                 stack.push(child);
         }

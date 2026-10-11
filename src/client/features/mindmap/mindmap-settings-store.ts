@@ -1,5 +1,8 @@
 import { create } from 'zustand';
-import type { MindmapDocumentDirection } from '../../lib/markdown/mindmap';
+// Direct module paths rather than the barrel: this store is read by the settings panel and by
+// the note-creation path, neither of which has any business pulling in the map's DOM registry.
+import { type MindmapDocumentDirection } from '../../lib/markdown/mindmap/document';
+import { MINDMAP_UNDO_STEP_LIMIT } from '../../lib/markdown/mindmap/nodes';
 
 export interface MindmapSettingsState {
   /** Folder a new file lands in when nothing else decided, by id or name. Empty means "where the reader is". */
@@ -10,6 +13,12 @@ export interface MindmapSettingsState {
   filenameDateFormat: string;
   useElixirExtension: boolean;
   autoSaveIntervalMs: number;
+  /**
+   * How many undo steps a map keeps before its history is dropped. The library snapshots the
+   * whole document per step with no ceiling of its own, so this is what keeps a long session
+   * on a big map from growing without bound; 0 means keep everything.
+   */
+  undoHistoryLimit: number;
   /** Following a link from a map opens the note beside it rather than over the map. */
   openInAdjacentPane: boolean;
   defaultDirection: MindmapDocumentDirection;
@@ -27,6 +36,7 @@ const DEFAULT_SETTINGS = {
   filenameDateFormat: 'YYYY-MM-DD HH.mm.ss',
   useElixirExtension: true,
   autoSaveIntervalMs: 600,
+  undoHistoryLimit: MINDMAP_UNDO_STEP_LIMIT,
   openInAdjacentPane: true,
   defaultDirection: 2 as MindmapDocumentDirection,
   compact: false,
@@ -48,6 +58,11 @@ function sanitize(parsed: Record<string, unknown>): typeof DEFAULT_SETTINGS {
     next.defaultDirection = DEFAULT_SETTINGS.defaultDirection;
   if (!Number.isFinite(next.autoSaveIntervalMs) || next.autoSaveIntervalMs < 100)
     next.autoSaveIntervalMs = DEFAULT_SETTINGS.autoSaveIntervalMs;
+  // Whole steps only, and 0 means "no ceiling" rather than "no history", so a negative or a
+  // fractional stored value is the reader's intent no longer and falls back rather than asking
+  // the drawer for something it cannot do.
+  if (!Number.isInteger(next.undoHistoryLimit) || next.undoHistoryLimit < 0 || next.undoHistoryLimit > 1000)
+    next.undoHistoryLimit = DEFAULT_SETTINGS.undoHistoryLimit;
   return next;
 }
 

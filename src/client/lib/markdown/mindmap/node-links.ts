@@ -13,7 +13,7 @@
 import { t } from '../../i18n';
 import { encodeDataValue } from '../data-attr';
 import { parseWikiTarget } from '../renderer';
-import { parseMindmapNodeLink, splitMindmapTopicLinks } from './links';
+import { parseMindmapNodeLink, splitMindmapTopicLinks, WIKI_LINK_OPEN } from './links';
 
 /** Marks an anchor this module added, so a click can be told from a prose link. */
 export const MINDMAP_NODE_LINK_ATTR = 'data-mindmap-node-link';
@@ -38,9 +38,19 @@ function textOf(topic: HTMLElement): HTMLElement {
  * Re-decorates every node in the map. Idempotent: a node already carrying an
  * anchor is left as it is, which is what makes this cheap to call from every
  * place the library rebuilds its tree.
+ *
+ * The whole scan is skipped for a map that draws no `[[` at all, which is nearly all of
+ * them. That check is one read of the drawn text rather than a loop, and it cannot be
+ * wrong in the reader's favour: a node that names a note carries `[[` in its raw text,
+ * and the only thing that takes those brackets out of the DOM is this decoration — so a
+ * map with no `[[` left is either link-free or already decorated, and both need nothing.
+ * A topic with unbalanced brackets, like `[[Note`, keeps the scan running; that costs a
+ * pass, never a missing link.
  */
 export function decorateMindmapLinks(container: HTMLElement | null): void {
     if (!container)
+        return;
+    if (!container.textContent?.includes(WIKI_LINK_OPEN))
         return;
     for (const topic of container.querySelectorAll<HTMLElement>(TOPIC_SELECTOR)) {
         const textElement = textOf(topic);
