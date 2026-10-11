@@ -28,4 +28,10 @@ describe('the excalidraw interaction gate', () => {
         expect(source).toContain('if (!interactedRef.current) return;');
         expect(source).toContain("addEventListener('pointerdown', note, true)");
     });
+
+    it('the preview only re-mounts blocks when a block could see the change', () => {
+        const source = fs.readFileSync('src/client/features/preview/Preview.tsx', 'utf8');
+        expect(source).toContain('const fencesMoved = !committedFencesRef.current || !sameFenceBodies(committedFencesRef.current, rendered.fences)');
+        expect(source).toContain('if (markupMoved || fencesMoved) setMermaidEpoch((current) => current + 1)');
+    });
 });

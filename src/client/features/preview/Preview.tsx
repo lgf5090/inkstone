@@ -28,7 +28,7 @@ import {
 } from '../../lib/markdown/enhance'
 import { KanbanFullscreen } from '../../lib/markdown/kanban'
 import { kanbanIndex } from '../../lib/markdown/kanban/view'
-import { fenceBody, registerFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
+import { fenceBody, registerFenceBodies, sameFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
 import { useKanbanBlocks } from './use-kanban-blocks'
 import { mountDataview } from '../../lib/dataview/blocks'
 import { updateTaskAtSourceLine } from '../../editor/commands'
@@ -118,6 +118,7 @@ export const Preview = memo(function Preview({
   const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true, emojiShortcodes: preview.emojiShortcodes }), [debounced, locale, preview.emojiShortcodes, emojiVersion])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''
   const committedHtmlRef = useRef('')
+  const committedFencesRef = useRef<FenceBodies | null>(null)
   const committedSourceRef = useRef(debounced)
   const preparationRef = useRef(0)
   const mermaidRevisionRef = useRef(0)
@@ -305,7 +306,12 @@ export const Preview = memo(function Preview({
       // staging copy carries the same set for `patchChildren` above, which compares the two.
       if (hostRef.current) registerFenceBodies(hostRef.current, rendered.fences)
       committedSourceRef.current = debounced
-      if (nextHtml !== committedHtmlRef.current) {
+      const markupMoved = nextHtml !== committedHtmlRef.current
+      // A board re-mounts on either half moving. The markup string alone cannot tell: with the fence
+      // bodies out of the attributes, an autosave leaves it byte-identical.
+      const fencesMoved = !committedFencesRef.current || !sameFenceBodies(committedFencesRef.current, rendered.fences)
+      if (fencesMoved) committedFencesRef.current = rendered.fences
+      if (markupMoved) {
         const scroller = scrollerRef.current
         const host = hostRef.current
         const snapshot = scroller && host ? capturePreviewViewport(scroller, host) : null
@@ -325,7 +331,10 @@ export const Preview = memo(function Preview({
         }
         onRendered?.()
       }
-      setMermaidEpoch((current) => current + 1)
+      // The epoch used to move on every prepared render, so a pass that changed nothing a block can read
+      // still re-walked the host and re-mounted every mind map. Both halves are compared above because the
+      // markup string is blind to a fence-body edit.
+      if (markupMoved || fencesMoved) setMermaidEpoch((current) => current + 1)
       // Query blocks and inline fields are filled on the live host after the swap, because their answer
       // is a store read that may still be arriving; the guard in `patchChildren` above is what lets the
       // next keystroke keep whatever was already drawn.

@@ -3213,6 +3213,11 @@ const allowed = new Map([
     "// staging copy carries the same set for `patchChildren` above, which compares the two.",
     "// The preview owns the canvas: useExcalidrawBlocks mounts it from the committed markup, so this",
     "// pass has to leave the placeholder standing rather than swap in source text.",
+    "// A board re-mounts on either half moving. The markup string alone cannot tell: with the fence",
+    "// bodies out of the attributes, an autosave leaves it byte-identical.",
+    "// The epoch used to move on every prepared render, so a pass that changed nothing a block can read",
+    "// still re-walked the host and re-mounted every mind map. Both halves are compared above because the",
+    "// markup string is blind to a fence-body edit.",
   ]],
   ["src/client/features/preview/block-actions.test.ts", [
     "// i18n is uninitialised in this file, so the fallback tab title arrives as its key.",
