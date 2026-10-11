@@ -696,6 +696,15 @@ const allowed = new Map([
   ["src/client/features/emoji/insert-emoji.ts", [
     "/**\n * Where a picked emoji goes: the editor on screen, and the clipboard when there is no editor to\n * write into (a note opened read-only, a phone in the preview tab). Silently dropping the pick is\n * the one answer that is never right.\n */",
   ]],
+  ["src/client/features/excalidraw/chrome.test.ts", [
+    "/* */",
+  ]],
+  ["src/client/features/excalidraw/chrome.ts", [
+    "/**\n * The engine's own footer owns the undo row, and the main-menu trigger ships in the top-left island,\n * so the app moves it down beside them. Doing it from a MutationObserver on the canvas subtree meant a\n * `querySelector` pass (including a `:has()` match) on *every* DOM change the engine makes while a\n * shape is being dragged or the viewport panned. The two islands render within a frame or two of mount\n * and never reorder themselves afterwards, so a short bounded poll replaces the observer outright.\n *\n * Returns the cancel function; callers must run it on cleanup.\n */",
+  ]],
+  ["src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx", [
+    "/**\n   * Whether the engine's library sidebar is open, which the surface already learns from the engine's\n   * own onChange. Watching the canvas subtree for the slot instead meant a querySelector on every DOM\n   * change the engine makes mid-drag, and the observer never disconnected while the sidebar was closed\n   * because the slot it was looking for never existed.\n   */",
+  ]],
   ["src/client/features/graph/LocalGraphPanel.tsx", [
     "/** Absent when the panel owns its column, as it does in the sidebar tab. */",
   ]],
