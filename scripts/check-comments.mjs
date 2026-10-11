@@ -558,6 +558,7 @@ const allowed = new Map([
     "// same route — with the editor, not the saved note, as the write destination.",
     "/**\n * One whole-document write that keeps the caret where the reader was.\n *\n * A block toolbar rewrites the fence the block came from, which is a slice of the document the editor\n * owns — so the replacement goes through a CodeMirror transaction rather than the note store, stays a\n * single undo step, and leaves the selection and the search intact.\n */",
     "/** The toolbar modules ask the surface for the note text and one write path; here both are the editor. */",
+    "/**\n * Draws the structure and mind-map faces of the note's JSON blocks.\n *\n * The live preview is a second surface with its own enhance pass, so it needs its own mount pass: the\n * React preview pane's hook cannot see this host, and without it a block that asks for a face gets an\n * empty one. The write path is the editor's own transaction, which is what keeps a rename one undo step\n * and leaves the caret where the reader left it.\n */",
   ]],
   ["src/client/editor/outliner/adapter.ts", [
     "/**\n * A list written inside a fenced block, a display formula or the note's front matter is not a list the\n * outliner may rewrite: printing the tree back would overwrite the author's own text with the parser's\n * reading of it.\n */",
@@ -3057,11 +3058,6 @@ const allowed = new Map([
     "/** Collapses to a dot the reader clicks open, the way the reference parks its circle. */",
     "// A finished drag must not also count as the click that opens the panel.",
   ]],
-  ["src/client/features/preview/JsonFullscreen.tsx", [
-    "/**\n * The lazy module, held in a ref rather than imported.\n *\n * The overlay is only ever opened from a block that already drew a map, so the chunk is warm by the time\n * this mounts — but a static import here would put the document model and the layout engine back on the\n * start-up path of every note, which is the whole reason the views are fetched on demand.\n */",
-    "// The inline block is still on screen and still works; the overlay simply has nothing to show.",
-    "/**\n * The JSON mind map at the size of the window.\n *\n * It draws into its own host rather than re-parenting the block's, because the preview replaces the\n * block wholesale on every commit — a moved element would be left behind in markup that is no longer on\n * screen. What the two share is the parsed document and the fold state, so a branch folded here is\n * folded there the moment the overlay closes.\n */",
-  ]],
   ["src/client/features/preview/Lightbox.tsx", [
     "/* The lightbox reads the img IDL property, an absolute URL that never\n              passed the renderer’s protocol filter. */",
   ]],
@@ -3192,7 +3188,6 @@ const allowed = new Map([
     "/**\n   * Whose note the surface is drawing, for the families that remember a choice between visits. A\n   * surface that cannot say — a share page, an embed — leaves it out and the choice stays in the page.\n   */",
     "/** The knobs the code-block formatter reads at press time. A surface with no note to format leaves it\n   * out, and the toolbar falls back to the settings a fresh account has. */",
     "/** Whether a layout block is allowed its settings bar and drag edges; the block always still renders. */",
-    "/**\n   * The JSON block's full screen mind map, which is React state for the same reason the map's is: the\n   * block it belongs to is re-rendered wholesale from the note and would drop an overlay mounted in it.\n   */",
     "/**\n   * Which face a JSON block opens with, and how deep it arrives folded, when the fence does not say for\n   * itself. A surface with no account to read leaves them out and the block stays as source.\n   */",
     "/**\n   * Which face a JSON block opens with and how deep it arrives folded, for the fences that do not say. A\n   * surface with no account to read leaves them out, and the block stays as source until asked otherwise.\n   */",
   ]],
@@ -3251,6 +3246,10 @@ const allowed = new Map([
     "/**\n * Wraps every chart block under a root in its head and source panel. Runs on the staged copy, so the\n * head is part of the markup the preview diffs against and a re-render cannot lose it.\n *\n * `chart` is false when the account has charts switched off: the block is showing its own body, so it\n * gets the format toggle only.\n */",
     "/**\n * One press of a chart's own tools. Only the format toggle reaches the note, so only it waits for the\n * preview to settle: a reader who is mid-keystroke can still want the body in front of them, or a picture\n * of the chart that is already on the screen.\n */",
   ]],
+  ["src/client/features/preview/code-block-toolbar.test.ts", [
+    "// The three JSON fields are deliberately out of this comparison: they are only written as attributes",
+    "// on a `json` fence, and `json-view-mount` reads them from the model rather than from the panel.",
+  ]],
   ["src/client/features/preview/js-runner-core.ts", [
     "/**\n * Everything a note's code could use to leave the worker thread. The shadowed parameter names above\n * only cover the direct route: `Function('return this')()` still hands back the real worker scope,\n * so the same names are taken away there too. `navigator` is reached through its own object because\n * `sendBeacon` hangs off that rather than off the scope.\n */",
     "// A property the engine refuses to redefine is one the note's code cannot reach either way;",
@@ -3269,10 +3268,12 @@ const allowed = new Map([
     "/** What the block remembers between re-renders. `body` says whether the parse can be reused. */",
     "/** Fold choices the reader made, as path keys, so a re-parse does not fold their work away. */",
     "/** Drops what a note's blocks remembered, for when the note itself goes away. */",
-    "/** Re-draws the head's tabs and tools after a mode change, which is the only thing that alters them. */",
     "/**\n * The body the view is drawn from, as the rendered block holds it.\n *\n * Read out of the `<code>` element rather than carried in an attribute: a 200 KB config would otherwise\n * be escaped, sanitized, and re-written into `innerHTML` on every keystroke in the other pane, which is\n * the cost the kanban block pays by keeping its body in a side channel.\n */",
     "/**\n * Writes a new body into the fence the block came from.\n *\n * The fence is located against the *committed* text, not the live editor buffer, and the whole write is\n * declined when they disagree — the same rule the code block's own settings follow, so a rewrite cannot\n * land on a line the reader has since moved.\n */",
     "/** The block's remembered face, for the surfaces that redraw a block outside the enhance pass. */",
+    "/**\n * Builds or rebuilds the head's tabs and tools.\n *\n * Always clears first rather than asking whether a head is already there: the tabs and the tools are\n * two siblings, and a guard that only looks at one of them lets a block that lost it receive a second\n * copy of the other — which is how a block ended up with two \"copy JSON\" buttons.\n */",
+    "// The commit pass only runs when the note changes, and opening a face is not a change to it, so the",
+    "// first draw of a freshly chosen face has to be asked for here.",
   ]],
   ["src/client/features/preview/json-map-view.ts", [
     "/**\n * The mind map view of a ```json block.\n *\n * The reference drew this with two hardcoded numbers — levels at `depth * 190`, connectors leaving the\n * parent at `parent.x + 160` — which is visible on its own demo page, where `structured editor` is wider\n * than the gap and every line starts inside the box it claims to leave. Geometry therefore comes from\n * `json-view/layout`, and this file only draws what it is told and handles the gestures.\n *\n * Two things the reference did that a preview of someone's note must not:\n *\n * - It added a `mousemove` and a `mouseup` listener to `window` on every render of the map and removed\n *   neither, so each visit to the tab leaked a pair that kept the previous canvas alive forever. Drag\n *   here is one `pointerdown` on the canvas with pointer capture, which the browser releases for us.\n * - Its wheel handler called `preventDefault()` unconditionally, so a reader whose pointer happened to be\n *   over the map could not scroll the note. Plain wheel pans; zoom needs the modifier the rest of the\n *   app already uses for it.\n */",
@@ -3324,6 +3325,9 @@ const allowed = new Map([
     "// Nothing changed, so the only thing to undo is the editor itself. Re-rendering from the",
     "// model puts the span back exactly as it was, including the truncation a long value shows.",
     "/** The row a path names, opening what is above it. Used by the full screen overlay's \"edit this\". */",
+    "/**\n * Puts one block's map on the whole window.\n *\n * The element is moved to `document.body` rather than painted with `position: fixed` where it stands,\n * because the prose column is inside elements that animate with a transform — and a transformed ancestor\n * becomes the containing block of a fixed descendant, which would size the \"full screen\" to the column.\n * The slot it came from is kept as a placeholder so leaving puts it back exactly where it was.\n */",
+    "// A write from inside the overlay replaces the block in the note, which would leave this copy",
+    "// orphaned and every later edit landing on a different element. Leaving first is the honest answer.",
   ]],
   ["src/client/features/preview/kanban-description-preview.test.ts", [
     "/**\n * The preview pane is the only production caller that hands a board a description renderer, and it does\n * so through a hook. Nothing in the modal's own tests can tell whether that hand-off happened: a board\n * mounted without it still behaves perfectly in every unit test, it simply never offers the control.\n * So this drives the real hook over a real rendered fence.\n */",
@@ -10543,6 +10547,8 @@ const allowed = new Map([
     "/* The live editor wraps every single block in its own prose host, so \"last child of the column\" would\n   otherwise be true for all of them and the document would lose its vertical rhythm there. */",
     "/* The still takes the same box the pannable canvas is given, so a map is the same size whatever\n     surface read it; `contain` keeps the whole picture in the frame instead of cropping it. */",
     "/* ---- JSON preview: the structure and mind-map faces of a ```json block ---- */",
+    "/* The map measures labels from this element's computed font, so the nodes inherit from here rather than\n   carrying the size themselves; a mismatch is what made every label ellipsize. */",
+    "/* The hover wash names a range, it does not flag it: the accent tint reads as an error on the cinnabar\n   theme, where the accent is a red. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

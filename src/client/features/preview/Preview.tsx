@@ -44,7 +44,6 @@ import { applyMediaEdit } from '../../lib/markdown/media-layout-source'
 import type { BlockActionContext } from './block-overlay'
 import { MindmapFullscreen } from './mindmap-fullscreen'
 import { MindmapThemeMenu } from './mindmap-theme-menu'
-import { JsonFullscreen } from './json-fullscreen'
 import { useJsonBlocks } from './use-json-blocks'
 import { useMindmapBlocks } from './use-mindmap-blocks'
 import { useExcalidrawBlocks } from './use-excalidraw-blocks'
@@ -156,7 +155,7 @@ export const Preview = memo(function Preview({
     dark: theme === 'dark',
   })
 
-  const json = useJsonBlocks({
+  useJsonBlocks({
     hostRef,
     epoch: mermaidEpoch,
     context: () => blockActionContext(),
@@ -386,7 +385,6 @@ export const Preview = memo(function Preview({
       keywordCase: editorSettings.codeFormatKeywordCase,
     },
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
-    json: { fullscreen: json.openFullscreen },
     jsonView: 'source',
     jsonFold: 2,
   })
@@ -764,9 +762,6 @@ export const Preview = memo(function Preview({
           showToolbar={contextMenu.showToolbar}
           searchable={contextMenu.searchable}
         />
-      )}
-      {json.fullscreen && (
-        <JsonFullscreen block={json.fullscreen.block} context={blockActionContext} onClose={json.closeFullscreen}/>
       )}
       {mindmap.fullscreen && (
         <MindmapFullscreen session={mindmap.fullscreen.session} onClose={mindmap.closeFullscreen}/>

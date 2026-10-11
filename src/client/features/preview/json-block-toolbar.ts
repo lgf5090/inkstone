@@ -133,25 +133,23 @@ function tabsHtml(state: JsonBlockState): string {
     return `<div class="json-tabs" role="group" aria-label="${escapeAttr(t('preview.json'))}">${TABS.map(([mode]) => tabButton(mode, mode === state.mode)).join('')}</div>`;
 }
 
-function jsonHead(block: HTMLElement): HTMLElement | null {
-    return block.querySelector<HTMLElement>(':scope > .json-tabs')?.parentElement ?? null;
-}
-
+/**
+ * Builds or rebuilds the head's tabs and tools.
+ *
+ * Always clears first rather than asking whether a head is already there: the tabs and the tools are
+ * two siblings, and a guard that only looks at one of them lets a block that lost it receive a second
+ * copy of the other — which is how a block ended up with two "copy JSON" buttons.
+ */
 function buildHead(block: HTMLElement, state: JsonBlockState): void {
     const head = block.querySelector<HTMLElement>(':scope > .code-block-head');
-    if (!head || jsonHead(block))
+    if (!head)
         return;
+    head.querySelectorAll(':scope > .json-tabs, :scope > .json-tools').forEach(node => node.remove());
     const tools = document.createElement('div');
     tools.innerHTML = `${tabsHtml(state)}${headToolsHtml(state)}`;
     const anchor = head.querySelector('[data-code-collapse], [data-copy]');
     for (const node of [...tools.children])
         head.insertBefore(node, anchor);
-}
-
-/** Re-draws the head's tabs and tools after a mode change, which is the only thing that alters them. */
-function refreshHead(block: HTMLElement, state: JsonBlockState): void {
-    block.querySelectorAll(':scope > .code-block-head > .json-tabs, :scope > .code-block-head > .json-tools').forEach(node => node.remove());
-    buildHead(block, state);
 }
 
 /**
@@ -177,10 +175,7 @@ function mount(block: HTMLElement, ctx: MountContext): void {
     const pre = block.querySelector<HTMLElement>(':scope > pre');
     if (pre)
         pre.hidden = state.mode !== 'source';
-    if (jsonHead(block))
-        refreshHead(block, state);
-    else
-        buildHead(block, state);
+    buildHead(block, state);
 }
 
 export function enhanceJsonBlockToolbars(root: HTMLElement, options: BlockToolbarOptions & { sourceNoteId?: string | null }): void {

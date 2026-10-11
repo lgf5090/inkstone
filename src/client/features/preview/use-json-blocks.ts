@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import type { BlockActionContext } from './block-overlay';
 import { JSON_BLOCK_SELECTOR, jsonBlockState } from './json-block-toolbar';
-import type { JsonViewMode } from './json-tree-view';
 
 interface UseJsonBlocksOptions {
     hostRef: RefObject<HTMLDivElement | null>
@@ -9,11 +8,6 @@ interface UseJsonBlocksOptions {
     epoch: number
     /** Read at mount time rather than captured, so a write always sees the committed text. */
     context: () => BlockActionContext
-}
-
-interface JsonFullscreen {
-    block: HTMLElement
-    mode: JsonViewMode
 }
 
 /**
@@ -25,7 +19,6 @@ interface JsonFullscreen {
  * full of JSON that is read as text never downloads it.
  */
 export function useJsonBlocks({ hostRef, epoch, context }: UseJsonBlocksOptions) {
-    const [fullscreen, setFullscreen] = useState<JsonFullscreen | null>(null);
 
     useLayoutEffect(() => {
         const host = hostRef.current;
@@ -60,13 +53,5 @@ export function useJsonBlocks({ hostRef, epoch, context }: UseJsonBlocksOptions)
         }
     }, [epoch, hostRef]);
 
-    const openFullscreen = useCallback((node: HTMLElement) => {
-        const block = node.closest<HTMLElement>(JSON_BLOCK_SELECTOR) ?? node;
-        const mode = jsonBlockState(block, { view: 'source', fold: 2 }).mode;
-        setFullscreen({ block, mode });
-    }, []);
-
-    const closeFullscreen = useCallback(() => setFullscreen(null), []);
-
-    return { fullscreen, openFullscreen, closeFullscreen };
+    return {};
 }

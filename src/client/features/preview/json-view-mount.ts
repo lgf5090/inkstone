@@ -305,7 +305,9 @@ export function runJsonBlockTool(action: string, block: HTMLElement, ctx: BlockA
         return;
     }
     if (action === 'fullscreen')
-        ctx.json?.fullscreen(block);
+        enterJsonFullscreen(block, host, ctx);
+    if (action === 'exit-fullscreen')
+        leaveJsonFullscreen(block);
     if (action === 'copy-json')
         void copyText(jsonBlockBody(block), ctx);
 }
@@ -540,4 +542,90 @@ export function revealJsonBlockPath(block: HTMLElement, path: JsonPath): void {
     const state = jsonBlockState(block, { view: 'source', fold: 2 });
     state.mode = 'tree';
     revealJsonPath(host, path);
+}
+
+const FULLSCREEN_BAR = [
+  ['fit', 'preview.json_fit'],
+  ['center', 'preview.json_center'],
+  ['zoom-out', 'preview.json_zoom_out'],
+  ['zoom-in', 'preview.json_zoom_in'],
+  ['export-svg', 'preview.json_export_svg'],
+  ['export-png', 'preview.json_export_png'],
+] as const;
+
+/**
+ * Puts one block's map on the whole window.
+ *
+ * The element is moved to `document.body` rather than painted with `position: fixed` where it stands,
+ * because the prose column is inside elements that animate with a transform — and a transformed ancestor
+ * becomes the containing block of a fixed descendant, which would size the "full screen" to the column.
+ * The slot it came from is kept as a placeholder so leaving puts it back exactly where it was.
+ */
+function enterJsonFullscreen(block: HTMLElement, host: HTMLElement, ctx: BlockActionContext): void {
+    if (block.classList.contains('is-json-fullscreen'))
+        return;
+    const slot = block.ownerDocument.createComment('json-fullscreen-slot');
+    block.parentNode?.insertBefore(slot, block);
+    (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot = slot;
+    const stage = block.ownerDocument.createElement('div');
+    stage.className = 'ink-prose json-fs-stage';
+    stage.dataset.jsonFullscreenStage = '';
+    block.ownerDocument.body.appendChild(stage);
+    stage.appendChild(block);
+    block.classList.add('is-json-fullscreen');
+    const bar = block.ownerDocument.createElement('div');
+    bar.className = 'json-fs-bar';
+    bar.dataset.jsonFullscreenBar = '';
+    const title = block.ownerDocument.createElement('span');
+    title.className = 'json-fs-title';
+    title.textContent = t('preview.json_view_map');
+    const close = block.ownerDocument.createElement('button');
+    close.type = 'button';
+    close.className = 'json-tool';
+    close.dataset.jv = 'exit-fullscreen';
+    close.title = t('preview.json_exit_fullscreen');
+    close.setAttribute('aria-label', t('preview.json_exit_fullscreen'));
+    close.textContent = '×';
+    bar.appendChild(title);
+    for (const [action, key] of FULLSCREEN_BAR) {
+        const button = block.ownerDocument.createElement('button');
+        button.type = 'button';
+        button.className = 'json-tool';
+        button.dataset.jv = action;
+        button.title = t(key);
+        button.setAttribute('aria-label', t(key));
+        button.textContent = { fit: '⤢', center: '◎', 'zoom-out': '−', 'zoom-in': '+', 'export-svg': 'SVG', 'export-png': 'PNG' }[action];
+        bar.appendChild(button);
+    }
+    bar.appendChild(close);
+    block.appendChild(bar);
+    // A write from inside the overlay replaces the block in the note, which would leave this copy
+    // orphaned and every later edit landing on a different element. Leaving first is the honest answer.
+    const original = ctx.api.editContent;
+    ctx.api.editContent = (noteId: string, next: string) => {
+        leaveJsonFullscreen(block);
+        original(noteId, next);
+    };
+    fitJsonMap(host);
+    const esc = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape')
+            return;
+        event.stopPropagation();
+        block.ownerDocument.removeEventListener('keydown', esc, true);
+        leaveJsonFullscreen(block);
+    };
+    block.ownerDocument.addEventListener('keydown', esc, true);
+}
+
+function leaveJsonFullscreen(block: HTMLElement): void {
+    if (!block.classList.contains('is-json-fullscreen'))
+        return;
+    block.classList.remove('is-json-fullscreen');
+    block.ownerDocument.dispatchEvent(new CustomEvent('jsonfullscreenleave', { bubbles: true }));
+    block.querySelector('[data-json-fullscreen-bar]')?.remove();
+    const slot = (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
+    slot?.parentNode?.insertBefore(block, slot);
+    slot?.remove();
+    block.closest<HTMLElement>('[data-json-fullscreen-stage]')?.remove();
+    delete (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
 }
