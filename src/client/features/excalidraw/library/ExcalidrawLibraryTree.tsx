@@ -17,6 +17,7 @@ import {
   Layers,
   Sparkles,
   Loader2,
+  Search,
 } from 'lucide-react'
 import { FilterInput } from '../../../components/FilterInput'
 import { compileQuery, queryMatches } from '../../../lib/query-match'
@@ -25,11 +26,13 @@ import { t } from '../../../lib/i18n'
 import { toast } from './toast'
 import {
   buildLibraryTree,
+  extractItemName,
   useExcalidrawLibraryStore,
 } from './library-store'
 import { ExcalidrawOfficialLibraryModal } from './ExcalidrawOfficialLibraryModal'
 import { loadExcalidrawLib } from '../../../lib/markdown/excalidraw/loader'
 import type {
+  ExcalidrawLibraryFolder,
   ExcalidrawLibraryItem,
   LibraryFolderNode,
 } from './types'
@@ -193,6 +196,34 @@ function insertItemToCanvas(item: ExcalidrawLibraryItem, api: any) {
   })
 }
 
+function itemMatchesQuery(
+  item: ExcalidrawLibraryItem,
+  compiledQuery: ReturnType<typeof compileQuery>,
+  folders: ExcalidrawLibraryFolder[],
+): boolean {
+  if (!compiledQuery.text) return true
+  if (queryMatches(compiledQuery, item.name)) return true
+  const extracted = extractItemName(item)
+  if (extracted && extracted !== item.name && queryMatches(compiledQuery, extracted)) {
+    return true
+  }
+  if (Array.isArray(item.elements)) {
+    for (const el of item.elements) {
+      if (el) {
+        const text = String(el.text || el.rawText || '').trim()
+        if (text && queryMatches(compiledQuery, text)) return true
+        if (el?.customData?.name && queryMatches(compiledQuery, String(el.customData.name))) return true
+        if (el?.label?.text && queryMatches(compiledQuery, String(el.label.text))) return true
+      }
+    }
+  }
+  if (item.folderId) {
+    const folder = folders.find((f) => f.id === item.folderId)
+    if (folder && queryMatches(compiledQuery, folder.name)) return true
+  }
+  return false
+}
+
 export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   api,
   lib,
@@ -255,7 +286,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
         if (filteredChild) matchingChildren.push(filteredChild)
       }
       const hasMatchingItems = items.some(
-        (it) => it.folderId === node.id && queryMatches(compiledQuery, it.name),
+        (it) => it.folderId === node.id && itemMatchesQuery(it, compiledQuery, folders),
       )
       if (nameMatch || matchingChildren.length > 0 || hasMatchingItems) {
         return {
@@ -272,7 +303,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
       if (f) res.push(f)
     }
     return res
-  }, [tree, searchText, compiledQuery, items])
+  }, [tree, searchText, compiledQuery, items, folders])
 
   const displayedItems = useMemo(() => {
     let list = items
@@ -280,10 +311,17 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
       list = list.filter((it) => it.folderId === activeFolderId)
     }
     if (searchText.trim()) {
-      list = list.filter((it) => queryMatches(compiledQuery, it.name))
+      list = list.filter((it) => itemMatchesQuery(it, compiledQuery, folders))
     }
     return list
-  }, [items, activeFolderId, searchText, compiledQuery])
+  }, [items, activeFolderId, searchText, compiledQuery, folders])
+
+  const otherMatchesCount = useMemo(() => {
+    if (!searchText.trim() || !activeFolderId) return 0
+    return items.filter(
+      (it) => it.folderId !== activeFolderId && itemMatchesQuery(it, compiledQuery, folders),
+    ).length
+  }, [items, activeFolderId, searchText, compiledQuery, folders])
 
   const handleCreateSubfolder = (parentId: string | null) => {
     const name = newSubfolderName.trim() || t('excalidraw.new_folder')
@@ -666,22 +704,47 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
 
           <div className="flex-1 min-h-0 overflow-y-auto">
             {displayedItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-40 text-center gap-2 text-xs text-[var(--text-quaternary)] px-4">
-                <Sparkles size={24} className="opacity-40" />
-                <p>{t('excalidraw.no_items_in_folder')}</p>
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(true)}
-                  className="mt-1 inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90"
-                >
-                  <Globe size={13} />
-                  <span>{t('excalidraw.browse_official_libraries')}</span>
-                </button>
-              </div>
+              searchText.trim() ? (
+                <div className="flex flex-col items-center justify-center h-44 text-center gap-2 text-xs text-[var(--text-secondary)] px-4">
+                  <Search size={22} className="opacity-50 text-[var(--accent)] mb-1" />
+                  <p className="font-medium text-[var(--text-primary)]">
+                    {activeFolderId
+                      ? t('excalidraw.no_match_in_current_folder')
+                      : t('excalidraw.no_match_stencils')}
+                  </p>
+                  {otherMatchesCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveFolderId(null)}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
+                    >
+                      <Layers size={13} />
+                      <span>{t('excalidraw.view_all_folder_results', { value0: otherMatchesCount })}</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-40 text-center gap-2 text-xs text-[var(--text-quaternary)] px-4">
+                  <Sparkles size={24} className="opacity-40" />
+                  <p>{t('excalidraw.no_items_in_folder')}</p>
+                  <button
+                    type="button"
+                    onClick={() => setModalOpen(true)}
+                    className="mt-1 inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90"
+                  >
+                    <Globe size={13} />
+                    <span>{t('excalidraw.browse_official_libraries')}</span>
+                  </button>
+                </div>
+              )
             ) : (
               <div className="grid grid-cols-2 gap-2.5">
-                {displayedItems.map((item) => {
+                {displayedItems.map((item, idx) => {
                   const isItemEditing = editingItemId === item.id
+                  const itemTitle =
+                    !item.name || /^(stencil|item)\s*\d+$/i.test(item.name.trim())
+                      ? extractItemName(item, idx, item.name || 'Item')
+                      : item.name
                   return (
                     <div
                       key={item.id}
@@ -732,8 +795,11 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs truncate text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] font-medium">
-                          {item.name}
+                        <span
+                          className="text-xs truncate text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] font-medium"
+                          title={itemTitle}
+                        >
+                          {itemTitle}
                         </span>
                       )}
 
@@ -746,7 +812,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                           title={t('excalidraw.rename_item')}
                           onClick={() => {
                             setEditingItemId(item.id)
-                            setEditingItemName(item.name)
+                            setEditingItemName(itemTitle)
                           }}
                           className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5"
                         >

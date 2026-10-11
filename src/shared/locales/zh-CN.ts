@@ -4904,6 +4904,8 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.drop_file_here": "拖拽 .excalidrawlib 文件到此处或点击上传",
     "excalidraw.no_items_in_folder": "该文件夹下暂无素材，可从画布添加或导入",
     "excalidraw.no_match_stencils": "未找到匹配的素材或文件夹",
+    "excalidraw.no_match_in_current_folder": "当前文件夹下无匹配素材",
+    "excalidraw.view_all_folder_results": "在所有文件夹中查看 ({value0} 个结果)",
     "excalidraw.item_count": "{value0} 个素材",
     "excalidraw.click_to_insert": "点击插入到画布",
     "excalidraw.drag_to_canvas": "拖拽至画布放置",

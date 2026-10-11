@@ -169,6 +169,74 @@ export function getAllFolderDescendants(
   return result
 }
 
+export function extractItemName(
+  entry: any,
+  fallbackIndex?: number,
+  fallbackPrefix = 'Item',
+): string {
+  if (entry?.name && typeof entry.name === 'string') {
+    const trimmed = entry.name.trim()
+    if (trimmed && !/^(stencil|item)\s*\d+$/i.test(trimmed)) {
+      return trimmed
+    }
+  }
+
+  const elements = Array.isArray(entry) ? entry : entry?.elements || []
+  if (Array.isArray(elements) && elements.length > 0) {
+    const textEls = elements.filter(
+      (el) => el && (el.type === 'text' || typeof el.text === 'string' || typeof el.rawText === 'string'),
+    )
+    if (textEls.length > 0) {
+      const candidate =
+        textEls.find((el) => {
+          const t = String(el.text || el.rawText || '').trim()
+          return t.length > 0 && !/^\d{1,2}:\d{2}$/.test(t) && !/^\d+$/.test(t)
+        }) || textEls[0]
+      const text = String(candidate.text || candidate.rawText || '')
+        .replace(/\r?\n/g, ' ')
+        .trim()
+      if (text.length > 0) {
+        return text.length > 40 ? `${text.slice(0, 37)}...` : text
+      }
+    }
+
+    if (entry?.customData?.name) return String(entry.customData.name).trim()
+    for (const el of elements) {
+      if (el?.customData?.name) return String(el.customData.name).trim()
+      if (el?.label?.text) return String(el.label.text).trim()
+    }
+
+    if (elements.length === 1 && elements[0]?.type) {
+      const typeStr = String(elements[0].type)
+      const capitalized = typeStr.charAt(0).toUpperCase() + typeStr.slice(1)
+      return typeof fallbackIndex === 'number' ? `${capitalized} ${fallbackIndex + 1}` : capitalized
+    }
+  }
+
+  if (entry?.name && typeof entry.name === 'string' && entry.name.trim()) {
+    return entry.name.trim()
+  }
+
+  return typeof fallbackIndex === 'number' ? `${fallbackPrefix} ${fallbackIndex + 1}` : fallbackPrefix
+}
+
+export function healLibraryItems(
+  rawItems: ExcalidrawLibraryItem[],
+): { items: ExcalidrawLibraryItem[]; changed: boolean } {
+  let changed = false
+  const items = rawItems.map((item, idx) => {
+    if (!item.name || /^(stencil|item)\s*\d+$/i.test(item.name.trim())) {
+      const extracted = extractItemName(item, idx, item.name || 'Item')
+      if (extracted && extracted !== item.name && !/^(stencil|item)\s*\d+$/i.test(extracted.trim())) {
+        changed = true
+        return { ...item, name: extracted }
+      }
+    }
+    return item
+  })
+  return { items, changed }
+}
+
 export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) => ({
   folders: defaultFolders,
   items: [],
@@ -182,11 +250,21 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
   init: async () => {
     const local = readLocal()
     if (local && Array.isArray(local.folders) && Array.isArray(local.items)) {
+      const { items: healedLocal, changed } = healLibraryItems(local.items)
+      const nextFolders = local.folders.length > 0 ? local.folders : defaultFolders
       set({
-        folders: local.folders.length > 0 ? local.folders : defaultFolders,
-        items: local.items,
+        folders: nextFolders,
+        items: healedLocal,
         lastSavedAt: local.updatedAt || 0,
       })
+      if (changed) {
+        persistLocal({
+          version: 2,
+          folders: nextFolders,
+          items: healedLocal,
+          updatedAt: Date.now(),
+        })
+      }
     }
 
     set({ loading: true })
@@ -196,17 +274,21 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
         const mf = res.manifest as ExcalidrawLibraryManifest
         const remoteFolders = Array.isArray(mf.folders) && mf.folders.length > 0 ? mf.folders : defaultFolders
         const remoteItems = Array.isArray(mf.items) ? mf.items : []
+        const { items: healedRemote, changed: remoteChanged } = healLibraryItems(remoteItems)
         set({
           folders: remoteFolders,
-          items: remoteItems,
+          items: healedRemote,
           lastSavedAt: mf.updatedAt || Date.now(),
         })
         persistLocal({
           version: 2,
           folders: remoteFolders,
-          items: remoteItems,
+          items: healedRemote,
           updatedAt: mf.updatedAt || Date.now(),
         })
+        if (remoteChanged) {
+          scheduleSync(get)
+        }
       }
     } catch {
     } finally {
@@ -367,7 +449,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
     const state = get()
     const targetFolder = folderId ?? state.activeFolderId ?? (state.folders[0]?.id ?? null)
     const id = `stencil-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-    const title = name?.trim() || `Item ${state.items.length + 1}`
+    const title = extractItemName({ name, elements }, state.items.length)
 
     const newItem: ExcalidrawLibraryItem = {
       id,
@@ -488,9 +570,10 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
       folderId = state.activeFolderId ?? (state.folders[0]?.id ?? null)
     }
 
+    const cleanPrefix = sourceName ? sourceName.replace(/\.excalidrawlib$/i, '').trim() : 'Item'
     const importedItems: ExcalidrawLibraryItem[] = rawItems.map((entry, idx) => {
       const elements = Array.isArray(entry) ? entry : entry.elements || []
-      const name = entry.name || `Stencil ${idx + 1}`
+      const name = extractItemName(entry, idx, cleanPrefix)
       return {
         id: `stencil-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
         folderId,
