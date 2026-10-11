@@ -70,11 +70,15 @@ export type { JsonIssue } from './types';
 export {
     layoutJsonMap,
     mapLinkPath,
+    MAP_CARD_PADDING,
     MAP_LEVEL_GAP,
     MAP_MAX_CHILDREN,
     MAP_PADDING,
+    MAP_ROW_HEIGHT,
     MAP_SIBLING_GAP,
     type MapLayout,
     type MapLayoutOptions,
+    type MapLink,
+    type MapRow,
     type MapSlot,
 } from './layout';

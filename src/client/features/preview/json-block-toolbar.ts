@@ -167,12 +167,23 @@ function toolButton(action: string, label: MessageKey, icon: string, extra = '')
     return `<button type="button" class="json-tool" data-jv="${action}" ${extra} title="${escapeAttr(text)}" aria-label="${escapeAttr(text)}">${icon}</button>`;
 }
 
+/** The camera tools, which the map needs on the inline face too: a tall card that arrived unfitted has
+ *  to be recoverable without going full screen first. */
+const MAP_TOOLS: Array<[string, MessageKey, string]> = [
+    ['fit', 'preview.json_fit', '⤢'],
+    ['zoom-out', 'preview.json_zoom_out', '−'],
+    ['zoom-in', 'preview.json_zoom_in', '+'],
+];
+
 function headToolsHtml(state: JsonBlockState): string {
     const tools = [toolButton('toggle-filter', 'preview.json_filter', FILTER_ICON, `aria-expanded="false" aria-controls="json-filter"`), toolButton('copy', 'preview.json_copy', COPY_ICON)];
     if (state.mode === 'tree')
         tools.unshift(toolButton('fold-all', 'preview.json_fold_all', FOLD_ICON));
-    if (state.mode === 'map')
+    if (state.mode === 'map') {
+        for (const [action, key, icon] of [...MAP_TOOLS].reverse())
+            tools.unshift(toolButton(action, key, icon));
         tools.unshift(toolButton('fullscreen', 'preview.json_fullscreen', FULLSCREEN_ICON));
+    }
     return `<div class="json-tools">${tools.join('')}</div>`;
 }
 
@@ -291,7 +302,7 @@ export const jsonBlockToolbar: BlockToolbarModule = {
         }
         if (target.closest('[data-json-filter-input]'))
             return true;
-        if (target.closest('.json-view, .jt-row, .jm-node, [data-jt], [data-jm]')) {
+        if (target.closest('.json-view, .jt-row, .jm-card, .jm-detail, [data-jt], [data-jm]')) {
             event.preventDefault();
             void jsonViews().then(module => module.routeJsonViewPress(target, block, ctx));
             return true;

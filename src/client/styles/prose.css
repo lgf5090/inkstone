@@ -3285,72 +3285,200 @@
   stroke: var(--graph-edge);
   stroke-width: 1.4;
 }
-.jm-node {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 9px;
-  border: 1.5px solid var(--accent);
-  border-radius: var(--r-full);
-  color: var(--text-primary);
-  background: var(--bg-surface);
+/* The name a card's row does not print travels on the connector instead, and it has to stay legible on
+   top of the dotted backdrop, so it gets the panel's own fill behind it rather than a heavier line. It is
+   a second reading of the same information as the row it points at, so it is allowed to be quieter than
+   the text — but not quieter than the backdrop's own noise, which is what the halo is for. */
+.jm-edge-label {
+  fill: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  white-space: nowrap;
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--bg-base);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+/* A card is one container. Its rows are placed by the layout, which is why the row pitch, the handle and
+   the swatch advances are written here as well as in `json-map-view.ts`: the layout measures the row as
+   this stylesheet will paint it, so a change to either alone shows up as clipped or drifting text.
+   The kind stripe is an inset shadow rather than a thick border for exactly that reason: a 3px border
+   would take 3px away from every row, and the widest row of every card would ellipsize. */
+.jm-card {
+  --jm-stripe: inset 3px 0 0 var(--syntax-property);
+  position: absolute;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  box-shadow: var(--jm-stripe), var(--shadow-sm);
   user-select: none;
 }
-.jm-node:hover {
-  box-shadow: var(--shadow-pop);
+.jm-card:hover {
+  box-shadow: var(--jm-stripe), var(--shadow-pop);
 }
-.jm-node.is-selected {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-ring);
+.jm-card.is-selected,
+.jm-row.is-selected {
+  box-shadow: var(--jm-stripe), var(--shadow-ring);
 }
-.jm-node--object,
-.jm-node--array {
-  border-radius: var(--r-xs);
+.jm-card--array {
+  --jm-stripe: inset 3px 0 0 var(--syntax-number);
 }
-.jm-node--object {
-  border-color: var(--syntax-property);
+.jm-row {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  /* No gap: the advances come from the handle's and swatch's own margins, which the measurer adds to the
+     label it is given. A `gap` here would paint `k : v` wider than the card was sized for. */
+  gap: 0;
+  white-space: nowrap;
 }
-.jm-node--array {
-  border-color: var(--syntax-number);
-  border-style: dashed;
+.jm-key {
+  color: var(--syntax-property);
+  /* The layout's label is `key : value`, spaces included, and a flex item drops leading and trailing
+     spaces; `pre` is what keeps the painted run the same string the card was measured from. */
+  white-space: pre;
+  flex: none;
 }
-.jm-node--string {
-  border-color: var(--syntax-string);
-}
-.jm-node--number {
-  border-color: var(--syntax-number);
-}
-.jm-node--boolean {
-  border-color: var(--syntax-constant);
-}
-.jm-node--null {
-  border-color: var(--text-quaternary);
-  border-style: dotted;
-  color: var(--text-tertiary);
-}
-.jm-label {
+.jm-value {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: pre;
+  color: var(--text-primary);
+}
+.jm-value--string {
+  color: var(--syntax-string);
+}
+.jm-value--number {
+  color: var(--syntax-number);
+}
+.jm-value--boolean {
+  color: var(--syntax-constant);
+}
+.jm-value--null {
+  color: var(--text-quaternary);
+}
+.jm-value--object,
+.jm-value--array {
+  color: var(--text-secondary);
+}
+.jm-swatch {
+  /* Without this the chip is an inline box, `width` is ignored and the colour never paints — measured in
+     a browser, where the swatch came out 1px wide. `inline-block` keeps it inside the value's text run so
+     an ellipsized value still carries its colour with it. */
+  display: inline-block;
+  vertical-align: -2px;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+}
+.jm-more {
+  color: var(--text-quaternary);
+}
+.jm-empty {
+  color: var(--text-quaternary);
+  font-style: italic;
 }
 .jm-fold {
-  margin-left: 6px;
-  padding: 0 4px;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  padding: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-full);
   color: var(--text-tertiary);
   background: var(--bg-inset);
   font-size: 10px;
-  line-height: 1.3;
+  line-height: 1;
   cursor: pointer;
 }
 .jm-fold:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.jm-detail {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 260px;
+  max-width: calc(100% - 16px);
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  font-size: 11px;
+  cursor: auto;
+  user-select: text;
+}
+.jm-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.jm-detail-title {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+}
+.jm-detail-close {
+  padding: 0 2px;
+  border: 0;
+  color: var(--text-tertiary);
+  background: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.jm-detail-close:hover {
+  color: var(--accent);
+}
+.jm-detail-body {
+  max-height: 118px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-primary);
+  white-space: pre;
+  line-height: 1.45;
+}
+.jm-detail-label {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+.jm-detail-path {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-2);
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  font: inherit;
+  outline: none;
+}
+.jm-detail-actions {
+  display: flex;
+  gap: 6px;
+}
+.jm-detail-copy {
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  font: inherit;
+  cursor: pointer;
+}
+.jm-detail-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .json-fullscreen-head {
@@ -3443,7 +3571,8 @@
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
-.jm-node {
+.jm-card,
+.jm-detail {
   font-size: inherit;
   font-family: inherit;
 }

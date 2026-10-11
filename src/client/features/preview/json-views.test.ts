@@ -8,7 +8,7 @@
  * which line that is.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { parseJsonDocument } from '../../lib/markdown/json-view';
+import { findNode, parseJsonDocument, setCollapsed } from '../../lib/markdown/json-view';
 import type { JsonDocument } from '../../lib/markdown/json-view';
 import {
     applyJsonAction,
@@ -18,7 +18,7 @@ import {
     renderJsonTree,
 } from './json-tree-view';
 import type { JsonViewControl } from './json-tree-view';
-import { renderJsonMap, type JsonMapView } from './json-map-view';
+import { renderJsonMap, showJsonDetail, zoomJsonMap, type JsonMapView } from './json-map-view';
 
 function doc(body: string): JsonDocument {
     const parsed = parseJsonDocument(body);
@@ -169,6 +169,23 @@ describe('renderJsonMap', () => {
         expect(canvasTransform()).toContain(`scale(${view.camera.scale})`);
     });
 
+    it('does not spend the one fit on a frame where the host has no size', () => {
+        // The first draw can happen before the browser has laid the block out, and a fit that measured
+        // nothing would otherwise be recorded as done: the map stays at 1:1 with 1 084px of card in a
+        // 340px window, which is what a 1200-key document looked like in a real browser.
+        const parsed = doc(wide(60));
+        const flat = document.createElement('div');
+        document.body.append(flat);
+        renderJsonMap(flat, parsed, view);
+        expect(view.fitted, 'a zero-size box must not count as fitted').toBe(false);
+        expect(flat.querySelector<HTMLElement>('[data-json-map-canvas]')?.style.transform).toBe('translate(0px, 0px) scale(1)');
+        // The next draw, with a box, is allowed to fit.
+        flat.getBoundingClientRect = host.getBoundingClientRect;
+        renderJsonMap(flat, parsed, view);
+        expect(view.fitted).toBe(true);
+        expect(flat.querySelector<HTMLElement>('[data-json-map-canvas]')?.style.transform).not.toBe('translate(0px, 0px) scale(1)');
+    });
+
     it('survives the host being replaced, because the camera is the caller\x27s', () => {
         const parsed = doc('{"a": 1}');
         renderJsonMap(host, parsed, view);
@@ -181,29 +198,100 @@ describe('renderJsonMap', () => {
             .toBe('translate(40px, 50px) scale(1.5)');
     });
 
-    it('names the members a container has more than the drawing can show', () => {
+    it('names the members a card has more than it can draw', () => {
         const parsed = doc(wide(60));
         renderJsonMap(host, parsed, view);
-        const labels = [...host.querySelectorAll('.jm-label')].map(node => node.textContent);
-        // Sixty keys, forty drawn, and the root node says which of the two the reader is looking at.
-        expect(labels[0]).toBe('root (60) +20');
-        expect(host.querySelectorAll('.jm-node').length).toBe(41);
+        // Sixty keys, forty drawn, and the card's last line is the count of what the reader cannot see.
+        expect(host.querySelectorAll('.jm-card')).toHaveLength(1);
+        expect(host.querySelectorAll('.jm-row')).toHaveLength(41);
+        expect(host.querySelector('.jm-row--more')?.textContent).toBe('+20');
         renderJsonMap(host, doc(wide(120)), view);
-        expect([...host.querySelectorAll('.jm-label')].map(node => node.textContent)).toContain('root (120) +80');
+        expect(host.querySelector('.jm-row--more')?.textContent).toBe('+80');
     });
 
-    it('sizes a box for the label it is actually going to draw', () => {
-        // The measure callback and the drawn label are two call sites that must agree, and nothing but
-        // this assertion makes them: zeroing the hidden count in the measurer alone is invisible to the
-        // label test above, because it would leave the box sized for `root (60)` while `root (60) +20`
-        // is painted into it. jsdom has no canvas, so the fallback rule — seven pixels a character plus
-        // the node chrome — is what pins the two together here.
+    it('sizes a card for the widest row it is actually going to draw', () => {
+        // The measure callback and the painted row are two call sites that must agree, and nothing but
+        // this assertion makes them: jsdom gives no canvas, so the fallback rule — seven pixels a
+        // character — is the only thing tying the card's width to its text. Deleting the ` : ` from the
+        // key span, or letting a flex `gap` add advances, reddens this without reddening anything else.
         const parsed = doc(wide(60));
         renderJsonMap(host, parsed, view);
-        const root = host.querySelector<HTMLElement>('.jm-node')!;
-        const label = root.querySelector('.jm-label')!.textContent!;
-        const width = Number(/width:(\d+)px/.exec(root.getAttribute('style') ?? '')?.[1]);
-        expect(label).toBe('root (60) +20');
-        expect(width).toBe(label.length * 7 + 22);
+        const card = host.querySelector<HTMLElement>('.jm-card')!;
+        const painted = [...host.querySelectorAll('.jm-row')].map(row => row.textContent!.length * 7);
+        // 9px of padding on each side, and the 1px border on each side, because the card's width is a
+        // border-box: leave either out and the widest row of every card ellipsizes (browser-measured).
+        expect(card.style.width).toBe(`${Math.max(...painted) + 2 * 9 + 2}px`);
+    });
+
+    it('paints one row per member and one card per container', () => {
+        renderJsonMap(host, doc('{"a": 1, "b": {"c": 2}}'), view);
+        expect(host.querySelectorAll('.jm-card')).toHaveLength(2);
+        expect([...host.querySelectorAll('.jm-key')].map(node => node.textContent)).toEqual(['a : ', 'c : ']);
+        // `b` got a card, so the row keeps only the handle and the summary; the name travels on the
+        // connector, which is the row's `.jm-value` text with the `−` of its fold button taken off.
+        const branch = host.querySelector('.jm-row--branch')!;
+        expect(branch.querySelector('.jm-key')).toBeNull();
+        expect(branch.querySelector('.jm-value')?.textContent).toBe('{1}');
+        expect([...host.querySelectorAll('.jm-edge-label')].map(node => node.textContent)).toEqual(['b']);
+    });
+
+    it('gives a colour value a swatch and every kind its own class', () => {
+        renderJsonMap(host, doc('{"tint": "#FF0000", "n": 3, "b": true, "z": null}'), view);
+        expect(host.querySelectorAll('.jm-swatch')).toHaveLength(1);
+        expect(host.querySelector('.jm-swatch')?.getAttribute('style')).toBe('background:#FF0000');
+        expect(host.querySelector('.jm-value--string')?.textContent).toBe('#FF0000');
+        for (const kind of ['string', 'number', 'boolean', 'null'])
+            expect(host.querySelector(`.jm-value--${kind}`), kind).not.toBeNull();
+    });
+
+    it('folds a branch from its row and keeps the name once the card is gone', () => {
+        const parsed = doc('{\n  "a": [1, 2]\n}');
+        renderJsonMap(host, parsed, view);
+        const fold = host.querySelector<HTMLButtonElement>('.jm-fold')!;
+        expect(JSON.parse(fold.dataset.jmPath ?? '[]')).toEqual(['a']);
+        expect(fold.getAttribute('aria-expanded')).toBe('true');
+        setCollapsed(findNode(parsed.root, ['a'])!, true);
+        renderJsonMap(host, parsed, view);
+        // No card means no connector, so the row takes the name back rather than losing it.
+        expect(host.querySelectorAll('.jm-card')).toHaveLength(1);
+        expect(host.querySelector('.jm-row--branch .jm-key')?.textContent).toBe('a : ');
+        expect(host.querySelector('.jm-row--branch .jm-value')?.textContent).toBe('[2]');
+        expect(host.querySelector('.jm-fold')?.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('promotes an array of objects into one card per element', () => {
+        renderJsonMap(host, doc('{"fruits": [{"name": "apple"}, {"name": "pear"}]}'), view);
+        // The array never becomes a card; the root and the two fruits are the three objects on screen.
+        expect(host.querySelectorAll('.jm-card--array')).toHaveLength(0);
+        expect(host.querySelectorAll('.jm-card--object')).toHaveLength(3);
+        expect([...host.querySelectorAll('.jm-edge-label')].map(node => node.textContent)).toEqual(['fruits', 'fruits']);
+    });
+
+    it('opens a member\'s own text and path when its row is pressed', () => {
+        const parsed = doc('{\n  "a": {\n    "b": 1\n  }\n}');
+        renderJsonMap(host, parsed, view);
+        showJsonDetail(host, parsed, ['a'], host.querySelector<HTMLElement>('.jm-card')!);
+        const card = host.querySelector<HTMLElement>('.jm-detail');
+        expect(card, 'the detail card never opened').not.toBeNull();
+        expect(card!.querySelector('.jm-detail-body')?.textContent).toContain('"b": 1');
+        expect(card!.querySelector<HTMLInputElement>('.jm-detail-path')?.value).toBe('$.a');
+        // Close, and the two things worth copying: the member and the name of where it lives.
+        expect([...card!.querySelectorAll<HTMLButtonElement>('[data-jt]')].map(button => button.dataset.jt))
+            .toEqual(['close-detail', 'copy-value', 'copy-path']);
+    });
+
+    it('closes the detail card when the camera moves, because it names a place on the canvas', () => {
+        const parsed = doc('{"a": 1}');
+        renderJsonMap(host, parsed, view);
+        showJsonDetail(host, parsed, ['a'], host.querySelector<HTMLElement>('.jm-card')!);
+        expect(host.querySelector('.jm-detail')).not.toBeNull();
+        zoomJsonMap(host, view, 1.2);
+        expect(host.querySelector('.jm-detail')).toBeNull();
+    });
+
+    it('makes the host reachable so the keyboard pan is not dead code', () => {
+        renderJsonMap(host, doc('{"a": 1}'), view);
+        expect(host.tabIndex).toBe(0);
+        expect(host.getAttribute('role')).toBe('group');
     });
 });

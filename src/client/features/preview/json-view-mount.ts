@@ -15,8 +15,10 @@ import {
     pathKey,
     reindentJsonDocument,
     validateJsonDocument,
+    writeJsonNode,
 } from '../../lib/markdown/json-view';
 import type { JsonViewControl } from './json-tree-view';
+import { handleBlockToolbarClick } from './block-actions';
 import {
     applyJsonAction,
     expandJsonNode,
@@ -27,9 +29,11 @@ import {
 } from './json-tree-view';
 import {
     centerJsonMap,
+    closeJsonDetail,
     fitJsonMap,
     jsonMapSvg,
     renderJsonMap,
+    showJsonDetail,
     toggleJsonMapNode,
     zoomJsonMap,
 } from './json-map-view';
@@ -159,6 +163,11 @@ function draw(block: HTMLElement, host: HTMLElement, state: JsonBlockState, ctx:
     state.rendered = signature;
     const control = controlFor(block, ctx, state, host);
     if (state.mode === 'tree') {
+        // The map makes its host a focusable group for the arrow-key pan; the tree is a list of real
+        // controls and would announce itself as a second mind map to a screen reader.
+        host.removeAttribute('tabindex');
+        host.removeAttribute('role');
+        host.removeAttribute('aria-label');
         renderJsonTree(host, document, control, jsonFilterKept(document.root, state.filter));
         return;
     }
@@ -378,8 +387,20 @@ function allCollapsed(document: JsonDocument): boolean {
 }
 
 function selectedPath(host: HTMLElement): JsonPath {
-    const row = host.querySelector<HTMLElement>('.jt-row.is-selected, .jm-node.is-selected');
+    const row = host.querySelector<HTMLElement>('.jt-row.is-selected, .jm-card.is-selected, .jm-row.is-selected');
     return row ? pathOf(row) : [];
+}
+
+/**
+ * One member as the note holds it, for the detail card's copy button.
+ *
+ * Read from the model on the press rather than cached on the open card: a note can hold two ```json
+ * blocks, and text parked on a module slot would be whatever the last-opened card showed, which is not
+ * necessarily the one the reader is pressing.
+ */
+function detailBody(document: JsonDocument, path: JsonPath): string {
+    const node = walkTo(document.root, path);
+    return node ? writeJsonNode(document, node) : '';
 }
 
 function writeReformatted(block: HTMLElement, document: JsonDocument, ctx: BlockActionContext, state: JsonBlockState): void {
@@ -474,9 +495,22 @@ export function routeJsonViewPress(target: HTMLElement, block: HTMLElement, ctx:
     const press = target.closest<HTMLElement>('[data-jt]');
     if (!press) {
         markSelected(host, target);
+        // A press on a card's body or on one of its rows asks the same question a reader asks out loud
+        // when a map gets big: what exactly is this member? The detail card answers it with the member's
+        // own text and the path that names it, both of which survive being pasted elsewhere.
+        const member = target.closest<HTMLElement>('[data-jm-path]');
+        if (member && !target.closest('.jm-detail'))
+            showJsonDetail(host, document, path, member);
         return;
     }
     const action = press.dataset.jt!;
+    if (action === 'copy-value' || action === 'copy-path' || action === 'close-detail') {
+        if (action === 'close-detail')
+            closeJsonDetail(host);
+        else
+            void copyText(action === 'copy-path' ? formatJsonPath(path) : detailBody(document, path), ctx);
+        return;
+    }
     if (action === 'edit-key' || action === 'edit-value') {
         startInlineEdit(press, action === 'edit-key' ? 'key' : 'value', document, path, control, host, state);
         return;
@@ -537,7 +571,7 @@ function startInlineEdit(
     const input = span.ownerDocument.createElement('input');
     input.className = 'jt-input';
     input.value = before;
-    input.setAttribute('aria-label', t(field === 'key' ? 'preview.json_copy_path' : 'preview.json_view_tree'));
+    input.setAttribute('aria-label', t(field === 'key' ? 'preview.json_edit_key' : 'preview.json_edit_value'));
     const width = Math.min(480, Math.max(80, before.length * 8 + 24));
     input.style.width = `${width}px`;
     span.replaceChildren(input);
@@ -618,7 +652,15 @@ function enterJsonFullscreen(block: HTMLElement, host: HTMLElement, ctx: BlockAc
     stage.dataset.jsonFullscreenStage = '';
     block.ownerDocument.body.appendChild(stage);
     stage.appendChild(block);
-    openStage = { block, stage };
+    // Both preview surfaces delegate their block-toolbar clicks from their own container, and this block
+    // has just left it: moved onto `<body>`, a press on the bar or on a fold handle bubbles to nothing,
+    // and every tool in the full-screen view is dead while looking entirely wired. The stage carries the
+    // same route for exactly as long as it holds the block.
+    const press = (event: MouseEvent): void => {
+        handleBlockToolbarClick(event, event.target as HTMLElement, ctx);
+    };
+    stage.addEventListener('click', press);
+    openStage = { block, stage, dispose: () => stage.removeEventListener('click', press) };
     block.classList.add('is-json-fullscreen');
     const bar = block.ownerDocument.createElement('div');
     bar.className = 'json-fs-bar';
@@ -681,8 +723,10 @@ function leaveJsonFullscreen(block: HTMLElement): void {
     slot?.remove();
     stage?.remove();
     delete (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
-    if (openStage?.block === block)
+    if (openStage?.block === block) {
+        openStage.dispose();
         openStage = null;
+    }
 }
 
 /**
@@ -692,12 +736,13 @@ function leaveJsonFullscreen(block: HTMLElement): void {
  * while it is open, nothing is left holding the stage and it stays on the page covering the app. Every
  * mount pass checks the recorded block is still attached and takes the stage back down if it is not.
  */
-let openStage: { block: HTMLElement, stage: HTMLElement } | null = null;
+let openStage: { block: HTMLElement, stage: HTMLElement, dispose: () => void } | null = null;
 
 /** Reaps an orphaned full screen stage. Returns whether one had to go. */
 export function reapJsonFullscreen(): boolean {
     if (!openStage || openStage.block.isConnected)
         return false;
+    openStage.dispose();
     openStage.stage.remove();
     openStage = null;
     return true;

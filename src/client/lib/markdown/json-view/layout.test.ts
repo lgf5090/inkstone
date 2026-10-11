@@ -1,35 +1,47 @@
 /**
  * The mind map's geometry, checked without a browser.
  *
- * The claims worth pinning are the two the ported reference got wrong by hardcoding: it placed levels at
- * `depth * 190` and drew every connector from `parent.x + 160`, so a label wider than the slot ran into
- * its neighbour and each line started inside the box it claimed to leave. Both are asserted here as
- * invariants over the slots rather than as fixed numbers, so any measure function satisfies them.
+ * The claims worth pinning are the ones the card style rests on, and the two the ported reference got
+ * wrong by hardcoding (`depth * 190` for every level, `parent.x + 160` for every connector). Both are
+ * asserted as invariants over the slots rather than as fixed numbers, so any measure function satisfies
+ * them — but the row rules (what becomes a row, what becomes a card, and where a member's name is
+ * written) are the design, and they are asserted directly.
  */
 import { describe, expect, it } from 'vitest';
-import { layoutJsonMap, mapLinkPath, MAP_LEVEL_GAP } from './layout';
+import { layoutJsonMap, mapLinkPath, MAP_CARD_PADDING, MAP_LEVEL_GAP, MAP_ROW_HEIGHT, type MapRow } from './layout';
 import { collapseToDepth, findNode } from './edit';
+import { displaySummary } from './inspect';
 import { parseJsonDocument } from './parse';
 import type { JsonNode } from './types';
-
-/** Monospace at 8px, with the label the node prints: the measure a browser would hand back. */
-function measure(node: JsonNode): { w: number, h: number } {
-    const label = node.key ?? (node.kind === 'array' ? '[]' : String(node.value ?? ''));
-    return { w: label.length * 8 + 16, h: 28 };
-}
-
-function options(over: Record<string, unknown> = {}) {
-    return { measure, ...over };
-}
 
 function tree(body: string): JsonNode {
     return parseJsonDocument(body).document!.root;
 }
 
-describe('layoutJsonMap', () => {
-    const body = '{\n  "project": "json-editor",\n  "features": ["structured editor", "mindmap"],\n  "n": {"deep": {"deeper": 1}}\n}';
+/** The text the view would paint, in the layout's own terms: a container by size, a scalar by value. */
+function valueFor(node: JsonNode, hidden: number): string {
+    if (node.kind === 'object' || node.kind === 'array')
+        return `${displaySummary(node)}${hidden > 0 ? ` +${hidden}` : ''}`;
+    return String(node.value ?? '');
+}
 
-    it('gives every level the width its widest label needs', () => {
+/** Monospace at 8px: the measure a browser would hand back for the row's own text. */
+function widthOf(row: MapRow): number {
+    return row.label.length * 8;
+}
+
+function options(over: Record<string, unknown> = {}) {
+    return { valueFor, measure: widthOf, ...over };
+}
+
+const body = '{\n  "project": "json-editor",\n  "features": ["structured editor", "mindmap"],\n  "n": {"deep": {"deeper": 1}}\n}';
+
+function rowsOf(layout: ReturnType<typeof layoutJsonMap>, key: string): MapRow[] {
+    return layout.byKey.get(key)!.rows;
+}
+
+describe('layoutJsonMap', () => {
+    it('gives every level the width its widest card needs', () => {
         const layout = layoutJsonMap(tree(body), options());
         const byDepth = new Map<number, typeof layout.slots>();
         for (const slot of layout.slots)
@@ -44,7 +56,7 @@ describe('layoutJsonMap', () => {
         }
     });
 
-    it('keeps sibling boxes from overlapping', () => {
+    it('keeps sibling cards from overlapping', () => {
         const layout = layoutJsonMap(tree(body), options());
         const parents = new Map<unknown, typeof layout.slots>();
         for (const slot of layout.slots) {
@@ -62,43 +74,114 @@ describe('layoutJsonMap', () => {
         }
     });
 
-    it('draws a connector between the boxes, not across them', () => {
+    it('measures a card by the widest row it will actually paint', () => {
+        const layout = layoutJsonMap(tree('{"a": 1, "longer": {"deep": 2}}'), options());
+        const root = layout.byKey.get('[]')!;
+        // The root lists two rows; the wider is `"longer" : {1}`, measured at 8px a character.
+        const widest = Math.max(...root.rows.map(widthOf));
+        expect(root.w).toBe(widest + 2 * MAP_CARD_PADDING);
+    });
+
+    it('draws a connector from the row that names the member, not the card center', () => {
+        const layout = layoutJsonMap(tree('{"a": {"x": 1}, "b": {"y": 2}, "c": [1, 2]}'), options());
+        const root = layout.byKey.get('[]')!;
+        for (const link of layout.links) {
+            const row = root.rows.find(candidate => candidate.slot === link.to)!;
+            const numbers = mapLinkPath(link).match(/-?[\d.]+/g)!.map(Number);
+            expect(numbers[0]).toBe(root.x + root.w);
+            expect(numbers[1]).toBe(row.y);
+            expect(numbers[2]).toBe(root.x + root.w + Math.max(18, (link.to.x - root.x - root.w) / 2));
+            expect(numbers[3]).toBe(row.y);
+            expect(numbers[numbers.length - 2]).toBe(link.to.x);
+            expect(numbers[numbers.length - 1]).toBeCloseTo(link.to.y);
+        }
+        // A four-row card must not have all its lines leave from the same point.
+        expect(new Set(layout.links.map(link => mapLinkPath(link).split(',')[1])).size).toBe(layout.links.length);
+    });
+
+    it('writes a member that got a card on the connector instead of in the card', () => {
         const layout = layoutJsonMap(tree(body), options());
-        // An array element has no key of its own, so the label the reference's demo shows for it —
-        // `"structured editor"` — is the value, and that is what the slot has to be found by.
-        const child = layout.slots.find(slot => slot.node.value === 'structured editor')!;
-        const parent = child.parent!;
-        const path = mapLinkPath(parent, child);
-        const numbers = path.match(/-?[\d.]+/g)!.map(Number);
-        expect(numbers[0]).toBe(parent.x + parent.w);
-        expect(numbers[1]).toBeCloseTo(parent.y);
-        expect(numbers[numbers.length - 2]).toBe(child.x);
-        expect(numbers[numbers.length - 1]).toBeCloseTo(child.y);
+        const root = layout.byKey.get('[]')!;
+        const project = root.rows.find(row => row.node.key === 'project')!;
+        const nested = root.rows.find(row => row.node.key === 'n')!;
+        expect(project.key).toBe('project');
+        expect(project.label).toBe('project : json-editor');
+        // `n` has a card of its one, so the row carries only the summary and the name rides the line.
+        expect(nested.key).toBe('');
+        expect(nested.label).toBe('{1}');
+        expect(layout.links.find(link => link.to === nested.slot)!.label).toBe('n');
     });
 
-    it('folds a subtree out of the drawing', () => {
+    it('keeps a folded branch as one named row and draws no card for it', () => {
         const root = tree(body);
-        const features = findNode(root, ['features'])!;
-        features.collapsed = true;
+        findNode(root, ['features'])!.collapsed = true;
         const layout = layoutJsonMap(root, options());
-        expect(layout.slots.some(slot => slot.node.key === 'structured editor')).toBe(false);
-        expect(layout.byKey.get(JSON.stringify(['features']))!.expandable).toBe(true);
-        expect(layout.byKey.get(JSON.stringify(['features']))!.kids).toHaveLength(0);
+        const folded = rowsOf(layout, '[]').find(row => row.node.key === 'features')!;
+        expect(folded.branch).toBe(true);
+        expect(folded.slot).toBeNull();
+        expect(folded.path).toEqual(['features']);
+        // No connector means nowhere else to put the name.
+        expect(folded.key).toBe('features');
+        expect(folded.label).toBe('features : [2]');
+        expect(layout.byKey.has(JSON.stringify(['features']))).toBe(false);
+        expect(layout.links.some(link => link.label === 'features')).toBe(false);
     });
 
-    it('keeps a folded branch on one row of its own', () => {
-        const expanded = layoutJsonMap(tree(body), options());
-        const root = tree(body);
-        collapseToDepth(root, 1);
-        const folded = layoutJsonMap(root, options());
-        const features = folded.byKey.get(JSON.stringify(['features']))!;
-        const project = folded.byKey.get(JSON.stringify(['project']))!;
-        expect(folded.slots.length).toBeLessThan(expanded.slots.length);
-        expect(features.y).toBeGreaterThan(project.y);
-        expect(folded.height).toBeLessThan(expanded.height);
+    it('spreads a card\'s rows evenly inside it', () => {
+        const layout = layoutJsonMap(tree('{"a": 1, "b": 2, "c": 3}'), options());
+        const root = layout.byKey.get('[]')!;
+        expect(root.h).toBe(3 * MAP_ROW_HEIGHT + 2 * MAP_CARD_PADDING);
+        const top = root.y - root.h / 2;
+        root.rows.forEach((row, index) => {
+            expect(row.y).toBe(top + MAP_CARD_PADDING + MAP_ROW_HEIGHT * (index + 0.5));
+        });
     });
 
-    it('stops at the ceiling and says it did', () => {
+    it('promotes an array of objects into one card per element, each named by the array', () => {
+        const layout = layoutJsonMap(tree('{"fruits": [{"name": "apple"}, {"name": "pear"}, {"name": "plum"}]}'), options());
+        // The array itself is not a card; its three elements are, and they sit one level out from the root.
+        expect(layout.byKey.has(JSON.stringify(['fruits']))).toBe(false);
+        const cards = layout.slots.filter(slot => slot.depth === 1);
+        expect(cards).toHaveLength(3);
+        expect(cards.map(slot => slot.edgeLabel)).toEqual(['fruits', 'fruits', 'fruits']);
+        expect(cards.map(slot => slot.path)).toEqual([['fruits', 0], ['fruits', 1], ['fruits', 2]]);
+        expect(layout.links).toHaveLength(3);
+        const root = layout.byKey.get('[]')!;
+        expect(root.rows.map(row => row.key)).toEqual(['', '', '']);
+    });
+
+    it('keeps an array of scalars as rows in one card', () => {
+        const layout = layoutJsonMap(tree('{"sizes": [10, 11, 12]}'), options());
+        expect(layout.slots).toHaveLength(2);
+        expect(layout.links).toHaveLength(1);
+        const sizes = layout.byKey.get(JSON.stringify(['sizes']))!;
+        expect(sizes.rows.map(row => row.label)).toEqual(['0 : 10', '1 : 11', '2 : 12']);
+    });
+
+    it('names the members a card leaves out, and only when it leaves one out', () => {
+        const wide = tree(`{${Array.from({ length: 45 }, (_, index) => `"k${index}": ${index}`).join(',')}}`);
+        const layout = layoutJsonMap(wide, options({ maxChildren: 40 }));
+        const root = layout.byKey.get('[]')!;
+        // Forty members and one line saying how many did not fit.
+        expect(root.rows.filter(row => !row.more)).toHaveLength(40);
+        expect(root.rows.find(row => row.more)?.value).toBe('+5');
+        expect(root.hiddenChildren).toBe(5);
+        expect(layout.truncated).toBe(false);
+        // The count line is a row, so the card is tall enough to hold it.
+        expect(root.h).toBe(41 * MAP_ROW_HEIGHT + 2 * MAP_CARD_PADDING);
+        const small = layoutJsonMap(tree('{"a": [1, 2]}'), options({ maxChildren: 40 }));
+        expect(small.byKey.get('[]')!.hiddenChildren).toBe(0);
+        expect(small.byKey.get('[]')!.rows.find(row => row.node.key === 'a')!.value).toBe('[2]');
+    });
+
+    it('passes a container\'s own overflow to the value text', () => {
+        const nested = tree(`{"big": {${Array.from({ length: 42 }, (_, index) => `"k${index}": 1`).join(',')}}}`);
+        const layout = layoutJsonMap(nested, options({ maxChildren: 40 }));
+        const row = layout.byKey.get('[]')!.rows.find(candidate => candidate.node.key === 'big')!;
+        expect(row.value).toBe('{42} +2');
+    });
+
+    it('stops at the node ceiling and says it did', () => {
         const layout = layoutJsonMap(tree(body), options({ maxNodes: 3 }));
         expect(layout.truncated).toBe(true);
         expect(layout.slots).toHaveLength(3);
@@ -106,13 +189,25 @@ describe('layoutJsonMap', () => {
 
     it('lays out a single node without a column of its own', () => {
         const layout = layoutJsonMap(tree('{"only": 1}'), options());
-        expect(layout.slots).toHaveLength(2);
+        expect(layout.slots).toHaveLength(1);
         expect(layout.width).toBeGreaterThan(0);
         expect(layout.height).toBeGreaterThan(0);
     });
 
-    it('holds an empty container without a child at depth one', () => {
+    it('holds an empty container as a card with no rows', () => {
         const layout = layoutJsonMap(tree('{"a": {}, "b": []}'), options());
-        expect(layout.slots.filter(slot => slot.depth === 1)).toHaveLength(2);
+        expect(layout.slots).toHaveLength(3);
+        for (const key of [JSON.stringify(['a']), JSON.stringify(['b'])])
+            expect(layout.byKey.get(key)!.rows).toHaveLength(0);
+        expect(layout.byKey.get(JSON.stringify(['a']))!.h).toBe(MAP_ROW_HEIGHT + 2 * MAP_CARD_PADDING);
+    });
+
+    it('shrinks the picture when a subtree is folded out of it', () => {
+        const expanded = layoutJsonMap(tree(body), options());
+        const root = tree(body);
+        collapseToDepth(root, 1);
+        const folded = layoutJsonMap(root, options());
+        expect(folded.slots.length).toBeLessThan(expanded.slots.length);
+        expect(folded.height).toBeLessThan(expanded.height);
     });
 });
