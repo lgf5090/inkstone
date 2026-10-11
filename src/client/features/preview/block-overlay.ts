@@ -94,12 +94,15 @@ export interface BlockActionContext {
    * holds the note has that state, so the toolbar asks for it through here.
    */
   mindmap?: { fullscreen: (node: HTMLElement) => void; themeMenu: (node: HTMLElement) => void }
-   /**
+  /**
    * Which face a JSON block opens with, and how deep it arrives folded, when the fence does not say for
    * itself. A surface with no account to read leaves them out and the block stays as source.
    */
   jsonView?: JsonViewName
   jsonFold?: number
+  /** Whether the JSON faces may write back into the note, and whether they read the loose shapes. */
+  jsonEditable?: boolean
+  jsonTolerant?: boolean
 }
 
 /**
@@ -144,6 +147,8 @@ export interface BlockToolbarOptions {
    */
   jsonView?: JsonViewName
   jsonFold?: number
+  jsonEditable?: boolean
+  jsonTolerant?: boolean
 }
 
 export interface BlockToolbarModule {

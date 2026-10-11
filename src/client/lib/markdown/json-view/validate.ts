@@ -45,5 +45,5 @@ export function validateJsonDocument(root: JsonNode): JsonIssue[] {
 }
 
 /** Where an issue stops being worth mentioning. Both are display thresholds, not data limits. */
-export const JSON_ISSUE_DEPTH_WARN = 40;
-export const JSON_ISSUE_TEXT_WARN = 4000;
+const JSON_ISSUE_DEPTH_WARN = 40;
+const JSON_ISSUE_TEXT_WARN = 4000;

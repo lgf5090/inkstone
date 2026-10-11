@@ -232,7 +232,7 @@ export function foldAllJsonTree(host: HTMLElement, document: JsonDocument, colla
 }
 
 /** The key a new member gets: `new_key`, then `new_key_2`, without disturbing what is already there. */
-export function nextJsonKey(parent: JsonNode): string {
+function nextJsonKey(parent: JsonNode): string {
     const taken = new Set((parent.children ?? []).map(child => child.key ?? ''));
     if (!taken.has('new_key'))
         return 'new_key';
@@ -321,8 +321,14 @@ function walkCollapse(node: JsonNode, collapsed: boolean): void {
 export function jsonRowMatches(node: JsonNode, query: string): boolean {
     if (node.key !== null && matchesQuery(node.key, query))
         return true;
-    return !isContainerNode(node) && matchesQuery(displayValue(node, 0), query);
+    // The ceiling is the one thing that keeps a filter over a document of long strings linear: the row
+    // itself shows at most JSON_TEXT_PREVIEW characters, so text past it could not be matched by eye
+    // either. Asserted in json-tree-view.test.ts rather than trusted.
+    return !isContainerNode(node) && matchesQuery(displayValue(node, JSON_FILTER_TEXT_LIMIT), query);
 }
+
+/** How much of a value the filter reads. */
+export const JSON_FILTER_TEXT_LIMIT = 512;
 
 /**
  * The rows a filter keeps: what matches, and everything that leads to a match.

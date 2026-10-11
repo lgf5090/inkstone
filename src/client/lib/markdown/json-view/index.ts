@@ -71,6 +71,7 @@ export {
     layoutJsonMap,
     mapLinkPath,
     MAP_LEVEL_GAP,
+    MAP_MAX_CHILDREN,
     MAP_PADDING,
     MAP_SIBLING_GAP,
     type MapLayout,

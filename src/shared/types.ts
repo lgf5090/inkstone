@@ -294,6 +294,17 @@ export interface PreviewSettings {
   codeBlockCollapse: boolean
   codeBlockCollapseLines: number
   codeFormatButton: boolean
+  /**
+   * Which face a a json fence block opens with. The block can still be switched per fence with `view=`, and
+   * this only says what a block that does not say for itself shows.
+   */
+  jsonView: 'source' | 'tree' | 'map'
+  /** How deep the structure and mind-map faces arrive folded; 0 folds everything below the root. */
+  jsonFold: number
+  /** Whether those faces may write back into the note, or only read it. */
+  jsonEditable: boolean
+  /** Accept the shapes `JSON.parse` refuses — comments, trailing commas, unquoted keys — and say so. */
+  jsonTolerant: boolean
   tableBubbleMenu: boolean
   /** The settings bar and drag handles on a `::: media` layout block. */
   mediaToolbar: boolean

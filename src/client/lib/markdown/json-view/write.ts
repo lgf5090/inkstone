@@ -14,7 +14,7 @@ import { parseJsonDocument } from './parse';
 /** A rebuilt entry's `key: value` separator. */
 const KEY_SEPARATOR = ': ';
 
-export function encodeKey(key: string): string {
+function encodeKey(key: string): string {
     return JSON.stringify(key);
 }
 

@@ -10,11 +10,11 @@
  * key the mind map's source panel and the tabs block use, so a JSON block added above shifts the rest
  * with it rather than silently swapping two readers' fold states.
  */
+import type { JsonMapView } from './json-map-view';
 import { t, type MessageKey } from '../../lib/i18n';
 import { escapeAttr, escapeHtml } from '../../lib/markdown/renderer';
 import { jsonViewName, type JsonViewName } from '../../lib/markdown/code-options';
 import {
-    blockActionSource,
     closeBlockOverlayFromEvent,
     dismissBlockOverlays,
     toggleBlockOverlay,
@@ -52,25 +52,56 @@ export interface JsonBlockState {
     fold: number
     filter: string
     body: string
-    /** Fold choices the reader made, as path keys, so a re-parse does not fold their work away. */
+    /**
+     * Fold choices the reader made that differ from the state the block arrived at, as path keys. Only the
+     * exceptions are kept, so a 1200-container document does not pay 1200 stringified keys per edit.
+     */
     collapsed: Map<string, boolean>
     document: unknown
+    /** What the host is currently showing: mode, body and filter. See `draw`. */
+    rendered: string
+    /** The account's tolerance setting the current parse was made under. */
+    tolerant: boolean | undefined
+    /**
+     * The map's camera, and whether it has been fitted once.
+     *
+     * This used to live in the host element's `data-` attributes, which the preview throws away on every
+     * commit — so the reader's pan was lost on any keystroke, and the first-frame fit guard could never
+     * pass because the function that installed it had written the attribute two lines earlier.
+     */
+    map: JsonMapView
     fullscreen: boolean
 }
 
 const states = new Map<string, JsonBlockState>();
 
-export function jsonBlockState(block: HTMLElement, defaults: { view: JsonViewName, fold: number }): JsonBlockState {
-    const key = block.dataset.line ?? '';
+/**
+ * The block's memory, keyed by note *and* line.
+ *
+ * The note is part of the key because the map is module-level and a session reads many notes: keyed on the
+ * line alone it would retain the parsed tree of every JSON block ever opened, which measured +6.3 MiB
+ * across three large notes and never came back down.
+ */
+export function jsonBlockState(
+    block: HTMLElement,
+    defaults: { view: JsonViewName, fold: number },
+    noteId: string | null = null,
+): JsonBlockState {
+    const key = `${noteId ?? '-'}:${block.dataset.line ?? ''}`;
     let state = states.get(key);
     if (!state) {
         state = {
             mode: jsonViewName(block.dataset.jsonView ?? '') ?? defaults.view,
-            fold: Number(block.dataset.jsonFold ?? '') || defaults.fold,
+            // `fold=0` is the author asking for everything folded; `Number(x) || fallback` reads that
+            // zero as "no value given" and hands back the default instead.
+            fold: parseFoldAttribute(block.dataset.jsonFold, defaults.fold),
             filter: '',
             body: '',
             collapsed: new Map(),
             document: null,
+            rendered: '',
+            tolerant: undefined,
+            map: { camera: { x: 0, y: 0, scale: 1 }, fitted: false },
             fullscreen: false,
         };
         states.set(key, state);
@@ -78,10 +109,22 @@ export function jsonBlockState(block: HTMLElement, defaults: { view: JsonViewNam
     return state;
 }
 
-/** Drops what a note's blocks remembered, for when the note itself goes away. */
-export function forgetJsonBlockStates(prefix: string): void {
-    for (const key of states.keys()) {
-        if (key.startsWith(prefix))
+function parseFoldAttribute(raw: string | undefined, fallback: number): number {
+    const text = (raw ?? '').trim();
+    return /^\d{1,3}$/.test(text) ? Math.min(64, Number(text)) : fallback;
+}
+
+/**
+ * Drops the memory of blocks that are no longer on screen.
+ *
+ * Called from the mount pass with the lines the note currently has, so closing a note or scrolling past a
+ * block eventually releases the tree that was parsed for it.
+ */
+export function pruneJsonBlockStates(noteId: string | null, lines: Iterable<string>): void {
+    const prefix = `${noteId ?? '-'}:`;
+    const alive = new Set([...lines].map(line => `${prefix}${line}`));
+    for (const key of [...states.keys()]) {
+        if (key.startsWith(prefix) && !alive.has(key))
             states.delete(key);
     }
 }
@@ -169,13 +212,22 @@ function mount(block: HTMLElement, ctx: MountContext): void {
     const host = block.querySelector<HTMLElement>(':scope > [data-json-host]');
     if (!host)
         return;
-    const state = jsonBlockState(block, { view: ctx.jsonView ?? 'source', fold: ctx.jsonFold ?? 2 });
+    const state = jsonBlockState(block, { view: ctx.jsonView ?? 'source', fold: ctx.jsonFold ?? 2 }, ctx.sourceNoteId ?? null);
     block.dataset.jsonMode = state.mode;
     host.hidden = state.mode === 'source';
     const pre = block.querySelector<HTMLElement>(':scope > pre');
     if (pre)
         pre.hidden = state.mode !== 'source';
     buildHead(block, state);
+}
+
+/**
+ * Re-applies the head after something other than a tab press changed the face — the map's double-click
+ * handing a row to the tree is the one case. Without this the tabs keep saying "Mind map" while the body
+ * underneath them is a tree.
+ */
+export function rebuildJsonBlockHead(block: HTMLElement, ctx: BlockActionContext): void {
+    mount(block, ctx);
 }
 
 export function enhanceJsonBlockToolbars(root: HTMLElement, options: BlockToolbarOptions & { sourceNoteId?: string | null }): void {
@@ -187,38 +239,17 @@ export function enhanceJsonBlockToolbars(root: HTMLElement, options: BlockToolba
 }
 
 function setMode(block: HTMLElement, mode: JsonViewName, ctx: BlockActionContext): void {
-    const state = jsonBlockState(block, { view: ctx.jsonView ?? 'source', fold: ctx.jsonFold ?? 2 });
+    const state = jsonBlockState(block, { view: ctx.jsonView ?? 'source', fold: ctx.jsonFold ?? 2 }, ctx.sourceNoteId ?? null);
     if (state.mode === mode)
         return;
     state.mode = mode;
     mount(block, ctx);
     // The commit pass only runs when the note changes, and opening a face is not a change to it, so the
     // first draw of a freshly chosen face has to be asked for here.
-    if (mode !== 'source') {
-        const host = block.querySelector<HTMLElement>(':scope > [data-json-host]');
-        if (host)
-            void import('./json-view-mount').then(module => module.mountJsonBlocks([block], ctx));
-    }
-}
-
-/**
- * Writes a new body into the fence the block came from.
- *
- * The fence is located against the *committed* text, not the live editor buffer, and the whole write is
- * declined when they disagree — the same rule the code block's own settings follow, so a rewrite cannot
- * land on a line the reader has since moved.
- */
-export function commitJsonBlock(block: HTMLElement, body: string, ctx: BlockActionContext): boolean {
-    const editable = blockActionSource(ctx);
-    if (!editable)
-        return false;
-    const line = Number(block.dataset.line);
-    if (!Number.isInteger(line) || line < 0) {
-        ctx.api.toast({ title: t('preview.json_edit_unavailable'), tone: 'warning' });
-        return false;
-    }
-    void import('./json-view-mount').then(module => module.writeJsonBlock(block, body, ctx));
-    return true;
+    if (mode === 'source')
+        block.querySelector<HTMLElement>(':scope > [data-json-host]')?.replaceChildren();
+    else
+        void import('./json-view-mount').then(module => module.mountJsonBlocks([block], ctx));
 }
 
 export const jsonBlockToolbar: BlockToolbarModule = {
@@ -260,12 +291,3 @@ export const jsonBlockToolbar: BlockToolbarModule = {
     },
 };
 
-/** The block's remembered face, for the surfaces that redraw a block outside the enhance pass. */
-export function jsonBlockMode(block: HTMLElement): JsonViewName {
-    return states.get(block.dataset.line ?? '')?.mode ?? 'source';
-}
-
-export function setJsonBlockFullscreen(block: HTMLElement, fullscreen: boolean): void {
-    const state = jsonBlockState(block, { view: 'source', fold: 2 });
-    state.fullscreen = fullscreen;
-}

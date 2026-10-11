@@ -265,12 +265,17 @@ function blockToolbarOptions() {
             keywordCase: session.editor.codeFormatKeywordCase,
         },
         tabScope: { noteId: useUi.getState().activeNoteId, userId: useSession.getState().user?.id ?? null },
+        jsonView: session.preview.jsonView,
+        jsonFold: session.preview.jsonFold,
+        jsonEditable: session.preview.jsonEditable,
+        jsonTolerant: session.preview.jsonTolerant,
     };
 }
 
 /** The toolbar modules ask the surface for the note text and one write path; here both are the editor. */
 function blockActionContext(view: EditorView): BlockActionContext {
     const source = view.state.doc.toString();
+    const options = blockToolbarOptions();
     return {
         content: source,
         sourceNoteId: useUi.getState().activeNoteId,
@@ -280,8 +285,10 @@ function blockActionContext(view: EditorView): BlockActionContext {
             toast: (options) => useUi.getState().toast(options),
         },
         codeFormat: blockToolbarOptions().codeFormat,
-        jsonView: 'source',
-        jsonFold: 2,
+        jsonView: options.jsonView,
+        jsonFold: options.jsonFold,
+        jsonEditable: options.jsonEditable,
+        jsonTolerant: options.jsonTolerant,
     };
 }
 
@@ -295,7 +302,7 @@ function blockActionContext(view: EditorView): BlockActionContext {
  */
 function mountJsonViews(host: HTMLElement, view: EditorView): void {
     const open = [...host.querySelectorAll<HTMLElement>('.code-block[data-json-block]')]
-        .filter(block => jsonBlockState(block, { view: 'source', fold: 2 }).mode !== 'source');
+        .filter(block => jsonBlockState(block, { view: 'source', fold: 2 }, useUi.getState().activeNoteId).mode !== 'source');
     if (open.length === 0)
         return;
     void import('../features/preview/json-view-mount')

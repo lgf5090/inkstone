@@ -33,7 +33,7 @@ import {
     toggleJsonMapNode,
     zoomJsonMap,
 } from './json-map-view';
-import { jsonBlockBody, jsonBlockState, type JsonBlockState } from './json-block-toolbar';
+import { jsonBlockBody, jsonBlockState, pruneJsonBlockStates, rebuildJsonBlockHead, type JsonBlockState } from './json-block-toolbar';
 import type { BlockActionContext } from './block-overlay';
 
 const JSON_LANGUAGES = ['json', 'jsonc', 'json5'];
@@ -67,11 +67,12 @@ function documentFor(block: HTMLElement, state: JsonBlockState): { document: Jso
     const cached = state.document as JsonDocument | null;
     if (cached && state.body === body)
         return { document: cached, failure: null };
-    const parsed = parseJsonDocument(body);
+    const parsed = parseJsonDocument(body, { tolerant: state.tolerant });
     if (!parsed.ok || !parsed.document)
         return { document: null, failure: parsed.failure };
     const document = parsed.document;
     collapseToDepth(document.root, state.fold);
+    // Only the exceptions are replayed: the fold the block arrived at is already on the fresh model.
     for (const [key, collapsed] of state.collapsed) {
         const node = walkTo(document.root, parseKey(key));
         if (node)
@@ -108,35 +109,80 @@ function walkTo(root: JsonNode, path: JsonPath): JsonNode | null {
     return node;
 }
 
-function controlFor(block: HTMLElement, ctx: BlockActionContext, state: JsonBlockState): JsonViewControl {
+function controlFor(block: HTMLElement, ctx: BlockActionContext, state: JsonBlockState, host: HTMLElement): JsonViewControl {
     return {
-        editable: block.dataset.jsonReadonly === undefined && Boolean(ctx.sourceNoteId),
+        // Three ways a block can be read-only: the fence said so, the surface has no note to write
+        // to, and the account turned the whole feature off.
+        editable: block.dataset.jsonReadonly === undefined
+            && Boolean(ctx.sourceNoteId)
+            && ctx.jsonEditable !== false,
         commit: (body) => {
             const wrote = writeBody(block, body, ctx);
-            if (wrote) {
-                state.collapsed = readCollapsed(state.document as JsonDocument | null);
-                ctx.api.toast({ title: t('preview.json_written'), tone: 'success', duration: 4000 });
-            }
-            return wrote;
+            if (!wrote)
+                return false;
+            rememberFoldExceptions(state);
+            // Draw the result here rather than waiting for the commit to come back around: the note write
+            // lands on the next React pass, and without this the reader watches the view they just edited
+            // go empty for a frame first. Measured as `0 1202 1202 …` in the row timeline.
+            draw(block, host, state, ctx);
+            ctx.api.toast({ title: t('preview.json_written'), tone: 'success', duration: 4000 });
+            return true;
         },
         notify: (title, tone = 'warning') => ctx.api.toast({ title, tone, duration: 6000 }),
     };
 }
 
-function readCollapsed(document: JsonDocument | null): Map<string, boolean> {
-    const collapsed = new Map<string, boolean>();
+/**
+ * The one draw path, shared by the commit pass and by a control that just wrote the note.
+ *
+ * It re-reads the body from the block, so after a write it is drawing what the note now holds rather than
+ * what was on screen before it.
+ */
+function draw(block: HTMLElement, host: HTMLElement, state: JsonBlockState, ctx: BlockActionContext): void {
+    const { document, failure } = documentFor(block, state);
+    if (!document) {
+        host.innerHTML = invalidHtml(failure);
+        state.rendered = '';
+        return;
+    }
+    // A commit draws once from the control that made it and again from the mount pass that follows the
+    // note write, and the preview re-runs the mount pass on renders that have nothing to do with this
+    // block. Rebuilding 1200 rows is ~860ms measured, so the second and third pass have to be cheap:
+    // the signature says what the host is already showing.
+    const signature = `${state.mode}|${state.body}|${state.filter}`;
+    if (signature === state.rendered && host.childElementCount > 0)
+        return;
+    state.rendered = signature;
+    const control = controlFor(block, ctx, state, host);
+    if (state.mode === 'tree') {
+        renderJsonTree(host, document, control, jsonFilterKept(document.root, state.filter));
+        return;
+    }
+    renderJsonMap(host, document, state.map);
+}
+
+/**
+ * The fold state, as the exceptions the reader introduced.
+ *
+ * Storing every container costs one stringified path per container per edit — 1200 of them on a flat
+ * config. A fold that matches what the block arrived at is not an exception and is not recorded.
+ */
+function rememberFoldExceptions(state: JsonBlockState): void {
+    const document = state.document as JsonDocument | null;
     if (!document)
-        return collapsed;
-    const walk = (node: JsonNode, path: JsonPath): void => {
-        if (node.children) {
-            collapsed.set(pathKey(path), node.collapsed);
-            node.children.forEach((child, index) => {
-                walk(child, [...path, node.kind === 'array' ? index : (child.key ?? '')]);
-            });
-        }
+        return;
+    const exceptions = new Map<string, boolean>();
+    const walk = (node: JsonNode, path: JsonPath, level: number): void => {
+        if (!node.children?.length)
+            return;
+        if (node.collapsed !== (level >= state.fold))
+            exceptions.set(pathKey(path), node.collapsed);
+        node.children.forEach((child, index) => {
+            walk(child, [...path, node.kind === 'array' ? index : (child.key ?? '')], level + 1);
+        });
     };
-    walk(document.root, []);
-    return collapsed;
+    walk(document.root, [], 0);
+    state.collapsed = exceptions;
 }
 
 /**
@@ -177,45 +223,45 @@ function writeBody(block: HTMLElement, body: string, ctx: BlockActionContext): b
  * re-render of one note's worth of blocks is the unit the reader actually sees change.
  */
 export function mountJsonBlocks(blocks: HTMLElement[], ctx: BlockActionContext): void {
+    const noteId = ctx.sourceNoteId ?? null;
+    // The note may have been replaced while a block was on the window; the stage is not the block's
+    // element any more, so nothing but this pass can notice that it is orphaned.
+    reapJsonFullscreen();
     for (const block of blocks) {
         const host = hostOf(block);
         if (!host)
             continue;
-        const state = jsonBlockState(block, { view: 'source', fold: 2 });
-        const { document, failure } = documentFor(block, state);
-        if (!document) {
-            host.innerHTML = invalidHtml(failure);
-            continue;
-        }
-        const control = controlFor(block, ctx, state);
-        if (state.mode === 'tree') {
-            renderJsonTree(host, document, control, jsonFilterKept(document.root, state.filter));
-            continue;
-        }
-        renderJsonMap(host, document);
+        const state = jsonBlockState(block, { view: 'source', fold: 2 }, noteId);
+        wireMapOpenInTree(block, host, ctx);
+        draw(block, host, state, ctx);
     }
-}
-
-/** One block, for the surfaces that redraw a single view outside the commit pass. */
-export function mountJsonBlock(block: HTMLElement, ctx: BlockActionContext): void {
-    mountJsonBlocks([block], ctx);
+    // Whatever this note no longer has a block for is forgotten, so the map cannot grow across a session.
+    pruneJsonBlockStates(noteId, blocks.map(block => block.dataset.line ?? ''));
 }
 
 /**
- * Draws only the map, into a host the caller owns — the full screen overlay's, which is not the block's.
+ * Hands a double-clicked node to the tree, at its own row.
  *
- * The two hosts share the parsed document and the fold state, so a branch folded in the overlay is still
- * folded when the reader gets back to the note.
+ * The reference's map jumped to the editor view and left the reader to find the node again, which is a
+ * long way of saying "you are on your own from here". The path travels with the event the map dispatches,
+ * so the tree opens the branches above the row and puts the caret on it.
  */
-export function mountJsonMapInto(block: HTMLElement, host: HTMLElement, ctx: BlockActionContext): void {
-    const state = jsonBlockState(block, { view: 'map', fold: 2 });
-    const { document, failure } = documentFor(block, state);
-    if (!document) {
-        host.innerHTML = invalidHtml(failure);
+function wireMapOpenInTree(block: HTMLElement, host: HTMLElement, ctx: BlockActionContext): void {
+    if (host.dataset.jsonOpenWired === '1')
         return;
-    }
-    controlFor(block, ctx, state);
-    renderJsonMap(host, document);
+    host.dataset.jsonOpenWired = '1';
+    host.addEventListener('jsonmapopen', (event) => {
+        const path = (event as CustomEvent).detail as JsonPath;
+        const state = jsonBlockState(block, { view: 'source', fold: 2 }, ctx.sourceNoteId ?? null);
+        if (state.mode !== 'tree') {
+            state.mode = 'tree';
+            state.rendered = '';
+            rebuildJsonBlockHead(block, ctx);
+        }
+        draw(block, host, state, ctx);
+        const row = revealJsonPath(host, path);
+        row?.querySelector<HTMLElement>('[data-jt="edit-value"], [data-jt="edit-key"]')?.click();
+    });
 }
 
 function invalidHtml(failure: JsonFailure | null): string {
@@ -236,7 +282,7 @@ export function writeJsonBlock(block: HTMLElement, body: string, ctx: BlockActio
 
 /** The head's icon buttons, all of which act on the block rather than on one row. */
 export function runJsonBlockTool(action: string, block: HTMLElement, ctx: BlockActionContext, override?: HTMLElement): void {
-    const state = jsonBlockState(block, { view: 'source', fold: 2 });
+    const state = jsonBlockState(block, { view: 'source', fold: 2 }, ctx.sourceNoteId ?? null);
     const host = override ?? hostOf(block);
     if (!host)
         return;
@@ -263,12 +309,12 @@ export function runJsonBlockTool(action: string, block: HTMLElement, ctx: BlockA
         return;
     if (action === 'fold-all') {
         foldAllJsonTree(host, document, !allCollapsed(document));
-        state.collapsed = readCollapsed(document);
+        rememberFoldExceptions(state);
         return;
     }
     if (action === 'expand-all') {
         foldAllJsonTree(host, document, false);
-        state.collapsed = readCollapsed(document);
+        rememberFoldExceptions(state);
         return;
     }
     if (action === 'validate') {
@@ -293,15 +339,15 @@ export function runJsonBlockTool(action: string, block: HTMLElement, ctx: BlockA
         return;
     }
     if (action === 'fit') {
-        fitJsonMap(host);
+        fitJsonMap(host, state.map);
         return;
     }
     if (action === 'center') {
-        centerJsonMap(host);
+        centerJsonMap(host, state.map);
         return;
     }
     if (action === 'zoom-in' || action === 'zoom-out') {
-        zoomJsonMap(host, action === 'zoom-in' ? 1.2 : 1 / 1.2);
+        zoomJsonMap(host, state.map, action === 'zoom-in' ? 1.2 : 1 / 1.2);
         return;
     }
     if (action === 'fullscreen')
@@ -408,17 +454,17 @@ export function routeJsonViewPress(target: HTMLElement, block: HTMLElement, ctx:
     const host = hostOf(block);
     if (!host)
         return;
-    const state = jsonBlockState(block, { view: 'source', fold: 2 });
+    const state = jsonBlockState(block, { view: 'source', fold: 2 }, ctx.sourceNoteId ?? null);
     const { document } = documentFor(block, state);
     if (!document)
         return;
-    const control = controlFor(block, ctx, state);
+    const control = controlFor(block, ctx, state, host);
     const path = pathOf(target);
 
     const fold = target.closest<HTMLElement>('[data-jm="fold"]');
     if (fold) {
-        toggleJsonMapNode(document, host, path);
-        state.collapsed = readCollapsed(document);
+        toggleJsonMapNode(document, host, state.map, path);
+        rememberFoldExceptions(state);
         return;
     }
     const press = target.closest<HTMLElement>('[data-jt]');
@@ -443,11 +489,11 @@ export function routeJsonViewPress(target: HTMLElement, block: HTMLElement, ctx:
                 host.querySelector<HTMLElement>(`[data-jt-node="${cssEscape(pathKey(path))}"]`)?.classList.add('is-collapsed');
             else
                 expandJsonNode(host, path);
-            state.collapsed = readCollapsed(document);
+            rememberFoldExceptions(state);
         }
         return;
     }
-    state.collapsed = readCollapsed(document);
+    rememberFoldExceptions(state);
     state.document = null;
 }
 
@@ -508,7 +554,7 @@ function startInlineEdit(
         const result = applyJsonAction(field === 'key' ? 'rename' : 'value', document, path, control, text);
         if (result !== 'declined') {
             state.document = null;
-            state.collapsed = readCollapsed(document);
+            rememberFoldExceptions(state);
         }
     };
     input.addEventListener('blur', () => finish(true));
@@ -532,16 +578,6 @@ function displayFor(node: JsonNode): string {
     if (node.kind === 'string')
         return typeof node.value === 'string' ? node.value : '';
     return node.literal ?? String(node.value ?? '');
-}
-
-/** The row a path names, opening what is above it. Used by the full screen overlay's "edit this". */
-export function revealJsonBlockPath(block: HTMLElement, path: JsonPath): void {
-    const host = hostOf(block);
-    if (!host)
-        return;
-    const state = jsonBlockState(block, { view: 'source', fold: 2 });
-    state.mode = 'tree';
-    revealJsonPath(host, path);
 }
 
 const FULLSCREEN_BAR = [
@@ -572,6 +608,7 @@ function enterJsonFullscreen(block: HTMLElement, host: HTMLElement, ctx: BlockAc
     stage.dataset.jsonFullscreenStage = '';
     block.ownerDocument.body.appendChild(stage);
     stage.appendChild(block);
+    openStage = { block, stage };
     block.classList.add('is-json-fullscreen');
     const bar = block.ownerDocument.createElement('div');
     bar.className = 'json-fs-bar';
@@ -606,7 +643,11 @@ function enterJsonFullscreen(block: HTMLElement, host: HTMLElement, ctx: BlockAc
         leaveJsonFullscreen(block);
         original(noteId, next);
     };
-    fitJsonMap(host);
+    // The overlay draws at the size of the window, so the fit the inline block settled on is no longer
+    // the right one; `fitted` is reset so the first frame of the big view is fitted to the big box.
+    const view = jsonBlockState(block, { view: 'map', fold: 2 }, ctx.sourceNoteId ?? null).map;
+    view.fitted = false;
+    fitJsonMap(host, view);
     const esc = (event: KeyboardEvent): void => {
         if (event.key !== 'Escape')
             return;
@@ -621,11 +662,30 @@ function leaveJsonFullscreen(block: HTMLElement): void {
     if (!block.classList.contains('is-json-fullscreen'))
         return;
     block.classList.remove('is-json-fullscreen');
-    block.ownerDocument.dispatchEvent(new CustomEvent('jsonfullscreenleave', { bubbles: true }));
     block.querySelector('[data-json-fullscreen-bar]')?.remove();
     const slot = (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
     slot?.parentNode?.insertBefore(block, slot);
     slot?.remove();
     block.closest<HTMLElement>('[data-json-fullscreen-stage]')?.remove();
     delete (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
+    if (openStage?.block === block)
+        openStage = null;
+}
+
+/**
+ * The block currently occupying the window, if any.
+ *
+ * Full screen moves the block into a stage on `<body>`, so if the note is closed or the block is deleted
+ * while it is open, nothing is left holding the stage and it stays on the page covering the app. Every
+ * mount pass checks the recorded block is still attached and takes the stage back down if it is not.
+ */
+let openStage: { block: HTMLElement, stage: HTMLElement } | null = null;
+
+/** Reaps an orphaned full screen stage. Returns whether one had to go. */
+export function reapJsonFullscreen(): boolean {
+    if (!openStage || openStage.block.isConnected)
+        return false;
+    openStage.stage.remove();
+    openStage = null;
+    return true;
 }

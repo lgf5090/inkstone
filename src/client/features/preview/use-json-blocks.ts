@@ -25,7 +25,8 @@ export function useJsonBlocks({ hostRef, epoch, context }: UseJsonBlocksOptions)
         if (!host || !epoch)
             return;
         const blocks = [...host.querySelectorAll<HTMLElement>(JSON_BLOCK_SELECTOR)];
-        const open = blocks.filter((block) => jsonBlockState(block, { view: 'source', fold: 2 }).mode !== 'source');
+    const noteId = context().sourceNoteId ?? null;
+        const open = blocks.filter((block) => jsonBlockState(block, { view: 'source', fold: 2 }, noteId).mode !== 'source');
         if (open.length === 0)
             return;
         void import('./json-view-mount')
@@ -43,8 +44,9 @@ export function useJsonBlocks({ hostRef, epoch, context }: UseJsonBlocksOptions)
         const host = hostRef.current;
         if (!host)
             return;
+        const noteId = context().sourceNoteId ?? null;
         for (const block of host.querySelectorAll<HTMLElement>(JSON_BLOCK_SELECTOR)) {
-            if (jsonBlockState(block, { view: 'source', fold: 2 }).mode !== 'source')
+            if (jsonBlockState(block, { view: 'source', fold: 2 }, noteId).mode !== 'source')
                 continue;
             if (block.dataset.jsonCleared === String(epoch))
                 continue;

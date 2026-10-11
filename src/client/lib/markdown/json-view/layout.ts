@@ -31,6 +31,12 @@ export interface MapSlot {
     /** A folded container still shows its handle, so the view needs to know it has children. */
     expandable: boolean
     collapsed: boolean
+    /**
+     * Members this container has but the drawing does not show, because a picture of 1200 siblings is
+     * not a picture of anything. The reader opens the rest by folding the branch out; the model is
+     * untouched, so nothing is lost by the drawing being narrower than the document.
+     */
+    hiddenChildren: number
 }
 
 export interface MapLayout {
@@ -49,11 +55,20 @@ export interface MapLayoutOptions {
     siblingGap?: number
     padding?: number
     maxNodes?: number
+    maxChildren?: number
 }
 
 export const MAP_LEVEL_GAP = 34;
 export const MAP_SIBLING_GAP = 10;
 export const MAP_PADDING = 32;
+/**
+ * How many members one container may draw.
+ *
+ * A flat 1200-key config laid out one row per sibling is a canvas 48 022px tall — measured, not guessed.
+ * No amount of fitting makes that a picture, so the drawing stops at this many children per container and
+ * names how many it left out. The model keeps all of them, and the tree face shows all of them.
+ */
+export const MAP_MAX_CHILDREN = 40;
 
 /**
  * Lays out the visible part of a document, left to right.
@@ -66,6 +81,7 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
     const siblingGap = options.siblingGap ?? MAP_SIBLING_GAP;
     const padding = options.padding ?? MAP_PADDING;
     const maxNodes = options.maxNodes ?? Number.POSITIVE_INFINITY;
+    const maxChildren = options.maxChildren ?? MAP_MAX_CHILDREN;
     const slots: MapSlot[] = [];
     const byKey = new Map<string, MapSlot>();
     let truncated = false;
@@ -84,6 +100,7 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
             kids: [],
             expandable: (node.children?.length ?? 0) > 0,
             collapsed: node.collapsed,
+            hiddenChildren: Math.max(0, (node.children?.length ?? 0) - maxChildren),
         };
         slots.push(slot);
         byKey.set(slot.key, slot);
@@ -105,7 +122,7 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
         slot.h = size.h;
         if (folded)
             return slot;
-        children.forEach((child, index) => {
+        children.slice(0, maxChildren).forEach((child, index) => {
             const segment = node.kind === 'array' ? index : (child.key ?? '');
             const kid = collect(child, [...path, segment], depth + 1, slot);
             if (kid)

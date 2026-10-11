@@ -471,12 +471,19 @@ export function parseJsonDocument(source: string, limits: JsonParseLimits = {}):
         stop(reader, reader.pos, 'preview.json_error_trailing', charAt(reader));
         return failure(reader);
     }
+    const repairs = [...reader.repairs];
+    if (limits.tolerant === false && repairs.length > 0) {
+        // Named rather than refused in silence: the reader who turned tolerance off wants to know which
+        // shape did it, and "unexpected character" on line one says nothing about a working document.
+        stop(reader, reader.pos, 'preview.json_error_not_tolerant', repairs.join(', '));
+        return failure(reader);
+    }
     const document: JsonDocument = {
         root,
         indent: detectIndent(source),
         source,
         trailer: source.slice(rootEnd),
-        repairs: [...reader.repairs],
+        repairs,
     };
     return { ok: true, document, failure: null };
 }

@@ -3449,7 +3449,10 @@
 }
 /* The hover wash names a range, it does not flag it: the accent tint reads as an error on the cinnabar
    theme, where the accent is a red. */
-.ink-prose .jt-node:hover {
+/* The range a hover names is the innermost container under the pointer. Without the `:has()` clause a
+   hover on a leaf satisfies `:hover` on every ancestor too, so the root's wash covers the whole document
+   and "highlight the range" becomes "highlight everything". */
+.ink-prose .jt-node:hover:not(:has(.jt-node:hover)) {
   background: var(--bg-hover);
 }
 .code-block.is-json-fullscreen {

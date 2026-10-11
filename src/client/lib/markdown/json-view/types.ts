@@ -99,6 +99,11 @@ export interface JsonParseLimits {
    * same reader, and `42` is what the user wrote.
    */
   allowScalar?: boolean;
+  /**
+   * Reject the shapes `JSON.parse` rejects. Off, a commented config is a block that says "not valid
+   * JSON" and points at the line; on, it is read and badged with what had to be taken on faith.
+   */
+  tolerant?: boolean;
 }
 
 /**

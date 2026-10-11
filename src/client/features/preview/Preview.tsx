@@ -290,8 +290,10 @@ export const Preview = memo(function Preview({
           keywordCase: editorSettings.codeFormatKeywordCase,
         },
         tabScope,
-        jsonView: 'source',
-        jsonFold: 2,
+        jsonView: preview.jsonView,
+        jsonFold: preview.jsonFold,
+        jsonEditable: preview.jsonEditable,
+        jsonTolerant: preview.jsonTolerant,
       })
       if (cancelled || revision !== preparationRef.current) return
 
@@ -385,8 +387,10 @@ export const Preview = memo(function Preview({
       keywordCase: editorSettings.codeFormatKeywordCase,
     },
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
-    jsonView: 'source',
-    jsonFold: 2,
+    jsonView: preview.jsonView,
+    jsonFold: preview.jsonFold,
+    jsonEditable: preview.jsonEditable,
+    jsonTolerant: preview.jsonTolerant,
   })
 
   /**
