@@ -94,29 +94,35 @@ const excalidrawVendorPlugin = (): Plugin => {
       'this.store.commit(r,this.state)',
       'this.store?.commit?.(r,this.state)',
     )
+    const unmountTarget = 'this.interactiveCanvas=null,this.iFrameRefs.clear(),this.iFrameRefs=null,this.embedsValidationStatus.clear(),this.embedsValidationStatus=null,this.initializedEmbeds.clear(),this.initializedEmbeds=null,this.elementsPendingErasure.clear(),this.elementsPendingErasure=null,this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.actionManager.app=null,this.actionManager.actions={},this.history.clear(),this.store.clear(),this.store=null,this.library=null,this.canvas=null,this.rc=null,this.excalidrawContainerRef.current=void 0,this.excalidrawContainerValue={container:null,id:"unknown"}'
+    if (content.includes(unmountTarget)) {
+      content = content.replace(
+        unmountTarget,
+        'this.interactiveCanvas=null,this.iFrameRefs?.clear?.(),this.embedsValidationStatus?.clear?.(),this.initializedEmbeds?.clear?.(),this.elementsPendingErasure?.clear?.(),this.lastPointerDownEvent=null,this.lastPointerUpEvent=null,this.lastPointerMoveEvent=null,this.history?.clear?.(),this.store?.clear?.()',
+      )
+    }
+    const mountTarget = 'async componentDidMount(){this.unmounted=!1,this.api=this.createExcalidrawAPI(),'
+    if (content.includes(mountTarget)) {
+      content = content.replace(
+        mountTarget,
+        'async componentDidMount(){if(!this.library)this.library=new DcA(this);if(!this.store)this.store=new Fk(this);if(!this.history)this.history=new gD(this.store);if(!this.elementsPendingErasure)this.elementsPendingErasure=new Set();if(!this.iFrameRefs)this.iFrameRefs=new Map();if(!this.embedsValidationStatus)this.embedsValidationStatus=new Map();if(!this.initializedEmbeds)this.initializedEmbeds=new Set();if(!this.canvas){this.canvas=this.ownerDocument.createElement("canvas");this.rc=xg.canvas(this.canvas);}if(this.actionManager)this.actionManager.app=this;this.unmounted=!1,this.api=this.createExcalidrawAPI(),',
+      )
+    }
     content = content.replace(
-      'this.iFrameRefs.clear(),this.iFrameRefs=null',
-      'this.iFrameRefs?.clear?.(),this.iFrameRefs=null',
+      'updateLibrary:this.library.updateLibrary,',
+      'updateLibrary:(...a)=>this.library?.updateLibrary?.(...a),',
     )
     content = content.replace(
-      'this.embedsValidationStatus.clear(),this.embedsValidationStatus=null',
-      'this.embedsValidationStatus?.clear?.(),this.embedsValidationStatus=null',
+      'F(this,"resetStore",()=>{this.store.clear()});',
+      'F(this,"resetStore",()=>{this.store?.clear?.()});',
     )
     content = content.replace(
-      'this.initializedEmbeds.clear(),this.initializedEmbeds=null',
-      'this.initializedEmbeds?.clear?.(),this.initializedEmbeds=null',
+      'F(this,"scheduleCapture",()=>this.store.scheduleCapture());',
+      'F(this,"scheduleCapture",()=>this.store?.scheduleCapture?.());',
     )
     content = content.replace(
-      'this.elementsPendingErasure.clear(),this.elementsPendingErasure=null',
-      'this.elementsPendingErasure?.clear?.(),this.elementsPendingErasure=null',
-    )
-    content = content.replace(
-      'componentWillUnmount(){this.api={...this.api,isDestroyed:!0};',
-      'componentWillUnmount(){if(this.unmounted)return;this.unmounted=!0;this.api={...this.api,isDestroyed:!0};',
-    )
-    content = content.replace(
-      'this.history.clear(),this.store.clear()',
-      'this.history?.clear?.(),this.store?.clear?.()',
+      'this.elementsPendingErasure.size&&this.restoreReadyToEraseElements()',
+      '(this.elementsPendingErasure?.size??0)&&this.restoreReadyToEraseElements()',
     )
     return content
   }

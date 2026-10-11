@@ -2630,6 +2630,10 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     set({ online: false, saveStatus: 'offline' });
                     break;
                 }
+                if (err instanceof ApiError && err.status === 413) {
+                    await completeOutboxQuietly(item.id, item.writeId);
+                    continue;
+                }
                 if (err instanceof ApiError && err.isAuth) {
                     location.reload();
                     return;

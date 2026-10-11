@@ -37,7 +37,8 @@
     "comments:check": "node scripts/check-comments.mjs",
     "test:e2e": "node scripts/e2e.mjs",
     "cf-typegen": "wrangler types",
-    "cf-typegen:kv": "wrangler types --config wrangler.kv.toml"
+    "cf-typegen:kv": "wrangler types --config wrangler.kv.toml",
+    "postinstall": "node scripts/patch-excalidraw.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.10.2",
