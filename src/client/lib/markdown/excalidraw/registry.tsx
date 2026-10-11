@@ -54,12 +54,12 @@ interface MountedInstance {
 
 const activeInstances = new Map<string, MountedInstance>();
 
-function makeInstanceKey(scope: string, index: number): string {
-    return `${scope}::${index}`;
+function makeInstanceKey(scope: string, noteId: string | null, index: number): string {
+    return `${scope}::${noteId ?? 'no-note'}::${index}`;
 }
 
-export function getExcalidrawInstance(scope: string, index: number): ExcalidrawBlockEntry | undefined {
-    return activeInstances.get(makeInstanceKey(scope, index))?.entry;
+export function getExcalidrawInstance(scope: string, noteId: string | null, index: number): ExcalidrawBlockEntry | undefined {
+    return activeInstances.get(makeInstanceKey(scope, noteId, index))?.entry;
 }
 
 function bindToolbar(
@@ -180,8 +180,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
     for (const block of blocks) {
         decorateExcalidrawControls(block);
         const ref = excalidrawFenceRef(block);
-        const key = makeInstanceKey(options.scope, ref.index);
-        const parsed = parseExcalidrawBody(ref.rawBody);
+        const key = makeInstanceKey(options.scope, options.noteId, ref.index);
 
         let instance = activeInstances.get(key);
 
@@ -214,6 +213,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 if (instance.rawCode) {
                     instance.rawCode.textContent = ref.rawBody;
                 }
+                const parsed = parseExcalidrawBody(ref.rawBody);
                 if (parsed.ok && instance.entry.excalidrawAPI) {
                     instance.entry.updateScene(parsed.data);
                 }
@@ -226,6 +226,8 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
             continue;
         }
+
+        const parsed = parseExcalidrawBody(ref.rawBody);
 
         const toolbar = createExcalidrawToolbar(block);
         block.prepend(toolbar);
@@ -665,7 +667,9 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         bindToolbar(block, entry, instance, lib);
     }
 
-    const currentKeys = new Set(blocks.map((b) => makeInstanceKey(options.scope, excalidrawFenceRef(b).index)));
+    const currentKeys = new Set(
+        blocks.map((b) => makeInstanceKey(options.scope, options.noteId, excalidrawFenceRef(b).index)),
+    );
     for (const [key, inst] of activeInstances.entries()) {
         if (key.startsWith(`${options.scope}::`) && !currentKeys.has(key)) {
             inst.entry.destroy();
