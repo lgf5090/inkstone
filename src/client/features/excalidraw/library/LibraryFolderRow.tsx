@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import {
   ArrowDown,
   ArrowUp,
@@ -29,6 +29,8 @@ import { splitByRanges } from '../../../lib/fuzzy'
 import { queryMatches } from '../../../lib/query-match'
 import type { Query } from '../../../lib/query-match'
 import { t } from '../../../lib/i18n'
+import { cn } from '../../../lib/cn'
+import { useMediaQuery } from '../../../lib/hooks'
 import { FolderMoveMenu } from '../../folders/FolderMoveMenu'
 import type { MoveMenuFolder } from '../../folders/FolderMoveMenu'
 import { getAllFolderDescendants, useExcalidrawLibraryStore } from './library-store'
@@ -110,11 +112,25 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
   const menu = useContextMenu()
   const [menuOpen, setMenuOpen] = React.useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
+  const renameRef = useRef<HTMLInputElement>(null)
+  const childRef = useRef<HTMLInputElement>(null)
+  const noHover = useMediaQuery('(hover: none)')
+  const isEditing = ctx.editingId === node.id
+  const isAddingChild = ctx.addingToId === node.id
+
+  // The context menu hands focus back to whatever was focused before it opened, and that cleanup runs
+  // after these fields mount - so an autoFocus here produced a field that looked editable and
+  // swallowed every keystroke. Focusing after the commit, and selecting the name so the first
+  // keystroke replaces it, is what makes the menu's rename and new-subfolder rows type somewhere.
+  useEffect(() => {
+    const field = isEditing ? renameRef.current : isAddingChild ? childRef.current : null
+    if (!field) return
+    field.focus({ preventScroll: true })
+    field.select()
+  }, [isEditing, isAddingChild])
 
   const expanded = node.children.length === 0 || ctx.expandedIds.includes(node.id) || ctx.query !== null
   const isActive = ctx.activeFolderId === node.id
-  const isEditing = ctx.editingId === node.id
-  const isAddingChild = ctx.addingToId === node.id
   const isDragging = ctx.dragId === node.id
   const hasChildren = node.children.length > 0
   const match = ctx.query ? queryMatches(ctx.query, node.name) : null
@@ -330,9 +346,9 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
         {isEditing ? (
           <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(event) => event.stopPropagation()}>
             <input
+              ref={renameRef}
               type="text"
               value={ctx.editingName}
-              autoFocus
               aria-label={t('sidebar.rename')}
               onChange={(event) => ctx.onRenameChange(event.target.value)}
               onKeyDown={(event) => {
@@ -372,7 +388,12 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
         </span>
 
         <div
-          className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+          className={cn(
+            'flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100',
+            // Nothing ever hovers on a touch screen, and an invisible button is still a button you can
+            // hit: where there is no hover, the quick actions are simply painted.
+            noHover && 'opacity-100',
+          )}
           onClick={(event) => event.stopPropagation()}
         >
           <button
@@ -426,8 +447,8 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
           style={{ paddingLeft: `${24 + node.depth * 14}px` }}
         >
           <input
+            ref={childRef}
             type="text"
-            autoFocus
             placeholder={t('sidebar.new_subfolder')}
             aria-label={t('sidebar.new_subfolder')}
             value={ctx.addingName}

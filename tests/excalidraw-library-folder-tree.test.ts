@@ -322,6 +322,63 @@ describe('dragging folders in the library tree', () => {
         expect(rowOf('beta').draggable).toBe(true);
     });
 
+    it('hands the keyboard to the field the menu opened', () => {
+        contextMenu(rowOf('beta'));
+        press(rowByLabel(t('sidebar.rename')));
+        const field = rowOf('beta').querySelector<HTMLInputElement>('input[type="text"]');
+        expect(field).toBeTruthy();
+        // The menu restores focus to whatever it took it from when it closes, and that happens after
+        // the field mounts - so without an explicit focus the row shows a box that swallows typing.
+        expect(document.activeElement).toBe(field);
+        expect(field?.selectionStart).toBe(0);
+        expect(field?.selectionEnd).toBe('beta'.length);
+
+        contextMenu(rowOf('alpha'));
+        press(rowByLabel(t('sidebar.new_subfolder')));
+        // The draft row is a sibling under the folder's wrapper, not inside the row itself.
+        const draft = container.querySelector<HTMLInputElement>('input[placeholder="' + t('sidebar.new_subfolder') + '"]');
+        expect(draft).toBeTruthy();
+        expect(document.activeElement).toBe(draft);
+    });
+
+    it('paints the quick actions where nothing ever hovers', async () => {
+        // A bare `opacity-100` token, not the substring: `group-hover:opacity-100` carries it too, and
+        // matching that would say the toolbar is painted on a phone when it is still waiting for hover.
+        const classes = (el: Element | null | undefined) => (el?.getAttribute('class') ?? '').split(/\s+/);
+        const toolbar = () => rowOf('beta').querySelector('div[class*="group-hover:opacity-100"]');
+        const rootTrigger = () => container.querySelector('[data-library-folder-root] button[aria-label="' + t('common.more_actions') + '"]');
+        const realMatchMedia = window.matchMedia;
+        try {
+            expect(classes(toolbar())).not.toContain('opacity-100');
+            expect(classes(rootTrigger())).not.toContain('opacity-100');
+            window.matchMedia = ((query: string) => ({
+                matches: query === '(hover: none)',
+                media: query,
+                onchange: null,
+                addEventListener: () => undefined,
+                removeEventListener: () => undefined,
+                dispatchEvent: () => false,
+            })) as unknown as typeof window.matchMedia;
+            // A fresh mount: the hook reads the media query when the row is created, so re-rendering
+            // the same tree would keep answering with the value it saw the first time.
+            await act(async () => {
+                root.unmount();
+            });
+            container = document.createElement('div');
+            document.body.append(container);
+            root = createRoot(container);
+            await act(async () => {
+                root.render(createElement(Fragment, null,
+                    createElement(ExcalidrawLibraryTree, { api: null, lib: {} }),
+                    createElement(ConfirmHost)));
+            });
+            expect(classes(toolbar())).toContain('opacity-100');
+            expect(classes(rootTrigger())).toContain('opacity-100');
+        } finally {
+            window.matchMedia = realMatchMedia;
+        }
+    });
+
     it('reparents onto the row the folder is dropped in the middle of', () => {
         const bag = new Map<string, string>();
         act(() => {

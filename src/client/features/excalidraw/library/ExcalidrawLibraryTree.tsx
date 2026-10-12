@@ -26,6 +26,8 @@ import type { MenuItem } from '../../../components/overlay'
 import { compileQuery, queryMatches } from '../../../lib/query-match'
 import { leftDropTarget } from '../../../lib/note-drag'
 import { useDropState } from '../../../lib/drop-state'
+import { useMediaQuery } from '../../../lib/hooks'
+import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
 import {
@@ -317,6 +319,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
    */
   const rootRef = useRef<HTMLDivElement>(null)
   const overlayContainer = rootRef.current
+  const noHover = useMediaQuery('(hover: none)')
 
   useEffect(() => {
     void init()
@@ -734,7 +737,10 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                 rootMenu.close()
                 setRootMenuOpen(true)
               }}
-              className="shrink-0 rounded p-1 text-[var(--text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-black/5 hover:text-[var(--text-primary)] dark:hover:bg-white/5"
+              className={cn(
+                'shrink-0 rounded p-1 text-[var(--text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-black/5 hover:text-[var(--text-primary)] dark:hover:bg-white/5',
+                noHover && 'opacity-100',
+              )}
             >
               <MoreHorizontal size={12} />
             </button>
