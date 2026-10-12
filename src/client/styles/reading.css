@@ -1,0 +1,475 @@
+/**
+ * The reading surface.
+ *
+ * Two things here are not decoration and are worth the comments, because both look like a bug in the
+ * other direction when they are changed: the column geometry that turns flowing text into pages, and
+ * the HUD's habit of floating over the page instead of reserving a row.
+ */
+
+.reader-stage {
+  /* The measure a scrolling page centres its text to, and the dot a commented mark draws. */
+  --reader-measure: 44rem;
+  --reader-mark-dot: var(--reader-accent);
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+  contain: paint;
+}
+
+.reader-stage[data-mode='scroll'] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/**
+ * The column box. `column-fill: auto` with a fixed height is what makes the browser break the text
+ * into pages at all — with `balance` it would squeeze a whole chapter into the visible columns — and
+ * the scroller is moved by `scrollLeft` while `overflow: hidden` keeps a reader from dragging the
+ * page sideways off a column.
+ */
+.reader-columns {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  column-gap: var(--reader-gap);
+  column-width: var(--reader-column-width);
+  column-fill: auto;
+  height: 100%;
+  direction: ltr;
+}
+
+.reader-stage[data-mode='scroll'] .reader-columns {
+  position: static;
+  height: auto;
+  column-count: 1;
+  column-width: auto;
+  overflow: visible;
+  padding-inline: max(var(--reader-margin), calc((100% - var(--reader-measure)) / 2));
+}
+
+/* One chapter, laid out inside the column box. The padding is the margin the reader set; the gutter
+   between two columns is the same number, so a spread reads as one page with a fold in it. */
+.reader-doc {
+  break-inside: auto;
+  font-family: var(--reader-font);
+  font-size: var(--reader-size);
+  line-height: var(--reader-leading);
+  letter-spacing: var(--reader-tracking);
+  text-align: var(--reader-align);
+  hyphens: var(--reader-hyphens);
+  word-break: normal;
+  overflow-wrap: break-word;
+  /* The bars float over the page, so their height is reserved in the padding instead: a reader who
+     never moves the pointer gets the same page they would get with the bars showing, and the layout
+     does not re-paginate when they retract. */
+  padding: max(var(--reader-margin), var(--reader-hud, 52px)) var(--reader-margin)
+    max(calc(var(--reader-margin) + 12px), var(--reader-hud, 52px));
+  max-width: 100%;
+}
+
+.reader-doc p,
+.reader-doc div,
+.reader-doc li {
+  margin: 0 0 calc(var(--reader-para) * 1em);
+}
+
+.reader-doc p:first-child,
+.reader-doc h1 + p,
+.reader-doc h2 + p,
+.reader-doc h3 + p {
+  margin-top: 0;
+}
+
+.reader-doc :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.7em;
+  break-after: avoid;
+}
+
+.reader-doc :is(h1, h2) {
+  break-before: page;
+}
+
+.reader-doc :first-child {
+  break-before: auto;
+}
+
+.reader-doc blockquote {
+  margin: 0 0 calc(var(--reader-para) * 1em);
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid color-mix(in oklab, var(--reader-fg) 22%, transparent);
+  color: var(--reader-muted);
+}
+
+.reader-doc :is(img, svg, video, figure, table, pre) {
+  max-width: 100%;
+  break-inside: avoid;
+}
+
+.reader-doc img,
+.reader-doc svg {
+  height: auto;
+}
+
+.reader-doc figure {
+  margin: 0 0 calc(var(--reader-para) * 1em);
+  text-align: center;
+}
+
+.reader-doc figcaption {
+  font-size: 0.85em;
+  color: var(--reader-muted);
+  margin-top: 0.4em;
+}
+
+.reader-doc a {
+  color: var(--reader-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.reader-doc code,
+.reader-doc pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.reader-doc pre {
+  white-space: pre-wrap;
+  background: color-mix(in oklab, var(--reader-fg) 6%, transparent);
+  padding: 0.6em 0.8em;
+  border-radius: var(--r-sm);
+}
+
+.reader-doc table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.reader-doc :is(th, td) {
+  border: 1px solid color-mix(in oklab, var(--reader-fg) 20%, transparent);
+  padding: 0.3em 0.5em;
+}
+
+.reader-doc[data-indent='true'] p + p {
+  text-indent: 2em;
+}
+
+.reader-doc[data-figures='false'] :is(img, svg:not(:root), figure) {
+  display: none;
+}
+
+.reader-doc ::selection,
+.reader-doc::selection {
+  background: color-mix(in oklab, var(--reader-accent) 32%, transparent);
+}
+
+/* A mark is painted per text-node segment, so overlapping highlights nest by stacking backgrounds
+   rather than by drawing over each other. */
+.reader-mark {
+  background: var(--reader-mark);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+}
+
+.reader-mark[data-has-comment='true']::after {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-inline-start: 2px;
+  vertical-align: super;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid var(--reader-mark-dot);
+}
+
+.reader-mark[data-orphan='true'] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--reader-mark) 0 6px,
+    color-mix(in oklab, var(--reader-mark) 55%, transparent) 6px 12px
+  );
+}
+
+.reader-search-hit {
+  outline: 2px solid var(--reader-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+.reader-search-hit[data-current='true'] {
+  background: color-mix(in oklab, var(--reader-accent) 30%, transparent);
+}
+
+/**
+ * The HUD. It is an overlay, so retracting it never changes the page geometry — a bar that reserved a
+ * row would re-paginate the book on every idle timer, which reads as the text jumping under the
+ * reader's finger.
+ */
+.reader-hud {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 8px;
+  /* Opaque enough to read against any page, and deliberately without a backdrop blur: this app has
+     measured that a blurred layer over a large area costs more than the animation it decorates. */
+  background: color-mix(in oklab, var(--reader-bg) 94%, transparent);
+  border: 1px solid color-mix(in oklab, var(--reader-fg) 12%, transparent);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 6%),
+    0 8px 24px -12px rgb(0 0 0 / 22%);
+  color: var(--reader-fg);
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+
+.reader-hud[data-edge='top'] {
+  top: max(8px, env(safe-area-inset-top, 0px));
+}
+
+.reader-hud[data-edge='bottom'] {
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  justify-content: space-between;
+}
+
+.reader-stage[data-hud='hidden'] .reader-hud {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-stage[data-hud='hidden'][data-mode='paged'] .reader-hud[data-edge='top'] {
+  transform: translateY(-140%);
+}
+
+.reader-stage[data-hud='hidden'][data-mode='paged'] .reader-hud[data-edge='bottom'] {
+  transform: translateY(140%);
+}
+
+.reader-hud button,
+.reader-hud .reader-pill {
+  height: 36px;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--reader-fg) 6%, transparent);
+  border: 1px solid color-mix(in oklab, var(--reader-fg) 10%, transparent);
+  color: var(--reader-fg);
+}
+
+.reader-hud button[aria-pressed='true'],
+.reader-hud button.reader-active {
+  background: color-mix(in oklab, var(--reader-accent) 22%, transparent);
+  border-color: color-mix(in oklab, var(--reader-accent) 45%, transparent);
+  color: var(--reader-fg);
+}
+
+.reader-hud button:disabled {
+  opacity: 0.4;
+}
+
+.reader-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+
+.reader-page-status {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-12);
+  color: var(--reader-muted);
+  padding-inline: 10px;
+}
+
+.reader-progress-rail {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in oklab, var(--reader-fg) 12%, transparent);
+  z-index: 3;
+}
+
+.reader-progress-rail > span {
+  display: block;
+  height: 100%;
+  background: var(--reader-accent);
+  transition: width 160ms var(--ease-out);
+}
+
+/* The bar that follows a text selection. It is positioned by the reader component and only owns its
+   own spacing here. */
+.reader-selection-bar {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-pop);
+}
+
+.reader-selection-bar button {
+  min-width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+}
+
+.reader-selection-bar button:hover {
+  background: var(--bg-hover);
+}
+
+.reader-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  border: 1px solid color-mix(in oklab, var(--text-primary) 22%, transparent);
+}
+
+@media (pointer: coarse) {
+  .reader-selection-bar button {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .reader-hud button {
+    min-height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-hud,
+  .reader-progress-rail > span {
+    transition-duration: 60ms;
+  }
+
+  .reader-stage[data-hud='hidden'] .reader-hud {
+    transform: none;
+  }
+}
+
+/* A reader who asks for the page to stop moving gets no animation at all, and the HUD stays put. */
+.reader-stage[data-motion='off'] .reader-hud,
+.reader-stage[data-motion='off'] .reader-progress-rail > span {
+  transition: none;
+}
+
+.reader-shelf-cover {
+  aspect-ratio: 3 / 4;
+  width: 100%;
+  object-fit: cover;
+  background: var(--bg-sunken);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-soft);
+}
+
+.reader-shelf-cover[data-fit='contain'] {
+  object-fit: contain;
+  padding: 6px;
+}
+
+/**
+ * A fixed-layout book: one canvas per page with PDF.js's transparent text over it.
+ *
+ * The text layer has to be sized to the painted viewport, or its absolutely positioned spans land
+ * outside a box the browser will not scroll — which shows up as selectable words that are nowhere to
+ * be seen.
+ */
+.reader-fixed {
+  display: flex;
+  overflow: hidden;
+}
+
+.reader-fixed[data-mode='scroll'] {
+  overflow-y: auto;
+  display: block;
+}
+
+.reader-fixed-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 56px 8px;
+}
+
+.reader-fixed-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 56px 8px 64px;
+}
+
+.reader-pdf-page {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-height: 100%;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.reader-pdf-page > canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.reader-pdf-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.reader-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  text-align: initial;
+  line-height: 1;
+  transform-origin: 0 0;
+  forced-color-adjust: none;
+}
+
+.reader-pdf-text span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+  color: transparent;
+  pointer-events: auto;
+  white-space: pre;
+  transform-origin: 0 0;
+  cursor: text;
+}
+
+.reader-pdf-text ::selection {
+  background: color-mix(in oklab, var(--reader-fg, #333) 26%, transparent);
+}
+
+.reader-pdf-text .reader-mark {
+  color: transparent;
+}
+
+/** A page with no text layer says so on hover rather than letting a drag select nothing. */
+.reader-pdf-page[data-textable='false'] {
+  cursor: default;
+}
