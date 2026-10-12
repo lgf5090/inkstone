@@ -88,14 +88,14 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   for (const project of rows(data.projects)) {
     const id = idValue(project.id)
     if (!id) continue
-    if (await store.hasRow('assistant_projects', id)) {
-      await store.importUpdate('assistant_projects', id, {
+    if (await store.hasRow('chat_projects', id)) {
+      await store.importUpdate('chat_projects', id, {
         name: textValue(project.name, 200),
         description: textValue(project.description, 2000),
         updated_at: numberValue(project.updated_at, Date.now()),
       })
     } else {
-      await store.importRow('assistant_projects', {
+      await store.importRow('chat_projects', {
         id,
         name: textValue(project.name, 200) || 'Untitled',
         description: textValue(project.description, 2000),
@@ -122,8 +122,8 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       created_at: numberValue(conversation.created_at, Date.now()),
       updated_at: numberValue(conversation.updated_at, Date.now()),
     }
-    if (await store.hasRow('assistant_conversations', id)) await store.importUpdate('assistant_conversations', id, row)
-    else await store.importRow('assistant_conversations', row)
+    if (await store.hasRow('chat_conversations', id)) await store.importUpdate('chat_conversations', id, row)
+    else await store.importRow('chat_conversations', row)
     summary.conversations++
   }
 
@@ -147,8 +147,8 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       output_tokens: numberValue(message.output_tokens),
       created_at: numberValue(message.created_at, Date.now()),
     }
-    if (await store.hasRow('assistant_messages', id)) continue
-    await store.importRow('assistant_messages', row)
+    if (await store.hasRow('chat_messages', id)) continue
+    await store.importRow('chat_messages', row)
     summary.messages++
   }
 
@@ -175,8 +175,8 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       created_at: numberValue(memory.created_at, updatedAt),
       updated_at: updatedAt,
     }
-    if (existing) await store.importUpdate('assistant_memories', id, row)
-    else await store.importRow('assistant_memories', row)
+    if (existing) await store.importUpdate('chat_memories', id, row)
+    else await store.importRow('chat_memories', row)
     summary.memories++
   }
   for (const task of rows(data.tasks)) {
@@ -195,16 +195,16 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       updated_at: numberValue(task.updated_at, Date.now()),
       completed_at: numberOrNull(task.completed_at),
     }
-    if (await store.hasRow('assistant_tasks', id)) await store.importUpdate('assistant_tasks', id, row)
-    else await store.importRow('assistant_tasks', row)
+    if (await store.hasRow('chat_tasks', id)) await store.importUpdate('chat_tasks', id, row)
+    else await store.importRow('chat_tasks', row)
     summary.tasks++
   }
 
   for (const notification of rows(data.notifications)) {
     const id = idValue(notification.id)
     if (!id) continue
-    if (await store.hasRow('assistant_notifications', id)) continue
-    await store.importRow('assistant_notifications', {
+    if (await store.hasRow('chat_notifications', id)) continue
+    await store.importRow('chat_notifications', {
       id,
       title: textValue(notification.title, 200) || 'Reminder',
       body: textValue(notification.body, 8000),
@@ -240,7 +240,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       }
       continue
     }
-    await store.importRow('assistant_automations', {
+    await store.importRow('chat_automations', {
       id,
       name: textValue(automation.name, 200) || 'Imported schedule',
       kind: oneOf(automation.kind, AUTOMATION_KINDS, 'reminder'),

@@ -58,7 +58,7 @@ export const MAX_CONVERSATION_TITLE_CHARS = 200
 
 /**
  * What the assistant's provider records look like. `apiKey` never appears: the ciphertext lives in the
- * `assistant_providers` row and the plaintext only ever exists inside the worker call that signs the
+ * `chat_providers` row and the plaintext only ever exists inside the worker call that signs the
  * upstream request, so no route can echo a key back to a browser.
  */
 export interface AssistantProvider {

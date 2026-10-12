@@ -684,6 +684,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/ChatApp.tsx", [
     "/**\n * The chat app: the assistant's own container behind the rail's Chat tab.\n *\n * It borrows the notebook's chrome vocabulary rather than the reference project's — the same 48px\n * icon rail, the same 44px header, the same tokens — so the reader moves between containers without\n * finding a second visual language. What the reference called its sidebar becomes a second rail one\n * step in from the app rail, because the app rail already owns the outermost column.\n *\n * The five surfaces share one store on purpose: a turn in the chat can write a memory, a task and a\n * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.\n */",
+    "/**\n * The bottom bar fits four Han characters per tab on a 360px phone, so the settings tab carries its\n * short name there; the rail and the header keep the full one.\n */",
+    "/* Below md the five sections move to the same bottom bar the notebook uses; a second 48px\n          column beside the app rail would cost a quarter of a phone's width. */",
   ]],
   ["src/client/features/chat/ChatView.tsx", [
     "/**\n * The conversation surface: the list, the thread, and the composer.\n *\n * A reply lives in the store, not here, so switching to the memory tab mid-stream does not throw the\n * answer away — the generator keeps writing into the same record and this view re-attaches to it.\n *\n * The thread is deliberately not `.ink-prose`: that class carries the note writer's measure and its\n * 42vh tail padding, which turns a one-line reply into a screen of whitespace. `ink-chat-prose` in\n * `styles/chat.css` keeps the typography and drops the page furniture.\n */",
@@ -692,8 +694,10 @@ const allowed = new Map([
     "// The list is sorted by the server; a pinned row would reappear on every page of a keyset cursor,",
     "// so the order is applied here where the whole set is in hand.",
     "// A Chinese or Japanese input commits with Enter; that keystroke belongs to the IME, not to send.",
-    "/* One \"new conversation\" control, in the thread header: two identical buttons on the same\n          screen read as two different actions. */",
     "/**\n * One row of the list, with the menu anchor of its own.\n *\n * The anchor has to live here: a single ref shared by every row ends up pointing at whichever row\n * rendered last, so the menu of the first conversation opens beside the last one.\n */",
+    "// min-w-0 is not decoration: as a flex item this column would otherwise grow to its content's",
+    "// min-content width and paint the search box and the row menus across the thread.",
+    "/* The reference project puts a start-a-chat button at the head of the list as well as in the\n          thread header, and a reader scanning the list looks for it there. */",
   ]],
   ["src/client/features/chat/MemoryView.tsx", [
     "/**\n * What the assistant remembers, and what it is unsure about.\n *\n * The list is grouped by category because a reader scanning \"where do I think I live\" reads by topic,\n * not by the order things happened to be saved. The four row actions are the interesting part: an\n * update that changes a fact keeps the old one as history rather than overwriting it, so \"what did I\n * used to say\" still answers — and a plain edit stays a plain edit, for fixing a typo.\n */",
@@ -11717,7 +11721,6 @@ const allowed = new Map([
   ]],
   ["src/shared/assistant.ts", [
     "/**\n * The chat assistant's data model, its settings shape, and the rules that need no database.\n *\n * Validation here is hand-written rather than schema-generated on purpose: every value that arrives\n * from a client, a backup file or a stored row goes through `normalize*` before it is trusted, and the\n * helpers clamp, enumerate and drop rather than throw, so one bad field cannot turn a saved setting\n * into a 500. This mirrors how `mergeSettings` treats the rest of the app's settings.\n */",
-    "/**\n * What the assistant's provider records look like. `apiKey` never appears: the ciphertext lives in the\n * `assistant_providers` row and the plaintext only ever exists inside the worker call that signs the\n * upstream request, so no route can echo a key back to a browser.\n */",
     "/** Last four characters, for the settings row that has to prove which key is stored. */",
     "/** Let the assistant store a lasting preference without being asked. */",
     "/** Notice when a new memory replaces or contradicts an older one. Rule-based, no AI. */",
@@ -11740,6 +11743,7 @@ const allowed = new Map([
     "/** What an assistant backup reported after a merge, so the toast can say what arrived. */",
     "/**\n * Provider presets the settings form offers. A preset is only a starting point: the base URL and the\n * key are editable, and any other OpenAI-compatible endpoint works by picking that protocol.\n */",
     "/** A model id the settings form will accept, so a stray space cannot poison a request. */",
+    "/**\n * What the assistant's provider records look like. `apiKey` never appears: the ciphertext lives in the\n * `chat_providers` row and the plaintext only ever exists inside the worker call that signs the\n * upstream request, so no route can echo a key back to a browser.\n */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12116,9 +12120,9 @@ const allowed = new Map([
     "// The same single-valued topic without shared words: \"I moved to Paris\" against \"I live in London\".",
   ]],
   ["src/worker/assistant/model-config.ts", [
-    "/**\n * Which model answers.\n *\n * The reader picks one row of `assistant_models`; the provider it belongs to supplies the address,\n * the protocol and the key. A model whose provider has gone away, or a stale id left behind by an\n * import, reads as \"nothing configured\" rather than throwing — the settings screen has to be able to\n * show a half-configured assistant so the reader can fix it.\n */",
     "/** Why nothing was resolved, so the UI can say which of the two rows to fix. */",
     "/** The first usable model, for the moment a reader adds a provider and has not picked yet. */",
+    "/**\n * Which model answers.\n *\n * The reader picks one row of `chat_models`; the provider it belongs to supplies the address,\n * the protocol and the key. A model whose provider has gone away, or a stale id left behind by an\n * import, reads as \"nothing configured\" rather than throwing — the settings screen has to be able to\n * show a half-configured assistant so the reader can fix it.\n */",
   ]],
   ["src/worker/assistant/note-scope.ts", [
     "/**\n * Which notes the assistant may see.\n *\n * A reader can point the assistant at a few folders instead of the whole vault. That is a permission,\n * so it is enforced at the one place every note tool passes through rather than in the prompt: a model\n * that ignores an instruction in its system prompt is a normal Tuesday, and the note it then reads is\n * the one the reader had excluded.\n */",
@@ -12168,7 +12172,7 @@ const allowed = new Map([
     "/**\n * The digest is computed, not generated.\n *\n * A summary of what is due needs the reader's own task rows, and asking a model to list them costs a\n * request, can miss one, and can invent one. The reference project got this right and the shape is\n * kept: overdue first, then today, then the open count.\n */",
   ]],
   ["src/worker/assistant/schema.ts", [
-    "/**\n * The chat assistant's tables.\n *\n * Everything the assistant owns is prefixed `assistant_` and keyed by `(user_id, id)` rather than by\n * `id` alone. That is the one place the port had to depart from the reference project's schema: it\n * stored all of this in a Durable Object belonging to a single owner, so a bare `id TEXT PRIMARY KEY`\n * was enough — and here it is not. A global id key would let a backup restored into a second account\n * collide with the first one's row, and a write that quietly does nothing is the worst kind of data\n * loss, because every status code still says it worked.\n *\n * Every query in `store.ts` binds `user_id` for the same reason; the columns below are what makes that\n * filter indexable rather than a full scan.\n */",
+    "/**\n * The chat assistant's tables.\n *\n * Everything the assistant owns is prefixed `chat_` and keyed by `(user_id, id)` rather than by\n * `id` alone. That is the one place the port had to depart from the reference project's schema: it\n * stored all of this in a Durable Object belonging to a single owner, so a bare `id TEXT PRIMARY KEY`\n * was enough — and here it is not. A global id key would let a backup restored into a second account\n * collide with the first one's row, and a write that quietly does nothing is the worst kind of data\n * loss, because every status code still says it worked.\n *\n * Every query in `store.ts` binds `user_id` for the same reason; the columns below are what makes that\n * filter indexable rather than a full scan.\n */",
   ]],
   ["src/worker/assistant/store.ts", [
     "/**\n * Every read and write the assistant makes against D1.\n *\n * Two rules hold throughout, and both come from the difference between this app and the single-user\n * project it was ported from:\n *  - every statement carries `user_id`, so one reader's conversations, memories and schedules can\n *    never surface in another's assistant;\n *  - anything read out of a JSON column is decoded rather than trusted, because a row may have been\n *    written by an older build, restored from a backup file, or edited by hand — stored text is input.\n */",
@@ -12177,7 +12181,6 @@ const allowed = new Map([
     "/** How long an automation may be claimed by a tick that never finished before another may take it. */",
     "/**\n * The provider columns a listing may read.\n *\n * `length(key_ciphertext) > 0` answers \"is a key stored\" without the ciphertext ever leaving the row,\n * so no provider listing can carry a key out even if a route is added carelessly later.\n */",
     "/**\n * A contains-pattern for LIKE, with the wildcards in the reader's own text escaped.\n *\n * The app's shared `likePattern` is a *prefix* pattern — right for a tag tree, wrong here: a memory\n * search for \"live\" would only find statements that begin with it, which silently disables the whole\n * conflict check for anything but the first word.\n */",
-    "/**\n * Every statement this module runs must name its owner.\n *\n * Twenty-odd of these were written before the pattern held, and the ones that slipped were silent: an\n * unscoped `DELETE FROM assistant_messages` wipes every account's history and no test that runs one\n * account would notice. Reading `user_id = ?1` out of the SQL text is a cheap always-on check at the\n * one place all statements pass through, so the next unscoped statement fails loudly at the call\n * rather than quietly corrupting a neighbour. The cron sweep in `dueAutomations` is the one deliberate\n * exception, and it goes straight to `db.prepare` for that reason.\n */",
     "/**\n * Builds a WHERE list and its parameters together.\n *\n * The alternative — splicing `?N` numbers by hand — is how a tenant filter gets forgotten: the number\n * is right, the clause is in the wrong place, and every gate still passes. Here a value and its\n * placeholder are produced by one call, so a clause cannot exist without its bind.\n */",
     "/** Adds a clause that references no parameter. */",
     "/** Adds `column = ?n` and returns nothing; the placeholder is already inside the clause. */",
@@ -12221,8 +12224,9 @@ const allowed = new Map([
     "/** Returns nothing for a row whose schedule no longer parses, rather than inventing one. */",
     "// An unanswered request that ran out of time reads as expired, so a card cannot keep offering Approve",
     "// on a target the reader has long since moved on from.",
-    "/**\n * The counter a caller names, as the column it is stored in.\n *\n * `UsageCounters` is camelCase because it crosses the API, `assistant_usage_daily` is snake_case\n * because it is a table, and the two are only safe to join through a list like this one.\n */",
     "/**\n   * Adds to today's counters.\n   *\n   * The record the caller holds is camelCase, the column it lands in is not, so the name is looked up\n   * rather than written into the SQL: an unmapped key is dropped instead of becoming a column reference\n   * that fails the statement — and a failing statement here would mark a finished answer as an error.\n   */",
+    "/**\n * The counter a caller names, as the column it is stored in.\n *\n * `UsageCounters` is camelCase because it crosses the API, `chat_usage_daily` is snake_case\n * because it is a table, and the two are only safe to join through a list like this one.\n */",
+    "/**\n * Every statement this module runs must name its owner.\n *\n * Twenty-odd of these were written before the pattern held, and the ones that slipped were silent: an\n * unscoped `DELETE FROM chat_messages` wipes every account's history and no test that runs one\n * account would notice. Reading `user_id = ?1` out of the SQL text is a cheap always-on check at the\n * one place all statements pass through, so the next unscoped statement fails loudly at the call\n * rather than quietly corrupting a neighbour. The cron sweep in `dueAutomations` is the one deliberate\n * exception, and it goes straight to `db.prepare` for that reason.\n */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -12738,7 +12742,6 @@ const allowed = new Map([
   ]],
   ["tests/assistant-routes.test.ts", [
     "/** Reads the SSE body of a chat turn into its events. */",
-    "/**\n * The real vault, with a fake Durable Object state.\n *\n * A stub would only prove the route calls something; this proves the `ai:` scope the assistant added is\n * accepted by the vault's own allowlist, and that the bytes written to `assistant_providers` are not the\n * key.\n */",
     "// The DO harness serialises this on the state, not on storage; the vault's master key is read",
     "// through it, so a per-instance map would hand back a different key on every request.",
     "// A DO stub is called as `fetch(url, init)` by the helper, exactly as the platform calls it.",
@@ -12752,6 +12755,8 @@ const allowed = new Map([
     "// Age the lease the way a long turn does, so the second step has to renew it to be seen.",
     "// The meter is written with the answer's own column names; a mismatch there fails the statement",
     "// and the turn is filed as an error even though the reply arrived whole.",
+    "/**\n * The real vault, with a fake Durable Object state.\n *\n * A stub would only prove the route calls something; this proves the `ai:` scope the assistant added is\n * accepted by the vault's own allowlist, and that the bytes written to `chat_providers` are not the\n * key.\n */",
+    "// LIKE metacharacters are data, not a pattern: they must match nothing rather than throw.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
@@ -12766,6 +12771,7 @@ const allowed = new Map([
     "// A pasted host carries no path, and these services answer under /v1.",
     "// Already summarised rows are neither sent again nor listed as overflow waiting for a summary.",
     "// Both sentences open the same way; only the topic words are an overlap worth reporting.",
+    "// The automation kind is spelled assistant_prompt; it is data, never a table name.",
   ]],
   ["tests/assistant-upstream.test.ts", [
     "/**\n * The provider wire, tested against recorded frames rather than a live service.\n *\n * The three protocols all stream JSON in pieces, and the piece that matters — a tool call's arguments\n * arriving three characters at a time — is exactly what a hand-written parser gets wrong in a way no\n * other test can see. The failure looks like a tool that was called with `{}`.\n */",

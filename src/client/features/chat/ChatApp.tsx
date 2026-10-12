@@ -33,6 +33,18 @@ const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   settings: Settings2,
 }
 
+/**
+ * The bottom bar fits four Han characters per tab on a 360px phone, so the settings tab carries its
+ * short name there; the rail and the header keep the full one.
+ */
+const VIEW_TAB_LABELS: Record<AssistantView, MessageKey> = {
+  chat: 'assistant.view.chat',
+  memory: 'assistant.view.memory',
+  tasks: 'assistant.view.tasks',
+  automations: 'assistant.view.automations',
+  settings: 'common.settings',
+}
+
 const VIEW_LABELS: Record<AssistantView, MessageKey> = {
   chat: 'assistant.view.chat',
   memory: 'assistant.view.memory',
@@ -59,9 +71,11 @@ export function ChatApp() {
 
   return (
     <section className="flex h-full min-h-0 overflow-hidden bg-[var(--bg-base)]" data-assistant-app="1">
+      {/* Below md the five sections move to the same bottom bar the notebook uses; a second 48px
+          column beside the app rail would cost a quarter of a phone's width. */}
       <nav
         aria-label={t('assistant.app.navigation')}
-        className="flex h-full w-12 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] py-2"
+        className="hidden h-full w-12 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] py-2 md:flex"
       >
         <div className="no-scrollbar flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
           {ASSISTANT_VIEWS.map((entry) => {
@@ -126,6 +140,31 @@ export function ChatApp() {
           {view === 'automations' && <AutomationsView />}
           {view === 'settings' && <AssistantSettingsView />}
         </div>
+
+        <nav
+          aria-label={t('assistant.app.navigation')}
+          className="mobile-bottom-nav flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)] md:hidden"
+        >
+          {ASSISTANT_VIEWS.map((entry) => {
+            const Icon = VIEW_ICONS[entry]
+            const label = t(VIEW_TAB_LABELS[entry])
+            return (
+              <button
+                key={entry}
+                type="button"
+                aria-label={label}
+                aria-current={entry === view ? 'page' : undefined}
+                onClick={() => setView(entry)}
+                className={cn(
+                  'flex min-w-0 flex-1 items-center justify-center text-[12px] transition-colors',
+                  entry === view ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]',
+                )}
+              >
+                <span className="mobile-tab-content"><Icon size={17} /><span>{label}</span></span>
+              </button>
+            )
+          })}
+        </nav>
       </div>
 
       <NotificationCenter open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />

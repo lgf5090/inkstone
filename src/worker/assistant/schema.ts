@@ -1,7 +1,7 @@
 /**
  * The chat assistant's tables.
  *
- * Everything the assistant owns is prefixed `assistant_` and keyed by `(user_id, id)` rather than by
+ * Everything the assistant owns is prefixed `chat_` and keyed by `(user_id, id)` rather than by
  * `id` alone. That is the one place the port had to depart from the reference project's schema: it
  * stored all of this in a Durable Object belonging to a single owner, so a bare `id TEXT PRIMARY KEY`
  * was enough — and here it is not. A global id key would let a backup restored into a second account
@@ -13,13 +13,13 @@
  */
 
 export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS assistant_settings (
+  `CREATE TABLE IF NOT EXISTS chat_settings (
     user_id TEXT PRIMARY KEY,
     config TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL
   )`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_providers (
+  `CREATE TABLE IF NOT EXISTS chat_providers (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     label TEXT NOT NULL,
@@ -30,10 +30,10 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_providers_user
-     ON assistant_providers(user_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_providers_user
+     ON chat_providers(user_id, created_at)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_models (
+  `CREATE TABLE IF NOT EXISTS chat_models (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     provider_id TEXT NOT NULL,
@@ -45,10 +45,10 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     position REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_models_provider
-     ON assistant_models(user_id, provider_id, position)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_models_provider
+     ON chat_models(user_id, provider_id, position)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_conversations (
+  `CREATE TABLE IF NOT EXISTS chat_conversations (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '',
@@ -59,10 +59,10 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_conversations_user
-     ON assistant_conversations(user_id, updated_at DESC, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_conversations_user
+     ON chat_conversations(user_id, updated_at DESC, id)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_messages (
+  `CREATE TABLE IF NOT EXISTS chat_messages (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
@@ -77,12 +77,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_messages_conversation
-     ON assistant_messages(user_id, conversation_id, created_at, id)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_messages_user
-     ON assistant_messages(user_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation
+     ON chat_messages(user_id, conversation_id, created_at, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_user
+     ON chat_messages(user_id, created_at)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_memories (
+  `CREATE TABLE IF NOT EXISTS chat_memories (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -96,14 +96,14 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_memories_user_updated
-     ON assistant_memories(user_id, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_memories_status
-     ON assistant_memories(user_id, status, updated_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_memories_superseded
-     ON assistant_memories(user_id, superseded_by)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_memories_user_updated
+     ON chat_memories(user_id, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_memories_status
+     ON chat_memories(user_id, status, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_memories_superseded
+     ON chat_memories(user_id, superseded_by)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_memory_reviews (
+  `CREATE TABLE IF NOT EXISTS chat_memory_reviews (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     memory_id TEXT NOT NULL,
@@ -113,12 +113,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_reviews_memory
-     ON assistant_memory_reviews(user_id, memory_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_reviews_other
-     ON assistant_memory_reviews(user_id, other_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_reviews_memory
+     ON chat_memory_reviews(user_id, memory_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_reviews_other
+     ON chat_memory_reviews(user_id, other_id)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_tasks (
+  `CREATE TABLE IF NOT EXISTS chat_tasks (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -132,12 +132,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     completed_at INTEGER,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_tasks_user_status_due
-     ON assistant_tasks(user_id, status, due_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_tasks_project
-     ON assistant_tasks(user_id, project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_tasks_user_status_due
+     ON chat_tasks(user_id, status, due_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_tasks_project
+     ON chat_tasks(user_id, project_id)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_projects (
+  `CREATE TABLE IF NOT EXISTS chat_projects (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -146,10 +146,10 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_projects_unique
-     ON assistant_projects(user_id, lower(name))`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_projects_unique
+     ON chat_projects(user_id, lower(name))`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_automations (
+  `CREATE TABLE IF NOT EXISTS chat_automations (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -168,12 +168,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_automations_due
-     ON assistant_automations(enabled, next_run)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_automations_user
-     ON assistant_automations(user_id, enabled, next_run)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_automations_due
+     ON chat_automations(enabled, next_run)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_automations_user
+     ON chat_automations(user_id, enabled, next_run)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_runs (
+  `CREATE TABLE IF NOT EXISTS chat_runs (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     automation_id TEXT NOT NULL,
@@ -185,10 +185,10 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     error TEXT,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_runs_started
-     ON assistant_runs(user_id, started_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_runs_started
+     ON chat_runs(user_id, started_at DESC)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_notifications (
+  `CREATE TABLE IF NOT EXISTS chat_notifications (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -198,12 +198,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_notifications_user
-     ON assistant_notifications(user_id, created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_notifications_unread
-     ON assistant_notifications(user_id, read_at, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_notifications_user
+     ON chat_notifications(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_notifications_unread
+     ON chat_notifications(user_id, read_at, created_at)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_pending_actions (
+  `CREATE TABLE IF NOT EXISTS chat_pending_actions (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
@@ -217,12 +217,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     resolved_at INTEGER,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_actions_conversation
-     ON assistant_pending_actions(user_id, conversation_id, created_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_actions_pending
-     ON assistant_pending_actions(user_id, status, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_actions_conversation
+     ON chat_pending_actions(user_id, conversation_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_actions_pending
+     ON chat_pending_actions(user_id, status, expires_at)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_usage_daily (
+  `CREATE TABLE IF NOT EXISTS chat_usage_daily (
     user_id TEXT NOT NULL,
     day TEXT NOT NULL,
     requests INTEGER NOT NULL DEFAULT 0,
@@ -234,7 +234,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, day)
   )`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_activity (
+  `CREATE TABLE IF NOT EXISTS chat_activity (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     type TEXT NOT NULL,
@@ -242,79 +242,79 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_activity_user
-     ON assistant_activity(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_activity_user
+     ON chat_activity(user_id, created_at DESC)`,
 
-  `CREATE TABLE IF NOT EXISTS assistant_active_runs (
+  `CREATE TABLE IF NOT EXISTS chat_active_runs (
     user_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     started_at INTEGER NOT NULL,
     lease_until INTEGER NOT NULL,
     PRIMARY KEY (user_id, conversation_id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_assistant_active_runs_user
-     ON assistant_active_runs(user_id, lease_until)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_active_runs_user
+     ON chat_active_runs(user_id, lease_until)`,
 ]
 
 export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
-  'assistant_settings',
-  'assistant_providers',
-  'assistant_models',
-  'assistant_conversations',
-  'assistant_messages',
-  'assistant_memories',
-  'assistant_memory_reviews',
-  'assistant_tasks',
-  'assistant_projects',
-  'assistant_automations',
-  'assistant_runs',
-  'assistant_notifications',
-  'assistant_pending_actions',
-  'assistant_usage_daily',
-  'assistant_activity',
-  'assistant_active_runs',
+  'chat_settings',
+  'chat_providers',
+  'chat_models',
+  'chat_conversations',
+  'chat_messages',
+  'chat_memories',
+  'chat_memory_reviews',
+  'chat_tasks',
+  'chat_projects',
+  'chat_automations',
+  'chat_runs',
+  'chat_notifications',
+  'chat_pending_actions',
+  'chat_usage_daily',
+  'chat_activity',
+  'chat_active_runs',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
-  'idx_assistant_providers_user',
-  'idx_assistant_models_provider',
-  'idx_assistant_conversations_user',
-  'idx_assistant_messages_conversation',
-  'idx_assistant_messages_user',
-  'idx_assistant_memories_user_updated',
-  'idx_assistant_memories_status',
-  'idx_assistant_memories_superseded',
-  'idx_assistant_reviews_memory',
-  'idx_assistant_reviews_other',
-  'idx_assistant_tasks_user_status_due',
-  'idx_assistant_tasks_project',
-  'idx_assistant_projects_unique',
-  'idx_assistant_automations_due',
-  'idx_assistant_automations_user',
-  'idx_assistant_runs_started',
-  'idx_assistant_notifications_user',
-  'idx_assistant_notifications_unread',
-  'idx_assistant_actions_conversation',
-  'idx_assistant_actions_pending',
-  'idx_assistant_activity_user',
-  'idx_assistant_active_runs_user',
+  'idx_chat_providers_user',
+  'idx_chat_models_provider',
+  'idx_chat_conversations_user',
+  'idx_chat_messages_conversation',
+  'idx_chat_messages_user',
+  'idx_chat_memories_user_updated',
+  'idx_chat_memories_status',
+  'idx_chat_memories_superseded',
+  'idx_chat_reviews_memory',
+  'idx_chat_reviews_other',
+  'idx_chat_tasks_user_status_due',
+  'idx_chat_tasks_project',
+  'idx_chat_projects_unique',
+  'idx_chat_automations_due',
+  'idx_chat_automations_user',
+  'idx_chat_runs_started',
+  'idx_chat_notifications_user',
+  'idx_chat_notifications_unread',
+  'idx_chat_actions_conversation',
+  'idx_chat_actions_pending',
+  'idx_chat_activity_user',
+  'idx_chat_active_runs_user',
 ]
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  assistant_settings: ['user_id', 'config', 'updated_at'],
-  assistant_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'key_ciphertext', 'created_at', 'updated_at'],
-  assistant_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'enabled', 'position'],
-  assistant_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'created_at', 'updated_at'],
-  assistant_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
-  assistant_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
-  assistant_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
-  assistant_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
-  assistant_projects: ['user_id', 'id', 'name', 'description', 'created_at', 'updated_at'],
-  assistant_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'created_at', 'updated_at'],
-  assistant_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error'],
-  assistant_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
-  assistant_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
-  assistant_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'errors'],
-  assistant_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
-  assistant_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
+  chat_settings: ['user_id', 'config', 'updated_at'],
+  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'key_ciphertext', 'created_at', 'updated_at'],
+  chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'enabled', 'position'],
+  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'created_at', 'updated_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
+  chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
+  chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
+  chat_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
+  chat_projects: ['user_id', 'id', 'name', 'description', 'created_at', 'updated_at'],
+  chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'created_at', 'updated_at'],
+  chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error'],
+  chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+  chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
+  chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'errors'],
+  chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
+  chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
 }

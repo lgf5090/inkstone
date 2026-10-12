@@ -183,6 +183,7 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
   const query = useAssistant((state) => state.conversationQuery)
   const setQuery = useAssistant((state) => state.setConversationQuery)
   const openConversation = useAssistant((state) => state.openConversation)
+  const newConversation = useAssistant((state) => state.newConversation)
   const renameConversation = useAssistant((state) => state.renameConversation)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<AssistantConversation | null>(null)
@@ -196,10 +197,15 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* One "new conversation" control, in the thread header: two identical buttons on the same
-          screen read as two different actions. */}
-      <div className="p-2">
+    // min-w-0 is not decoration: as a flex item this column would otherwise grow to its content's
+    // min-content width and paint the search box and the row menus across the thread.
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+      {/* The reference project puts a start-a-chat button at the head of the list as well as in the
+          thread header, and a reader scanning the list looks for it there. */}
+      <div className="flex flex-col gap-2 p-2">
+        <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
+          {t('assistant.chat.new')}
+        </Button>
         <Input
           value={query}
           onChange={(event) => void setQuery(event.target.value)}
@@ -208,7 +214,7 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
           className="h-8 text-[12px]"
         />
       </div>
-      <nav aria-label={t('assistant.chat.list')} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+      <nav aria-label={t('assistant.chat.list')} className="no-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2">
         {!ordered.length ? (
           <p className="px-2 py-6 text-center text-[12px] text-[var(--text-quaternary)]">
             {query.trim() ? t('assistant.chat.no_matches') : t('assistant.chat.empty')}

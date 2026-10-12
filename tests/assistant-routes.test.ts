@@ -128,7 +128,7 @@ function insert<T extends { id: string }>(table: string, row: Record<string, unk
  * The real vault, with a fake Durable Object state.
  *
  * A stub would only prove the route calls something; this proves the `ai:` scope the assistant added is
- * accepted by the vault's own allowlist, and that the bytes written to `assistant_providers` are not the
+ * accepted by the vault's own allowlist, and that the bytes written to `chat_providers` are not the
  * key.
  */
 const vaultStorage = new Map<string, unknown>()
@@ -335,8 +335,8 @@ describe('automations', () => {
 
 describe('notifications', () => {
   it('counts unread, marks one read and deletes it', async () => {
-    insert('assistant_notifications', { id: 'n1', title: 'Reminder', body: 'Water the plants', created_at: Date.now() })
-    insert('assistant_notifications', { id: 'n2', title: 'Reminder', body: 'Stretch', created_at: Date.now(), read_at: Date.now() })
+    insert('chat_notifications', { id: 'n1', title: 'Reminder', body: 'Water the plants', created_at: Date.now() })
+    insert('chat_notifications', { id: 'n2', title: 'Reminder', body: 'Stretch', created_at: Date.now(), read_at: Date.now() })
     const listed = await call<{ notifications: { id: string }[], unread: number }>('GET', '/api/assistant/notifications')
     expect(listed.unread).toBe(1)
     await call('POST', '/api/assistant/notifications/read', { id: 'n1' })
@@ -372,7 +372,7 @@ describe('providers', () => {
     expect(created.provider.hasKey).toBe(true)
     const listed = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
     expect(JSON.stringify(listed)).not.toContain('sk-secret-value')
-    const raw = sqlite.prepare('SELECT key_ciphertext FROM assistant_providers').get() as { key_ciphertext: string }
+    const raw = sqlite.prepare('SELECT key_ciphertext FROM chat_providers').get() as { key_ciphertext: string }
     expect(raw.key_ciphertext).not.toContain('sk-secret-value')
     expect(created.provider.baseUrl).toBe('https://api.deepseek.com')
   })
@@ -446,11 +446,11 @@ describe('lease and streaming turn', () => {
     await useExampleModel()
     const observed: { url: string, leaseUntil: number }[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
-      const rows = sqlite.prepare('SELECT lease_until FROM assistant_active_runs').all() as { lease_until: number }[]
+      const rows = sqlite.prepare('SELECT lease_until FROM chat_active_runs').all() as { lease_until: number }[]
       observed.push({ url: String(input), leaseUntil: rows[0]?.lease_until ?? 0 })
       if (observed.length === 1) {
         // Age the lease the way a long turn does, so the second step has to renew it to be seen.
-        sqlite.prepare('UPDATE assistant_active_runs SET lease_until = ?').run(1)
+        sqlite.prepare('UPDATE chat_active_runs SET lease_until = ?').run(1)
         return new Response(sse(TOOL_CALL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
       }
       return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
@@ -490,6 +490,36 @@ describe('lease and streaming turn', () => {
     expect(usage.today.toolCalls).toBe(1)
   })
 
+})
+
+describe('search', () => {
+  it('finds conversations by title and by message body', async () => {
+    const tea = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: '喝茶习惯' })
+    const events = await chatEvents({ conversationId: tea.conversation.id, message: '我平时喜欢喝绿茶' })
+    expect(events.some((event) => event.type === 'done' || event.type === 'error')).toBe(true)
+    const coffee = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Coffee chat' })
+
+    const byTitle = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?q=喝茶')
+    expect(byTitle.conversations.map((entry) => entry.id)).toEqual([tea.conversation.id])
+    const byBody = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?q=绿茶')
+    expect(byBody.conversations.map((entry) => entry.id)).toEqual([tea.conversation.id])
+    const byLatin = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?q=coffee')
+    expect(byLatin.conversations.map((entry) => entry.id)).toEqual([coffee.conversation.id])
+    // LIKE metacharacters are data, not a pattern: they must match nothing rather than throw.
+    const none = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?q=%25zz')
+    expect(none.conversations).toEqual([])
+  })
+
+  it('searches memories and tasks without qualifying an aliased table', async () => {
+    await call('POST', '/api/assistant/memories', { content: '读者住在上海', category: 'place' })
+    await call('POST', '/api/assistant/tasks', { title: '给妈妈打电话' })
+    const memories = await call<{ memories: AssistantMemory[] }>('GET', '/api/assistant/memories?q=上海')
+    expect(memories.memories).toHaveLength(1)
+    const tasks = await call<{ tasks: Task[] }>('GET', '/api/assistant/tasks?q=妈妈')
+    expect(tasks.tasks).toHaveLength(1)
+    expect(await status('GET', '/api/assistant/memories?q=%25')).toBe(200)
+    expect(await status('GET', '/api/assistant/tasks?q=_')).toBe(200)
+  })
 })
 
 describe('backup', () => {

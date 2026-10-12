@@ -49,6 +49,7 @@ import { assertToolsMatchSpecs } from '../src/worker/assistant/tools'
 import { anthropicEndpoint, geminiEndpoint, openAiEndpoint } from '../src/worker/assistant/upstream'
 import { buildContextWindow } from '../src/worker/assistant/runner'
 import { SCHEMA_STATEMENTS, chunkStatements } from '../src/worker/db/schema'
+import { ASSISTANT_REQUIRED_INDEXES, ASSISTANT_REQUIRED_TABLES } from '../src/worker/assistant/schema'
 
 const iso = (value: Date | number) => new Date(value).toISOString()
 
@@ -528,6 +529,18 @@ describe('schema batching', () => {
     expect(SCHEMA_STATEMENTS.length).toBeGreaterThan(40)
     for (const batch of batches) expect(batch.length).toBeLessThanOrEqual(40)
     expect(batches.flat()).toEqual([...SCHEMA_STATEMENTS])
+  })
+
+  it('keeps every one of its tables and indexes under the chat_ prefix', () => {
+    const tables = ASSISTANT_REQUIRED_TABLES as readonly string[]
+    const indexes = ASSISTANT_REQUIRED_INDEXES as readonly string[]
+    expect(tables.length).toBeGreaterThan(10)
+    for (const name of tables) expect(name.startsWith('chat_'), name).toBe(true)
+    for (const name of indexes) expect(name.startsWith('idx_chat_'), name).toBe(true)
+    const sql = SCHEMA_STATEMENTS.join(' ')
+    expect(/\bassistant_\w/.test(sql)).toBe(false)
+    // The automation kind is spelled assistant_prompt; it is data, never a table name.
+    expect(sql).toContain('chat_messages')
   })
 
   it('does not invent an empty trailing batch', () => {

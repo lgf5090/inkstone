@@ -1,7 +1,7 @@
 /**
  * Which model answers.
  *
- * The reader picks one row of `assistant_models`; the provider it belongs to supplies the address,
+ * The reader picks one row of `chat_models`; the provider it belongs to supplies the address,
  * the protocol and the key. A model whose provider has gone away, or a stale id left behind by an
  * import, reads as "nothing configured" rather than throwing — the settings screen has to be able to
  * show a half-configured assistant so the reader can fix it.

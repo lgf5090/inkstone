@@ -60,7 +60,7 @@ export const AUTOMATION_CLAIM_MS = 10 * 60 * 1000
 /**
  * The counter a caller names, as the column it is stored in.
  *
- * `UsageCounters` is camelCase because it crosses the API, `assistant_usage_daily` is snake_case
+ * `UsageCounters` is camelCase because it crosses the API, `chat_usage_daily` is snake_case
  * because it is a table, and the two are only safe to join through a list like this one.
  */
 export const USAGE_COLUMNS: Readonly<Record<keyof UsageCounters, string>> = {
@@ -130,7 +130,7 @@ function parseJson(value: unknown): unknown {
  * Every statement this module runs must name its owner.
  *
  * Twenty-odd of these were written before the pattern held, and the ones that slipped were silent: an
- * unscoped `DELETE FROM assistant_messages` wipes every account's history and no test that runs one
+ * unscoped `DELETE FROM chat_messages` wipes every account's history and no test that runs one
  * account would notice. Reading `user_id = ?1` out of the SQL text is a cheap always-on check at the
  * one place all statements pass through, so the next unscoped statement fails loudly at the call
  * rather than quietly corrupting a neighbour. The cron sweep in `dueAutomations` is the one deliberate
@@ -315,7 +315,7 @@ export class AssistantStore {
 
   async getSettings(): Promise<AssistantSettings> {
     const stored = await this.one<{ config: string }>(
-      `SELECT config FROM assistant_settings WHERE user_id = ?1`,
+      `SELECT config FROM chat_settings WHERE user_id = ?1`,
       this.userId,
     )
     if (!stored) return { ...DEFAULT_ASSISTANT_SETTINGS }
@@ -325,7 +325,7 @@ export class AssistantStore {
   async saveSettings(settings: AssistantSettings): Promise<AssistantSettings> {
     const normalized = normalizeAssistantSettings(settings)
     await this.write(
-      `INSERT INTO assistant_settings (user_id, config, updated_at) VALUES (?1, ?2, ?3)
+      `INSERT INTO chat_settings (user_id, config, updated_at) VALUES (?1, ?2, ?3)
        ON CONFLICT(user_id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
       JSON.stringify(normalized), Date.now(),
     )
@@ -336,7 +336,7 @@ export class AssistantStore {
 
   async listProviders(): Promise<AssistantProvider[]> {
     const list = await this.rows<ProviderRow>(
-      `SELECT ${PROVIDER_COLUMNS} FROM assistant_providers WHERE user_id = ?1 ORDER BY created_at`,
+      `SELECT ${PROVIDER_COLUMNS} FROM chat_providers WHERE user_id = ?1 ORDER BY created_at`,
       this.userId,
     )
     return list.map(toProvider)
@@ -346,7 +346,7 @@ export class AssistantStore {
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
       `SELECT id, label, protocol, base_url, key_ciphertext, created_at, updated_at
-         FROM assistant_providers WHERE user_id = ?1 AND id = ?2`,
+         FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     if (!stored) return null
@@ -355,7 +355,7 @@ export class AssistantStore {
 
   async getProvider(id: string): Promise<AssistantProvider | null> {
     const r = await this.one<ProviderRow>(
-      `SELECT ${PROVIDER_COLUMNS} FROM assistant_providers WHERE user_id = ?1 AND id = ?2`,
+      `SELECT ${PROVIDER_COLUMNS} FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     return r ? toProvider(r) : null
@@ -367,7 +367,7 @@ export class AssistantStore {
     const key = input.apiKey.trim()
     const ciphertext = key ? await encryptAssistantKey(this.env, this.userId, key) : ''
     await this.write(
-      `INSERT INTO assistant_providers (id, user_id, label, protocol, base_url, key_ciphertext, created_at, updated_at)
+      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, key_ciphertext, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
     )
@@ -401,7 +401,7 @@ export class AssistantStore {
     }
     const at = Date.now()
     await this.write(
-      `UPDATE assistant_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6
+      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6
          WHERE user_id = ?1 AND id = ?7`,
       label, protocol, baseUrl, ciphertext, at, id,
     )
@@ -418,8 +418,8 @@ export class AssistantStore {
   }
 
   async deleteProvider(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_models WHERE user_id = ?1 AND provider_id = ?2`, id)
-    await this.write(`DELETE FROM assistant_providers WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_models WHERE user_id = ?1 AND provider_id = ?2`, id)
+    await this.write(`DELETE FROM chat_providers WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   /** The plaintext key for one upstream call. No route returns this value. */
@@ -434,7 +434,7 @@ export class AssistantStore {
   async listModels(): Promise<AssistantModel[]> {
     const list = await this.rows<ModelRow>(
       `SELECT id, provider_id, model, label, temperature, max_output_tokens, enabled, position
-         FROM assistant_models WHERE user_id = ?1 ORDER BY position, label`,
+         FROM chat_models WHERE user_id = ?1 ORDER BY position, label`,
       this.userId,
     )
     return list.map(toModel)
@@ -443,7 +443,7 @@ export class AssistantStore {
   async getModel(id: string): Promise<AssistantModel | null> {
     const r = await this.one<ModelRow>(
       `SELECT id, provider_id, model, label, temperature, max_output_tokens, enabled, position
-         FROM assistant_models WHERE user_id = ?1 AND id = ?2`,
+         FROM chat_models WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     return r ? toModel(r) : null
@@ -458,14 +458,14 @@ export class AssistantStore {
   }): Promise<AssistantModel> {
     const id = newId()
     const positionRow = await this.one<{ n: number }>(
-      `SELECT COALESCE(MAX(position), 0) + 1 AS n FROM assistant_models WHERE user_id = ?1`,
+      `SELECT COALESCE(MAX(position), 0) + 1 AS n FROM chat_models WHERE user_id = ?1`,
       this.userId,
     )
     const temperature = input.temperature ?? DEFAULT_ASSISTANT_SETTINGS.temperature
     const maxOutputTokens = input.maxOutputTokens ?? DEFAULT_ASSISTANT_SETTINGS.limits.maxOutputTokens
     const label = input.label ?? input.model
     await this.write(
-      `INSERT INTO assistant_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, enabled, position)
+      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, enabled, position)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 1, ?8)`,
       id, input.providerId, input.model, label, temperature, maxOutputTokens, positionRow?.n ?? 1,
     )
@@ -487,7 +487,7 @@ export class AssistantStore {
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     }
     await this.write(
-      `UPDATE assistant_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5, enabled = ?6
+      `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5, enabled = ?6
          WHERE user_id = ?1 AND id = ?7`,
       next.label, next.model, next.temperature, next.maxOutputTokens, next.enabled ? 1 : 0, id,
     )
@@ -495,7 +495,7 @@ export class AssistantStore {
   }
 
   async deleteModel(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_models WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_models WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   // ----------------------------------------------------------- conversations
@@ -506,14 +506,14 @@ export class AssistantStore {
       const pattern = q.add(containsPattern(query))
       const inBody = q.add(containsPattern(query))
       q.raw(`(title LIKE ${pattern} ESCAPE '\\' OR EXISTS (
-        SELECT 1 FROM assistant_messages m WHERE m.conversation_id = assistant_conversations.id
+        SELECT 1 FROM chat_messages m WHERE m.conversation_id = c.id
           AND m.user_id = ?1 AND m.content LIKE ${inBody} ESCAPE '\\'))`)
     }
     const limitBind = q.add(limit)
     const list = await this.rows<ConversationRow>(
       `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.created_at, c.updated_at,
-              (SELECT count(*) FROM assistant_messages m WHERE m.conversation_id = c.id) AS message_count
-         FROM assistant_conversations c WHERE ${q.where}
+              (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
+         FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
       ...q.binds,
     )
@@ -523,8 +523,8 @@ export class AssistantStore {
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
       `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.created_at, c.updated_at,
-              (SELECT count(*) FROM assistant_messages m WHERE m.conversation_id = c.id) AS message_count
-         FROM assistant_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
+              (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
+         FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
     )
     return r ? toConversation(r) : null
@@ -534,7 +534,7 @@ export class AssistantStore {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO assistant_conversations (id, user_id, title, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5)`,
+      `INSERT INTO chat_conversations (id, user_id, title, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5)`,
       id, title, at, at,
     )
     return { id, title, pinned: false, createdAt: at, updatedAt: at, messageCount: 0, summary: null, summaryUpto: null }
@@ -542,48 +542,48 @@ export class AssistantStore {
 
   async renameConversation(id: string, title: string): Promise<void> {
     await this.write(
-      `UPDATE assistant_conversations SET title = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
+      `UPDATE chat_conversations SET title = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
       title, Date.now(), id,
     )
   }
 
   async setConversationPinned(id: string, pinned: boolean): Promise<void> {
     await this.write(
-      `UPDATE assistant_conversations SET pinned = ?2 WHERE user_id = ?1 AND id = ?3`,
+      `UPDATE chat_conversations SET pinned = ?2 WHERE user_id = ?1 AND id = ?3`,
       pinned ? 1 : 0, id,
     )
   }
 
   async setSummary(id: string, summary: string, upto: number): Promise<void> {
     await this.write(
-      `UPDATE assistant_conversations SET summary = ?2, summary_upto = ?3 WHERE user_id = ?1 AND id = ?4`,
+      `UPDATE chat_conversations SET summary = ?2, summary_upto = ?3 WHERE user_id = ?1 AND id = ?4`,
       summary.slice(0, 4000), upto, id,
     )
   }
 
   async deleteConversation(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
-    await this.write(`DELETE FROM assistant_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`, id)
-    await this.write(`DELETE FROM assistant_active_runs WHERE user_id = ?1 AND conversation_id = ?2`, id)
-    await this.write(`DELETE FROM assistant_conversations WHERE id = ?2`, id)
+    await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    await this.write(`DELETE FROM chat_conversations WHERE id = ?2`, id)
   }
 
   async deleteAllConversations(): Promise<number> {
     const before = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM assistant_conversations WHERE user_id = ?1`,
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1`,
       this.userId,
     )
-    await this.write(`DELETE FROM assistant_messages WHERE user_id = ?1`)
-    await this.write(`DELETE FROM assistant_pending_actions WHERE user_id = ?1`)
-    await this.write(`DELETE FROM assistant_active_runs WHERE user_id = ?1`)
-    await this.write(`DELETE FROM assistant_conversations WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_messages WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1`)
     return before?.n ?? 0
   }
 
   async messages(conversationId: string, limit = 500): Promise<AssistantMessage[]> {
     const list = await this.rows<MessageRow>(
       `SELECT ${MESSAGE_COLUMNS} FROM (
-         SELECT rowid AS seq, ${MESSAGE_COLUMNS} FROM assistant_messages
+         SELECT rowid AS seq, ${MESSAGE_COLUMNS} FROM chat_messages
           WHERE user_id = ?1 AND conversation_id = ?2
           ORDER BY created_at DESC, seq DESC LIMIT ?3
        ) ORDER BY ${MESSAGE_ORDER}`,
@@ -612,14 +612,14 @@ export class AssistantStore {
     const source = input.source ?? 'chat'
     const usage = input.usage ?? null
     await this.write(
-      `INSERT INTO assistant_messages
+      `INSERT INTO chat_messages
          (id, user_id, conversation_id, role, content, tools, status, error, source, input_tokens, output_tokens, created_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
       id, input.conversationId, input.role, input.content, JSON.stringify(tools), status, error, source,
       usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, at,
     )
     await this.write(
-      `UPDATE assistant_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
+      `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
       Math.max(at, Date.now()), input.conversationId,
     )
     return {
@@ -637,12 +637,12 @@ export class AssistantStore {
   }
 
   async deleteMessage(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_messages WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   async lastMessage(conversationId: string): Promise<AssistantMessage | null> {
     const r = await this.one<MessageRow>(
-      `SELECT ${MESSAGE_COLUMNS} FROM assistant_messages
+      `SELECT ${MESSAGE_COLUMNS} FROM chat_messages
         WHERE user_id = ?1 AND conversation_id = ?2 ORDER BY created_at DESC, rowid DESC LIMIT 1`,
       this.userId, conversationId,
     )
@@ -664,8 +664,8 @@ export class AssistantStore {
       case 'historical': return `status = 'historical'`
       case 'uncertain': return `status = 'uncertain'`
       case 'review': return `(status = 'uncertain' OR id IN (
-        SELECT memory_id FROM assistant_memory_reviews WHERE user_id = ?1
-        UNION SELECT other_id FROM assistant_memory_reviews WHERE user_id = ?1))`
+        SELECT memory_id FROM chat_memory_reviews WHERE user_id = ?1
+        UNION SELECT other_id FROM chat_memory_reviews WHERE user_id = ?1))`
       default: return `1 = 1`
     }
   }
@@ -676,7 +676,7 @@ export class AssistantStore {
     if (opts.query) q.raw(`content LIKE ${q.add(containsPattern(opts.query))} ESCAPE '\\'`)
     const limit = q.add(opts.limit ?? 500)
     const list = await this.rows<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM assistant_memories WHERE ${q.where} ORDER BY updated_at DESC LIMIT ${limit}`,
+      `SELECT ${MEMORY_COLUMNS} FROM chat_memories WHERE ${q.where} ORDER BY updated_at DESC LIMIT ${limit}`,
       ...q.binds,
     )
     return list.map(toMemory)
@@ -685,7 +685,7 @@ export class AssistantStore {
   async countMemories(status?: string): Promise<number> {
     const q = new Query(this.userId).raw(this.statusClause(status ?? 'all'))
     const r = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM assistant_memories WHERE ${q.where}`,
+      `SELECT count(*) AS n FROM chat_memories WHERE ${q.where}`,
       ...q.binds,
     )
     return r?.n ?? 0
@@ -707,7 +707,7 @@ export class AssistantStore {
     q.or(terms.map((term) => `content LIKE ${q.add(containsPattern(term))} ESCAPE '\\'`))
     const limitBind = q.add(limit)
     const list = await this.rows<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM assistant_memories WHERE ${q.where}
+      `SELECT ${MEMORY_COLUMNS} FROM chat_memories WHERE ${q.where}
         ORDER BY (CASE WHEN status = 'active' THEN 0 ELSE 1 END), updated_at DESC LIMIT ${limitBind}`,
       ...q.binds,
     )
@@ -716,7 +716,7 @@ export class AssistantStore {
 
   async getMemory(id: string): Promise<AssistantMemory | null> {
     const r = await this.one<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM assistant_memories WHERE user_id = ?1 AND id = ?2`,
+      `SELECT ${MEMORY_COLUMNS} FROM chat_memories WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     return r ? toMemory(r) : null
@@ -727,7 +727,7 @@ export class AssistantStore {
     const q = new Query(this.userId)
     const placeholders = ids.map((id) => q.add(id)).join(', ')
     const list = await this.rows<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM assistant_memories WHERE user_id = ?1 AND id IN (${placeholders})`,
+      `SELECT ${MEMORY_COLUMNS} FROM chat_memories WHERE user_id = ?1 AND id IN (${placeholders})`,
       ...q.binds,
     )
     return list.map(toMemory)
@@ -745,7 +745,7 @@ export class AssistantStore {
     const status = input.status ?? 'active'
     const validFrom = input.validFrom ?? null
     await this.write(
-      `INSERT INTO assistant_memories
+      `INSERT INTO chat_memories
          (id, user_id, content, category, source, status, superseded_by, valid_from, valid_until, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, NULL, ?7, NULL, ?8, ?9)`,
       id, input.content, input.category, input.source, status, validFrom, at, at,
@@ -767,20 +767,20 @@ export class AssistantStore {
   /** An identical current memory exists: refresh it rather than storing the same fact twice. */
   async findDuplicateMemory(content: string): Promise<AssistantMemory | null> {
     const r = await this.one<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM assistant_memories
+      `SELECT ${MEMORY_COLUMNS} FROM chat_memories
         WHERE user_id = ?1 AND content = ?2 COLLATE NOCASE AND status != 'historical'
         ORDER BY updated_at DESC LIMIT 1`,
       this.userId, content,
     )
     if (!r) return null
     const at = Date.now()
-    await this.write(`UPDATE assistant_memories SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`, at, r.id)
+    await this.write(`UPDATE chat_memories SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`, at, r.id)
     return toMemory({ ...r, updated_at: at })
   }
 
   async updateMemoryContent(id: string, content: string, category: AssistantMemoryCategory): Promise<AssistantMemory | null> {
     await this.write(
-      `UPDATE assistant_memories SET content = ?2, category = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?5`,
+      `UPDATE chat_memories SET content = ?2, category = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?5`,
       content, category, Date.now(), id,
     )
     return this.getMemory(id)
@@ -801,7 +801,7 @@ export class AssistantStore {
       updatedAt: Date.now(),
     }
     await this.write(
-      `UPDATE assistant_memories SET status = ?2, superseded_by = ?3, valid_from = ?4, valid_until = ?5, updated_at = ?6
+      `UPDATE chat_memories SET status = ?2, superseded_by = ?3, valid_from = ?4, valid_until = ?5, updated_at = ?6
          WHERE user_id = ?1 AND id = ?7`,
       next.status, next.supersededBy, next.validFrom, next.validUntil, next.updatedAt, id,
     )
@@ -810,7 +810,7 @@ export class AssistantStore {
 
   async predecessors(id: string): Promise<AssistantMemory[]> {
     const list = await this.rows<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM assistant_memories WHERE user_id = ?1 AND superseded_by = ?2 ORDER BY created_at`,
+      `SELECT ${MEMORY_COLUMNS} FROM chat_memories WHERE user_id = ?1 AND superseded_by = ?2 ORDER BY created_at`,
       this.userId, id,
     )
     return list.map(toMemory)
@@ -827,11 +827,11 @@ export class AssistantStore {
     const at = Date.now()
     await this.db.batch([
       this.db.prepare(
-        `UPDATE assistant_memories SET status = 'historical', superseded_by = ?2, valid_until = ?3, updated_at = ?4
+        `UPDATE chat_memories SET status = 'historical', superseded_by = ?2, valid_until = ?3, updated_at = ?4
           WHERE user_id = ?1 AND id = ?5`,
       ).bind(this.userId, newId, validUntil, at, oldId),
       this.db.prepare(
-        `DELETE FROM assistant_memory_reviews WHERE user_id = ?1
+        `DELETE FROM chat_memory_reviews WHERE user_id = ?1
           AND ((memory_id = ?2 AND other_id = ?3) OR (memory_id = ?3 AND other_id = ?2))`,
       ).bind(this.userId, newId, oldId),
     ])
@@ -839,16 +839,16 @@ export class AssistantStore {
   }
 
   async deleteMemory(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_memory_reviews WHERE user_id = ?1 AND (memory_id = ?2 OR other_id = ?2)`, id)
-    await this.write(`UPDATE assistant_memories SET superseded_by = NULL WHERE user_id = ?1 AND superseded_by = ?2`, id)
-    await this.write(`DELETE FROM assistant_memories WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_memory_reviews WHERE user_id = ?1 AND (memory_id = ?2 OR other_id = ?2)`, id)
+    await this.write(`UPDATE chat_memories SET superseded_by = NULL WHERE user_id = ?1 AND superseded_by = ?2`, id)
+    await this.write(`DELETE FROM chat_memories WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   async deleteAllMemories(): Promise<number> {
-    const before = await this.one<{ n: number }>(`SELECT count(*) AS n FROM assistant_memories WHERE user_id = ?1`, this.userId)
-    await this.write(`DELETE FROM assistant_memory_reviews WHERE user_id = ?1`)
-    await this.write(`DELETE FROM assistant_memories WHERE user_id = ?1`)
-    await this.write(`DELETE FROM assistant_activity WHERE user_id = ?1 AND type = 'memory.created'`)
+    const before = await this.one<{ n: number }>(`SELECT count(*) AS n FROM chat_memories WHERE user_id = ?1`, this.userId)
+    await this.write(`DELETE FROM chat_memory_reviews WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_memories WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_activity WHERE user_id = ?1 AND type = 'memory.created'`)
     return before?.n ?? 0
   }
 
@@ -859,14 +859,14 @@ export class AssistantStore {
     reason: string
   }): Promise<MemoryReviewRow | null> {
     const existing = await this.one<MemoryReviewRow>(
-      `SELECT * FROM assistant_memory_reviews WHERE user_id = ?1 AND memory_id = ?2 AND other_id = ?3`,
+      `SELECT * FROM chat_memory_reviews WHERE user_id = ?1 AND memory_id = ?2 AND other_id = ?3`,
       this.userId, input.memoryId, input.otherId,
     )
     if (existing) return existing
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO assistant_memory_reviews (id, user_id, memory_id, other_id, relationship, reason, created_at)
+      `INSERT INTO chat_memory_reviews (id, user_id, memory_id, other_id, relationship, reason, created_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7)`,
       id, input.memoryId, input.otherId, input.relationship, input.reason.slice(0, 60), at,
     )
@@ -883,7 +883,7 @@ export class AssistantStore {
   /** Reviews whose two memories still exist; a review left pointing at a deleted memory is removed. */
   async listReviews(limit = 50): Promise<MemoryReview[]> {
     const stored = await this.rows<MemoryReviewRow>(
-      `SELECT * FROM assistant_memory_reviews WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2`,
+      `SELECT * FROM chat_memory_reviews WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2`,
       this.userId, limit,
     )
     if (!stored.length) return []
@@ -912,16 +912,16 @@ export class AssistantStore {
   }
 
   async getReview(id: string): Promise<MemoryReviewRow | null> {
-    return this.one<MemoryReviewRow>(`SELECT * FROM assistant_memory_reviews WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    return this.one<MemoryReviewRow>(`SELECT * FROM chat_memory_reviews WHERE user_id = ?1 AND id = ?2`, this.userId, id)
   }
 
   async deleteReview(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_memory_reviews WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_memory_reviews WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   async deleteReviewsBetween(a: string, b: string): Promise<void> {
     await this.write(
-      `DELETE FROM assistant_memory_reviews WHERE user_id = ?1 AND ((memory_id = ?2 AND other_id = ?3) OR (memory_id = ?3 AND other_id = ?2))`,
+      `DELETE FROM chat_memory_reviews WHERE user_id = ?1 AND ((memory_id = ?2 AND other_id = ?3) OR (memory_id = ?3 AND other_id = ?2))`,
       a, b,
     )
   }
@@ -961,14 +961,14 @@ export class AssistantStore {
       ? `completed_at DESC`
       : `CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, ${TASK_PRIORITY_ORDER}, created_at ASC`
     const list = await this.rows<TaskRow>(
-      `SELECT * FROM assistant_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}`,
+      `SELECT * FROM chat_tasks WHERE ${q.where} ORDER BY ${order} LIMIT ${limit}`,
       ...q.binds,
     )
     return list.map(toTask)
   }
 
   async getTask(id: string): Promise<Task | null> {
-    const r = await this.one<TaskRow>(`SELECT * FROM assistant_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    const r = await this.one<TaskRow>(`SELECT * FROM chat_tasks WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     return r ? toTask(r) : null
   }
 
@@ -989,7 +989,7 @@ export class AssistantStore {
       completedAt: status === 'done' ? at : null,
     }
     await this.write(
-      `INSERT INTO assistant_tasks
+      `INSERT INTO chat_tasks
          (id, user_id, title, description, status, priority, due_at, project_id, created_at, updated_at, completed_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
       id, task.title, task.description, task.status, task.priority, task.dueAt, task.projectId, at, at, task.completedAt,
@@ -1015,7 +1015,7 @@ export class AssistantStore {
       next.completedAt = patch.status === 'done' ? at : null
     }
     await this.write(
-      `UPDATE assistant_tasks SET title = ?2, description = ?3, status = ?4, priority = ?5, due_at = ?6,
+      `UPDATE chat_tasks SET title = ?2, description = ?3, status = ?4, priority = ?5, due_at = ?6,
               project_id = ?7, updated_at = ?8, completed_at = ?9 WHERE user_id = ?1 AND id = ?10`,
       next.title, next.description, next.status, next.priority, next.dueAt, next.projectId, at, next.completedAt, id,
     )
@@ -1023,7 +1023,7 @@ export class AssistantStore {
   }
 
   async deleteTask(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_tasks WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_tasks WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   /** By id, or by a title match that is unambiguous: the assistant must not guess which task was meant. */
@@ -1031,7 +1031,7 @@ export class AssistantStore {
     const direct = await this.getTask(ref)
     if (direct) return direct
     const list = await this.rows<TaskRow>(
-      `SELECT * FROM assistant_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
+      `SELECT * FROM chat_tasks WHERE user_id = ?1 AND title LIKE ?2 ESCAPE '\\'
         ORDER BY status = 'done', updated_at DESC LIMIT 2`,
       this.userId, containsPattern(ref),
     )
@@ -1042,20 +1042,20 @@ export class AssistantStore {
 
   async listProjects(): Promise<Project[]> {
     const list = await this.rows<ProjectRow>(
-      `SELECT * FROM assistant_projects WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
+      `SELECT * FROM chat_projects WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
       this.userId,
     )
     return list.map(toProject)
   }
 
   async getProject(id: string): Promise<Project | null> {
-    const r = await this.one<ProjectRow>(`SELECT * FROM assistant_projects WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    const r = await this.one<ProjectRow>(`SELECT * FROM chat_projects WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     return r ? toProject(r) : null
   }
 
   async findProjectByName(name: string): Promise<Project | null> {
     const r = await this.one<ProjectRow>(
-      `SELECT * FROM assistant_projects WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      `SELECT * FROM chat_projects WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
       this.userId, name.trim(),
     )
     return r ? toProject(r) : null
@@ -1067,7 +1067,7 @@ export class AssistantStore {
     const name = input.name.trim()
     const description = input.description ?? ''
     await this.write(
-      `INSERT INTO assistant_projects (id, user_id, name, description, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
+      `INSERT INTO chat_projects (id, user_id, name, description, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
       id, name, description, at, at,
     )
     return { id, name, description, createdAt: at, updatedAt: at }
@@ -1083,15 +1083,15 @@ export class AssistantStore {
       updatedAt: Date.now(),
     }
     await this.write(
-      `UPDATE assistant_projects SET name = ?2, description = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?5`,
+      `UPDATE chat_projects SET name = ?2, description = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?5`,
       next.name, next.description, next.updatedAt, id,
     )
     return next
   }
 
   async deleteProject(id: string): Promise<void> {
-    await this.write(`UPDATE assistant_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
-    await this.write(`DELETE FROM assistant_projects WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`UPDATE chat_tasks SET project_id = NULL WHERE user_id = ?1 AND project_id = ?2`, id)
+    await this.write(`DELETE FROM chat_projects WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   async resolveProject(ref: string): Promise<Project | null> {
@@ -1102,7 +1102,7 @@ export class AssistantStore {
 
   async listAutomations(): Promise<Automation[]> {
     const list = await this.rows<AutomationRow>(
-      `SELECT * FROM assistant_automations WHERE user_id = ?1
+      `SELECT * FROM chat_automations WHERE user_id = ?1
         ORDER BY enabled DESC, (next_run IS NULL), next_run ASC, created_at DESC`,
       this.userId,
     )
@@ -1110,7 +1110,7 @@ export class AssistantStore {
   }
 
   async getAutomation(id: string): Promise<Automation | null> {
-    const r = await this.one<AutomationRow>(`SELECT * FROM assistant_automations WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    const r = await this.one<AutomationRow>(`SELECT * FROM chat_automations WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     return r ? (toAutomation(r)[0] ?? null) : null
   }
 
@@ -1126,7 +1126,7 @@ export class AssistantStore {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO assistant_automations
+      `INSERT INTO chat_automations
          (id, user_id, name, kind, message, schedule, enabled, status, next_run, run_count, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11)`,
       id, input.name, input.kind, input.message, JSON.stringify(input.schedule),
@@ -1186,18 +1186,18 @@ export class AssistantStore {
     assign('updated_at', Date.now())
     binds.push(id)
     await this.db.prepare(
-      `UPDATE assistant_automations SET ${sets.join(', ')} WHERE user_id = ?1 AND id = ?${binds.length}`,
+      `UPDATE chat_automations SET ${sets.join(', ')} WHERE user_id = ?1 AND id = ?${binds.length}`,
     ).bind(...binds).run()
   }
 
   async deleteAutomation(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_automations WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_automations WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   async startRun(automation: Automation): Promise<string> {
     const id = newId()
     await this.write(
-      `INSERT INTO assistant_runs (id, user_id, automation_id, automation_name, started_at, status)
+      `INSERT INTO chat_runs (id, user_id, automation_id, automation_name, started_at, status)
        VALUES (?2, ?1, ?3, ?4, ?5, 'running')`,
       id, automation.id, automation.name, Date.now(),
     )
@@ -1206,14 +1206,14 @@ export class AssistantStore {
 
   async finishRun(runId: string, status: AutomationRun['status'], result: string | null, error: string | null): Promise<void> {
     await this.write(
-      `UPDATE assistant_runs SET status = ?2, result = ?3, error = ?4, finished_at = ?5 WHERE user_id = ?1 AND id = ?6`,
+      `UPDATE chat_runs SET status = ?2, result = ?3, error = ?4, finished_at = ?5 WHERE user_id = ?1 AND id = ?6`,
       status, result?.slice(0, 4000) ?? null, error?.slice(0, 1000) ?? null, Date.now(), runId,
     )
   }
 
   async listRuns(limit = 30): Promise<AutomationRun[]> {
     const list = await this.rows<RunRow>(
-      `SELECT * FROM assistant_runs WHERE user_id = ?1 ORDER BY started_at DESC LIMIT ?2`,
+      `SELECT * FROM chat_runs WHERE user_id = ?1 ORDER BY started_at DESC LIMIT ?2`,
       this.userId, limit,
     )
     return list.map(toRun)
@@ -1221,8 +1221,8 @@ export class AssistantStore {
 
   async pruneRuns(keep = 200): Promise<void> {
     await this.write(
-      `DELETE FROM assistant_runs WHERE user_id = ?1 AND id NOT IN (
-         SELECT id FROM assistant_runs WHERE user_id = ?1 ORDER BY started_at DESC LIMIT ?2
+      `DELETE FROM chat_runs WHERE user_id = ?1 AND id NOT IN (
+         SELECT id FROM chat_runs WHERE user_id = ?1 ORDER BY started_at DESC LIMIT ?2
        )`,
       keep,
     )
@@ -1235,7 +1235,7 @@ export class AssistantStore {
     if (opts.unreadOnly) q.raw(`read_at IS NULL`)
     const limit = q.add(opts.limit ?? 50)
     const list = await this.rows<NotificationRow>(
-      `SELECT * FROM assistant_notifications WHERE ${q.where} ORDER BY created_at DESC LIMIT ${limit}`,
+      `SELECT * FROM chat_notifications WHERE ${q.where} ORDER BY created_at DESC LIMIT ${limit}`,
       ...q.binds,
     )
     return list.map(toNotification)
@@ -1247,7 +1247,7 @@ export class AssistantStore {
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
     await this.write(
-      `INSERT INTO assistant_notifications (id, user_id, title, body, automation_id, created_at)
+      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, created_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
       id, title, body, input.automationId ?? null, at,
     )
@@ -1256,7 +1256,7 @@ export class AssistantStore {
 
   async unreadCount(): Promise<number> {
     const r = await this.one<{ n: number }>(
-      `SELECT count(*) AS n FROM assistant_notifications WHERE user_id = ?1 AND read_at IS NULL`,
+      `SELECT count(*) AS n FROM chat_notifications WHERE user_id = ?1 AND read_at IS NULL`,
       this.userId,
     )
     return r?.n ?? 0
@@ -1264,14 +1264,14 @@ export class AssistantStore {
 
   async markRead(id?: string): Promise<void> {
     if (id) {
-      await this.write(`UPDATE assistant_notifications SET read_at = ?2 WHERE user_id = ?1 AND id = ?3`, Date.now(), id)
+      await this.write(`UPDATE chat_notifications SET read_at = ?2 WHERE user_id = ?1 AND id = ?3`, Date.now(), id)
       return
     }
-    await this.write(`UPDATE assistant_notifications SET read_at = ?2 WHERE user_id = ?1 AND read_at IS NULL`, Date.now())
+    await this.write(`UPDATE chat_notifications SET read_at = ?2 WHERE user_id = ?1 AND read_at IS NULL`, Date.now())
   }
 
   async deleteNotification(id: string): Promise<void> {
-    await this.write(`DELETE FROM assistant_notifications WHERE user_id = ?1 AND id = ?2`, id)
+    await this.write(`DELETE FROM chat_notifications WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   // --------------------------------------------------------- pending actions
@@ -1282,7 +1282,7 @@ export class AssistantStore {
     const expires = at + PENDING_ACTION_TTL_MS
     const label = input.targetLabel.slice(0, 300)
     await this.write(
-      `INSERT INTO assistant_pending_actions
+      `INSERT INTO chat_pending_actions
          (id, user_id, conversation_id, tool, target_id, target_label, status, created_at, expires_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, 'pending', ?7, ?8)`,
       id, input.conversationId, input.tool, input.targetId, label, at, expires,
@@ -1302,7 +1302,7 @@ export class AssistantStore {
 
   async getPendingAction(id: string): Promise<PendingAction | null> {
     const r = await this.one<ActionRow>(
-      `SELECT * FROM assistant_pending_actions WHERE user_id = ?1 AND id = ?2`,
+      `SELECT * FROM chat_pending_actions WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
     return r ? toAction(r) : null
@@ -1311,7 +1311,7 @@ export class AssistantStore {
   /** Claims a pending action exactly once; false means another press already handled it. */
   async claimPendingAction(id: string, status: 'approved' | 'cancelled'): Promise<boolean> {
     return await this.write(
-      `UPDATE assistant_pending_actions SET status = ?2, resolved_at = ?3
+      `UPDATE chat_pending_actions SET status = ?2, resolved_at = ?3
          WHERE user_id = ?1 AND id = ?4 AND status = 'pending'`,
       status, Date.now(), id,
     ) > 0
@@ -1319,7 +1319,7 @@ export class AssistantStore {
 
   async resolvePendingAction(id: string, patch: { status: PendingActionStatus, error?: string | null }): Promise<void> {
     await this.write(
-      `UPDATE assistant_pending_actions SET status = ?2, error = ?3, resolved_at = ?4 WHERE user_id = ?1 AND id = ?5`,
+      `UPDATE chat_pending_actions SET status = ?2, error = ?3, resolved_at = ?4 WHERE user_id = ?1 AND id = ?5`,
       patch.status, patch.error ?? null, Date.now(), id,
     )
   }
@@ -1332,7 +1332,7 @@ export class AssistantStore {
    */
   async actionStatesForConversation(conversationId: string): Promise<Map<string, PendingAction>> {
     const list = await this.rows<ActionRow>(
-      `SELECT * FROM assistant_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`,
+      `SELECT * FROM chat_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`,
       this.userId, conversationId,
     )
     const out = new Map<string, PendingAction>()
@@ -1346,18 +1346,18 @@ export class AssistantStore {
   /** Rewrites one tool entry inside a stored message's `tools` JSON. */
   async attachActionToMessage(messageId: string, toolId: string, action: PendingAction): Promise<void> {
     const r = await this.one<{ tools: string | null }>(
-      `SELECT tools FROM assistant_messages WHERE user_id = ?1 AND id = ?2`,
+      `SELECT tools FROM chat_messages WHERE user_id = ?1 AND id = ?2`,
       this.userId, messageId,
     )
     if (!r) return
     const tools = decodeTools(r.tools).map((tool) => (tool.id === toolId ? { ...tool, approval: action } : tool))
-    await this.write(`UPDATE assistant_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(tools), messageId)
+    await this.write(`UPDATE chat_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(tools), messageId)
   }
 
   /** Which message holds a proposal, so approving it can refresh the right bubble. */
   async messageForAction(actionId: string): Promise<{ messageId: string, toolId: string } | null> {
     const list = await this.rows<{ id: string, tools: string | null }>(
-      `SELECT id, tools FROM assistant_messages WHERE user_id = ?1 AND tools LIKE ?2`,
+      `SELECT id, tools FROM chat_messages WHERE user_id = ?1 AND tools LIKE ?2`,
       this.userId, `%${actionId}%`,
     )
     for (const r of list) {
@@ -1378,7 +1378,7 @@ export class AssistantStore {
    * that fails the statement — and a failing statement here would mark a finished answer as an error.
    */
   async incrementUsage(counters: Partial<UsageCounters>, day = usageDay()): Promise<void> {
-    await this.write(`INSERT INTO assistant_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, day)
+    await this.write(`INSERT INTO chat_usage_daily (user_id, day) VALUES (?1, ?2) ON CONFLICT(user_id, day) DO NOTHING`, day)
     const sets: string[] = []
     const binds: unknown[] = [this.userId, day]
     for (const [key, amount] of Object.entries(counters) as [keyof UsageCounters, number][]) {
@@ -1388,7 +1388,7 @@ export class AssistantStore {
       sets.push(`${column} = ${column} + ?${binds.length}`)
     }
     if (!sets.length) return
-    await this.db.prepare(`UPDATE assistant_usage_daily SET ${sets.join(', ')} WHERE user_id = ?1 AND day = ?2`)
+    await this.db.prepare(`UPDATE chat_usage_daily SET ${sets.join(', ')} WHERE user_id = ?1 AND day = ?2`)
       .bind(...binds).run()
   }
 
@@ -1397,7 +1397,7 @@ export class AssistantStore {
       `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
               COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
               COALESCE(SUM(scheduled_runs),0) AS scheduled_runs, COALESCE(SUM(errors),0) AS errors
-         FROM assistant_usage_daily WHERE user_id = ?1 AND day >= ?2 AND day <= ?3`,
+         FROM chat_usage_daily WHERE user_id = ?1 AND day >= ?2 AND day <= ?3`,
       this.userId, from, to,
     )
     if (!r) return { ...EMPTY_USAGE }
@@ -1420,19 +1420,19 @@ export class AssistantStore {
 
   async recordActivity(type: string, summary: string): Promise<void> {
     await this.write(
-      `INSERT INTO assistant_activity (id, user_id, type, summary, created_at) VALUES (?2, ?1, ?3, ?4, ?5)`,
+      `INSERT INTO chat_activity (id, user_id, type, summary, created_at) VALUES (?2, ?1, ?3, ?4, ?5)`,
       newId(), type.slice(0, 60), summary.slice(0, 500), Date.now(),
     )
     await this.write(
-      `DELETE FROM assistant_activity WHERE user_id = ?1 AND id NOT IN (
-         SELECT id FROM assistant_activity WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 500
+      `DELETE FROM chat_activity WHERE user_id = ?1 AND id NOT IN (
+         SELECT id FROM chat_activity WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 500
        )`,
     )
   }
 
   async listActivity(limit = 100): Promise<ActivityRow[]> {
     return this.rows<ActivityRow>(
-      `SELECT id, type, summary, created_at FROM assistant_activity WHERE user_id = ?1
+      `SELECT id, type, summary, created_at FROM chat_activity WHERE user_id = ?1
         ORDER BY created_at DESC LIMIT ?2`,
       this.userId, limit,
     )
@@ -1446,7 +1446,7 @@ export class AssistantStore {
    */
   async deleteActivityQuoting(type: string, summary: string): Promise<void> {
     await this.write(
-      `DELETE FROM assistant_activity WHERE user_id = ?1 AND type = ?2 AND summary = ?3`,
+      `DELETE FROM chat_activity WHERE user_id = ?1 AND type = ?2 AND summary = ?3`,
       type, summary.slice(0, 500),
     )
   }
@@ -1462,12 +1462,12 @@ export class AssistantStore {
    */
   async claimRun(conversationId: string, now = Date.now()): Promise<boolean> {
     const existing = await this.one<{ lease_until: number }>(
-      `SELECT lease_until FROM assistant_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
+      `SELECT lease_until FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
       conversationId, this.userId,
     )
     if (existing && existing.lease_until > now) return false
     await this.db.prepare(
-      `INSERT INTO assistant_active_runs (conversation_id, user_id, started_at, lease_until)
+      `INSERT INTO chat_active_runs (conversation_id, user_id, started_at, lease_until)
        VALUES (?1, ?2, ?3, ?4)
        ON CONFLICT(user_id, conversation_id) DO UPDATE SET started_at = excluded.started_at, lease_until = excluded.lease_until`,
     ).bind(conversationId, this.userId, now, now + RUN_LEASE_MS).run()
@@ -1475,18 +1475,18 @@ export class AssistantStore {
   }
 
   async renewRun(conversationId: string, now = Date.now()): Promise<void> {
-    await this.db.prepare(`UPDATE assistant_active_runs SET lease_until = ?2 WHERE conversation_id = ?1 AND user_id = ?3`)
+    await this.db.prepare(`UPDATE chat_active_runs SET lease_until = ?2 WHERE conversation_id = ?1 AND user_id = ?3`)
       .bind(conversationId, now + RUN_LEASE_MS, this.userId).run()
   }
 
   async releaseRun(conversationId: string): Promise<void> {
-    await this.db.prepare(`DELETE FROM assistant_active_runs WHERE conversation_id = ?1 AND user_id = ?2`)
+    await this.db.prepare(`DELETE FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`)
       .bind(conversationId, this.userId).run()
   }
 
   async isRunning(conversationId: string, now = Date.now()): Promise<boolean> {
     const r = await this.one<{ lease_until: number }>(
-      `SELECT lease_until FROM assistant_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
+      `SELECT lease_until FROM chat_active_runs WHERE conversation_id = ?1 AND user_id = ?2`,
       conversationId, this.userId,
     )
     if (!r) return false
@@ -1535,13 +1535,13 @@ export class AssistantStore {
     const select = (table: string) => this.db.prepare(`SELECT * FROM ${table} WHERE user_id = ?1 ORDER BY created_at`)
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
     return {
-      conversations: await select('assistant_conversations'),
-      messages: await select('assistant_messages'),
-      memories: await select('assistant_memories'),
-      tasks: await select('assistant_tasks'),
-      projects: await select('assistant_projects'),
-      automations: await select('assistant_automations'),
-      notifications: await select('assistant_notifications'),
+      conversations: await select('chat_conversations'),
+      messages: await select('chat_messages'),
+      memories: await select('chat_memories'),
+      tasks: await select('chat_tasks'),
+      projects: await select('chat_projects'),
+      automations: await select('chat_automations'),
+      notifications: await select('chat_notifications'),
     }
   }
 }
@@ -1554,13 +1554,13 @@ export class AssistantStore {
  * that is not here is refused before any SQL is assembled.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  assistant_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'created_at', 'updated_at'],
-  assistant_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
-  assistant_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
-  assistant_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
-  assistant_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],
-  assistant_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
-  assistant_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'created_at', 'updated_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
+  chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
+  chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
+  chat_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],
+  chat_automations: ['id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'created_at', 'updated_at'],
+  chat_notifications: ['id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
 }
 
 function normaliseBind(value: unknown): string | number | null {
@@ -1586,7 +1586,7 @@ export async function dueAutomations(
   limit = 20,
 ): Promise<{ userId: string, automation: Automation }[]> {
   const { results } = await db.prepare(
-    `SELECT * FROM assistant_automations
+    `SELECT * FROM chat_automations
       WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?1
         AND (claimed_at IS NULL OR claimed_at < ?2)
       ORDER BY next_run LIMIT ?3`,
@@ -1594,7 +1594,7 @@ export async function dueAutomations(
   const out: { userId: string, automation: Automation }[] = []
   for (const r of results ?? []) {
     const claimed = await db.prepare(
-      `UPDATE assistant_automations SET claimed_at = ?1
+      `UPDATE chat_automations SET claimed_at = ?1
          WHERE user_id = ?2 AND id = ?3 AND (claimed_at IS NULL OR claimed_at < ?4)`,
     ).bind(now, r.user_id, r.id, now - AUTOMATION_CLAIM_MS).run()
     if (!claimed.meta?.changes) continue
