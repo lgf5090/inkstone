@@ -11202,6 +11202,11 @@ const allowed = new Map([
   ["src/client/store/emoji-picker.ts", [
     "/** The control the panel hangs from. Null asks for the centred sheet instead. */",
   ]],
+  ["src/client/store/new-note.test.ts", [
+    "// The derivation waits 70ms. In a fast test file that is long enough to outlive the jsdom",
+    "// environment, and the callback used to clear its own (already fired) timer through `window` —",
+    "// which turned a fully green run into a failed one.",
+  ]],
   ["src/client/store/new-note.ts", [
     "/** Fresh-note construction: template expansion, caret hand-off, and title sync. */",
     "/** True when the template had no front matter for `tags` to be merged into. */",
@@ -11306,6 +11311,9 @@ const allowed = new Map([
     "// the reader changed what brand-new files look like.",
     "// An unresolvable name stays out of the way: a folderId the folder list has never",
     "// heard of files the note where nothing can reach it again.",
+    "// No clearTimeout here: this runs *from* the timer, so there is nothing left to cancel, and a",
+    "// deferred callback that reaches for `window` crashes the suite when the 70ms outlives the test",
+    "// environment — every test green, the run red.",
   ]],
   ["src/client/store/presentation.ts", [
     "// Presenting belongs to the shell, not to a workspace pane: crossing the mobile",

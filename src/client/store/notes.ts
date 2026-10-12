@@ -1487,7 +1487,9 @@ function commitPendingSummaryDerivation(id: string): void {
     const pending = pendingSummaryDerivations.get(id);
     if (!pending)
         return;
-    window.clearTimeout(pending.timer);
+    // No clearTimeout here: this runs *from* the timer, so there is nothing left to cancel, and a
+    // deferred callback that reaches for `window` crashes the suite when the 70ms outlives the test
+    // environment — every test green, the run red.
     pendingSummaryDerivations.delete(id);
     let shellChanged = false;
     pending.set((state) => {
