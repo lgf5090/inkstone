@@ -301,6 +301,8 @@ export interface AssistantConversation {
   id: string
   title: string
   pinned: boolean
+  /** The reader's own shortlist, separate from the pinned order the list opens in. */
+  starred: boolean
   /** A folder from the notebook's own tree; null means the conversation is unfiled. */
   folderId: string | null
   createdAt: number

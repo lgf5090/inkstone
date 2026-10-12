@@ -9,7 +9,7 @@
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
 import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, History, MoreHorizontal, Plus, Square } from 'lucide-react'
+import { ArrowUp, History, MoreHorizontal, Plus, Square, Star } from 'lucide-react'
 import type { AssistantConversation, AssistantMessage } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -18,7 +18,7 @@ import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
 import { api } from '../../lib/api'
-import { ConversationFolders, ConversationTags, orderedFolders } from './ChatTaxonomy'
+import { ConversationTabStrip, ConversationTaxonomyPanel, orderedFolders } from './ChatTaxonomy'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
 
@@ -210,7 +210,6 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       {/* The reference project puts a start-a-chat button at the head of the list as well as in the
           thread header, and a reader scanning the list looks for it there. */}
-      <ConversationFolders />
       <div className="flex flex-col gap-2 p-2 pt-1">
         <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
           {t('assistant.chat.new')}
@@ -223,7 +222,8 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
           className="h-8 text-[12px]"
         />
       </div>
-      <ConversationTags />
+      <ConversationTabStrip />
+      <ConversationTaxonomyPanel onOpen={onPick} />
       <nav aria-label={t('assistant.chat.list')} className="no-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2">
         {!ordered.length ? (
           <p className="px-2 py-6 text-center text-[12px] text-[var(--text-quaternary)]">
@@ -320,6 +320,7 @@ function ConversationRow({
   const tagNodes = useAssistant((state) => state.tagNodes)
   const moveConversation = useAssistant((state) => state.moveConversation)
   const toggleConversationTag = useAssistant((state) => state.toggleConversationTag)
+  const starConversation = useAssistant((state) => state.starConversation)
   const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
   const anchor = useRef<HTMLSpanElement>(null)
   const title = conversation.title || t('assistant.chat.untitled')
@@ -378,6 +379,11 @@ function ConversationRow({
       >
         <span className="flex w-full min-w-0 items-center gap-1">
           {conversation.pinned && <span aria-hidden className="text-[9px] text-[var(--accent)]">●</span>}
+          {conversation.starred && (
+            <span aria-label={t('assistant.chat.tab.starred')} role="img" className="shrink-0 text-[var(--warning)]">
+              <Star size={10} className="fill-current" />
+            </span>
+          )}
           <span className="min-w-0 flex-1 truncate text-[12.5px]">{title}</span>
         </span>
         <span className="text-[10.5px] text-[var(--text-quaternary)]">{relativeTime(conversation.updatedAt)}</span>
@@ -401,6 +407,11 @@ function ConversationRow({
             id: 'pin',
             label: conversation.pinned ? t('assistant.chat.unpin') : t('assistant.chat.pin'),
             onSelect: () => void pinConversation(conversation.id, !conversation.pinned),
+          },
+          {
+            id: 'star',
+            label: conversation.starred ? t('assistant.chat.unstar') : t('assistant.chat.star'),
+            onSelect: () => void starConversation(conversation.id, !conversation.starred),
           },
           { id: 'rename', label: t('assistant.chat.rename'), onSelect: onRename },
           {

@@ -40,6 +40,11 @@ export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'setti
 
 export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'settings']
 
+/** The four pickers the conversation list's tab strip offers, in the order it draws them. */
+export type ConversationListTab = 'folders' | 'tags' | 'starred' | 'pinned'
+
+export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'tags', 'starred', 'pinned']
+
 /** What a reader has typed but the assistant has not answered yet. */
 interface LiveTurn {
   conversationId: string | null
@@ -68,6 +73,10 @@ interface AssistantState {
   /** Conversations with no folder; the tree counts the rest. */
   unfiledCount: number
   tagNodes: (ConversationTag & { count: number })[]
+  /** Which of the four pickers the list column's tab panel currently shows. */
+  listTab: ConversationListTab
+  /** The shortlists two of the tabs jump to; kept apart from the filtered main list. */
+  flagged: { starred: AssistantConversation[], pinned: AssistantConversation[] }
   activeId: string | null
   messages: AssistantMessage[]
   messagesReady: boolean
@@ -107,6 +116,9 @@ interface AssistantState {
   loadTaxonomy: () => Promise<void>
   setFolderFilter: (value: string) => Promise<void>
   setTagFilter: (tagId: string | null) => Promise<void>
+  setListTab: (tab: ConversationListTab) => Promise<void>
+  loadFlagged: () => Promise<void>
+  starConversation: (id: string, starred: boolean) => Promise<void>
   moveConversation: (id: string, folderId: string | null) => Promise<void>
   toggleConversationTag: (id: string, tagId: string, on: boolean) => Promise<void>
   openConversation: (id: string | null) => Promise<void>
@@ -208,6 +220,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   folderNodes: [],
   unfiledCount: 0,
   tagNodes: [],
+  listTab: 'folders',
+  flagged: { starred: [], pinned: [] },
   activeId: null,
   messages: [],
   messagesReady: false,
@@ -314,6 +328,23 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setTagFilter: async (tagId) => {
     set({ tagFilter: tagId })
     await get().loadConversations()
+  },
+
+  setListTab: async (tab) => {
+    set({ listTab: tab })
+    if (tab === 'starred' || tab === 'pinned') await get().loadFlagged()
+  },
+
+  loadFlagged: async () => {
+    try {
+      const [starred, pinned] = await Promise.all([
+        api.assistant.conversations({ starred: '1' }),
+        api.assistant.conversations({ pinned: '1' }),
+      ])
+      set({ flagged: { starred: starred.conversations, pinned: pinned.conversations } })
+    } catch (error) {
+      toast(error)
+    }
   },
 
   moveConversation: async (id, folderId) => {
@@ -487,6 +518,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       await api.assistant.pinConversation(id, pinned)
       await get().loadConversations()
+      await get().loadFlagged()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  starConversation: async (id, starred) => {
+    try {
+      await api.assistant.starConversation(id, starred)
+      await get().loadConversations()
+      await get().loadFlagged()
     } catch (error) {
       toast(error)
     }

@@ -708,6 +708,9 @@ const allowed = new Map([
     "// A parent that is gone (deleted elsewhere) makes the node a root rather than losing it.",
     "/** Every folder id that contains this one, roots first — used to keep an open branch visible. */",
     "/**\n * Filing conversations: the notebook's own folders and tags.\n *\n * A conversation lives in a real `folders` row and carries real `tags` rows, so one folder can hold\n * notes and chats at once and a single tag colours both. Nothing here invents a second taxonomy —\n * these two components read the counts the assistant API computes over those shared tables.\n */",
+    "/**\n * The four pickers in one strip, the same shape the notebook's sidebar uses: icon buttons in a\n * `role=\"tablist\"`, arrow keys moving the selection, and one panel below that answers to it.\n */",
+    "/** The shortlists the two flag tabs jump to; opening a row goes straight to that conversation. */",
+    "/** The panel the strip drives: one picker at a time, never two stacked lists. */",
   ]],
   ["src/client/features/chat/ChatView.tsx", [
     "/**\n * The conversation surface: the list, the thread, and the composer.\n *\n * A reply lives in the store, not here, so switching to the memory tab mid-stream does not throw the\n * answer away — the generator keeps writing into the same record and this view re-attaches to it.\n *\n * The thread is deliberately not `.ink-prose`: that class carries the note writer's measure and its\n * 42vh tail padding, which turns a one-line reply into a screen of whitespace. `ink-chat-prose` in\n * `styles/chat.css` keeps the typography and drops the page furniture.\n */",
@@ -750,6 +753,12 @@ const allowed = new Map([
     "/** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */",
     "/** Conversations with no folder; the tree counts the rest. */",
     "/** The folder tree and the tag list, both counted for conversations. */",
+    "/** The four pickers the conversation list's tab strip offers, in the order it draws them. */",
+    "/** Which of the four pickers the list column's tab panel currently shows. */",
+    "/** The shortlists two of the tabs jump to; kept apart from the filtered main list. */",
+  ]],
+  ["src/client/features/chat/chat-taxonomy.test.ts", [
+    "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
   ]],
   ["src/client/features/chat/stream.ts", [
     "/**\n * Reading the assistant's streamed reply.\n *\n * The API helper in `lib/api` parses a JSON body, which is exactly the wrong shape for a turn: the\n * reader should watch the answer arrive. So this is the one place in the app that consumes a\n * `ReadableStream` by hand, and it carries the same three headers every other write does — without\n * `X-Inkstone-Client` the worker refuses the request before it reaches the assistant.\n */",
@@ -11770,6 +11779,7 @@ const allowed = new Map([
     "/** A folder of the note tree, with how many conversations it holds. */",
     "/** Recall memories by vector as well as by shared words; needs the deployment's AI binding. */",
     "/**\n * Every settings field a client may patch, as one list rather than as a route that names them.\n *\n * A hand-copied list is how a field stops saving without any test going red: the switch renders, the\n * request goes out, and the route forwards everything except the one key nobody added.\n */",
+    "/** The reader's own shortlist, separate from the pinned order the list opens in. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12430,6 +12440,9 @@ const allowed = new Map([
     "// The account's QuickAdd choices and their options, kept beside `template_library` for the",
     "// same reason: a cleared browser and another device must both find them.",
     "/**\n * D1 refuses a batch of more than about a hundred statements, and the schema list is now well past\n * that with the assistant's tables. Local doubles accept any size, so the ceiling only shows up on a\n * real deployment — which is why the chunking lives here rather than at each call site, and why\n * `tests/schema-batch-size.test.ts` counts the calls instead of trusting the outcome.\n */",
+    "// The chat app's three later additions. Each is already in the table definition above, so only a",
+    "// database created before the round that added it needs the ALTER; `skipIfColumnExists` makes that",
+    "// a no-op on a fresh install, where the CREATE already carried the column.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -12830,6 +12843,9 @@ const allowed = new Map([
     "// The other account has neither the folder nor the tag.",
     "/** A stand-in for the Workers AI binding: deterministic, cheap, and shaped like the real answer. */",
     "// Limits and the model id travel through the same route.",
+    "// The list and the thread each spell out their own column list, so both have to carry the flag.",
+    "// The import rebuilds each row field by field, so a column it does not name is written as NULL —",
+    "// and a NOT NULL column makes the whole row disappear under INSERT OR IGNORE.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

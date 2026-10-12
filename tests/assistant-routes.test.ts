@@ -741,6 +741,54 @@ describe('filing conversations', () => {
   })
 })
 
+describe('starring and pinning', () => {
+  it('keeps the two flags apart on both read paths', async () => {
+    const one = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Starred only' })
+    const two = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Both' })
+    const idOne = one.conversation.id
+    const idTwo = two.conversation.id
+    expect(one.conversation.starred, 'a new conversation starts unstarred').toBe(false)
+
+    await call('PATCH', `/api/assistant/conversations/${idOne}`, { starred: true })
+    await call('PATCH', `/api/assistant/conversations/${idTwo}`, { starred: true, pinned: true })
+
+    const starred = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?starred=1')
+    expect(starred.conversations.map((entry) => entry.id).sort()).toEqual([idOne, idTwo].sort())
+    const pinned = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?pinned=1')
+    expect(pinned.conversations.map((entry) => entry.id)).toEqual([idTwo])
+    // The list and the thread each spell out their own column list, so both have to carry the flag.
+    const thread = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${idOne}`)
+    expect(thread.conversation.starred).toBe(true)
+    expect(thread.conversation.pinned).toBe(false)
+
+    await call('PATCH', `/api/assistant/conversations/${idOne}`, { starred: false })
+    const after = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?starred=1')
+    expect(after.conversations.map((entry) => entry.id)).toEqual([idTwo])
+  })
+
+  it('carries the flag through a backup round-trip', async () => {
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Kept' })
+    const id = created.conversation.id
+    await call('PATCH', `/api/assistant/conversations/${id}`, { starred: true })
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+    await call('DELETE', `/api/assistant/conversations/${id}`)
+    await call('POST', '/api/assistant/import', payload)
+    const restored = (await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')).conversations.find((entry) => entry.id === id)
+    // The import rebuilds each row field by field, so a column it does not name is written as NULL —
+    // and a NOT NULL column makes the whole row disappear under INSERT OR IGNORE.
+    expect(restored?.starred).toBe(true)
+  })
+
+  it('leaves the flag of another account alone', async () => {
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Mine' })
+    asUser(OTHER)
+    expect(await status('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { starred: true })).toBe(404)
+    asUser(USER)
+    const row = sqlite.prepare('SELECT starred FROM chat_conversations WHERE id = ?').get(created.conversation.id) as { starred: number }
+    expect(row.starred).toBe(0)
+  })
+})
+
 describe('search', () => {
   it('finds conversations by title and by message body', async () => {
     const tea = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: '喝茶习惯' })

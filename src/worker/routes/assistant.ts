@@ -93,10 +93,12 @@ assistantRoutes.get('/conversations', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const folder = c.req.query('folder')
   const tag = c.req.query('tag')?.trim().slice(0, 26)
-  const filter: { folderId?: string | null, tagId?: string } = {}
+  const filter: { folderId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean } = {}
   // `folder=none` is the unfiled view; an absent parameter is the whole list.
   if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
   if (tag) filter.tagId = tag
+  if (c.req.query('starred') === '1') filter.starred = true
+  if (c.req.query('pinned') === '1') filter.pinned = true
   return c.json({ conversations: await store(c).listConversations(query || undefined, filter) })
 })
 
@@ -143,9 +145,10 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
+  if (typeof body.starred === 'boolean') await s.setConversationStarred(id, body.starred)
   if (body.folderId === null) await s.setConversationFolder(id, null)
   else if (typeof body.folderId === 'string') {
     if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')

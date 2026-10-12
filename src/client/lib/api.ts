@@ -663,7 +663,7 @@ export const api = {
    * these routes, and nothing in the notebook calls them.
    */
   assistant: {
-    conversations: (params: { q?: string, folder?: string, tag?: string } = {}) =>
+    conversations: (params: { q?: string, folder?: string, tag?: string, starred?: string, pinned?: string } = {}) =>
       request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
     createConversation: (title?: string, folderId?: string | null) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
@@ -687,6 +687,8 @@ export const api = {
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
     pinConversation: (id: string, pinned: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
+    starConversation: (id: string, starred: boolean) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { starred } }),
     deleteConversation: (id: string) =>
       request<{ deleted: true }>(`/api/assistant/conversations/${id}`, { method: 'DELETE' }),
     deleteConversations: () =>

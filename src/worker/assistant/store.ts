@@ -524,7 +524,7 @@ export class AssistantStore {
    */
   async listConversations(
     query?: string,
-    filter: { folderId?: string | null, tagId?: string, limit?: number } = {},
+    filter: { folderId?: string | null, tagId?: string, starred?: boolean, pinned?: boolean, limit?: number } = {},
   ): Promise<AssistantConversation[]> {
     const limit = filter.limit ?? 100
     const q = new Query(this.userId)
@@ -534,6 +534,8 @@ export class AssistantStore {
       if (!ids) q.raw('folder_id IS NULL')
       else q.inList('folder_id', ids)
     }
+    if (filter.starred) q.raw('starred = 1')
+    if (filter.pinned) q.raw('pinned = 1')
     if (filter.tagId) {
       const tag = q.add(filter.tagId)
       q.raw(`EXISTS (SELECT 1 FROM chat_conversation_tags ct
@@ -548,7 +550,7 @@ export class AssistantStore {
     }
     const limitBind = q.add(limit)
     const list = await this.rows<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.folder_id, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
@@ -689,7 +691,7 @@ export class AssistantStore {
 
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.folder_id, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.folder_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
@@ -704,13 +706,20 @@ export class AssistantStore {
       `INSERT INTO chat_conversations (id, user_id, title, folder_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
       id, title, folderId, at, at,
     )
-    return { id, title, pinned: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
   async renameConversation(id: string, title: string): Promise<void> {
     await this.write(
       `UPDATE chat_conversations SET title = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
       title, Date.now(), id,
+    )
+  }
+
+  async setConversationStarred(id: string, starred: boolean): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET starred = ?2 WHERE user_id = ?1 AND id = ?3`,
+      starred ? 1 : 0, id,
     )
   }
 
@@ -1821,7 +1830,7 @@ export class AssistantStore {
  * that is not here is refused before any SQL is assembled.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'folder_id', 'created_at', 'updated_at'],
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
@@ -1962,6 +1971,7 @@ interface ConversationRow {
   summary: string | null
   summary_upto: number | null
   pinned: number
+  starred: number
   folder_id: string | null
   created_at: number
   updated_at: number
@@ -1973,6 +1983,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     id: r.id,
     title: r.title,
     pinned: bool(r.pinned),
+    starred: bool(r.starred),
     folderId: r.folder_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

@@ -119,6 +119,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       summary: null,
       summary_upto: null,
       pinned: numberValue(conversation.pinned),
+      starred: numberValue(conversation.starred),
       // A folder belongs to the notebook, not to the backup: an id the reader does not have any more
       // is dropped rather than left dangling, so the restored row shows up as unfiled.
       folder_id: typeof conversation.folder_id === 'string' && await store.knownFolder(conversation.folder_id)

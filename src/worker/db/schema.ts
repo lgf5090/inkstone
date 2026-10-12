@@ -731,6 +731,30 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE users ADD COLUMN quickadd TEXT`,
     ],
   },
+  {
+    // The chat app's three later additions. Each is already in the table definition above, so only a
+    // database created before the round that added it needs the ALTER; `skipIfColumnExists` makes that
+    // a no-op on a fresh install, where the CREATE already carried the column.
+    version: 30,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'folder_id' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN folder_id TEXT`,
+    ],
+  },
+  {
+    version: 31,
+    skipIfColumnExists: { table: 'chat_usage_daily', column: 'embeddings' },
+    statements: [
+      `ALTER TABLE chat_usage_daily ADD COLUMN embeddings INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 32,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'starred' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
