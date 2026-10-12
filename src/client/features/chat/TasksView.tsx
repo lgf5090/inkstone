@@ -16,6 +16,7 @@ import { t } from '../../lib/i18n'
 import { formatDue } from './time-format'
 import { Button } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Textarea } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { useAssistant } from './assistant-store'
@@ -272,7 +273,7 @@ function TaskEditor({ task, onClose, timezone }: { task: AssistantTask | null, o
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t('assistant.tasks.due_label')} hint={timezone}>
-            <Input type="datetime-local" value={form.due} onChange={(event) => setForm({ ...form, due: event.target.value })} />
+            <DatePicker withTime label={t('assistant.tasks.due_label')} value={form.due} onChange={(due) => setForm({ ...form, due })} />
           </Field>
           <Field label={t('assistant.tasks.project_label')} hint={t('assistant.tasks.project_optional')}>
             <Select value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}>

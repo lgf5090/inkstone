@@ -19,6 +19,7 @@ import { relativeTime } from '../../lib/time'
 import type { ReactNode } from 'react'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, Switch } from '../../components/form'
+import { DatePicker, TimeField } from '../../components/date-picker'
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { useAssistant } from './assistant-store'
@@ -282,9 +283,10 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
 
   const summary = scheduleSummary(schedule, describeDays)
   const needsMessage = kind !== 'task_digest'
-  // Only a one-off can already be in the past; a daily rule always has a next occurrence.
-  const next = schedule.type === 'once' ? computeNextRun(schedule, timezone ?? 'UTC', new Date()) : null
-  const inThePast = schedule.type === 'once' && next === null
+  // The picker can be cleared, so a one-off may have no time on it yet; only a filled one-off can be
+  // in the past, which a repeating rule never is because it always has a next occurrence.
+  const missingAt = type === 'once' && at === ''
+  const inThePast = type === 'once' && !missingAt && computeNextRun(schedule, timezone ?? 'UTC', new Date()) === null
 
   const create = () => {
     void addAutomation({
@@ -309,7 +311,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
       footer={(
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button onClick={create} disabled={(needsMessage && !message.trim()) || inThePast}>
+          <Button onClick={create} disabled={(needsMessage && !message.trim()) || inThePast || missingAt}>
             {t('assistant.automations.create')}
           </Button>
         </>
@@ -363,7 +365,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
           </Field>
           {type === 'once' ? (
             <Field label={t('assistant.automations.when')}>
-              <Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} />
+              <DatePicker withTime label={t('assistant.automations.when')} value={at} onChange={setAt} />
             </Field>
           ) : type === 'interval' ? (
             <Field label={t('assistant.automations.minutes')}>
@@ -371,7 +373,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
             </Field>
           ) : (
             <Field label={t('assistant.automations.time')}>
-              <Input type="time" value={time} onChange={(event) => setTime(event.target.value)} />
+              <TimeField label={t('assistant.automations.time')} value={time} onChange={setTime} />
             </Field>
           )}
         </div>
@@ -408,6 +410,7 @@ function AutomationForm({ open, onClose, timezone }: { open: boolean, onClose: (
         <p className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-[11.5px] text-[var(--text-secondary)]">
           {t(summary.key, summary.params ?? {})}
           {timezone && ` · ${timezone}`}
+          {missingAt && <span className="ml-1 text-[var(--danger)]">{t('assistant.automations.when_required')}</span>}
           {inThePast && <span className="ml-1 text-[var(--danger)]">{t('assistant.automations.past_warning')}</span>}
         </p>
       </div>

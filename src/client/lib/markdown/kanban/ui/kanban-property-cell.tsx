@@ -8,7 +8,7 @@ import { safeKanbanUrl } from '../url'
 import type { CSSProperties } from 'react'
 import type { KanbanFile, KanbanItem, KanbanOption, KanbanProperty, KanbanPropertyType, KanbanSort } from '../types'
 import { ColumnResizeHandle } from './kanban-column-resize-handle'
-import { KanbanDatePicker } from './kanban-date-picker'
+import { DatePicker } from '../../../../components/date-picker'
 import { KanbanFilesCell } from './kanban-files-cell'
 import { KanbanPersonPicker } from './kanban-person-picker'
 import { KanbanTagPicker } from './kanban-tag-picker'
@@ -227,8 +227,8 @@ function UrlCellValue({
 /** The one date a cell holds, through the same picker the detail panel uses. */
 function DateCellValue({ column, value, write }: { column: KanbanProperty; value: unknown; write: (next: unknown) => void }) {
   return (
-    <KanbanDatePicker
-      propertyName={formatKanbanPropertyName(column)}
+    <DatePicker
+      label={formatKanbanPropertyName(column)}
       value={readPlainText(value)}
       onChange={write}
     />

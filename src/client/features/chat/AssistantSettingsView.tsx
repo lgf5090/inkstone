@@ -5,7 +5,7 @@
  * shows only whether a key is stored — because a key that comes back to the browser can be read by any
  * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.
  */
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, KeyRound, Plus, Trash2, Upload } from 'lucide-react'
 import type { AssistantLimits, AssistantProvider, AssistantSettings } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS } from '@shared/assistant'
@@ -651,6 +651,7 @@ function BudgetTab({ settings }: { settings: AssistantSettings }) {
 }
 
 function DataTab() {
+  const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
   const [file, setFile] = useState<File | null>(null)
 
@@ -699,19 +700,29 @@ function DataTab() {
             {t('assistant.settings.export')}
           </a>
         </SettingRow>
-        <SettingRow title={t('assistant.settings.import')} description={t('assistant.settings.import_hint')}>
+        <SettingRow
+          title={t('assistant.settings.import')}
+          description={file ? file.name : t('assistant.settings.import_hint')}
+        >
           <div className="flex items-center gap-1.5">
-            <input
-              type="file"
-              accept="application/json,.json"
-              aria-label={t('assistant.settings.import')}
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              className="max-w-[170px] text-[11px] text-[var(--text-tertiary)]"
-            />
-            <Button size="sm" variant="secondary" loading={importing} disabled={!file} onClick={() => void runImport()}>
+            <Button size="sm" variant="secondary" onClick={() => fileRef.current?.click()}>
+              {t('settings.select_file')}
+            </Button>
+            <Button size="sm" loading={importing} disabled={!file} onClick={() => void runImport()}>
               <Upload size={14} />
               {t('assistant.settings.import')}
             </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(event) => {
+                const picked = event.target.files?.[0] ?? null
+                event.target.value = ''
+                setFile(picked)
+              }}
+            />
           </div>
         </SettingRow>
       </Group>
