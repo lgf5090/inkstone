@@ -4515,6 +4515,9 @@ const allowed = new Map([
     "/**\n * One book on the shelf.\n *\n * The cover carries the progress: a reader scanning a shelf is asking \"where was I?\", and a bar drawn\n * on the cover's own edge answers it in the same glance that finds the book. The caption holds only\n * what the cover cannot say, and the count of marked passages is what makes a book look worth opening\n * again rather than merely unread.\n */",
     "/** The three-dot affordance, drawn rather than imported so it sits on the same optical grid as the card. */",
   ]],
+  ["src/client/features/reading/SyncLine.tsx", [
+    "/**\n * What the shelf is doing on the wire.\n *\n * A book is tens of megabytes, so an upload without a moving bar reads as a hung app. This is the one\n * place the reader learns whether their notes are on the server yet — including the honest case, which is\n * that they are not.\n */",
+  ]],
   ["src/client/features/reading/engine/book-import.ts", [
     "/**\n * Taking a file a reader hands over and turning it into a book on the shelf.\n *\n * The format is decided by what the bytes say, never by the extension: a `.zip` renamed to `.epub`\n * and a `.cbz` that is really an EPUB are both things people do, and the reader's job is to sort them\n * out rather than to complain. Everything the shelf will show — title, author, cover, chapter list —\n * is read here once, at import, so the shelf never has to open a 40 MB archive to paint a grid.\n */",
     "/** Cheap enough to run on every dropped file before the bytes are read. */",
@@ -4813,6 +4816,7 @@ const allowed = new Map([
     "// A field owns its keystrokes. The exception is Escape while something is open over the page:",
     "// that is the reader saying \"get me out of here\", and without it the search box would be a trap.",
     "// With nothing open, Escape belongs to the field itself — the page-number box uses it to cancel.",
+    "/* A book this device never held arrives over the wire; the shelf's bar is not on this screen, so\n          the page says so itself rather than showing a spinner with no reason. */",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -4880,6 +4884,12 @@ const allowed = new Map([
     "/** Consecutive days read, counting back from today — or from yesterday if today has not started yet. */",
     "/** Merge every book's day log into one day → seconds map. */",
   ]],
+  ["src/client/features/reading/store/cloud.ts", [
+    "/**\n * The shelf's conversation with the server.\n *\n * The local IndexedDB copy stays the source the UI reads — a page must paint before any request returns —\n * and this module is what keeps the two ends in step: a debounced push of the reading state, a book's\n * bytes uploaded once, and a pull for a device that has never seen the shelf.\n *\n * Every failure here is reported rather than swallowed. A reader who thinks their notes are backed up\n * when the push failed on the third try is worse off than one who was told.\n */",
+    "/** Wall time of the last successful exchange, so the shelf can say when it last spoke to the server. */",
+    "/** The shelf as text: everything the local store holds except the book files themselves. */",
+    "/** Upload a book's bytes. The row must already exist server-side, which the push of the state does. */",
+  ]],
   ["src/client/features/reading/store/library.ts", [
     "/**\n * The reading library, held on the device.\n *\n * A book file is 2 MB to 200 MB of somebody's private reading, and this app's attachment storage is\n * quota-limited, referenced-by-note, and pruned when nothing points at it — three ways for a shelf to\n * lose a book. So the bytes go to IndexedDB under the same account namespace the note cache uses, and\n * only what a reader *writes* (highlights, the reading note) becomes a note that syncs.\n *\n * That split is deliberate and worth stating to the reader: the shelf is per device, the notes are\n * per account. The export/import pair in the settings is what carries the rest across.\n */",
     "// The store's own `set`/`get` are the zustand pair, so the IndexedDB one is named for what it does.",
@@ -4889,12 +4899,28 @@ const allowed = new Map([
     "// A full device is the realistic failure, and it is the reader's to act on, not something to",
     "// swallow: the next write would silently start a fresh shelf otherwise.",
     "/** A stable id for a book that survives re-importing the same file, so highlights are not orphaned. */",
-    "/** The bytes of a book's file, or null when this device no longer holds it. */",
     "// The file is a stranger's JSON that later decides which engine reads a book and what the shelf",
     "// paints, so every field the app trusts is checked rather than copied.",
     "/** A JSON value that can be indexed as an object rather than an array or a primitive. */",
     "/**\n * The write is debounced because a comment edit is one keystroke at a time, but the debounce is also a\n * window in which closing the tab loses the reader's work — so the pending write is flushed when the\n * document goes away rather than being left to the timer.\n */",
     "/**\n * Write whatever is pending the moment the document is being thrown away.\n *\n * Named, and registered as `pagehide` rather than `beforeunload`: this app forbids the browser's own\n * leave-page dialog, and `pagehide` is the event that still fires when the browser discards a tab\n * without asking anything of the reader.\n */",
+    "/** What the shelf is doing on the wire right now, which the header bar shows. */",
+    "/** Send the reading state up. Called on a debounce after a write, and by the shelf's sync button. */",
+    "/** Take the server's shelf. Only ever adopted when this device has nothing of its own. */",
+    "/**\n * The server copy trails the local one by a few seconds.\n *\n * A keystroke in a comment is not a request, and a reader who closes the laptop mid-sentence should not\n * lose more than the debounce is worth. `flushPendingWrites` pushes too, so leaving the page sends what\n * the debounce was still holding.\n */",
+    "// A second device or a cleared browser has nothing to lose by adopting the shelf, and everything",
+    "// to gain. A device that already has books keeps them: its next write pushes its own state up.",
+    "// The shelf's sync line carries the reason; a blank shelf is still usable offline.",
+    "// The row has to exist server-side before its bytes can be put, so the state goes up first",
+    "// and the file follows. A failure leaves the book readable on this device and says so.",
+    "// The server copy goes with it. A failure is reported by the next push, which re-sends the shelf",
+    "// without this book anyway.",
+    "/**\n * The bytes of a book's file: this device's copy if it has one, the server's otherwise.\n *\n * The download reports itself through the store's `sync`, so the reader opening a book they own but have\n * not fetched here sees a bar move rather than a spinner that never explains itself.\n */",
+    "/** A tiny seam so the free function above can report through the store without a circular import. */",
+    "// The server says which files it never received: a shelf that predates the sync, or a book whose",
+    "// upload failed while the reader was offline, catches up here rather than staying local forever.",
+    "/** One at a time: a shelf of ten books should not fill the reader's uplink and stall the page. */",
+    "// This device does not hold the file either — another one will bring it, and the row already exists.",
   ]],
   ["src/client/features/reading/store/reader-settings.ts", [
     "/**\n * How the reader wants its page to look and behave.\n *\n * These are device settings rather than account settings: type size and column count belong to the\n * screen a reader is holding, not to the person, and a phone should not inherit a desktop's 2-column\n * spread. The one thing that does travel is what the reader writes — highlights and the reading note —\n * and that lives in the library store.\n *\n * Imported font files are the exception to the localStorage rule. A face is megabytes of binary, so\n * it goes to IndexedDB and comes back as a `data:` URL, which is what this app's content policy lets a\n * page load a font from (`blob:` is not in `font-src`).\n */",
@@ -11647,6 +11673,11 @@ const allowed = new Map([
     "/** How many days this civil year has. */",
     "/** This day's position in its year, 1-based. */",
   ]],
+  ["src/client/lib/transfer.ts", [
+    "/**\n * Byte transfers that tell the reader how far they have got.\n *\n * `fetch` cannot report how much of a request body the server has taken, which is the one number a\n * 40 MB book needs while it is going up, so the upload goes through `XMLHttpRequest` — the browser API\n * that still has `upload.onprogress` — and carries the same headers the rest of the app's requests do.\n * Downloads use `fetch` and count the chunks, because that side can be streamed.\n */",
+    "/** PUT `body` to `url`, reporting bytes as they leave. Resolves with the parsed JSON response. */",
+    "/** GET `url` as a Blob, counting chunks so a slow line still shows a moving bar. */",
+  ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
     "// Quota or private-mode writes can throw; the pref stays authoritative in memory.",
@@ -11961,6 +11992,7 @@ const allowed = new Map([
     "/* The page margin and the room the floating bars need belong here, not on the chapter: a fragmented\n     block only paints its own padding on its first and last piece, so a reader's margin would vanish\n     from every page after the first — and a book's `body { padding: 0 }`, which arrives scoped to the\n     chapter, could take the margin from all of them. The measure caps how wide a line of prose gets,\n     centring what is left over as margin, which is the difference between a page and a banner. The bottom\n     reserve carries one extra line: a column's last line box can spill a line past the column height, and\n     the bar would otherwise sit on top of it. */",
     "/* What the chrome takes off a fixed page: the bar, its offset from the edge, and the progress rail\n     under it — the bars float over the *reader*, not over the stage, so the page has to clear all three.\n     The stage reads this back before it asks PDF.js how tall to paint a page, so the page that is\n     rendered is the page that fits. Plain lengths only: a `calc()` here would reach the reader as text. */",
     "/* A scanned page has no words to mark, and the reason has to be on the page rather than behind a hover\n   the reader may never make. */",
+    "/* The one message the reader cannot do without while a book arrives: how much of it is there yet. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
@@ -12364,6 +12396,10 @@ const allowed = new Map([
   ["src/worker/db/quota.ts", [
     "/**\n * Import runs hold a per-account import lease, so one count per request can budget every\n * note it inserts instead of paying a COUNT round trip per note.\n */",
   ]],
+  ["src/worker/db/reader-schema.ts", [
+    "/**\n * The reader's own tables, all prefixed `reader_` so they are recognisable in the D1 console and never\n * collide with the note tables.\n *\n * The book binaries are not here: they live in R2 under `reader/<user>/<id>.<ext>`, and `reader_books`\n * holds the key alongside the metadata. Every table is keyed on `user_id` first because the routes read\n * one account's shelf at a time, and a query that forgot the column would hand another reader's notes\n * over — the shape a `PRIMARY KEY (user_id, …)` makes impossible to write by accident.\n */",
+    "/** Where a book's bytes live. Built from the row, never accepted from a client. */",
+  ]],
   ["src/worker/db/rows.ts", [
     "/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */",
     "/** Listing columns without tags; pair with noteTagsQueryForPage so a page pays one join. */",
@@ -12409,6 +12445,10 @@ const allowed = new Map([
     "// fresh database already gets the column from SCHEMA_STATEMENTS and from version 26.",
     "// The account's QuickAdd choices and their options, kept beside `template_library` for the",
     "// same reason: a cleared browser and another device must both find them.",
+    "// The reader's shelf and reading state, so a cleared browser or a second device finds the books",
+    "// where they were left. `IF NOT EXISTS` because a fresh database already gets them from",
+    "// SCHEMA_STATEMENTS.",
+    "// The flag saying a book's file is in R2, so a shelf that predates the sync can be filled in.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -12622,6 +12662,20 @@ const allowed = new Map([
     "/** What a `property:field=value` capture target asks for. */",
     "/**\n * The notes whose property holds this value, newest first — the note-side half of the same scan, for\n * a capture target that names a property instead of a note. With no value it asks \"which notes have\n * this property at all\", which is what `property:type` means.\n */",
     "/** The notes a `property:field=value` capture target would write into. */",
+  ]],
+  ["src/worker/routes/reader-library.ts", [
+    "/**\n * The reader's shelf, on the server.\n *\n * A book is two things: the bytes, which go to R2 under `reader/<user>/<id>.<ext>`, and the account's\n * reading of it — the shelf row, the position, the highlights — which go to the `reader_*` tables. The\n * browser keeps its own copy of both (IndexedDB, so a plane reads offline), and this route is what makes\n * a second device and a cleared browser find the same shelf.\n *\n * Two rules hold it together. A client names a book by id only: the R2 key is derived here from the\n * authenticated user and the row, so no request can read or overwrite another account's file. And the\n * state arrives whole — the local store is the author of record and a push replaces what the server had,\n * which is the only merge that cannot lose a highlight to a clock skew.\n */",
+    "/** A novel is megabytes; a scanned art book is tens. Above this the reader should carry the file by hand. */",
+    "/** The whole shelf's reading state, which is text and small. */",
+    "/**\n * An identifier is checked before it is used, never trimmed into validity.\n *\n * `textOf` would slice an 80-character id down to something that passes the pattern, and the reader's\n * book would come back under a different name than it went out.\n */",
+    "/** One account's whole shelf, in the shape the local store holds it. */",
+    "/**\n * Replace the account's reading state with what the device holds.\n *\n * A full replace inside one `batch` is deliberate: the local store is the author of record, and merging\n * row by row would need a clock the two sides agree on. The book rows keep their server-side `r2_key`,\n * which a client never sends and never chooses.\n */",
+    "/**\n * The book's bytes. The row decides the extension, so the only thing a client can name is an id.\n */",
+    "/** The bytes back, with a length a download can measure itself against. */",
+    "/**\n * Ids the reader app mints itself: `book-…`, and `file:<name>:<size>` for a book identified by its file.\n *\n * Colons, dots and dashes are allowed because the shelf already uses them; what may not appear is a path\n * separator or `..`, because the id is a component of the R2 key.\n */",
+    "// Whether the bytes are in R2 is the server's fact, so a push that does not mention it keeps it.",
+    "// Telling the device which files are still missing is what lets a shelf that predates the sync — or a",
+    "// book that was on the device when the last push failed — catch up without a second round trip.",
   ]],
   ["src/worker/routes/reading.ts", [
     "/**\n * Word lookup and translation, through this deployment.\n *\n * The reader asks for a translation of a passage it selected, and the answer comes from a free\n * public endpoint that only speaks to a server: the browser cannot call it directly (the app's\n * `connect-src` allows only this origin), and asking the client to name an arbitrary URL would turn a\n * translation button into a redirector. So the target host is fixed here, and the only thing a caller\n * chooses is the text and the language.\n *\n * The AI engine is deliberately absent from this route: an AI translation goes through the reader's own\n * configured provider and the existing `/api/ai` relay, which is where that credential belongs.\n */",
@@ -13059,6 +13113,11 @@ const allowed = new Map([
     "// The three bounds above are only worth having if the scan they cap is slow enough to notice. This",
     "// is the measurement behind the round-5 ledger entry: a full window of realistic notes, timed.",
   ]],
+  ["tests/reader-library-route.test.ts", [
+    "// A day key that is not a date is dropped rather than stored as noise.",
+    "// Bob cannot name Alice's book and have its bytes arrive.",
+    "// A client that sends its own key changes nothing: the row keeps the server's.",
+  ]],
   ["tests/reading-anchors.test.ts", [
     "// The offsets are nonsense (the edition moved), so only the context can say which of the two",
     "// identical sentences this highlight was made on.",
@@ -13232,6 +13291,9 @@ const allowed = new Map([
     "// built-in `text-base` into `color: var(--bg-base)` - the page background, i.e. invisible text -",
     "// and takes the size with it. The collision is invisible in the source and only shows in the",
     "// rendered sheet, so the name itself is what has to be policed.",
+  ]],
+  ["tests/transfer-progress.test.ts", [
+    "/**\n * The two progress contracts, measured rather than assumed.\n *\n * A bar that never moves is worse than no bar, and neither half of this can be seen on a 14 kB fixture in\n * a browser — the whole body arrives in one read. So the chunk arithmetic is pinned here, where a stream\n * can be fed deliberately.\n */",
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",

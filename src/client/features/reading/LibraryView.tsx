@@ -19,6 +19,7 @@ import { useLibrary } from './store/library'
 import { hasBookExtension } from './engine/book-import'
 import { dropBookHandle } from './reader/useEpubHandle'
 import { ShelfCard } from './ShelfCard'
+import { SyncLine } from './SyncLine'
 import type { BookRecord, ImportFailure } from './types'
 
 const FAILURE_KEYS = {
@@ -273,6 +274,10 @@ export function LibraryView() {
             { value: 'progress', label: t('reading.sort_progress') },
           ]}
         />
+      </div>
+
+      <div className="shrink-0 px-3">
+        <SyncLine />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">

@@ -19,7 +19,7 @@ import { useReaderSettings } from '../store/reader-settings'
 import { resolveReaderTheme, type ReaderThemeName } from '../themes'
 import type { BookPosition } from '../position'
 import { formatReadingSeconds } from '../format-time'
-import { decodePosition } from '../position'
+import { decodePosition, formatPercent } from '../position'
 import type { BookRecord, Highlight } from '../types'
 import { useEpubHandle } from './useEpubHandle'
 import { FixedStage, type FixedStageHandle } from './FixedStage'
@@ -64,6 +64,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const [selection, setSelection] = useState<StageSelection | null>(null)
   const [comment, setComment] = useState<{ ids: string[]; rect: DOMRect } | null>(null)
   const [lookup, setLookup] = useState<{ rect: DOMRect; pending: boolean; outcome: LookupOutcome | null; error: string | null; collected: boolean } | null>(null)
+  const sync = useLibrary((state) => state.sync)
+  const downloading = sync.phase === 'downloading' && sync.bookId === book.id
+  const syncPercent = downloading && sync.total > 0 ? Math.min(1, sync.sent / sync.total) : 0
   const [chapter, setChapter] = useState(0)
   const [hudHidden, setHudHidden] = useState(false)
   const [hudPinned, setHudPinned] = useState(false)
@@ -690,6 +693,20 @@ export function ReaderView({ book }: { book: BookRecord }) {
 
       {settings.dimming > 0 ? (
         <span className="reader-dim" aria-hidden="true" style={{ opacity: settings.dimming }} />
+      ) : null}
+
+      {/* A book this device never held arrives over the wire; the shelf's bar is not on this screen, so
+          the page says so itself rather than showing a spinner with no reason. */}
+      {downloading ? (
+        <div className="reader-downloading" role="status">
+          <span className="reader-downloading-label">
+            {t('reading.sync_downloading_value0', { value0: book.title })}
+          </span>
+          <span className="reader-downloading-track">
+            <span style={{ width: `${Math.round(syncPercent * 100)}%` }} />
+          </span>
+          <span className="reader-downloading-percent">{formatPercent(syncPercent)}</span>
+        </div>
       ) : null}
 
       <div className="reader-progress-rail" aria-hidden="true">

@@ -637,6 +637,18 @@ export const api = {
         body: { filename, content },
       }),
   },
+
+  readerLibrary: {
+    get: () => request<{ ok: true; library: any }>('/api/reader/library'),
+    put: (library: unknown) => request<{ ok: true; updatedAt: number; missingBlobs: string[] }>('/api/reader/library', {
+      method: 'PUT',
+      body: { library },
+    }),
+    remove: (bookId: string) => request<{ ok: true; removed: boolean }>(`/api/reader/books/${encodeURIComponent(bookId)}`, {
+      method: 'DELETE',
+    }),
+    blobUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/blob`,
+  },
 }
 
 function toQuery(params: Record<string, string | number | undefined>): string {

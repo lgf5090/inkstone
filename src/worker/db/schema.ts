@@ -1,6 +1,7 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
+import { READER_SCHEMA_STATEMENTS } from './reader-schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -392,6 +393,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
      ON community_templates(created_at DESC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_community_templates_author
      ON community_templates(author_id)`,
+  ...READER_SCHEMA_STATEMENTS,
 ]
 
 interface SchemaMigration {
@@ -724,6 +726,21 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE users ADD COLUMN quickadd TEXT`,
     ],
   },
+  {
+    // The reader's shelf and reading state, so a cleared browser or a second device finds the books
+    // where they were left. `IF NOT EXISTS` because a fresh database already gets them from
+    // SCHEMA_STATEMENTS.
+    version: 30,
+    statements: READER_SCHEMA_STATEMENTS,
+  },
+  {
+    // The flag saying a book's file is in R2, so a shelf that predates the sync can be filled in.
+    version: 31,
+    skipIfColumnExists: { table: 'reader_books', column: 'has_blob' },
+    statements: [
+      `ALTER TABLE reader_books ADD COLUMN has_blob INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -810,6 +827,13 @@ const REQUIRED_TABLES = [
   'fts_index_queue',
   'rewrite_queue',
   'community_templates',
+  'reader_books',
+  'reader_progress',
+  'reader_highlights',
+  'reader_marks',
+  'reader_stats',
+  'reader_notes',
+  'reader_meta',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -838,6 +862,9 @@ const REQUIRED_INDEXES = [
   'idx_attachment_cleanup_user',
   'idx_import_mappings_target',
   'idx_targets_user',
+  'idx_reader_books_user',
+  'idx_reader_highlights_book',
+  'idx_reader_marks_book',
   'idx_backup_archives_retention',
   'idx_runs_user',
   'idx_shares_note',

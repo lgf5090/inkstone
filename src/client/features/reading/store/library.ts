@@ -15,6 +15,7 @@ import { createStore, del as idbRemove, get as idbGet, set as idbSet } from 'idb
 import { CLIENT_DATABASE_NAME } from '../../../lib/runtime'
 import { randomLocalId } from '../../../lib/random-id'
 import { importBook, ImportRejected } from '../engine/book-import'
+import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, type SyncState } from './cloud'
 import type {
   BookRecord,
   BookStats,
@@ -71,6 +72,12 @@ export interface LibraryState extends PersistedLibrary {
   linkVocabulary: (noteId: string | null) => void
   bookById: (id: string) => BookRecord | undefined
   highlightsOf: (bookId: string) => Highlight[]
+  /** What the shelf is doing on the wire right now, which the header bar shows. */
+  sync: SyncState
+  /** Send the reading state up. Called on a debounce after a write, and by the shelf's sync button. */
+  syncPush: () => Promise<void>
+  /** Take the server's shelf. Only ever adopted when this device has nothing of its own. */
+  syncPull: () => Promise<number>
   /** Everything but the files, as text a reader can carry to another device. */
   exportLibrary: () => Promise<string>
   importLibrary: (raw: string) => Promise<{ books: number; highlights: number; rejected: number }>
@@ -101,7 +108,28 @@ function schedulePersist(getState: () => LibraryState): void {
     })
   }
   window.clearTimeout(writeTimer)
-  writeTimer = window.setTimeout(writeNow, 400)
+  writeTimer = window.setTimeout(() => {
+    writeNow?.()
+    scheduleCloudPush(getState)
+  }, 400)
+}
+
+let pushTimer = 0
+
+/**
+ * The server copy trails the local one by a few seconds.
+ *
+ * A keystroke in a comment is not a request, and a reader who closes the laptop mid-sentence should not
+ * lose more than the debounce is worth. `flushPendingWrites` pushes too, so leaving the page sends what
+ * the debounce was still holding.
+ */
+function scheduleCloudPush(getState: () => LibraryState): void {
+  if (!pendingUser) return
+  window.clearTimeout(pushTimer)
+  pushTimer = window.setTimeout(() => {
+    const state = getState()
+    if (state.userId) void state.syncPush()
+  }, 4000)
 }
 
 /**
@@ -113,7 +141,10 @@ function schedulePersist(getState: () => LibraryState): void {
  */
 function flushPendingWrites(): void {
   window.clearTimeout(writeTimer)
+  window.clearTimeout(pushTimer)
   writeNow?.()
+  const state = useLibrary.getState()
+  if (state.userId) void state.syncPush()
 }
 
 if (typeof window !== 'undefined') {
@@ -154,6 +185,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     status: 'idle',
     covers: {},
     userId: null,
+    sync: { ...IDLE_SYNC },
 
     async bindUser(userId) {
       if (get().userId === userId && get().status === 'ready') return
@@ -166,6 +198,15 @@ export const useLibrary = create<LibraryState>((set, get) => {
         if (blob) covers[book.id] = URL.createObjectURL(blob)
       }))
       set({ ...data, covers, status: 'ready' })
+      // A second device or a cleared browser has nothing to lose by adopting the shelf, and everything
+      // to gain. A device that already has books keeps them: its next write pushes its own state up.
+      if (!data.books.length) {
+        try {
+          await get().syncPull()
+        } catch {
+          // The shelf's sync line carries the reason; a blank shelf is still usable offline.
+        }
+      }
     },
 
     async addFiles(files) {
@@ -191,6 +232,24 @@ export const useLibrary = create<LibraryState>((set, get) => {
           }
           set((state) => ({ books: [record, ...state.books] }))
           added.push(record)
+          if (userId) {
+            // The row has to exist server-side before its bytes can be put, so the state goes up first
+            // and the file follows. A failure leaves the book readable on this device and says so.
+            set({ sync: { ...IDLE_SYNC, phase: 'uploading', bookId: id, total: record.size } })
+            try {
+              const now = get()
+              await pushLibrary({
+                books: now.books, progress: now.progress, highlights: now.highlights,
+                marks: now.marks, stats: now.stats, notes: now.notes,
+              })
+              await uploadBookBytes(record, new Blob([imported.bytes as unknown as BlobPart]), (sent, total) => {
+                set((state) => ({ sync: { ...state.sync, sent, total } }))
+              })
+              set({ sync: { ...IDLE_SYNC, at: Date.now() } })
+            } catch (err) {
+              set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
+            }
+          }
         } catch (err) {
           const reason = err instanceof ImportRejected ? err.reason : 'corrupt'
           failed.push({ filename: file.name, reason })
@@ -229,6 +288,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
           notes: { ...state.notes, byBook },
         }
       })
+      // The server copy goes with it. A failure is reported by the next push, which re-sends the shelf
+      // without this book anyway.
+      void deleteBookOnServer(id).catch(() => {})
       schedulePersist(get)
     },
 
@@ -335,6 +397,53 @@ export const useLibrary = create<LibraryState>((set, get) => {
     bookById: (id) => get().books.find((book) => book.id === id),
     highlightsOf: (bookId) => get().highlights[bookId] ?? [],
 
+    async syncPush() {
+      const state = get()
+      if (!state.userId) return
+      set({ sync: { ...state.sync, phase: 'pushing', message: null } })
+      try {
+        const answer = await pushLibrary({
+          books: state.books,
+          progress: state.progress,
+          highlights: state.highlights,
+          marks: state.marks,
+          stats: state.stats,
+          notes: state.notes,
+        })
+        // The server says which files it never received: a shelf that predates the sync, or a book whose
+        // upload failed while the reader was offline, catches up here rather than staying local forever.
+        await uploadMissingBlobs(get, answer.missingBlobs)
+        set({ sync: { ...IDLE_SYNC, at: answer.at } })
+      } catch (err) {
+        set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
+      }
+    },
+
+    async syncPull() {
+      const state = get()
+      if (!state.userId) return 0
+      set({ sync: { ...state.sync, phase: 'pulling', message: null } })
+      try {
+        const library = await pullLibrary()
+        if (!library) throw new Error('The server sent no shelf')
+        const books = Array.isArray(library.books) ? library.books : []
+        set({
+          books,
+          progress: library.progress ?? {},
+          highlights: library.highlights ?? {},
+          marks: library.marks ?? {},
+          stats: library.stats ?? {},
+          notes: { byBook: library.notes?.byBook ?? {}, vocabulary: library.notes?.vocabulary ?? null },
+          sync: { ...IDLE_SYNC, at: Date.now() },
+        })
+        schedulePersist(get)
+        return books.length
+      } catch (err) {
+        set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
+        throw err
+      }
+    },
+
     async exportLibrary() {
       const state = get()
       return JSON.stringify({
@@ -407,7 +516,48 @@ function isRecord(value: unknown): value is Record<string, never> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** The bytes of a book's file, or null when this device no longer holds it. */
+/**
+ * The bytes of a book's file: this device's copy if it has one, the server's otherwise.
+ *
+ * The download reports itself through the store's `sync`, so the reader opening a book they own but have
+ * not fetched here sees a bar move rather than a spinner that never explains itself.
+ */
 export async function readBookBlob(userId: string | null, bookId: string): Promise<Blob | null> {
-  return (await idbGet<Blob>(keyFor(userId, `book:${bookId}`), store)) ?? null
+  const local = await idbGet<Blob>(keyFor(userId, `book:${bookId}`), store)
+  if (local) return local
+  if (!userId) return null
+  const before = useLibrary.getState().sync
+  setSync({ ...IDLE_SYNC, phase: 'downloading', bookId, at: before.at })
+  try {
+    const blob = await downloadBookBytes(bookId, (sent, total) => {
+      setSync({ ...IDLE_SYNC, phase: 'downloading', bookId, sent, total, at: before.at })
+    })
+    await idbSet(keyFor(userId, `book:${bookId}`), blob, store).catch(() => {})
+    setSync({ ...IDLE_SYNC, at: Date.now() })
+    return blob
+  } catch (err) {
+    setSync({ ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) })
+    throw err
+  }
+}
+
+/** A tiny seam so the free function above can report through the store without a circular import. */
+function setSync(sync: SyncState): void {
+  useLibrary.setState({ sync })
+}
+
+/** One at a time: a shelf of ten books should not fill the reader's uplink and stall the page. */
+async function uploadMissingBlobs(getState: () => LibraryState, ids: string[]): Promise<void> {
+  for (const id of ids) {
+    const state = getState()
+    const book = state.books.find((one) => one.id === id)
+    if (!book || !state.userId) continue
+    const blob = await idbGet<Blob>(keyFor(state.userId, `book:${id}`), store)
+    // This device does not hold the file either — another one will bring it, and the row already exists.
+    if (!blob) continue
+    setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, total: book.size || blob.size })
+    await uploadBookBytes(book, blob, (sent, total) => {
+      setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, sent, total })
+    })
+  }
 }
