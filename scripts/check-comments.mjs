@@ -11084,6 +11084,9 @@ const allowed = new Map([
   ["src/worker/lib/internal-auth.ts", [
     "/**\n * The Durable Object guard is opt-in, but a secret that was created and left blank reads\n * as falsy, which silently switches the guard off. Say so instead.\n */",
   ]],
+  ["src/worker/lib/no-redirect.ts", [
+    "/**\n * workerd accepts only `follow` and `manual` for `RequestRedirect`; passing `'error'` throws before the\n * request leaves the isolate, so an endpoint that meant to refuse redirects instead reports every upstream\n * as unreachable. Node (the vite dev proxy) does accept `'error'`, which is why a local unit test on the\n * literal never sees this. Guard the status ourselves instead.\n */",
+  ]],
   ["src/worker/lib/oauth-request.ts", [
     "// Rebuild after consuming the bounded body so the provider can read it once.",
   ]],
@@ -11445,6 +11448,10 @@ const allowed = new Map([
   ["tests/excalidraw-round-trips.test.ts", [
     "// Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element",
     "// on screen is React's, so the teardown must not touch it and the mount must not replace it.",
+  ]],
+  ["tests/excalidraw-trust-boundaries.test.ts", [
+    "// `redirect: 'error'` is valid in Node, so the vite dev proxy keeps it, but workerd throws on it",
+    "// before the request leaves the isolate: every upstream then reads as unreachable in production.",
   ]],
   ["tests/export-hardening.test.ts", [
     "// Which stylesheet the frame gets is a build-time question (vitest stubs CSS), so",

@@ -9,6 +9,7 @@ const TTD = 'src/client/features/excalidraw/TextToDiagramModal.tsx'
 const LATEX = 'src/client/features/excalidraw/excalidraw-canvas-actions.ts'
 const LIB_ROUTE = 'src/worker/routes/excalidraw-library.ts'
 const AI_ROUTE = 'src/worker/routes/ai-proxy.ts'
+const NO_REDIRECT_LIB = 'src/worker/lib/no-redirect.ts'
 const GUARD = 'src/shared/ai-proxy-guard.ts'
 const DEV_PROXY = 'vite.config.ts'
 
@@ -49,13 +50,27 @@ describe('the drawing module keeps its trust boundaries where they were put', ()
 
     const workerRoute = read(AI_ROUTE)
     expect(workerRoute).toContain("from '@shared/ai-proxy-guard'")
-    expect(workerRoute).toContain("redirect: 'error'")
+    expect(workerRoute).toContain('redirect: NO_REDIRECT')
+    expect(workerRoute).toContain('isRedirectResponse(upstreamRes)')
     expect(workerRoute).not.toContain('const BLOCKED_HOSTNAMES')
 
     const dev = read(DEV_PROXY)
     expect(dev).toContain('assertRelayableEndpoint')
     expect(dev).toContain("redirect: 'error'")
     expect(dev).not.toMatch(/if \(lower === 'host' \|\| lower === 'connection'/)
+  })
+
+  it('refuses redirects with the option workerd actually accepts', () => {
+    // `redirect: 'error'` is valid in Node, so the vite dev proxy keeps it, but workerd throws on it
+    // before the request leaves the isolate: every upstream then reads as unreachable in production.
+    const noRedirect = read(NO_REDIRECT_LIB)
+    expect(noRedirect).toContain("export const NO_REDIRECT = 'manual'")
+    for (const workerFile of [read(AI_ROUTE), read(LIB_ROUTE)]) {
+      expect(workerFile).not.toContain("redirect: 'error'")
+      expect(workerFile).toContain("from '../lib/no-redirect'")
+    }
+    const libRoute = read(LIB_ROUTE)
+    expect(libRoute.match(/isRedirectResponse\(res\)/g)).toHaveLength(2)
   })
 
   it('refuses the addresses a relay must never reach', async () => {

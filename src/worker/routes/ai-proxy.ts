@@ -3,6 +3,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { assertRelayableEndpoint, isBlockedTarget, pickRelayHeaders } from '@shared/ai-proxy-guard'
 
 interface AIProxyPayload {
@@ -43,8 +44,12 @@ aiProxyRoutes.post('/proxy', async (c) => {
       method: 'POST',
       headers: upstreamHeaders,
       body: payload,
-      redirect: 'error',
+      redirect: NO_REDIRECT,
     })
+
+    if (isRedirectResponse(upstreamRes)) {
+      return c.json({ error: { message: 'AI upstream responded with a redirect, which relays refuse' } }, 502)
+    }
 
     const responseHeaders = new Headers()
     const contentType = upstreamRes.headers.get('content-type')

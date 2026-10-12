@@ -3,6 +3,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 export const excalidrawLibraryRoutes = new Hono<AppBindings>()
 excalidrawLibraryRoutes.use('*', requireAuth)
@@ -163,12 +164,15 @@ excalidrawLibraryRoutes.get('/official-catalog', async (c) => {
 
   try {
     const res = await fetch(OFFICIAL_CATALOG_URL, {
-      redirect: 'error',
+      redirect: NO_REDIRECT,
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Inkstone-Excalidraw/1.0',
       },
     })
+    if (isRedirectResponse(res)) {
+      throw new Error('Upstream redirected, which catalog fetches refuse')
+    }
     if (!res.ok) {
       throw new Error(`Upstream returned ${res.status}`)
     }
@@ -203,12 +207,15 @@ excalidrawLibraryRoutes.post('/official-download', async (c) => {
 
   try {
     const res = await fetch(candidate.toString(), {
-      redirect: 'error',
+      redirect: NO_REDIRECT,
       headers: {
         'Accept': 'application/json, text/plain, */*',
         'User-Agent': 'Inkstone-Excalidraw/1.0',
       },
     })
+    if (isRedirectResponse(res)) {
+      throw new Error('Upstream redirected, which library fetches refuse')
+    }
     if (!res.ok) {
       throw new Error(`Upstream returned HTTP ${res.status}`)
     }
