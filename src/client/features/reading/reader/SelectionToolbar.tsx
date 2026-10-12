@@ -79,13 +79,15 @@ export function SelectionToolbar({ selection, settings, onHighlight, onComment, 
         </Tooltip>
       ) : null}
       <Tooltip label={t('reading.copy')} side="top">
-        <button type="button" aria-label={t('reading.copy')} onClick={onCopy} className="inline-flex items-center justify-center">
+        <button type="button" aria-label={t('reading.copy')} onClick={onCopy} className="reader-labeled inline-flex items-center justify-center gap-1">
           <Copy size={14} />
+          <span className="reader-action-label">{t('reading.copy')}</span>
         </button>
       </Tooltip>
       <Tooltip label={t('reading.add_comment')} side="top">
-        <button type="button" aria-label={t('reading.add_comment')} onClick={onComment} className="inline-flex items-center justify-center">
+        <button type="button" aria-label={t('reading.add_comment')} onClick={onComment} className="reader-labeled inline-flex items-center justify-center gap-1">
           <MessageSquarePlus size={14} />
+          <span className="reader-action-label">{t('reading.add_comment')}</span>
         </button>
       </Tooltip>
     </div>

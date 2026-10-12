@@ -473,3 +473,26 @@
 .reader-pdf-page[data-textable='false'] {
   cursor: default;
 }
+
+/* The bottom arrows can wait for the pointer; the status between them cannot, or the bar would look
+   empty and the reader would hunt for it. */
+[data-reader-root][data-page-buttons='hover'] .reader-hud[data-edge='bottom'] > button {
+  opacity: 0;
+}
+
+[data-reader-root][data-page-buttons='hover'] .reader-hud[data-edge='bottom']:hover > button,
+[data-reader-root][data-page-buttons='hover'] .reader-hud[data-edge='bottom']:focus-within > button {
+  opacity: 1;
+}
+
+/* A pointer device has room for words on the selection bar; a thumb does not. */
+.reader-action-label {
+  display: none;
+  font-size: var(--text-11-5);
+}
+
+@media (hover: hover) {
+  [data-reader-root][data-selection-labels='true'] .reader-action-label {
+    display: inline;
+  }
+}

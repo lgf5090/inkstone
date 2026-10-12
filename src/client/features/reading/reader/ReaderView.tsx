@@ -242,6 +242,24 @@ export function ReaderView({ book }: { book: BookRecord }) {
     setSelection(null)
     window.getSelection()?.removeAllRanges()
     toast({ title: t('reading.highlight_saved'), tone: 'success' })
+    ensureNoteAfterMark()
+  }
+
+  /**
+   * The reader's own setting decides whether a mark files itself straight away.
+   *
+   * It reads the store after the write rather than this render's copy of the list, because the note has
+   * to hold the mark that was just made — and it stays silent, because being taken to a note while a
+   * book is open is the interruption the setting exists to allow turning off.
+   */
+  function ensureNoteAfterMark(): void {
+    if (!settings.autoBookNote || noteId) return
+    void (async () => {
+      const { ensureReadingNote } = await import('../reading-note')
+      const fresh = useLibrary.getState().highlights[book.id] ?? []
+      const id = await ensureReadingNote(book, fresh, undefined)
+      if (id) linkNote(book.id, id)
+    })()
   }
 
   async function addMark(): Promise<void> {
@@ -283,6 +301,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     })
     setSelection(null)
     setComment({ ids: [created.id], rect: selection.rect })
+    ensureNoteAfterMark()
   }
 
   const translateSelection = useCallback(async () => {
@@ -402,7 +421,13 @@ export function ReaderView({ book }: { book: BookRecord }) {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col" data-reader-root="" style={{ background: theme.background }}>
+    <div
+      className="relative flex h-full min-h-0 flex-col"
+      data-reader-root=""
+      data-page-buttons={settings.pageButtons}
+      data-selection-labels={settings.selectionLabels ? 'true' : 'false'}
+      style={{ background: theme.background }}
+    >
       {isFixed ? (
         <FixedStage
           ref={fixedStage}

@@ -4771,6 +4771,7 @@ const allowed = new Map([
     "// Below the desktop breakpoint the bar keeps only where the reader is and one menu, because seven",
     "// icons leave no room for the title they are supposed to be beside.",
     "/** What the narrow bar's single menu holds: the same actions, one tap deeper. */",
+    "/**\n   * The reader's own setting decides whether a mark files itself straight away.\n   *\n   * It reads the store after the write rather than this render's copy of the list, because the note has\n   * to hold the mark that was just made — and it stays silent, because being taken to a note while a\n   * book is open is the interruption the setting exists to allow turning off.\n   */",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -4822,6 +4823,8 @@ const allowed = new Map([
     "// The file is a stranger's JSON that later decides which engine reads a book and what the shelf",
     "// paints, so every field the app trusts is checked rather than copied.",
     "/** A JSON value that can be indexed as an object rather than an array or a primitive. */",
+    "/**\n * The write is debounced because a comment edit is one keystroke at a time, but the debounce is also a\n * window in which closing the tab loses the reader's work — so the pending write is flushed when the\n * document goes away rather than being left to the timer.\n */",
+    "/**\n * Write whatever is pending the moment the document is being thrown away.\n *\n * Named, and registered as `pagehide` rather than `beforeunload`: this app forbids the browser's own\n * leave-page dialog, and `pagehide` is the event that still fires when the browser discards a tab\n * without asking anything of the reader.\n */",
   ]],
   ["src/client/features/reading/store/reader-settings.ts", [
     "/**\n * How the reader wants its page to look and behave.\n *\n * These are device settings rather than account settings: type size and column count belong to the\n * screen a reader is holding, not to the person, and a phone should not inherit a desktop's 2-column\n * spread. The one thing that does travel is what the reader writes — highlights and the reading note —\n * and that lives in the library store.\n *\n * Imported font files are the exception to the localStorage rule. A face is megabytes of binary, so\n * it goes to IndexedDB and comes back as a `data:` URL, which is what this app's content policy lets a\n * page load a font from (`blob:` is not in `font-src`).\n */",
@@ -11870,6 +11873,8 @@ const allowed = new Map([
     "/* Opaque enough to read against any page, and deliberately without a backdrop blur: this app has\n     measured that a blurred layer over a large area costs more than the animation it decorates. */",
     "/**\n * A fixed-layout book: one canvas per page with PDF.js's transparent text over it.\n *\n * The text layer has to be sized to the painted viewport, or its absolutely positioned spans land\n * outside a box the browser will not scroll — which shows up as selectable words that are nowhere to\n * be seen.\n */",
     "/** A page with no text layer says so on hover rather than letting a drag select nothing. */",
+    "/* The bottom arrows can wait for the pointer; the status between them cannot, or the bar would look\n   empty and the reader would hunt for it. */",
+    "/* A pointer device has room for words on the selection bar; a thumb does not. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

@@ -78,11 +78,16 @@ export interface LibraryState extends PersistedLibrary {
 
 let writeTimer = 0
 let pendingUser: string | null | undefined
+let writeNow: (() => void) | null = null
 
+/**
+ * The write is debounced because a comment edit is one keystroke at a time, but the debounce is also a
+ * window in which closing the tab loses the reader's work — so the pending write is flushed when the
+ * document goes away rather than being left to the timer.
+ */
 function schedulePersist(getState: () => LibraryState): void {
   if (pendingUser === undefined) return
-  window.clearTimeout(writeTimer)
-  writeTimer = window.setTimeout(() => {
+  writeNow = () => {
     const user = pendingUser
     if (user === undefined) return
     const state = getState()
@@ -94,7 +99,25 @@ function schedulePersist(getState: () => LibraryState): void {
       stats: state.stats,
       notes: state.notes,
     })
-  }, 400)
+  }
+  window.clearTimeout(writeTimer)
+  writeTimer = window.setTimeout(writeNow, 400)
+}
+
+/**
+ * Write whatever is pending the moment the document is being thrown away.
+ *
+ * Named, and registered as `pagehide` rather than `beforeunload`: this app forbids the browser's own
+ * leave-page dialog, and `pagehide` is the event that still fires when the browser discards a tab
+ * without asking anything of the reader.
+ */
+function flushPendingWrites(): void {
+  window.clearTimeout(writeTimer)
+  writeNow?.()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPendingWrites)
 }
 
 async function persist(user: string | null, data: PersistedLibrary): Promise<void> {

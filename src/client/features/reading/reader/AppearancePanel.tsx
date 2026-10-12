@@ -142,6 +142,17 @@ export function AppearancePanel() {
       <Row label={t('reading.immersive_chrome')}>
         <Switch checked={settings.immersive} onChange={(value) => set('immersive', value)} label={t('reading.immersive_chrome')} />
       </Row>
+      <Row label={t('reading.page_buttons_hover')}>
+        <Segmented
+          size="sm"
+          value={settings.pageButtons}
+          onChange={(value) => set('pageButtons', value)}
+          options={[
+            { value: 'always', label: t('reading.page_buttons_always') },
+            { value: 'hover', label: t('reading.page_buttons_hover_short') },
+          ]}
+        />
+      </Row>
 
       <SectionLabel className="px-0 pt-3">{t('reading.marking')}</SectionLabel>
       <div className="flex flex-wrap gap-2 py-2">
@@ -160,6 +171,12 @@ export function AppearancePanel() {
           />
         ))}
       </div>
+      <Row label={t('reading.selection_labels')}>
+        <Switch checked={settings.selectionLabels} onChange={(value) => set('selectionLabels', value)} label={t('reading.selection_labels')} />
+      </Row>
+      <Row label={t('reading.auto_book_note')}>
+        <Switch checked={settings.autoBookNote} onChange={(value) => set('autoBookNote', value)} label={t('reading.auto_book_note')} />
+      </Row>
       <Row label={t('reading.timer_enabled')}>
         <Switch checked={settings.timerEnabled} onChange={(value) => set('timerEnabled', value)} label={t('reading.timer_enabled')} />
       </Row>
