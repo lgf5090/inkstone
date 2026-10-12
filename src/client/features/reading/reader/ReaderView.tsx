@@ -37,10 +37,12 @@ import { SearchPanel } from './SearchPanel'
 import { CommentCard } from './CommentCard'
 import { LookupCard } from './LookupCard'
 import { useReadingTimer } from './useReadingTimer'
+import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
+import { ShortcutsPanel } from './ShortcutsPanel'
 import { lookupSelection, vocabularyEntry, type LookupOutcome } from '../lookup'
 import { ensureVocabularyNote } from '../vocabulary'
 
-type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | null
+type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | null
 
 export function ReaderView({ book }: { book: BookRecord }) {
   const settings = useReaderSettings()
@@ -208,6 +210,62 @@ export function ReaderView({ book }: { book: BookRecord }) {
     if (node.value !== next) node.value = next
   }, [progress?.fraction, settings.showScrubber])
 
+  const goToFraction = useCallback((fraction: number) => {
+    if (isFixed) {
+      fixedStage.current?.goTo({ kind: 'fixed', page: Math.max(1, Math.round(fraction * Math.max(1, book.unitCount))) })
+      return
+    }
+    stage.current?.goToFraction(fraction)
+  }, [book.unitCount, isFixed])
+
+  /**
+   * Walking the reader's own marks.
+   *
+   * The list is ordered by chapter then offset rather than by when each was made, because a reader
+   * pressing J wants the next passage further into the book, not the next one they happened to mark.
+   * A step is taken from the mark the reader is standing on rather than from the top of the page: two
+   * marks can share a page, and a key that stops moving is a key they will call broken. The cursor is
+   * dropped the moment the page under it changes, which is the reader having moved on their own.
+   */
+  const cursorRef = useRef<{ chapter: number; start: number; page: string } | null>(null)
+  /** The step whose page has not been reported yet, which also answers for a step that stayed on it. */
+  const pendingStepRef = useRef<{ chapter: number; start: number } | null>(null)
+
+  useEffect(() => {
+    const pending = pendingStepRef.current
+    if (!pending) return
+    pendingStepRef.current = null
+    const position = progress?.position
+    cursorRef.current = position?.kind === 'epub'
+      ? { chapter: pending.chapter, start: pending.start, page: `${position.chapter}:${position.offset}` }
+      : null
+  }, [progress?.position])
+
+  const stepHighlight = useCallback((direction: 1 | -1) => {
+    if (!list.length) {
+      toast({ title: t('reading.no_highlights'), tone: 'warning' })
+      return
+    }
+    const here = stage.current?.current() ?? fixedStage.current?.current()
+    const unit = here?.kind === 'epub' ? here.chapter : here?.kind === 'fixed' ? here.page - 1 : 0
+    const offset = here?.kind === 'epub' ? here.offset : 0
+    const standing = cursorRef.current
+    const from = pendingStepRef.current ?? (standing && standing.page === `${unit}:${offset}`
+      ? { chapter: standing.chapter, start: standing.start }
+      : { chapter: unit, start: offset })
+    const ordered = [...list].sort((a, b) => a.chapter - b.chapter || a.start - b.start)
+    const after = ordered.findIndex((one) => one.chapter > from.chapter || (one.chapter === from.chapter && one.start > from.start))
+    let before = -1
+    for (let i = ordered.length - 1; i >= 0; i -= 1) {
+      const one = ordered[i]!
+      if (one.chapter < from.chapter || (one.chapter === from.chapter && one.start < from.start)) { before = i; break }
+    }
+    const next = direction > 0 ? ordered[after < 0 ? 0 : after] : ordered[before < 0 ? ordered.length - 1 : before]
+    if (isFixed) fixedStage.current?.goTo({ kind: 'fixed', page: next.chapter + 1 })
+    else stage.current?.goTo({ kind: 'epub', chapter: next.chapter, offset: next.start })
+    pendingStepRef.current = isFixed ? null : { chapter: next.chapter, start: next.start }
+  }, [isFixed, list, progress?.position, toast])
+
   const reportChapter = useCallback((index: number) => {
     setChapter(index)
     setPage((current) => ({ ...current, page: 1 }))
@@ -229,62 +287,44 @@ export function ReaderView({ book }: { book: BookRecord }) {
   /**
    * Keys the reader can use without looking for a button.
    *
-   * A panel's own text field has to keep Space and Escape, so the handler bows out when the event
-   * started in a control that consumes them — the same rule the command palette follows.
+   * Dispatched from the same table the shortcut sheet renders, and it bows out when the keystroke
+   * started in a control that consumes Space or Escape — the rule the command palette follows.
    */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+      const inField = Boolean(target?.isContentEditable) || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '')
+      // A field owns its keystrokes. The exception is Escape while something is open over the page:
+      // that is the reader saying "get me out of here", and without it the search box would be a trap.
+      // With nothing open, Escape belongs to the field itself — the page-number box uses it to cancel.
+      const overlayUp = Boolean(panel || lookup || comment || selection)
+      if (inField && !(event.key === 'Escape' && overlayUp)) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
-      const key = event.key
-      const open = panel !== null
-      if (key === 'Escape') {
-        if (comment) setComment(null)
-        else if (selection) setSelection(null)
-        else if (open) setPanel(null)
-        else navigateToPath('/reading')
-        event.preventDefault()
-        return
-      }
-      if (open && key !== 't' && key !== 'i' && key !== '/') return
-      switch (key) {
-        case 'ArrowRight': case 'PageDown': case ' ': case ']':
-          turn(1)
-          break
-        case 'ArrowLeft': case 'PageUp': case '[':
-          turn(-1)
-          break
-        case 'Home':
-          if (isFixed) fixedStage.current?.goTo({ kind: 'fixed', page: 1 })
-          else stage.current?.goTo({ kind: 'epub', chapter: 0, offset: 0 })
-          break
-        case 'End':
-          if (isFixed) fixedStage.current?.goTo({ kind: 'fixed', page: book.unitCount })
-          else stage.current?.goTo({ kind: 'epub', chapter: Math.max(0, (handle?.pkg.spine.length ?? 1) - 1), offset: 0 })
-          break
-        case 't': case 'T':
-          setPanel(open && panel === 'toc' ? null : 'toc')
-          break
-        case '/': case 's':
-          setPanel(open && panel === 'search' ? null : 'search')
-          break
-        case 'i':
-          setPanel(open && panel === 'appearance' ? null : 'appearance')
-          break
-        case 'h':
-          setPanel(open && panel === 'highlights' ? null : 'highlights')
-          break
-        case 'f': case 'F':
-          toggleFullscreen()
-          break
-        case 'm':
-          void addMark()
-          break
-        default:
-          return
-      }
+      const entry = shortcutFor(event.key)
+      if (!entry) return
+      if (panel && !shortcutAllowedWhilePanelOpen(entry, panel)) return
       event.preventDefault()
+      switch (entry.action) {
+        case 'next': turn(1); break
+        case 'prev': turn(-1); break
+        case 'first': goToFraction(0); break
+        case 'last': goToFraction(1); break
+        case 'close':
+          if (comment) setComment(null)
+          else if (selection) setSelection(null)
+          else if (lookup) setLookup(null)
+          else if (panel) setPanel(null)
+          else navigateToPath('/reading')
+          break
+        case 'fullscreen': toggleFullscreen(); break
+        case 'mark': void addMark(); break
+        case 'prevHighlight': stepHighlight(-1); break
+        case 'nextHighlight': stepHighlight(1); break
+        default: {
+          const panelName = entry.panel
+          if (panelName) setPanel((current) => (current === panelName ? null : panelName))
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -466,6 +506,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
       { id: 'highlights', label: t('reading.highlights'), checked: panel === 'highlights', onSelect: open('highlights') },
       { id: 'marks', label: t('reading.location_marks'), checked: panel === 'marks', onSelect: open('marks') },
       { id: 'appearance', label: t('reading.reading_settings'), checked: panel === 'appearance', onSelect: open('appearance') },
+      { id: 'shortcuts', label: t('reading.shortcuts'), checked: panel === 'shortcuts', onSelect: open('shortcuts') },
     ]
   }
 
@@ -665,6 +706,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           {panel === 'appearance' ? <AppearancePanel /> : null}
           {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => removeHighlight(book.id, id)} onComment={(id, comment) => updateHighlight(book.id, id, { comment })} /> : null}
           {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
+          {panel === 'shortcuts' ? <ShortcutsPanel /> : null}
           {panel === 'search' ? (
             <SearchPanel
               search={search}
@@ -753,6 +795,7 @@ function panelTitle(panel: PanelName): string {
   if (panel === 'search') return t('reading.search_book')
   if (panel === 'highlights') return t('reading.highlights')
   if (panel === 'marks') return t('reading.location_marks')
+  if (panel === 'shortcuts') return t('reading.shortcuts')
   return t('reading.reading_settings')
 }
 

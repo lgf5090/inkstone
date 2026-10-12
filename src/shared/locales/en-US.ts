@@ -5563,6 +5563,10 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "reading.v_align_middle": "Centred",
     "reading.v_align_top": "Top",
     "reading.gestures": "Gestures",
+    "reading.close_overlay": "Close the panel or go back",
+    "reading.first_page": "First page",
+    "reading.last_page": "Last page",
+    "reading.shortcuts_hint": "Shortcuts work while the reader has focus, not while you are typing in a box.",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

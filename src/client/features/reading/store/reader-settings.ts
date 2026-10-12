@@ -134,6 +134,10 @@ function readStored(): ReaderSettings {
  *
  * Every numeric setting is clamped rather than validated-and-dropped, because the reader who typed
  * `lineHeight: 40` wants a looser page, and the closest legal value is what they meant.
+ *
+ * The flags are not listed here on purpose: they are coerced by `FLAG_KEYS`, which is derived from the
+ * defaults, so a new setting persists the moment it gets a default instead of needing a rule nobody
+ * remembers to write.
  */
 function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
   const clamp = (value: unknown, min: number, max: number, fallback: number): number => (
@@ -142,6 +146,9 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
   const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T => (
     typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T : fallback
   )
+  const text = (value: unknown, max: number, fallback: string): string => (
+    typeof value === 'string' ? value.slice(0, max) : fallback
+  )
   return {
     fontSize: clamp(parsed.fontSize, FONT_SIZE_RANGE.min, FONT_SIZE_RANGE.max, DEFAULT_READER_SETTINGS.fontSize),
     lineHeight: clamp(parsed.lineHeight, LINE_HEIGHT_RANGE.min, LINE_HEIGHT_RANGE.max, DEFAULT_READER_SETTINGS.lineHeight),
@@ -149,6 +156,8 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     paragraphSpacing: clamp(parsed.paragraphSpacing, 0, 3, 0.8),
     margin: clamp(parsed.margin, MARGIN_RANGE.min, MARGIN_RANGE.max, 24),
     dailyGoalMinutes: clamp(parsed.dailyGoalMinutes, 0, 600, 15),
+    dimming: clamp(parsed.dimming, 0, 0.7, 0),
+    autoScrollSpeed: clamp(parsed.autoScrollSpeed, 0, 160, 0),
     columns: parsed.columns === 2 ? 2 : 1,
     theme: oneOf(parsed.theme, ['auto', 'paper', 'warm', 'celadon', 'moon', 'xuan', 'fog', 'night', 'ink'] as const, 'auto'),
     fontFamily: oneOf(parsed.fontFamily, ['serif', 'sans', 'mono', 'custom'] as const, 'serif'),
@@ -158,15 +167,27 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     translateEngine: oneOf(parsed.translateEngine, ['google', 'ai'] as const, 'google'),
     defaultHighlightColor: oneOf(parsed.defaultHighlightColor, ['yellow', 'green', 'blue', 'pink', 'red', 'purple'] as const, 'yellow'),
     tapZones: oneOf(parsed.tapZones, ['thirds', 'edges', 'off'] as const, 'thirds'),
-    showScrubber: typeof parsed.showScrubber !== 'boolean' ? true : parsed.showScrubber,
-    swipeTurns: typeof parsed.swipeTurns !== 'boolean' ? true : parsed.swipeTurns,
-    estimateTimeLeft: typeof parsed.estimateTimeLeft !== 'boolean' ? true : parsed.estimateTimeLeft,
-    dimming: clamp(parsed.dimming, 0, 0.7, 0),
-    autoScrollSpeed: clamp(parsed.autoScrollSpeed, 0, 160, 0),
+    customFamily: text(parsed.customFamily, 64, ''),
+    translateTo: text(parsed.translateTo, 16, 'zh-CN'),
+    notesFolder: text(parsed.notesFolder, 128, ''),
     importedFonts: Array.isArray(parsed.importedFonts)
       ? parsed.importedFonts.filter((one): one is ImportedFont => Boolean(one && typeof one.family === 'string' && typeof one.id === 'string'))
       : [],
+    ...flagValues(parsed),
   }
+}
+
+/** The settings whose default is a boolean, so one pass can cover all of them. */
+const FLAG_KEYS = (Object.keys(DEFAULT_READER_SETTINGS) as (keyof ReaderSettings)[])
+  .filter((key) => typeof DEFAULT_READER_SETTINGS[key] === 'boolean')
+
+function flagValues(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
+  const out: Record<string, boolean> = {}
+  for (const key of FLAG_KEYS) {
+    const value: unknown = parsed[key]
+    out[key] = typeof value === 'boolean' ? value : DEFAULT_READER_SETTINGS[key] === true
+  }
+  return out as Partial<ReaderSettings>
 }
 
 /** The persisted half of the store, which is everything the reader can change but no action. */

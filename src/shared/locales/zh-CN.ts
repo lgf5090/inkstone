@@ -5563,4 +5563,8 @@ console.log(\`Hello, \${name}!\`)
     "reading.v_align_middle": "居中",
     "reading.v_align_top": "顶部",
     "reading.gestures": "手势与导航",
+    "reading.close_overlay": "关闭面板或返回",
+    "reading.first_page": "第一页",
+    "reading.last_page": "最后一页",
+    "reading.shortcuts_hint": "快捷键在阅读界面生效；正在输入时不触发。",
 } as const satisfies Record<BaseMessageKey, string>;

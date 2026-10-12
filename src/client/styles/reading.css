@@ -541,3 +541,34 @@
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* A page turn is acknowledged by the page itself arriving from the direction it was turned to. The
+   offset is small on purpose: sliding a whole column would read as a layout bug, and this has to cost
+   nothing on a slow e-ink refresh. */
+@keyframes reader-turn-next {
+  from { opacity: 0.35; transform: translateX(-22px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes reader-turn-prev {
+  from { opacity: 0.35; transform: translateX(22px); }
+  to { opacity: 1; transform: none; }
+}
+
+.reader-columns[data-turn='next'] {
+  animation: reader-turn-next 180ms var(--ease-out) both;
+}
+
+.reader-columns[data-turn='prev'] {
+  animation: reader-turn-prev 180ms var(--ease-out) both;
+}
+
+.reader-stage[data-motion='off'] .reader-columns[data-turn] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-columns[data-turn] {
+    animation: none;
+  }
+}

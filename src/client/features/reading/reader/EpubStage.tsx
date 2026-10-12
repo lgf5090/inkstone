@@ -102,13 +102,20 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     onPrev: () => turnToRef.current(-1),
     onCenterTap: paging.onCenterTap,
   })
-  const turnToRef = useRef<(next: number) => void>(() => {})
+  const turnToRef = useRef<(direction: 1 | -1) => void>(() => {})
   const geometryRef = useRef<PageGeometry>(computeGeometry(800, 1, 24))
   /** Where to land once the next chapter has laid out: an offset, or the end of the chapter. */
   const anchorRef = useRef<{ kind: 'offset'; offset: number } | { kind: 'end' } | { kind: 'fragment'; id: string } | { kind: 'fraction'; value: number } | null>(
     start?.kind === 'epub' ? { kind: 'offset', offset: start.offset } : null,
   )
   const indexRef = useRef<TextIndex | null>(null)
+  /**
+   * Which slot the words on the page belong to.
+   *
+   * A chapter switch changes `slot` a commit before the new text is on the page, and reporting during
+   * that gap would publish a position made of the coming chapter and the leaving chapter's offsets.
+   */
+  const chapterSlotRef = useRef(-1)
   const [layoutNonce, setLayoutNonce] = useState(0)
   /**
    * The owner's callbacks live in a ref because a parent re-render hands over new function identities
@@ -131,6 +138,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
    */
   useEffect(() => {
     let cancelled = false
+    chapterSlotRef.current = -1
     setChapter(null)
     setFailed(false)
     void handle.prepare(slot).then((prepared) => {
@@ -139,6 +147,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
         setFailed(true)
         return
       }
+      chapterSlotRef.current = slot
       setChapter(prepared)
       emit.current.onChapter(slot)
     }, () => {
@@ -191,6 +200,10 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const next = geometry()
     geometryRef.current = next
     const scrollMode = settings.readMode === 'scroll'
+    // The load effect passes through an empty chapter on the way to every jump. Laying that out would
+    // spend the anchor on a page count of one and strand the reader at the top of the page that is about
+    // to arrive, so there is nothing to land on until the chapter itself is here.
+    if (!chapter) return
     stage.style.setProperty('--reader-column-width', `${next.columnWidth}px`)
     stage.style.setProperty('--reader-gap', `${next.gap}px`)
 
@@ -225,7 +238,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       target = element ? pageForOffset(element.offsetLeft, next) : 0
     }
     setPage(Math.min(count - 1, Math.max(0, target)))
-  }, [geometry, measure, settings.readMode])
+  }, [chapter, geometry, measure, settings.readMode])
 
   useLayoutEffect(() => {
     relayout()
@@ -305,21 +318,19 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const scrollMode = settings.readMode === 'scroll'
     // In scroll mode the reader's place is a vertical position rather than a column offset.
     const limit = scrollMode && stage ? stage.scrollTop : scrollForPage(page, geometryRef.current)
-    let best = 0
     for (let at = 0; at < index.nodes.length; at++) {
       const element = index.nodes[at]!.parentElement
       if (!element) continue
       const position = scrollMode && stage ? element.offsetTop - doc.offsetTop : element.offsetLeft
-      if (position > limit) break
-      best = index.starts[at]! + (index.nodes[at]!.nodeValue?.length ?? 0)
+      if (position + 1 >= limit) return index.starts[at] ?? 0
     }
-    return Math.min(best, index.text.length)
+    return index.text.length
   }, [page, settings.readMode])
 
   const report = useCallback(() => {
     const index = indexRef.current
     const stage = stageRef.current
-    if (!index) return
+    if (!index || chapterSlotRef.current !== slot) return
     const offset = currentOffset()
     const scrollMode = settings.readMode === 'scroll'
     const progress = scrollMode ? { page: 1, pages: 1 } : chapterProgress(page, pages)
@@ -439,17 +450,56 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     setSlot(position.chapter)
   }, [relayout, slot])
 
-  turnToRef.current = (direction) => turnTo(direction > 0 ? page + 1 : page - 1)
+  /**
+   * Which way the last page came in, which is what the stylesheet's slide reads.
+   *
+   * It is dropped for a frame before being set again, because changing an attribute alone does not
+   * restart a CSS animation, and a reader who turns twice in quick succession should see two turns.
+   */
+  const [turn, setTurn] = useState<'next' | 'prev' | null>(null)
+  const turnPhase = useRef(0)
+
+  const markTurn = useCallback((direction: 'next' | 'prev') => {
+    setTurn(null)
+    const phase = ++turnPhase.current
+    requestAnimationFrame(() => {
+      if (turnPhase.current === phase) setTurn(direction)
+    })
+  }, [])
+
+  /**
+   * One turn of the page, in the direction the reader asked for.
+   *
+   * Paged mode moves a column; scroll mode moves a screenful and only crosses into the neighbouring
+   * chapter once the reader is already at the end of this one, because a Space bar that jumps a whole
+   * chapter in scroll mode reads as a lost page.
+   */
+  const turnPage = useCallback((direction: 1 | -1) => {
+    if (settings.readMode === 'scroll') {
+      const stage = stageRef.current
+      if (!stage) return
+      const atEdge = direction > 0
+        ? stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2
+        : stage.scrollTop <= 2
+      if (atEdge) turnTo(direction > 0 ? pages : -1)
+      else stage.scrollBy({ top: direction * Math.max(80, stage.clientHeight - 64), behavior: 'smooth' })
+      return
+    }
+    markTurn(direction > 0 ? 'next' : 'prev')
+    turnTo(direction > 0 ? page + 1 : page - 1)
+  }, [markTurn, page, pages, settings.readMode, turnTo])
+
+  turnToRef.current = turnPage
 
   useImperativeHandle(ref, () => ({
-    next: () => turnTo(settings.readMode === 'scroll' ? pages : page + 1),
-    prev: () => turnTo(settings.readMode === 'scroll' ? -1 : page - 1),
+    next: () => turnPage(1),
+    prev: () => turnPage(-1),
     goTo: jump,
     goToFraction: jumpToFraction,
     current: () => ({ kind: 'epub', chapter: slot, offset: currentOffset() }),
     chapterIndex: () => slot,
     relayout,
-  }), [currentOffset, jump, jumpToFraction, page, pages, relayout, settings.readMode, slot, turnTo])
+  }), [currentOffset, jump, jumpToFraction, relayout, slot, turnPage])
 
   /**
    * A selection, converted to the chapter's own coordinates.
@@ -540,7 +590,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       onClick={onClick}
     >
       <style ref={styleRef} />
-      <div ref={columnsRef} className="reader-columns">
+      <div ref={columnsRef} className="reader-columns" data-turn={turn ?? undefined}>
         <div
           ref={docRef}
           className="reader-doc"

@@ -4714,6 +4714,12 @@ const allowed = new Map([
     "// on one page would otherwise read as finished the moment it opened, and the scrubber could not",
     "// round-trip through it.",
     "/**\n   * Reading hands-free.\n   *\n   * Driven by elapsed time rather than by a fixed pixel step per frame, so the page moves the same\n   * distance per second whether the display refreshes at 60 or 120 Hz. It stops by itself at the end\n   * of a chapter: a reader who is not watching should arrive at a chapter break, not be scrolled past\n   * it into the next one.\n   */",
+    "/**\n   * Which way the last page came in, which is what the stylesheet's slide reads.\n   *\n   * It is dropped for a frame before being set again, because changing an attribute alone does not\n   * restart a CSS animation, and a reader who turns twice in quick succession should see two turns.\n   */",
+    "/**\n   * One turn of the page, in the direction the reader asked for.\n   *\n   * Paged mode moves a column; scroll mode moves a screenful and only crosses into the neighbouring\n   * chapter once the reader is already at the end of this one, because a Space bar that jumps a whole\n   * chapter in scroll mode reads as a lost page.\n   */",
+    "/**\n   * Which slot the words on the page belong to.\n   *\n   * A chapter switch changes `slot` a commit before the new text is on the page, and reporting during\n   * that gap would publish a position made of the coming chapter and the leaving chapter's offsets.\n   */",
+    "// The load effect passes through an empty chapter on the way to every jump. Laying that out would",
+    "// spend the anchor on a page count of one and strand the reader at the top of the page that is about",
+    "// to arrive, so there is nothing to land on until the chapter itself is here.",
   ]],
   ["src/client/features/reading/reader/FixedStage.tsx", [
     "/**\n * A book that arrives as pages rather than as prose.\n *\n * A PDF is a page description, so the reader keeps each page as the source of visual truth: PDF.js\n * paints it to a canvas and its own transparent text layer goes over the top, which is what makes the\n * words selectable, searchable and markable without rebuilding the page. A scan has no such layer, and\n * the reader says so by refusing the actions that need words rather than marking the wrong ones.\n *\n * A CBZ shares the machinery with one difference: its pages are pictures, so it always takes the\n * scan path.\n */",
@@ -4762,11 +4768,12 @@ const allowed = new Map([
     "// The panel is painted with the page's colours, and the app's own controls inside it read",
     "// theirs from these variables — so re-declaring them here is what lets a slider or a switch",
     "// keep its normal styling on a night page instead of going dark-on-dark.",
+    "// A panel that raises its own field keeps the caret: the frame is focused only so Escape has somewhere",
+    "// to come from, and stealing focus back would leave the search box needing a click to type in.",
   ]],
   ["src/client/features/reading/reader/ReaderView.tsx", [
     "/**\n * One open book.\n *\n * The chrome is deliberately thin and paired: a bar above the page for the actions a reader takes\n * while reading, a bar below for where they are. Both float over the page rather than reserving a row,\n * because reserving one would re-paginate the book every time they appear — which reads as the text\n * jumping under the reader's finger.\n */",
     "/**\n   * The HUD retracts when the reader stops moving, and never while something is open.\n   *\n   * Hiding it under a pointer that is about to click a control is the failure mode, so the timer is\n   * restarted by every pointer event rather than only by movement into the bars.\n   */",
-    "/**\n   * Keys the reader can use without looking for a button.\n   *\n   * A panel's own text field has to keep Space and Escape, so the handler bows out when the event\n   * started in a control that consumes them — the same rule the command palette follows.\n   */",
     "// No dependency list on purpose: the handler reads the current panel, selection and book each",
     "// time, and a stale one would turn a page in a chapter the reader has already left.",
     "/**\n   * Mark the current selection.\n   *\n   * The quote and its neighbours are captured from the stage's own text index, so what is stored is the\n   * text the reader saw rather than whatever the markup happens to say.\n   */",
@@ -4783,6 +4790,12 @@ const allowed = new Map([
     "// where the progress readout lands — a slider that reported somewhere else would fight the finger.",
     "/**\n   * \"How much longer\" is answered from the reader's own pace rather than a words-per-minute constant:\n   * the time already spent on this book divided by how far through it they are. A first-time reader\n   * with no elapsed time gets nothing, because a guess from page count would be a made-up number.\n   */",
     "/**\n   * The slider follows the book, but not while the reader is holding it: a page turn that lands\n   * somewhere else mid-drag would yank the handle out from under the finger.\n   */",
+    "/**\n   * Keys the reader can use without looking for a button.\n   *\n   * Dispatched from the same table the shortcut sheet renders, and it bows out when the keystroke\n   * started in a control that consumes Space or Escape — the rule the command palette follows.\n   */",
+    "/**\n   * Walking the reader's own marks.\n   *\n   * The list is ordered by chapter then offset rather than by when each was made, because a reader\n   * pressing J wants the next passage further into the book, not the next one they happened to mark.\n   * A step is taken from the mark the reader is standing on rather than from the top of the page: two\n   * marks can share a page, and a key that stops moving is a key they will call broken. The cursor is\n   * dropped the moment the page under it changes, which is the reader having moved on their own.\n   */",
+    "/** The step whose page has not been reported yet, which also answers for a step that stayed on it. */",
+    "// A field owns its keystrokes. The exception is Escape while something is open over the page:",
+    "// that is the reader saying \"get me out of here\", and without it the search box would be a trap.",
+    "// With nothing open, Escape belongs to the field itself — the page-number box uses it to cancel.",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -4793,8 +4806,19 @@ const allowed = new Map([
     "/**\n * The bar that follows a selection.\n *\n * It is placed by measuring the selection's own rectangle and clamping it into the viewport, because a\n * bar that lands off-screen at the top of a page — or over the reader's thumb on a phone — is worse than\n * no bar. The first action is the reader's usual colour, so the common case is one tap.\n */",
     "/** The colours that did not fit the bar. They are one tap away, not hidden behind a second gesture. */",
   ]],
+  ["src/client/features/reading/reader/ShortcutsPanel.tsx", [
+    "/**\n * The shortcut sheet.\n *\n * Everything the reader can do without looking for a button, in one place, listed from the same table\n * the key handler reads — so a shortcut cannot be added to one and forgotten in the other.\n */",
+  ]],
   ["src/client/features/reading/reader/TocPanel.tsx", [
     "/**\n * The book's own table of contents.\n *\n * The entries come from the file rather than from what the reader has seen: an EPUB's nav document names\n * sections the spine may reach mid-document, so the target is resolved to a chapter here rather than\n * cached at import, where a fragment would have been thrown away.\n */",
+  ]],
+  ["src/client/features/reading/reader/shortcuts.ts", [
+    "/**\n * The reader's keyboard, as data.\n *\n * The sheet and the handler read this one table, so a shortcut cannot be added to the keys and left\n * out of the help — the failure mode every reader app eventually ships.\n */",
+    "/** The key this entry answers to, normalised to lower case for the matcher. */",
+    "/** What the sheet draws. */",
+    "/** Panel toggles need to know which panel they are reopening. */",
+    "/** The keys that must keep working while a panel has focus, because they close it. */",
+    "/**\n * Whether a keystroke still reaches the handler while a panel is open.\n *\n * A panel keeps its own keys, because the reader who opened the contents with T expects T to close it;\n * the others are held back so a letter typed into the panel's own field does not turn the page behind\n * it. Escape and the sheet answer to everything, since they are how the reader gets out.\n */",
   ]],
   ["src/client/features/reading/reader/useEpubHandle.ts", [
     "/**\n * Opening one book.\n *\n * Parsing an archive's directory and its package document costs tens of milliseconds on a large book,\n * which is long enough to feel like a hang when a reader goes back to the shelf and returns. So the\n * parsed archive is kept for the session — the blob URLs a chapter mints are not, because those belong\n * to a mounted view and would leak the moment the reader closed the book.\n */",
@@ -4852,7 +4876,6 @@ const allowed = new Map([
     "/** Whether a book's reading note is created on the first highlight or on request. */",
     "/** Folder the reading notes are created in, by name. Empty means \"wherever the app would\". */",
     "/** Bounds the sliders share with the keyboard shortcuts that nudge the same values. */",
-    "/**\n * A hand-edited or half-written record must not reach the page as CSS.\n *\n * Every numeric setting is clamped rather than validated-and-dropped, because the reader who typed\n * `lineHeight: 40` wants a looser page, and the closest legal value is what they meant.\n */",
     "/** The persisted half of the store, which is everything the reader can change but no action. */",
     "// Private mode and a full device both land here; the page still reads, it just forgets.",
     "/** `data:` URLs for the imported faces, resolved once per session. */",
@@ -4863,6 +4886,8 @@ const allowed = new Map([
     "/** Where a tap turns the page: two edges, three zones, or never. */",
     "/** A dark veil drawn over the page, for reading in the dark without lighting the whole screen. */",
     "/** Pixels per second of automatic scrolling; 0 leaves the page still. */",
+    "/**\n * A hand-edited or half-written record must not reach the page as CSS.\n *\n * Every numeric setting is clamped rather than validated-and-dropped, because the reader who typed\n * `lineHeight: 40` wants a looser page, and the closest legal value is what they meant.\n *\n * The flags are not listed here on purpose: they are coerced by `FLAG_KEYS`, which is derived from the\n * defaults, so a new setting persists the moment it gets a default instead of needing a rule nobody\n * remembers to write.\n */",
+    "/** The settings whose default is a boolean, so one pass can cover all of them. */",
   ]],
   ["src/client/features/reading/themes.ts", [
     "/**\n * The reading surface's palettes.\n *\n * A book page is the one place in this app where the reader chooses the colours rather than the\n * deployment, so the themes are their own layer: they paint the page, not the chrome around it. Each\n * one carries the pair the page actually needs (paper and ink) plus the two tints that follow from\n * them, and `auto` hands the decision back to the app's own theme.\n *\n * Every entry is checked for contrast by `tests/reading-theme-contrast.test.ts`, because a warm-paper\n * theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they read a whole\n * chapter with a headache.\n */",
@@ -11898,6 +11923,7 @@ const allowed = new Map([
     "/* Vertical panning stays the browser's; a horizontal drag is a page turn. Without this the browser\n     claims the swipe as a scroll, fires pointercancel, and the gesture never reaches the reader. */",
     "/**\n * The controls a thumb reaches for.\n *\n * The scrubber takes the bottom edge and the bar lifts above it, because a slider that overlaps the\n * page number makes both unreadable; the rail is dropped while the slider is on, since the slider says\n * the same thing and can be dragged.\n */",
     "/* Fullscreen is the page and nothing else, so the bars get the safe-area padding the rail used to\n   provide and the reader's own background fills the screen edge to edge. */",
+    "/* A page turn is acknowledged by the page itself arriving from the direction it was turned to. The\n   offset is small on purpose: sliding a whole column would read as a layout bug, and this has to cost\n   nothing on a slow e-ink refresh. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
@@ -13025,6 +13051,11 @@ const allowed = new Map([
     "// A single column still advances by width + gap: that is where the browser puts the next column,",
     "// and a page turn that assumed 800 would drift a gutter behind the text on every page.",
     "// 120px is the floor a column may not go under, so a cramped window paginates rather than vanishing.",
+  ]],
+  ["tests/reading-settings.test.ts", [
+    "/** One legal value per setting, none of them the default, so a dropped write is visible. */",
+    "/**\n * What a setting is for: it is still there after a reload.\n *\n * The store sanitises through an explicit rule per non-flag key, which is where a new key silently\n * stops persisting — the panel shows the switch, the switch works, and the page forgets it on reload.\n */",
+    "/** The store picks its own key by mode, so the test reads it back from the write path instead of guessing. */",
   ]],
   ["tests/register-setup-token.test.ts", [
     "// The server has required this token since S-04, but the console never learned to send",

@@ -24,7 +24,12 @@ export function ReaderPanel({ name, title, theme, onClose, children }: ReaderPan
   const ref = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    ref.current?.focus({ preventScroll: true })
+    const node = ref.current
+    if (!node) return
+    // A panel that raises its own field keeps the caret: the frame is focused only so Escape has somewhere
+    // to come from, and stealing focus back would leave the search box needing a click to type in.
+    if (document.activeElement !== document.body) return
+    node.focus({ preventScroll: true })
   }, [name])
 
   useEffect(() => {
