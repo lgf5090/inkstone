@@ -12,7 +12,7 @@ import { layoutJsonMap, mapLinkPath, MAP_CARD_PADDING, MAP_LEVEL_GAP, MAP_ROW_HE
 import { collapseToDepth, findNode } from './edit';
 import { displaySummary } from './inspect';
 import { parseJsonDocument } from './parse';
-import type { JsonNode } from './types';
+import type { JsonNode, JsonPath } from './types';
 
 function tree(body: string): JsonNode {
     return parseJsonDocument(body).document!.root;
@@ -77,7 +77,7 @@ describe('layoutJsonMap', () => {
     it('measures a card by the widest row it will actually paint', () => {
         const layout = layoutJsonMap(tree('{"a": 1, "longer": {"deep": 2}}'), options());
         const root = layout.byKey.get('[]')!;
-        // The root lists two rows; the wider is `"longer" : {1}`, measured at 8px a character.
+        // The root lists two rows; the wider is `longer: {1}`, measured at 8px a character.
         const widest = Math.max(...root.rows.map(widthOf));
         expect(root.w).toBe(widest + 2 * MAP_CARD_PADDING);
     });
@@ -86,7 +86,7 @@ describe('layoutJsonMap', () => {
         const layout = layoutJsonMap(tree('{"a": {"x": 1}, "b": {"y": 2}, "c": [1, 2]}'), options());
         const root = layout.byKey.get('[]')!;
         for (const link of layout.links) {
-            const row = root.rows.find(candidate => candidate.slot === link.to)!;
+            const row = root.rows.find(candidate => candidate.cards.includes(link.to))!;
             const numbers = mapLinkPath(link).match(/-?[\d.]+/g)!.map(Number);
             expect(numbers[0]).toBe(root.x + root.w);
             expect(numbers[1]).toBe(row.y);
@@ -95,21 +95,22 @@ describe('layoutJsonMap', () => {
             expect(numbers[numbers.length - 2]).toBe(link.to.x);
             expect(numbers[numbers.length - 1]).toBeCloseTo(link.to.y);
         }
-        // A four-row card must not have all its lines leave from the same point.
+        // A three-row card must not have all its lines leave from the same point.
         expect(new Set(layout.links.map(link => mapLinkPath(link).split(',')[1])).size).toBe(layout.links.length);
     });
 
-    it('writes a member that got a card on the connector instead of in the card', () => {
+    it('names a member in its row and on the connector that carries it', () => {
         const layout = layoutJsonMap(tree(body), options());
         const root = layout.byKey.get('[]')!;
         const project = root.rows.find(row => row.node.key === 'project')!;
         const nested = root.rows.find(row => row.node.key === 'n')!;
         expect(project.key).toBe('project');
-        expect(project.label).toBe('project : json-editor');
-        // `n` has a card of its one, so the row carries only the summary and the name rides the line.
-        expect(nested.key).toBe('');
-        expect(nested.label).toBe('{1}');
-        expect(layout.links.find(link => link.to === nested.slot)!.label).toBe('n');
+        expect(project.label).toBe('project: json-editor');
+        // A reader tracing one member out of a big picture reads both places, so both have to say the
+        // same thing: the row names it for the card, the line names it for the card it hangs.
+        expect(nested.key).toBe('n');
+        expect(nested.label).toBe('n: {1}');
+        expect(layout.links.find(link => link.to === nested.cards[0])!.label).toBe('n');
     });
 
     it('keeps a folded branch as one named row and draws no card for it', () => {
@@ -118,11 +119,9 @@ describe('layoutJsonMap', () => {
         const layout = layoutJsonMap(root, options());
         const folded = rowsOf(layout, '[]').find(row => row.node.key === 'features')!;
         expect(folded.branch).toBe(true);
-        expect(folded.slot).toBeNull();
+        expect(folded.cards).toEqual([]);
         expect(folded.path).toEqual(['features']);
-        // No connector means nowhere else to put the name.
-        expect(folded.key).toBe('features');
-        expect(folded.label).toBe('features : [2]');
+        expect(folded.label).toBe('features: [2]');
         expect(layout.byKey.has(JSON.stringify(['features']))).toBe(false);
         expect(layout.links.some(link => link.label === 'features')).toBe(false);
     });
@@ -137,7 +136,7 @@ describe('layoutJsonMap', () => {
         });
     });
 
-    it('promotes an array of objects into one card per element, each named by the array', () => {
+    it('promotes an array of objects into one row fanning out to a card per element', () => {
         const layout = layoutJsonMap(tree('{"fruits": [{"name": "apple"}, {"name": "pear"}, {"name": "plum"}]}'), options());
         // The array itself is not a card; its three elements are, and they sit one level out from the root.
         expect(layout.byKey.has(JSON.stringify(['fruits']))).toBe(false);
@@ -147,7 +146,13 @@ describe('layoutJsonMap', () => {
         expect(cards.map(slot => slot.path)).toEqual([['fruits', 0], ['fruits', 1], ['fruits', 2]]);
         expect(layout.links).toHaveLength(3);
         const root = layout.byKey.get('[]')!;
-        expect(root.rows.map(row => row.key)).toEqual(['', '', '']);
+        // One row, named, holding all three cards: the list is one member of the document, not three.
+        expect(root.rows).toHaveLength(1);
+        expect(root.rows[0]!.key).toBe('fruits');
+        expect(root.rows[0]!.cards).toHaveLength(3);
+        expect(layout.links.every(link => link.row === root.rows[0])).toBe(true);
+        // Three cards off one row means three different arrival points, or the fan is a straight line.
+        expect(new Set(cards.map(slot => slot.y)).size).toBe(3);
     });
 
     it('keeps an array of scalars as rows in one card', () => {
@@ -155,7 +160,20 @@ describe('layoutJsonMap', () => {
         expect(layout.slots).toHaveLength(2);
         expect(layout.links).toHaveLength(1);
         const sizes = layout.byKey.get(JSON.stringify(['sizes']))!;
-        expect(sizes.rows.map(row => row.label)).toEqual(['0 : 10', '1 : 11', '2 : 12']);
+        expect(sizes.rows.map(row => row.label)).toEqual(['0: 10', '1: 11', '2: 12']);
+    });
+
+    it('drops the members a filter rejects from the cards and the connectors alike', () => {
+        const keep = (_node: JsonNode, path: JsonPath): boolean => path.includes('project');
+        const layout = layoutJsonMap(tree(body), options({ keep }));
+        const root = layout.byKey.get('[]')!;
+        // One named row and one line saying two members exist that did not reach the picture: a filtered
+        // card that looks complete is a card that lied.
+        expect(root.rows.map(row => row.key)).toEqual(['project', '']);
+        expect(root.rows[1]!.more).toBe(true);
+        expect(root.rows[1]!.value).toBe('+2');
+        expect(layout.links).toHaveLength(0);
+        expect(layout.slots).toHaveLength(1);
     });
 
     it('names the members a card leaves out, and only when it leaves one out', () => {

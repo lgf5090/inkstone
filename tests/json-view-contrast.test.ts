@@ -235,7 +235,7 @@ const ROLES: Role[] = [
   { selector: '.jm-detail-title', property: 'color', on: PANEL, floor: 4.5 },
   { selector: '.jm-detail-close', property: 'color', on: PANEL, floor: 4.5 },
   { selector: '.jm-detail-copy', property: 'color', on: PANEL, floor: 4.5 },
-  { selector: '.json-fs-title', property: 'color', on: PANEL, floor: 4.5 },
+  { selector: '.jm-map-menu-item', property: 'color', on: PANEL, floor: 4.5 },
   { selector: '.json-shortcuts', property: 'color', on: PANEL, floor: 4.5 },
   // Punctuation, kind badges and the tree's own fold chevron. These sit at `--text-secondary` and are held
   // to the same floor as the rest: the bottom two tiers of the theme's ramp measured 1.75–2.71:1 on a
@@ -253,6 +253,8 @@ const ROLES: Role[] = [
   { selector: '.jm-fold:hover', property: 'color', on: ROW, floor: 4.5 },
   { selector: '.jm-detail-close:hover', property: 'color', on: PANEL, floor: 4.5 },
   { selector: '.jm-detail-copy:hover', property: 'color', on: PANEL, floor: 4.5 },
+  { selector: '.jm-map-menu-item:hover', property: 'color', on: ['--bg-overlay', '--bg-active-on---bg-overlay'], floor: 4.5 },
+  { selector: '.jm-map-menu-item:focus-visible', property: 'color', on: ['--bg-overlay', '--bg-active-on---bg-overlay'], floor: 4.5 },
   // A connector is a graphic object rather than text, so it answers to 1.4.11's 3:1.
   { selector: 'path', property: 'stroke', on: ['--bg-base', '--bg-surface'], floor: 3 },
 ]

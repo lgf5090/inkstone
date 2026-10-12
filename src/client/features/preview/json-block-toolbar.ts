@@ -47,6 +47,16 @@ const FILTER_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none"
 
 const COPY_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="5" y="5" rx="2"/><path d="M5 9H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v1"/></svg>';
 
+const FIT_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>';
+
+const CENTER_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+
+const ZOOM_IN_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M11 8v6M8 11h6"/></svg>';
+
+const ZOOM_OUT_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M8 11h6"/></svg>';
+
+const EXIT_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+
 /** What the block remembers between re-renders. `body` says whether the parse can be reused. */
 export interface JsonBlockState {
     mode: JsonViewName
@@ -159,20 +169,31 @@ function materializeFilter(block: HTMLElement): void {
 function tabButton(mode: JsonViewName, active: boolean): string {
     const label = t(TABS.find(([value]) => value === mode)![1]);
     return `<button type="button" class="json-tab${active ? ' is-active' : ''}" data-jv="mode" data-json-mode="${mode}"`
-      + ` aria-pressed="${active}" title="${escapeAttr(label)}">${TAB_ICON[mode]}<span>${escapeHtml(label)}</span></button>`;
+      + ` aria-pressed="${active}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}">`
+      + `${TAB_ICON[mode]}<span class="json-tab-label">${escapeHtml(label)}</span></button>`;
 }
 
-function toolButton(action: string, label: MessageKey, icon: string, extra = ''): string {
+function toolButton(action: string, label: MessageKey, icon: string, extra = '', modifier = ''): string {
     const text = t(label);
-    return `<button type="button" class="json-tool" data-jv="${action}" ${extra} title="${escapeAttr(text)}" aria-label="${escapeAttr(text)}">${icon}</button>`;
+    return `<button type="button" class="json-tool${modifier ? ` ${modifier}` : ''}" data-jv="${action}" ${extra}`
+      + ` title="${escapeAttr(text)}" aria-label="${escapeAttr(text)}">${icon}</button>`;
 }
 
-/** The camera tools, which the map needs on the inline face too: a tall card that arrived unfitted has
- *  to be recoverable without going full screen first. */
+/** The map's camera and fold tools. They ride on the head rather than on a floating overlay because the
+ *  head is the one surface that exists in both the inline block and the full-screen stage, and a reader
+ *  who sees a button in the head expects it to be the only place that action lives. */
 const MAP_TOOLS: Array<[string, MessageKey, string]> = [
-    ['fit', 'preview.json_fit', '⤢'],
-    ['zoom-out', 'preview.json_zoom_out', '−'],
-    ['zoom-in', 'preview.json_zoom_in', '+'],
+    ['fit', 'preview.json_fit', FIT_ICON],
+    ['center', 'preview.json_center', CENTER_ICON],
+    ['zoom-out', 'preview.json_zoom_out', ZOOM_OUT_ICON],
+    ['zoom-in', 'preview.json_zoom_in', ZOOM_IN_ICON],
+];
+
+/** The exports only appear in the full-screen stage: they cost two buttons, and the picture being taken
+ *  is the one on the window, which is the only size worth exporting. */
+const EXPORT_TOOLS: Array<[string, MessageKey, string]> = [
+    ['export-svg', 'preview.json_export_svg', 'SVG'],
+    ['export-png', 'preview.json_export_png', 'PNG'],
 ];
 
 function headToolsHtml(state: JsonBlockState): string {
@@ -180,9 +201,16 @@ function headToolsHtml(state: JsonBlockState): string {
     if (state.mode === 'tree')
         tools.unshift(toolButton('fold-all', 'preview.json_fold_all', FOLD_ICON));
     if (state.mode === 'map') {
+        if (state.fullscreen) {
+            for (const [action, key, glyph] of [...EXPORT_TOOLS].reverse())
+                tools.unshift(toolButton(action, key, glyph, '', 'json-tool--text'));
+        }
         for (const [action, key, icon] of [...MAP_TOOLS].reverse())
             tools.unshift(toolButton(action, key, icon));
-        tools.unshift(toolButton('fullscreen', 'preview.json_fullscreen', FULLSCREEN_ICON));
+        tools.unshift(toolButton('fold-all-map', 'preview.json_fold_all', FOLD_ICON));
+        tools.unshift(toolButton(state.fullscreen ? 'exit-fullscreen' : 'fullscreen',
+            state.fullscreen ? 'preview.json_exit_fullscreen' : 'preview.json_fullscreen',
+            state.fullscreen ? EXIT_ICON : FULLSCREEN_ICON));
     }
     return `<div class="json-tools">${tools.join('')}</div>`;
 }
@@ -223,6 +251,62 @@ export function jsonBlockBody(block: HTMLElement): string {
 
 type MountContext = { sourceNoteId?: string | null, jsonView?: JsonViewName, jsonFold?: number };
 
+/**
+ * The most recent full action context each block was pressed with.
+ *
+ * `enhance` only ever gets the formatter's options — no `api`, no note — while a redraw after a keystroke
+ * needs both. The filter box is the one control that redraws without a press behind it, and it is only
+ * ever reachable through the trigger that writes this map, so the context it needs is always the one that
+ * opened it.
+ */
+const contexts = new WeakMap<HTMLElement, BlockActionContext>();
+
+/**
+ * How long a keystroke waits before the view is rebuilt.
+ *
+ * Filtering re-lays-out the whole picture, and 1 200 rows measured ~860ms to rebuild; typing at fourteen
+ * keys a second against no timer therefore costs more than the reader can see. The debounce is the only
+ * reason the box is affordable on a document with a shape to it.
+ */
+const FILTER_SETTLE_MS = 160;
+
+const filterTimers = new WeakMap<HTMLElement, number>();
+
+/**
+ * The one place the filter box's text becomes state.
+ *
+ * It is delegated from the block rather than bound to the input because the input is materialized lazily
+ * (only when the box is first opened) while the block is rebuilt by the preview on every commit — a
+ * listener on the input would be attached to an element that does not exist yet, and would be thrown away
+ * with the element that did.
+ */
+function wireFilter(block: HTMLElement): void {
+    if (block.dataset.jsonFilterWired)
+        return;
+    block.dataset.jsonFilterWired = '';
+    block.addEventListener('input', (event: Event) => {
+        const input = (event.target as Element | null)?.closest?.<HTMLInputElement>('input[data-json-filter-input]');
+        if (!input)
+            return;
+        const ctx = contexts.get(block);
+        if (!ctx)
+            return;
+        const state = jsonBlockState(block, { view: 'source', fold: 2 }, ctx.sourceNoteId);
+        state.filter = input.value.slice(0, 200);
+        // The redraw guard in `draw` keys on mode|body|filter, so the state write above is what makes the
+        // next pass real; clearing the signature is not needed and would defeat the guard for a body edit.
+        window.clearTimeout(filterTimers.get(block));
+        filterTimers.set(block, window.setTimeout(() => {
+            filterTimers.delete(block);
+            const warm = jsonViewsSync();
+            if (warm)
+                warm.mountJsonBlocks([block], ctx);
+            else
+                void jsonViews().then(module => module.mountJsonBlocks([block], ctx));
+        }, FILTER_SETTLE_MS));
+    });
+}
+
 function mount(block: HTMLElement, ctx: MountContext): void {
     const host = block.querySelector<HTMLElement>(':scope > [data-json-host]');
     if (!host)
@@ -234,6 +318,12 @@ function mount(block: HTMLElement, ctx: MountContext): void {
     if (pre)
         pre.hidden = state.mode !== 'source';
     buildHead(block, state);
+    wireFilter(block);
+    // A re-render hands the block a fresh head, and the box lives below it: whatever the reader had typed
+    // is still the state, so the input has to be told about it or the picture and the box disagree.
+    const input = block.querySelector<HTMLInputElement>('input[data-json-filter-input]');
+    if (input && input.value !== state.filter)
+        input.value = state.filter;
 }
 
 /**
@@ -242,6 +332,7 @@ function mount(block: HTMLElement, ctx: MountContext): void {
  * underneath them is a tree.
  */
 export function rebuildJsonBlockHead(block: HTMLElement, ctx: BlockActionContext): void {
+    contexts.set(block, ctx);
     mount(block, ctx);
 }
 
@@ -280,6 +371,7 @@ export const jsonBlockToolbar: BlockToolbarModule = {
         const block = target.closest<HTMLElement>(JSON_BLOCK_SELECTOR);
         if (!block)
             return false;
+        contexts.set(block, ctx);
         const tab = target.closest<HTMLElement>('[data-jv="mode"]');
         if (tab) {
             event.preventDefault();
