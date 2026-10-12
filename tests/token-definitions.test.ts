@@ -77,4 +77,15 @@ describe('every design token referenced by the client is defined (SH-37)', () =>
     const stale = [...LEGACY_DANGLING.entries()].filter(([name]) => !sources.some((source) => source.includes(`var(${name}`)))
     expect(stale).toEqual([])
   })
+
+  it('never names a theme colour after a font-size step', () => {
+    // `text-*` holds both colours and font sizes, so a theme colour named `base` silently turns the
+    // built-in `text-base` into `color: var(--bg-base)` - the page background, i.e. invisible text -
+    // and takes the size with it. The collision is invisible in the source and only shows in the
+    // rendered sheet, so the name itself is what has to be policed.
+    const theme = readFileSync('src/client/styles/app.css', 'utf8')
+    const colours = [...theme.matchAll(/^\s*--color-([a-z0-9-]+)\s*:/gm)].map((m) => m[1]!)
+    const FONT_SIZES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl']
+    expect(colours.filter((name) => FONT_SIZES.includes(name))).toEqual([])
+  })
 })

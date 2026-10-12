@@ -2,9 +2,11 @@ import katex from 'katex';
 import katexPrintCss from 'katex/dist/katex.min.css?inline';
 import { prompt } from '../../components/overlay';
 import { t } from '../../lib/i18n';
+import { escapeHtml } from '../../lib/markdown/data-attr';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
+import { applySceneElements } from '../../lib/markdown/excalidraw/loader';
 
 export interface BoundingBox {
     minX: number;
@@ -96,6 +98,11 @@ export function zoomToFitScene(api: any, container?: HTMLElement | null): void {
     const scrollX = (viewportWidth / 2) / nextZoom - bounds.centerX;
     const scrollY = (viewportHeight / 2) / nextZoom - bounds.centerY;
 
+    // One mechanism drives the view. The engine's own fit knows the padding, the zoom limits and the
+    // animation; the hand-computed numbers below are a fallback for a build that exposes neither entry
+    // point. Running both used to make the second call overwrite the animated target the first had just
+    // set, which is why Fit View snapped instead of easing and sometimes landed on the wrong zoom.
+    let fitted = false;
     if (typeof api.scrollToContent === 'function') {
         try {
             api.scrollToContent(elements, {
@@ -103,16 +110,19 @@ export function zoomToFitScene(api: any, container?: HTMLElement | null): void {
                 viewportZoomFactor: 0.85,
                 animate: true,
             });
+            fitted = true;
         } catch {
         }
-    } else if (typeof api.zoomToFit === 'function') {
+    }
+    if (!fitted && typeof api.zoomToFit === 'function') {
         try {
             api.zoomToFit(elements, 2, 0.15);
+            fitted = true;
         } catch {
         }
     }
 
-    if (typeof api.updateScene === 'function') {
+    if (!fitted && typeof api.updateScene === 'function') {
         api.updateScene({
             appState: {
                 zoom: { value: nextZoom },
@@ -142,7 +152,7 @@ export function createLatexSvg(latex: string, dark = false): { dataURL: string; 
     try {
         html = katex.renderToString(latex, { displayMode: true, throwOnError: false });
     } catch {
-        html = `<span class="katex">${latex}</span>`;
+        html = `<span class="katex">${escapeHtml(latex)}</span>`;
     }
 
     const settings = useExcalidrawSettingsStore.getState();
@@ -218,7 +228,7 @@ export function insertLatexToCanvas(api: any, latex: string, dark = false): void
     };
 
     const current = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
-    api.updateScene({ elements: [...current, imageEl] });
+    applySceneElements(api, [...current, imageEl]);
 }
 
 export async function promptAndInsertLatex(api: any, dark = false): Promise<void> {
@@ -319,7 +329,7 @@ export function insertNoteCardToCanvas(api: any, noteTitle: string, snippet = ''
         elements.push(snippetEl);
     }
 
-    api.updateScene({ elements });
+    applySceneElements(api, elements);
 }
 
 export async function promptAndInsertNoteCard(api: any, dark = false): Promise<void> {
@@ -384,7 +394,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
             }
             return el;
         });
-        api.updateScene({ elements: updated });
+        applySceneElements(api, updated);
         return;
     }
 
@@ -443,7 +453,7 @@ export function insertLinkToCanvas(api: any, linkInput: string, dark = false): v
         containerId: cardId,
     };
 
-    api.updateScene({ elements: [...sceneElements, rectEl, textEl] });
+    applySceneElements(api, [...sceneElements, rectEl, textEl]);
 }
 
 export async function promptAndInsertLink(api: any, dark = false): Promise<void> {
@@ -525,7 +535,7 @@ export function insertPdfCardToCanvas(api: any, fileName: string, dark = false):
     };
 
     const sceneElements = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
-    api.updateScene({ elements: [...sceneElements, rectEl, textEl] });
+    applySceneElements(api, [...sceneElements, rectEl, textEl]);
 }
 
 export function insertEmbedToCanvas(api: any, url: string): void {

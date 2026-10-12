@@ -28,7 +28,7 @@ import {
 } from '../../lib/markdown/enhance'
 import { KanbanFullscreen } from '../../lib/markdown/kanban'
 import { kanbanIndex } from '../../lib/markdown/kanban/view'
-import { fenceBody, registerFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
+import { fenceBody, registerFenceBodies, sameFenceBodies, type FenceBodies } from '../../lib/markdown/fence-bodies'
 import { useKanbanBlocks } from './use-kanban-blocks'
 import { mountDataview } from '../../lib/dataview/blocks'
 import { updateTaskAtSourceLine } from '../../editor/commands'
@@ -119,6 +119,7 @@ export const Preview = memo(function Preview({
   const rendered = useMemo(() => renderMarkdown(debounced, { hideFrontMatter: true, emojiShortcodes: preview.emojiShortcodes }), [debounced, locale, preview.emojiShortcodes, emojiVersion])
   const embedContextTitle = rendered.hasEmbeds ? currentTitle : ''
   const committedHtmlRef = useRef('')
+  const committedFencesRef = useRef<FenceBodies | null>(null)
   const committedSourceRef = useRef(debounced)
   const preparationRef = useRef(0)
   const mermaidRevisionRef = useRef(0)
@@ -271,6 +272,9 @@ export const Preview = memo(function Preview({
         // to leave the placeholder standing: a snapshot drawn here would be swapped in over the live
         // canvas by the next diff, and the registry would then re-parent into a block holding an image.
         mindmap: 'live',
+        // The preview owns the canvas: useExcalidrawBlocks mounts it from the committed markup, so this
+        // pass has to leave the placeholder standing rather than swap in source text.
+        excalidraw: 'live',
         // A query block is filled by `renderDataviewBlocks` on this host after the diff, because its
         // answer depends on note bodies that may still be on their way — which staging cannot wait for.
         dataview: 'live',
@@ -308,8 +312,17 @@ export const Preview = memo(function Preview({
           ? current
           : { html: nextHtml, fences: rendered.fences },
       )
+      // Also outside the swap: a drawing's autosave changes only its fence body, and a block mounted into
+      // the host resolves that body by walking up from itself to the nearest registered element. The
+      // staging copy carries the same set for `patchChildren` above, which compares the two.
+      if (hostRef.current) registerFenceBodies(hostRef.current, rendered.fences)
       committedSourceRef.current = debounced
-      if (nextHtml !== committedHtmlRef.current) {
+      const markupMoved = nextHtml !== committedHtmlRef.current
+      // A board re-mounts on either half moving. The markup string alone cannot tell: with the fence
+      // bodies out of the attributes, an autosave leaves it byte-identical.
+      const fencesMoved = !committedFencesRef.current || !sameFenceBodies(committedFencesRef.current, rendered.fences)
+      if (fencesMoved) committedFencesRef.current = rendered.fences
+      if (markupMoved) {
         const scroller = scrollerRef.current
         const host = hostRef.current
         const snapshot = scroller && host ? capturePreviewViewport(scroller, host) : null
@@ -329,7 +342,10 @@ export const Preview = memo(function Preview({
         }
         onRendered?.()
       }
-      setMermaidEpoch((current) => current + 1)
+      // The epoch used to move on every prepared render, so a pass that changed nothing a block can read
+      // still re-walked the host and re-mounted every mind map. Both halves are compared above because the
+      // markup string is blind to a fence-body edit.
+      if (markupMoved || fencesMoved) setMermaidEpoch((current) => current + 1)
       // Query blocks and inline fields are filled on the live host after the swap, because their answer
       // is a store read that may still be arriving; the guard in `patchChildren` above is what lets the
       // next keystroke keep whatever was already drawn.
@@ -1047,8 +1063,14 @@ export function patchDom(dest: Node, src: Node): void {
       }
     }
 
+    // The scene no longer rides in the attribute (P-01 family), so the two blocks' fence bodies are
+    // what say whether the drawing changed: the staged one resolves against this pass's set, the live
+    // one against the set registered when it was mounted, and a canvas is not in `innerHTML` either.
     if (destEl.hasAttribute('data-excalidraw') && srcEl.hasAttribute('data-excalidraw')) {
-      if (destEl.getAttribute('data-excalidraw') === srcEl.getAttribute('data-excalidraw') &&
+      const destIndex = Number.parseInt(destEl.getAttribute('data-excalidraw-index') ?? '', 10)
+      const srcIndex = Number.parseInt(srcEl.getAttribute('data-excalidraw-index') ?? '', 10)
+      if (Number.isInteger(destIndex) && destIndex === srcIndex &&
+        fenceBody(destEl, 'excalidraw', destIndex) === fenceBody(srcEl, 'excalidraw', srcIndex) &&
         destEl.classList.contains('is-ready')) {
         if (destEl.dataset.line !== srcEl.dataset.line) destEl.dataset.line = srcEl.dataset.line
         return

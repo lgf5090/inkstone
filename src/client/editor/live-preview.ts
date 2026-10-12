@@ -86,7 +86,7 @@ class RenderedBlock extends WidgetType {
         const prepare = async () => {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
-            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', kanbanShape: 'board', mindmap: 'snapshot', dataview: 'live', dark, codeBlockCollapseLines: 0 });
+            await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', kanbanShape: 'board', mindmap: 'snapshot', excalidraw: 'source', dataview: 'live', dark, codeBlockCollapseLines: 0 });
             // A layout block is the one rendered block the reader edits with the pointer, so its settings
             // bar and its drag edges are built here too — on this host, which is the live tree. The rest of
             // the block families get the same toolbars the preview gives them, so a block looks the same

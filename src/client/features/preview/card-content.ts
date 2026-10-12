@@ -210,6 +210,7 @@ async function renderCardHtml(content: string, args: LoadCardArgs): Promise<{ ma
         // Same reasoning for a map: a card has no room for a canvas and no instance to mount, so the
         // fence body is what it can show.
         mindmap: 'source',
+        excalidraw: 'source',
         // The card's own guard above now names `[data-dataview]`, so a note whose only rich block
         // is a query still reaches this pass — and here the answer is the query's text, because a card
         // has no room for a table and must not read the rest of the vault for a preview line.

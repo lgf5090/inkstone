@@ -1,5 +1,5 @@
 import { t } from '../../i18n';
-import { decodeDataValue } from '../data-attr';
+import { fenceBody } from '../fence-bodies';
 import type { ExcalidrawFenceRef } from './types';
 
 export const EXCALIDRAW_BLOCK_SELECTOR = '[data-excalidraw]';
@@ -50,8 +50,7 @@ export function excalidrawBlocks(root: ParentNode): HTMLElement[] {
 }
 
 export function excalidrawBody(node: HTMLElement): string {
-    const raw = node.getAttribute('data-excalidraw');
-    return raw ? decodeDataValue(raw) : '';
+    return fenceBody(node, 'excalidraw', excalidrawIndex(node));
 }
 
 export function excalidrawIndex(node: HTMLElement): number {
@@ -155,6 +154,24 @@ export function markExcalidrawReady(node: HTMLElement): void {
     node.setAttribute('aria-busy', 'false');
     const placeholder = node.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR);
     placeholder?.remove();
+}
+
+/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */
+export function showExcalidrawSource(node: HTMLElement): void {
+    node.querySelector('.excalidraw-block-head')?.remove();
+    node.classList.remove('loading', 'has-error', 'is-ready');
+    node.classList.add('excalidraw-source');
+    node.setAttribute('aria-busy', 'false');
+    const placeholder = node.querySelector(EXCALIDRAW_PLACEHOLDER_SELECTOR) ?? node;
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = excalidrawBody(node);
+    pre.append(code);
+    placeholder.replaceChildren(pre);
+}
+
+export function showExcalidrawSourceAll(root: ParentNode): void {
+    excalidrawBlocks(root).forEach(showExcalidrawSource);
 }
 
 export function showExcalidrawError(node: HTMLElement, message: string, onRetry?: () => void): void {

@@ -2,14 +2,24 @@ import { create } from 'zustand'
 import { api } from '../../../lib/api'
 import { toast } from './toast'
 import { t } from '../../../lib/i18n'
+import {
+  EXCALIDRAW_MAX_LIBRARY_BYTES,
+  EXCALIDRAW_MAX_LIBRARY_ITEMS,
+  sanitizeElements,
+} from '../../../lib/markdown/excalidraw/body'
 import type {
   ExcalidrawLibraryFolder,
   ExcalidrawLibraryItem,
   ExcalidrawLibraryManifest,
   LibraryFolderNode,
+  OfficialLibraryEntry,
 } from './types'
 
 const LOCAL_STORAGE_KEY = 'inkstone_excalidraw_library_manifest_v2'
+
+// The upstream catalog changes a few times a week; re-opening the browser ought not to cost a request.
+const OFFICIAL_CATALOG_TTL = 10 * 60 * 1000
+let officialCatalogInFlight: Promise<OfficialLibraryEntry[]> | null = null
 
 interface LibraryStoreState {
   folders: ExcalidrawLibraryFolder[]
@@ -20,6 +30,11 @@ interface LibraryStoreState {
   loading: boolean
   syncing: boolean
   lastSavedAt: number
+  officialCatalog: OfficialLibraryEntry[]
+  officialCatalogAt: number
+  officialCatalogLoading: boolean
+
+  loadOfficialCatalog: (force?: boolean) => Promise<OfficialLibraryEntry[]>
 
   init: () => Promise<void>
   setActiveFolderId: (id: string | null) => void
@@ -34,6 +49,7 @@ interface LibraryStoreState {
   renameFolder: (id: string, name: string) => void
   deleteFolder: (id: string) => void
   moveFolder: (id: string, targetParentId: string | null, beforeId?: string | null) => void
+  sortFolders: (parentId: string | null) => void
 
   addItem: (
     folderId: string | null,
@@ -68,10 +84,20 @@ function scheduleSync(get: () => LibraryStoreState) {
   }, 800)
 }
 
+/**
+ * svgPreview is a derived render of elements the manifest already carries, and it is by far the
+ * largest field in an item (a whole exported SVG per shape). Keeping it out of both stores is what
+ * lets a real library fit inside the ~5 MB localStorage quota at all, and keeps a single rename from
+ * uploading megabytes; the preview is recomputed on demand and memoised in memory.
+ */
+function withoutPreviews(items: ExcalidrawLibraryItem[]): ExcalidrawLibraryItem[] {
+  return items.map((item) => (item.svgPreview === undefined ? item : { ...item, svgPreview: undefined }))
+}
+
 function persistLocal(manifest: ExcalidrawLibraryManifest) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(manifest))
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ ...manifest, items: withoutPreviews(manifest.items) }))
   } catch {
   }
 }
@@ -152,7 +178,7 @@ export function buildLibraryTree(
 }
 
 export function getAllFolderDescendants(
-  folders: ExcalidrawLibraryFolder[],
+  folders: readonly ExcalidrawLibraryFolder[],
   rootFolderId: string,
 ): Set<string> {
   const result = new Set<string>([rootFolderId])
@@ -246,6 +272,37 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
   loading: false,
   syncing: false,
   lastSavedAt: 0,
+  officialCatalog: [],
+  officialCatalogAt: 0,
+  officialCatalogLoading: false,
+
+  loadOfficialCatalog: async (force = false) => {
+    const state = get()
+    if (
+      !force &&
+      state.officialCatalog.length > 0 &&
+      Date.now() - state.officialCatalogAt < OFFICIAL_CATALOG_TTL
+    ) {
+      return state.officialCatalog
+    }
+    if (officialCatalogInFlight) return officialCatalogInFlight
+
+    set({ officialCatalogLoading: true })
+    const run = (async (): Promise<OfficialLibraryEntry[]> => {
+      try {
+        const res = await api.excalidrawLibrary.getOfficialCatalog()
+        const list = res.ok && Array.isArray(res.libraries) ? (res.libraries as OfficialLibraryEntry[]) : []
+        // A failed or empty response keeps whatever catalog is already on screen instead of blanking it.
+        if (list.length > 0) set({ officialCatalog: list, officialCatalogAt: Date.now() })
+        return list
+      } finally {
+        set({ officialCatalogLoading: false })
+        officialCatalogInFlight = null
+      }
+    })()
+    officialCatalogInFlight = run
+    return run
+  },
 
   init: async () => {
     const local = readLocal()
@@ -274,7 +331,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
         const mf = res.manifest as ExcalidrawLibraryManifest
         const remoteFolders = Array.isArray(mf.folders) && mf.folders.length > 0 ? mf.folders : defaultFolders
         const remoteItems = Array.isArray(mf.items) ? mf.items : []
-        const { items: healedRemote, changed: remoteChanged } = healLibraryItems(remoteItems)
+        const { items: healedRemote } = healLibraryItems(remoteItems)
         set({
           folders: remoteFolders,
           items: healedRemote,
@@ -286,9 +343,8 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
           items: healedRemote,
           updatedAt: mf.updatedAt || Date.now(),
         })
-        if (remoteChanged) {
-          scheduleSync(get)
-        }
+        // A heal renames shapes the store already has; pushing it back on every boot would spend a
+        // full-manifest upload per device per session. The next real edit carries the names along.
       }
     } catch {
     } finally {
@@ -445,6 +501,32 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
     scheduleSync(get)
   },
 
+  sortFolders: (parentId) => {
+    const state = get()
+    const target = parentId ?? null
+    const ordered = state.folders
+      .filter((f) => (f.parentId ?? null) === target)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || a.order - b.order)
+    const rank = new Map(ordered.map((f, idx) => [f.id, idx]))
+    if (rank.size === 0) return
+    const stamp = Date.now()
+    const nextFolders = state.folders.map((f) => {
+      const idx = rank.get(f.id)
+      return idx === undefined || f.order === idx ? f : { ...f, order: idx, updatedAt: stamp }
+    })
+    // A group already in alphabetical order must not spend a write, an upload and a re-render of
+    // every surface reading the manifest.
+    if (nextFolders.every((f, idx) => f === state.folders[idx])) return
+    set({ folders: nextFolders })
+    persistLocal({
+      version: 2,
+      folders: nextFolders,
+      items: state.items,
+      updatedAt: Date.now(),
+    })
+    scheduleSync(get)
+  },
+
   addItem: (folderId, elements, name, svgPreview) => {
     const state = get()
     const targetFolder = folderId ?? state.activeFolderId ?? (state.folders[0]?.id ?? null)
@@ -571,18 +653,52 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
     }
 
     const cleanPrefix = sourceName ? sourceName.replace(/\.excalidrawlib$/i, '').trim() : 'Item'
-    const importedItems: ExcalidrawLibraryItem[] = rawItems.map((entry, idx) => {
-      const elements = Array.isArray(entry) ? entry : entry.elements || []
-      const name = extractItemName(entry, idx, cleanPrefix)
-      return {
+    // A library file is authored somewhere else and drawn here later, so its elements take the same route
+    // a note body takes: embeddables, hostile links and oversized point lists are dropped before anything
+    // reaches the store - the stencil tree hands these very elements to restoreElements and exportToSvg.
+    const importedItems: ExcalidrawLibraryItem[] = []
+    let droppedElements = 0
+    let skippedItems = 0
+    let budget = EXCALIDRAW_MAX_LIBRARY_BYTES
+    for (const [idx, entry] of rawItems.entries()) {
+      if (importedItems.length >= EXCALIDRAW_MAX_LIBRARY_ITEMS) {
+        skippedItems += rawItems.length - idx
+        break
+      }
+      const rawElements = Array.isArray(entry) ? entry : entry.elements || []
+      const safe = sanitizeElements(rawElements)
+      droppedElements += safe.dropped
+      if (safe.error || safe.elements.length === 0) {
+        skippedItems += 1
+        continue
+      }
+      const size = JSON.stringify(safe.elements).length
+      if (size > budget) {
+        skippedItems += rawItems.length - idx
+        break
+      }
+      budget -= size
+      importedItems.push({
         id: `stencil-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
         folderId,
-        name,
-        elements,
+        name: extractItemName(entry, idx, cleanPrefix),
+        elements: safe.elements,
         status: 'published',
         created: Date.now(),
-      }
-    })
+      })
+    }
+
+    if (droppedElements > 0 || skippedItems > 0) {
+      toast({
+        title: t('excalidraw.library_import_skipped', {
+          imported: importedItems.length,
+          skipped: skippedItems,
+          dropped: droppedElements,
+        }),
+        tone: importedItems.length === 0 ? 'danger' : 'default',
+      })
+    }
+    if (importedItems.length === 0) return 0
 
     const nextItems = [...importedItems, ...state.items]
     const nextExpanded = folderId
@@ -666,7 +782,7 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
       const manifest: ExcalidrawLibraryManifest = {
         version: 2,
         folders: state.folders,
-        items: state.items,
+        items: withoutPreviews(state.items),
         updatedAt: Date.now(),
       }
       await api.excalidrawLibrary.saveManifest(manifest)

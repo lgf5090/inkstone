@@ -36,6 +36,7 @@ export function usePresenterSlideMedia(options: {
         mermaid: preview.mermaid,
         chart: preview.chart,
         mindmap: 'snapshot',
+        excalidraw: 'source',
         // The presenter sees the same page the room sees, and the deck's surface shows a query as its
         // own text: a projector cannot wait on a note store while the show is running.
         dataview: 'source',

@@ -64,6 +64,10 @@ const CLIENT_DIR = path.join('src', 'client')
  */
 const COMPONENT_NAMED_BUTTONS = new Map<string, string>([
   [
+    'src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx',
+    'The import buttons switch their own caption: while a download runs they draw a spinner plus a different string, so the read sees a conditional fragment where the name is. A screen reader reads the span the component writes, which is the name the button has at that moment.',
+  ],
+  [
     'src/client/components/form.tsx',
     'The checkbox row takes its name from its `label`, which the row draws inside a `<span>`: this read sees an element where a browser reads that span\'s text. A row created with no label is unnamed, and that is the caller\'s contract, not this element\'s.',
   ],
@@ -320,6 +324,20 @@ function findControl(element: ts.JsxElement): string | null {
  * carries the number of sites in the file, so a new one there fails rather than hiding behind it.
  */
 const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: string }>([
+  [
+    'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
+    {
+      sites: 4,
+      reason: 'The stencil tile and the top-level row each select on click and carry hover buttons of their own, so neither can be a plain button. The other two are wrappers whose only handler is stopPropagation, keeping a click inside an inline rename field or a hover toolbar from reaching the tile behind it. Folder rows live in LibraryFolderRow.tsx now and are registered there.',
+    },
+  ],
+  [
+    'src/client/features/excalidraw/library/LibraryFolderRow.tsx',
+    {
+      sites: 3,
+      reason: 'The folder row is a drag source, a drop target for another folder, and the thing you click to filter the grid - all three on one box that also owns four hover buttons. The other two are stopPropagation wrappers: the inline rename field and the hover toolbar, each keeping its own click away from the row behind it.',
+    },
+  ],
   [
     'src/client/features/preview/wiki-link-hover-card/index.tsx',
     {

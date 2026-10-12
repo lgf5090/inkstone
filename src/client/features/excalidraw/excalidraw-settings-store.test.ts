@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
+import { autoSaveDelayMs, useExcalidrawSettingsStore } from './excalidraw-settings-store';
 
 describe('excalidraw-settings-store', () => {
   beforeEach(() => {
@@ -16,7 +16,7 @@ describe('excalidraw-settings-store', () => {
     const deepseekConfig = state.aiProviders.deepseek;
     expect(deepseekConfig).toBeDefined();
     expect(deepseekConfig.baseURL).toBe('https://api.deepseek.com');
-    expect(deepseekConfig.apiKey).toBe('***REMOVED***');
+    expect(deepseekConfig.apiKey).toBe('');
   });
 
   it('returns active AI configuration via getActiveAIConfig', () => {
@@ -243,4 +243,18 @@ describe('excalidraw-settings-store', () => {
     });
     expect(document.documentElement.classList.contains('excalidraw-cjk-fonts')).toBe(false);
   });
+});
+
+describe('autoSaveDelayMs', () => {
+    it('holds the writers inside the range the settings field advertises', () => {
+        expect(autoSaveDelayMs(600)).toBe(600);
+        expect(autoSaveDelayMs(1)).toBe(200);
+        expect(autoSaveDelayMs(0)).toBe(600);
+        expect(autoSaveDelayMs(-5)).toBe(600);
+        expect(autoSaveDelayMs(999999)).toBe(5000);
+        expect(autoSaveDelayMs('abc')).toBe(600);
+        expect(autoSaveDelayMs(NaN)).toBe(600);
+        expect(autoSaveDelayMs(undefined)).toBe(600);
+        expect(autoSaveDelayMs('250')).toBe(250);
+    });
 });

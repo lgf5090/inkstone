@@ -2563,7 +2563,7 @@
   justify-content: center !important;
   cursor: pointer !important;
   background-color: transparent !important;
-  color: var(--text-primary-color, currentColor) !important;
+  color: var(--text-primary, currentColor) !important;
   border: none !important;
   transition: all 0.15s ease !important;
 }
@@ -2574,7 +2574,7 @@
 }
 
 .excalidraw .sidebar-tab-trigger:hover {
-  background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06)) !important;
+  background-color: var(--bg-hover) !important;
 }
 
 .excalidraw .sidebar-tab-trigger.active,

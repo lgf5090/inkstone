@@ -3,12 +3,16 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import { assertRelayableEndpoint, isBlockedTarget, pickRelayHeaders } from '@shared/ai-proxy-guard'
 
 interface AIProxyPayload {
   endpoint?: string
   headers?: Record<string, string>
   body?: unknown
 }
+
+export { isBlockedTarget }
 
 export const aiProxyRoutes = new Hono<AppBindings>()
 aiProxyRoutes.use('*', requireAuth)
@@ -22,25 +26,12 @@ aiProxyRoutes.post('/proxy', async (c) => {
 
   let targetUrl: URL
   try {
-    targetUrl = new URL(endpoint)
-  } catch {
-    throw ApiError.badRequest('Invalid endpoint URL')
+    targetUrl = assertRelayableEndpoint(endpoint)
+  } catch (err) {
+    throw ApiError.badRequest(err instanceof Error ? err.message : 'Invalid endpoint URL')
   }
 
-  if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
-    throw ApiError.badRequest('Endpoint must use http or https')
-  }
-
-  const upstreamHeaders = new Headers()
-  if (data.headers && typeof data.headers === 'object') {
-    for (const [key, value] of Object.entries(data.headers)) {
-      const lower = key.toLowerCase()
-      if (lower === 'host' || lower === 'connection' || lower === 'content-length') continue
-      if (typeof value === 'string') {
-        upstreamHeaders.set(key, value)
-      }
-    }
-  }
+  const upstreamHeaders = new Headers(pickRelayHeaders(data.headers))
 
   if (!upstreamHeaders.has('content-type')) {
     upstreamHeaders.set('content-type', 'application/json')
@@ -53,7 +44,12 @@ aiProxyRoutes.post('/proxy', async (c) => {
       method: 'POST',
       headers: upstreamHeaders,
       body: payload,
+      redirect: NO_REDIRECT,
     })
+
+    if (isRedirectResponse(upstreamRes)) {
+      return c.json({ error: { message: 'AI upstream responded with a redirect, which relays refuse' } }, 502)
+    }
 
     const responseHeaders = new Headers()
     const contentType = upstreamRes.headers.get('content-type')

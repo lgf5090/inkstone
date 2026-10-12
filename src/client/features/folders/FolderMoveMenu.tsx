@@ -1,8 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronRight, FolderClosed, Inbox } from 'lucide-react';
-import type { FolderNode } from '../../store/notes';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
+
+/**
+ * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.
+ *
+ * Stated structurally rather than as the notes store's `FolderNode` because the library panel has the
+ * same shape of tree over its own folders, and a second copy of this picker - flywheel positioning,
+ * arrow-key walking and all - would be the worse outcome. `FolderNode` satisfies it as it is.
+ */
+export interface MoveMenuFolder {
+    id: string;
+    name: string;
+    children: MoveMenuFolder[];
+    directNotes: number;
+    icon?: string | null;
+    color?: string | null;
+}
 
 const LEVEL_WIDTH = 188;
 const LEVEL_GAP = 2;
@@ -11,13 +26,13 @@ const ROW_SELECTOR = '[data-move-row]:not([disabled])';
 interface OpenLevel {
     id: string;
     label: string;
-    nodes: FolderNode[];
+    nodes: MoveMenuFolder[];
     top: number;
     left: number;
 }
 
-function prune(nodes: readonly FolderNode[], excluded: ReadonlySet<string>): FolderNode[] {
-    const kept: FolderNode[] = [];
+function prune(nodes: readonly MoveMenuFolder[], excluded: ReadonlySet<string>): MoveMenuFolder[] {
+    const kept: MoveMenuFolder[] = [];
     for (const node of nodes) {
         if (excluded.has(node.id))
             continue;
@@ -34,12 +49,14 @@ function levelLeft(rect: DOMRect): number {
     return Math.max(margin, Math.min(rect.left - LEVEL_WIDTH - LEVEL_GAP, window.innerWidth - margin - LEVEL_WIDTH));
 }
 
-export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, inboxFolderId, onSelect }: {
-    tree: readonly FolderNode[];
-    subject: FolderNode;
+export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, inboxFolderId, rootLabel, onSelect }: {
+    tree: readonly MoveMenuFolder[];
+    subject: MoveMenuFolder;
     currentParentId: string | null;
     excludedIds: ReadonlySet<string>;
     inboxFolderId?: string | null;
+    /** The name of the top level for this tree, which is not "Unfiled" everywhere. */
+    rootLabel?: string;
     onSelect: (parentId: string | null) => void;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
@@ -48,8 +65,8 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
     const pendingFocus = useRef(-1);
     const levels = useMemo(() => prune(tree, excludedIds), [tree, excludedIds]);
     const byId = useMemo(() => {
-        const found = new Map<string, FolderNode>();
-        const walk = (nodes: FolderNode[]) => {
+        const found = new Map<string, MoveMenuFolder>();
+        const walk = (nodes: MoveMenuFolder[]) => {
             for (const node of nodes) {
                 found.set(node.id, node);
                 walk(node.children);
@@ -105,7 +122,7 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
         levelRefs.current[level]?.querySelector<HTMLButtonElement>(ROW_SELECTOR)?.focus({ preventScroll: true });
     }, [open]);
 
-    const hover = (depth: number, node: FolderNode | null, rect: DOMRect) => {
+    const hover = (depth: number, node: MoveMenuFolder | null, rect: DOMRect) => {
         setOpen((current) => {
             const kept = current.slice(0, depth);
             if (!node || node.children.length === 0)
@@ -181,7 +198,7 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
         <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--text-tertiary)]">{t("folders.move_subject_value0", { value0: subject.name })}</span>
       </div>
       <div className="max-h-[252px] overflow-y-auto border-t border-[var(--border-subtle)] pt-1" onScroll={reanchor} role="group" aria-label={t("folders.move_to")}>
-        <MoveRow depth={0} id={null} label={t("folders.move_unfiled")} glyph={<Inbox size={13}/>} count={0} isCurrent={currentParentId === null} hasChildren={levels.length > 0} onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(null)}/>
+        <MoveRow depth={0} id={null} label={rootLabel ?? t("folders.move_unfiled")} glyph={<Inbox size={13}/>} count={0} isCurrent={currentParentId === null} hasChildren={levels.length > 0} onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(null)}/>
         {inbox && (<MoveRow depth={0} id={inbox.id} label={t("folders.move_inbox_value0", { value0: inbox.name })} glyph={inbox.icon || null} color={inbox.color} count={inbox.directNotes} isCurrent={currentParentId === inbox.id} hasChildren={false} shortcut onHover={(rect) => hover(0, null, rect)} onSelect={() => onSelect(inbox.id)}/>)}
         {levels.map((node) => <FolderBranch key={node.id} node={node} depth={0} currentParentId={currentParentId} onHover={hover} onSelect={onSelect}/>)}
         {levels.length === 0 && currentParentId === null && (<p className="px-2 py-4 text-center text-[11.5px] text-[var(--text-quaternary)]">{t("folders.move_empty")}</p>)}
@@ -200,10 +217,10 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
 }
 
 function FolderBranch({ node, depth, currentParentId, onHover, onSelect }: {
-    node: FolderNode;
+    node: MoveMenuFolder;
     depth: number;
     currentParentId: string | null;
-    onHover: (depth: number, node: FolderNode | null, rect: DOMRect) => void;
+    onHover: (depth: number, node: MoveMenuFolder | null, rect: DOMRect) => void;
     onSelect: (parentId: string | null) => void;
 }) {
     return <MoveRow depth={depth} id={node.id} label={node.name} glyph={node.icon || null} color={node.color} count={node.directNotes} isCurrent={currentParentId === node.id} hasChildren={node.children.length > 0} onHover={(rect) => onHover(depth, node, rect)} onSelect={() => onSelect(node.id)}/>;

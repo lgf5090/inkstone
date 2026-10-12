@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { decodeDataValue } from './data-attr';
 import { renderMarkdown } from './renderer';
+import { registerFenceBodies } from './fence-bodies';
+import { excalidrawBody } from './excalidraw/view';
 import {
     applyBodyAtFence,
     createDefaultExcalidrawScene,
@@ -42,10 +43,15 @@ describe('the excalidraw fence renderer', () => {
         expect(node.classList.contains('excalidraw-block')).toBe(true);
     });
 
-    it('carries the body encoded so it survives DOMPurify sanitization', () => {
-        const node = block(renderMarkdown(`\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\``).html);
-        const decoded = decodeDataValue(node.getAttribute('data-excalidraw') ?? '');
-        expect(decoded.trim()).toBe(SAMPLE_EXCALIDRAW_JSON);
+    it('keeps the scene out of the markup and hands it through the fence set', () => {
+        const rendered = renderMarkdown(`\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\``);
+        const frame = document.createElement('div');
+        frame.innerHTML = rendered.html;
+        registerFenceBodies(frame, rendered.fences);
+        const node = frame.querySelector('[data-excalidraw]')!;
+        expect(node.getAttribute('data-excalidraw')).toBe('');
+        expect(rendered.html).not.toContain('el-1');
+        expect(excalidrawBody(node as HTMLElement).trim()).toBe(SAMPLE_EXCALIDRAW_JSON);
     });
 
     it('starts in loading state with placeholder', () => {

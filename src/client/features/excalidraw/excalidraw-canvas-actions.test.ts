@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import katex from 'katex';
 import {
     computeElementsBounds,
     createLatexSvg,
@@ -123,7 +124,7 @@ describe('zoomToFitScene', () => {
         expect(mockApi.updateScene).not.toHaveBeenCalled();
     });
 
-    it('calls api.zoomToFit fallback when available', () => {
+    it('lets the engine fit the view when it has zoomToFit, instead of overwriting it', () => {
         const zoomToFitMock = vi.fn();
         const mockApi = {
             getSceneElements: () => [
@@ -135,7 +136,52 @@ describe('zoomToFitScene', () => {
         };
         zoomToFitScene(mockApi);
         expect(zoomToFitMock).toHaveBeenCalled();
-        expect(mockApi.updateScene).toHaveBeenCalled();
+        expect(mockApi.updateScene).not.toHaveBeenCalled();
+    });
+
+    it('lets the animated scrollToContent stand alone', () => {
+        const scrollToContent = vi.fn();
+        const mockApi = {
+            getSceneElements: () => [
+                { id: '1', x: 0, y: 0, width: 100, height: 100 },
+            ],
+            getAppState: () => ({ width: 800, height: 600, zoom: { value: 1 }, scrollX: 0, scrollY: 0 }),
+            scrollToContent,
+            zoomToFit: vi.fn(),
+            updateScene: vi.fn(),
+        };
+        zoomToFitScene(mockApi);
+        expect(scrollToContent).toHaveBeenCalledWith(
+            expect.any(Array),
+            expect.objectContaining({ fitToViewport: true, animate: true }),
+        );
+        expect(mockApi.zoomToFit).not.toHaveBeenCalled();
+        expect(mockApi.updateScene).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the hand-computed view when the engine offers no fit at all', () => {
+        const mockApi = {
+            getSceneElements: () => [
+                { id: '1', x: 0, y: 0, width: 100, height: 100 },
+            ],
+            getAppState: () => ({ width: 800, height: 600, zoom: { value: 1 }, scrollX: 0, scrollY: 0 }),
+            updateScene: vi.fn(),
+        };
+        zoomToFitScene(mockApi);
+        expect(mockApi.updateScene).toHaveBeenCalledTimes(1);
+    });
+
+    it('still uses the hand-computed view when the engine fit throws', () => {
+        const mockApi = {
+            getSceneElements: () => [
+                { id: '1', x: 0, y: 0, width: 100, height: 100 },
+            ],
+            getAppState: () => ({ width: 800, height: 600, zoom: { value: 1 }, scrollX: 0, scrollY: 0 }),
+            scrollToContent: vi.fn(() => { throw new Error('no view in this build'); }),
+            updateScene: vi.fn(),
+        };
+        zoomToFitScene(mockApi);
+        expect(mockApi.updateScene).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -155,6 +201,20 @@ describe('createLatexSvg and insertLatexToCanvas', () => {
         const result = createLatexSvg('E=mc^2', false);
         const decoded = decodeURIComponent(result.dataURL);
         expect(decoded).toContain('font-size: 36px');
+    });
+
+    it('escapes the source when the compiler itself throws', () => {
+        const spy = vi.spyOn(katex, 'renderToString').mockImplementation(() => {
+            throw new Error('katex internal failure')
+        });
+        try {
+            const result = createLatexSvg('<img src=x onerror=alert(1)>', false);
+            const decoded = decodeURIComponent(result.dataURL);
+            expect(decoded).not.toContain('<img');
+            expect(decoded).toContain('&lt;img');
+        } finally {
+            spy.mockRestore();
+        }
     });
 
     it('inserts image element with SVG file into canvas', () => {

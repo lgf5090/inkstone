@@ -161,7 +161,7 @@ describe('the dataview fence', () => {
     it('survives the sanitizer with the attributes the mount reads', async () => {
         const root = await host(renderMarkdown('```dataview\nLIST\n```').html)
         await enhancePreview(root, {
-            math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', dataview: 'live', dark: false,
+            math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', excalidraw: 'source', dataview: 'live', dark: false,
         })
         const block = root.querySelector('[data-dataview]')
         expect(block?.getAttribute('data-dataview')).toBeTruthy()
@@ -171,7 +171,7 @@ describe('the dataview fence', () => {
     it('shows the query text on a surface that must not answer', async () => {
         const root = await host(renderMarkdown('```dataview\nLIST FROM #x\n```').html)
         await enhancePreview(root, {
-            math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', dataview: 'source', dark: false,
+            math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', excalidraw: 'source', dataview: 'source', dark: false,
         })
         const pre = root.querySelector('.dataview-source')
         expect(pre?.textContent?.trimEnd()).toBe('LIST FROM #x')
@@ -182,7 +182,7 @@ describe('the dataview fence', () => {
     it('leaves a live host alone in the enhancement pass, so the mount can fill it', async () => {
         const root = await host(renderMarkdown('```dataview\nLIST\n```').html)
         await enhancePreview(root, {
-            math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', dataview: 'live', dark: false,
+            math: false, mermaid: false, chart: false, kanban: 'source', mindmap: 'source', excalidraw: 'source', dataview: 'live', dark: false,
         })
         expect(root.querySelector('.dataview-source')).toBeNull()
         expect(root.querySelector('[data-dataview]')?.classList.contains('loading')).toBe(true)

@@ -35,14 +35,18 @@ import { ExcalidrawToolsPanel } from './ExcalidrawToolsPanel';
 import { ExcalidrawFloatingCapsule } from './ExcalidrawFloatingCapsule';
 import { ExcalidrawLibraryPortal } from './library/ExcalidrawLibraryTree';
 import {
+    computeElementsBounds,
     getViewportCenterInScene,
     promptAndInsertLatex,
     promptAndInsertLink,
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from './excalidraw-canvas-actions';
+import { applySceneElements, restoreSceneElements } from '../../lib/markdown/excalidraw/loader';
 import { TextToDiagramModal } from './TextToDiagramModal';
-import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
+import { reparentMainMenuIntoFooter } from './chrome';
+import { toggleElementFullscreen } from './fullscreen';
+import { autoSaveDelayMs, useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { extractCodeBlock, streamChatCompletion, type AIMessage } from '../../lib/ai';
 
 interface ExcalidrawStandaloneEditorProps {
@@ -86,10 +90,20 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         return (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'dark';
     });
 
+    const apiRef = useRef<any>(null);
+    // Per-editor, not keyed on the api object the engine hands out: the api arrives from a callback that
+    // may not have run yet when the first pointerdown lands, and a touch that finds no api is a touch the
+    // gate never hears about, which would keep this canvas read-only forever.
+    const interactedRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasHostRef = useRef<HTMLDivElement>(null);
     const saveTimerRef = useRef<number | undefined>(undefined);
     const lastSavedRef = useRef<string>(content);
+    // Read inside the refill effect rather than taken as a dependency: re-running that effect the moment
+    // the flag flips would compare the new body against a prop the parent has not updated yet and refill
+    // the canvas with the text it is about to replace.
+    const isSavedRef = useRef(true);
+    const setSaved = (saved: boolean) => { isSavedRef.current = saved; setIsSaved(saved); };
 
     const excalidrawSettings = useExcalidrawSettingsStore();
 
@@ -188,7 +202,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, [note.id]);
 
     useEffect(() => {
-        registerExcalidrawActionHandler(async (action) => {
+        return registerExcalidrawActionHandler(async (action) => {
             if (!api) return;
             const isDark = theme === 'dark';
             if (action === 'LaTeX') {
@@ -199,9 +213,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 await promptAndInsertLink(api, isDark);
             }
         });
-        return () => {
-            registerExcalidrawActionHandler(null);
-        };
     }, [api, theme]);
 
     useEffect(() => {
@@ -241,15 +252,39 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         };
     }, [note.id]);
 
+    // The note body is the source of truth, and it can move while this editor is open: a sync arriving
+    // from another device, an undo, a version restore. Nothing used to push it back into the canvas, so
+    // the drawing kept showing an old scene while the note already held a new one. The one change that
+    // must not come back around is our own save, which is exactly what lastSavedRef marks.
+    useEffect(() => {
+        if (!api) return;
+        if (content === lastSavedRef.current) return;
+        // The same note can be open in two panes, each with its own engine. Refilling while this canvas
+        // holds an edit it has not written yet would throw that work away, so wait for the save to land.
+        if (!isSavedRef.current) return;
+        const parsed = parseExcalidrawBody(content);
+        if (!parsed.ok) return;
+        api.updateScene({
+            elements: restoreSceneElements(api, parsed.data.elements),
+            appState: parsed.data.appState,
+        });
+        if (parsed.data.files) {
+            api.addFiles(Object.values(parsed.data.files));
+        }
+        lastSavedRef.current = content;
+        setRawCode(content);
+    }, [content, api]);
+
     const handleCanvasChange = useCallback(
         (elements: readonly any[], appState: any, files: any) => {
+            if (!interactedRef.current) return;
             const isLibOpen = Boolean(
                 appState.openSidebar && (appState.openSidebar.name === 'default' || appState.openSidebar.name === 'customSidebar')
             );
             setLibraryOpen(isLibOpen);
-            setIsSaved(false);
+            setSaved(false);
             window.clearTimeout(saveTimerRef.current);
-            const autoSaveMs = useExcalidrawSettingsStore.getState().autoSaveIntervalMs || 600;
+            const autoSaveMs = autoSaveDelayMs(useExcalidrawSettingsStore.getState().autoSaveIntervalMs);
             saveTimerRef.current = window.setTimeout(() => {
                 const scene: ExcalidrawSceneData = {
                     elements: elements as any[],
@@ -261,7 +296,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     lastSavedRef.current = nextJson;
                     onChangeRef.current(nextJson);
                     setRawCode(nextJson);
-                    setIsSaved(true);
+                    setSaved(true);
                 }
             }, autoSaveMs);
         },
@@ -301,7 +336,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
             lastSavedRef.current = nextJson;
             onChangeRef.current(nextJson);
             setRawCode(nextJson);
-            setIsSaved(true);
+            setSaved(true);
         }
         toast({ title: t('workspace.drawing_saved'), tone: 'success' });
     }, [api, lib, toast]);
@@ -323,7 +358,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                 const parsed = parseExcalidrawBody(rawCode);
                 if (api) {
                     api.updateScene({
-                        elements: parsed.data.elements,
+                        elements: restoreSceneElements(api, parsed.data.elements),
                         appState: parsed.data.appState,
                     });
                     if (parsed.data.files) {
@@ -340,20 +375,21 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         (elements: any[]) => {
             if (!api || !elements || elements.length === 0) return;
             const center = getViewportCenterInScene(api);
-            const minX = Math.min(...elements.map((el) => Number(el.x) || 0));
-            const minY = Math.min(...elements.map((el) => Number(el.y) || 0));
-            const maxX = Math.max(...elements.map((el) => (Number(el.x) || 0) + (Number(el.width) || 0)));
-            const maxY = Math.max(...elements.map((el) => (Number(el.y) || 0) + (Number(el.height) || 0)));
-            const width = Math.max(maxX - minX, 100);
-            const height = Math.max(maxY - minY, 100);
+            // Spreading the coordinates into Math.min/Math.max overflows the argument list once a
+            // generated diagram is large enough; the bounds helper walks the array instead.
+            const bounds = computeElementsBounds(elements);
+            const width = Math.max(bounds?.width ?? 100, 100);
+            const height = Math.max(bounds?.height ?? 100, 100);
+            const originX = bounds?.minX ?? 0;
+            const originY = bounds?.minY ?? 0;
             const shifted = elements.map((el) => ({
                 ...el,
-                x: Math.round(center.x - width / 2 + ((Number(el.x) || 0) - minX)),
-                y: Math.round(center.y - height / 2 + ((Number(el.y) || 0) - minY)),
+                x: Math.round(center.x - width / 2 + ((Number(el.x) || 0) - originX)),
+                y: Math.round(center.y - height / 2 + ((Number(el.y) || 0) - originY)),
             }));
             const existing = typeof api.getSceneElements === 'function' ? api.getSceneElements() : [];
-            api.updateScene({ elements: [...existing, ...shifted] });
-            setIsSaved(false);
+            applySceneElements(api, [...existing, ...shifted]);
+            setSaved(false);
         },
         [api],
     );
@@ -388,38 +424,22 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, []);
 
     useEffect(() => {
-        if (!canvasHostRef.current || viewMode !== 'canvas') return;
         const host = canvasHostRef.current;
-        let observer: MutationObserver | null = null;
-
-        const reparentMenu = () => {
-            const trigger =
-                host.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
-                host.querySelector<HTMLElement>('.main-menu-trigger') ||
-                host.querySelector<HTMLElement>('.excalidraw-ui-top-left');
-            const undoRedo = host.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left .undo-redo-buttons');
-            const footerSection = host.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left section');
-
-            if (trigger) {
-                if (undoRedo && !undoRedo.contains(trigger)) {
-                    undoRedo.prepend(trigger);
-                } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
-                    footerSection.prepend(trigger);
-                }
-                if ((undoRedo && undoRedo.contains(trigger)) || (footerSection && footerSection.contains(trigger))) {
-                    observer?.disconnect();
-                }
-            }
-        };
-
-        reparentMenu();
-        observer = new MutationObserver(reparentMenu);
-        observer.observe(host, { childList: true, subtree: true });
-
-        return () => {
-            observer?.disconnect();
-        };
+        if (!host || viewMode !== 'canvas') return;
+        return reparentMainMenuIntoFooter(host);
     }, [viewMode, lib]);
+
+    useEffect(() => {
+        const host = canvasHostRef.current;
+        if (!host || viewMode !== 'canvas') return;
+        const note = () => { interactedRef.current = true; };
+        host.addEventListener('pointerdown', note, true);
+        host.addEventListener('keydown', note, true);
+        return () => {
+            host.removeEventListener('pointerdown', note, true);
+            host.removeEventListener('keydown', note, true);
+        };
+    }, [viewMode]);
 
 
     useEffect(() => {
@@ -438,14 +458,192 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         };
     }, [api]);
 
-    const handleToggleFullscreen = () => {
-        if (!containerRef.current) return;
-        if (!document.fullscreenElement) {
-            void containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
-        } else {
-            void document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    const handleToggleFullscreen = async () => {
+        // A rejected request used to vanish into an empty catch: the button did nothing at all and the
+        // reader had no way to learn the surface cannot go fullscreen here.
+        const outcome = await toggleElementFullscreen(containerRef.current);
+        if (outcome === 'unsupported' || outcome === 'denied') {
+            toast({ title: t('excalidraw.fullscreen_unavailable'), tone: 'warning' });
+            return;
         }
+        setIsFullscreen(outcome === 'entered');
     };
+
+    // The engine component is memoised on children identity, so this element is built only when something
+    // the canvas actually reads changes. Without it, every keystroke in the JSON view - and every autosave
+    // tick that moves rawCode or isSaved - re-renders the whole engine UI while it is display:none.
+    const engineSurface = useMemo(() => (
+                <div
+                    ref={canvasHostRef}
+                    className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''} ${theme === 'dark' ? 'theme--dark' : ''}`}
+                    style={{
+                        display: viewMode === 'canvas' && lib ? 'block' : 'none',
+                        ['--default-link-indicator-opacity' as any]: excalidrawSettings.linkIndicatorOpacity,
+                    }}
+                >
+                    {lib && (
+                        <lib.Excalidraw
+                            initialData={initialData}
+                            theme={theme}
+                            langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
+                            aiEnabled={excalidrawSettings.aiEnabled}
+                            onChange={handleCanvasChange}
+                            onLinkOpen={handleLinkOpen}
+                            onExcalidrawAPI={(excalidrawApi: any) => {
+                                if (excalidrawApi) {
+                                    apiRef.current = excalidrawApi;
+                                    setApi(excalidrawApi);
+                                }
+                            }}
+                            UIOptions={{
+                                canvasActions: {
+                                    loadScene: false,
+                                    saveToActiveFile: false,
+                                },
+                            }}
+                        >
+                            {lib.TTDDialog && (
+                                <lib.TTDDialog
+                                    persistenceAdapter={{
+                                        loadChats: async () => {
+                                            try {
+                                                const saved = localStorage.getItem('inkstone-excalidraw-ttd-chats');
+                                                return saved ? JSON.parse(saved) : [];
+                                            } catch {
+                                                return [];
+                                            }
+                                        },
+                                        saveChats: async (chats: any) => {
+                                            try {
+                                                localStorage.setItem('inkstone-excalidraw-ttd-chats', JSON.stringify(chats));
+                                            } catch {
+                                            }
+                                        },
+                                    }}
+                                    onTextSubmit={async (props: any) => {
+                                        const { messages = [], onChunk, onStreamCreated, signal } = props ?? {};
+                                        onStreamCreated?.();
+                                        const settings = useExcalidrawSettingsStore.getState();
+                                        const config = settings.aiProviders[settings.aiDefaultProvider]
+                                        const systemPrompt =
+                                            'The user will provide you with a text prompt. Your task is to generate a mermaid diagram based on the prompt. Use the graph, sequenceDiagram, flowchart or classDiagram types based on what best fits the request. Return a single message containing only the mermaid diagram in a codeblock. Avoid the use of () parenthesis in the mermaid script.';
+                                        try {
+                                            const aiMsgs: AIMessage[] = messages.map((m: any, i: number) => ({
+                                                id: String(i),
+                                                role: m.role,
+                                                content: m.content,
+                                            }));
+                                            const result = await streamChatCompletion(aiMsgs, config, {
+                                                systemPrompt,
+                                                signal,
+                                                onChunk: (_c: string, full: string) => {
+                                                    let code = extractCodeBlock(full) || full;
+                                                    if (code.startsWith('mermaid')) {
+                                                        code = code.replace(/^mermaid\s*/i, '');
+                                                    }
+                                                    onChunk?.(code);
+                                                },
+                                            });
+                                            let generatedResponse = extractCodeBlock(result.content) || result.content;
+                                            if (generatedResponse.startsWith('mermaid')) {
+                                                generatedResponse = generatedResponse.replace(/^mermaid\s*/i, '');
+                                            }
+                                            return { generatedResponse, error: null };
+                                        } catch (err: unknown) {
+                                            return { error: (err instanceof Error ? err : new Error(String(err))) as any };
+                                        }
+                                    }}
+                                />
+                            )}
+                            {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
+                            <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={canvasHostRef} open={libraryOpen} />
+                            <lib.MainMenu>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        setAiModalTab('ai');
+                                        setAiModalOpen(true);
+                                    }}
+                                    icon={<Sparkles size={14} />}
+                                >
+                                    {`${t('excalidraw.text_to_diagram')} [AI]`}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        setAiModalTab('mermaid');
+                                        setAiModalOpen(true);
+                                    }}
+                                    icon={<Workflow size={14} />}
+                                >
+                                    {t('excalidraw.mermaid_to_excalidraw')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.DefaultItems.ChangeCanvasBackground />
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+                                    }}
+                                    icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                                    shortcut="Shift+Alt+D"
+                                >
+                                    {theme === 'dark' ? t('command.switch_to_light_theme') : t('command.switch_to_dark_theme')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        if (api) {
+                                            const appState = api.getAppState();
+                                            api.updateScene({ appState: { viewModeEnabled: !appState.viewModeEnabled } });
+                                        }
+                                    }}
+                                    icon={<Eye size={14} />}
+                                >
+                                    {t('excalidraw.view_mode')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => zoomToFitScene(api, canvasHostRef.current)}
+                                    icon={<Scan size={14} />}
+                                >
+                                    {t('preview.excalidraw_fit')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={handleManualSave}
+                                    icon={<Save size={14} />}
+                                >
+                                    {t('workspace.save_drawing')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => setToolsPanelOpen(true)}
+                                    icon={<SlidersHorizontal size={14} />}
+                                >
+                                    {t('excalidraw.export_drawing')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={handleToggleViewMode}
+                                    icon={<FileCode size={14} />}
+                                >
+                                    {t('excalidraw.open_as_md')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        toast({ title: 'Excalidraw', description: 'https://excalidraw.com', tone: 'default' });
+                                    }}
+                                    icon={<Sparkles size={14} />}
+                                >
+                                    {t('excalidraw.learn_excalidraw')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Item
+                                    onSelect={() => {
+                                        toast({ title: t('excalidraw.help_and_issues'), description: 'github.com/zsviczian/obsidian-excalidraw-plugin', tone: 'default' });
+                                    }}
+                                    icon={<Info size={14} />}
+                                >
+                                    {t('excalidraw.help_and_issues')}
+                                </lib.MainMenu.Item>
+                                <lib.MainMenu.Separator />
+                                <lib.MainMenu.DefaultItems.ClearCanvas />
+                            </lib.MainMenu>
+                        </lib.Excalidraw>
+                    )}
+                </div>
+            ), [api, excalidrawSettings, initialData, lib, libraryOpen, locale, theme, viewMode]);
 
     return (
         <div
@@ -554,7 +752,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                                 if (e.target.value !== lastSavedRef.current) {
                                     lastSavedRef.current = e.target.value;
                                     onChangeRef.current(e.target.value);
-                                    setIsSaved(true);
+                                    setSaved(true);
                                 }
                             }}
                             className="h-full w-full resize-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
@@ -562,190 +760,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     </div>
                 )}
 
-                <div
-                    ref={canvasHostRef}
-                    className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''} ${theme === 'dark' ? 'theme--dark' : ''}`}
-                    style={{
-                        display: viewMode === 'canvas' && lib ? 'block' : 'none',
-                        ['--default-link-indicator-opacity' as any]: excalidrawSettings.linkIndicatorOpacity,
-                    }}
-                >
-                    {lib && (
-                        <lib.Excalidraw
-                            initialData={initialData}
-                            theme={theme}
-                            langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
-                            aiEnabled={true}
-                            onChange={handleCanvasChange}
-                            onLinkOpen={handleLinkOpen}
-                            onExcalidrawAPI={(excalidrawApi: any) => {
-                                if (excalidrawApi) setApi(excalidrawApi);
-                            }}
-                            UIOptions={{
-                                canvasActions: {
-                                    loadScene: false,
-                                    saveToActiveFile: false,
-                                },
-                            }}
-                        >
-                            {lib.TTDDialog && (
-                                <lib.TTDDialog
-                                    persistenceAdapter={{
-                                        loadChats: async () => {
-                                            try {
-                                                const saved = localStorage.getItem('inkstone-excalidraw-ttd-chats');
-                                                return saved ? JSON.parse(saved) : [];
-                                            } catch {
-                                                return [];
-                                            }
-                                        },
-                                        saveChats: async (chats: any) => {
-                                            try {
-                                                localStorage.setItem('inkstone-excalidraw-ttd-chats', JSON.stringify(chats));
-                                            } catch {
-                                            }
-                                        },
-                                    }}
-                                    onTextSubmit={async (props: any) => {
-                                        const { messages = [], onChunk, onStreamCreated, signal } = props ?? {};
-                                        onStreamCreated?.();
-                                        const settings = useExcalidrawSettingsStore.getState();
-                                        const config = settings.aiProviders[settings.aiDefaultProvider] || {
-                                            provider: 'deepseek',
-                                            baseURL: 'https://api.deepseek.com',
-                                            apiKey: '***REMOVED***',
-                                        };
-                                        const systemPrompt =
-                                            'The user will provide you with a text prompt. Your task is to generate a mermaid diagram based on the prompt. Use the graph, sequenceDiagram, flowchart or classDiagram types based on what best fits the request. Return a single message containing only the mermaid diagram in a codeblock. Avoid the use of () parenthesis in the mermaid script.';
-                                        try {
-                                            const aiMsgs: AIMessage[] = messages.map((m: any, i: number) => ({
-                                                id: String(i),
-                                                role: m.role,
-                                                content: m.content,
-                                            }));
-                                            const result = await streamChatCompletion(aiMsgs, config, {
-                                                systemPrompt,
-                                                signal,
-                                                onChunk: (_c: string, full: string) => {
-                                                    let code = extractCodeBlock(full) || full;
-                                                    if (code.startsWith('mermaid')) {
-                                                        code = code.replace(/^mermaid\s*/i, '');
-                                                    }
-                                                    onChunk?.(code);
-                                                },
-                                            });
-                                            let generatedResponse = extractCodeBlock(result.content) || result.content;
-                                            if (generatedResponse.startsWith('mermaid')) {
-                                                generatedResponse = generatedResponse.replace(/^mermaid\s*/i, '');
-                                            }
-                                            return { generatedResponse, error: null };
-                                        } catch (err: unknown) {
-                                            return { error: (err instanceof Error ? err : new Error(String(err))) as any };
-                                        }
-                                    }}
-                                />
-                            )}
-                            {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
-                            {lib.DiagramToCodePlugin && (
-                                <lib.DiagramToCodePlugin
-                                    generate={async () => ({ html: '<div>Wireframe Generated</div>' })}
-                                />
-                            )}
-                            <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={canvasHostRef} />
-                            <lib.MainMenu>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        setAiModalTab('ai');
-                                        setAiModalOpen(true);
-                                    }}
-                                    icon={<Sparkles size={14} />}
-                                >
-                                    {`${t('excalidraw.text_to_diagram')} [AI]`}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        setAiModalTab('mermaid');
-                                        setAiModalOpen(true);
-                                    }}
-                                    icon={<Workflow size={14} />}
-                                >
-                                    {t('excalidraw.mermaid_to_excalidraw')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.DefaultItems.ChangeCanvasBackground />
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-                                    }}
-                                    icon={theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-                                    shortcut="Shift+Alt+D"
-                                >
-                                    {theme === 'dark' ? t('command.switch_to_light_theme') : t('command.switch_to_dark_theme')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        if (api) {
-                                            const appState = api.getAppState();
-                                            api.updateScene({ appState: { viewModeEnabled: !appState.viewModeEnabled } });
-                                        }
-                                    }}
-                                    icon={<Eye size={14} />}
-                                >
-                                    {t('excalidraw.view_mode')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => zoomToFitScene(api, canvasHostRef.current)}
-                                    icon={<Scan size={14} />}
-                                >
-                                    {t('preview.excalidraw_fit')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={handleManualSave}
-                                    icon={<Save size={14} />}
-                                >
-                                    {t('workspace.save_drawing')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
-                                    }}
-                                    icon={<Brush size={14} />}
-                                >
-                                    {t('excalidraw.script_library')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => setToolsPanelOpen(true)}
-                                    icon={<SlidersHorizontal size={14} />}
-                                >
-                                    {t('excalidraw.export_drawing')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={handleToggleViewMode}
-                                    icon={<FileCode size={14} />}
-                                >
-                                    {t('excalidraw.open_as_md')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        toast({ title: 'Excalidraw', description: 'https://excalidraw.com', tone: 'default' });
-                                    }}
-                                    icon={<Sparkles size={14} />}
-                                >
-                                    {t('excalidraw.learn_excalidraw')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Item
-                                    onSelect={() => {
-                                        toast({ title: t('excalidraw.help_and_issues'), description: 'github.com/zsviczian/obsidian-excalidraw-plugin', tone: 'default' });
-                                    }}
-                                    icon={<Info size={14} />}
-                                >
-                                    {t('excalidraw.help_and_issues')}
-                                </lib.MainMenu.Item>
-                                <lib.MainMenu.Separator />
-                                <lib.MainMenu.DefaultItems.ClearCanvas />
-                            </lib.MainMenu>
-                        </lib.Excalidraw>
-                    )}
-                </div>
+                    {engineSurface}
 
                 {!lib && !libError && (
                     <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
@@ -770,7 +785,6 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         toolsPanelOpen={toolsPanelOpen}
                         onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
                         onToggleCode={handleToggleViewMode}
-                        onScriptLibrary={() => toast({ title: t('excalidraw.scripts_installed'), tone: 'success' })}
                         isDark={theme === 'dark'}
                         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
                     />

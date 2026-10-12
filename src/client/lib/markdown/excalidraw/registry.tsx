@@ -22,11 +22,12 @@ import {
     promptAndInsertNoteCard,
     zoomToFitScene,
 } from '../../../features/excalidraw/excalidraw-canvas-actions';
-import { useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
+import { autoSaveDelayMs, useExcalidrawSettingsStore } from '../../../features/excalidraw/excalidraw-settings-store';
 import { parseExcalidrawBody, serializeExcalidrawBody } from './body';
-import { loadExcalidrawLib, registerExcalidrawActionHandler } from './loader';
+import { loadExcalidrawLib, registerExcalidrawActionHandler, restoreSceneElements } from './loader';
 import type {
     ExcalidrawBlockEntry,
+    ExcalidrawFenceRef,
     ExcalidrawMountOptions,
     ExcalidrawSceneData,
 } from './types';
@@ -49,17 +50,25 @@ interface MountedInstance {
     rawCode?: HTMLElement;
     saveTimeout?: number;
     lastSavedJson?: string;
+    /**
+     * What this block believes the fence currently holds, kept current by both directions: a render pass
+     * that arrives from the note, and a save we just pushed into it. The writer's conflict rule compares
+     * the note's fence body against this, so a stale value here rejects every save after the first one -
+     * and the save looks and reads as if it worked, because the scene text under the canvas already
+     * moved. One copy, refreshed on both sides, is what makes the second edit land.
+     */
+    fenceRef: ExcalidrawFenceRef;
     dark: boolean;
 }
 
 const activeInstances = new Map<string, MountedInstance>();
 
-function makeInstanceKey(scope: string, index: number): string {
-    return `${scope}::${index}`;
+function makeInstanceKey(scope: string, noteId: string | null, index: number): string {
+    return `${scope}::${noteId ?? 'no-note'}::${index}`;
 }
 
-export function getExcalidrawInstance(scope: string, index: number): ExcalidrawBlockEntry | undefined {
-    return activeInstances.get(makeInstanceKey(scope, index))?.entry;
+export function getExcalidrawInstance(scope: string, noteId: string | null, index: number): ExcalidrawBlockEntry | undefined {
+    return activeInstances.get(makeInstanceKey(scope, noteId, index))?.entry;
 }
 
 function bindToolbar(
@@ -180,8 +189,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
     for (const block of blocks) {
         decorateExcalidrawControls(block);
         const ref = excalidrawFenceRef(block);
-        const key = makeInstanceKey(options.scope, ref.index);
-        const parsed = parseExcalidrawBody(ref.rawBody);
+        const key = makeInstanceKey(options.scope, options.noteId, ref.index);
 
         let instance = activeInstances.get(key);
 
@@ -208,12 +216,14 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             }
             markExcalidrawReady(block);
 
+            instance.fenceRef = ref;
             const trimmedBody = ref.rawBody.trim();
             if (trimmedBody !== instance.lastSavedJson) {
                 instance.lastSavedJson = trimmedBody;
                 if (instance.rawCode) {
                     instance.rawCode.textContent = ref.rawBody;
                 }
+                const parsed = parseExcalidrawBody(ref.rawBody);
                 if (parsed.ok && instance.entry.excalidrawAPI) {
                     instance.entry.updateScene(parsed.data);
                 }
@@ -226,6 +236,8 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
             continue;
         }
+
+        const parsed = parseExcalidrawBody(ref.rawBody);
 
         const toolbar = createExcalidrawToolbar(block);
         block.prepend(toolbar);
@@ -249,6 +261,10 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         block.append(rawPre);
 
         let api: any = null;
+        // One flag per mount, deliberately not keyed on the engine's api object: the api arrives through
+        // a callback that may not have run when the reader's first pointerdown lands, and an api-keyed
+        // flag swallows that touch and then stays shut for the whole life of the canvas.
+        let interacted = false;
         let lastElements: any[] = parsed.data.elements;
         let lastAppState: any = parsed.data.appState;
         let lastFiles: any = parsed.data.files;
@@ -256,7 +272,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         const scheduleSave = () => {
             if (!options.writeBack || !options.editable) return;
             window.clearTimeout(instance?.saveTimeout);
-            const debounceMs = useExcalidrawSettingsStore.getState().autoSaveIntervalMs || 600;
+            const debounceMs = autoSaveDelayMs(useExcalidrawSettingsStore.getState().autoSaveIntervalMs);
             const timeout = window.setTimeout(() => {
                 const currentData: ExcalidrawSceneData = {
                     elements: lastElements,
@@ -264,11 +280,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                     files: lastFiles,
                 };
                 const nextJson = serializeExcalidrawBody(currentData);
-                if (instance && nextJson !== instance.lastSavedJson) {
-                    instance.lastSavedJson = nextJson.trim();
-                    rawCode.textContent = nextJson;
-                    options.writeBack!(ref, nextJson);
-                }
+                if (!instance || nextJson === instance.lastSavedJson) return;
+                const target = instance.fenceRef;
+                if (options.writeBack!(target, nextJson) !== 'written') return;
+                instance.lastSavedJson = nextJson.trim();
+                instance.fenceRef = { index: target.index, line: target.line, rawBody: nextJson };
+                rawCode.textContent = nextJson;
             }, debounceMs);
             if (instance) {
                 instance.saveTimeout = timeout;
@@ -369,7 +386,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
 
             React.useEffect(() => {
                 if (!api) return;
-                registerExcalidrawActionHandler(async (action) => {
+                return registerExcalidrawActionHandler(async (action) => {
                     const isDark = theme === 'dark';
                     if (action === 'LaTeX') {
                         await promptAndInsertLatex(api, isDark);
@@ -379,40 +396,20 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         await promptAndInsertLink(api, isDark);
                     }
                 });
-                return () => {
-                    registerExcalidrawActionHandler(null);
-                };
-            }, [theme]);
+            }, [api, theme]);
 
             React.useEffect(() => {
-                let observer: MutationObserver | null = null;
-                const reparentMenu = () => {
-                    const trigger =
-                        canvasHost.querySelector<HTMLElement>('.dropdown-menu-event-wrapper:has(.main-menu-trigger)') ||
-                        canvasHost.querySelector<HTMLElement>('.main-menu-trigger') ||
-                        canvasHost.querySelector<HTMLElement>('.excalidraw-ui-top-left');
-                    const undoRedo = canvasHost.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left .undo-redo-buttons');
-                    const footerSection = canvasHost.querySelector<HTMLElement>('.layer-ui__wrapper__footer-left section');
-
-                    if (trigger) {
-                        if (undoRedo && !undoRedo.contains(trigger)) {
-                            undoRedo.prepend(trigger);
-                        } else if (!undoRedo && footerSection && !footerSection.contains(trigger)) {
-                            footerSection.prepend(trigger);
-                        }
-                        if ((undoRedo && undoRedo.contains(trigger)) || (footerSection && footerSection.contains(trigger))) {
-                            observer?.disconnect();
-                        }
-                    }
+                const note = () => { interacted = true; };
+                canvasHost.addEventListener('pointerdown', note, true);
+                canvasHost.addEventListener('keydown', note, true);
+                return () => {
+                    canvasHost.removeEventListener('pointerdown', note, true);
+                    canvasHost.removeEventListener('keydown', note, true);
                 };
-
-                reparentMenu();
-                observer = new MutationObserver(reparentMenu);
-                observer.observe(canvasHost, { childList: true, subtree: true });
-                return () => observer?.disconnect();
             }, []);
 
             const handleChange = React.useCallback((elements: readonly any[], appState: any, files: any) => {
+                if (!interacted) return;
                 lastElements = elements as any[];
                 lastAppState = appState;
                 lastFiles = files;
@@ -446,11 +443,12 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                 }
             }, []);
 
-            return (
-                <div
-                    style={{ width: '100%', height: '100%', position: 'relative' }}
-                    className={`excalidraw-embedded-canvas ${theme === 'dark' ? 'theme--dark' : ''}`}
-                >
+            // The engine's exported component is memoised with a comparator whose first line is
+            // `A.children !== e.children`, so inline children are rebuilt - and the whole engine UI with
+            // them - on any parent render: opening the tools panel, toggling fullscreen, a theme sync.
+            // Holding the element itself here means a chrome-only render hands React the identical
+            // element and the engine is not entered at all.
+            const canvas = React.useMemo(() => (
                     <Excalidraw
                         initialData={{
                             elements: parsed.data.elements,
@@ -487,7 +485,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                         }}
                     >
                         {lib.TTDDialogTrigger && <lib.TTDDialogTrigger />}
-                        <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={{ current: canvasHost }} />
+                        <ExcalidrawLibraryPortal api={api} lib={lib} hostRef={{ current: canvasHost }} open={libraryOpen} />
                         <MainMenu>
                             <MainMenu.DefaultItems.ChangeCanvasBackground />
                             <MainMenu.Item
@@ -550,6 +548,14 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             <MainMenu.DefaultItems.ClearCanvas />
                         </MainMenu>
                     </Excalidraw>
+            ), [api, excalidrawSettings, lib, libraryOpen, theme]);
+
+            return (
+                <div
+                    style={{ width: '100%', height: '100%', position: 'relative' }}
+                    className={`excalidraw-embedded-canvas ${theme === 'dark' ? 'theme--dark' : ''}`}
+                >
+                    {canvas}
 
                     {isFullscreen && (
                         <ExcalidrawFloatingCapsule
@@ -563,9 +569,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                             toolsPanelOpen={toolsPanelOpen}
                             onToggleToolsPanel={() => setToolsPanelOpen((o) => !o)}
                             onToggleCode={() => entry.toggleSource()}
-                            onScriptLibrary={() => {
-                                useUi.getState().toast({ title: t('excalidraw.scripts_installed'), tone: 'success' });
-                            }}
+                            onScriptLibrary={undefined}
                             isDark={theme === 'dark'}
                             onToggleTheme={() => {
                                 const next = theme === 'dark' ? 'light' : 'dark';
@@ -623,7 +627,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             updateScene: (nextData: ExcalidrawSceneData) => {
                 if (api) {
                     api.updateScene({
-                        elements: nextData.elements,
+                        elements: restoreSceneElements(api, nextData.elements),
                         appState: nextData.appState,
                     });
                     if (nextData.files) {
@@ -657,6 +661,7 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
             canvasHost,
             rawPre,
             rawCode,
+            fenceRef: ref,
             lastSavedJson: ref.rawBody.trim(),
             dark: options.dark,
         };
@@ -665,7 +670,9 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         bindToolbar(block, entry, instance, lib);
     }
 
-    const currentKeys = new Set(blocks.map((b) => makeInstanceKey(options.scope, excalidrawFenceRef(b).index)));
+    const currentKeys = new Set(
+        blocks.map((b) => makeInstanceKey(options.scope, options.noteId, excalidrawFenceRef(b).index)),
+    );
     for (const [key, inst] of activeInstances.entries()) {
         if (key.startsWith(`${options.scope}::`) && !currentKeys.has(key)) {
             inst.entry.destroy();
