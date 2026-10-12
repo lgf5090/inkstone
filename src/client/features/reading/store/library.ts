@@ -73,7 +73,7 @@ export interface LibraryState extends PersistedLibrary {
   highlightsOf: (bookId: string) => Highlight[]
   /** Everything but the files, as text a reader can carry to another device. */
   exportLibrary: () => Promise<string>
-  importLibrary: (raw: string) => Promise<{ books: number; highlights: number }>
+  importLibrary: (raw: string) => Promise<{ books: number; highlights: number; rejected: number }>
 }
 
 let writeTimer = 0
@@ -331,6 +331,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
       if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.books)) {
         throw new Error('This file is not a reading-library export')
       }
+      // The file is a stranger's JSON that later decides which engine reads a book and what the shelf
+      // paints, so every field the app trusts is checked rather than copied.
+      const wanted = parsed.books.filter((book) => isRecord(book)
+        && typeof book.id === 'string' && book.id.length > 0 && book.id.length <= 200
+        && typeof book.title === 'string'
+        && ['epub', 'pdf', 'cbz'].includes(book.format as string)
+        && typeof book.unitCount === 'number' && Number.isFinite(book.unitCount))
+        .map((book) => ({ ...book, toc: Array.isArray(book.toc) ? book.toc.filter(isRecord) : [] }))
+      const rejected = parsed.books.length - wanted.length
+      parsed.books = wanted
       const state = get()
       const byId = new Map(state.books.map((book) => [book.id, book]))
       for (const book of parsed.books) {
@@ -363,10 +373,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
       return {
         books: parsed.books.length,
         highlights: Object.values(merged.highlights).reduce((total, list) => total + list.length, 0),
+        rejected,
       }
     },
   }
 })
+
+/** A JSON value that can be indexed as an object rather than an array or a primitive. */
+function isRecord(value: unknown): value is Record<string, never> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 /** The bytes of a book's file, or null when this device no longer holds it. */
 export async function readBookBlob(userId: string | null, bookId: string): Promise<Blob | null> {

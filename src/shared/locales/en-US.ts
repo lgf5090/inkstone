@@ -5512,6 +5512,8 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "settings.reading_translate_desc": "Adds a translate action to the selection bar in the reader.",
     "settings.reading_translate_engine": "Translation service",
     "settings.reading_translate_engine_desc": "Built-in sends the selected text to this deployment, which asks a public translation service for you. AI service uses the provider configured for the drawing engine, and falls back to built-in when it is not ready.",
+    "reading.library_imported_rejected_value0": "{value0} records were not usable and were skipped",
+    "reading.more_actions": "More reader actions",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

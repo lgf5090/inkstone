@@ -7,9 +7,9 @@
  * jumping under the reader's finger.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, Clock, FileText, List, PenLine, Search, Settings2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, Clock, FileText, List, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
-import { Tooltip } from '../../../components/overlay'
+import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { navigateToPath } from '../../../lib/app-history'
 import { useNotes } from '../../../store/notes'
@@ -52,7 +52,11 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const fixedStage = useRef<FixedStageHandle>(null)
   const fixedSearch = useRef<((query: string) => Promise<PanelHit[]>) | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const isFixed = book.format !== 'epub'
+  // Below the desktop breakpoint the bar keeps only where the reader is and one menu, because seven
+  // icons leave no room for the title they are supposed to be beside.
+  const narrow = useMedia('(max-width: 767px)')
   const [panel, setPanel] = useState<PanelName>(null)
   const [selection, setSelection] = useState<StageSelection | null>(null)
   const [comment, setComment] = useState<{ ids: string[]; rect: DOMRect } | null>(null)
@@ -359,6 +363,21 @@ export function ReaderView({ book }: { book: BookRecord }) {
     setSelection(next ? { start: next.start, end: next.end, text: next.text, rect: next.rect, chapter: next.page - 1 } : null)
   }, [])
 
+  function moreItems(): MenuItem[] {
+    const open = (name: Exclude<PanelName, null>) => () => {
+      setPanel(panel === name ? null : name)
+      setMoreAt(null)
+    }
+    return [
+      { id: 'note', label: t('reading.open_note'), onSelect: () => { setMoreAt(null); void openNote() } },
+      { id: 'toc', label: t('reading.contents'), checked: panel === 'toc', onSelect: open('toc') },
+      { id: 'search', label: t('reading.search_book'), checked: panel === 'search', onSelect: open('search') },
+      { id: 'highlights', label: t('reading.highlights'), checked: panel === 'highlights', onSelect: open('highlights') },
+      { id: 'marks', label: t('reading.location_marks'), checked: panel === 'marks', onSelect: open('marks') },
+      { id: 'appearance', label: t('reading.reading_settings'), checked: panel === 'appearance', onSelect: open('appearance') },
+    ]
+  }
+
   const highlightsHere = useMemo(
     () => list.filter((one) => one.chapter === chapter).sort((a, b) => a.start - b.start),
     [chapter, list],
@@ -439,15 +458,16 @@ export function ReaderView({ book }: { book: BookRecord }) {
               </span>
             </Tooltip>
           ) : null}
-          <IconButton label={t('reading.highlights')} size="sm" active={panel === 'highlights'} onClick={() => setPanel(panel === 'highlights' ? null : 'highlights')}>
+          <IconButton label={t('reading.highlights')} size="sm" active={panel === 'highlights'} onClick={() => setPanel(panel === 'highlights' ? null : 'highlights')} className={narrow ? 'hidden' : undefined}>
             <PenLine size={15} />
           </IconButton>
-          <IconButton label={t('reading.open_note')} size="sm" onClick={() => void openNote()}>
+          <IconButton label={t('reading.open_note')} size="sm" onClick={() => void openNote()} className={narrow ? 'hidden' : undefined}>
             <FileText size={15} />
           </IconButton>
-          <IconButton label={t('reading.search_book')} size="sm" active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
-            <Search size={15} />
-          </IconButton>
+          <span className={narrow ? 'hidden' : 'contents'}>
+            <IconButton label={t('reading.search_book')} size="sm" active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
+              <Search size={15} />
+            </IconButton>
           {isFixed ? (
             <span className="reader-pill inline-flex items-center gap-0.5 px-1">
               <IconButton label={t('reading.zoom_out')} size="xs" onClick={() => setZoom((current) => Math.max(0.5, Math.round((current - 0.25) * 100) / 100))}>
@@ -460,14 +480,20 @@ export function ReaderView({ book }: { book: BookRecord }) {
             </span>
           ) : null}
           <IconButton label={t('reading.contents')} size="sm" active={panel === 'toc'} onClick={() => setPanel(panel === 'toc' ? null : 'toc')}>
-            <List size={15} />
-          </IconButton>
-          <IconButton label={t('reading.location_marks')} size="sm" active={panel === 'marks'} onClick={() => setPanel(panel === 'marks' ? null : 'marks')}>
-            <Bookmark size={15} />
-          </IconButton>
-          <IconButton label={t('reading.reading_settings')} size="sm" active={panel === 'appearance'} onClick={() => setPanel(panel === 'appearance' ? null : 'appearance')}>
-            <Settings2 size={15} />
-          </IconButton>
+              <List size={15} />
+            </IconButton>
+            <IconButton label={t('reading.location_marks')} size="sm" active={panel === 'marks'} onClick={() => setPanel(panel === 'marks' ? null : 'marks')}>
+              <Bookmark size={15} />
+            </IconButton>
+            <IconButton label={t('reading.reading_settings')} size="sm" active={panel === 'appearance'} onClick={() => setPanel(panel === 'appearance' ? null : 'appearance')}>
+              <Settings2 size={15} />
+            </IconButton>
+          </span>
+          {narrow ? (
+            <IconButton label={t('reading.more_actions')} size="sm" onClick={(event) => setMoreAt({ x: event.currentTarget.getBoundingClientRect().right - 8, y: event.currentTarget.getBoundingClientRect().bottom + 4 })}>
+              <MoreHorizontal size={15} />
+            </IconButton>
+          ) : null}
         </div>
       </div>
 
@@ -480,7 +506,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           page={page}
           fraction={progress?.fraction ?? 0}
           chapterTitle={currentChapterTitle}
-          onJump={(position, fragment) => stage.current?.goTo(position, fragment)}
+          onJump={(position, fragment) => (isFixed ? fixedStage.current?.goTo(position) : stage.current?.goTo(position, fragment))}
         />
         <IconButton label={t('reading.next_page')} size="sm" onClick={() => turn(1)}>
           <ArrowRight size={15} />
@@ -544,6 +570,14 @@ export function ReaderView({ book }: { book: BookRecord }) {
         />
       ) : null}
 
+      <Menu
+        anchor={moreAt ?? { x: 0, y: 0 }}
+        open={Boolean(moreAt)}
+        onClose={() => setMoreAt(null)}
+        zIndex={240}
+        items={moreItems()}
+      />
+
       {comment ? (
         <CommentCard
           ids={comment.ids}
@@ -560,6 +594,20 @@ export function ReaderView({ book }: { book: BookRecord }) {
       ) : null}
     </div>
   )
+}
+
+/** What the narrow bar's single menu holds: the same actions, one tap deeper. */
+function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? false)
+  useEffect(() => {
+    const list = window.matchMedia?.(query)
+    if (!list) return
+    const onChange = () => setMatches(list.matches)
+    onChange()
+    list.addEventListener('change', onChange)
+    return () => list.removeEventListener('change', onChange)
+  }, [query])
+  return matches
 }
 
 /** A title that fits the bar without hiding the controls that share it. */

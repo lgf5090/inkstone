@@ -152,7 +152,10 @@ export function ReaderSettings() {
       const result = await importLibrary(await file.text())
       toast({
         title: t('reading.library_imported_value0', { value0: result.books }),
-        description: t('reading.library_imported_highlights_value0', { value0: result.highlights }),
+        description: [
+          t('reading.library_imported_highlights_value0', { value0: result.highlights }),
+          result.rejected ? t('reading.library_imported_rejected_value0', { value0: result.rejected }) : null,
+        ].filter(Boolean).join('\n'),
         tone: 'success',
       })
     } catch (err) {

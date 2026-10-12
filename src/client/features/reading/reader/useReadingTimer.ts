@@ -52,7 +52,11 @@ export function useReadingTimer(bookId: string, enabled: boolean, goalMinutes: n
       flush(TICK_MS / 1000)
     }
     const timer = window.setInterval(tick, TICK_MS)
-    const onLeave = () => flush(Math.floor((Date.now() - lastActivity.current) / 1000))
+    // Capped, because a tab left open overnight would otherwise book the whole idle stretch as reading.
+    const onLeave = () => {
+      const since = Math.floor((Date.now() - lastActivity.current) / 1000)
+      flush(Math.min(since, IDLE_MS / 1000))
+    }
     window.addEventListener('pagehide', onLeave)
     return () => {
       window.clearInterval(timer)

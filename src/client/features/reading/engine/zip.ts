@@ -19,6 +19,12 @@ const LOCAL_SIGNATURE = 0x04034b50
 const EOCD_MIN_SIZE = 22
 const MAX_COMMENT_BYTES = 0xffff
 const FLAG_ENCRYPTED = 0x0001
+/**
+ * A ceiling on one member's decompressed size. A book that legitimately needs more does not exist —
+ * the whole file is capped at import — while a crafted archive can claim a few bytes and inflate to
+ * gigabytes, which would take the tab down rather than the book.
+ */
+const MAX_INFLATED_BYTES = 96 * 1024 * 1024
 const METHOD_STORE = 0
 const METHOD_DEFLATE = 8
 
@@ -143,8 +149,12 @@ async function inflate(bytes: Uint8Array, expected: number): Promise<Uint8Array>
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
-    parts.push(value)
     total += value.byteLength
+    if (total > MAX_INFLATED_BYTES) {
+      reader.cancel().catch(() => {})
+      throw new ZipFormatError('A member of the archive expands past what the reader will hold')
+    }
+    parts.push(value)
   }
   const body = new Uint8Array(total)
   let at = 0

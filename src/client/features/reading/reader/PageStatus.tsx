@@ -24,7 +24,10 @@ export function PageStatus({ book, page, fraction, onJump }: PageStatusProps) {
   const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100)
 
   function commit(): void {
-    const position = parsePositionInput(draft, { kind: 'epub', total: Math.max(1, book.unitCount) })
+    const position = parsePositionInput(draft, {
+      kind: book.format === 'epub' ? 'epub' : 'fixed',
+      total: Math.max(1, book.unitCount),
+    })
     setEditing(false)
     setDraft('')
     if (position) onJump(position)

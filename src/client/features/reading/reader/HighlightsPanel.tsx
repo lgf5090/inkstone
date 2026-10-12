@@ -38,17 +38,15 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
           <ul className="space-y-px">
             {list.filter((one) => one.chapter === chapter).sort((a, b) => a.start - b.start).map((highlight) => (
               <li key={highlight.id} className="group/row flex items-start gap-1.5 rounded-[var(--r-sm)] px-2 py-1.5 hover:bg-[color-mix(in_oklab,currentColor_8%,transparent)]">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => onJump({ kind: 'epub', chapter: highlight.chapter, offset: highlight.start })}
-                >
-                  <span
-                    className="block border-inline-start-2 ps-2 text-[12.5px] leading-snug"
+                <span className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    className="block w-full border-s-2 ps-2 text-start text-[12.5px] leading-snug"
                     style={{ borderInlineStartWidth: 2, borderInlineStartColor: DEFAULT_HIGHLIGHT_PAINT[highlight.color] }}
+                    onClick={() => onJump({ kind: 'epub', chapter: highlight.chapter, offset: highlight.start })}
                   >
                     {highlight.quote}
-                  </span>
+                  </button>
                   {highlight.comment ? (
                     <textarea
                       value={highlight.comment}
@@ -59,7 +57,7 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
                       style={{ borderColor: 'color-mix(in oklab, currentColor 18%, transparent)' }}
                     />
                   ) : null}
-                </button>
+                </span>
                 <Tooltip label={t('reading.delete_highlight')} side="left">
                   <IconButton label={t('reading.delete_highlight')} size="xs" onClick={() => onRemove(highlight.id)} className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100">
                     <Trash2 size={12} />

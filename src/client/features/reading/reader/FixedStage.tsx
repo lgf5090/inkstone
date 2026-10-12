@@ -378,7 +378,7 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
 
   useEffect(() => {
     let cancelled = false
-    let painted: { task: { cancel(): void }; viewport: unknown } | null = null
+    let painted: { task: { cancel(): void; promise: Promise<unknown> }; viewport: unknown } | null = null
     const element = holder.current
     const surface = canvas.current
     if (!element || !surface) return
@@ -407,8 +407,21 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       const byWidth = targetWidth / Math.max(1, base.width)
       const byHeight = fit === 'page' && targetHeight ? targetHeight / Math.max(1, base.height) : byWidth
       painted = renderPdfPage(page as never, surface, Math.min(byWidth, byHeight) * zoom)
+      // Turning a page cancels the render in flight and PDF.js rejects that promise. The handler goes on
+      // the moment the task exists — a rejection that arrives while this function is still awaiting
+      // something else would otherwise be reported as an unhandled error — and the outcome is inspected
+      // below, where the cancellation is known.
+      const render = painted.task.promise
+      render.catch(() => {})
       const content = await page.getTextContent()
       if (cancelled) return
+      try {
+        await render
+      } catch (err) {
+        console.warn('[reading] the page could not be painted', err)
+        setState('scan')
+        return
+      }
       pageTextCache.set(cacheKey(bookId, index), readPdfTextContent(content as never))
       const layer = document.createElement('div')
       layer.className = 'reader-pdf-text'

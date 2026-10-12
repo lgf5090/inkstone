@@ -5512,4 +5512,6 @@ console.log(\`Hello, \${name}!\`)
     "settings.reading_translate_desc": "在阅读界面的选区工具栏中加入翻译按钮。",
     "settings.reading_translate_engine": "翻译服务",
     "settings.reading_translate_engine_desc": "内置：把选中的文字交给本部署，由服务端代你请求公共翻译服务。AI 服务：使用绘图引擎里已配置的服务，未就绪时自动回退到内置。",
+    "reading.library_imported_rejected_value0": "{value0} 条记录不可用，已跳过",
+    "reading.more_actions": "更多阅读操作",
 } as const satisfies Record<BaseMessageKey, string>;

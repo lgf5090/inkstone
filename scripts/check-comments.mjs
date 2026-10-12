@@ -4502,6 +4502,8 @@ const allowed = new Map([
   ["src/client/features/reading/LibraryView.tsx", [
     "/**\n * The shelf.\n *\n * What a reader looks for on a bookshelf is the cover and where they stopped, so the card is a cover\n * first and a caption second (see `ShelfCard`). The shelf itself is per device — see\n * `store/library.ts` for why the files cannot live on the server — so the export/import pair here is\n * what carries a reader's marks and positions to another machine.\n */",
     "/**\n * The first-run shelf.\n *\n * It names the two formats that actually work rather than every format the reference product reads,\n * because a reader who drops a MOBI in here gets a rejection with a reason, and would have been better\n * served by being told up front.\n */",
+    "// The parsed archive is cached for the session so returning to a book is instant; deleting one",
+    "// has to drop that too, or its bytes stay reachable until the tab closes.",
   ]],
   ["src/client/features/reading/ReadingApp.tsx", [
     "/**\n * The reading app: a shelf, and one book at a time.\n *\n * The tab rail gives this container its own address, so a book gets a child of it. That is what makes\n * a `↩` in a reading note a normal link the app already knows how to follow, rather than a custom\n * scheme the note renderer would have to learn about.\n */",
@@ -4646,6 +4648,7 @@ const allowed = new Map([
     "// `ArrayBuffer.isView` rather than `instanceof Uint8Array`: a typed array that crossed a realm —",
     "// a worker's response, a test environment's encoder — fails the instanceof and would be treated as",
     "// a Blob.",
+    "/**\n * A ceiling on one member's decompressed size. A book that legitimately needs more does not exist —\n * the whole file is capped at import — while a crafted archive can claim a few bytes and inflate to\n * gigabytes, which would take the tab down rather than the book.\n */",
   ]],
   ["src/client/features/reading/format-time.ts", [
     "/**\n * Durations the reader sees.\n *\n * `Intl` formats the numbers and the unit words come from the locale catalog, because the two languages\n * say the same duration differently and only one of them can live in a component.\n */",
@@ -4729,6 +4732,10 @@ const allowed = new Map([
     "/**\n * The text index of a rendered text layer.\n *\n * PDF.js writes one span per text run in the order `getTextContent` reported them, so the layer's own\n * concatenated text is the coordinate space a stored highlight uses. Rebuilding it from the DOM rather\n * than trusting the content object is what keeps search and marking in step after an earlier mark has\n * split the spans.\n */",
     "/** The slice of a PDF page this component uses, kept structural so the engine stays lazily loaded. */",
     "/** A page's cached text, or an empty one when the page has not been read yet. */",
+    "// Turning a page cancels the render in flight and PDF.js rejects that promise. The handler goes on",
+    "// the moment the task exists — a rejection that arrives while this function is still awaiting",
+    "// something else would otherwise be reported as an unhandled error — and the outcome is inspected",
+    "// below, where the cancellation is known.",
   ]],
   ["src/client/features/reading/reader/HighlightsPanel.tsx", [
     "/**\n * Everything the reader has marked in this book.\n *\n * Grouped by chapter rather than by colour, because the question a reader brings to this panel is\n * \"where did I write something?\", and the chapter heading is what lets them decide whether to jump.\n */",
@@ -4761,6 +4768,9 @@ const allowed = new Map([
     "/**\n   * A `?p=` in the address wins over the saved position, because the reader followed a link that named\n   * a place. It is read once and then removed: a reload of the address should resume the book rather\n   * than teleport back to a link the reader has already acted on.\n   */",
     "// A fixed-layout book reports its own failures from inside its stage; the package handle has",
     "// nothing useful to say about a file it was never asked to open.",
+    "// Below the desktop breakpoint the bar keeps only where the reader is and one menu, because seven",
+    "// icons leave no room for the title they are supposed to be beside.",
+    "/** What the narrow bar's single menu holds: the same actions, one tap deeper. */",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -4784,6 +4794,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/reading/reader/useReadingTimer.ts", [
     "/**\n * How long the reader has been reading.\n *\n * Time is counted only while the tab is visible and the reader is actually doing something: a page left\n * open in a background tab is not a reading session, and counting it would make the daily goal a\n * measure of tab hygiene rather than of reading.\n */",
+    "// Capped, because a tab left open overnight would otherwise book the whole idle stretch as reading.",
   ]],
   ["src/client/features/reading/reading-note.ts", [
     "/**\n * The note a book writes.\n *\n * Every book gets one Markdown note that holds its highlights. That is what makes the marks more than a\n * database row: the reader can link to them, edit them, search them, and keep them after the file that\n * produced them is gone.\n *\n * The generated passage lives between two markers, and everything outside them belongs to the reader.\n * Rewriting the whole body on every new highlight would erase whatever they had typed under it — which\n * is the failure this design exists to prevent.\n */",
@@ -4808,6 +4819,9 @@ const allowed = new Map([
     "// swallow: the next write would silently start a fresh shelf otherwise.",
     "/** A stable id for a book that survives re-importing the same file, so highlights are not orphaned. */",
     "/** The bytes of a book's file, or null when this device no longer holds it. */",
+    "// The file is a stranger's JSON that later decides which engine reads a book and what the shelf",
+    "// paints, so every field the app trusts is checked rather than copied.",
+    "/** A JSON value that can be indexed as an object rather than an array or a primitive. */",
   ]],
   ["src/client/features/reading/store/reader-settings.ts", [
     "/**\n * How the reader wants its page to look and behave.\n *\n * These are device settings rather than account settings: type size and column count belong to the\n * screen a reader is holding, not to the person, and a phone should not inherit a desktop's 2-column\n * spread. The one thing that does travel is what the reader writes — highlights and the reading note —\n * and that lives in the library store.\n *\n * Imported font files are the exception to the localStorage rule. A face is megabytes of binary, so\n * it goes to IndexedDB and comes back as a `data:` URL, which is what this app's content policy lets a\n * page load a font from (`blob:` is not in `font-src`).\n */",
@@ -12971,6 +12985,9 @@ const allowed = new Map([
     "/** Where the end-of-directory record starts. */",
     "/** A 1x1 PNG: a cover fixture only has to be something an <img> will accept. */",
     "/** A two-chapter EPUB with a nav document, or an EPUB 2 that only carries an NCX. */",
+  ]],
+  ["tests/reading-library-store.test.ts", [
+    "/**\n * The library store is exercised through its merge, not its persistence: the point of the check is what\n * a file from outside can talk the app into believing, and IndexedDB is not the interesting half.\n */",
   ]],
   ["tests/reading-note.test.ts", [
     "// Halfway through four equal chapters is the end of the second one, which is the same place as the",

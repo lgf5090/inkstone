@@ -17,6 +17,7 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { useLibrary } from './store/library'
 import { hasBookExtension } from './engine/book-import'
+import { dropBookHandle } from './reader/useEpubHandle'
 import { ShelfCard } from './ShelfCard'
 import type { BookRecord, ImportFailure } from './types'
 
@@ -37,7 +38,6 @@ export function LibraryView() {
   const books = useLibrary((state) => state.books)
   const progress = useLibrary((state) => state.progress)
   const highlights = useLibrary((state) => state.highlights)
-  const stats = useLibrary((state) => state.stats)
   const covers = useLibrary((state) => state.covers)
   const noteLinks = useLibrary((state) => state.notes)
   const addFiles = useLibrary((state) => state.addFiles)
@@ -156,7 +156,12 @@ export function LibraryView() {
       confirmLabel: t('reading.remove'),
       tone: 'danger',
     })
-    if (ok) await removeBook(book.id)
+    if (ok) {
+      // The parsed archive is cached for the session so returning to a book is instant; deleting one
+      // has to drop that too, or its bytes stay reachable until the tab closes.
+      dropBookHandle(book.id)
+      await removeBook(book.id)
+    }
   }
 
   async function runExport(): Promise<void> {
@@ -175,7 +180,10 @@ export function LibraryView() {
       const result = await importLibrary(await file.text())
       toast({
         title: t('reading.library_imported_value0', { value0: result.books }),
-        description: t('reading.library_imported_highlights_value0', { value0: result.highlights }),
+        description: [
+          t('reading.library_imported_highlights_value0', { value0: result.highlights }),
+          result.rejected ? t('reading.library_imported_rejected_value0', { value0: result.rejected }) : null,
+        ].filter(Boolean).join('\n'),
         tone: 'success',
       })
     } catch (err) {
@@ -278,7 +286,7 @@ export function LibraryView() {
                 finished={Boolean(progress[book.id]?.finishedAt)}
                 highlightCount={highlights[book.id]?.length ?? 0}
                 noteCount={noteLinks.byBook[book.id] ? 1 : 0}
-                lastReadAt={progress[book.id]?.updatedAt ?? stats[book.id]?.seconds}
+                lastReadAt={progress[book.id]?.updatedAt}
                 onOpen={() => navigateToPath(`/reading/${encodeURIComponent(book.id)}`)}
                 onOpenNote={() => openBookNote(noteLinks.byBook[book.id])}
                 onMenu={(event) => {
