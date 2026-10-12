@@ -12,6 +12,7 @@ import { tabIdForPath, type AppTabId } from './app-tabs'
 import { AppRail } from './AppRail'
 import { AppTabPlaceholder } from './AppTabPlaceholder'
 import { AppShell } from './AppShell'
+import { ChatApp } from '../chat/ChatApp'
 
 /**
  * Which component answers for which tab. A tab the rail offers but this list does not name is a
@@ -19,6 +20,7 @@ import { AppShell } from './AppShell'
  */
 const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   notes: AppShell,
+  chat: ChatApp,
 }
 
 export function AppTabHost() {

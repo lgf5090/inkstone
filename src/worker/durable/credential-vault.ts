@@ -7,11 +7,16 @@ const MASTER_KEY_NAME = 'backup-master-key-v1'
 const MASTER_KEY_BYTES = 32
 const MAX_REQUEST_BYTES = 24 * 1024
 const MAX_CIPHERTEXT_LENGTH = 24 * 1024
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp):[0-9a-hjkmnp-tv-z]{26}$/
+/**
+ * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored
+ * for one reader cannot be replayed against another's derived key even by someone who can write rows.
+ */
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
 const TOTP_SECRET_FIELDS = new Set(['secret'])
+const AI_SECRET_FIELDS = new Set(['apiKey'])
 
 type CredentialRecord = Record<string, string>
 
@@ -158,7 +163,11 @@ function isScope(value: unknown): value is string {
 
 function isCredentialRecord(scope: string, value: unknown): value is CredentialRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const allowed = scope.startsWith('totp:') ? TOTP_SECRET_FIELDS : BACKUP_SECRET_FIELDS
+  const allowed = scope.startsWith('totp:')
+    ? TOTP_SECRET_FIELDS
+    : scope.startsWith('ai:')
+      ? AI_SECRET_FIELDS
+      : BACKUP_SECRET_FIELDS
   const entries = Object.entries(value)
   if (entries.length < 1 || entries.length > allowed.size) return false
   return entries.every(

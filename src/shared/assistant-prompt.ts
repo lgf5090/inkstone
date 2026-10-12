@@ -1,0 +1,96 @@
+/**
+ * Assembling the assistant's system prompt.
+ *
+ * The worker builds the prompt, not the browser: a reader's own client must not be able to edit the
+ * rules that decide what the model may touch. The wording comes from the two prompt catalogs, chosen
+ * by the reader's interface language, so a Chinese reader gets a Chinese answer without anyone
+ * translating it twice.
+ */
+
+import type { PromptMemory } from './assistant-memory'
+import type { AssistantPromptKey } from './locales/en-US-assistant-prompt'
+import { EN_US_ASSISTANT_PROMPT } from './locales/en-US-assistant-prompt'
+import { ZH_CN_ASSISTANT_PROMPT } from './locales/zh-CN-assistant-prompt'
+
+export type PromptLanguage = 'en-US' | 'zh-CN'
+
+/** Both catalogs are the same set of keys; the parity test is what keeps that true. */
+type PromptCatalog = Record<AssistantPromptKey, string>
+
+const CATALOGS: Record<PromptLanguage, PromptCatalog> = {
+  'en-US': EN_US_ASSISTANT_PROMPT,
+  'zh-CN': ZH_CN_ASSISTANT_PROMPT,
+}
+
+export function promptCatalog(language: PromptLanguage): PromptCatalog {
+  return CATALOGS[language] ?? CATALOGS['en-US']
+}
+
+/** Only the keys actually supplied are substituted, so a literal `{"json": …}` survives. */
+export function fill(template: string, params: Record<string, string | number>): string {
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key: string) => (key in params ? String(params[key]) : match))
+}
+
+export interface SystemPromptContext {
+  agentName: string
+  language: PromptLanguage
+  timezone: string
+  /** Already rendered in the reader's timezone; the prompt never asks the model to convert. */
+  localTime: string
+  autoMemory: boolean
+  memories: PromptMemory[]
+  conversationSummary?: string | null
+  noteScope: string[]
+  /** Folder names the scope refers to, resolved by the caller for display. */
+  noteScopeLabels?: string[]
+  scheduled?: boolean
+}
+
+export function buildSystemPrompt(context: SystemPromptContext): string {
+  const catalog = promptCatalog(context.language)
+  const sections = [
+    fill(catalog.identity, { name: context.agentName }),
+    catalog.personality,
+    `${catalog.rules}\n${context.autoMemory ? catalog.rule_auto_memory : catalog.rule_explicit_memory}`,
+    fill(catalog.clock, { when: context.localTime, timezone: context.timezone }),
+    context.noteScope.length
+      ? fill(catalog.note_scope_folders, { folders: (context.noteScopeLabels?.length ? context.noteScopeLabels : context.noteScope).join(', ') })
+      : catalog.note_scope_all,
+  ].filter(Boolean)
+
+  const line = (memory: PromptMemory) => `- [${memory.category}] ${memory.content}${memory.note ? ` (${memory.note})` : ''}`
+  const current = context.memories.filter((memory) => memory.status === 'active')
+  const uncertain = context.memories.filter((memory) => memory.status === 'uncertain')
+  const past = context.memories.filter((memory) => memory.status === 'historical')
+  if (current.length) {
+    sections.push(fill(catalog.memories_current, { lines: current.map(line).join('\n') }))
+  }
+  if (uncertain.length) {
+    sections.push(fill(catalog.memories_uncertain, { lines: uncertain.map(line).join('\n') }))
+  }
+  if (past.length) {
+    sections.push(fill(catalog.memories_past, { lines: past.map(line).join('\n') }))
+  }
+  if (context.conversationSummary) {
+    sections.push(fill(catalog.summary, { summary: context.conversationSummary }))
+  }
+  if (context.scheduled) sections.push(catalog.scheduled_run)
+  return sections.join('\n\n')
+}
+
+export const SUMMARIZER_SYSTEM_PROMPT_LIMIT = 2_000
+
+export function summarizerPrompt(language: PromptLanguage, previous: string | null, transcript: string): string {
+  return fill(promptCatalog(language).summarizer_user, { previous: previous || '(none)', transcript })
+}
+
+export function conflictCheckPrompt(language: PromptLanguage, older: string, newer: string): string {
+  return fill(promptCatalog(language).conflict_user, {
+    older: JSON.stringify(older.slice(0, 500)),
+    newer: JSON.stringify(newer.slice(0, 500)),
+  })
+}
+
+export function offlineAnswer(language: PromptLanguage, echo: string): string {
+  return fill(promptCatalog(language).offline_answer, { echo })
+}

@@ -47,6 +47,29 @@ export async function decryptTotpSecret(
   return typeof secret === 'string' && /^[A-Z2-7]{32}$/.test(secret) ? secret : null
 }
 
+/**
+ * The chat assistant's provider key.
+ *
+ * A key is stored only as vault ciphertext, and the plaintext exists solely inside the worker call
+ * that signs one upstream request — no assistant route returns it, and a backup never carries it. When
+ * the vault binding is missing the write fails loudly rather than falling back to storing the key in
+ * the clear: a reader who configured a key deserves to know it was not saved.
+ */
+export async function encryptAssistantKey(env: Env, userId: string, apiKey: string): Promise<string> {
+  if (!isValidId(userId)) throw new Error('invalid_ai_credential')
+  const trimmed = apiKey.trim()
+  if (!trimmed || trimmed.length > 4096) throw new Error('invalid_ai_credential')
+  return encryptCredential(env, `ai:${userId}`, { apiKey: trimmed })
+}
+
+export async function decryptAssistantKey(env: Env, userId: string, stored: string): Promise<string | null> {
+  if (!isValidId(userId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `ai:${userId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const apiKey = (value as Record<string, unknown>).apiKey
+  return typeof apiKey === 'string' && apiKey.length > 0 && apiKey.length <= 4096 ? apiKey : null
+}
+
 async function encryptCredential(env: Env, scope: string, value: unknown): Promise<string> {
   const response = await vaultRequest(env, '/encrypt', { scope, value })
   if (!response.ok) throw new CryptoUnavailableError()

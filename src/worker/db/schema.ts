@@ -1,6 +1,12 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
+import {
+  ASSISTANT_REQUIRED_COLUMNS,
+  ASSISTANT_REQUIRED_INDEXES,
+  ASSISTANT_REQUIRED_TABLES,
+  ASSISTANT_SCHEMA_STATEMENTS,
+} from '../assistant/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -392,6 +398,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
      ON community_templates(created_at DESC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_community_templates_author
      ON community_templates(author_id)`,
+  ...ASSISTANT_SCHEMA_STATEMENTS,
 ]
 
 interface SchemaMigration {
@@ -775,6 +782,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
   community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'uses', 'created_at'],
+  ...ASSISTANT_REQUIRED_COLUMNS,
 } as const
 
 const REQUIRED_TABLES = [
@@ -810,6 +818,7 @@ const REQUIRED_TABLES = [
   'fts_index_queue',
   'rewrite_queue',
   'community_templates',
+  ...ASSISTANT_REQUIRED_TABLES,
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -863,10 +872,31 @@ const REQUIRED_INDEXES = [
   'idx_attachments_user_size',
   'idx_community_templates_created',
   'idx_community_templates_author',
+  ...ASSISTANT_REQUIRED_INDEXES,
 ] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()
+
+/**
+ * D1 refuses a batch of more than about a hundred statements, and the schema list is now well past
+ * that with the assistant's tables. Local doubles accept any size, so the ceiling only shows up on a
+ * real deployment — which is why the chunking lives here rather than at each call site, and why
+ * `tests/schema-batch-size.test.ts` counts the calls instead of trusting the outcome.
+ */
+const SCHEMA_BATCH_STATEMENTS = 40
+
+export function chunkStatements<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let index = 0; index < items.length; index += size) out.push(items.slice(index, index + size))
+  return out
+}
+
+async function runStatements(db: D1Database, statements: readonly string[]): Promise<void> {
+  for (const group of chunkStatements(statements, SCHEMA_BATCH_STATEMENTS)) {
+    await db.batch(group.map((statement) => db.prepare(statement)))
+  }
+}
 
 export function initializeDatabase(env: Env): Promise<DatabaseState> {
   const existing = initializationCache.get(env.DB)
@@ -888,16 +918,16 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'users'`)
     .first<{ present: number }>()
   if (!initialized) {
-    await db.batch(SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+    await runStatements(db, SCHEMA_STATEMENTS)
   } else {
     // Existing installations must converge additively. CREATE IF NOT EXISTS
     // never rewrites user data; running table creation before indexes also
     // lets a partially initialized database recover missing feature tables.
-    await db.batch(TABLE_SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+    await runStatements(db, TABLE_SCHEMA_STATEMENTS)
   }
   await applyMigrations(db)
   if (initialized) {
-    await db.batch(INDEX_SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+    await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
   await assertFinalSchema(db)
 

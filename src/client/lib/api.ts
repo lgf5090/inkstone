@@ -45,6 +45,24 @@ import type {
   UpdateCheckResponse,
   UserSettings,
 } from '@shared/types'
+import type {
+  AssistantConversation,
+  AssistantImportSummary,
+  AssistantLimits,
+  AssistantMemory,
+  AssistantMessage,
+  AssistantModel,
+  AssistantNotification,
+  AssistantProvider,
+  AssistantSettings,
+  AssistantUsage,
+  Automation as AssistantAutomation,
+  AutomationRun as AssistantAutomationRun,
+  MemoryReview,
+  PendingAction,
+  Project as AssistantProject,
+  Task as AssistantTask,
+} from '@shared/assistant'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -636,6 +654,105 @@ export const api = {
         method: 'POST',
         body: { filename, content },
       }),
+  },
+
+  /**
+   * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns
+   * these routes, and nothing in the notebook calls them.
+   */
+  assistant: {
+    conversations: (query?: string) =>
+      request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery({ q: query })}`),
+    createConversation: (title?: string) =>
+      request<{ conversation: AssistantConversation }>('/api/assistant/conversations', { method: 'POST', body: { title } }),
+    conversation: (id: string) =>
+      request<{ conversation: AssistantConversation, messages: AssistantMessage[], streaming: boolean }>(`/api/assistant/conversations/${id}`),
+    renameConversation: (id: string, title: string) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
+    pinConversation: (id: string, pinned: boolean) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
+    deleteConversation: (id: string) =>
+      request<{ deleted: true }>(`/api/assistant/conversations/${id}`, { method: 'DELETE' }),
+    deleteConversations: () =>
+      request<{ deleted: number }>('/api/assistant/conversations', { method: 'DELETE', body: { confirm: 'DELETE' } }),
+    cancel: (conversationId: string) =>
+      request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId } }),
+    approveAction: (id: string) =>
+      request<{ action: PendingAction }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
+    declineAction: (id: string) =>
+      request<{ action: PendingAction }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
+    memories: (params: { q?: string, status?: string, category?: string } = {}) =>
+      request<{ memories: AssistantMemory[], total: number, counts: { active: number, historical: number, review: number } }>(
+        `/api/assistant/memories${toQuery(params)}`,
+      ),
+    createMemory: (content: string, category: string) =>
+      request<{ memory: AssistantMemory, superseded: AssistantMemory[], reviews: number }>('/api/assistant/memories', {
+        method: 'POST',
+        body: { content, category },
+      }),
+    updateMemory: (id: string, patch: { content?: string, category?: string }) =>
+      request<{ memory: AssistantMemory, superseded: AssistantMemory[], reviews: number }>(`/api/assistant/memories/${id}`, {
+        method: 'PATCH',
+        body: patch,
+      }),
+    correctMemory: (id: string, content: string, category?: string) =>
+      request<{ memory: AssistantMemory, superseded: AssistantMemory[], reviews: number }>(`/api/assistant/memories/${id}/correct`, {
+        method: 'POST',
+        body: { content, category },
+      }),
+    memoryStatus: (id: string, status: string) =>
+      request<{ memory: AssistantMemory }>(`/api/assistant/memories/${id}/status`, { method: 'POST', body: { status } }),
+    memoryHistory: (id: string) =>
+      request<{ memory: AssistantMemory, previous: AssistantMemory[], next: AssistantMemory[] }>(`/api/assistant/memories/${id}/history`),
+    deleteMemory: (id: string) => request<{ deleted: true }>(`/api/assistant/memories/${id}`, { method: 'DELETE' }),
+    clearMemories: () => request<{ deleted: number }>('/api/assistant/memories', { method: 'DELETE', body: { confirm: 'DELETE' } }),
+    reviews: () => request<{ reviews: MemoryReview[] }>('/api/assistant/memories/reviews'),
+    resolveReview: (id: string, action: string) =>
+      request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
+    tasks: (params: { status?: string, view?: string, q?: string, project_id?: string, limit?: number } = {}) =>
+      request<{ tasks: AssistantTask[] }>(`/api/assistant/tasks${toQuery(params)}`),
+    createTask: (body: Record<string, unknown>) => request<{ task: AssistantTask }>('/api/assistant/tasks', { method: 'POST', body }),
+    updateTask: (id: string, body: Record<string, unknown>) =>
+      request<{ task: AssistantTask }>(`/api/assistant/tasks/${id}`, { method: 'PATCH', body }),
+    deleteTask: (id: string) => request<{ deleted: true }>(`/api/assistant/tasks/${id}`, { method: 'DELETE' }),
+    projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
+    createProject: (name: string, description?: string) =>
+      request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body: { name, description } }),
+    deleteProject: (id: string) => request<{ deleted: true }>(`/api/assistant/projects/${id}`, { method: 'DELETE' }),
+    automations: () =>
+      request<{ automations: AssistantAutomation[], runs: AssistantAutomationRun[], timezone: string }>('/api/assistant/automations'),
+    createAutomation: (body: Record<string, unknown>) =>
+      request<{ automation: AssistantAutomation }>('/api/assistant/automations', { method: 'POST', body }),
+    updateAutomation: (id: string, body: Record<string, unknown>) =>
+      request<{ automation: AssistantAutomation }>(`/api/assistant/automations/${id}`, { method: 'PATCH', body }),
+    deleteAutomation: (id: string) => request<{ deleted: true }>(`/api/assistant/automations/${id}`, { method: 'DELETE' }),
+    notifications: (unreadOnly?: boolean) =>
+      request<{ notifications: AssistantNotification[], unread: number }>(`/api/assistant/notifications${unreadOnly ? '?unread=1' : ''}`),
+    markNotificationsRead: (id?: string) =>
+      request<{ unread: number }>('/api/assistant/notifications/read', { method: 'POST', body: id ? { id } : {} }),
+    deleteNotification: (id: string) => request<{ unread: number }>(`/api/assistant/notifications/${id}`, { method: 'DELETE' }),
+    settings: () => request<{ settings: AssistantSettings, models: AssistantModel[] }>('/api/assistant/settings'),
+    saveSettings: (patch: Record<string, unknown>) =>
+      request<{ settings: AssistantSettings }>('/api/assistant/settings', { method: 'PATCH', body: patch }),
+    providers: () => request<{ providers: AssistantProvider[] }>('/api/assistant/providers'),
+    createProvider: (body: Record<string, unknown>) =>
+      request<{ provider: AssistantProvider }>('/api/assistant/providers', { method: 'POST', body }),
+    updateProvider: (id: string, body: Record<string, unknown>) =>
+      request<{ provider: AssistantProvider }>(`/api/assistant/providers/${id}`, { method: 'PATCH', body }),
+    deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
+    models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
+    createModel: (body: Record<string, unknown>) =>
+      request<{ model: AssistantModel }>('/api/assistant/models', { method: 'POST', body }),
+    updateModel: (id: string, body: Record<string, unknown>) =>
+      request<{ model: AssistantModel }>(`/api/assistant/models/${id}`, { method: 'PATCH', body }),
+    deleteModel: (id: string) => request<{ deleted: true }>(`/api/assistant/models/${id}`, { method: 'DELETE' }),
+    usage: () =>
+      request<{ day: string, today: AssistantUsage, last7Days: AssistantUsage, limits: AssistantLimits }>('/api/assistant/usage'),
+    activity: () =>
+      request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
+    exportUrl: '/api/assistant/export',
+    importBackup: (payload: unknown) =>
+      request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
   },
 }
 
