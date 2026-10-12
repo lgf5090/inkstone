@@ -14,7 +14,6 @@ import { Hono, type Context } from 'hono'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
-  ASSISTANT_START_VIEWS,
   AUTOMATION_KINDS,
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
@@ -22,8 +21,8 @@ import {
   MAX_TASK_NOTES_CHARS,
   MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
+  ASSISTANT_SETTING_KEYS,
   normalizeAssistantSettings,
-  normalizeLimits,
   titleFromMessage,
   type AssistantMemoryCategory,
   type AssistantProtocol,
@@ -45,6 +44,7 @@ import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
+import { memoryEmbeddingStatus, reindexMemoryEmbeddings } from '../assistant/semantic'
 import { resolveNoteScope } from '../assistant/note-scope'
 
 export const assistantRoutes = new Hono<AppBindings>()
@@ -721,30 +721,48 @@ assistantRoutes.patch('/settings', async (c) => {
   const s = store(c)
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const current = await s.getSettings()
-  const next = normalizeAssistantSettings({
-    ...current,
-    ...(body.agentName !== undefined ? { agentName: body.agentName } : {}),
-    ...(body.language !== undefined ? { language: body.language } : {}),
-    ...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
-    ...(body.activeModelId !== undefined ? { activeModelId: body.activeModelId } : {}),
-    ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
-    ...(body.limits !== undefined ? { limits: normalizeLimits(body.limits) } : {}),
-    ...(body.autoMemory !== undefined ? { autoMemory: body.autoMemory } : {}),
-    ...(body.conflictReview !== undefined ? { conflictReview: body.conflictReview } : {}),
-    ...(body.aiConflictCheck !== undefined ? { aiConflictCheck: body.aiConflictCheck } : {}),
-    ...(body.offlineMode !== undefined ? { offlineMode: body.offlineMode } : {}),
-    ...(typeof body.startView === 'string' && (ASSISTANT_START_VIEWS as readonly string[]).includes(body.startView)
-      ? { startView: body.startView }
-      : {}),
-    ...(body.noteScope !== undefined ? { noteScope: body.noteScope } : {}),
-    ...(body.sendOnEnter !== undefined ? { sendOnEnter: body.sendOnEnter } : {}),
-  })
+  // Only the known keys are forwarded, and `normalizeAssistantSettings` validates each of them, so a
+  // field cannot be left behind here: the list is derived from the settings object itself.
+  const patch: Record<string, unknown> = {}
+  for (const key of ASSISTANT_SETTING_KEYS) {
+    if (body[key] !== undefined) patch[key] = body[key]
+  }
+  const next = normalizeAssistantSettings({ ...current, ...patch })
   await s.saveSettings(next)
   if (next.timezone !== current.timezone) {
     // Wall-clock schedules have to move with the reader's clock, or a 07:30 digest arrives at 07:30 UTC.
     await new AutomationService(s, next).rearmAll()
   }
   return c.json({ settings: next })
+})
+
+// ------------------------------------------------------------------- semantic
+
+/**
+ * The vector index over the reader's memories. The switch itself is an ordinary settings field;
+ * these three routes are the parts that need a server round trip: what is indexed, rebuilding it,
+ * and throwing it away.
+ */
+assistantRoutes.get('/semantic', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  return c.json({
+    enabled: settings.semanticMemory,
+    ...(await memoryEmbeddingStatus(s, c.env, settings.limits.maxEmbeddingsPerDay)),
+  })
+})
+
+assistantRoutes.post('/semantic/reindex', async (c) => {
+  const s = store(c)
+  const settings = await s.getSettings()
+  const result = await reindexMemoryEmbeddings(s, c.env, settings.limits.maxEmbeddingsPerDay)
+  await s.recordActivity('memory.reindexed', `${result.embedded} memory embedding(s) written`)
+  return c.json(result)
+})
+
+assistantRoutes.delete('/semantic', async (c) => {
+  const s = store(c)
+  return c.json({ deleted: await s.clearMemoryEmbeddings() })
 })
 
 // ----------------------------------------------------------------- providers

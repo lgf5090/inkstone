@@ -48,6 +48,7 @@ import { ZH_CN_MESSAGES } from '../src/shared/locales/zh-CN'
 import { assertToolsMatchSpecs } from '../src/worker/assistant/tools'
 import { anthropicEndpoint, geminiEndpoint, openAiEndpoint } from '../src/worker/assistant/upstream'
 import { buildContextWindow } from '../src/worker/assistant/runner'
+import { fuseMemoryRecall } from '../src/worker/assistant/semantic'
 import { SCHEMA_STATEMENTS, chunkStatements } from '../src/worker/db/schema'
 import { ASSISTANT_REQUIRED_INDEXES, ASSISTANT_REQUIRED_TABLES } from '../src/worker/assistant/schema'
 
@@ -480,6 +481,26 @@ describe('message keys and tools', () => {
       expect(catalog[key], key).toBeTruthy()
       expect(chinese[key], key).toBeTruthy()
     }
+  })
+})
+
+describe('recall fusion', () => {
+  const memory = (id: string) => ({ id, content: id, category: 'fact', source: 'manual', status: 'active' }) as never
+
+  it('puts a memory both lists agree on first, and lets the vector list surface a new one', () => {
+    const lexical = [memory('a'), memory('b')]
+    const semantic = [memory('c'), memory('a')]
+    expect(fuseMemoryRecall(lexical, semantic, 5).map((entry) => entry.id)).toEqual(['a', 'c', 'b'])
+  })
+
+  it('is the lexical list when there is no vector list', () => {
+    const lexical = [memory('a'), memory('b')]
+    expect(fuseMemoryRecall(lexical, [], 5).map((entry) => entry.id)).toEqual(['a', 'b'])
+  })
+
+  it('honours the limit the prompt budget uses', () => {
+    const fused = fuseMemoryRecall([memory('a'), memory('b'), memory('c')], [memory('d')], 2)
+    expect(fused).toHaveLength(2)
   })
 })
 

@@ -117,6 +117,20 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_memories_superseded
      ON chat_memories(user_id, superseded_by)`,
 
+  // One embedding per memory, in the same blob layout as ai_note_embeddings so the app's own
+  // encoder and cosine helpers are the only implementation of either.
+  `CREATE TABLE IF NOT EXISTS chat_memory_embeddings (
+    user_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    norm REAL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, memory_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_memory_embeddings_user
+     ON chat_memory_embeddings(user_id, updated_at)`,
+
   `CREATE TABLE IF NOT EXISTS chat_memory_reviews (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -244,6 +258,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     output_tokens INTEGER NOT NULL DEFAULT 0,
     tool_calls INTEGER NOT NULL DEFAULT 0,
     scheduled_runs INTEGER NOT NULL DEFAULT 0,
+    embeddings INTEGER NOT NULL DEFAULT 0,
     errors INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, day)
   )`,
@@ -278,6 +293,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_conversation_tags',
   'chat_messages',
   'chat_memories',
+  'chat_memory_embeddings',
   'chat_memory_reviews',
   'chat_tasks',
   'chat_projects',
@@ -301,6 +317,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_memories_user_updated',
   'idx_chat_memories_status',
   'idx_chat_memories_superseded',
+  'idx_chat_memory_embeddings_user',
   'idx_chat_reviews_memory',
   'idx_chat_reviews_other',
   'idx_chat_tasks_user_status_due',
@@ -325,6 +342,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
+  chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
   chat_tasks: ['user_id', 'id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_projects: ['user_id', 'id', 'name', 'description', 'created_at', 'updated_at'],
@@ -332,7 +350,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error'],
   chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
   chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
-  chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'errors'],
+  chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
 }

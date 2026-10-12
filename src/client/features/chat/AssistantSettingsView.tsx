@@ -407,8 +407,104 @@ function MemoryTab({ settings }: { settings: AssistantSettings }) {
           </SettingRow>
         )}
       </Group>
+      <SemanticRecallRow settings={settings} />
       <NoteScopeRow />
     </>
+  )
+}
+
+/**
+ * The vector index over the reader's memories.
+ *
+ * The switch is a settings field, so it saves like any other; the numbers come from the server
+ * because only it knows how many vectors exist and what the deployment can embed.
+ */
+function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
+  const saveSettings = useAssistant((state) => state.saveSettings)
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof api.assistant.semantic>> | null>(null)
+  const [busy, setBusy] = useState<'reindex' | 'clear' | null>(null)
+  const toast = useUi((state) => state.toast)
+
+  const refresh = async () => {
+    try {
+      setStatus(await api.assistant.semantic())
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  return (
+    <Group title={t('assistant.settings.semantic')}>
+      <SettingRow title={t('assistant.settings.semantic')} description={t('assistant.settings.semantic_hint')}>
+        <Switch
+          checked={settings.semanticMemory}
+          onChange={(value) => void saveSettings({ semanticMemory: value })}
+          label={t('assistant.settings.semantic')}
+        />
+      </SettingRow>
+      {!status ? (
+        <p className="px-3 pb-2 text-[11.5px] text-[var(--text-quaternary)]">…</p>
+      ) : !status.available ? (
+        <p className="px-3 pb-2 text-[11.5px] text-[var(--text-tertiary)]">{t('assistant.settings.semantic_off')}</p>
+      ) : (
+        <>
+          <SettingRow
+            title={t('assistant.settings.semantic_vectors', { count: status.vectors })}
+            description={[
+              status.pending > 0 ? t('assistant.settings.semantic_pending', { count: status.pending }) : '',
+              t('assistant.settings.semantic_today', { used: status.today, cap: status.cap }),
+            ].filter(Boolean).join(' · ')}
+          >
+            <div className="flex shrink-0 gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy !== null || status.pending === 0}
+                onClick={() => {
+                  setBusy('reindex')
+                  void api.assistant.reindexSemantic().then((result) => {
+                    toast({
+                      title: result.embedded
+                        ? t('assistant.settings.semantic_done', { count: result.embedded })
+                        : result.capped ? t('assistant.settings.semantic_capped') : t('assistant.settings.semantic_none'),
+                      tone: 'success',
+                    })
+                    return refresh()
+                  }).catch((error) => toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' }))
+                    .finally(() => setBusy(null))
+                }}
+              >
+                {t('assistant.settings.semantic_reindex')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy !== null || status.vectors === 0}
+                onClick={() => {
+                  setBusy('clear')
+                  void confirm({
+                    title: t('assistant.settings.semantic_clear'),
+                    description: t('assistant.settings.semantic_clear_hint'),
+                    confirmLabel: t('assistant.settings.semantic_clear'),
+                    tone: 'danger',
+                  }).then(async (yes) => {
+                    if (yes) await api.assistant.clearSemantic()
+                    await refresh()
+                  }).finally(() => setBusy(null))
+                }}
+              >
+                {t('assistant.settings.semantic_clear')}
+              </Button>
+            </div>
+          </SettingRow>
+          <p className="px-3 pb-2 text-[11px] text-[var(--text-quaternary)]">{status.model}</p>
+        </>
+      )}
+    </Group>
   )
 }
 

@@ -90,6 +90,7 @@ export interface AssistantLimits {
   maxAgentSteps: number
   maxRequestsPerDay: number
   maxScheduledRunsPerDay: number
+  maxEmbeddingsPerDay: number
 }
 
 export const LIMIT_RANGES = {
@@ -99,6 +100,7 @@ export const LIMIT_RANGES = {
   maxAgentSteps: [1, 10],
   maxRequestsPerDay: [1, 2000],
   maxScheduledRunsPerDay: [0, 48],
+  maxEmbeddingsPerDay: [0, 2000],
 } as const satisfies Record<keyof AssistantLimits, readonly [number, number]>
 
 export const DEFAULT_LIMITS: AssistantLimits = {
@@ -108,6 +110,7 @@ export const DEFAULT_LIMITS: AssistantLimits = {
   maxAgentSteps: 4,
   maxRequestsPerDay: 200,
   maxScheduledRunsPerDay: 6,
+  maxEmbeddingsPerDay: 200,
 }
 
 export interface AssistantSettings {
@@ -117,6 +120,8 @@ export interface AssistantSettings {
   activeModelId: string | null
   temperature: number
   limits: AssistantLimits
+  /** Recall memories by vector as well as by shared words; needs the deployment's AI binding. */
+  semanticMemory: boolean
   /** Let the assistant store a lasting preference without being asked. */
   autoMemory: boolean
   /** Notice when a new memory replaces or contradicts an older one. Rule-based, no AI. */
@@ -141,6 +146,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   activeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
+  semanticMemory: true,
   autoMemory: false,
   conflictReview: true,
   aiConflictCheck: false,
@@ -190,6 +196,14 @@ function stringList(value: unknown, max: number, itemMax: number): string[] {
   return [...seen]
 }
 
+/**
+ * Every settings field a client may patch, as one list rather than as a route that names them.
+ *
+ * A hand-copied list is how a field stops saving without any test going red: the switch renders, the
+ * request goes out, and the route forwards everything except the one key nobody added.
+ */
+export const ASSISTANT_SETTING_KEYS = Object.keys(DEFAULT_ASSISTANT_SETTINGS) as (keyof AssistantSettings)[]
+
 export function normalizeLimits(value: unknown): AssistantLimits {
   const raw = record(value)
   const limits: AssistantLimits = { ...DEFAULT_LIMITS }
@@ -218,6 +232,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     activeModelId: typeof raw.activeModelId === 'string' && raw.activeModelId ? raw.activeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,
+    semanticMemory: booleanValue(raw.semanticMemory, DEFAULT_ASSISTANT_SETTINGS.semanticMemory),
     autoMemory: booleanValue(raw.autoMemory, DEFAULT_ASSISTANT_SETTINGS.autoMemory),
     conflictReview: booleanValue(raw.conflictReview, DEFAULT_ASSISTANT_SETTINGS.conflictReview),
     aiConflictCheck: booleanValue(raw.aiConflictCheck, DEFAULT_ASSISTANT_SETTINGS.aiConflictCheck),
@@ -491,6 +506,7 @@ export interface UsageCounters {
   outputTokens: number
   toolCalls: number
   scheduledRuns: number
+  embeddings: number
   errors: number
 }
 
@@ -502,6 +518,7 @@ export const EMPTY_USAGE: UsageCounters = {
   outputTokens: 0,
   toolCalls: 0,
   scheduledRuns: 0,
+  embeddings: 0,
   errors: 0,
 }
 

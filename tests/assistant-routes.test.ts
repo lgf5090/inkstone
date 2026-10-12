@@ -17,6 +17,7 @@ import type {
   Task,
 } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
+import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
@@ -354,6 +355,29 @@ describe('settings', () => {
     expect(result.settings.limits.maxToolCalls).toBe(0)
   })
 
+  it('round-trips every settings field the client can patch', async () => {
+    const before = await call<{ settings: AssistantSettings }>('GET', '/api/assistant/settings')
+    const flipped: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(before.settings)) {
+      if (typeof value === 'boolean') flipped[key] = !value
+    }
+    expect(Object.keys(flipped).length).toBeGreaterThanOrEqual(6)
+    const patched = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', flipped)
+    for (const key of Object.keys(flipped)) {
+      expect((patched.settings as unknown as Record<string, unknown>)[key], `${key} was dropped by the patch route`).toBe(flipped[key])
+    }
+    // Limits and the model id travel through the same route.
+    const limits = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', {
+      limits: { ...before.settings.limits, maxEmbeddingsPerDay: 7 },
+      activeModelId: null,
+      semanticMemory: true,
+    })
+    expect(limits.settings.limits.maxEmbeddingsPerDay).toBe(7)
+    expect(limits.settings.activeModelId).toBeNull()
+    expect(limits.settings.semanticMemory).toBe(true)
+    await call('PATCH', '/api/assistant/settings', before.settings)
+  })
+
   it('drops an unknown timezone rather than breaking every date', async () => {
     const result = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', { timezone: 'Mars/Olympus' })
     expect(result.settings.timezone).toBe('UTC')
@@ -510,6 +534,93 @@ function addTag(id: string, name: string, userId = USER): void {
   sqlite.prepare('INSERT INTO tags (id, user_id, name, is_manual, is_pinned, created_at) VALUES (?, ?, ?, 1, 0, ?)')
     .run(id, userId, name, Date.now())
 }
+
+/** A stand-in for the Workers AI binding: deterministic, cheap, and shaped like the real answer. */
+function stubAi(model: string) {
+  const calls: string[][] = []
+  return {
+    calls,
+    run: async (requested: string, input: { text: string[] }) => {
+      expect(requested).toBe(model)
+      calls.push(input.text)
+      return {
+        data: input.text.map((line) => ({
+          embedding: Array.from({ length: 8 }, (_, index) => {
+            let hash = index + 1
+            for (const character of line) hash = (hash * 31 + character.codePointAt(0)!) % 1024
+            return hash / 1024
+          }),
+        })),
+      }
+    },
+  }
+}
+
+describe('semantic memory recall', () => {
+  it('embeds a memory as it is saved and reports it', async () => {
+    const ai = stubAi(AI_EMBEDDING_MODEL)
+    env.AI = ai
+    try {
+      await call('POST', '/api/assistant/memories', { content: '读者喜欢喝手冲咖啡', category: 'preference' })
+      const status = await call<{ vectors: number, pending: number, today: number, available: boolean }>('GET', '/api/assistant/semantic')
+      expect(status.available).toBe(true)
+      expect(status.vectors).toBe(1)
+      expect(status.pending).toBe(0)
+      expect(status.today).toBe(1)
+      expect(ai.calls.length).toBe(1)
+    } finally {
+      delete env.AI
+    }
+  })
+
+  it('stops at the reader’s daily embedding cap and reindexing finishes the job', async () => {
+    const ai = stubAi(AI_EMBEDDING_MODEL)
+    env.AI = ai
+    try {
+      await call('PATCH', '/api/assistant/settings', { limits: { maxEmbeddingsPerDay: 1 } })
+      await call('POST', '/api/assistant/memories', { content: '第一条事实', category: 'fact' })
+      await call('POST', '/api/assistant/memories', { content: '第二条事实', category: 'fact' })
+      let status = await call<{ vectors: number, pending: number }>('GET', '/api/assistant/semantic')
+      expect(status.vectors).toBe(1)
+      expect(status.pending).toBe(1)
+      const reindexed = await call<{ embedded: number, capped: boolean }>('POST', '/api/assistant/semantic/reindex')
+      expect(reindexed).toEqual({ embedded: 0, capped: true })
+      await call('PATCH', '/api/assistant/settings', { limits: { maxEmbeddingsPerDay: 50 } })
+      const second = await call<{ embedded: number, capped: boolean }>('POST', '/api/assistant/semantic/reindex')
+      expect(second.embedded).toBe(1)
+      status = await call<{ vectors: number, pending: number }>('GET', '/api/assistant/semantic')
+      expect(status.vectors).toBe(2)
+      expect(status.pending).toBe(0)
+    } finally {
+      delete env.AI
+    }
+  })
+
+  it('deletes the vectors without touching the memories', async () => {
+    env.AI = stubAi(AI_EMBEDDING_MODEL)
+    try {
+      await call('POST', '/api/assistant/memories', { content: '读者住在杭州', category: 'place' })
+      expect((await call<{ vectors: number }>('GET', '/api/assistant/semantic')).vectors).toBe(1)
+      expect((await call<{ deleted: number }>('DELETE', '/api/assistant/semantic')).deleted).toBe(1)
+      const memories = await call<{ memories: AssistantMemory[] }>('GET', '/api/assistant/memories')
+      expect(memories.memories).toHaveLength(1)
+      const status = await call<{ vectors: number, pending: number }>('GET', '/api/assistant/semantic')
+      expect(status.vectors).toBe(0)
+      expect(status.pending).toBe(1)
+    } finally {
+      delete env.AI
+    }
+  })
+
+  it('saves memories normally when the deployment has no AI binding', async () => {
+    expect(env.AI).toBeUndefined()
+    const created = await call<{ memory: AssistantMemory }>('POST', '/api/assistant/memories', { content: '读者养了一只猫', category: 'fact' })
+    expect(created.memory.content).toContain('猫')
+    const status = await call<{ available: boolean, vectors: number }>('GET', '/api/assistant/semantic')
+    expect(status.available).toBe(false)
+    expect(status.vectors).toBe(0)
+  })
+})
 
 describe('filing conversations', () => {
   it('moves a conversation into a note folder and back out', async () => {

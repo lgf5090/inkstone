@@ -675,6 +675,7 @@ const allowed = new Map([
     "/**\n * Assistant settings: the model it answers from, how it behaves, what it may spend, and what it keeps.\n *\n * The provider key is write-only from here. The form sends it once and never reads it back — the row\n * shows only whether a key is stored — because a key that comes back to the browser can be read by any\n * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.\n */",
     "// The list is a flat set of parent pointers; the scope is read by a person, so show the path.",
     "/**\n   * The summary is read back from the server rather than counted here, so the toast cannot claim a\n   * merge that did not happen; the skipped notes are what an imported file was not allowed to change.\n   */",
+    "/**\n * The vector index over the reader's memories.\n *\n * The switch is a settings field, so it saves like any other; the numbers come from the server\n * because only it knows how many vectors exist and what the deployment can embed.\n */",
   ]],
   ["src/client/features/chat/AutomationsView.tsx", [
     "/**\n * Reminders and routines.\n *\n * The schedule editor builds a `ScheduleSpec` and shows the sentence it means before anything is sent,\n * because the commonest mistake in a scheduler is a form that says one thing and stores another. The\n * sentence is assembled from the locale catalog, so a reader whose interface is Chinese reads the\n * schedule in their own language rather than as an English string pasted next to it.\n *\n * Times are typed as wall-clock readings in the assistant's timezone, which is what \"remind me at 9\"\n * means to the reader; the conversion is the server's job and lives in `assistant-schedule`.\n */",
@@ -11760,6 +11761,8 @@ const allowed = new Map([
     "/** A folder from the notebook's own tree; null means the conversation is unfiled. */",
     "/** Only the list endpoints fill these in, so the thread view stays cheap. */",
     "/** A folder of the note tree, with how many conversations it holds. */",
+    "/** Recall memories by vector as well as by shared words; needs the deployment's AI binding. */",
+    "/**\n * Every settings field a client may patch, as one list rather than as a route that names them.\n *\n * A hand-copied list is how a field stops saving without any test going red: the switch renders, the\n * request goes out, and the route forwards everything except the one key nobody added.\n */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12182,6 +12185,7 @@ const allowed = new Map([
     "// off the critical path while still stopping within a couple of hundred characters.",
     "// Read the signal again here: every `yield` above hands control back to the response writer, and",
     "// a reader who stopped the turn in the meantime must not have their half answer filed as whole.",
+    "/**\n   * The words the reader used, and the vectors that agree with them.\n   *\n   * Word overlap is exact and free, so it stays the base list; the vector list adds the memory that\n   * says the same thing in other words, which is the case the reference project's LIKE search missed.\n   * A failed or absent embedding leaves the word list standing, so a Workers AI outage costs recall\n   * quality rather than the answer.\n   */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -12193,6 +12197,17 @@ const allowed = new Map([
   ["src/worker/assistant/schema.ts", [
     "/**\n * The chat assistant's tables.\n *\n * Everything the assistant owns is prefixed `chat_` and keyed by `(user_id, id)` rather than by\n * `id` alone. That is the one place the port had to depart from the reference project's schema: it\n * stored all of this in a Durable Object belonging to a single owner, so a bare `id TEXT PRIMARY KEY`\n * was enough — and here it is not. A global id key would let a backup restored into a second account\n * collide with the first one's row, and a write that quietly does nothing is the worst kind of data\n * loss, because every status code still says it worked.\n *\n * Every query in `store.ts` binds `user_id` for the same reason; the columns below are what makes that\n * filter indexable rather than a full scan.\n */",
     "// The join table mirrors note_tags: one row in tags, shared by whatever it labels.",
+    "// One embedding per memory, in the same blob layout as ai_note_embeddings so the app's own",
+    "// encoder and cosine helpers are the only implementation of either.",
+  ]],
+  ["src/worker/assistant/semantic.ts", [
+    "/**\n * Semantic recall for memories, on the deployment's own Workers AI stack.\n *\n * The reference project shipped its own embedding pipeline; this app already has one for notes\n * (`src/worker/mcp/ai-search.ts`), so the model name, the blob layout, the cosine helper and the\n * rank-fusion are imported from there rather than reimplemented — two encoders would silently stop\n * matching each other's vectors, and every recall would come back empty with no error to read.\n *\n * A memory is embedded when it is written, which is rare and small: the whole set is a few dozen\n * rows, so ranking is a scan rather than an index. The daily cap is the reader's, counted in the same\n * table as the request cap.\n */",
+    "/** Embeds one memory. False means the deployment has no AI binding or the reader's cap is spent. */",
+    "/** Embed everything that has no vector yet, stopping at the reader's daily cap. */",
+    "/** Below this the vector is noise; the lexical list still decides on its own. */",
+    "/**\n * D1 hands a BLOB back as an ArrayBuffer in workerd and as a view into a larger buffer in tests, and\n * `new Float32Array(aUint8Array)` reads its *values* rather than its bytes — so the buffer is cut out\n * by offset and length before the shared decoder sees it.\n */",
+    "/** Memories ordered by cosine similarity to the query, or empty when nothing can be embedded. */",
+    "/**\n * Reciprocal-rank fusion of the word-overlap list and the vector list.\n *\n * Two different scores are not comparable, so the ranks are: a memory either list puts near the top\n * surfaces, and one both lists like wins outright.\n */",
   ]],
   ["src/worker/assistant/store.ts", [
     "/**\n * Every read and write the assistant makes against D1.\n *\n * Two rules hold throughout, and both come from the difference between this app and the single-user\n * project it was ported from:\n *  - every statement carries `user_id`, so one reader's conversations, memories and schedules can\n *    never surface in another's assistant;\n *  - anything read out of a JSON column is decoded rather than trusted, because a row may have been\n *    written by an older build, restored from a backup file, or edited by hand — stored text is input.\n */",
@@ -12257,6 +12272,14 @@ const allowed = new Map([
     "/** A folder the reader actually owns and has not deleted; the route turns a false into a 400. */",
     "/** How many conversations carry each tag, for the filter row. */",
     "/**\n   * The list, optionally narrowed to one folder (with its subfolders) or one tag.\n   *\n   * A folder's view includes what its children hold: a reader who files things underneath a project\n   * folder expects its parent to show the lot, the same way the notebook's folder rows do.\n   */",
+    "// ------------------------------------------------------ memory embeddings",
+    "//",
+    "// The vectors live beside the memories, never inside them: a memory row is shown and edited, and a",
+    "// 1024-float blob in every listing would be paid for on every read.",
+    "/** Memories a re-index still owes a vector for; historical ones are recalled by their own rules. */",
+    "/** Every stored vector with its memory, for the cosine scan a turn does at recall time. */",
+    "/**\n   * Embedding is best-effort and lives here rather than in each caller: a memory the reader saved\n   * outranks a vector that failed, and a missing vector is simply reported as pending and rebuilt.\n   * Doing it where the row is written is what stops the tool path, the review path and a backup\n   * import from each forgetting their own copy of the rule.\n   */",
+    "// The memory is saved; the index catches up on the next write or a re-index.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -12575,6 +12598,10 @@ const allowed = new Map([
     "// `folder=none` is the unfiled view; an absent parameter is the whole list.",
     "/** The note folder tree, with how many conversations each folder holds. */",
     "/** The reader's tags with conversation counts, so the filter row can hide what labels nothing. */",
+    "// ------------------------------------------------------------------- semantic",
+    "/**\n * The vector index over the reader's memories. The switch itself is an ordinary settings field;\n * these three routes are the parts that need a server round trip: what is indexed, rebuilding it,\n * and throwing it away.\n */",
+    "// Only the known keys are forwarded, and `normalizeAssistantSettings` validates each of them, so a",
+    "// field cannot be left behind here: the list is derived from the settings object itself.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -12794,6 +12821,8 @@ const allowed = new Map([
     "// The folder count stays per-folder, so the tree can show where things actually sit.",
     "// Twice is a no-op, not a duplicate row.",
     "// The other account has neither the folder nor the tag.",
+    "/** A stand-in for the Workers AI binding: deterministic, cheap, and shaped like the real answer. */",
+    "// Limits and the model id travel through the same route.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

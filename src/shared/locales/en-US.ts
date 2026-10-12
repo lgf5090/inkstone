@@ -5669,6 +5669,18 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "assistant.chat.tag_create": "Create tag \u201c{name}\u201d",
     "assistant.chat.tag_none": "No tags yet",
     "assistant.chat.in_folder": "In {folder}",
+    "assistant.settings.semantic": "Semantic recall",
+    "assistant.settings.semantic_hint": "Also rank memories by meaning using this deployment\u2019s Workers AI binding. A memory is embedded when it is saved.",
+    "assistant.settings.semantic_off": "This deployment has no Workers AI binding, so semantic recall cannot run.",
+    "assistant.settings.semantic_vectors": "{count} memor(y|ies) embedded",
+    "assistant.settings.semantic_pending": "{count} waiting to be indexed",
+    "assistant.settings.semantic_today": "{used} of {cap} embeddings used today",
+    "assistant.settings.semantic_reindex": "Rebuild index",
+    "assistant.settings.semantic_clear": "Delete vectors",
+    "assistant.settings.semantic_clear_hint": "Only the vectors go; the memories themselves stay.",
+    "assistant.settings.semantic_done": "Indexed {count} memories",
+    "assistant.settings.semantic_capped": "Stopped at the daily embedding limit",
+    "assistant.settings.semantic_none": "Nothing waiting to be indexed",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

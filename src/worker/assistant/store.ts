@@ -71,6 +71,7 @@ export const USAGE_COLUMNS: Readonly<Record<keyof UsageCounters, string>> = {
   outputTokens: 'output_tokens',
   toolCalls: 'tool_calls',
   scheduledRuns: 'scheduled_runs',
+  embeddings: 'embeddings',
   errors: 'errors',
 }
 
@@ -838,6 +839,80 @@ export class AssistantStore {
     }
   }
 
+  // ------------------------------------------------------ memory embeddings
+  //
+  // The vectors live beside the memories, never inside them: a memory row is shown and edited, and a
+  // 1024-float blob in every listing would be paid for on every read.
+
+  async upsertMemoryEmbedding(memoryId: string, model: string, vector: ArrayBuffer, norm: number): Promise<void> {
+    await this.write(
+      `INSERT INTO chat_memory_embeddings (user_id, memory_id, model, vector, norm, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(user_id, memory_id) DO UPDATE SET model = excluded.model, vector = excluded.vector,
+         norm = excluded.norm, updated_at = excluded.updated_at`,
+      memoryId, model, vector, norm, Date.now(),
+    )
+  }
+
+  async memoryEmbeddingCount(): Promise<number> {
+    const row = await this.one<{ n: number }>(
+      `SELECT count(*) AS n FROM chat_memory_embeddings WHERE user_id = ?1`,
+      this.userId,
+    )
+    return row?.n ?? 0
+  }
+
+  /** Memories a re-index still owes a vector for; historical ones are recalled by their own rules. */
+  async memoriesWithoutEmbedding(model: string, limit = 200): Promise<{ id: string, content: string }[]> {
+    const q = new Query(this.userId)
+    const modelBind = q.add(model)
+    const limitBind = q.add(limit)
+    return await this.rows<{ id: string, content: string }>(
+      `SELECT m.id, m.content FROM chat_memories m
+        WHERE ${q.where} AND m.status IN ('active', 'uncertain')
+          AND NOT EXISTS (SELECT 1 FROM chat_memory_embeddings e
+                           WHERE e.user_id = ?1 AND e.memory_id = m.id AND e.model = ${modelBind})
+        ORDER BY m.updated_at DESC LIMIT ${limitBind}`,
+      ...q.binds,
+    )
+  }
+
+  /** Every stored vector with its memory, for the cosine scan a turn does at recall time. */
+  async memoryEmbeddingsWithMemory(
+    model: string,
+    statuses: readonly string[],
+    limit = 500,
+  ): Promise<{ memory: AssistantMemory, vector: ArrayBuffer, norm: number | null }[]> {
+    if (!statuses.length) return []
+    const q = new Query(this.userId)
+    const modelBind = q.add(model)
+    q.inList('m.status', statuses)
+    const limitBind = q.add(limit)
+    const columns = MEMORY_COLUMNS.split(', ').map((column) => `m.${column}`).join(', ')
+    const rows = await this.rows<MemoryRow & { vector: ArrayBuffer, norm: number | null }>(
+      `SELECT ${columns}, e.vector, e.norm
+         FROM chat_memory_embeddings e JOIN chat_memories m
+           ON m.user_id = e.user_id AND m.id = e.memory_id
+        WHERE ${q.where} AND e.model = ${modelBind}
+        ORDER BY e.updated_at DESC LIMIT ${limitBind}`,
+      ...q.binds,
+    )
+    return rows.map((row) => ({ memory: toMemory(row), vector: row.vector, norm: row.norm }))
+  }
+
+  async deleteMemoryEmbedding(memoryId: string): Promise<void> {
+    await this.write(
+      `DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id = ?2`,
+      memoryId,
+    )
+  }
+
+  async clearMemoryEmbeddings(): Promise<number> {
+    const before = await this.memoryEmbeddingCount()
+    await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1`)
+    return before
+  }
+
   async listMemories(opts: { query?: string, category?: string, status?: string, limit?: number } = {}): Promise<AssistantMemory[]> {
     const q = new Query(this.userId).raw(this.statusClause(opts.status ?? 'all'))
     if (opts.category) q.eq(`category`, opts.category)
@@ -918,6 +993,7 @@ export class AssistantStore {
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, NULL, ?7, NULL, ?8, ?9)`,
       id, input.content, input.category, input.source, status, validFrom, at, at,
     )
+    await this.embedQuietly(id, input.content)
     return {
       id,
       content: input.content,
@@ -951,7 +1027,9 @@ export class AssistantStore {
       `UPDATE chat_memories SET content = ?2, category = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?5`,
       content, category, Date.now(), id,
     )
-    return this.getMemory(id)
+    const updated = await this.getMemory(id)
+    if (updated) await this.embedQuietly(updated.id, updated.content)
+    return updated
   }
 
   async setMemoryLifecycle(
@@ -1004,6 +1082,24 @@ export class AssistantStore {
       ).bind(this.userId, newId, oldId),
     ])
     return this.getMemory(oldId)
+  }
+
+  /**
+   * Embedding is best-effort and lives here rather than in each caller: a memory the reader saved
+   * outranks a vector that failed, and a missing vector is simply reported as pending and rebuilt.
+   * Doing it where the row is written is what stops the tool path, the review path and a backup
+   * import from each forgetting their own copy of the rule.
+   */
+  private async embedQuietly(memoryId: string, content: string): Promise<void> {
+    if (!this.env.AI) return
+    const settings = await this.getSettings()
+    if (!settings.semanticMemory) return
+    try {
+      const { embedMemory } = await import('./semantic')
+      await embedMemory(this, this.env, { id: memoryId, content }, settings.limits.maxEmbeddingsPerDay)
+    } catch {
+      // The memory is saved; the index catches up on the next write or a re-index.
+    }
   }
 
   async deleteMemory(id: string): Promise<void> {
@@ -1564,7 +1660,8 @@ export class AssistantStore {
     const r = await this.one<Record<string, number | null>>(
       `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
               COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
-              COALESCE(SUM(scheduled_runs),0) AS scheduled_runs, COALESCE(SUM(errors),0) AS errors
+              COALESCE(SUM(scheduled_runs),0) AS scheduled_runs, COALESCE(SUM(embeddings),0) AS embeddings,
+              COALESCE(SUM(errors),0) AS errors
          FROM chat_usage_daily WHERE user_id = ?1 AND day >= ?2 AND day <= ?3`,
       this.userId, from, to,
     )
@@ -1575,6 +1672,7 @@ export class AssistantStore {
       outputTokens: r.output_tokens ?? 0,
       toolCalls: r.tool_calls ?? 0,
       scheduledRuns: r.scheduled_runs ?? 0,
+      embeddings: r.embeddings ?? 0,
       errors: r.errors ?? 0,
     }
   }

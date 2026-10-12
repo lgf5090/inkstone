@@ -718,6 +718,11 @@ export const api = {
       }),
     memoryStatus: (id: string, status: string) =>
       request<{ memory: AssistantMemory }>(`/api/assistant/memories/${id}/status`, { method: 'POST', body: { status } }),
+    semantic: () => request<{
+      enabled: boolean, available: boolean, model: string, vectors: number, pending: number, today: number, cap: number
+    }>('/api/assistant/semantic'),
+    reindexSemantic: () => request<{ embedded: number, capped: boolean }>('/api/assistant/semantic/reindex', { method: 'POST' }),
+    clearSemantic: () => request<{ deleted: number }>('/api/assistant/semantic', { method: 'DELETE' }),
     memoryHistory: (id: string) =>
       request<{ memory: AssistantMemory, previous: AssistantMemory[], next: AssistantMemory[] }>(`/api/assistant/memories/${id}/history`),
     deleteMemory: (id: string) => request<{ deleted: true }>(`/api/assistant/memories/${id}`, { method: 'DELETE' }),

@@ -28,6 +28,7 @@ import { resolveNoteScope, type NoteScope } from './note-scope'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest } from './upstream'
 import { loadModelAndProvider } from './model-config'
+import { fuseMemoryRecall, rankMemoriesByVector } from './semantic'
 
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
@@ -389,9 +390,7 @@ export class AssistantRunner {
   private async recallMemories(query: string): Promise<Awaited<ReturnType<AssistantStore['searchMemories']>>> {
     const past = hasHistoricalIntent(query)
     const selected = new Map<string, Awaited<ReturnType<AssistantStore['searchMemories']>>[number]>()
-    for (const memory of await this.store.searchMemories(query, MAX_RELEVANT_MEMORIES, past ? 'all' : 'current')) {
-      selected.set(memory.id, memory)
-    }
+    for (const memory of await this.fusedMemoryRecall(query, past)) selected.set(memory.id, memory)
     if (past) {
       for (const memory of [...selected.values()]) {
         for (const parent of await this.store.predecessors(memory.id)) {
@@ -405,6 +404,31 @@ export class AssistantRunner {
       selected.set(memory.id, memory)
     }
     return [...selected.values()]
+  }
+
+  /**
+   * The words the reader used, and the vectors that agree with them.
+   *
+   * Word overlap is exact and free, so it stays the base list; the vector list adds the memory that
+   * says the same thing in other words, which is the case the reference project's LIKE search missed.
+   * A failed or absent embedding leaves the word list standing, so a Workers AI outage costs recall
+   * quality rather than the answer.
+   */
+  private async fusedMemoryRecall(query: string, past: boolean) {
+    const lexical = await this.store.searchMemories(query, MAX_RELEVANT_MEMORIES, past ? 'all' : 'current')
+    if (!this.settings.semanticMemory || !this.deps.env.AI) return lexical
+    try {
+      const semantic = await rankMemoriesByVector(
+        this.store,
+        this.deps.env,
+        query,
+        past ? ['active', 'uncertain', 'historical'] : ['active', 'uncertain'],
+        MAX_RELEVANT_MEMORIES,
+      )
+      return fuseMemoryRecall(lexical, semantic, MAX_RELEVANT_MEMORIES)
+    } catch {
+      return lexical
+    }
   }
 
   /** Resolved once per turn: every note tool consults it, and a second read would be a second answer. */
