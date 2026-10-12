@@ -12,9 +12,14 @@ import type {
   ExcalidrawLibraryItem,
   ExcalidrawLibraryManifest,
   LibraryFolderNode,
+  OfficialLibraryEntry,
 } from './types'
 
 const LOCAL_STORAGE_KEY = 'inkstone_excalidraw_library_manifest_v2'
+
+// The upstream catalog changes a few times a week; re-opening the browser ought not to cost a request.
+const OFFICIAL_CATALOG_TTL = 10 * 60 * 1000
+let officialCatalogInFlight: Promise<OfficialLibraryEntry[]> | null = null
 
 interface LibraryStoreState {
   folders: ExcalidrawLibraryFolder[]
@@ -25,6 +30,11 @@ interface LibraryStoreState {
   loading: boolean
   syncing: boolean
   lastSavedAt: number
+  officialCatalog: OfficialLibraryEntry[]
+  officialCatalogAt: number
+  officialCatalogLoading: boolean
+
+  loadOfficialCatalog: (force?: boolean) => Promise<OfficialLibraryEntry[]>
 
   init: () => Promise<void>
   setActiveFolderId: (id: string | null) => void
@@ -262,6 +272,37 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
   loading: false,
   syncing: false,
   lastSavedAt: 0,
+  officialCatalog: [],
+  officialCatalogAt: 0,
+  officialCatalogLoading: false,
+
+  loadOfficialCatalog: async (force = false) => {
+    const state = get()
+    if (
+      !force &&
+      state.officialCatalog.length > 0 &&
+      Date.now() - state.officialCatalogAt < OFFICIAL_CATALOG_TTL
+    ) {
+      return state.officialCatalog
+    }
+    if (officialCatalogInFlight) return officialCatalogInFlight
+
+    set({ officialCatalogLoading: true })
+    const run = (async (): Promise<OfficialLibraryEntry[]> => {
+      try {
+        const res = await api.excalidrawLibrary.getOfficialCatalog()
+        const list = res.ok && Array.isArray(res.libraries) ? (res.libraries as OfficialLibraryEntry[]) : []
+        // A failed or empty response keeps whatever catalog is already on screen instead of blanking it.
+        if (list.length > 0) set({ officialCatalog: list, officialCatalogAt: Date.now() })
+        return list
+      } finally {
+        set({ officialCatalogLoading: false })
+        officialCatalogInFlight = null
+      }
+    })()
+    officialCatalogInFlight = run
+    return run
+  },
 
   init: async () => {
     const local = readLocal()

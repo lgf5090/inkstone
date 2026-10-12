@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Download,
   FolderInput,
@@ -16,7 +16,119 @@ import { api } from '../../../lib/api'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
 import { useExcalidrawLibraryStore } from './library-store'
+import { useRenderWindow } from './official-library-window'
 import type { OfficialLibraryEntry } from './types'
+
+const OFFICIAL_PREVIEW_HOST = 'libraries.excalidraw.com'
+
+/**
+ * The catalog points at one preview PNG per library, under `/libraries/` on the official host. An
+ * absolute url in that field is third-party data turned into an image request for every reader, so it
+ * is only honoured when it names the official host over https.
+ */
+export function officialPreviewUrl(item: OfficialLibraryEntry): string | null {
+  if (!item.preview) return null
+  let url: URL
+  try {
+    url = new URL(item.preview.replace(/^\/+/, ''), `https://${OFFICIAL_PREVIEW_HOST}/libraries/`)
+  } catch {
+    return null
+  }
+  return url.protocol === 'https:' && url.hostname === OFFICIAL_PREVIEW_HOST ? url.toString() : null
+}
+
+const OfficialLibraryCard = React.memo(function OfficialLibraryCard({
+  item,
+  imported,
+  busy,
+  onImport,
+}: {
+  item: OfficialLibraryEntry
+  imported: boolean
+  busy: boolean
+  onImport: (item: OfficialLibraryEntry) => void
+}) {
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const previewUrl = previewFailed ? null : officialPreviewUrl(item)
+
+  return (
+    <div
+      data-official-library-card={item.source}
+      className="flex flex-col justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-default)] transition-colors gap-3 [content-visibility:auto] [contain-intrinsic-size:auto_164px]"
+    >
+      <div className="flex gap-3 min-w-0">
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt={item.name}
+            className="w-20 h-20 object-contain rounded bg-white p-1 border border-black/5 shrink-0"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setPreviewFailed(true)}
+          />
+        ) : (
+          <div className="w-20 h-20 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-quaternary)] shrink-0">
+            <Globe size={24} />
+          </div>
+        )}
+
+        <div className="flex flex-col min-w-0 flex-1">
+          <h3 className="font-semibold text-sm truncate text-[var(--text-primary)]" title={item.name}>
+            {item.name}
+          </h3>
+          {item.authors?.[0]?.name && (
+            <p className="text-xs text-[var(--text-tertiary)] mt-0.5 truncate">
+              @{item.authors[0].name}
+            </p>
+          )}
+          {item.description && (
+            <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2 leading-relaxed">
+              {item.description}
+            </p>
+          )}
+          {typeof item.totalDownloads === 'number' && (
+            <p className="text-[11px] text-[var(--text-quaternary)] mt-auto pt-1 flex items-center gap-1">
+              <Download size={11} />
+              <span>
+                {item.totalDownloads} {t('excalidraw.downloads')}
+              </span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end pt-2 border-t border-[var(--border-subtle)]/60">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onImport(item)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            imported
+              ? 'bg-[var(--bg-surface)] text-[var(--accent)] border border-[var(--accent)]/40'
+              : 'bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-50'
+          }`}
+        >
+          {busy ? (
+            <>
+              <Loader2 size={13} className="animate-spin" />
+              <span>{t('excalidraw.importing')}</span>
+            </>
+          ) : imported ? (
+            <>
+              <Check size={13} />
+              <span>{t('excalidraw.imported')}</span>
+            </>
+          ) : (
+            <>
+              <Download size={13} />
+              <span>{t('excalidraw.one_click_import')}</span>
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  )
+})
 
 interface ExcalidrawOfficialLibraryModalProps {
   isOpen: boolean
@@ -31,15 +143,15 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
 }) => {
   const folders = useExcalidrawLibraryStore((s) => s.folders)
   const importFromLibraryData = useExcalidrawLibraryStore((s) => s.importFromLibraryData)
+  const catalog = useExcalidrawLibraryStore((s) => s.officialCatalog)
+  const loadOfficialCatalog = useExcalidrawLibraryStore((s) => s.loadOfficialCatalog)
 
   const [activeTab, setActiveTab] = useState<'online' | 'local' | 'web'>('online')
-  const [catalog, setCatalog] = useState<OfficialLibraryEntry[]>([])
-  const [loadingCatalog, setLoadingCatalog] = useState(false)
+  const [catalogFailed, setCatalogFailed] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFolder, setSelectedFolder] = useState<string | null>(targetFolderId)
   const [importingSource, setImportingSource] = useState<string | null>(null)
   const [importedSources, setImportedSources] = useState<Set<string>>(new Set())
-  const [failedPreviews, setFailedPreviews] = useState<Set<string>>(new Set())
 
   const [localFile, setLocalFile] = useState<File | null>(null)
   const [localFileLoading, setLocalFileLoading] = useState(false)
@@ -60,26 +172,22 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
   useEffect(() => {
     if (!isOpen) return
     let mounted = true
-    setLoadingCatalog(true)
-    api.excalidrawLibrary
-      .getOfficialCatalog()
-      .then((res) => {
+    setCatalogFailed(false)
+    // Whatever the store already holds paints first; the request only fills in or refreshes it.
+    loadOfficialCatalog()
+      .then((list) => {
         if (!mounted) return
-        if (res.ok && Array.isArray(res.libraries)) {
-          setCatalog(res.libraries)
-        }
+        setCatalogFailed(list.length === 0 && catalog.length === 0)
       })
       .catch((err) => {
         if (!mounted) return
         console.error('Failed to load official catalog:', err)
-      })
-      .finally(() => {
-        if (mounted) setLoadingCatalog(false)
+        setCatalogFailed(catalog.length === 0)
       })
     return () => {
       mounted = false
     }
-  }, [isOpen])
+  }, [isOpen, loadOfficialCatalog])
 
   useEffect(() => {
     const handleHash = async () => {
@@ -137,7 +245,12 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
     })
   }, [catalog, compiledQuery, pinyinVersion])
 
-  const handleImportOfficial = async (item: OfficialLibraryEntry) => {
+  const { visible: visibleCatalog, hiddenCount, setTailElement, revealMore } = useRenderWindow(
+    filteredCatalog,
+    searchQuery,
+  )
+
+  const handleImportOfficial = useCallback(async (item: OfficialLibraryEntry) => {
     setImportingSource(item.source)
     try {
       const res = await api.excalidrawLibrary.downloadOfficialLibrary(item.source)
@@ -160,7 +273,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
     } finally {
       setImportingSource(null)
     }
-  }
+  }, [selectedFolder, importFromLibraryData])
 
   const handleImportLocalFile = async () => {
     if (!localFile) return
@@ -350,110 +463,56 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
                 className="w-full"
               />
 
-              {loadingCatalog && (
+              {catalog.length === 0 && !catalogFailed && (
                 <div className="flex flex-1 items-center justify-center py-20 text-[var(--text-secondary)] gap-2 text-sm">
                   <Loader2 size={18} className="animate-spin text-[var(--accent)]" />
                   <span>{t('preview.excalidraw_loading')}</span>
                 </div>
               )}
 
-              {!loadingCatalog && filteredCatalog.length === 0 && (
+              {catalogFailed && (
+                <div className="flex flex-1 items-center justify-center py-20 text-[var(--text-tertiary)] text-sm">
+                  {t('excalidraw.official_catalog_unavailable')}
+                </div>
+              )}
+
+              {catalog.length > 0 && filteredCatalog.length === 0 && (
                 <div className="flex flex-1 items-center justify-center py-20 text-[var(--text-tertiary)] text-sm">
                   {t('excalidraw.no_match_stencils')}
                 </div>
               )}
 
-              {!loadingCatalog && filteredCatalog.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredCatalog.map((item) => {
-                    const isImported = importedSources.has(item.source)
-                    const isBusy = importingSource === item.source
-                    const hasFailed = failedPreviews.has(item.source)
-                    const previewUrl = !hasFailed && item.preview
-                      ? item.preview.startsWith('http')
-                        ? item.preview
-                        : `https://libraries.excalidraw.com/libraries/${item.preview.replace(/^\/+/, '')}`
-                      : null
-
-                    return (
-                      <div
+              {visibleCatalog.length > 0 && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {visibleCatalog.map((item) => (
+                      <OfficialLibraryCard
                         key={item.source}
-                        className="flex flex-col justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-default)] transition-colors gap-3"
+                        item={item}
+                        imported={importedSources.has(item.source)}
+                        busy={importingSource === item.source}
+                        onImport={handleImportOfficial}
+                      />
+                    ))}
+                  </div>
+
+                  {hiddenCount > 0 && (
+                    <div className="flex justify-center pt-1">
+                      <button
+                        type="button"
+                        ref={setTailElement}
+                        onClick={revealMore}
+                        data-official-library-more
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                       >
-                        <div className="flex gap-3 min-w-0">
-                          {previewUrl ? (
-                            <img
-                              src={previewUrl}
-                              alt={item.name}
-                              className="w-20 h-20 object-contain rounded bg-white p-1 border border-black/5 shrink-0"
-                              loading="lazy"
-                              onError={() => setFailedPreviews((prev) => new Set([...prev, item.source]))}
-                            />
-                          ) : (
-                            <div className="w-20 h-20 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-quaternary)] shrink-0">
-                              <Globe size={24} />
-                            </div>
-                          )}
-
-                          <div className="flex flex-col min-w-0 flex-1">
-                            <h3 className="font-semibold text-sm truncate text-[var(--text-primary)]" title={item.name}>
-                              {item.name}
-                            </h3>
-                            {item.authors?.[0]?.name && (
-                              <p className="text-xs text-[var(--text-tertiary)] mt-0.5 truncate">
-                                @{item.authors[0].name}
-                              </p>
-                            )}
-                            {item.description && (
-                              <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2 leading-relaxed">
-                                {item.description}
-                              </p>
-                            )}
-                            {typeof item.totalDownloads === 'number' && (
-                              <p className="text-[11px] text-[var(--text-quaternary)] mt-auto pt-1 flex items-center gap-1">
-                                <Download size={11} />
-                                <span>
-                                  {item.totalDownloads} {t('excalidraw.downloads')}
-                                </span>
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-end pt-2 border-t border-[var(--border-subtle)]/60">
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => handleImportOfficial(item)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                              isImported
-                                ? 'bg-[var(--bg-surface)] text-[var(--accent)] border border-[var(--accent)]/40'
-                                : 'bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-50'
-                            }`}
-                          >
-                            {isBusy ? (
-                              <>
-                                <Loader2 size={13} className="animate-spin" />
-                                <span>{t('excalidraw.importing')}</span>
-                              </>
-                            ) : isImported ? (
-                              <>
-                                <Check size={13} />
-                                <span>{t('excalidraw.imported')}</span>
-                              </>
-                            ) : (
-                              <>
-                                <Download size={13} />
-                                <span>{t('excalidraw.one_click_import')}</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                        <Download size={13} />
+                        <span>{t('excalidraw.official_library_show_more', { count: hiddenCount })}</span>
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
+
             </div>
           )}
 

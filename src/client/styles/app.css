@@ -11,7 +11,8 @@
 
 @theme inline {
   --color-sunken: var(--bg-sunken);
-  --color-base: var(--bg-base);
+  /* No `--color-base`: Tailwind resolves `text-base` as a colour when a theme colour is named `base`,
+     which would replace the built-in 1rem font size with the page background as the text colour. */
   --color-surface: var(--bg-surface);
   --color-raised: var(--bg-raised);
   --color-overlay: var(--bg-overlay);

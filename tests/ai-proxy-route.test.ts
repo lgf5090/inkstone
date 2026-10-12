@@ -161,10 +161,29 @@ describe('ai proxy route', () => {
   })
 
   it('does not follow an upstream redirect', async () => {
-    globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
-      expect(init.redirect).toBe('error')
-      return Promise.resolve(new Response('{}', { status: 200 }))
+    const fetchSpy = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      // workerd has no `redirect: 'error'`, so the relay must ask for 'manual' and read the status.
+      expect(init.redirect).toBe('manual')
+      return Promise.resolve(new Response(null, { status: 302, headers: { location: 'https://169.254.169.254/' } }))
     }) as any
+    globalThis.fetch = fetchSpy
+
+    const res = await app.request('/api/ai/proxy', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: 'https://api.openai.com/v1/chat/completions', body: {} }),
+    })
+    expect(res.status).toBe(502)
+    const body = await res.json() as { error?: { message?: string } }
+    expect(body.error?.message).toMatch(/redirect/i)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('relays a plain upstream answer untouched', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('{"ok":true}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as any
 
     const res = await app.request('/api/ai/proxy', {
       method: 'POST',
@@ -172,6 +191,7 @@ describe('ai proxy route', () => {
       body: JSON.stringify({ endpoint: 'https://api.openai.com/v1/chat/completions', body: {} }),
     })
     expect(res.status).toBe(200)
-    expect(globalThis.fetch).toHaveBeenCalledOnce()
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(await res.text()).toBe('{"ok":true}')
   })
 })

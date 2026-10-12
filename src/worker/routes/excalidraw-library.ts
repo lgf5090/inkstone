@@ -70,7 +70,63 @@ async function readBodyCapped(res: Response, maxBytes: number): Promise<string> 
   return new TextDecoder().decode(bytes)
 }
 
-let cachedCatalog: { timestamp: number; data: unknown } | null = null
+interface CatalogCache {
+  timestamp: number
+  data: unknown[]
+}
+
+let cachedCatalog: CatalogCache | null = null
+const CATALOG_TTL = 3600_000
+const CATALOG_HEADERS = { 'Cache-Control': 'public, max-age=300' }
+
+/**
+ * `itemNames` is roughly half of libraries.json - one string per stencil, and 232 libraries carry
+ * 38k characters of them - while the browser only ever matches on name, description and author.
+ * Dropping it here halves both the upstream body and what the client has to parse.
+ */
+export function trimOfficialCatalog(raw: unknown): unknown[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as { libraries?: unknown } | null)?.libraries)
+      ? (raw as { libraries: unknown[] }).libraries
+      : []
+  return list.map((entry) => {
+    const { itemNames, ...rest } = (entry ?? {}) as Record<string, unknown>
+    return rest
+  })
+}
+
+async function fetchOfficialCatalog(): Promise<unknown[]> {
+  const res = await fetch(OFFICIAL_CATALOG_URL, {
+    redirect: NO_REDIRECT,
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'Inkstone-Excalidraw/1.0',
+    },
+  })
+  if (isRedirectResponse(res)) {
+    throw new Error('Upstream redirected, which catalog fetches refuse')
+  }
+  if (!res.ok) {
+    throw new Error(`Upstream returned ${res.status}`)
+  }
+  return trimOfficialCatalog(await res.json())
+}
+
+/**
+ * One refresh per isolate. Without this, every request that arrives after the window closes would
+ * schedule its own upstream fetch, so a busy minute would turn into a burst of identical fetches.
+ */
+let catalogRefresh: Promise<void> | null = null
+
+function refreshCatalogInBackground(): Promise<void> {
+  if (catalogRefresh) return catalogRefresh
+  catalogRefresh = fetchOfficialCatalog().then(
+    (data) => { cachedCatalog = { timestamp: Date.now(), data } },
+    () => {},
+  ).finally(() => { catalogRefresh = null })
+  return catalogRefresh
+}
 
 excalidrawLibraryRoutes.get('/manifest', async (c) => {
   const userId = c.get('userId')
@@ -158,31 +214,20 @@ excalidrawLibraryRoutes.put('/manifest', async (c) => {
 
 excalidrawLibraryRoutes.get('/official-catalog', async (c) => {
   const now = Date.now()
-  if (cachedCatalog && now - cachedCatalog.timestamp < 3600_000) {
-    return c.json({ ok: true, libraries: cachedCatalog.data })
+  if (cachedCatalog) {
+    // Past its window the cache still answers right away; refreshing runs behind the response so a
+    // slow upstream never lands on the reader's critical path again.
+    if (now - cachedCatalog.timestamp >= CATALOG_TTL) {
+      c.executionCtx?.waitUntil(refreshCatalogInBackground())
+    }
+    return c.json({ ok: true, libraries: cachedCatalog.data }, 200, CATALOG_HEADERS)
   }
 
   try {
-    const res = await fetch(OFFICIAL_CATALOG_URL, {
-      redirect: NO_REDIRECT,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Inkstone-Excalidraw/1.0',
-      },
-    })
-    if (isRedirectResponse(res)) {
-      throw new Error('Upstream redirected, which catalog fetches refuse')
-    }
-    if (!res.ok) {
-      throw new Error(`Upstream returned ${res.status}`)
-    }
-    const data = await res.json()
+    const data = await fetchOfficialCatalog()
     cachedCatalog = { timestamp: now, data }
-    return c.json({ ok: true, libraries: data })
+    return c.json({ ok: true, libraries: data }, 200, CATALOG_HEADERS)
   } catch (err: any) {
-    if (cachedCatalog) {
-      return c.json({ ok: true, libraries: cachedCatalog.data })
-    }
     return c.json({ ok: false, error: err?.message || String(err), libraries: [] }, 502)
   }
 })
@@ -229,12 +274,13 @@ excalidrawLibraryRoutes.post('/official-download', async (c) => {
 
     const r2 = c.env.FILES
     if (r2) {
-      try {
-        await r2.put(libraryR2Key(userId, safeLibraryName(filename)), text, {
+      // Archiving the raw file is bookkeeping the importer does not wait for, so it runs behind the
+      // response instead of adding an R2 round trip to every one-click import.
+      c.executionCtx?.waitUntil(
+        r2.put(libraryR2Key(userId, safeLibraryName(filename)), text, {
           httpMetadata: { contentType: 'application/json' },
-        })
-      } catch {
-      }
+        }).catch(() => {}),
+      )
     }
 
     return c.json({ ok: true, data, filename })

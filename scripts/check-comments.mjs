@@ -756,6 +756,12 @@ const allowed = new Map([
     "/** Everything a folder row needs beyond its own node, assembled once per panel render. */",
     "/**\n   * Where a menu of this panel is portalled to.\n   *\n   * `document.body` will not do: the engine watches for a pointer outside its library panel and closes\n   * the panel when it sees one, so a menu on the body was outside - the first click on a row tore the\n   * panel, and with it the menu that was answering the click, out from under the user. The panel's own\n   * root is inside the engine's element and is not one of the children this app's stylesheet hides.\n   */",
     "/**\n   * Ask the engine to bring its library panel back.\n   *\n   * A confirmation dialog is portalled to the body, and the engine closes its sidebar on a pointer\n   * down outside the panel - which is exactly what answering the dialog is. Without this the panel\n   * vanishes behind the dialog and the user is left on a bare canvas having only meant to rename a\n   * folder.\n   */",
+    "// The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking",
+    "// while the reader is still looking at the panel means the official browser opens at once.",
+  ]],
+  ["src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx", [
+    "// Whatever the store already holds paints first; the request only fills in or refreshes it.",
+    "/**\n * The catalog points at one preview PNG per library, under `/libraries/` on the official host. An\n * absolute url in that field is third-party data turned into an image request for every reader, so it\n * is only honoured when it names the official host over https.\n */",
   ]],
   ["src/client/features/excalidraw/library/LibraryFolderRow.tsx", [
     "/** The whole folder tree, unfiltered: a move has to be able to reach a folder the query hides. */",
@@ -810,6 +816,14 @@ const allowed = new Map([
     "// reaches the store - the stencil tree hands these very elements to restoreElements and exportToSvg.",
     "// A group already in alphabetical order must not spend a write, an upload and a re-render of",
     "// every surface reading the manifest.",
+    "// The upstream catalog changes a few times a week; re-opening the browser ought not to cost a request.",
+    "// A failed or empty response keeps whatever catalog is already on screen instead of blanking it.",
+  ]],
+  ["src/client/features/excalidraw/library/official-library-window.test.ts", [
+    "// A fresh array every render would defeat the memoised cards for no reason.",
+  ]],
+  ["src/client/features/excalidraw/library/official-library-window.ts", [
+    "/**\n * The official catalog holds 232 libraries. Mounting all of them at once was measured in Chromium as a\n * single 355-383 ms long task that also holds up the modal's own shell, and it asked for a preview image\n * per card (748 kB before the first scroll). So the grid renders a window and hands out the rest as the\n * reader approaches its end — the same shape the kanban board uses, with a real button for the tail so a\n * browser without an observer, or a keyboard that never scrolls, still reaches every card.\n */",
   ]],
   ["src/client/features/folders/FolderMoveMenu.tsx", [
     "/**\n * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.\n *\n * Stated structurally rather than as the notes store's `FolderNode` because the library panel has the\n * same shape of tree over its own folders, and a second copy of this picker - flywheel positioning,\n * arrow-key walking and all - would be the worse outcome. `FolderNode` satisfies it as it is.\n */",
@@ -10552,6 +10566,7 @@ const allowed = new Map([
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
     "/* The phone has no icon rail, so the launcher takes the same 44px slot as its siblings. */",
     "/* A tab panel is one scrolling column, so a panel's own toolbar and filter box would\n   drift up and out of sight behind the list they control. Pinning them keeps the\n   controls that choose what the list shows reachable while the reader is in it. One\n   rule rather than per-panel utilities so every tab pins the same way; the background\n   is left to each site, because the sidebar's surface and the right-hand panel's are\n   different colours and a pinned row has to be opaque over what scrolls under it. */",
+    "/* No `--color-base`: Tailwind resolves `text-base` as a colour when a theme colour is named `base`,\n     which would replace the built-in 1rem font size with the page background as the text colour. */",
   ]],
   ["src/client/styles/dataview.css", [
     "/* Query blocks, inline fields and inline answers. The block shell follows the board and mind-map\n   heads so a note with several rich blocks reads as one family; the table, list and checkbox shapes\n   come from prose.css rather than being drawn again here. */",
@@ -11214,6 +11229,12 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/excalidraw-library.ts", [
     "/**\n * Only `libraries.excalidraw.com` may be fetched, and only for a `.excalidrawlib` path. The catalog and\n * the download endpoints both run with this app's credentials from Cloudflare's edge, so an unchecked URL\n * would turn them into a general-purpose proxy for whatever host a note or a hash fragment names.\n */",
+    "/**\n * `itemNames` is roughly half of libraries.json - one string per stencil, and 232 libraries carry\n * 38k characters of them - while the browser only ever matches on name, description and author.\n * Dropping it here halves both the upstream body and what the client has to parse.\n */",
+    "// Past its window the cache still answers right away; refreshing runs behind the response so a",
+    "// slow upstream never lands on the reader's critical path again.",
+    "// Archiving the raw file is bookkeeping the importer does not wait for, so it runs behind the",
+    "// response instead of adding an R2 round trip to every one-click import.",
+    "/**\n * One refresh per isolate. Without this, every request that arrives after the window closes would\n * schedule its own upstream fetch, so a busy minute would turn into a burst of identical fetches.\n */",
   ]],
   ["src/worker/routes/files.ts", [
     "// Anonymous share reads get a tighter work budget than the delete/backup paths:",
@@ -11371,6 +11392,9 @@ const allowed = new Map([
     "// The batch call fails, then every item is retried on its own.",
     "// Clear the backoff and the item is attempted again, incrementing attempts.",
   ]],
+  ["tests/ai-proxy-route.test.ts", [
+    "// workerd has no `redirect: 'error'`, so the relay must ask for 'manual' and read the status.",
+  ]],
   ["tests/almanac-loader.test.ts", [
     "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
     "// This file owns the loader's module-level state: vitest gives every file a fresh registry, so the",
@@ -11444,6 +11468,24 @@ const allowed = new Map([
     "// matching that would say the toolbar is painted on a phone when it is still waiting for hover.",
     "// A fresh mount: the hook reads the media query when the row is created, so re-rendering",
     "// the same tree would keep answering with the value it saw the first time.",
+  ]],
+  ["tests/excalidraw-official-catalog-route.test.ts", [
+    "/** The route caches the catalog in module scope, so every test needs a freshly imported module. */",
+    "// The guard is the point, not the option literal: workerd never had 'error' at all.",
+    "// What the old literal-string test could never see: workerd rejects 'error' before the",
+    "// request is even made, so the option this app passes has to be one it accepts.",
+    "// Backdate by pushing a failing upstream after the window: the first call still answers.",
+    "// All three answered from the stale cache, and one refresh is in flight for the whole burst.",
+  ]],
+  ["tests/excalidraw-official-library-modal.test.ts", [
+    "// The catalog itself is still complete in the store; only the grid is windowed.",
+    "// Typing must not leave the whole revealed grid mounted, or every further keystroke pays for",
+    "// it again: the window closes back over the first screenful of whatever the query kept.",
+    "// The failure must not disturb the window either: no extra page, no lost tail.",
+    "// Two hours old, so the open does revalidate - and the failed revalidation must not eat the grid.",
+    "// The whole point of prefetching: the click must not be the moment a cold upstream gets asked.",
+    "// A catalog entry is third-party data turned into an <img src>, so an absolute url to anywhere",
+    "// else is refused rather than fetched by every reader of this app.",
   ]],
   ["tests/excalidraw-round-trips.test.ts", [
     "// Nulling or zeroing the canvas is what made a StrictMode remount paint into an orphan: the element",
@@ -11765,6 +11807,10 @@ const allowed = new Map([
     "// because the calendar round defined them in `styles/tokens.css` instead of leaving them dangling.",
     "// A list that only grows stops meaning anything, so paying off a token has to delete its entry",
     "// and this is what makes leaving it behind expensive enough to notice.",
+    "// `text-*` holds both colours and font sizes, so a theme colour named `base` silently turns the",
+    "// built-in `text-base` into `color: var(--bg-base)` - the page background, i.e. invisible text -",
+    "// and takes the size with it. The collision is invisible in the source and only shows in the",
+    "// rendered sheet, so the name itself is what has to be policed.",
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",

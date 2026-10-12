@@ -277,6 +277,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   const activeFolderId = useExcalidrawLibraryStore((s) => s.activeFolderId)
   const expandedFolderIds = useExcalidrawLibraryStore((s) => s.expandedFolderIds)
   const init = useExcalidrawLibraryStore((s) => s.init)
+  const loadOfficialCatalog = useExcalidrawLibraryStore((s) => s.loadOfficialCatalog)
   const setActiveFolderId = useExcalidrawLibraryStore((s) => s.setActiveFolderId)
   const toggleFolder = useExcalidrawLibraryStore((s) => s.toggleFolder)
   const createFolder = useExcalidrawLibraryStore((s) => s.createFolder)
@@ -323,7 +324,10 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
 
   useEffect(() => {
     void init()
-  }, [init])
+    // The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking
+    // while the reader is still looking at the panel means the official browser opens at once.
+    void loadOfficialCatalog().catch(() => {})
+  }, [init, loadOfficialCatalog])
 
   const compiledQuery = useMemo(() => compileQuery(searchText), [searchText])
   const pinyinVersion = usePinyinVersion()

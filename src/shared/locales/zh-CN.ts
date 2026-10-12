@@ -4967,6 +4967,8 @@ console.log(\`Hello, \${name}!\`)
     "excalidraw.drag_to_canvas": "拖拽至画布放置",
     "excalidraw.downloads": "次下载",
     "excalidraw.official_catalog_search": "搜索官方素材库...",
+    "excalidraw.official_catalog_unavailable": "官方素材库暂时打不开，请稍后重试",
+    "excalidraw.official_library_show_more": "再显示 {count} 个素材库",
     "excalidraw.one_click_import": "一键导入",
     "excalidraw.imported": "已导入",
     "excalidraw.save_manifest_failed": "素材库保存失败",
