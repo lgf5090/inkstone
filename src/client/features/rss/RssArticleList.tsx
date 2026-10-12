@@ -209,7 +209,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
 
   return (
     <div
-      className="relative flex h-full min-h-0 w-full flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)] lg:w-[var(--list-w)] lg:shrink-0"
+      className="relative flex h-full min-h-0 w-full flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)] md:w-[300px] md:shrink-0 lg:w-[var(--list-w)]"
       style={{ '--list-w': `${width}px` } as CSSProperties}
     >
       <div className="flex shrink-0 items-center gap-1 px-2 py-2">

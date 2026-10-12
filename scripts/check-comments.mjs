@@ -4513,6 +4513,12 @@ const allowed = new Map([
     "/**\n * The RSS container: the app that answers at `/rss`.\n *\n * It owns the frame the placeholder used to draw — same header height, same tokens — and the\n * responsive decision the other containers make too: three panes when there is room for three, one\n * pane and a back button when there is not. The rail is the only pane that can be hidden on a wide\n * screen, because it is the only one whose contents are reachable another way (the channel name in\n * the header opens the same list).\n *\n * Loading is deliberately on mount rather than at boot. A reader who never opens this tab should not\n * pay for a library they will not read, and the Worker should not answer for it either.\n */",
     "// A dialog claims Escape for itself and stops the event before it gets here, so this is",
     "// only ever the reading surface answering: leave focus mode.",
+    "// Below the three-pane breakpoint the rail is a pane of its own — a full screen on a phone, a",
+    "// floating drawer on a tablet — so the same gesture has to drive `pane`. Above it the rail is in",
+    "// flow and only `railHidden` means anything. One handler, because the reader presses the same",
+    "// button either way and a control that does nothing on a phone is a control that is broken.",
+    "// A phone gets the rail as its one pane; a tablet gets it laid over the list it",
+    "// is already showing, because 768px is wide enough for two and not for three.",
   ]],
   ["src/client/features/rss/RssArticleList.tsx", [
     "// Arm on the first press, act on the second: this marks every loaded row of the channel, and the",
@@ -4550,6 +4556,9 @@ const allowed = new Map([
     "// would tell them to go configure it again.",
     "// A browser that will not hand over the clipboard has already said so in its own words.",
     "/** [id, paper, ink] — the sample a reader clicks is the colour the page will actually take. */",
+    "/* Nine one-article actions do not fit beside a title on a phone, and a control that is off\n            screen is a control that does not exist. So the row wraps instead of scrolling. */",
+    "// The reader picked a size, and it is honoured wherever it fits: on a 360px screen",
+    "// 32px leaves nine characters a line, so the size is clamped to the viewport first.",
   ]],
   ["src/client/features/rss/RssSearchPanel.tsx", [
     "/**\n * Search over every article this device holds, not just the channel on screen.\n *\n * The list's own box filters what is loaded; this answers the other question — \"where did I see\n * that?\" — which a reader asks across months of reading, not one feed. The index is built from the\n * local caches with the bodies dropped, because the search only ever reads a title, a summary and a\n * source name, and a hundred kilobytes of HTML per row would turn a lookup into a stall.\n */",
@@ -4610,6 +4619,8 @@ const allowed = new Map([
     "/** The \"move to folder\" row, built once because the rail and the list both need it. */",
     "/** The tag row, same reason. */",
     "/**\n * The menu on one article row.\n *\n * Every mark a reader can put on an article is here, because the row is where the article is\n * decided about — the reader pane's toolbar repeats the four common ones for the article that is\n * already open, and a fifth that needs a click on a row two screens away does not belong in a\n * toolbar. Hiding is the one that needs an undo: it is the only action whose effect outlives the\n * refresh that brought the article in.\n */",
+    "// The address came from a cache this device wrote, so the scheme is checked again here",
+    "// rather than trusted because the parser once asked for it.",
   ]],
   ["src/client/features/rss/sanitize.ts", [
     "/**\n * Making a stranger's HTML safe enough to put inside the notebook.\n *\n * An article body is the one place in this app where the markup was written by nobody the reader\n * trusts, and it arrives through a relay that cannot read it. So it is sanitized on the way in —\n * once, before it is cached or written to a note — and the pass that renders it is a plain\n * `innerHTML` of the result. Two things follow from that ordering, and both are why this file\n * exists rather than a call to DOMPurify at the render site: the string a reader saves into a note\n * has to be the same safe string they were shown, and the sanitizer must not be the kind that lets\n * an `<img onerror>` through because it was configured for a different surface.\n *\n * Where the pictures come from is a *display* question, not a safety one, so it is answered\n * separately. A cached body keeps the addresses its author wrote; the reader's setting for\n * relaying, and the setting for showing pictures at all, are applied each time the body is drawn.\n * Changing that setting therefore needs no re-fetch, and a note saved from the article gets the\n * original addresses rather than a link that only works while this session lasts.\n */",
@@ -11714,6 +11725,7 @@ const allowed = new Map([
     "/*\n * Fonts the device already has. Nothing is downloaded: a reader who wants a face that is not on this\n * list types its name into the device-font field, and the browser falls back to whatever it has when\n * the name matches nothing. The CJK names are the ones macOS, Windows and a Linux desktop actually\n * ship, in the order they resolve.\n */",
     "/*\n * The reading themes.\n *\n * A theme is written by redefining the app's own tokens on the scroll box, not by painting over the\n * classes inside it: custom properties inherit, so every `text-[var(--text-primary)]` the article\n * body and its headings and links already carry resolves to the theme without a single selector\n * having to know the article's markup. Feed HTML is whatever an author wrote it to be — this is the\n * only way to set all of it down.\n */",
     "/* Alone on the screen the column reads better centred than pinned to the left edge, which is where\n   it sits when a list is beside it. */",
+    "/* Feed HTML arrives with whatever the author wrote: a 120-line code block, a hero image sized in\n   pixels. Each gets a ceiling and a scroll of its own so the article never sets the pane's width. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

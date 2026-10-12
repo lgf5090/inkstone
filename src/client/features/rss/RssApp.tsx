@@ -44,6 +44,27 @@ export function RssApp(): ReactElement {
   const [railHidden, setRailHidden] = useState(false)
   const [center, setCenter] = useState<'manage' | 'add' | null>(null)
   const [preferences, setPreferences] = useState(false)
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
+
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 1024px)')
+    const onChange = (): void => setWide(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  // Below the three-pane breakpoint the rail is a pane of its own — a full screen on a phone, a
+  // floating drawer on a tablet — so the same gesture has to drive `pane`. Above it the rail is in
+  // flow and only `railHidden` means anything. One handler, because the reader presses the same
+  // button either way and a control that does nothing on a phone is a control that is broken.
+  const railOpen = wide ? !railHidden : pane === 'rail'
+  const toggleRail = (): void => {
+    if (wide) {
+      setRailHidden(hidden => !hidden)
+      return
+    }
+    setPane(current => (current === 'rail' ? 'list' : 'rail'))
+  }
   const [focus, setFocus] = useState(false)
   const [search, setSearch] = useState(false)
   const [keys, setKeys] = useState(false)
@@ -59,7 +80,7 @@ export function RssApp(): ReactElement {
       if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return
       if (event.key === '[') {
         event.preventDefault()
-        setRailHidden(hidden => !hidden)
+        toggleRail()
         return
       }
       if (event.key === 'f') {
@@ -94,12 +115,11 @@ export function RssApp(): ReactElement {
     <section className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
         <IconButton
-          label={railHidden ? t('rss.channel_all') : t('rss.collapse')}
+          label={railOpen ? t('rss.collapse') : t('rss.expand')}
           size="sm"
-          className="hidden lg:inline-flex"
-          onClick={() => setRailHidden(hidden => !hidden)}
+          onClick={toggleRail}
         >
-          {railHidden ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          {railOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
         </IconButton>
         <Rss size={15} className="shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
         <h1 className="min-w-0 truncate text-[13.5px] font-semibold text-[var(--text-primary)]">{title}</h1>
@@ -162,21 +182,28 @@ export function RssApp(): ReactElement {
             </div>
           )
         : (
-            <div className="flex min-h-0 flex-1">
+            <div className="relative flex min-h-0 flex-1">
               {!railHidden && !focus && (
-                <div className={cn('min-h-0', pane === 'rail' ? 'block w-full lg:block lg:w-auto' : 'hidden lg:block')}>
+                <div className={cn(
+                  'min-h-0',
+                  pane === 'rail'
+                    // A phone gets the rail as its one pane; a tablet gets it laid over the list it
+                    // is already showing, because 768px is wide enough for two and not for three.
+                    ? 'z-40 block w-full md:absolute md:inset-y-0 md:left-0 md:w-60 md:shadow-[var(--shadow-pop)] lg:static lg:w-auto lg:shadow-none'
+                    : 'hidden lg:block',
+                )}>
                   <RssChannelRail onPick={() => setPane('list')} />
                 </div>
               )}
               {!focus && (
-                <div className={cn('min-h-0 flex-1 lg:flex-none', pane === 'list' ? 'block' : 'hidden lg:block')}>
+                <div className={cn('min-h-0 flex-1 md:flex-none lg:flex-none', pane === 'list' ? 'block' : 'hidden md:block')}>
                   <RssArticleList
                     onOpen={() => setPane('reader')}
                     onManage={() => setCenter('manage')}
                   />
                 </div>
               )}
-              <div className={cn('min-w-0 flex-1', pane === 'reader' ? 'flex' : 'hidden lg:flex')}>
+              <div className={cn('min-w-0 flex-1', pane === 'reader' ? 'flex' : 'hidden md:flex')}>
                 <RssReader
                   onBack={() => setPane('list')}
                   focus={focus}

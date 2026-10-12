@@ -112,7 +112,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
     <nav
       aria-label={t('rss.subscriptions')}
       onContextMenu={event => openMenu(event, { kind: 'blank' })}
-      className="flex h-full w-52 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] md:w-56"
+      className="flex h-full w-full min-w-0 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:w-56"
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         <Row label={t('rss.channel_all')} icon={Layers} count={counts.total} active={active === 'all'} onSelect={() => go({ kind: 'all' })} />

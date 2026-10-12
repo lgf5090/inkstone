@@ -128,3 +128,25 @@
 .rss-scroll[data-focus='true'] .rss-prose {
   margin-inline: auto;
 }
+
+/* Feed HTML arrives with whatever the author wrote: a 120-line code block, a hero image sized in
+   pixels. Each gets a ceiling and a scroll of its own so the article never sets the pane's width. */
+.rss-prose pre,
+.rss-prose code[class*='language-'],
+.rss-prose picture,
+.rss-prose figure {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rss-prose img,
+.rss-prose video,
+.rss-prose audio,
+.rss-prose embed,
+.rss-prose object {
+  max-width: 100%;
+}
+
+.rss-prose iframe {
+  max-width: 100%;
+}

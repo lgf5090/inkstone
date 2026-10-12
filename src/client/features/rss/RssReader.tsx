@@ -180,14 +180,16 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-[var(--bg-base)]">
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
+      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
         {onBack && (
           <IconButton label={t('rss.back')} size="sm" onClick={onBack} className="lg:hidden">
             <ArrowLeft size={15} />
           </IconButton>
         )}
-        <div className="min-w-0 flex-1">
+        {/* Nine one-article actions do not fit beside a title on a phone, and a control that is off
+            screen is a control that does not exist. So the row wraps instead of scrolling. */}
+        <div className="min-w-0 flex-1 basis-40">
           <div className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{feed?.title || t('rss.source_unknown')}</div>
           <div className="truncate text-[10.5px] text-[var(--text-quaternary)]">
             {entry.publishedTs ? fullTime(entry.publishedTs) : ''}
@@ -262,7 +264,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           className="ink-prose rss-prose px-4 pt-6 pb-10 md:px-8"
           data-font={settings.readingFont}
           style={{
-            '--prose-size': `${settings.fontSize}px`,
+            // The reader picked a size, and it is honoured wherever it fits: on a 360px screen
+            // 32px leaves nine characters a line, so the size is clamped to the viewport first.
+            '--prose-size': `min(${settings.fontSize}px, max(17px, 4.6vw + 6px))`,
             '--prose-line': String(settings.lineHeight),
             '--prose-width': `${settings.columnWidth}em`,
             '--rss-custom-font': settings.readingFont === 'custom' ? settings.customFont || 'serif' : undefined,
@@ -331,7 +335,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           rel="noopener noreferrer nofollow"
           aria-disabled={!entry.link}
           className={cn(
-            'inline-flex h-7 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium',
+            'inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium',
             'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
             !entry.link && 'pointer-events-none opacity-45',
           )}
@@ -342,7 +346,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
         <button
           type="button"
           onClick={() => void copy()}
-          className="inline-flex h-7 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
           <Link2 size={13} aria-hidden="true" />
           {t('rss.copy_link')}
@@ -370,7 +374,7 @@ function ToolButton({ label, icon, onClick }: { label: string, icon: ReactNode, 
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-7 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+      className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
     >
       {icon}
       {label}
