@@ -1,0 +1,6469 @@
+{
+ "source": "https://github.com/fuxiaoai/tidings-rss",
+ "revision": "12fd5b826d15e97d0f4966782cc596336c0706be",
+ "license": "CC0-1.0, tidings-rss",
+ "items": [
+  {
+   "id": "04a252572c9d",
+   "n": "AI",
+   "u": "https://blog.google/technology/ai/rss/",
+   "s": "https://blog.google/innovation-and-ai/technology/ai/",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7f1a4371ec72",
+   "n": "AI Musings by Mu",
+   "u": "https://kelvinmu.substack.com/feed",
+   "s": "https://kelvinmu.substack.com",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "59828b60c06c",
+   "n": "AI \u5f00\u53d1\u8005\u65e5\u62a5",
+   "u": "https://ainews.liduos.com/rss.xml",
+   "s": "https://ainews.liduos.com",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "058b057eaf13",
+   "n": "Anthropic News",
+   "u": "https://rsshub.bestblogs.dev/anthropic/news",
+   "s": "https://www.anthropic.com/news",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "740de9a19f7a",
+   "n": "Apple Machine Learning Research",
+   "u": "https://machinelearning.apple.com/rss.xml",
+   "s": "https://machinelearning.apple.com",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0427c229245f",
+   "n": "Artificial Intelligence",
+   "u": "https://aws.amazon.com/blogs/amazon-ai/feed/",
+   "s": "https://aws.amazon.com/blogs/machine-learning/",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "4317c649bc1b",
+   "n": "cs.AI updates on arXiv.org",
+   "u": "https://rss.arxiv.org/rss/cs.AI",
+   "s": "http://rss.arxiv.org/rss/cs.AI",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0556400e581e",
+   "n": "cs.CL updates on arXiv.org",
+   "u": "https://export.arxiv.org/rss/cs.CL",
+   "s": "http://rss.arxiv.org/rss/cs.CL",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f16b7d8a335b",
+   "n": "cs.CV updates on arXiv.org",
+   "u": "https://export.arxiv.org/rss/cs.CV",
+   "s": "http://rss.arxiv.org/rss/cs.CV",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6828bdd04b0a",
+   "n": "cs.LG updates on arXiv.org",
+   "u": "https://export.arxiv.org/rss/cs.LG",
+   "s": "http://rss.arxiv.org/rss/cs.LG",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "e5fe6cb1c5f3",
+   "n": "DeepSeek",
+   "u": "https://wechat2rss.bestblogs.dev/feed/1709da4f538d4ce4fb6d7a8ba1a5a1c297919601.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/1709da4f538d4ce4fb6d7a8ba1a5a1c297919601.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5f3203610818",
+   "n": "Google DeepMind News",
+   "u": "https://deepmind.com/blog/feed/basic/",
+   "s": "https://deepmind.google/blog/",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "8d9447bd3f4e",
+   "n": "Hacker News - Newest: \"AI\"",
+   "u": "https://hnrss.org/newest?q=AI",
+   "s": "https://news.ycombinator.com/newest",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f32e7e3eedd0",
+   "n": "Hacker News - Newest: \"LLM\"",
+   "u": "https://hnrss.org/newest?q=LLM",
+   "s": "https://news.ycombinator.com/newest",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "61d3148bc057",
+   "n": "Hugging Face - Blog",
+   "u": "https://huggingface.co/blog/feed.xml",
+   "s": "https://huggingface.co/blog",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "5135495edde6",
+   "n": "Last Week in AI",
+   "u": "https://lastweekin.ai/feed",
+   "s": "https://lastweekin.ai",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "9539d7d50e44",
+   "n": "MIT News - Artificial intelligence",
+   "u": "https://news.mit.edu/rss/topic/artificial-intelligence2",
+   "s": "https://news.mit.edu/rss/topic/artificial-intelligence2",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "bea4293d5edd",
+   "n": "OpenAI News",
+   "u": "https://openai.com/news/rss.xml",
+   "s": "https://openai.com/news",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "3152020fc75d",
+   "n": "Recent Commits to openclaw:main",
+   "u": "https://github.com/openclaw/openclaw/commits/main.atom",
+   "s": "https://github.com/openclaw/openclaw/commits/main",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "705d18fb3c9f",
+   "n": "Release notes from claude-code",
+   "u": "https://github.com/anthropics/claude-code/releases.atom",
+   "s": "https://github.com/anthropics/claude-code/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6b522d124dcf",
+   "n": "Release notes from codex",
+   "u": "https://github.com/openai/codex/releases.atom",
+   "s": "https://github.com/openai/codex/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "e4daece1eb3d",
+   "n": "Release notes from gemini-cli",
+   "u": "https://github.com/google-gemini/gemini-cli/releases.atom",
+   "s": "https://github.com/google-gemini/gemini-cli/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f36c21fab68c",
+   "n": "Release notes from langchain",
+   "u": "https://github.com/langchain-ai/langchain/releases.atom",
+   "s": "https://github.com/langchain-ai/langchain/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "d7067e202f5d",
+   "n": "Release notes from modelcontextprotocol",
+   "u": "https://github.com/modelcontextprotocol/specification/releases.atom",
+   "s": "https://github.com/modelcontextprotocol/modelcontextprotocol/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "b367fbc8e87b",
+   "n": "Release notes from openclaw",
+   "u": "https://github.com/openclaw/openclaw/releases.atom",
+   "s": "https://github.com/openclaw/openclaw/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0636c582716f",
+   "n": "Release notes from servers",
+   "u": "https://github.com/modelcontextprotocol/servers/releases.atom",
+   "s": "https://github.com/modelcontextprotocol/servers/releases",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "3733c65b9abe",
+   "n": "Simon Willison's Weblog",
+   "u": "https://simonwillison.net/atom/everything/",
+   "s": "http://simonwillison.net/",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "2c43593d3120",
+   "n": "The Batch",
+   "u": "https://rsshub.bestblogs.dev/deeplearning/the-batch",
+   "s": "https://www.deeplearning.ai/the-batch/",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "904f056d0b57",
+   "n": "The latest research from Google",
+   "u": "https://research.google/blog/rss/",
+   "s": "https://research.google/blog/",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "b4647fa8818e",
+   "n": "\u5927\u6a21\u578b\u667a\u80fd",
+   "u": "https://wechat2rss.bestblogs.dev/feed/bfc6440c1a2443fab9a6bf607137d41db5cd5c93.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/bfc6440c1a2443fab9a6bf607137d41db5cd5c93.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "105a86cf0537",
+   "n": "\u6211\u7231\u8ba1\u7b97\u673a\u89c6\u89c9",
+   "u": "https://wechat2rss.xlab.app/feed/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml",
+   "s": "https://wechat2rss.xlab.app/feed/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "66242ceed483",
+   "n": "\u65b0\u667a\u5143",
+   "u": "https://wechat2rss.xlab.app/feed/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml",
+   "s": "https://wechat2rss.xlab.app/feed/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "590f6db1e612",
+   "n": "\u667a\u8c31",
+   "u": "https://wechat2rss.bestblogs.dev/feed/433d2134dca54d80804daf32e8be546155be3300.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/433d2134dca54d80804daf32e8be546155be3300.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "787427d3a63f",
+   "n": "\u6708\u4e4b\u6697\u9762 Kimi",
+   "u": "https://wechat2rss.bestblogs.dev/feed/c5c43d4bc17bae656763859ed0903bb6314ec6fe.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/c5c43d4bc17bae656763859ed0903bb6314ec6fe.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e42dc409e5e1",
+   "n": "\u673a\u5668\u4e4b\u5fc3",
+   "u": "https://wechat2rss.bestblogs.dev/feed/8d97af31b0de9e48da74558af128a4673d78c9a3.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/8d97af31b0de9e48da74558af128a4673d78c9a3.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2b5acb5e7f46",
+   "n": "\u673a\u5668\u4e4b\u5fc3SOTA\u6a21\u578b",
+   "u": "https://wechat2rss.bestblogs.dev/feed/2f520471856d56c7b3a95cd09eb777149b32828a.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/2f520471856d56c7b3a95cd09eb777149b32828a.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "004ab6a979ab",
+   "n": "\u817e\u8baf\u6df7\u5143",
+   "u": "https://wechat2rss.bestblogs.dev/feed/306ce19a1ca590c9c2df781789e828d1acfa1356.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/306ce19a1ca590c9c2df781789e828d1acfa1356.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "52ffc392c397",
+   "n": "\u901a\u4e49\u5b9e\u9a8c\u5ba4",
+   "u": "https://wechat2rss.bestblogs.dev/feed/4ebee6222ae08705b8aabc9116f0defbcb6b17c6.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/4ebee6222ae08705b8aabc9116f0defbcb6b17c6.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8cb0c38845e1",
+   "n": "\u91cf\u5b50\u4f4d",
+   "u": "https://www.qbitai.com/feed",
+   "s": "https://www.qbitai.com",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b951a095192c",
+   "n": "\u9636\u8dc3StepFun",
+   "u": "https://wechat2rss.bestblogs.dev/feed/3e2714d06aa36142e8ed6b3f4e5cf9090a069dd2.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/3e2714d06aa36142e8ed6b3f4e5cf9090a069dd2.xml",
+   "c": "Artificial Intelligence",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "aa9242079a1c",
+   "n": "Macin",
+   "u": "https://www.macin.org/atom.xml",
+   "s": "https://macin.org/atom.xml",
+   "c": "Business & Startups",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0b2560ae2333",
+   "n": "\u626f\u6c2e\u96c6",
+   "u": "http://weiwuhui.com/feed",
+   "s": "http://weiwuhui.com",
+   "c": "Business & Startups",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fa0254532581",
+   "n": "\u77e5\u8db3\u5e38\u4e50-\u6c34\u661f\u6295\u8d44\u7406\u8d22\u7684\u57fa\u672c\u610f\u5ff5",
+   "u": "http://mercurychong.blogspot.com/feeds/posts/default",
+   "s": "http://mercurychong.blogspot.com/",
+   "c": "Business & Startups",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a0e80a34ecb2",
+   "n": "\u8679\u7ebf",
+   "u": "https://1q43.blog/feed",
+   "s": "https://1q43.blog",
+   "c": "Business & Startups",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0917d7312645",
+   "n": "\u96f7\u8499\u4e09\u5341\uff5c\u5e6b\u52a9\u5fd9\u788c\u73fe\u4ee3\u4eba\u7684\u8070\u660e\u5de5\u4f5c\u3001\u597d\u597d\u751f\u6d3b\u7684\u751f\u7522\u529b\u6307\u5357",
+   "u": "https://raymondhouch.com/feed",
+   "s": "https://raymondhouch.com",
+   "c": "Business & Startups",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a682cc3fccdc",
+   "n": "V2EX",
+   "u": "https://v2ex.com/index.xml",
+   "s": "https://www.v2ex.com/",
+   "c": "Communities",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8e573581522f",
+   "n": "LINUX DO \u00b7 \u6587\u6863\u5171\u5efa",
+   "u": "https://linuxdorss.longpink.com/wiki.xml",
+   "s": "https://linux.do/c/wiki/42",
+   "c": "Communities",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "aac04b8726f0",
+   "n": "Reddit \u00b7 Linux, Self-Hosted, DevOps & AI",
+   "u": "https://www.reddit.com/r/linux+selfhosted+devops+LocalLLaMA+MachineLearning/new/.rss",
+   "s": "https://www.reddit.com/r/linux+selfhosted+devops+LocalLLaMA+MachineLearning/new/",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f46e074ae550",
+   "n": "Lobsters",
+   "u": "https://lobste.rs/rss",
+   "s": "https://lobste.rs/",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c159c188b2ec",
+   "n": "Python Core Development",
+   "u": "https://discuss.python.org/c/core-dev/23.rss?order=created",
+   "s": "https://discuss.python.org/c/core-dev/23",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "38bdaea4431d",
+   "n": "Rust Internals \u00b7 Language Design",
+   "u": "https://internals.rust-lang.org/c/language-design/21.rss?order=created",
+   "s": "https://internals.rust-lang.org/c/language-design/21",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "ecf671f148a8",
+   "n": "NixOS Development",
+   "u": "https://discourse.nixos.org/c/dev/14.rss?order=created",
+   "s": "https://discourse.nixos.org/c/dev/14",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "dcdfba89c4b7",
+   "n": "OpenAI Developer Community \u00b7 API",
+   "u": "https://community.openai.com/c/api/7.rss?order=created",
+   "s": "https://community.openai.com/c/api/7",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "cccf9b3636a1",
+   "n": "Kubernetes \u00b7 General Discussions",
+   "u": "https://discuss.kubernetes.io/c/general-discussions/6.rss?order=created",
+   "s": "https://discuss.kubernetes.io/c/general-discussions/6",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "1aef9a60319a",
+   "n": "KAIX.IN",
+   "u": "https://kaix.in/feed/",
+   "s": "https://kaix.in/",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e503883fe8ec",
+   "n": "Maohang Gao's Blog",
+   "u": "https://kangaroogao.com/atom.xml",
+   "s": "http://kangaroogao.com/atom.xml",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "abd0647e9664",
+   "n": "ShineKid",
+   "u": "https://shinekid.com/feed/",
+   "s": "https://shinekid.com",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1e3c4c3ec52c",
+   "n": "Tripper Press - Take Photo, Think Seriously.",
+   "u": "https://tripper.press/atom.xml",
+   "s": "https://tripper.press",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1227e5dcf432",
+   "n": "\u4e1c\u8bc4\u897f\u5c31",
+   "u": "https://dongjunke.cn/atom.xml",
+   "s": "https://dongjunke.cn/",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b6fe1df4e14f",
+   "n": "\u5148\u751f\u5236\u9020",
+   "u": "https://wechat2rss.xlab.app/feed/313326d41db4f54b1cc09e7c986a5ac4e5f88ca0.xml",
+   "s": "https://wechat2rss.xlab.app/feed/313326d41db4f54b1cc09e7c986a5ac4e5f88ca0.xml",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2681d5fc2524",
+   "n": "\u53c9\u606f\u7684\u7a7a\u4e2d\u5496\u5561\u9986",
+   "u": "https://www.xchere.xyz/atom.xml",
+   "s": "https://www.xchere.xyz/atom.xml",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "19db8b075531",
+   "n": "\u6d45\u9ed1\u79d1\u6280",
+   "u": "https://wechat2rss.xlab.app/feed/6111a6d5ecf28cfdd4fc9b664244c05ddacef15c.xml",
+   "s": "https://wechat2rss.xlab.app/feed/6111a6d5ecf28cfdd4fc9b664244c05ddacef15c.xml",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5f3b7bca48a6",
+   "n": "\u8d6b\u8d6b\u6587\u738b",
+   "u": "https://kqh.me/index.xml",
+   "s": "https://kqh.me/",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9f60092f8ce1",
+   "n": "\u9759\u98ce\u8bf4",
+   "u": "http://www.jfsay.com/feed",
+   "s": "https://www.jfsay.com",
+   "c": "Culture & Ideas",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "294c7554936a",
+   "n": "1A23 Studio",
+   "u": "https://1a23.com/feed/",
+   "s": "https://1a23.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9daf500477f8",
+   "n": "251 \u7684\u9b54\u6cd5\u5b9e\u9a8c\u5ba4",
+   "u": "https://blog.251.sh/feed/",
+   "s": "https://blog.251.sh/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "28f7651b6c45",
+   "n": "49th LunaSea",
+   "u": "https://maki49.github.io/feed.xml",
+   "s": "https://maki49.github.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "31b0204e5dbd",
+   "n": "51CTO\u6280\u672f\u6808",
+   "u": "https://wechat2rss.bestblogs.dev/feed/d1fabe6c569ffc44979075dde2f57c65e07c3045.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/d1fabe6c569ffc44979075dde2f57c65e07c3045.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "bbbfa707e98d",
+   "n": "9to5Mac",
+   "u": "https://9to5mac.com/feed",
+   "s": "https://9to5mac.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f56fe05fe69f",
+   "n": "@Lenciel",
+   "u": "https://lenciel.com/feed.xml",
+   "s": "https://lenciel.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "019bb7ff8ec1",
+   "n": "Abyss\u7684\u5c0f\u5c4b",
+   "u": "https://www.rsnocsi.cn/feed",
+   "s": "https://www.rsnocsi.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "758d7e929f81",
+   "n": "admin",
+   "u": "https://blog.liua.us.ci/rss.xml",
+   "s": "https://blog.liua.us.ci/rss.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "dca7f6ec7f54",
+   "n": "ALBERTAZ",
+   "u": "https://www.albertaz.com/rss.xml",
+   "s": "https://albertaz.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "947c105eec26",
+   "n": "Alberto De Bortoli",
+   "u": "https://albertodebortoli.com/rss/",
+   "s": "https://albertodebortoli.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "b7059c1897dd",
+   "n": "Alliot's blog",
+   "u": "https://www.iots.vip/atom.xml",
+   "s": "https://blog.alliot.tech/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9b534cde8a12",
+   "n": "Amiya\u7684\u4e66\u684c",
+   "u": "https://blog.sayori.org/rss.xml",
+   "s": "https://blog.sayori.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1aa1837ca33d",
+   "n": "Android Performance",
+   "u": "https://www.androidperformance.com/atom.xml",
+   "s": "https://androidperformance.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7e621a3a0d50",
+   "n": "Apple Newsroom",
+   "u": "https://www.apple.com/newsroom/rss-feed.rss",
+   "s": "https://www.apple.com/newsroom/rss-feed.rss",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6f6fc07e8de8",
+   "n": "AppleInsider News",
+   "u": "https://appleinsider.com/rss/news/",
+   "s": "https://appleinsider.com/rss/news",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c47bbcd15b32",
+   "n": "Archive: 2026 - GitHub Changelog",
+   "u": "https://github.blog/changelog/feed/",
+   "s": "https://github.blog/changelog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7170fc473d11",
+   "n": "Ars Technica",
+   "u": "https://feeds.arstechnica.com/arstechnica/index",
+   "s": "https://arstechnica.com",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "218f8d6dbaea",
+   "n": "Arthur's Review",
+   "u": "https://blog.leesaitool.com/feed.xml",
+   "s": "https://blog.leesaitool.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "08a9b297e285",
+   "n": "Articles on Smashing Magazine \u2014 For Web Designers And Developers",
+   "u": "https://rss1.smashingmagazine.com/feed/",
+   "s": "https://www.smashingmagazine.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "4d484f701d5b",
+   "n": "AWS Architecture Blog",
+   "u": "https://www.awsarchitectureblog.com/atom.xml",
+   "s": "https://aws.amazon.com/blogs/architecture/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "017a74fc55c6",
+   "n": "AWS News Blog",
+   "u": "https://aws.amazon.com/blogs/aws/feed/",
+   "s": "https://aws.amazon.com/blogs/aws/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0475590c8cfa",
+   "n": "Bboysoul's Blog",
+   "u": "https://www.bboy.app/atom.xml",
+   "s": "https://www.bboy.app/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "52961769bc37",
+   "n": "Bensz",
+   "u": "https://blognas.hwb0307.com/feed/",
+   "s": "https://blognas.hwb0307.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ef67414821f9",
+   "n": "Blog | Phodal - A Growth Engineer",
+   "u": "https://www.phodal.com/blog/feeds/rss/",
+   "s": "http://www.phodal.com/blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0f0675d954f8",
+   "n": "Blog \u2014 Philo Li",
+   "u": "http://lulalap.com/atom.xml",
+   "s": "https://philoli.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "56273ddd55d9",
+   "n": "Canva - Engineering Blog",
+   "u": "https://www.canva.dev/blog/engineering/feed.xml",
+   "s": "https://www.canva.dev/blog/engineering/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "82c4bcb6bba0",
+   "n": "CatCoding",
+   "u": "https://catcoding.me/atom.xml",
+   "s": "http://catcoding.me/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "01ee8977d825",
+   "n": "CHEGVA",
+   "u": "https://chegva.com/feed/",
+   "s": "https://chegva.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f2538205afd4",
+   "n": "ChrAlpha's Blog",
+   "u": "https://blog.ichr.me/atom.xml",
+   "s": "https://blog.ichr.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fa8cfdf802c6",
+   "n": "Clark",
+   "u": "https://www.dongyao.ren/feed/",
+   "s": "https://www.dongyao.ren",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f1cf2d964c5a",
+   "n": "Cloud Blog",
+   "u": "https://cloudblog.withgoogle.com/rss/",
+   "s": "https://cloud.google.com/blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "62a13c7d59fb",
+   "n": "Company | The JetBrains Blog",
+   "u": "https://blog.jetbrains.com/blog/feed",
+   "s": "https://blog.jetbrains.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "8bb011434ffc",
+   "n": "Cult of Mac",
+   "u": "https://www.cultofmac.com/feed",
+   "s": "https://www.cultofmac.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "ed41ce13f183",
+   "n": "Data4Fun",
+   "u": "https://data4fun.cc/index.xml",
+   "s": "https://data4fun.cc/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7f1c72c187c2",
+   "n": "Databricks",
+   "u": "https://www.databricks.com/feed",
+   "s": "https://www.databricks.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "995ee2666dd3",
+   "n": "Dax \u7684\u535a\u5ba2",
+   "u": "https://daolanx.me/zh/rss.xml",
+   "s": "https://daolanx.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6b09528e17f0",
+   "n": "dbaplus\u793e\u7fa4",
+   "u": "https://wechat2rss.xlab.app/feed/3b9cc8887fccb80d3f083cd6eb8c344628d101b6.xml",
+   "s": "https://wechat2rss.xlab.app/feed/3b9cc8887fccb80d3f083cd6eb8c344628d101b6.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "64864672e2d8",
+   "n": "ddadaal.me",
+   "u": "https://ddadaal.me/rss.xml",
+   "s": "https://ddadaal.me",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "96b6b832741c",
+   "n": "Debug\u5ba2\u6808",
+   "u": "https://blog.debuginn.com/index.xml",
+   "s": "https://blog.debuginn.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "151e49fb55ca",
+   "n": "Deepzz's Blog",
+   "u": "https://deepzz.com/feed",
+   "s": "https://deepzz.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "db7a2e91f084",
+   "n": "Dennis",
+   "u": "https://www.domon.cn/rss/",
+   "s": "https://www.domon.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "772f8d2eb63f",
+   "n": "DGideas' Blog",
+   "u": "https://dgideas.net/feed/",
+   "s": "https://dgideas.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d54a4309c6c1",
+   "n": "distjr_\u7684\u535a\u5ba2",
+   "u": "https://blog.distjr.top/atom.xml",
+   "s": "https://blog.distjr.top/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "971950b0ed8e",
+   "n": "Dorck's Blog",
+   "u": "https://dorck.cn/feed.xml",
+   "s": "https://dorck.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b6933e2bc38c",
+   "n": "EdNovas\u7684\u5c0f\u7ad9",
+   "u": "https://ednovas.xyz/atom.xml",
+   "s": "https://ednovas.xyz/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "de59e16afb98",
+   "n": "Elastic Blog - Elasticsearch, Kibana, and ELK Stack",
+   "u": "https://www.elastic.co/blog/feed",
+   "s": "https://www.elastic.co",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "bc4d10019cb4",
+   "n": "Engineering at Meta",
+   "u": "https://engineering.fb.com/feed/",
+   "s": "https://engineering.fb.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "067e20fcc07e",
+   "n": "Engineering at Slack",
+   "u": "https://slack.engineering/feed/",
+   "s": "https://slack.engineering",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "84f96dc9a65e",
+   "n": "Environment + Energy \u2013 The Conversation",
+   "u": "https://theconversation.com/au/environment/articles.atom",
+   "s": "https://theconversation.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "fbe59874d5dc",
+   "n": "Eric's Blog",
+   "u": "https://wsdjeg.net/feed.xml",
+   "s": "https://wsdjeg.net/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e82a41a7aa1a",
+   "n": "Etsy Engineering | Code as Craft",
+   "u": "https://codeascraft.com/feed/atom/",
+   "s": "http://www.etsy.com/codeascraft/rss",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c181c4246a5c",
+   "n": "Feld Thoughts",
+   "u": "https://feld.com/feed",
+   "s": "https://feld.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "4dbc5f607ba6",
+   "n": "Fengc's Blog",
+   "u": "https://rssweball.top/feed/afaf2a3c-e11a-4783-a358-9e2d20d76a69.xml",
+   "s": "https://fengcblog.880200.xyz",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "53e675e543a5",
+   "n": "for_the_zero\u7684\u4e2a\u4eba\u535a\u5ba2",
+   "u": "https://ftz.is-a.dev/rss.xml",
+   "s": "https://ftz.is-a.dev",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6afe4687cee0",
+   "n": "forecho's Blog",
+   "u": "https://blog.forecho.com/atom.xml",
+   "s": "https://blog.forecho.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0f6644427c29",
+   "n": "freeCodeCamp Programming Tutorials: Python, JavaScript, Git & More",
+   "u": "https://www.freecodecamp.org/news/rss/",
+   "s": "https://www.freecodecamp.org/news/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "60c0fbeaebef",
+   "n": "Frytea",
+   "u": "https://www.frytea.com/index.xml",
+   "s": "https://frytea.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "43ad6c864e87",
+   "n": "GamerNoTitle",
+   "u": "https://bili33.top/atom.xml",
+   "s": "https://bili33.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7ab8f6321b99",
+   "n": "GISerlab \u00b7 \u5730\u7406\u7a7a\u95f4",
+   "u": "https://blog.giserlab.cn/feed.xml",
+   "s": "https://blog.giserlab.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "08ab7a090977",
+   "n": "Good Good Good",
+   "u": "https://www.goodgoodgood.co/articles/rss.xml",
+   "s": "https://www.goodgoodgood.co",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7a1796c45455",
+   "n": "Haku",
+   "u": "https://re.karlbaey.top/rss.xml",
+   "s": "https://re.karlbaey.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6a63a60e2190",
+   "n": "HCLonely Blog",
+   "u": "https://blog.hclonely.com/atom.xml",
+   "s": "https://blog.hclonely.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8aab6211c898",
+   "n": "Henry Z's blog",
+   "u": "https://changchen.me/atom.xml",
+   "s": "https://changchen.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fe7c65a85aa9",
+   "n": "hsfzxjy \u7684\u535a\u5ba2",
+   "u": "https://i.hsfzxjy.site/rss.xml",
+   "s": "https://i.hsfzxjy.site/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3fc4bcf7d030",
+   "n": "https://blog.fivest.one/feed",
+   "u": "http://blog.fivest.one/feed",
+   "s": "https://blog.fivest.one",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a9cbc757d80a",
+   "n": "I'm OWenT",
+   "u": "https://owent.net/index.xml",
+   "s": "https://owent.net/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a0c278c682b5",
+   "n": "icodex | \u524d\u7aef\u6280\u672f\u535a\u5ba2 | \u4e13\u6ce8 React\u3001TypeScript\u3001AI \u4e0e\u6027\u80fd\u4f18\u5316 Blog",
+   "u": "https://icodex.me/atom.xml",
+   "s": "https://icodex.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5f995f871f6a",
+   "n": "idealclover",
+   "u": "https://idealclover.top/feed",
+   "s": "https://idealclover.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8770956e7178",
+   "n": "ImCBC",
+   "u": "https://www.bbing.com.cn/index.xml",
+   "s": "https://imcbc.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c86eb5db7fe1",
+   "n": "inessential.com",
+   "u": "https://inessential.com/xml/rss.xml",
+   "s": "https://inessential.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c6e2d635ae27",
+   "n": "Innei",
+   "u": "https://innei.ren/feed",
+   "s": "https://innei.in",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "63286421396c",
+   "n": "IntelliJ IDEA : IntelliJ IDEA \u2013 the Leading IDE for Professional Development in Java and Kotlin | The JetBrains Blog",
+   "u": "https://blogs.jetbrains.com/idea/feed/",
+   "s": "https://blog.jetbrains.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "fc1e5e89b442",
+   "n": "ISLAND",
+   "u": "https://youngxhui.top/index.xml",
+   "s": "https://youngxhui.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b59268d45c4f",
+   "n": "iTimothy",
+   "u": "https://xiaozhou.net/atom.xml",
+   "s": "https://xiaozhou.net/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a840cb6a0999",
+   "n": "Jack Pu's Blog (\u84b2\u5c0f\u82b1\u7684\u535a\u5ba2\uff0d\u30dd\u30fc\u306e\u30d6\u30ed\u30b0)",
+   "u": "https://www.jackpu.com/rss/",
+   "s": "https://www.jackpu.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c0274fa6af6a",
+   "n": "Jacky Wong",
+   "u": "https://jw1.dev/atom.xml",
+   "s": "https://jw1.ai/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8913715f4def",
+   "n": "jdjwzx233\u7684\u535a\u5ba2",
+   "u": "https://www.jdjwzx233.cn/atom.xml",
+   "s": "https://jdjwzx233.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "25cfbc8e8cd0",
+   "n": "Jimmy Song \u2013 Jimmy Song's Blog",
+   "u": "https://jimmysong.io/index.xml",
+   "s": "https://jimmysong.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fafd4c8b2150",
+   "n": "Josherich\u2019s Blog",
+   "u": "https://www.josherich.me/feed.xml",
+   "s": "https://josherich.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "07e5d58fbe5a",
+   "n": "keggin's blog",
+   "u": "https://keggin.tech/rss.xml",
+   "s": "https://keggin.tech",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4fcbfc839579",
+   "n": "Kerry\u7684\u5b66\u4e60\u7b14\u8bb0",
+   "u": "https://kerrynotes.com/feed/",
+   "s": "https://kerrynotes.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4b5e99577041",
+   "n": "kok\u7684\u7b14\u8bb0\u672c",
+   "u": "https://wocai.de/index.xml/",
+   "s": "https://wocai.de/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a22b97c70110",
+   "n": "Kotlin : A concise multiplatform language developed by JetBrains | The JetBrains Blog",
+   "u": "https://blog.jetbrains.com/kotlin/feed/",
+   "s": "https://blog.jetbrains.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "9f2d692b80a4",
+   "n": "Krebs on Security",
+   "u": "https://krebsonsecurity.com/feed/",
+   "s": "https://krebsonsecurity.com",
+   "c": "Security",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "5bc1245f5db1",
+   "n": "laike9m's blog",
+   "u": "https://laike9m.com/blog/rss/",
+   "s": "https://laike9m.com/blog/rss",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e639493f716a",
+   "n": "ZDNET Security",
+   "u": "https://www.zdnet.com/topic/security/rss.xml",
+   "s": "https://www.zdnet.com/",
+   "c": "Security",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "b779af565479",
+   "n": "LearnData \u5f00\u6e90\u7b14\u8bb0",
+   "u": "https://newzone.top/rss.xml",
+   "s": "https://newzone.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6df70b7bcee7",
+   "n": "Lex Blog",
+   "u": "https://dreams.plus/rss.xml",
+   "s": "https://dreams.plus/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c32d6e52db57",
+   "n": "LiaoKe\u7684\u535a\u5ba2",
+   "u": "https://blog.liao-ke.com/rss.xml",
+   "s": "https://blog.liao-ke.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "07ad3fae67cb",
+   "n": "LiesAuer's Blog",
+   "u": "https://www.liesauer.net/blog/feed/",
+   "s": "https://www.liesauer.net/blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2e0f8d1ec5f5",
+   "n": "Lifehacker",
+   "u": "https://lifehacker.com/rss",
+   "s": "https://lifehacker.com/feed/rss",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6a29cc4a415e",
+   "n": "LiuShen's Blog - \u6e05\u7fbd\u98de\u626c",
+   "u": "https://blog.liushen.fun/atom.xml",
+   "s": "https://blog.liushen.fun/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "15d561a454f7",
+   "n": "Long Luo's Life Notes",
+   "u": "https://www.longluo.me/atom.xml",
+   "s": "https://www.longluo.me/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0a801ad00670",
+   "n": "Longlong's Blog",
+   "u": "https://blog.xlonglong.cn/feed/",
+   "s": "https://blog.xlonglong.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fceb9a1735a8",
+   "n": "Louis C Deng's Blog",
+   "u": "https://blog.aeilot.top/index.xml",
+   "s": "https://blog.aeilot.top/index.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "393a4c4b4b5f",
+   "n": "lucifer\u7684\u7f51\u7edc\u535a\u5ba2",
+   "u": "https://lucifer.ren/blog/atom.xml",
+   "s": "https://lucifer.ren/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4fa65aa6cf44",
+   "n": "luozhiyun`s Blog",
+   "u": "https://www.luozhiyun.com/feed",
+   "s": "https://www.luozhiyun.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f33728be425f",
+   "n": "LV88",
+   "u": "https://scvoet.me/feed",
+   "s": "https://lv88fg.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "234f2256d215",
+   "n": "MacTalk-\u6c60\u5efa\u5f3a\u7684 Blog",
+   "u": "http://macshuo.com/?feed=rss2",
+   "s": "https://macshuo.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fd8649157d54",
+   "n": "Martin Fowler",
+   "u": "https://martinfowler.com/feed.atom",
+   "s": "https://martinfowler.com/feed.atom",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "749b77566d26",
+   "n": "Mengke's blog - Mengke's coding journey",
+   "u": "https://mengke.me/feed.xml",
+   "s": "https://www.mengke.me/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0fdcf1f2b5c6",
+   "n": "mephisto.cc",
+   "u": "https://mephisto.cc/index.xml",
+   "s": "https://mephisto.cc/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "03e7a97b758d",
+   "n": "Microsoft Azure Blog",
+   "u": "https://azure.microsoft.com/en-us/blog/feed/",
+   "s": "https://azure.microsoft.com/en-us/blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0fbf017b28e1",
+   "n": "Mobility",
+   "u": "http://lichuanyang.top/atom.xml",
+   "s": "https://lichuanyang.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f197b42e873d",
+   "n": "Mokeyjay's Blog - \u8d85\u80fd\u5c0f\u7d2b",
+   "u": "https://www.mokeyjay.com/feed",
+   "s": "https://mok.moe",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0533e34e244d",
+   "n": "Mosu",
+   "u": "https://www.mosuzi.com/atom.xml",
+   "s": "https://mosuzi.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f7cb835d90c4",
+   "n": "Mox\u7684\u7b14\u8bb0\u5e93",
+   "u": "https://mocusez.site/zh-CN/atom.xml",
+   "s": "https://mocusez.site/zh-CN/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "659846a7c773",
+   "n": "Muyun99 \u7684\u6742\u8c08",
+   "u": "https://muyun.work/feed/",
+   "s": "https://muyun.work/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "330ec66b178e",
+   "n": "My",
+   "u": "https://dayzmod.kdns.fr/rss.xml",
+   "s": "https://dayzmod.kdns.fr/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "127f9a4ae50b",
+   "n": "NBlog",
+   "u": "https://nocp.space/rss/feed.json",
+   "s": "https://blog.nocp.space",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "cde22301ccca",
+   "n": "Netflix TechBlog - Medium",
+   "u": "https://netflixtechblog.com/feed",
+   "s": "https://netflixtechblog.com?source=rss----2615bd06b42e---4",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "36adb1834075",
+   "n": "News \u2013 CNET",
+   "u": "https://www.cnet.com/rss/news/",
+   "s": "https://www.cnet.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0179f784ef7c",
+   "n": "Nicksxs's Blog",
+   "u": "https://nicksxs.me/atom.xml",
+   "s": "https://nicksxs.me/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b8b29b1691cd",
+   "n": "Niracler \u7684\u535a\u7269\u5fd7",
+   "u": "https://niracler.com/rss.xml",
+   "s": "https://niracler.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "81c31b07e539",
+   "n": "Node.js Blog",
+   "u": "https://nodejs.org/en/feed/blog.xml",
+   "s": "https://nodejs.org/en",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "a599897c2332",
+   "n": "NPR Topics: Environment",
+   "u": "https://feeds.npr.org/1025/rss.xml",
+   "s": "https://www.npr.org/templates/story/story.php?storyId=1025",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "2aee96fb3c72",
+   "n": "NYT > Climate and Environment",
+   "u": "https://rss.nytimes.com/services/xml/rss/nyt/Climate.xml",
+   "s": "https://www.nytimes.com/section/climate",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "3eea2067429b",
+   "n": "obaby \ud835\udc22\u200d\ud835\udc27\u20dd void",
+   "u": "https://h4ck.org.cn/feed/",
+   "s": "https://zhongxiaojie.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "76fd607b53a9",
+   "n": "oldj's blog",
+   "u": "https://oldj.net/feed",
+   "s": "https://oldj.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "683d422bac01",
+   "n": "OneCoder",
+   "u": "https://www.coderli.com/feed.xml",
+   "s": "https://www.coderli.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "08565a3afc93",
+   "n": "OneV's Den",
+   "u": "https://onevcat.com/feed.xml",
+   "s": "https://onevcat.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f3c7bf8dd9dc",
+   "n": "OnionTalk",
+   "u": "https://hateonion.me/index.xml",
+   "s": "https://hateonion.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d7362ff8d6c9",
+   "n": "Oragekk&apos;s Blog",
+   "u": "https://oragekk.me/rss.xml",
+   "s": "https://oragekk.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "cac85ff1db0b",
+   "n": "Origin",
+   "u": "https://blog.singee.me/atom.xml",
+   "s": "https://blog.singee.me/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "79d031f1b41a",
+   "n": "Panda Home",
+   "u": "https://old-panda.com/feed/",
+   "s": "https://old-panda.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7cc226fc8e0a",
+   "n": "Peng's Blog",
+   "u": "https://pengs.top/atom.xml",
+   "s": "https://pengs.top/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b16ea2bd68e4",
+   "n": "piglei",
+   "u": "https://www.piglei.com/feeds/latest/",
+   "s": "https://www.piglei.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "32848886446e",
+   "n": "Prakati India",
+   "u": "https://www.prakati.in/feed/",
+   "s": "https://prakati.in/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "bd8a169eadcb",
+   "n": "ProAndroidDev - Medium",
+   "u": "https://proandroiddev.com/feed",
+   "s": "https://proandroiddev.com?source=rss----c72404660798---4",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "57d6ecebab1b",
+   "n": "pseudoyu",
+   "u": "https://www.pseudoyu.com/zh/index.xml",
+   "s": "https://www.pseudoyu.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d7760753b906",
+   "n": "Public Object",
+   "u": "https://publicobject.com/rss/",
+   "s": "https://publicobject.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f4efd4ff9ff0",
+   "n": "Python Insider",
+   "u": "https://blog.python.org/feeds/posts/default",
+   "s": "https://blog.python.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "8846405a80af",
+   "n": "Qaiu blog",
+   "u": "https://blog.qaiu.top/rss.xml",
+   "s": "https://blog.qaiu.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1be0d0eebcfe",
+   "n": "QingCCL",
+   "u": "https://qingccl.github.io/rss.xml",
+   "s": "https://qingccl.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a29911e0e35d",
+   "n": "QP's Blog",
+   "u": "https://www.szqp.site/feed",
+   "s": "https://www.szqp.site",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "061385935782",
+   "n": "Qunar\u6280\u672f\u6c99\u9f99",
+   "u": "https://wechat2rss.bestblogs.dev/feed/84c072f8d34d1690f2783d7dda6013cf6d892b7f.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/84c072f8d34d1690f2783d7dda6013cf6d892b7f.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4479341ac2c6",
+   "n": "Random Thoughts",
+   "u": "https://blog.joway.io/index.xml",
+   "s": "https://blog.joway.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6fd3ac558bdf",
+   "n": "Randy's Blog",
+   "u": "https://lutaonan.com/rss.xml",
+   "s": "https://lutaonan.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1a2f7c6f61d3",
+   "n": "Raz1ner",
+   "u": "https://raz1ner.com/atom.xml",
+   "s": "https://raz1ner.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1856605bddfe",
+   "n": "ReadWrite",
+   "u": "https://readwrite.com/feed/",
+   "s": "https://readwrite.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "4a9190e43f4e",
+   "n": "Redis Blog",
+   "u": "https://redis.io/feed/",
+   "s": "https://redis.io/en/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "5966ee37c557",
+   "n": "Release notes from biome",
+   "u": "https://github.com/biomejs/biome/releases.atom",
+   "s": "https://github.com/biomejs/biome/releases",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "9a87d2414cc9",
+   "n": "Release notes from bun",
+   "u": "https://github.com/oven-sh/bun/releases.atom",
+   "s": "https://github.com/oven-sh/bun/releases",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6b26983e5599",
+   "n": "Release notes from NetNewsWire",
+   "u": "https://github.com/Ranchero-Software/NetNewsWire/releases.atom",
+   "s": "https://github.com/Ranchero-Software/NetNewsWire/releases",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "5397f8196bc8",
+   "n": "Release notes from zed",
+   "u": "https://github.com/zed-industries/zed/releases.atom",
+   "s": "https://github.com/zed-industries/zed/releases",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "3347f81cd4f6",
+   "n": "Replicate's blog",
+   "u": "https://replicate.com/blog/rss",
+   "s": "https://replicate.com/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "a355384e2f09",
+   "n": "Rokcso's Blog",
+   "u": "https://rokcso.com/index.xml",
+   "s": "https://rokcso.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fe5dcde1070c",
+   "n": "ROYWANG",
+   "u": "https://roy.wang/feed/",
+   "s": "https://roy.wang/feed/index.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "86b0885ec0f0",
+   "n": "Roy\u7684\u4e2a\u4eba\u7ad9",
+   "u": "https://geofftools.cn/blog/atom.xml",
+   "s": "https://geofftools.cn/blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9e793ab07bcc",
+   "n": "Rust Blog",
+   "u": "https://blog.rust-lang.org/feed.xml",
+   "s": "https://blog.rust-lang.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "052ad0f2be10",
+   "n": "rxliuli blog",
+   "u": "https://blog.rxliuli.com/atom.xml",
+   "s": "https://blog.rxliuli.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4d8b78f41ff9",
+   "n": "RYANUO",
+   "u": "https://ryanuo.cc/sitemap.xml",
+   "s": "https://ryanuo.cc",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "38cc0b4a526a",
+   "n": "Ryan\u2018s World",
+   "u": "https://blog.12ms.xyz/feed/",
+   "s": "https://blog.12ms.xyz/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e7f1ccdd329f",
+   "n": "S T C H E N G",
+   "u": "https://cheng.st/atom.xml",
+   "s": "https://cheng.st/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1eeec65f20fa",
+   "n": "Schneier on Security",
+   "u": "https://www.schneier.com/blog/index.rdf",
+   "s": "https://www.schneier.com/",
+   "c": "Security",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "cfc4f5388458",
+   "n": "Security Affairs",
+   "u": "https://securityaffairs.co/wordpress/feed",
+   "s": "https://securityaffairs.com/",
+   "c": "Security",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "a03af3c82baf",
+   "n": "Sehnsucht",
+   "u": "https://blog.sehnsucht.top/rss.xml",
+   "s": "https://blog.sehnsucht.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "473cd94670f9",
+   "n": "Sekyoro\u7684\u535a\u5ba2\u5c0f\u5c4b",
+   "u": "https://www.sekyoro.top/atom.xml",
+   "s": "https://www.sekyoro.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1d4c33d20f25",
+   "n": "Seven's blog",
+   "u": "https://blog.diqigan.cn/atom.xml",
+   "s": "https://blog.diqigan.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "17c6eb66430f",
+   "n": "Shanwer's Blog",
+   "u": "https://blog.shanwer.top/feed/",
+   "s": "https://blog.shanwer.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b9f54fbb4daf",
+   "n": "sjdhome",
+   "u": "https://sjdhome.com/blog/atom.xml",
+   "s": "https://sjdhome.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "702d535f4c52",
+   "n": "Skywind Inside",
+   "u": "http://www.skywind.me/blog/feed",
+   "s": "https://skywind.me/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e25c6b9973a8",
+   "n": "SkyWT",
+   "u": "https://blog.skywt.cn/feed/",
+   "s": "https://skywt.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a051b76c4976",
+   "n": "Slashdot",
+   "u": "https://rss.slashdot.org/Slashdot/slashdotMain",
+   "s": "https://slashdot.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6fa988573041",
+   "n": "smallyu\u7684\u535a\u5ba2",
+   "u": "https://smallyu.net/atom.xml",
+   "s": "https://smallyu.net/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "62cae6688f4a",
+   "n": "Spotify Engineering",
+   "u": "https://engineering.atspotify.com/feed/",
+   "s": "https://engineering.atspotify.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "23cf26da029d",
+   "n": "Stack Overflow Blog",
+   "u": "https://blog.stackoverflow.com/feed/",
+   "s": "https://stackoverflow.blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "1e5373064678",
+   "n": "Steve Sun",
+   "u": "https://www.sund.site/index.xml",
+   "s": "https://sund.site/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "12b095abbc57",
+   "n": "Stratechery by Ben Thompson",
+   "u": "https://stratechery.com/feed/",
+   "s": "https://stratechery.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "1dc2bf7ad9b1",
+   "n": "Stray Episode",
+   "u": "https://farer.org/rss/",
+   "s": "https://farer.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9b5313d2dcee",
+   "n": "Stripe Blog",
+   "u": "https://stripe.com/blog/feed.rss",
+   "s": "https://stripe.com/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "cee70eb6a2da",
+   "n": "StudyingLover's Blog",
+   "u": "https://studyinglover.com/atom.xml",
+   "s": "https://www.studyinglover.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a40a577fbd84",
+   "n": "SUMSEC",
+   "u": "https://sumsec.me/resources/atom.xml",
+   "s": "https://sumsec.me",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "28fbdcbbeea5",
+   "n": "Sunset \u7684\u91cd\u6784\u535a\u5ba2",
+   "u": "https://blog.sunmkt.uk/feed.xml",
+   "s": "https://blog.sunmkt.uk/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "36a4f9f1baf5",
+   "n": "Supabase Blog",
+   "u": "https://supabase.com/rss.xml",
+   "s": "https://supabase.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "b5f597108a81",
+   "n": "Super Blog",
+   "u": "https://superpung.com/atom.xml",
+   "s": "https://superpung.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e74906223bce",
+   "n": "Surmon.me",
+   "u": "https://surmon.me/rss.xml",
+   "s": "https://surmon.me",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "95ecc155c51d",
+   "n": "Swift by Sundell",
+   "u": "https://www.swiftbysundell.com/feed.rss",
+   "s": "https://www.swiftbysundell.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7a3d9c7b3bf2",
+   "n": "Swift.org",
+   "u": "https://www.swift.org/atom.xml",
+   "s": "https://www.swift.org/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "81ef81d50cde",
+   "n": "Taxodium",
+   "u": "https://taxodium.ink/rss.xml",
+   "s": "https://taxodium.ink/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a373d131d067",
+   "n": "Terrarum::\u5f02\u4e16\u754c\u4e28\u5c45\u6b63\u535a\u5ba2",
+   "u": "https://blog.skyju.cc/index.xml",
+   "s": "https://blog.skyju.cc/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ea74ff2aa560",
+   "n": "The Airbnb Tech Blog - Medium",
+   "u": "https://medium.com/feed/airbnb-engineering",
+   "s": "https://medium.com/airbnb-engineering?source=rss----53c7c27702d5---4",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "a551b4960a45",
+   "n": "The ASF Blog",
+   "u": "https://news.apache.org/feed",
+   "s": "https://news.apache.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "2f3b69ac7003",
+   "n": "The Cloudflare Blog",
+   "u": "https://blog.cloudflare.com/rss",
+   "s": "https://blog.cloudflare.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f73fd9169bbe",
+   "n": "The GitHub Blog",
+   "u": "https://github.blog/feed/",
+   "s": "https://github.blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "5c6fc04391e7",
+   "n": "The Intercom Blog",
+   "u": "https://www.intercom.com/blog/feed",
+   "s": "https://www.intercom.com/blog/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "ed85ad123a96",
+   "n": "The JetBrains Blog",
+   "u": "https://blog.jetbrains.com/feed/",
+   "s": "https://blog.jetbrains.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "d2812aa87e2a",
+   "n": "The Loop",
+   "u": "https://www.loopinsight.com/feed",
+   "s": "https://www.loopinsight.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "2c765211cad1",
+   "n": "The New Stack",
+   "u": "https://thenewstack.io/feed/",
+   "s": "https://thenewstack.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "cbc5b3532874",
+   "n": "Tianhe Gao",
+   "u": "https://tianheg.co/index.xml",
+   "s": "https://tianheg.co/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "55882a5c5945",
+   "n": "TrumanDu's Blog",
+   "u": "http://blog.trumandu.top/atom.xml",
+   "s": "http://blog.trumandu.top/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d41cb4652051",
+   "n": "Turing Post",
+   "u": "https://rss.beehiiv.com/feeds/UJIoBuf5BX.xml",
+   "s": "https://www.turingpost.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "9843080d5e0c",
+   "n": "Tw93 Blog",
+   "u": "https://tw93.fun/feed.xml",
+   "s": "https://tw93.fun",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "219982eb784e",
+   "n": "Use Case: copilot - GitHub Changelog",
+   "u": "https://github.blog/changelog/label/copilot/feed/",
+   "s": "https://github.blog/changelog/label/copilot/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f865f992f82c",
+   "n": "Usubeni Fantasy",
+   "u": "https://ssshooter.com/rss.xml",
+   "s": "https://ssshooter.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "59c588d68d7b",
+   "n": "UWillno's Blog",
+   "u": "https://uwillno.com/rss.xml",
+   "s": "https://uwillno.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fc6274f58371",
+   "n": "Vercel News",
+   "u": "https://vercel.com/atom",
+   "s": "https://vercel.com/atom",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c4a08dd59db5",
+   "n": "Visual Studio Blog",
+   "u": "https://devblogs.microsoft.com/visualstudio/feed/",
+   "s": "https://devblogs.microsoft.com/visualstudio/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "1eea54235f92",
+   "n": "vivo\u4e92\u8054\u7f51\u6280\u672f",
+   "u": "https://wechat2rss.bestblogs.dev/feed/b3ceb5cb1e4602ca55704650a157ec9c5b2f0d31.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/b3ceb5cb1e4602ca55704650a157ec9c5b2f0d31.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "65e7baa54356",
+   "n": "Watermelonabc\u7684Blog",
+   "u": "https://watermelonabc.top/atom.xml",
+   "s": "https://watermelonabc.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f201da3c5c0d",
+   "n": "Weishu's Notes",
+   "u": "https://weishu.me/atom.xml",
+   "s": "https://weishu.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "cb01583341a7",
+   "n": "wmhwiki",
+   "u": "https://wmhwiki.cn/rss.xml",
+   "s": "https://wmhwiki.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "95b78944aa14",
+   "n": "WuSiYu Blog",
+   "u": "https://wusiyu.me/feed/",
+   "s": "https://wusiyu.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8b7fd1f10c61",
+   "n": "x7aNote",
+   "u": "https://xeonzilla.top/index.xml",
+   "s": "https://xeonzilla.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8cd81772ccd3",
+   "n": "XINDOO",
+   "u": "https://zxs.io/feed",
+   "s": "https://zxs.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0bb448033d15",
+   "n": "YangXuan's Blog",
+   "u": "https://yangxuan.ai/feed/",
+   "s": "https://yangxuan.ai",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5a5cd00767d7",
+   "n": "yCENzh's Blog",
+   "u": "https://fuwari.oh1.top/rss.xml",
+   "s": "https://fuwari.oh1.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d667eda93587",
+   "n": "YeungYeah's Context",
+   "u": "http://scottyeung.top/atom.xml",
+   "s": "https://scottyeung.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b2354d914084",
+   "n": "Yi's Blog",
+   "u": "https://ycao.top/feed.xml",
+   "s": "https://ycao.net/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f75293e15e78",
+   "n": "Yiran's Blog",
+   "u": "https://zdyxry.github.io/atom.xml",
+   "s": "https://zdyxry.github.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "dc238884b1d6",
+   "n": "YOLO Blog",
+   "u": "https://www.yolo.blue/blog/rss.xml",
+   "s": "https://www.yolo.blue/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8dcaa2c7add1",
+   "n": "ypingcn",
+   "u": "https://blog.ypingcn.com/feed.xml",
+   "s": "https://blog.ypingcn.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9e1128e8611c",
+   "n": "zhecydn\u7684\u535a\u5ba2\u7ad9",
+   "u": "https://blog.zhecydn.asia/feed/",
+   "s": "https://blog.zhecydn.asia",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8eed1c1b071a",
+   "n": "\u4e00\u7eb8\u5fd8\u5fe7",
+   "u": "https://www.ikxin.com/feed/",
+   "s": "https://www.ikxin.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b6ba0e2deee2",
+   "n": "\u4e1c\u4e1c's Blog",
+   "u": "https://blog.yasking.org/atom.xml",
+   "s": "https://blog.yasking.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3fcf5c531b5f",
+   "n": "\u4e1c\u65b9\u661f\u75d5",
+   "u": "https://ystyle.top/atom.xml",
+   "s": "https://ystyle.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "75c0bc084560",
+   "n": "\u4e2d\u6587\u535a\u5ba2 on \u8303\u53f6\u4eae | Leo Van",
+   "u": "https://leovan.me/cn/index.xml",
+   "s": "https://leovan.me/cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "53b582927a7f",
+   "n": "\u4e32\u4e32\u72d7\u5c0f\u520a \u2b50\ufe0f",
+   "u": "https://www.ccgxk.com/rss.php",
+   "s": "https://www.ccgxk.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d1f83ad9fe44",
+   "n": "\u4e5d\u4ede\u4e4b\u884c",
+   "u": "https://styunlen.cn/feed",
+   "s": "https://styunlen.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "87755ef63e46",
+   "n": "\u4e86\u8ff9\u5947\u6709\u6ca1",
+   "u": "https://whrss.com/feed",
+   "s": "https://whrss.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a9b59439bcb7",
+   "n": "\u4e8c\u4e2b\u8bb2\u68b5",
+   "u": "https://wiki.eryajf.net/rss.xml",
+   "s": "https://wiki.eryajf.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4d4703a4269e",
+   "n": "\u4ef2\u5e73",
+   "u": "https://blog.7wate.com/rss.xml",
+   "s": "https://blog.zopiya.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "82634375c085",
+   "n": "\u4efb\u970f\u7684\u4e2a\u4eba\u535a\u5ba2\u7f51\u7ad9",
+   "u": "https://blog.renfei.net/rss.xml",
+   "s": "https://blog.renfei.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c0f69371e374",
+   "n": "\u4f2a\u659c\u6760\u9752\u5e74",
+   "u": "http://i.lckiss.com/?feed=rss2",
+   "s": "https://i.lckiss.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a5571903f7c2",
+   "n": "\u4f9d\u4e91's Blog",
+   "u": "https://blog.lilydjwg.me/posts.rss",
+   "s": "https://blog.lilydjwg.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d1246f660a9a",
+   "n": "\u4faf\u9510\u7684\u601d\u8003\u4e0e\u5206\u4eab",
+   "u": "https://www.nosuchfield.com/atom.xml",
+   "s": "https://www.nosuchfield.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "723a02abb420",
+   "n": "\u4fdd\u7f57\u7684\u5c0f\u5b87\u5b99",
+   "u": "https://paugram.com/feed",
+   "s": "https://paugram.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "945af708f34d",
+   "n": "\u50a5\u5e08\u59b9TangShiMei\u7684\u5c0f\u7a7a\u95f4",
+   "u": "https://blog.224418.xyz/rss2.xml",
+   "s": "https://blog.224418.xyz/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ac0ef534e9c9",
+   "n": "\u50b2\u96ea\u306e",
+   "u": "https://www.oxue.de/rss.xml",
+   "s": "https://www.oxue.de/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "811e0860766f",
+   "n": "\u519c\u7801\u751f\u6daf\uff0c\u65e0\u9152\u65e0\u82b1 \u2013 The coding life, no wine, no shine.",
+   "u": "https://nicrosoft.net/blog/feed/",
+   "s": "https://nicrosoft.net/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "76354eeeea30",
+   "n": "\u51b0\u51bb\u5927\u897f\u74dc",
+   "u": "https://bddxg.top/feed.rss",
+   "s": "https://bddxg.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "89747c52383d",
+   "n": "\u5218\u90ce\u9601",
+   "u": "https://vjo.cc/feed/",
+   "s": "https://vjo.cc/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a9a832396bd7",
+   "n": "\u521b\u89c1\u601d\u8003\u2014\u2014\u600e\u6837\u5ea6\u8fc7\u8fd9\u4e00\u751f",
+   "u": "https://www.fengcan.net/feed/",
+   "s": "https://www.fengcan.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "234887a2897b",
+   "n": "\u521d\u7136\u5fc6",
+   "u": "https://www.imcry.vip/index.xml",
+   "s": "https://www.imcry.vip/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "918c7fc3e3df",
+   "n": "\u5317\u95e8\u6e05\u71d5",
+   "u": "https://www.bmqy.net/feed.xml",
+   "s": "https://bmqy.net/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ba99d6a1960a",
+   "n": "\u5343\u53e4\u516b\u65b9\u7684\u535a\u5ba2",
+   "u": "https://rangotec.com/feed",
+   "s": "https://rangotec.com/feed",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a9be18f3d9eb",
+   "n": "\u5343\u91cc\u4e4b\u8c6a\u7684\u683c\u7269\u579b",
+   "u": "https://blog.gadore.top/feed.xml",
+   "s": "https://blog.gadore.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fbdf26bfa5a9",
+   "n": "\u534a\u65b9\u6c60\u6c34\u534a\u65b9\u7530",
+   "u": "https://uuanqin.top/atom.xml",
+   "s": "https://blog.uuanqin.top/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8bb8b2b5aa46",
+   "n": "\u535a\u5ba2 on Neil\u7684\u81ea\u7559\u5730",
+   "u": "https://neilmin.com/zh/posts/index.xml",
+   "s": "https://neilmin.com/zh/posts/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "21ea5c98ca71",
+   "n": "\u5361\u7247\u521b\u4f5c\u5b9e\u9a8c\u5ba4",
+   "u": "https://www.cnfeat.com/feed.xml",
+   "s": "https://cnfeat.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f6786af95075",
+   "n": "\u5361\u74e6\u90a6\u5676\uff01",
+   "u": "https://www.kawabangga.com/feed",
+   "s": "https://www.kawabangga.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2b382f9f676c",
+   "n": "\u53c8\u8033\u7b14\u8bb0",
+   "u": "https://youerning.top/index.xml",
+   "s": "https://youerning.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7db2176bcabd",
+   "n": "\u540e\u7aef\u6280\u672f\u6742\u8c08",
+   "u": "https://rowkey.cn/atom.xml",
+   "s": "https://www.rowkey.cn/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e3c985a5627d",
+   "n": "\u54d4\u54e9\u54d4\u54e9\u6280\u672f",
+   "u": "https://wechat2rss.xlab.app/feed/434235d4815fdb8447ff3127fc053ceb8b3aada6.xml",
+   "s": "https://wechat2rss.xlab.app/feed/434235d4815fdb8447ff3127fc053ceb8b3aada6.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "20f51c01876e",
+   "n": "\u5510\u5de7\u7684\u535a\u5ba2",
+   "u": "https://blog.devtang.com/atom.xml",
+   "s": "https://blog.devtang.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e8f9065945ca",
+   "n": "\u55b5\u4e8c\u306e\u5c0f\u535a\u5ba2",
+   "u": "https://www.miaoer.net/feed",
+   "s": "https://www.miaoer.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8ebdf736afcb",
+   "n": "\u55b5\u55b5\u5c0f\u7ad9\u30fb\u535a\u5ba2\u5fd7",
+   "u": "https://www.mmbkz.cn/feed",
+   "s": "https://www.mmbkz.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "080b5ee8aade",
+   "n": "\u571f\u6728\u575b\u5b50",
+   "u": "https://tumutanzi.com/feed",
+   "s": "https://tumutanzi.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2be19476fc34",
+   "n": "\u571f\u6cd5\u70bc\u94a2\u5174\u8da3\u5c0f\u7ec4\u7684\u7b97\u6cd5\u77e5\u8bc6\u5907\u4efd",
+   "u": "https://quant67.com/rss.xml",
+   "s": "https://quant67.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b0daf832284b",
+   "n": "\u571f\u8c46\u4e0d\u597d\u5403",
+   "u": "https://dmesg.app/feed",
+   "s": "https://dmesg.app",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "765430fbffd2",
+   "n": "\u5760\u6708\u5ddd",
+   "u": "https://hujingnb.com/feed",
+   "s": "https://www.hujingnb.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8b0f51923e33",
+   "n": "\u591c\u6cd5\u4e4b\u4e66",
+   "u": "https://blog.17lai.site/atom.xml",
+   "s": "https://blog.17lai.site",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a1e7007ac1db",
+   "n": "\u5931\u7720\u6d77\u5ce1",
+   "u": "https://blog.imalan.cn/feed.xml",
+   "s": "https://blog.imalan.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "085b9cb4c585",
+   "n": "\u5982\u6709\u4e50\u4eab",
+   "u": "https://51.ruyo.net/feed",
+   "s": "https://51.ruyo.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fc047f873cc7",
+   "n": "\u59d3\u738b\u8005\u7684\u535a\u5ba2",
+   "u": "https://xingwangzhe.fun/rss.xml",
+   "s": "https://xingwangzhe.fun/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "984e62ff0cb2",
+   "n": "\u5b57\u8282\u8df3\u52a8\u6280\u672f\u56e2\u961f",
+   "u": "https://wechat2rss.xlab.app/feed/4025ea55575daf8bfd8227e68b28d9638b073267.xml",
+   "s": "https://wechat2rss.xlab.app/feed/4025ea55575daf8bfd8227e68b28d9638b073267.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "097105c72702",
+   "n": "\u5bd2\u591c\u96e8",
+   "u": "https://www.coderlock.site/index.php/feed/",
+   "s": "https://www.coderlock.site/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "57b9fd8cf809",
+   "n": "\u5c0f\u4f17\u8f6f\u4ef6",
+   "u": "https://wechat2rss.xlab.app/feed/3261d5a75cfef238650a2cabd4bbf99669c2f334.xml",
+   "s": "https://wechat2rss.xlab.app/feed/3261d5a75cfef238650a2cabd4bbf99669c2f334.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "45002d82ae97",
+   "n": "\u5d0e\u5f84 \u5176\u955c",
+   "u": "http://www.z16388.top/atom.xml",
+   "s": "http://www.z16388.top/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b942ff6758c0",
+   "n": "\u5d4c\u5165\u5f0f\u5de5\u7a0b\u732b\u7684\u535a\u5ba2",
+   "u": "https://blog.vvzero.com/atom.xml",
+   "s": "https://blog.vvzero.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "df208945777c",
+   "n": "\u5dee\u8bc4",
+   "u": "https://wechat2rss.xlab.app/feed/8d839de8dd3290a1f1be7a94423cccb30c1b087d.xml",
+   "s": "https://wechat2rss.xlab.app/feed/8d839de8dd3290a1f1be7a94423cccb30c1b087d.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7dca85d46404",
+   "n": "\u5f20\u6208\u535a\u5ba2",
+   "u": "https://zhang.ge/feed",
+   "s": "https://zhang.ge",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4d26f30438e4",
+   "n": "\u5f20\u6d2aHeo",
+   "u": "https://blog.zhheo.com/rss.xml",
+   "s": "https://blog.zhheo.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f8a34d77ee62",
+   "n": "\u5f20\u946b\u65ed-\u946b\u7a7a\u95f4-\u946b\u751f\u6d3b",
+   "u": "http://www.zhangxinxu.com/wordpress/?feed=rss2",
+   "s": "https://www.zhangxinxu.com/wordpress",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5529ea6ae445",
+   "n": "\u5f97\u7269\u6280\u672f",
+   "u": "https://wechat2rss.xlab.app/feed/f3a42bd249ec6e8834ae761d8d0f85a949950944.xml",
+   "s": "https://wechat2rss.xlab.app/feed/f3a42bd249ec6e8834ae761d8d0f85a949950944.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3a50c127a492",
+   "n": "\u6106\u4f0f",
+   "u": "https://www.tortorse.com/atom.xml",
+   "s": "https://www.tortorse.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0f9fdd4b2d38",
+   "n": "\u6211\u4e0d\u662f\u5495\u5495\u9e3d",
+   "u": "https://blog.laoda.de/rss.xml",
+   "s": "https://blog.laoda.de",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a793def00859",
+   "n": "\u6240\u8c13\u7a7a\u60f3",
+   "u": "https://www.alxh.page/feed.rss",
+   "s": "https://www.alxh.page",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8932f3cebbce",
+   "n": "\u628a\u9152\u8bd7\u4ee3\u7801",
+   "u": "https://102no.com/atom.xml",
+   "s": "https://102no.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b6e2dba2cc85",
+   "n": "\u62ab\u8428\u76d2\u7684\u8d5b\u535a\u65e5\u5fd7",
+   "u": "https://blog.pushihao.com/atom.xml",
+   "s": "https://blog.pushihao.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ad3b783c297f",
+   "n": "\u6556\u82db\u8bb0",
+   "u": "https://blog.kayro.cn/atom.xml",
+   "s": "https://blog.kayro.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ae1544ad8480",
+   "n": "\u6587\u6b66\u79d1\u6280\u67dc",
+   "u": "https://www.wangdu.site/feed",
+   "s": "https://www.wangdu.site",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7acb0e3ed474",
+   "n": "\u6587\u827a\u6570\u5b66\u541b",
+   "u": "https://mathpretty.com/feed/",
+   "s": "https://mathpretty.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8b3c2bec126c",
+   "n": "\u65b9\u6c38\u3001\u5357\u5929\u7d2b\u96f2",
+   "u": "https://www.vinoca.org/atom.xml",
+   "s": "https://www.vinoca.org",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "28a0521c3b37",
+   "n": "\u660e\u7acb\u975e|Mingnify\u7684\u535a\u5ba2",
+   "u": "https://mingnify.com/zh/blog/atom.xml",
+   "s": "https://mingnify.com/zh/blog/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9c885b4ea11b",
+   "n": "\u661f\u89c5\u6d77\u7684\u535a\u5ba2",
+   "u": "https://www.xmhai.cn/rss.xml",
+   "s": "https://www.xmhai.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8732cb4df569",
+   "n": "\u6620\u5c7f",
+   "u": "https://www.glowisle.me/atom.xml",
+   "s": "https://blog.verdant.ee/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a391bb8042d0",
+   "n": "\u6653\u7a7ablog",
+   "u": "https://blog.moeworld.tech/feed/",
+   "s": "https://blog.moeworld.tech",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c4b9cdc0255e",
+   "n": "\u6674\u96c0\u5802",
+   "u": "https://hehysh.github.io/atom.xml",
+   "s": "https://blog.verynb.net/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fdcf0479e8c2",
+   "n": "\u671d\u821e\u7f51",
+   "u": "https://ii74.com/feed.php",
+   "s": "https://ii74.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a67862d878cc",
+   "n": "\u675c\u8001\u5e08\u8bf4",
+   "u": "https://dusays.com/atom.xml",
+   "s": "https://dusays.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8542a477ec4b",
+   "n": "\u67ab\u6797\u706f\u8bed",
+   "u": "https://blog.mfwt.top/index.php/feed/",
+   "s": "https://blog.mfwt.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5d3f672b9dc6",
+   "n": "\u6a59\u6811\u5fd7 \uff5c citydatum",
+   "u": "https://citydatum.cn/feed",
+   "s": "https://citydatum.cn",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6143fbd12b60",
+   "n": "\u6b27\u96f7\u6d41",
+   "u": "https://ourai.ws/atom.xml",
+   "s": "https://ourai.ws/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c3280f32e16a",
+   "n": "\u6b4c\u8bcd\u7ecf\u7406",
+   "u": "https://quaily.com/lyric/feed/atom",
+   "s": "https://blog.lyric.im/feed/atom",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "511f3e9d589e",
+   "n": "\u6b8b\u9875\u7684\u5c0f\u535a\u5ba2",
+   "u": "https://blog.canyie.top/atom.xml",
+   "s": "https://blog.canyie.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "442a7e86b004",
+   "n": "\u6ce0\u6ceb\u51dd\u7684\u5f02\u6b21\u5143\u7a7a\u95f4",
+   "u": "https://lxnchan.cn/atom.xml",
+   "s": "https://lxnchan.cn/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c55498f84bc7",
+   "n": "\u6ceb\u8a00",
+   "u": "https://blog.cugxuan.cn/atom.xml",
+   "s": "https://blog.cugxuan.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c627326d7ffb",
+   "n": "\u6d41\u52a8",
+   "u": "https://liudon.com/index.xml",
+   "s": "https://liudon.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c1dd866e6e61",
+   "n": "\u6d45\u65f6\u5149\u535a\u5ba2",
+   "u": "https://www.dqzboy.com/feed",
+   "s": "https://www.dqzboy.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6c64f84f5799",
+   "n": "\u6d9b\u53d4",
+   "u": "https://taoshu.in/feed.xml",
+   "s": "https://tao.zz.ac",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a74327fee88e",
+   "n": "\u6da6\u571f\u5206\u4eab",
+   "u": "http://xiaix.me/rss/",
+   "s": "https://runtushare.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "50baacc6123a",
+   "n": "\u6e05\u7af9\u5fd7-(\u539f\u6e05\u7af9\u8336\u9986)",
+   "u": "https://blog.vadxq.com/atom.xml",
+   "s": "https://blog.vadxq.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4e7b8be449ca",
+   "n": "\u6e38\u9b42\u535a\u5ba2",
+   "u": "https://www.iyouhun.com/rss.php",
+   "s": "https://www.iyouhun.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "07bbc5198fe0",
+   "n": "\u6f84\u6ca8\u7684\u6f2b\u6e38\u8336\u8bb0",
+   "u": "https://champhoon.xyz/atom.xml",
+   "s": "https://champhoon.xyz/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d77da1f5a450",
+   "n": "\u70e7\u997c\u535a\u5ba2",
+   "u": "https://u.sb/rss.xml",
+   "s": "https://u.sb/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "44c06062d10b",
+   "n": "\u7231\u5947\u827a\u6280\u672f\u4ea7\u54c1\u56e2\u961f",
+   "u": "https://wechat2rss.xlab.app/feed/16a4ec12a83a52e1f6e941bce030a4d64ee26c47.xml",
+   "s": "https://wechat2rss.xlab.app/feed/16a4ec12a83a52e1f6e941bce030a4d64ee26c47.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "975b7b131234",
+   "n": "\u732b\u6d85\u7684\u79d8\u5bc6\u7ed3\u793e",
+   "u": "https://www.maonie.top/atom.xml",
+   "s": "http://www.maonie.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fea37358cbc4",
+   "n": "\u733f\u5ba2\u968f\u7b14",
+   "u": "https://monkeyke.com/index.xml",
+   "s": "https://monkeyke.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "409cae711780",
+   "n": "\u738b\u5706\u5706 - ICONPIK",
+   "u": "https://www.iconpik.com/rss/",
+   "s": "https://www.iconpik.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b3c6bb4d29f1",
+   "n": "\u738b\u6b23\u8bf4AI",
+   "u": "https://wangxin.io/atom.xml",
+   "s": "https://wangxin.io/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c380c225bb7e",
+   "n": "\u738b\u767b\u79d1-DK\u535a\u5ba2",
+   "u": "https://greatdk.com/feed",
+   "s": "https://greatdk.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "08e654894f6a",
+   "n": "\u738b\u798f\u5f3a\u7684\u4e2a\u4eba\u535a\u5ba2\uff1a\u4e00\u4e2a\u67b6\u6784\u58eb\u7684\u601d\u8003\u4e0e\u6c89\u6dc0",
+   "u": "https://afoo.me/feeds.xml",
+   "s": "http://afoo.me",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "37acec20cbb7",
+   "n": "\u74e6\u89e3\u7684\u751f\u6d3b\u8bb0\u4e8b",
+   "u": "https://hin.cool/atom.xml",
+   "s": "https://hin.cool/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f6bfc12f779c",
+   "n": "\u767d\u5ba6\u6210",
+   "u": "https://www.ixiqin.com/feed/",
+   "s": "https://www.ixiqin.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "af5149b0a269",
+   "n": "\u767d\u83dc",
+   "u": "https://blog.baicai.me/index.xml",
+   "s": "https://blog.baicai.me/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f758f20d9efa",
+   "n": "\u7693\u5b50\u7684\u5c0f\u7ad9",
+   "u": "https://howiehz.top/rss.xml",
+   "s": "https://howiehz.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3a21a4b89f97",
+   "n": "\u770b\u5ddd\u535a\u5ba2",
+   "u": "https://kanchuan.com/feed.xml",
+   "s": "https://kanchuan.com/blog",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "368f8a851f5b",
+   "n": "\u7801\u519c\u660e\u660e\u6851",
+   "u": "https://isming.me/index.xml",
+   "s": "https://isming.me/?utm_source=rss",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "297214c4189e",
+   "n": "\u7801\u5f55\u96c6",
+   "u": "https://www.coderlog.net/rss.xml",
+   "s": "https://www.coderlog.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "52bd1c68fef7",
+   "n": "\u7a7a\u5c7f",
+   "u": "https://pinaland.cn/feed/",
+   "s": "https://pinaland.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4e6c252e8ec4",
+   "n": "\u7a7a\u9e23\u6df1\u8bed",
+   "u": "https://blog.deepchirp.com/atom.xml",
+   "s": "https://blog.deepchirp.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1b4aa7cbf6f7",
+   "n": "\u7af9\u6797\u91cc\u6709\u51b0\u7684\u535a\u5ba2",
+   "u": "https://zhul.in/rss.xml",
+   "s": "https://zhul.in",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0fd4a048717c",
+   "n": "\u7ca5\u91cc\u6709\u52fa\u7cd6",
+   "u": "https://sugarat.top/feed.rss",
+   "s": "https://sugarat.top",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c67e74e0ee2a",
+   "n": "\u7e41\u661f\u70b9\u70b9",
+   "u": "https://blog.52013120.xyz/rss.xml",
+   "s": "https://blog.52013120.xyz",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6b7bf8819d5b",
+   "n": "\u7ef4\u57fa\u840c",
+   "u": "https://www.wikimoe.com/rss.php",
+   "s": "https://www.wikimoe.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e53d10d2d5ea",
+   "n": "\u7f57\u78ca\u7684\u72ec\u7acb\u535a\u5ba2",
+   "u": "http://luolei.org/feed/",
+   "s": "https://luolei.org",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "cc06f043dd4b",
+   "n": "\u7f8e\u56e2\u6280\u672f\u56e2\u961f",
+   "u": "https://wechat2rss.xlab.app/feed/eb4d04149424a874693a51c6fdda0dba8673f5e4.xml",
+   "s": "https://wechat2rss.xlab.app/feed/eb4d04149424a874693a51c6fdda0dba8673f5e4.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "50adf0a2ef3a",
+   "n": "\u7fd4\u5b87\u5de5\u4f5c\u6d41",
+   "u": "https://xiangyugongzuoliu.com/latest/rss/",
+   "s": "https://xiangyugongzuoliu.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fe3062af8502",
+   "n": "\u8001\u8303\u8bb2\u6545\u4e8b\uff5cAI\u3001\u5927\u6a21\u578b\u4e0e\u5546\u4e1a\u4e16\u754c\u7684\u6545\u4e8b",
+   "u": "http://lukefan.com/?feed=rss2",
+   "s": "https://lukefan.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f19790cbc41b",
+   "n": "\u8098\u5b50\u7684 Swift \u8bb0\u4e8b\u672c \uff5c Fatbobman's Blog",
+   "u": "https://fatbobman.com/zh/rss.xml",
+   "s": "https://fatbobman.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "348d8d1a0797",
+   "n": "\u80e1\u6d82\u8bf4",
+   "u": "https://hutusi.com/feed.xml",
+   "s": "https://hutusi.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0909e6fd7e8e",
+   "n": "\u817e\u8baf\u6280\u672f\u5de5\u7a0b",
+   "u": "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml",
+   "s": "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "595a8395ef92",
+   "n": "\u817e\u8baf\u7384\u6b66\u5b9e\u9a8c\u5ba4",
+   "u": "https://wechat2rss.xlab.app/feed/923c0e2f33b6d39c8a826a90f185725f0edb10e8.xml",
+   "s": "https://wechat2rss.xlab.app/feed/923c0e2f33b6d39c8a826a90f185725f0edb10e8.xml",
+   "c": "Security",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "18e9ca61a007",
+   "n": "\u8349\u6885\u53cb\u4ec1\u7684\u535a\u5ba2",
+   "u": "https://blog.cmyr.ltd/atom.xml",
+   "s": "https://blog.cmyr.ltd/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "605cfed1cc1c",
+   "n": "\u83ab\u5c14\u7d22\u968f\u7b14",
+   "u": "https://liduos.com/atom.xml",
+   "s": "https://liduos.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "60284b6a3710",
+   "n": "\u8499\u9700",
+   "u": "https://jiangcl.com/feed",
+   "s": "https://jiangcl.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a0dfc9ed6c80",
+   "n": "\u8679\u58a8\u7a7a\u95f4\u7ad9",
+   "u": "https://www.imaegoo.com/atom.xml",
+   "s": "https://www.imaegoo.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "dc9e87308221",
+   "n": "\u868a\u5b50\u7684\u524d\u7aef\u535a\u5ba2",
+   "u": "https://www.xiabingbao.com/atom.xml",
+   "s": "https://www.xiabingbao.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2161db4e789c",
+   "n": "\u8b1d\u61ffShine",
+   "u": "https://xieyi.org/rss.xml",
+   "s": "https://www.futseyi.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0350e654b916",
+   "n": "\u8c4c\u8c46\u82b1\u4e0b\u732b",
+   "u": "https://pythoncat.top/rss.xml",
+   "s": "https://pythoncat.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "59ca7b88a197",
+   "n": "\u8def\u7531\u5668\u8bc4\u6d4b",
+   "u": "https://wechat2rss.xlab.app/feed/2fa034e4b97f23d870d5b8e749e805d508761a41.xml",
+   "s": "https://wechat2rss.xlab.app/feed/2fa034e4b97f23d870d5b8e749e805d508761a41.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "bfec11696518",
+   "n": "\u8f76\u54e5\u535a\u5ba2",
+   "u": "https://www.wyr.me/rss.xml",
+   "s": "https://www.wyr.me",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5fe2f39f60df",
+   "n": "\u8f89\u54e5\u5947\u8c2d",
+   "u": "https://wechat2rss.xlab.app/feed/1b01bd297483509251779f1a02bb90223786a923.xml",
+   "s": "https://wechat2rss.xlab.app/feed/1b01bd297483509251779f1a02bb90223786a923.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "fa90e95e2850",
+   "n": "\u8fd0\u7ef4\u5496\u5561\u5427",
+   "u": "https://blog.ops-coffee.cn/feed.xml",
+   "s": "https://blog.ops-coffee.com/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "83f030735cbb",
+   "n": "\u8fd0\u7ef4\u5f00\u53d1\u7eff\u76ae\u4e66",
+   "u": "https://www.geekery.cn/rss.xml",
+   "s": "https://www.geekery.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3e4fbd957a99",
+   "n": "\u8fdc\u98de\u95f2\u8bb0",
+   "u": "https://leonhe.cn/index.xml",
+   "s": "https://heyuanfei.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b43967b166ef",
+   "n": "\u8ff7\u9014\u5c0f\u4e66\u7ae5\u7684Note",
+   "u": "https://xugaoxiang.com/feed",
+   "s": "https://xugaoxiang.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "96088d246682",
+   "n": "\u9038\u601d\u6742\u9648",
+   "u": "https://blog.ponder.work/atom.xml",
+   "s": "https://blog.ponder.work/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d506e8f3266e",
+   "n": "\u9165\u7c73\u7684\u5c0f\u7ad9",
+   "u": "https://www.sumi233.top/rss.xml",
+   "s": "https://www.sumi233.top/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4069237d4cae",
+   "n": "\u9601\u5b50",
+   "u": "https://dfine.tech/atom.xml",
+   "s": "https://dfine.tech/atom.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3fcef7355352",
+   "n": "\u963f\u5c14\u7684\u4ee3\u7801\u5c4b | \u5168\u6808\u6280\u672f\u7b14\u8bb0",
+   "u": "https://blog.algieba12.cn/atom.xml",
+   "s": "https://blog.algieba12.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "32dd27b06a55",
+   "n": "\u963f\u6396\u5c71\u00b7\u535a\u5ba2",
+   "u": "https://blog.mountaye.com/feed.xml",
+   "s": "https://blog.mountaye.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6e76f940a5bb",
+   "n": "\u963f\u91cc\u4e91\u5f00\u53d1\u8005",
+   "u": "https://wechat2rss.xlab.app/feed/c74ed6db00cfbf16f2a048a165b4453f982681f0.xml",
+   "s": "https://wechat2rss.xlab.app/feed/c74ed6db00cfbf16f2a048a165b4453f982681f0.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "aafbb66f21ee",
+   "n": "\u96c6\u667a\u4ff1\u4e50\u90e8",
+   "u": "https://wechat2rss.xlab.app/feed/8540570d27c0bfe0a219173cf1ace83ae79445cb.xml",
+   "s": "https://wechat2rss.xlab.app/feed/8540570d27c0bfe0a219173cf1ace83ae79445cb.xml",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6670aa0a33b3",
+   "n": "\u96ea\u732b\u793e",
+   "u": "https://www.yukicat.net/feed/",
+   "s": "https://www.yukicat.net",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "62f29089e6a1",
+   "n": "\u96ea\u7684\u6570\u5b57\u82b1\u56ed \u2744\ufe0f",
+   "u": "https://blog.rnm.gv.uy/atom.xml",
+   "s": "https://blog.rnm.gv.uy/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "936714507533",
+   "n": "\u9752\u77f3\u575e",
+   "u": "https://www.qs5.org/feed/",
+   "s": "https://www.qs5.org/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ab1795dbc1cf",
+   "n": "\u975e\u5b66\u00b7\u6d3e'",
+   "u": "https://fxpai.com/feed",
+   "s": "https://fxpai.com",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2e5b60999230",
+   "n": "\u9876\u5c16\u7814\u53d1",
+   "u": "https://bestcoder.cn/feed",
+   "s": "https://bestcoder.cn/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "694625d3aa68",
+   "n": "\u9996\u9875 on black8",
+   "u": "https://unixetc.com/index.xml",
+   "s": "https://0x8.net/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f939d23b59d4",
+   "n": "\u9e1f\u7a9d",
+   "u": "https://colobu.com/atom.xml",
+   "s": "https://colobu.com/",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "49c5eb3d1105",
+   "n": "\u9ed1\u7fbd\u7684\u4e2a\u4eba\u535a\u5ba2",
+   "u": "https://blog.thetbw.xyz/atom.xml",
+   "s": "https://blog.thetbw.xyz",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "790cbbe2b822",
+   "n": "\ud835\udfde\ud835\udfd9\ud835\udfe1'\ud835\udd64 \ud835\udd39\ud835\udd43\ud835\udd46\ud835\udd3e",
+   "u": "https://66619.eu.org/feed/",
+   "s": "https://619.pp.ua",
+   "c": "Engineering & Technology",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "597b3e93ce00",
+   "n": "36\u6c2a",
+   "u": "https://www.36kr.com/feed",
+   "s": "http://36kr.com",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e2807e581c5e",
+   "n": "AIGC Weekly",
+   "u": "https://quaily.com/op7418/feed/atom",
+   "s": "https://quaily.com/op7418/feed/atom",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "fa080031bb9f",
+   "n": "Al Jazeera \u2013 Breaking News, World News and Video from Al Jazeera",
+   "u": "https://www.aljazeera.com/xml/rss/all.xml",
+   "s": "https://www.aljazeera.com",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "1796df62c4a2",
+   "n": "BBC News \u2014 News",
+   "u": "https://feeds.bbci.co.uk/news/world/rss.xml",
+   "s": "https://www.bbc.co.uk/news/world",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "8eb6cd5274fb",
+   "n": "Cointelegraph.com News",
+   "u": "https://cointelegraph.com/rss/tag/blockchain",
+   "s": "https://cointelegraph.com",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "2ccba97d94b1",
+   "n": "Engadget",
+   "u": "https://www.engadget.com/rss.xml",
+   "s": "https://www.engadget.com/",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "f00aa83911d1",
+   "n": "Golang Weekly",
+   "u": "https://golangweekly.com/rss/",
+   "s": "https://golangweekly.com/",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "ecb39e77c08e",
+   "n": "HackerNews\u6bcf\u65e5\u6458\u8981 on SuperTechFans",
+   "u": "https://www.supertechfans.com/cn/index.xml",
+   "s": "https://supertechfans.com/cn/",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e25274cd5ceb",
+   "n": "InfoQ \u2014 News",
+   "u": "https://feed.infoq.com/",
+   "s": "https://www.infoq.com",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "b2582941d1a2",
+   "n": "InfoQ \u63a8\u8350",
+   "u": "https://plink.anyfeeder.com/infoq/recommend",
+   "s": "https://www.infoq.cn",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "732d85a9faec",
+   "n": "IT\u4e4b\u5bb6",
+   "u": "https://www.ithome.com/rss/",
+   "s": "https://www.ithome.com/",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "17707b04e4fd",
+   "n": "MIT \u79d1\u6280\u8bc4\u8bba - \u672c\u5468\u70ed\u699c",
+   "u": "https://rsshub.bestblogs.dev/mittrchina/hot",
+   "s": "https://www.mittrchina.com/hot",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f420170e7172",
+   "n": "News from Google",
+   "u": "https://blog.google/rss",
+   "s": "https://blog.google/",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7be307059415",
+   "n": "NPR Topics: World",
+   "u": "https://feeds.npr.org/1004/rss.xml",
+   "s": "https://www.npr.org/templates/story/story.php?storyId=1004",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "9857cc183f75",
+   "n": "NYT > Technology",
+   "u": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+   "s": "https://www.nytimes.com/section/technology",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "78f77fae2e1f",
+   "n": "NYT > World News",
+   "u": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+   "s": "https://www.nytimes.com/section/world",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "806a2b78701e",
+   "n": "ProPublica",
+   "u": "https://www.propublica.org/feeds/propublica/main",
+   "s": "https://www.propublica.org/",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7c18f6f34132",
+   "n": "TechCrunch",
+   "u": "https://techcrunch.com/feed/",
+   "s": "https://techcrunch.com/",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "8c3d9d5d77bb",
+   "n": "The Verge \u2014 News",
+   "u": "https://www.theverge.com/rss/index.xml",
+   "s": "https://www.theverge.com",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "fe39472a3338",
+   "n": "Top stories - Google News",
+   "u": "https://news.google.com/rss",
+   "s": "https://news.google.com/?hl=en-US&gl=US&ceid=US:en",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c01c14fc345f",
+   "n": "WIRED",
+   "u": "https://www.wired.com/feed/rss",
+   "s": "https://www.wired.com",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "4bf53cb60241",
+   "n": "World",
+   "u": "https://feeds.washingtonpost.com/rss/world",
+   "s": "https://www.washingtonpost.com",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "d64709a605cb",
+   "n": "World news | The Guardian",
+   "u": "https://www.theguardian.com/world/rss",
+   "s": "https://www.theguardian.com/world",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "c59be43c0f92",
+   "n": "World News, Today World News, Latest International News, World Breaking News, Trending News of World - Times of India",
+   "u": "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
+   "s": "https://timesofindia.indiatimes.com/world",
+   "c": "News",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "beb773c89bea",
+   "n": "\u5927\u6a58\u548c\u670b\u53cb\u4eec\u7684\u5468\u520a",
+   "u": "https://rrorangeandfriends.de/feed.xml",
+   "s": "https://rrorangeandfriends.de",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "cf502ba146e7",
+   "n": "\u5947\u5ba2Solidot\u2013\u4f20\u9012\u6700\u65b0\u79d1\u6280\u60c5\u62a5",
+   "u": "https://www.solidot.org/index.rss",
+   "s": "https://www.solidot.org",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "aad4fb70421a",
+   "n": "\u5b89\u5168\u5ba2",
+   "u": "https://api.anquanke.com/data/v1/rss",
+   "s": "https://www.anquanke.com",
+   "c": "Security",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "127ccd1f6fe9",
+   "n": "\u5c11\u6570\u6d3e",
+   "u": "https://sspai.com/feed",
+   "s": "https://sspai.com",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d02584a35aa6",
+   "n": "\u6398\u91d1\u672c\u5468\u6700\u70ed",
+   "u": "https://rsshub.bestblogs.dev/juejin/trending/all/weekly",
+   "s": "https://juejin.im/recommended?sort=weekly_hottest",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "82608c2e2344",
+   "n": "\u6f6e\u6d41\u5468\u520a",
+   "u": "https://weekly.tw93.fun/rss.xml",
+   "s": "https://weekly.tw93.fun/",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4a90f525746d",
+   "n": "\u7ad9\u957f\u4e4b\u5bb6",
+   "u": "https://app.chinaz.com/?app=rss",
+   "s": "http://www.chinaz.com",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "48b5a6554799",
+   "n": "\u84dd\u70b9\u7f51",
+   "u": "https://www.landiannews.com/feed",
+   "s": "https://www.landian.news",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "0e4f8d8cfeaa",
+   "n": "\u864e\u55c5",
+   "u": "https://rss.huxiu.com/",
+   "s": "https://www.huxiu.com",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "985007f876b2",
+   "n": "\u949b\u5a92\u4f53\uff1a\u5f15\u9886\u672a\u6765\u5546\u4e1a\u4e0e\u751f\u6d3b\u65b0\u77e5",
+   "u": "https://www.tmtpost.com/feed",
+   "s": "http://www.tmtpost.com",
+   "c": "News",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8493b3831272",
+   "n": "ABB00717",
+   "u": "https://blog.abb00717.com/index.xml",
+   "s": "https://blog.abb00717.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5800f1743b48",
+   "n": "Another Dayu",
+   "u": "https://anotherdayu.com/feed/",
+   "s": "https://anotherdayu.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "4030cfeb2971",
+   "n": "Blog | Lyunvy",
+   "u": "https://blog.lyunvy.top/atom.xml",
+   "s": "https://blog.lyunvy.top/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1d016b12fa51",
+   "n": "BMPI",
+   "u": "https://www.bmpi.dev/index.xml",
+   "s": "https://www.bmpi.dev/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "74ad07d48cd5",
+   "n": "by Upsangel",
+   "u": "https://upsangel.com/feed/",
+   "s": "https://upsangel.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "10bc93a2647c",
+   "n": "Conge",
+   "u": "https://conge.github.io/feed.xml",
+   "s": "https://conge.livingwithfcs.org/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6b7650c8b0a6",
+   "n": "Cosmos\u7684\u535a\u5ba2",
+   "u": "https://cosmo-polite.com/feed/",
+   "s": "https://cosmo-polite.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "46ce1f91a341",
+   "n": "David Blog",
+   "u": "https://blog.blahaj.uk/feed",
+   "s": "https://blog.blahaj.uk/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ab8c1b3aaee3",
+   "n": "Deep Router",
+   "u": "https://deeprouter.org/rss/feed.xml",
+   "s": "https://deeprouter.org/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2a8d561592de",
+   "n": "Dejavu's Blog",
+   "u": "https://blog.dejavu.moe/index.xml",
+   "s": "https://blog.dejavu.moe/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "16ca6917947c",
+   "n": "Dort \u7684\u535a\u5ba2",
+   "u": "https://blog.dort.me/rss.xml",
+   "s": "https://blog.dort.me/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ba55c58c4767",
+   "n": "Evan's Space",
+   "u": "https://evan.xin/feed",
+   "s": "https://www.evan.xin",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "8216516218f6",
+   "n": "Fei's Tours & Tales",
+   "u": "https://www.feifun.cn/feed.xml",
+   "s": "https://www.feifun.cn/feed.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a5956bb87425",
+   "n": "Fernweh",
+   "u": "https://blog.wohin.me/index.xml",
+   "s": "https://blog.wohin.me/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "cb1cf6934460",
+   "n": "GentleLucky",
+   "u": "https://blog.gentlelucky.com/zh/index.xml",
+   "s": "https://blog.gentlelucky.com/zh/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a8f24a5ffe96",
+   "n": "happy xiao",
+   "u": "https://happyxiao.com/feed",
+   "s": "https://happyxiao.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ff08df6dd1f7",
+   "n": "ImPatrick",
+   "u": "https://impatrick.blog/feed/",
+   "s": "https://impatrick.blog",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b124bd1f6c61",
+   "n": "Jake blog",
+   "u": "https://jaketao.com/feed/",
+   "s": "https://jaketao.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2418d477ad0c",
+   "n": "Jame",
+   "u": "https://jame.work/feed.xml",
+   "s": "https://jame.work/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "82931f2d5f50",
+   "n": "JustZht's EchoChamber",
+   "u": "https://www.justzht.com/rss/",
+   "s": "https://www.justzht.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "64765a8186b7",
+   "n": "jz's ramblings",
+   "u": "https://ramble.imzh.me/index.xml",
+   "s": "https://ramble.imzh.me/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "efcfd3922f6d",
+   "n": "LCZBlog",
+   "u": "https://blog.licaoz.com/feed/",
+   "s": "https://blog.licaoz.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "eeff60deaeec",
+   "n": "LoRexxar's Blog | \u4fe1\u606f\u6280\u672f\u5206\u4eab",
+   "u": "https://lorexxar.cn/atom.xml",
+   "s": "https://lorexxar.cn/atom.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b62257ce3c26",
+   "n": "M-x Chris-An-Emacser",
+   "u": "https://chriszheng.science/atom.xml",
+   "s": "https://chriszheng.science/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "dbfc443a6ee2",
+   "n": "Markon Review",
+   "u": "https://markonreview.com/rss/",
+   "s": "https://markonreview.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "889932b92c48",
+   "n": "Redish101 Blog",
+   "u": "https://blog.redish101.top/atom.xml",
+   "s": "https://blog.redish101.top/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "53747666ac2c",
+   "n": "Save the Web Project",
+   "u": "https://blog.save-web.org/feed/",
+   "s": "https://blog.save-web.org",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e8c249e5e6a6",
+   "n": "SEISAMUSE",
+   "u": "https://www.seis-jun.xyz/atom.xml",
+   "s": "https://www.seis-jun.xyz/atom.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7249e376df69",
+   "n": "Shuibaco \u2022 \u6c34\u516b\u53e3",
+   "u": "https://shuiba.co/feed",
+   "s": "http://shuiba.co/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "00a0c3ac8e22",
+   "n": "Spring",
+   "u": "https://spring.io/blog.atom",
+   "s": "https://spring.io",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "898c34801f42",
+   "n": "SuperGrey \u7684\u7b46\u8a18\u672c",
+   "u": "https://supergrey.bearblog.dev/rss/",
+   "s": "https://blog.supergrey.uk",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "27faefb9a0ec",
+   "n": "tplate",
+   "u": "https://trle5.xyz/atom.xml",
+   "s": "https://trle5.xyz",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3498b9ab780b",
+   "n": "whyes \u7684\u535a\u5ba2",
+   "u": "https://whyes.org/feed.xml",
+   "s": "http://whyes.org/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a86f1598cc36",
+   "n": "WSH",
+   "u": "https://www.wsh233.cn/feed.xml",
+   "s": "https://www.wsh233.cn",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "80d0769d0d36",
+   "n": "Wulu's Blog",
+   "u": "https://wulu.zone/feed/post.xml",
+   "s": "https://wulu.zone/posts/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "211ed4466033",
+   "n": "\u4e00\u6d3e\u80e1\u8a00 \u00b7 Blog",
+   "u": "https://yipai.me/feed",
+   "s": "https://yipai.me/blog",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "12a12ebde871",
+   "n": "\u4e0d\u5410\u4e0d\u5feb",
+   "u": "https://mianao.info/atom.xml",
+   "s": "https://mianao.info/atom.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c9aaf1634bc5",
+   "n": "\u4e13\u4eab\u751f\u6d3b",
+   "u": "https://zhjwork.online/feed",
+   "s": "https://zhjwork.online",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "de9dcf46b0ed",
+   "n": "\u4e91\u5fc3\u6000\u9e64",
+   "u": "https://bluehe.cn/feed/",
+   "s": "https://bluehe.cn/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "36951c45b2b9",
+   "n": "\u5362\u660c\u6d77\u4e2a\u4eba\u4e3b\u9875",
+   "u": "https://www.changhai.org/feed.xml",
+   "s": "http://www.changhai.org",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "666a62db15f7",
+   "n": "\u5370\u8bb0",
+   "u": "https://yinji.org/feed",
+   "s": "https://yinji.org/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f286dcf80b10",
+   "n": "\u53cc\u7ede\u9ebb\u75f9",
+   "u": "https://numb.tech/atom.xml",
+   "s": "https://numb.tech/atom.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f5e261a05ccd",
+   "n": "\u53f6\u5bfb\u7684\u535a\u5ba2",
+   "u": "https://cyrusyip.org/zh-cn/index.xml",
+   "s": "https://cyrusyip.org/zh-cn/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "50310b27b0e2",
+   "n": "\u53f6\u6cef\u5e0c",
+   "u": "https://blog.418121.xyz/rss2.xml",
+   "s": "https://blog.418121.xyz/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5f7aec3fe73d",
+   "n": "\u540c\u548c\u6545\u4e8b\u532f",
+   "u": "https://hocassian.cn/feed/",
+   "s": "https://hocassian.cn/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "dc53cf887984",
+   "n": "\u56db\u559c\u4e38\u5b50",
+   "u": "https://fourhappylions.com/index.xml",
+   "s": "https://fourhappylions.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5d4c544332d5",
+   "n": "\u5982\u9c7c\u996e\u6c34",
+   "u": "https://wangjiezhe.com/atom.xml",
+   "s": "https://wangjiezhe.com/atom.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "5633e3dd1a23",
+   "n": "\u5c0f\u9676\u6301\u7eed\u7cbe\u8fdb",
+   "u": "https://whyya.xyz/rss.xml",
+   "s": "https://whyya.xyz/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "d3b880117311",
+   "n": "\u5c40\u57df\u81ea\u7531\u535a\u5ba2",
+   "u": "https://localfreedom.pages.dev/index.xml",
+   "s": "https://localfreedom.pages.dev/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "64d842116489",
+   "n": "\u5eca\u6865\u9057\u68a6",
+   "u": "https://blog.moran.im/rss.xml",
+   "s": "https://blog.moran.im/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "c40d22e319d8",
+   "n": "\u61cb\u548c\u9053\u4eba",
+   "u": "https://blog.dao.js.cn/atom.xml",
+   "s": "https://blog.dao.js.cn",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f57a638ecb8e",
+   "n": "\u660e\u5929\u7684\u4e4c\u4e91",
+   "u": "https://blog.xlab.app/atom.xml",
+   "s": "https://blog.xlab.app/atom.xml",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "9ddeb7bda1bc",
+   "n": "\u6728\u9e1f\u6742\u8bb0",
+   "u": "https://www.qtmuniao.com/atom.xml",
+   "s": "https://www.qtmuniao.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3dce19215c9c",
+   "n": "\u6797\u6797\u6742\u8bed",
+   "u": "https://www.xiaozonglin.cn/feed/",
+   "s": "https://www.xiaozonglin.cn/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ad4ce1c29983",
+   "n": "\u67f4\u90e1\u732b",
+   "u": "https://www.cheshirex.com/feed",
+   "s": "https://www.cheshirex.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "16edf0976ca5",
+   "n": "\u6885\u4e4b\u590f",
+   "u": "https://blog.mcenahle.page/feed.xml",
+   "s": "https://blog.mcenahle.page/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "929d825dc346",
+   "n": "\u6db5\u54f2\u5b50\u5c45",
+   "u": "https://iluc.cn/rss.xml",
+   "s": "https://iluc.cn/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "63e96afb5f7a",
+   "n": "\u7231\u8303\u513f",
+   "u": "https://www.ifanr.com/feed",
+   "s": "https://www.ifanr.com?utm_source=rss&utm_medium=rss&utm_campaign=",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2b52a8fdfbfc",
+   "n": "\u7389\u660e-\u98ce\u8d77\u4e8e\u9752\u840d\u4e4b\u672b",
+   "u": "https://xdym11235.com/feed",
+   "s": "https://xdym11235.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "3876bed2fd6e",
+   "n": "\u795d\u878d\u8bf4\u3002",
+   "u": "https://zhurongshuo.com/index.xml",
+   "s": "https://zhurongshuo.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f5829d7bc954",
+   "n": "\u7eb8\u77ed\u60c5\u957f",
+   "u": "http://yibie.github.io/index.xml",
+   "s": "https://www.gtdstudy.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "785ed136e990",
+   "n": "\u8b80\u89d2\u7378",
+   "u": "https://ducorn.com/feed.xml",
+   "s": "https://ducorn.com",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "e174af50c2c6",
+   "n": "\u8cc7\u5de5\u5c0f\u5ee2\u7269 - JN",
+   "u": "https://blog.giveanornot.com/index.xml",
+   "s": "https://blog.giveanornot.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7662101feaad",
+   "n": "\u95f2\u4ebaLIFE",
+   "u": "https://www.xianrenlife.com/feeds/posts/default",
+   "s": "https://www.xianrenlife.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "2e6b4db23282",
+   "n": "\u9648\u6768\u6811\u4e0b",
+   "u": "https://www.demochen.com/atom.xml",
+   "s": "https://demochen.com/",
+   "c": "Personal Blogs",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "f857ff91c544",
+   "n": "30 for 30 Podcasts",
+   "u": "https://feeds.megaphone.fm/ESP5765452710",
+   "s": "http://espnradio.espn.com/espnradio/index",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "e7e1a05943d1",
+   "n": "42\u7ae0\u7ecf \u2014 Podcast",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/648b0b641c48983391a63f98",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/648b0b641c48983391a63f98",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "ec6edabf20d0",
+   "n": "AI\u70bc\u91d1\u672f \u2014 Podcast",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/63e9ef4de99bdef7d39944c8",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/63e9ef4de99bdef7d39944c8",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "6135fb2e1845",
+   "n": "Darknet Diaries",
+   "u": "https://feeds.megaphone.fm/darknetdiaries",
+   "s": "https://darknetdiaries.com/",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "fc5915542a0c",
+   "n": "Discovery",
+   "u": "https://podcasts.files.bbci.co.uk/p002w557.rss",
+   "s": "http://www.bbc.co.uk/programmes/p002w557",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "2b4f3abcd9ad",
+   "n": "Fragmented - AI Developer Podcast",
+   "u": "https://feeds.simplecast.com/LpAGSLnY",
+   "s": "https://fragmentedpodcast.com/",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "ef138d3439d8",
+   "n": "Gastropod",
+   "u": "https://www.omnycontent.com/d/playlist/aaea4e69-af51-495e-afc9-a9760146922b/2a195077-f014-41d2-8313-ab190186b4c2/277bcd5c-0a05-4c14-8ba6-ab190186b4d5/podcast.rss",
+   "s": "https://gastropod.com/",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "6f527d03bfb3",
+   "n": "Hacking Humans",
+   "u": "https://feeds.megaphone.fm/hacking-humans",
+   "s": "https://thecyberwire.com/podcasts/hacking-humans",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "f5a82056f7b9",
+   "n": "Hanselminutes with Scott Hanselman",
+   "u": "https://feeds.simplecast.com/gvtxUiIf",
+   "s": "https://www.hanselminutes.com",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "d2bb973ad31c",
+   "n": "Invest Like the Best with Patrick O'Shaughnessy",
+   "u": "https://investlikethebest.libsyn.com/rss",
+   "s": "https://colossus.com/",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "aa11d011cb1c",
+   "n": "Invisibilia",
+   "u": "https://feeds.npr.org/510307/podcast.xml",
+   "s": "https://www.npr.org/podcasts/510307/invisibilia",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "ef15faeacb5c",
+   "n": "Planet Money",
+   "u": "https://feeds.npr.org/510289/podcast.xml",
+   "s": "https://www.npr.org/podcasts/510289/planet-money",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "72e5396efadb",
+   "n": "Reply All",
+   "u": "https://feeds.megaphone.fm/replyall",
+   "s": "http://gimletmedia.com/shows/reply-all",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "6c85f477a9eb",
+   "n": "The Cynical Developer",
+   "u": "https://cynicaldeveloper.com/feed/podcast",
+   "s": "https://cynical.dev/",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "95462127500a",
+   "n": "The Startup Junkies Podcast",
+   "u": "https://startupjunkie.libsyn.com/rss",
+   "s": "https://www.startupjunkie.org/podcast",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "a4dca2fccb18",
+   "n": "The Vergecast",
+   "u": "https://feeds.megaphone.fm/vergecast",
+   "s": "https://www.theverge.com/the-vergecast",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "76b68ac91016",
+   "n": "Throughline",
+   "u": "https://feeds.npr.org/510333/podcast.xml",
+   "s": "https://www.npr.org/podcasts/510333/throughline",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "en"
+  },
+  {
+   "id": "d85bdacd03f2",
+   "n": "TIANYU2FM \u2014 \u5bf9\u8c08\u672a\u77e5\u9886\u57df",
+   "u": "https://rsshub.xiaowuaiblog.com/xiaoyuzhou/podcast/5f22729f9504bbdb77253e46",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5f22729f9504bbdb77253e46",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "2d9449a736be",
+   "n": "What's Next\uff5c\u79d1\u6280\u65e9\u77e5\u9053",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e74b52c418a84a046ecaceb",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e74b52c418a84a046ecaceb",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "673865e73a50",
+   "n": "\u4e00\u5e2d",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e285326418a84a04627343f",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e285326418a84a04627343f",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "42995d2a9233",
+   "n": "\u4e09\u4e94\u73af",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e280fab418a84a0461faa3c",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e280fab418a84a0461faa3c",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "6e730a0238c7",
+   "n": "\u4e0d\u5408\u65f6\u5b9c",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e280fb8418a84a0461fd076",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e280fb8418a84a0461fd076",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "0f04c540a288",
+   "n": "\u4e1c\u4e9a\u89c2\u5bdf\u5c40",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e9a4e25418a84a046bc6156",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e9a4e25418a84a046bc6156",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "b2d2b0150497",
+   "n": "\u4e1c\u8154\u897f\u8c03",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5f72b66083c34e85dd14fde9",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5f72b66083c34e85dd14fde9",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "1b47b8934698",
+   "n": "\u4e71\u7ffb\u4e66",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/61358d971c5d56efe5bcb5d2",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/61358d971c5d56efe5bcb5d2",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "33bd7846430b",
+   "n": "\u4eba\u6c11\u516c\u56ed\u8bf4AI",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65257ff6e8ce9deaf70a65e9",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/65257ff6e8ce9deaf70a65e9",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "da13e11c6dde",
+   "n": "\u4fdd\u6301\u504f\u89c1",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/663e3c95af1e22bb157dcee3",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/663e3c95af1e22bb157dcee3",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "eaaf5d6053e6",
+   "n": "\u4fe1\u53f7\u4e0e\u566a\u58f0",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6819d5a7e37664602a344e0e",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6819d5a7e37664602a344e0e",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "133121ac3096",
+   "n": "\u51f9\u51f8\u7535\u6ce2",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e2839ca418a84a0462431b7",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e2839ca418a84a0462431b7",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "69a70e07c0a2",
+   "n": "\u5341\u5b57\u8def\u53e3Crossing \u2014 Podcast",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/60502e253c92d4f62c2a9577",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/60502e253c92d4f62c2a9577",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "7be868369e90",
+   "n": "\u534a\u62ff\u94c1 | \u5546\u4e1a\u6c89\u6d6e\u5f55",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/62382c1103bea1ebfffa1c00",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/62382c1103bea1ebfffa1c00",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "1570eea6f8cc",
+   "n": "\u536b\u8bd7\u5a55\uff5c\u6f2b\u8c08Light the Star",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6627fda4b56459544087d86a",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6627fda4b56459544087d86a",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "8f14de9eb77f",
+   "n": "\u5546\u4e1a\u5c31\u662f\u8fd9\u6837",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6022a180ef5fdaddc30bb101",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6022a180ef5fdaddc30bb101",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "e64f25f8e581",
+   "n": "\u58f0\u4e1c\u51fb\u897f",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e2831ed418a84a046231c00",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e2831ed418a84a046231c00",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "62052271b5a4",
+   "n": "\u58f0\u52a8\u65e9\u5496\u5561",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/60de7c003dd577b40d5a40f3",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/60de7c003dd577b40d5a40f3",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "88b0870c77f8",
+   "n": "\u5929\u771f\u4e0d\u5929\u771f",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65cef9e3cace72dff8d98de3",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/65cef9e3cace72dff8d98de3",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "70162b2940bc",
+   "n": "\u5c60\u9f99\u4e4b\u672f",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6507bc165c88d2412626b401",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6507bc165c88d2412626b401",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "b8cfe6d5ed5d",
+   "n": "\u5ca9\u4e2d\u82b1\u8ff0",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/625635587bfca4e73e990703",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/625635587bfca4e73e990703",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "41c2a512f1ae",
+   "n": "\u5f00\u59cb\u8fde\u63a5 LinkStart",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/63ff0da51b1faf8a0b70b337",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/63ff0da51b1faf8a0b70b337",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "1d464fd537dc",
+   "n": "\u5f20\u5c0f\u73faJ\u00f9n\uff5c\u5546\u4e1a\u8bbf\u8c08\u5f55",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/626b46ea9cbbf0451cf5a962",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/626b46ea9cbbf0451cf5a962",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "da680d76f982",
+   "n": "\u5ffd\u5de6\u5ffd\u53f3",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e4ee557418a84a0466737b7",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e4ee557418a84a0466737b7",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "6159dc5091d8",
+   "n": "\u6162\u901f\u751f\u957f",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/668d00c38fcadceb90158ac1",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/668d00c38fcadceb90158ac1",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "fa9bd3bb1c06",
+   "n": "\u6355\u86c7\u8005\u8bf4",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e2864f7418a84a04628f2da",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e2864f7418a84a04628f2da",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "9130f5722d7e",
+   "n": "\u641e\u94b1\u5973\u5b69",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/63d945ece725b5378a158d29",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/63d945ece725b5378a158d29",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "a585c233e1e4",
+   "n": "\u6587\u5316\u6709\u9650",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e4515bd418a84a046e2b11a",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e4515bd418a84a046e2b11a",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "18192fd3a746",
+   "n": "\u665a\u70b9\u804a LateTalk",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/61933ace1b4320461e91fd55",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/61933ace1b4320461e91fd55",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "1565b6716495",
+   "n": "\u674e\u8bde",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65bb55f6513a776b57dedb32",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/65bb55f6513a776b57dedb32",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "4e0b7d056777",
+   "n": "\u67ab\u8a00\u67ab\u8bed \u2014 Podcast",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e2864f5418a84a04628e249",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e2864f5418a84a04628e249",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "41e6053c5aaa",
+   "n": "\u6b64\u8bdd\u5f53\u771f",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/646f194853a5e5ea1408d97c",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/646f194853a5e5ea1408d97c",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "0616fa331dda",
+   "n": "\u6e38\u8361\u96c6",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6163ca67c8c1d14e83366b31",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6163ca67c8c1d14e83366b31",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "1a8ec1c7089b",
+   "n": "\u725b\u6cb9\u679c\u70e4\u9762\u5305",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e7c8b2b418a84a046e3ecbc",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e7c8b2b418a84a046e3ecbc",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "febf5ef6448c",
+   "n": "\u72ec\u6811\u4e0d\u6210\u6797",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/64acd33c7a3d479103fbd32d",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/64acd33c7a3d479103fbd32d",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "d8948ecbfb58",
+   "n": "\u75af\u6295\u5708",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e280faf418a84a0461fbd39",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e280faf418a84a0461fbd39",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "506f0d5c059c",
+   "n": "\u76ae\u86cb\u6f2b\u6e38\u8bb0",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6281264ad22bcf3950c80b56",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6281264ad22bcf3950c80b56",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "731b839efa83",
+   "n": "\u770b\u7406\u60f3\u5706\u684c",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e4ff4c7418a84a046977618",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e4ff4c7418a84a046977618",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "7de6bbaee53e",
+   "n": "\u77e5\u884c\u5c0f\u9152\u9986",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6013f9f58e2f7ee375cf4216",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6013f9f58e2f7ee375cf4216",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "a8eef59d4dd4",
+   "n": "\u7845\u8c37101 \u2014 Podcast",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e5c52c9418a84a04625e6cc",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e5c52c9418a84a04625e6cc",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "83376319f07f",
+   "n": "\u786c\u5730\u9a87\u5ba2",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/640ee2438be5d40013fe4a87",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/640ee2438be5d40013fe4a87",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "f6dac64cd994",
+   "n": "\u79d1\u6280\u4e71\u7096",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e4243cd418a84a0469573fb",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e4243cd418a84a0469573fb",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "8df7a7a40fc1",
+   "n": "\u7b2c\u4e00\u8d22\u7ecf",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/64c75555e8176c3ff81de98c",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/64c75555e8176c3ff81de98c",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "4fa59a6b4f69",
+   "n": "\u7eb5\u6a2a\u56db\u6d77",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/62694abdb221dd5908417d1e",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/62694abdb221dd5908417d1e",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "3ec8bce36180",
+   "n": "\u7f57\u6c38\u6d69\u7684\u5341\u5b57\u8def\u53e3",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/68981df29e7bcd326eb91d88",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/68981df29e7bcd326eb91d88",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "a5dffa6f7bfd",
+   "n": "\u80a5\u8bdd\u8fde\u7bc7",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/61d50d72ee197a3aac3dac42",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/61d50d72ee197a3aac3dac42",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "386cc8d3d875",
+   "n": "\u81ea\u4e60\u5ba4 STUDY ROOM",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65a5fb7540d4ef949c0140ac",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/65a5fb7540d4ef949c0140ac",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "90e975d57548",
+   "n": "\u81ea\u6211\u8fdb\u5316\u8bba",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e5de5cb418a84a0467beb90",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e5de5cb418a84a0467beb90",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "37d32b1d4548",
+   "n": "\u848b\u65b9\u821f\u00b7\u4e00\u5bf8",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/67c7eeb07ac3e30992e75a2f",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/67c7eeb07ac3e30992e75a2f",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "2f80921fbea9",
+   "n": "\u8bd7\u68b3\u98ce",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/696496f4db4738160d5fabde",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/696496f4db4738160d5fabde",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "5b85ff6cd361",
+   "n": "\u8c2d\u7acb\u4eba",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65a2d0f07242f9fc1c1df60a",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/65a2d0f07242f9fc1c1df60a",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "3e982a0f523e",
+   "n": "\u8d77\u6731\u697c\u5bb4\u5bbe\u5ba2",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/61dd99a47b29652ff572257b",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/61dd99a47b29652ff572257b",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "821e3646013d",
+   "n": "\u8de8\u56fd\u4e32\u95e8\u513f\u8ba1\u5212",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/670f3da40d2f24f28978736f",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/670f3da40d2f24f28978736f",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "97f17d9fd7fb",
+   "n": "\u968f\u673a\u6ce2\u52a8StochasticVolatility",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e7cc741418a84a046b0c2bd",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/5e7cc741418a84a046b0c2bd",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "8dc375c07c6e",
+   "n": "\u9762\u57fa",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/6388760f22567e8ea6ad070f",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/6388760f22567e8ea6ad070f",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "017911da842f",
+   "n": "\u9ad8\u80fd\u91cf",
+   "u": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/62c6ae08c4eaa82b112b9c84",
+   "s": "https://www.xiaoyuzhoufm.com/podcast/62c6ae08c4eaa82b112b9c84",
+   "c": "Podcasts",
+   "k": "podcast",
+   "l": "zh"
+  },
+  {
+   "id": "a5f966b7addc",
+   "n": "61\u2019s life",
+   "u": "https://61.life/feed.xml",
+   "s": "https://61.life/",
+   "c": "Product & Design",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6a3c69e32240",
+   "n": "jax",
+   "u": "https://cdjax.com/?feed=rss2",
+   "s": "https://cdjax.com",
+   "c": "Product & Design",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "15d9c5005b94",
+   "n": "Velas\u7535\u6ce2\u7ad9",
+   "u": "https://www.velasx.com/feed",
+   "s": "https://www.velasx.com/",
+   "c": "Product & Design",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "67c0f7aede55",
+   "n": "\u62fe\u6708\u7684\u535a\u5ba2",
+   "u": "https://www.skyue.com/feed/",
+   "s": "https://www.skyue.com/",
+   "c": "Product & Design",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "6bfa519bb108",
+   "n": "\u963f\u91cc\u4e91\u8bbe\u8ba1\u4e2d\u5fc3",
+   "u": "https://wechat2rss.xlab.app/feed/31e04606d37f684059e23a8fd3e05f1db0186495.xml",
+   "s": "https://wechat2rss.xlab.app/feed/31e04606d37f684059e23a8fd3e05f1db0186495.xml",
+   "c": "Product & Design",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "b7b2cec82d5e",
+   "n": "AAAS: Science: Table of Contents",
+   "u": "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science",
+   "s": "https://www.science.org/loi/science?af=R",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "e19ec4477c91",
+   "n": "All Top News -- ScienceDaily",
+   "u": "https://www.sciencedaily.com/rss/top/science.xml",
+   "s": "https://www.sciencedaily.com/news/top/",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "d42b29d19244",
+   "n": "Amazon Science",
+   "u": "https://www.amazon.science/index.rss",
+   "s": "https://www.amazon.science/",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "a6d026e59175",
+   "n": "BBC News \u2014 Science",
+   "u": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+   "s": "https://www.bbc.co.uk/news/science_and_environment",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "eda13bcfa201",
+   "n": "eLife: latest articles",
+   "u": "https://elifesciences.org/rss/recent.xml",
+   "s": "https://elifesciences.org",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "81f4798a0631",
+   "n": "FlowingData",
+   "u": "https://flowingdata.com/feed",
+   "s": "https://flowingdata.com",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "7cba684b2f9c",
+   "n": "Latest Science News -- ScienceDaily",
+   "u": "https://www.sciencedaily.com/rss/all.xml",
+   "s": "https://www.sciencedaily.com/news/",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "e3069eef100a",
+   "n": "NASA",
+   "u": "https://www.nasa.gov/news-release/feed/",
+   "s": "https://www.nasa.gov",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "d592eddffea9",
+   "n": "Nature",
+   "u": "https://www.nature.com/nature.rss",
+   "s": "http://feeds.nature.com/nature/rss/current",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "db9681969d50",
+   "n": "NYT > Science",
+   "u": "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+   "s": "https://www.nytimes.com/section/science",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "49e9cfe3fcd4",
+   "n": "Phys.org - latest science and technology news stories",
+   "u": "https://phys.org/rss-feed/",
+   "s": "https://phys.org/",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "9723d5e70499",
+   "n": "PLOS One",
+   "u": "https://journals.plos.org/plosone/feed/atom",
+   "s": "https://journals.plos.org/plosone/",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "4382d5e8491c",
+   "n": "Quanta Magazine",
+   "u": "https://www.quantamagazine.org/feed/",
+   "s": "https://www.quantamagazine.org",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "cda71b1181b1",
+   "n": "Science Latest",
+   "u": "https://www.wired.com/feed/category/science/latest/rss",
+   "s": "https://www.wired.com",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "06802e3881d6",
+   "n": "Scientific American Content: Global",
+   "u": "http://rss.sciam.com/ScientificAmerican-Global",
+   "s": "https://www.scientificamerican.com",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "0ebaae9e8dd1",
+   "n": "Space | The Guardian",
+   "u": "https://www.theguardian.com/science/space/rss",
+   "s": "https://www.theguardian.com/science/space",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "406fc6a48471",
+   "n": "Space \u2013 latest in science and technology | New Scientist",
+   "u": "https://www.newscientist.com/subject/space/feed/",
+   "s": "https://www.newscientist.com/subject/space/",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "e64bd31a2472",
+   "n": "\u817e\u8baf\u7814\u7a76\u9662",
+   "u": "https://wechat2rss.bestblogs.dev/feed/6152301e0978bffb0a8284cab339262b9764dcfb.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/6152301e0978bffb0a8284cab339262b9764dcfb.xml",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "a1142ae83749",
+   "n": "\u963f\u91cc\u7814\u7a76\u9662",
+   "u": "https://wechat2rss.bestblogs.dev/feed/e2f1190c120f7f3d74b630bfcfe9e58296bd535c.xml",
+   "s": "https://wechat2rss.bestblogs.dev/feed/e2f1190c120f7f3d74b630bfcfe9e58296bd535c.xml",
+   "c": "Research & Science",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "1d276ab834d0",
+   "n": "3Blue1Brown",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCYO_jab_esuFRV4b17AJtAw",
+   "s": "https://www.youtube.com/channel/UCYO_jab_esuFRV4b17AJtAw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "58ad682eaa77",
+   "n": "a16z",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9cn0TuPq4dnbTY-CBsm8XA",
+   "s": "https://www.youtube.com/channel/UC9cn0TuPq4dnbTY-CBsm8XA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "cb90c7716cd9",
+   "n": "Acquired",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCyFqFYfTW2VoIQKylJ04Rtw",
+   "s": "https://www.youtube.com/channel/UCyFqFYfTW2VoIQKylJ04Rtw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "564407c1065f",
+   "n": "AI Engineer",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCLKPca3kwwd-B59HNr-_lvA",
+   "s": "https://www.youtube.com/channel/UCLKPca3kwwd-B59HNr-_lvA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "5a6c6d23afa6",
+   "n": "AI Explained",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
+   "s": "https://www.youtube.com/channel/UCNJ1Ymd5yFuUPtn21xtRbbw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "a8a692f6c4ac",
+   "n": "AI Master",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0yHbz4OxdQFwmVX2BBQqLg",
+   "s": "https://www.youtube.com/channel/UC0yHbz4OxdQFwmVX2BBQqLg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "343ca15a702f",
+   "n": "AI Search",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCIgnGlGkVRhd4qNFcEwLL4A",
+   "s": "https://www.youtube.com/channel/UCIgnGlGkVRhd4qNFcEwLL4A",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "2068a0e1cf19",
+   "n": "AICodeKing",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0m81bQuthaQZmFbXEY9QSw",
+   "s": "https://www.youtube.com/channel/UC0m81bQuthaQZmFbXEY9QSw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "4310e91d30c4",
+   "n": "Alex Kantrowitz",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCye1YedIypHffYb8k6Gp9wg",
+   "s": "https://www.youtube.com/channel/UCye1YedIypHffYb8k6Gp9wg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "db11a1b4eecc",
+   "n": "Ali Abdaal",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCoOae5nYA7VqaXzerajD0lg",
+   "s": "https://www.youtube.com/channel/UCoOae5nYA7VqaXzerajD0lg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "2d9b4906c612",
+   "n": "All-In Podcast",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCESLZhusAkFfsNsApnjF_Cg",
+   "s": "https://www.youtube.com/channel/UCESLZhusAkFfsNsApnjF_Cg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "66c10e0a8415",
+   "n": "Andrej Karpathy",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXUPKJO5MZQN11PqgIvyuvQ",
+   "s": "https://www.youtube.com/channel/UCXUPKJO5MZQN11PqgIvyuvQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "3cbbf422f34e",
+   "n": "Andrew Huberman",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC2D2CMWXMOVWx7giW1n3LIg",
+   "s": "https://www.youtube.com/channel/UC2D2CMWXMOVWx7giW1n3LIg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "1eeadcc9c086",
+   "n": "Android Developers",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=androiddevelopers",
+   "s": "https://www.youtube.com/channel/UCVHFbqXqoYvEWM1Ddxl0QDg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "132979829aff",
+   "n": "AssemblyAI",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCtatfZMf-8EkIwASXM4ts0A",
+   "s": "https://www.youtube.com/channel/UCtatfZMf-8EkIwASXM4ts0A",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "9ea22cbbab95",
+   "n": "BBC Earth",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCwmZiChSryoWQCZMIQezgTg",
+   "s": "https://www.youtube.com/channel/UCwmZiChSryoWQCZMIQezgTg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "dfbd888e8093",
+   "n": "Beyond Coding",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCdMz6KKEDW_1Qqas-ya7S6w",
+   "s": "https://www.youtube.com/channel/UCdMz6KKEDW_1Qqas-ya7S6w",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "94ba8e9242b7",
+   "n": "Bloomberg Originals",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=Bloomberg",
+   "s": "https://www.youtube.com/channel/UCUMZ7gohGI9HcU9VNsr2FJQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "f2be2e49dca1",
+   "n": "Branch Education",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCdp4_l1vPmpN-gDbUwhaRUQ",
+   "s": "https://www.youtube.com/channel/UCdp4_l1vPmpN-gDbUwhaRUQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "9e6020b87953",
+   "n": "Business Insider",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=businessinsider",
+   "s": "https://www.youtube.com/channel/UCcyq283he07B7_KUX07mmtA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "c253e879eb64",
+   "n": "ByteByteGo",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCZgt6AzoyjslHTC9dz0UoTw",
+   "s": "https://www.youtube.com/channel/UCZgt6AzoyjslHTC9dz0UoTw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "052e73e7a40e",
+   "n": "CNET",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=CNETTV",
+   "s": "https://www.youtube.com/channel/UCOmcA3f_RrH6b9NmcNa4tdg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "5925d3bfcd89",
+   "n": "Computerphile",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9-y-6csu5WGm29I7JiwpnA",
+   "s": "https://www.youtube.com/channel/UC9-y-6csu5WGm29I7JiwpnA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "c97f2e3fd78d",
+   "n": "Curious Refuge",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UClnFtyUEaxQOCd1s5NKYGFA",
+   "s": "https://www.youtube.com/channel/UClnFtyUEaxQOCd1s5NKYGFA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "4b8704a07fc9",
+   "n": "DeepLearningAI \u2014 Video",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCcIXc5mJsHVYTZR1maL5l9w",
+   "s": "https://www.youtube.com/channel/UCcIXc5mJsHVYTZR1maL5l9w",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "2256b5100aa2",
+   "n": "Dwarkesh Patel",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXl4i9dYBrFOabk0xGmbkRA",
+   "s": "https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "d558e20f7a4a",
+   "n": "Elizabeth Alli - DesignerUp",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCw2R8kz3aotYtV9utqf0uaw",
+   "s": "https://www.youtube.com/channel/UCw2R8kz3aotYtV9utqf0uaw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "6c22b7109495",
+   "n": "EO",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UClWTCPVi-AU9TeCN6FkGARg",
+   "s": "https://www.youtube.com/channel/UClWTCPVi-AU9TeCN6FkGARg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "517020e9d055",
+   "n": "Fireship",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsBjURrPoezykLs9EqgamOA",
+   "s": "https://www.youtube.com/channel/UCsBjURrPoezykLs9EqgamOA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "ffeea3263aba",
+   "n": "freeCodeCamp.org",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC8butISFwT-Wl7EV0hUK0BQ",
+   "s": "https://www.youtube.com/channel/UC8butISFwT-Wl7EV0hUK0BQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "ad34efd4db57",
+   "n": "Google",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCK8sQmJBp8GCxrOtXWBpyEA",
+   "s": "https://www.youtube.com/channel/UCK8sQmJBp8GCxrOtXWBpyEA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "361db262512d",
+   "n": "Google DeepMind",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCP7jMXSY2xbc3KCAE0MHQ-A",
+   "s": "https://www.youtube.com/channel/UCP7jMXSY2xbc3KCAE0MHQ-A",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "143367e2dc6c",
+   "n": "Greg Isenberg",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCPjNBjflYl0-HQtUvOx0Ibw",
+   "s": "https://www.youtube.com/channel/UCPjNBjflYl0-HQtUvOx0Ibw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "52ea529d2f54",
+   "n": "How I AI",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCRYY7IEbkHLH_ScJCu9eWDQ",
+   "s": "https://www.youtube.com/channel/UCRYY7IEbkHLH_ScJCu9eWDQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "ceb9c1862fba",
+   "n": "Hung-yi Lee",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC2ggjtuuWvxrHHHiaDH1dlQ",
+   "s": "https://www.youtube.com/channel/UC2ggjtuuWvxrHHHiaDH1dlQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "a652864533f3",
+   "n": "Hussein Nasser",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC_ML5xP23TOWKUcc-oAE_Eg",
+   "s": "https://www.youtube.com/channel/UC_ML5xP23TOWKUcc-oAE_Eg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "89f780b3c1f1",
+   "n": "Invest Like The Best",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCpQBb0fToph3jrDulwz1iUQ",
+   "s": "https://www.youtube.com/channel/UCpQBb0fToph3jrDulwz1iUQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "36fc3fb401d4",
+   "n": "Justin Sung",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC2Zs9v2hL2qZZ7vsAENsg4w",
+   "s": "https://www.youtube.com/channel/UC2Zs9v2hL2qZZ7vsAENsg4w",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "3ff7b9d969eb",
+   "n": "Kurzgesagt \u2013 In a Nutshell",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q",
+   "s": "https://www.youtube.com/channel/UCsXVk37bltHxD1rDPwtNM8Q",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "bea62188bd6d",
+   "n": "LangChain",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCC-lyoTfSrcJzA1ab3APAgw",
+   "s": "https://www.youtube.com/channel/UCC-lyoTfSrcJzA1ab3APAgw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "c2153a9fa50d",
+   "n": "Last Week in AI \u2014 Video",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCKARTq-t5SPMzwtft8FWwnA",
+   "s": "https://www.youtube.com/channel/UCKARTq-t5SPMzwtft8FWwnA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "c175061ac323",
+   "n": "leerob",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCZMli3czZnd1uoc1ShTouQw",
+   "s": "https://www.youtube.com/channel/UCZMli3czZnd1uoc1ShTouQw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "f9398041d9f4",
+   "n": "Lenny's Podcast",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6t1O76G0jYXOAoYCm153dA",
+   "s": "https://www.youtube.com/channel/UC6t1O76G0jYXOAoYCm153dA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "13a6464ed80e",
+   "n": "Lex Fridman",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCSHZKyawb77ixDdsGog4iWA",
+   "s": "https://www.youtube.com/channel/UCSHZKyawb77ixDdsGog4iWA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "b8edc21b56b9",
+   "n": "Liam Ottley",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCui4jxDaMb53Gdh-AZUTPAg",
+   "s": "https://www.youtube.com/channel/UCui4jxDaMb53Gdh-AZUTPAg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "57defe4596c1",
+   "n": "Linus Tech Tips",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=LinusTechTips",
+   "s": "https://www.youtube.com/channel/UCXuqSBlHAE6Xw-yeJA0Tunw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "ebd3ca9cd97f",
+   "n": "Luma",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC45T0I4p7A3dI0XvhivafZQ",
+   "s": "https://www.youtube.com/channel/UC45T0I4p7A3dI0XvhivafZQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "ee8180f639a8",
+   "n": "Machine Learning Street Talk",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCMLtBahI5DMrt0NPvDSoIRQ",
+   "s": "https://www.youtube.com/channel/UCMLtBahI5DMrt0NPvDSoIRQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "6155ce893cd4",
+   "n": "MacRumors",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=macrumors",
+   "s": "https://www.youtube.com/channel/UCaFGDBmGK_jw66u3av2Ysjw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "6f34d93884d1",
+   "n": "Marie Forleo",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=marieforleo",
+   "s": "https://www.youtube.com/channel/UCuoxrRDDgk3UUnxR4tlkJYQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "da5719c1c604",
+   "n": "Matt Wolfe",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti38g",
+   "s": "https://www.youtube.com/channel/UChpleBmo18P08aKCIgti38g",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "28d5b46e017c",
+   "n": "Matthew Berman",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCawZsQWqfGSbCI5yjkdVkTA",
+   "s": "https://www.youtube.com/channel/UCawZsQWqfGSbCI5yjkdVkTA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "a6c7950bc1f8",
+   "n": "MrBeast",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCX6OQ3DkcsbYNE6H8uQQuVA",
+   "s": "https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "1e2d4769f63e",
+   "n": "mrblock \u5340\u584a\u5148\u751f",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCN2hSM8fBcvZBa8OOKc24eg",
+   "s": "https://www.youtube.com/channel/UCN2hSM8fBcvZBa8OOKc24eg",
+   "c": "Videos",
+   "k": "video",
+   "l": "zh"
+  },
+  {
+   "id": "1ac1031efa6e",
+   "n": "Nature on PBS",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCcBp_9YPyma4c3HTadmRJ3Q",
+   "s": "https://www.youtube.com/channel/UCcBp_9YPyma4c3HTadmRJ3Q",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "b6a47410ef47",
+   "n": "nature video",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC7c8mE90qCtu11z47U0KErg",
+   "s": "https://www.youtube.com/channel/UC7c8mE90qCtu11z47U0KErg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "9060950aea0c",
+   "n": "Naval",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCh_dVD10YuSghle8g6yjePg",
+   "s": "https://www.youtube.com/channel/UCh_dVD10YuSghle8g6yjePg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "633ce1042e86",
+   "n": "Nick Saraev",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbo-KbSjJDG6JWQ_MTZ_rNA",
+   "s": "https://www.youtube.com/channel/UCbo-KbSjJDG6JWQ_MTZ_rNA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "8ae7ff67e9c0",
+   "n": "Nikhil Kamath",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCnC8SAZzQiBGYVSKZ_S3y4Q",
+   "s": "https://www.youtube.com/channel/UCnC8SAZzQiBGYVSKZ_S3y4Q",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "2fd4f6ec338f",
+   "n": "NNgroup",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC2oCugzU6W8-h95W7eBTUEg",
+   "s": "https://www.youtube.com/channel/UC2oCugzU6W8-h95W7eBTUEg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "1953d707606d",
+   "n": "No Priors: AI, Machine Learning, Tech, & Startups",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCSI7h9hydQ40K5MJHnCrQvw",
+   "s": "https://www.youtube.com/channel/UCSI7h9hydQ40K5MJHnCrQvw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "119fcb0aa10b",
+   "n": "OpenAI",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXZCJLdBC09xxGZ6gcdrc6A",
+   "s": "https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "663e100f6b1d",
+   "n": "Patrick Boyle",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCASM0cgfkJxQ1ICmRilfHLw",
+   "s": "https://www.youtube.com/channel/UCASM0cgfkJxQ1ICmRilfHLw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "0478c4668119",
+   "n": "Pika Labs",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0SclYU4iiQRihtmDnak-gQ",
+   "s": "https://www.youtube.com/channel/UC0SclYU4iiQRihtmDnak-gQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "62deef1de608",
+   "n": "PowerfulJRE",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCzQUP1qoWDoEbmsQxvdjxgQ",
+   "s": "https://www.youtube.com/channel/UCzQUP1qoWDoEbmsQxvdjxgQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "ee917d6df0bb",
+   "n": "Product School",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6hlQ0x6kPbAGjYkoz53cvA",
+   "s": "https://www.youtube.com/channel/UC6hlQ0x6kPbAGjYkoz53cvA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "7684996380db",
+   "n": "Real Engineering",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCR1IuLEqb6UEA_zQ81kwXfg",
+   "s": "https://www.youtube.com/channel/UCR1IuLEqb6UEA_zQ81kwXfg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "dbaab1db84ce",
+   "n": "Riley Brown",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCMcoud_ZW7cfxeIugBflSBw",
+   "s": "https://www.youtube.com/channel/UCMcoud_ZW7cfxeIugBflSBw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "d75ba6c0679b",
+   "n": "Runway",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCUBqu_z5uP0AZhYtuyFZB3g",
+   "s": "https://www.youtube.com/channel/UCUBqu_z5uP0AZhYtuyFZB3g",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "800c4b144211",
+   "n": "Ryan Peterman",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCzB7YGrrxDC_POenf86H3_Q",
+   "s": "https://www.youtube.com/channel/UCzB7YGrrxDC_POenf86H3_Q",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "e4d54b3329c1",
+   "n": "Sabin Civil Engineering",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCqZQJ4600a9wIfMPbYc60OQ",
+   "s": "https://www.youtube.com/channel/UCqZQJ4600a9wIfMPbYc60OQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "c250517fcc2e",
+   "n": "Sequoia Capital",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCWrF0oN6unbXrWsTN7RctTw",
+   "s": "https://www.youtube.com/channel/UCWrF0oN6unbXrWsTN7RctTw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "5297965a7493",
+   "n": "Silicon Valley Girl",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiq1FIgtEK7LRAOB1JXTPig",
+   "s": "https://www.youtube.com/channel/UCiq1FIgtEK7LRAOB1JXTPig",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "f9aa7d53236c",
+   "n": "SpaceX",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=spacexchannel",
+   "s": "https://www.youtube.com/channel/UCtI0Hodo5o5dUb67FeUjDeA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "26c3ab320c8a",
+   "n": "Spring I/O",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCLMPXsvSrhNPN3i9h-u8PYg",
+   "s": "https://www.youtube.com/channel/UCLMPXsvSrhNPN3i9h-u8PYg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "8a5aab81dc27",
+   "n": "StatQuest with Josh Starmer",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCtYLUTtgS3k1Fg4y5tAhLbw",
+   "s": "https://www.youtube.com/channel/UCtYLUTtgS3k1Fg4y5tAhLbw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "fbb364264647",
+   "n": "Tao Prompts",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCc1qMq2UBJD9cSKbeBwGoZQ",
+   "s": "https://www.youtube.com/channel/UCc1qMq2UBJD9cSKbeBwGoZQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "c64f1fbf1177",
+   "n": "TED",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCAuUUnT6oDeKwE6v1NGQxug",
+   "s": "https://www.youtube.com/channel/UCAuUUnT6oDeKwE6v1NGQxug",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "55941cac1dfc",
+   "n": "The AI Advantage",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHhYXsLBEVVnbvsq57n1MTQ",
+   "s": "https://www.youtube.com/channel/UCHhYXsLBEVVnbvsq57n1MTQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "f36ae6e58aa4",
+   "n": "The Futur",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC-b3c7kxa5vU-bnmaROgvog",
+   "s": "https://www.youtube.com/channel/UC-b3c7kxa5vU-bnmaROgvog",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "e8790a4314cb",
+   "n": "The Knowledge Project Podcast",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCLtTf_uKt0Itd0NG7txrwXA",
+   "s": "https://www.youtube.com/channel/UCLtTf_uKt0Itd0NG7txrwXA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "55b577baf45d",
+   "n": "The Pragmatic Engineer",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCPbwhExawYrn9xxI21TFfyw",
+   "s": "https://www.youtube.com/channel/UCPbwhExawYrn9xxI21TFfyw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "89963ec132aa",
+   "n": "The Verge \u2014 Video",
+   "u": "https://www.youtube.com/feeds/videos.xml?user=TheVerge",
+   "s": "https://www.youtube.com/channel/UCddiUEpeqJcYeBxX1IVBKvQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "fb64498a5bbb",
+   "n": "Tina Huang",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC2UXDak6o7rBm23k3Vv5dww",
+   "s": "https://www.youtube.com/channel/UC2UXDak6o7rBm23k3Vv5dww",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "b8d0024b620e",
+   "n": "Traversy Media",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UC29ju8bIPH5as8OGnQzwJyA",
+   "s": "https://www.youtube.com/channel/UC29ju8bIPH5as8OGnQzwJyA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "d14ec7c45839",
+   "n": "Web Dev Simplified",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCFbNIlppjAuEX4znoulh0Cw",
+   "s": "https://www.youtube.com/channel/UCFbNIlppjAuEX4znoulh0Cw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "dce010e0053c",
+   "n": "Wes Roth",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCqcbQf6yw5KzRoDDcZ_wBSw",
+   "s": "https://www.youtube.com/channel/UCqcbQf6yw5KzRoDDcZ_wBSw",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "f020dd467f60",
+   "n": "Y Combinator",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCcefcZRL2oaA_uBNeo5UOWg",
+   "s": "https://www.youtube.com/channel/UCcefcZRL2oaA_uBNeo5UOWg",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "78ea30a8efa2",
+   "n": "Yannic Kilcher",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCZHmQk67mSJgfCCTn7xBfew",
+   "s": "https://www.youtube.com/channel/UCZHmQk67mSJgfCCTn7xBfew",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "7d4822afc0a6",
+   "n": "yobi321",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCB_DbqNN9w30tnyWJSrIwyA",
+   "s": "https://www.youtube.com/channel/UCB_DbqNN9w30tnyWJSrIwyA",
+   "c": "Videos",
+   "k": "video",
+   "l": "en"
+  },
+  {
+   "id": "9999c561e9a1",
+   "n": "\u4e00\u5e2dYiXi",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCKFB_rVEFEF3l-onQGvGx1A",
+   "s": "https://www.youtube.com/channel/UCKFB_rVEFEF3l-onQGvGx1A",
+   "c": "Videos",
+   "k": "video",
+   "l": "zh"
+  },
+  {
+   "id": "587883a0fb1a",
+   "n": "\u4e00\u6761Yit",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCulFhrW_YCwkq_BP16C82mA",
+   "s": "https://www.youtube.com/channel/UCulFhrW_YCwkq_BP16C82mA",
+   "c": "Videos",
+   "k": "video",
+   "l": "zh"
+  },
+  {
+   "id": "34b290e65454",
+   "n": "\u674e\u6c38\u4e50\u8001\u5e08",
+   "u": "https://www.youtube.com/feeds/videos.xml?channel_id=UCvNxfitQbWkmLuCd44UfrYQ",
+   "s": "https://www.youtube.com/channel/UCvNxfitQbWkmLuCd44UfrYQ",
+   "c": "Videos",
+   "k": "video",
+   "l": "zh"
+  },
+  {
+   "id": "5f79be67c1ef",
+   "n": "V2EX \u00b7 \u6280\u672f",
+   "u": "https://www.v2ex.com/feed/tab/tech.xml",
+   "s": "https://www.v2ex.com/?tab=tech",
+   "c": "Communities",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "ff5396e7d1f6",
+   "n": "V2EX \u00b7 \u521b\u610f",
+   "u": "https://www.v2ex.com/feed/tab/creative.xml",
+   "s": "https://www.v2ex.com/?tab=creative",
+   "c": "Communities",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "132a8fdfa839",
+   "n": "Show HN",
+   "u": "https://hnrss.org/show",
+   "s": "https://news.ycombinator.com/shownew",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "a8f1f01b14a8",
+   "n": "Ask HN",
+   "u": "https://hnrss.org/ask",
+   "s": "https://news.ycombinator.com/ask",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "e8b4a99d4203",
+   "n": "CISA",
+   "u": "https://www.cisa.gov/news.xml",
+   "s": "https://www.cisa.gov/news-events",
+   "c": "Security",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "375ba5267f5b",
+   "n": "FreeBuf \u7f51\u7edc\u5b89\u5168\u884c\u4e1a\u95e8\u6237",
+   "u": "https://www.freebuf.com/feed",
+   "s": "https://www.freebuf.com/",
+   "c": "Security",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "abb25a1c4ec6",
+   "n": "MIT Technology Review",
+   "u": "https://www.technologyreview.com/feed/",
+   "s": "https://www.technologyreview.com/",
+   "c": "Technology Media",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "cc3c4c9556ef",
+   "n": "JavaScript Weekly",
+   "u": "https://javascriptweekly.com/rss/",
+   "s": "https://javascriptweekly.com/",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "6440dc025421",
+   "n": "This Week in Rust",
+   "u": "https://this-week-in-rust.org/atom.xml",
+   "s": "https://this-week-in-rust.org/",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "en"
+  },
+  {
+   "id": "836ccfdca641",
+   "n": "\u962e\u4e00\u5cf0\u7684\u7f51\u7edc\u65e5\u5fd7",
+   "u": "https://www.ruanyifeng.com/blog/atom.xml",
+   "s": "https://www.ruanyifeng.com/blog/",
+   "c": "Tech Newsletters & Weeklies",
+   "k": "article",
+   "l": "zh"
+  },
+  {
+   "id": "7198d80d0366",
+   "n": "Hacker News",
+   "u": "https://news.ycombinator.com/rss",
+   "s": "https://news.ycombinator.com/",
+   "c": "Communities",
+   "k": "article",
+   "l": "en"
+  }
+ ]
+}

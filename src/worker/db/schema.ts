@@ -35,6 +35,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     settings TEXT NOT NULL DEFAULT '{}',
     template_library TEXT,
     quickadd TEXT,
+    rss TEXT,
     created_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL
   )`,
@@ -716,12 +717,14 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    // The account's QuickAdd choices and their options, kept beside `template_library` for the
-    // same reason: a cleared browser and another device must both find them.
-    version: 29,
-    skipIfColumnExists: { table: 'users', column: 'quickadd' },
+    // The account's reading library: subscriptions, groups and what has been read. Beside
+    // `quickadd` for the same reason as that column — a cleared browser and another device must
+    // both find it — and as its own column rather than inside `settings`, because a few hundred
+    // feeds would crowd out every preference the account has.
+    version: 30,
+    skipIfColumnExists: { table: 'users', column: 'rss' },
     statements: [
-      `ALTER TABLE users ADD COLUMN quickadd TEXT`,
+      `ALTER TABLE users ADD COLUMN rss TEXT`,
     ],
   },
 ]
@@ -746,7 +749,7 @@ const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
 const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_meta: ['key', 'value'],
   schema_migrations: ['version', 'applied_at'],
-  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'created_at', 'last_seen_at'],
+  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'rss', 'created_at', 'last_seen_at'],
   folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at', 'deleted_at'],
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],

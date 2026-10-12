@@ -3,6 +3,7 @@ import * as idbKeyval from 'idb-keyval'
 import type { UseStore } from 'idb-keyval'
 import type { Folder, Note, NoteSummary, NoteTemplate, NoteTemplateCategory, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
 import { parseQuickAddRecord } from '@shared/quickadd'
+import { parseFeedCache, type RssFeedCache } from '@shared/rss/model'
 import type { QuickAddChoice, QuickAddSettings } from '@shared/quickadd'
 import { CLIENT_DATABASE_NAME } from './runtime'
 
@@ -27,6 +28,9 @@ const KEY = {
   outboxReplayLease: 'outboxReplayLease',
   templateLibrary: 'templateLibrary',
   quickadd: 'quickadd',
+  rssArticles: (id: string) => `rssArticles:${id}`,
+  rssCache: 'rssCache',
+  rssAi: 'rssAi',
   userId: 'userId',
   session: 'session',
 } as const
@@ -407,6 +411,36 @@ export const localDb = {
       syncedAt: data.syncedAt,
       pendingPush: data.pendingPush,
     }),
+
+  /**
+   * The articles one device fetched for one feed.
+   *
+   * They are rebuildable from the network, so they stay out of the account library and travel
+   * through no wire but the feed itself; a record that no longer parses is dropped whole rather
+   * than half-trusted, which is the same rule the QuickAdd store follows.
+   */
+  async loadRssArticles(feedId: string): Promise<RssFeedCache | null> {
+    return parseFeedCache(await safeGet<unknown>(userScopedKey(KEY.rssArticles(feedId))))
+  },
+  saveRssArticles: (cache: RssFeedCache) =>
+    safeSet(userScopedKey(KEY.rssArticles(cache.feedId)), cache),
+  dropRssArticles: (feedId: string) => del(userScopedKey(KEY.rssArticles(feedId)), store).catch(() => {}),
+
+  /** Which feeds the device holds and how large each is, so the cache can be trimmed without
+   * reading every value back to find out.
+   */
+  async loadRssCacheIndex(): Promise<unknown> {
+    return safeGet<unknown>(userScopedKey(KEY.rssCache))
+  },
+  saveRssCacheIndex: (value: unknown) => safeSet(userScopedKey(KEY.rssCache), value),
+
+  /** The AI endpoint a reader configured here. The key is stored on this device and never sent
+   * anywhere except the relay it is about to be used against.
+   */
+  async loadRssAi(): Promise<unknown> {
+    return safeGet<unknown>(userScopedKey(KEY.rssAi))
+  },
+  saveRssAi: (value: unknown) => safeSet(userScopedKey(KEY.rssAi), value),
 
   getOutbox: async (): Promise<OutboxItem[]> => normalizeOutbox(await safeGet<unknown>(userScopedKey(KEY.outbox))),
 

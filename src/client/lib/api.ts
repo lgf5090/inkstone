@@ -1,3 +1,4 @@
+import type { RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
@@ -528,6 +529,16 @@ export const api = {
       request<{ values: string[] }>(`/api/quickadd/field-values${toQuery(query)}`),
     fieldNotes: (query: { name: string; value?: string; folder?: string; tag?: string; excludeTag?: string; limit?: number }) =>
       request<{ notes: { id: string, title: string }[] }>(`/api/quickadd/field-notes${toQuery(query)}`),
+  },
+
+  rss: {
+    load: () => request<{ savedAt: number; library: unknown }>('/api/rss/library'),
+    save: (library: string) =>
+      request<{ savedAt: number }>('/api/rss/library', { method: 'PUT', body: { library } }),
+    fetch: (requests: Array<{ url: string; etag?: string; lastModified?: string }>) =>
+      request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
+    /** The same-origin address an article image or an episode enclosure loads from. */
+    relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
   },
 
   mcp: {
