@@ -55,12 +55,26 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     summary TEXT,
     summary_upto INTEGER,
     pinned INTEGER NOT NULL DEFAULT 0,
+    folder_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_conversations_user
      ON chat_conversations(user_id, updated_at DESC, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_conversations_folder
+     ON chat_conversations(user_id, folder_id, updated_at DESC)`,
+
+  // The join table mirrors note_tags: one row in tags, shared by whatever it labels.
+  `CREATE TABLE IF NOT EXISTS chat_conversation_tags (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, conversation_id, tag_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_conversation_tags_tag
+     ON chat_conversation_tags(user_id, tag_id)`,
 
   `CREATE TABLE IF NOT EXISTS chat_messages (
     user_id TEXT NOT NULL,
@@ -261,6 +275,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_providers',
   'chat_models',
   'chat_conversations',
+  'chat_conversation_tags',
   'chat_messages',
   'chat_memories',
   'chat_memory_reviews',
@@ -279,6 +294,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_providers_user',
   'idx_chat_models_provider',
   'idx_chat_conversations_user',
+  'idx_chat_conversations_folder',
+  'idx_chat_conversation_tags_tag',
   'idx_chat_messages_conversation',
   'idx_chat_messages_user',
   'idx_chat_memories_user_updated',
@@ -304,7 +321,8 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_settings: ['user_id', 'config', 'updated_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'key_ciphertext', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'enabled', 'position'],
-  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'created_at', 'updated_at'],
+  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'folder_id', 'created_at', 'updated_at'],
+  chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],

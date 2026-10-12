@@ -24,6 +24,8 @@ import type {
   AutomationKind,
   AutomationRun,
   AutomationStatus,
+  ChatFolderNode,
+  ConversationTag,
   PendingAction,
   Project,
   Task,
@@ -170,6 +172,19 @@ class Query {
   eq(column: string, value: unknown): this {
     this.binds.push(value)
     this.clauses.push(`${column} = ?${this.binds.length}`)
+    return this
+  }
+
+  /**
+   * Adds `column IN (?, ?, …)`. The placeholders come out of the same call that supplies the values,
+   * which is the whole point: a hand-numbered list is where a tenant filter goes missing.
+   */
+  inList(column: string, values: readonly unknown[]): this {
+    if (!values.length) {
+      this.clauses.push('1 = 0')
+      return this
+    }
+    this.clauses.push(`${column} IN (${values.map((value) => this.add(value)).join(', ')})`)
     return this
   }
 
@@ -500,8 +515,29 @@ export class AssistantStore {
 
   // ----------------------------------------------------------- conversations
 
-  async listConversations(query?: string, limit = 100): Promise<AssistantConversation[]> {
+  /**
+   * The list, optionally narrowed to one folder (with its subfolders) or one tag.
+   *
+   * A folder's view includes what its children hold: a reader who files things underneath a project
+   * folder expects its parent to show the lot, the same way the notebook's folder rows do.
+   */
+  async listConversations(
+    query?: string,
+    filter: { folderId?: string | null, tagId?: string, limit?: number } = {},
+  ): Promise<AssistantConversation[]> {
+    const limit = filter.limit ?? 100
     const q = new Query(this.userId)
+    if (filter.folderId !== undefined) {
+      const ids = filter.folderId === null ? null : await this.folderSubtree(filter.folderId)
+      if (ids && !ids.length) return []
+      if (!ids) q.raw('folder_id IS NULL')
+      else q.inList('folder_id', ids)
+    }
+    if (filter.tagId) {
+      const tag = q.add(filter.tagId)
+      q.raw(`EXISTS (SELECT 1 FROM chat_conversation_tags ct
+        WHERE ct.user_id = ?1 AND ct.conversation_id = c.id AND ct.tag_id = ${tag})`)
+    }
     if (query) {
       const pattern = q.add(containsPattern(query))
       const inBody = q.add(containsPattern(query))
@@ -511,18 +547,148 @@ export class AssistantStore {
     }
     const limitBind = q.add(limit)
     const list = await this.rows<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.folder_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE ${q.where}
          ORDER BY c.updated_at DESC LIMIT ${limitBind}`,
       ...q.binds,
     )
-    return list.map(toConversation)
+    const conversations = list.map(toConversation)
+    if (conversations.length) {
+      const tags = await this.tagsForConversations(conversations.map((entry) => entry.id))
+      for (const conversation of conversations) conversation.tags = tags.get(conversation.id) ?? []
+    }
+    return conversations
+  }
+
+  /** The note folder tree with conversation counts, plus how many conversations hold no folder. */
+  async conversationFolderSummary(): Promise<{ folders: ChatFolderNode[], unfiled: number }> {
+    const rows = await this.rows<{ id: string, name: string, parent_id: string | null, icon: string | null, color: string | null, n: number }>(
+      `SELECT f.id, f.name, f.parent_id, f.icon, f.color,
+              (SELECT count(*) FROM chat_conversations c WHERE c.user_id = ?1 AND c.folder_id = f.id) AS n
+         FROM folders f
+        WHERE f.user_id = ?1 AND f.deleted_at IS NULL
+        ORDER BY f.name`,
+      this.userId,
+    )
+    const unfiled = await this.one<{ n: number }>(
+      `SELECT count(*) AS n FROM chat_conversations WHERE user_id = ?1 AND folder_id IS NULL`,
+      this.userId,
+    )
+    return {
+      folders: rows.map((row) => ({
+        id: row.id, name: row.name, parentId: row.parent_id ?? null,
+        icon: row.icon ?? null, color: row.color ?? null, count: row.n ?? 0,
+      })),
+      unfiled: unfiled?.n ?? 0,
+    }
+  }
+
+  /** The folder and every folder beneath it, walked to a depth no real tree reaches. */
+  private async folderSubtree(rootId: string): Promise<string[]> {
+    const found = new Set<string>([rootId])
+    let frontier = [rootId]
+    for (let depth = 0; depth < 12 && frontier.length; depth++) {
+      const q = new Query(this.userId)
+      q.inList('parent_id', frontier)
+      const rows = await this.rows<{ id: string }>(
+        `SELECT id FROM folders WHERE ${q.where} AND deleted_at IS NULL`,
+        ...q.binds,
+      )
+      frontier = []
+      for (const row of rows ?? []) {
+        if (found.has(row.id)) continue
+        found.add(row.id)
+        frontier.push(row.id)
+      }
+    }
+    return [...found]
+  }
+
+  async setConversationFolder(id: string, folderId: string | null): Promise<void> {
+    if (folderId) {
+      const folder = await this.one<{ id: string }>(
+        `SELECT id FROM folders WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+        this.userId, folderId,
+      )
+      if (!folder) throw new Error(`unknown folder ${folderId}`)
+    }
+    await this.write(
+      `UPDATE chat_conversations SET folder_id = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
+      folderId, Date.now(), id,
+    )
+  }
+
+  /** The tags on these conversations, keyed by conversation id. */
+  async tagsForConversations(ids: readonly string[]): Promise<Map<string, ConversationTag[]>> {
+    const out = new Map<string, ConversationTag[]>()
+    if (!ids.length) return out
+    // Written out rather than through Query: a join makes the builder's unqualified `user_id = ?1`
+    // ambiguous, and the failure is a 500 on every conversation list.
+    const marks = ids.map((_, index) => `?${index + 2}`).join(', ')
+    const rows = await this.rows<{ conversation_id: string, tag_id: string, name: string, color: string | null }>(
+      `SELECT ct.conversation_id, t.id AS tag_id, t.name, t.color
+         FROM chat_conversation_tags ct JOIN tags t ON t.user_id = ct.user_id AND t.id = ct.tag_id
+        WHERE ct.user_id = ?1 AND ct.conversation_id IN (${marks}) ORDER BY t.name`,
+      this.userId, ...ids,
+    )
+    for (const row of rows) {
+      const list = out.get(row.conversation_id) ?? []
+      list.push({ id: row.tag_id, name: row.name, color: row.color ?? null })
+      out.set(row.conversation_id, list)
+    }
+    return out
+  }
+
+  async addConversationTag(conversationId: string, tagId: string): Promise<void> {
+    await this.write(
+      `INSERT OR IGNORE INTO chat_conversation_tags (user_id, conversation_id, tag_id, created_at)
+       VALUES (?1, ?2, ?3, ?4)`,
+      conversationId, tagId, Date.now(),
+    )
+    await this.write(`UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`, Date.now(), conversationId)
+  }
+
+  async removeConversationTag(conversationId: string, tagId: string): Promise<void> {
+    await this.write(
+      `DELETE FROM chat_conversation_tags WHERE user_id = ?1 AND conversation_id = ?2 AND tag_id = ?3`,
+      conversationId, tagId,
+    )
+  }
+
+  /** The reader's own tags, straight from the notebook's tag table. */
+  async conversationTags(): Promise<ConversationTag[]> {
+    const rows = await this.rows<{ id: string, name: string, color: string | null }>(
+      `SELECT id, name, color FROM tags WHERE user_id = ?1 ORDER BY name`,
+      this.userId,
+    )
+    return rows.map((row) => ({ id: row.id, name: row.name, color: row.color ?? null }))
+  }
+
+  /** A folder the reader actually owns and has not deleted; the route turns a false into a 400. */
+  async knownFolder(folderId: string): Promise<boolean> {
+    return !!(await this.one<{ id: string }>(
+      `SELECT id FROM folders WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+      this.userId, folderId,
+    ))
+  }
+
+  async knownTag(tagId: string): Promise<boolean> {
+    return !!(await this.one<{ id: string }>(`SELECT id FROM tags WHERE user_id = ?1 AND id = ?2`, this.userId, tagId))
+  }
+
+  /** How many conversations carry each tag, for the filter row. */
+  async conversationTagCounts(): Promise<Map<string, number>> {
+    const rows = await this.rows<{ tag_id: string, n: number }>(
+      `SELECT tag_id, count(*) AS n FROM chat_conversation_tags WHERE user_id = ?1 GROUP BY tag_id`,
+      this.userId,
+    )
+    return new Map(rows.map((row) => [row.tag_id, row.n]))
   }
 
   async getConversation(id: string): Promise<AssistantConversation | null> {
     const r = await this.one<ConversationRow>(
-      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.created_at, c.updated_at,
+      `SELECT c.id, c.title, c.summary, c.summary_upto, c.pinned, c.folder_id, c.created_at, c.updated_at,
               (SELECT count(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS message_count
          FROM chat_conversations c WHERE c.user_id = ?1 AND c.id = ?2`,
       this.userId, id,
@@ -530,14 +696,14 @@ export class AssistantStore {
     return r ? toConversation(r) : null
   }
 
-  async createConversation(title: string): Promise<AssistantConversation> {
+  async createConversation(title: string, folderId: string | null = null): Promise<AssistantConversation> {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_conversations (id, user_id, title, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5)`,
-      id, title, at, at,
+      `INSERT INTO chat_conversations (id, user_id, title, folder_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
+      id, title, folderId, at, at,
     )
-    return { id, title, pinned: false, createdAt: at, updatedAt: at, messageCount: 0, summary: null, summaryUpto: null }
+    return { id, title, pinned: false, folderId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
   async renameConversation(id: string, title: string): Promise<void> {
@@ -565,7 +731,8 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1 AND conversation_id = ?2`, id)
-    await this.write(`DELETE FROM chat_conversations WHERE id = ?2`, id)
+    await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   async deleteAllConversations(): Promise<number> {
@@ -576,6 +743,7 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversations WHERE user_id = ?1`)
     return before?.n ?? 0
   }
@@ -1536,6 +1704,7 @@ export class AssistantStore {
       .bind(this.userId).all<Record<string, unknown>>().then((r) => r.results ?? [])
     return {
       conversations: await select('chat_conversations'),
+      conversation_tags: await select('chat_conversation_tags'),
       messages: await select('chat_messages'),
       memories: await select('chat_memories'),
       tasks: await select('chat_tasks'),
@@ -1554,7 +1723,8 @@ export class AssistantStore {
  * that is not here is refused before any SQL is assembled.
  */
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'created_at', 'updated_at'],
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'folder_id', 'created_at', 'updated_at'],
+  chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
@@ -1694,6 +1864,7 @@ interface ConversationRow {
   summary: string | null
   summary_upto: number | null
   pinned: number
+  folder_id: string | null
   created_at: number
   updated_at: number
   message_count: number
@@ -1704,6 +1875,7 @@ function toConversation(r: ConversationRow): AssistantConversation {
     id: r.id,
     title: r.title,
     pinned: bool(r.pinned),
+    folderId: r.folder_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     messageCount: r.message_count ?? 0,

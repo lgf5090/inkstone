@@ -492,6 +492,144 @@ describe('lease and streaming turn', () => {
 
 })
 
+const oid = (seed: string) => `${seed}${'0'.repeat(26)}`.slice(0, 26)
+const FOLDER_A = oid('fa1')
+const FOLDER_B = oid('fb1')
+const FOLDER_OTHER = oid('fc1')
+const TAG_RED = oid('ta1')
+const TAG_BLUE = oid('tb1')
+
+function addFolder(id: string, name: string, parentId: string | null = null, userId = USER): void {
+  const at = Date.now()
+  const columns = ['id', 'user_id', 'parent_id', 'name', 'position', 'created_at', 'updated_at']
+  sqlite.prepare(`INSERT INTO folders (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
+    .run(id, userId, parentId, name, 1, at, at)
+}
+
+function addTag(id: string, name: string, userId = USER): void {
+  sqlite.prepare('INSERT INTO tags (id, user_id, name, is_manual, is_pinned, created_at) VALUES (?, ?, ?, 1, 0, ?)')
+    .run(id, userId, name, Date.now())
+}
+
+describe('filing conversations', () => {
+  it('moves a conversation into a note folder and back out', async () => {
+    addFolder(FOLDER_A, '项目')
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Kickoff' })
+    expect(created.conversation.folderId).toBeNull()
+
+    const moved = await call<{ conversation: AssistantConversation }>('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { folderId: FOLDER_A })
+    expect(moved.conversation.folderId).toBe(FOLDER_A)
+
+    const inFolder = await call<{ conversations: AssistantConversation[] }>('GET', `/api/assistant/conversations?folder=${FOLDER_A}`)
+    expect(inFolder.conversations.map((entry) => entry.id)).toEqual([created.conversation.id])
+    // Both read paths spell the columns out by hand, so the list has to carry the folder too.
+    expect(inFolder.conversations[0]!.folderId).toBe(FOLDER_A)
+    const unfiled = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations?folder=none')
+    expect(unfiled.conversations.map((entry) => entry.id)).not.toContain(created.conversation.id)
+
+    const summary = await call<{ folders: { id: string, name: string, count: number }[], unfiled: number }>('GET', '/api/assistant/folders')
+    expect(summary.folders.find((folder) => folder.id === FOLDER_A)?.count).toBe(1)
+    expect(summary.unfiled).toBe(unfiled.conversations.length)
+
+    await call('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { folderId: null })
+    const after = await call<{ conversation: AssistantConversation }>('GET', `/api/assistant/conversations/${created.conversation.id}`)
+    expect(after.conversation.folderId).toBeNull()
+  })
+
+  it('shows a parent folder what its subfolders hold', async () => {
+    addFolder(FOLDER_A, '项目')
+    addFolder(FOLDER_B, '子任务', FOLDER_A)
+    const deep = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Deep', folderId: FOLDER_B })
+    const parent = await call<{ conversations: AssistantConversation[] }>('GET', `/api/assistant/conversations?folder=${FOLDER_A}`)
+    expect(parent.conversations.map((entry) => entry.id)).toEqual([deep.conversation.id])
+    // The folder count stays per-folder, so the tree can show where things actually sit.
+    const summary = await call<{ folders: { id: string, count: number }[] }>('GET', '/api/assistant/folders')
+    expect(summary.folders.find((folder) => folder.id === FOLDER_A)?.count).toBe(0)
+    expect(summary.folders.find((folder) => folder.id === FOLDER_B)?.count).toBe(1)
+  })
+
+  it('refuses a folder belonging to someone else', async () => {
+    addFolder(FOLDER_OTHER, 'Neighbour', null, OTHER)
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Mine' })
+    expect(await status('PATCH', `/api/assistant/conversations/${created.conversation.id}`, { folderId: FOLDER_OTHER })).toBe(400)
+    expect(await status('POST', '/api/assistant/conversations', { title: 'X', folderId: FOLDER_OTHER })).toBe(400)
+  })
+
+  it('labels conversations with the notebook tags and counts them', async () => {
+    addTag(TAG_RED, 'urgent')
+    addTag(TAG_BLUE, 'someday')
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Triage' })
+    const id = created.conversation.id
+    expect(await status('POST', `/api/assistant/conversations/${id}/tags`, { tagId: 'nope' })).toBe(404)
+    await call('POST', `/api/assistant/conversations/${id}/tags`, { tagId: TAG_RED })
+    await call('POST', `/api/assistant/conversations/${id}/tags`, { tagId: TAG_BLUE })
+    // Twice is a no-op, not a duplicate row.
+    await call('POST', `/api/assistant/conversations/${id}/tags`, { tagId: TAG_RED })
+
+    const list = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    const row = list.conversations.find((entry) => entry.id === id)
+    expect(row?.tags?.map((tag) => tag.name).sort()).toEqual(['someday', 'urgent'])
+    const filtered = await call<{ conversations: AssistantConversation[] }>('GET', `/api/assistant/conversations?tag=${TAG_RED}`)
+    expect(filtered.conversations.map((entry) => entry.id)).toEqual([id])
+    const tags = await call<{ tags: { id: string, name: string, count: number }[] }>('GET', '/api/assistant/tags')
+    expect(tags.tags.find((tag) => tag.id === TAG_RED)?.count).toBe(1)
+    expect(tags.tags.find((tag) => tag.id === TAG_BLUE)?.count).toBe(1)
+
+    await call('DELETE', `/api/assistant/conversations/${id}/tags/${TAG_BLUE}`)
+    const after = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    expect(after.conversations.find((entry) => entry.id === id)?.tags?.map((tag) => tag.name)).toEqual(['urgent'])
+
+    await call('DELETE', `/api/assistant/conversations/${id}`)
+    const left = sqlite.prepare('SELECT count(*) AS n FROM chat_conversation_tags').get() as { n: number }
+    expect(left.n).toBe(0)
+  })
+
+  it('carries the folder and the tags through a backup round-trip', async () => {
+    addFolder(FOLDER_A, '项目')
+    addTag(TAG_RED, 'urgent')
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Filed', folderId: FOLDER_A })
+    const id = created.conversation.id
+    await call('POST', `/api/assistant/conversations/${id}/tags`, { tagId: TAG_RED })
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+    expect(JSON.stringify(payload)).toContain(TAG_RED)
+
+    await call('DELETE', `/api/assistant/conversations/${id}`)
+    expect((await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')).conversations).toHaveLength(0)
+    await call('POST', '/api/assistant/import', payload)
+    const restored = (await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')).conversations.find((entry) => entry.id === id)
+    expect(restored?.folderId).toBe(FOLDER_A)
+    expect(restored?.tags?.map((tag) => tag.name)).toEqual(['urgent'])
+  })
+
+  it('drops a folder or tag the reader no longer has instead of dangling it', async () => {
+    addFolder(FOLDER_A, '项目')
+    addTag(TAG_RED, 'urgent')
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Elsewhere', folderId: FOLDER_A })
+    await call('POST', `/api/assistant/conversations/${created.conversation.id}/tags`, { tagId: TAG_RED })
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+
+    // The other account has neither the folder nor the tag.
+    asUser(OTHER)
+    await call('POST', '/api/assistant/import', payload)
+    const list = await call<{ conversations: AssistantConversation[] }>('GET', '/api/assistant/conversations')
+    const moved = list.conversations.find((entry) => entry.title === 'Elsewhere')
+    expect(moved).toBeTruthy()
+    expect(moved!.folderId).toBeNull()
+    expect(moved!.tags ?? []).toHaveLength(0)
+    asUser(USER)
+  })
+
+  it('keeps one account tags out of another', async () => {
+    addTag(TAG_RED, 'shared-name')
+    addTag(TAG_BLUE, 'theirs', OTHER)
+    const created = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Ours' })
+    expect(await status('POST', `/api/assistant/conversations/${created.conversation.id}/tags`, { tagId: TAG_BLUE })).toBe(400)
+    asUser(OTHER)
+    expect(await status('POST', `/api/assistant/conversations/${created.conversation.id}/tags`, { tagId: TAG_BLUE })).toBe(404)
+    asUser(USER)
+  })
+})
+
 describe('search', () => {
   it('finds conversations by title and by message body', async () => {
     const tea = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: '喝茶习惯' })

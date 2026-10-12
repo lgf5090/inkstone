@@ -5658,6 +5658,17 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "assistant.tool.create_project": "Creating a project",
     "assistant.tool.search": "Searching",
     "assistant.tool.notify_reader": "Sending a notification",
+    "assistant.chat.folder_filter": "Conversation folders",
+    "assistant.chat.all": "All chats",
+    "assistant.chat.unfiled": "Unfiled",
+    "assistant.chat.tag_filter": "Conversation tags",
+    "assistant.chat.move_to": "Move to folder",
+    "assistant.chat.tags": "Tags",
+    "assistant.chat.new_tag": "New tag",
+    "assistant.chat.tag_name": "Tag name",
+    "assistant.chat.tag_create": "Create tag \u201c{name}\u201d",
+    "assistant.chat.tag_none": "No tags yet",
+    "assistant.chat.in_folder": "In {folder}",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

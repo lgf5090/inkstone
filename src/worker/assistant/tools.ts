@@ -613,7 +613,7 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
       const [tasks, memories, conversations] = await Promise.all([
         ctx.store.listTasks({ query, limit: 5 }),
         ctx.store.searchMemories(query, 5, 'all'),
-        ctx.store.listConversations(query, 5),
+        ctx.store.listConversations(query, { limit: 5 }),
       ])
       const notes = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, { query, limit: 5 })
       const scope = await ctx.noteScope()

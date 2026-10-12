@@ -47,6 +47,8 @@ import type {
 } from '@shared/types'
 import type {
   AssistantConversation,
+  ChatFolderNode,
+  ConversationTag,
   AssistantImportSummary,
   AssistantLimits,
   AssistantMemory,
@@ -661,10 +663,24 @@ export const api = {
    * these routes, and nothing in the notebook calls them.
    */
   assistant: {
-    conversations: (query?: string) =>
-      request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery({ q: query })}`),
-    createConversation: (title?: string) =>
-      request<{ conversation: AssistantConversation }>('/api/assistant/conversations', { method: 'POST', body: { title } }),
+    conversations: (params: { q?: string, folder?: string, tag?: string } = {}) =>
+      request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
+    createConversation: (title?: string, folderId?: string | null) =>
+      request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
+        method: 'POST',
+        body: folderId === undefined ? { title } : { title, folderId },
+      }),
+    /** A folder from the notebook's tree; null files the conversation back to unfiled. */
+    moveConversation: (id: string, folderId: string | null) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
+    conversationFolders: () =>
+      request<{ folders: ChatFolderNode[], unfiled: number }>('/api/assistant/folders'),
+    conversationTags: () =>
+      request<{ tags: (ConversationTag & { count: number })[] }>('/api/assistant/tags'),
+    addConversationTag: (id: string, tagId: string) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/tags`, { method: 'POST', body: { tagId } }),
+    removeConversationTag: (id: string, tagId: string) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/tags/${tagId}`, { method: 'DELETE' }),
     conversation: (id: string) =>
       request<{ conversation: AssistantConversation, messages: AssistantMessage[], streaming: boolean }>(`/api/assistant/conversations/${id}`),
     renameConversation: (id: string, title: string) =>

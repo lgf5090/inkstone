@@ -16,7 +16,9 @@ import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { Menu, Modal, confirm } from '../../components/overlay'
+import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
+import { api } from '../../lib/api'
+import { ConversationFolders, ConversationTags, orderedFolders } from './ChatTaxonomy'
 import { useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
 
@@ -185,9 +187,15 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
   const openConversation = useAssistant((state) => state.openConversation)
   const newConversation = useAssistant((state) => state.newConversation)
   const renameConversation = useAssistant((state) => state.renameConversation)
+  const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<AssistantConversation | null>(null)
   const [draft, setDraft] = useState('')
+
+  // Counts move whenever a conversation is filed or a turn adds one, so the tree rides along with it.
+  useEffect(() => {
+    void loadTaxonomy()
+  }, [loadTaxonomy, conversations.length])
 
   // The list is sorted by the server; a pinned row would reappear on every page of a keyset cursor,
   // so the order is applied here where the whole set is in hand.
@@ -202,7 +210,8 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       {/* The reference project puts a start-a-chat button at the head of the list as well as in the
           thread header, and a reader scanning the list looks for it there. */}
-      <div className="flex flex-col gap-2 p-2">
+      <ConversationFolders />
+      <div className="flex flex-col gap-2 p-2 pt-1">
         <Button size="sm" variant="secondary" block icon={<Plus size={14} />} onClick={() => { newConversation(); onPick() }}>
           {t('assistant.chat.new')}
         </Button>
@@ -214,6 +223,7 @@ function ConversationList({ activeId, onPick }: { activeId: string | null, onPic
           className="h-8 text-[12px]"
         />
       </div>
+      <ConversationTags />
       <nav aria-label={t('assistant.chat.list')} className="no-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pb-2">
         {!ordered.length ? (
           <p className="px-2 py-6 text-center text-[12px] text-[var(--text-quaternary)]">
@@ -306,10 +316,55 @@ function ConversationRow({
 }) {
   const pinConversation = useAssistant((state) => state.pinConversation)
   const deleteConversation = useAssistant((state) => state.deleteConversation)
+  const folderNodes = useAssistant((state) => state.folderNodes)
+  const tagNodes = useAssistant((state) => state.tagNodes)
+  const moveConversation = useAssistant((state) => state.moveConversation)
+  const toggleConversationTag = useAssistant((state) => state.toggleConversationTag)
+  const loadTaxonomy = useAssistant((state) => state.loadTaxonomy)
   const anchor = useRef<HTMLSpanElement>(null)
   const title = conversation.title || t('assistant.chat.untitled')
+  const assigned = new Set((conversation.tags ?? []).map((tag) => tag.id))
+
+  const folderItems = [
+    {
+      id: 'folder-none',
+      label: t('assistant.chat.unfiled'),
+      checked: !conversation.folderId,
+      onSelect: () => void moveConversation(conversation.id, null),
+    },
+    ...orderedFolders(folderNodes).map(({ node, depth }) => ({
+      id: `folder-${node.id}`,
+      // The level is part of the label because the submenu is one flat list of rows.
+      label: `${' '.repeat(depth * 3)}${node.name}`,
+      checked: conversation.folderId === node.id,
+      onSelect: () => void moveConversation(conversation.id, node.id),
+    })),
+  ]
+
+  const tagItems = [
+    ...tagNodes.map((tag) => ({
+      id: `tag-${tag.id}`,
+      label: tag.name,
+      checked: assigned.has(tag.id),
+      onSelect: () => void toggleConversationTag(conversation.id, tag.id, !assigned.has(tag.id)),
+    })),
+    {
+      id: 'tag-new',
+      label: t('assistant.chat.new_tag'),
+      separatorBefore: tagNodes.length > 0,
+      onSelect: () => {
+        void prompt({ title: t('assistant.chat.new_tag'), placeholder: t('assistant.chat.tag_name') }).then(async (name) => {
+          if (!name?.trim()) return
+          const created = await api.tags.create({ name: name.trim() }).catch(() => null)
+          if (created) await toggleConversationTag(conversation.id, created.id, true)
+          await loadTaxonomy()
+        })
+      },
+    },
+  ]
+
   return (
-    <li className="group relative">
+    <li className="group relative" onContextMenu={(event) => { event.preventDefault(); onToggleMenu() }}>
       <button
         type="button"
         onClick={onOpen}
@@ -348,6 +403,19 @@ function ConversationRow({
             onSelect: () => void pinConversation(conversation.id, !conversation.pinned),
           },
           { id: 'rename', label: t('assistant.chat.rename'), onSelect: onRename },
+          {
+            id: 'folder',
+            label: t('assistant.chat.move_to'),
+            separatorBefore: true,
+            submenu: submenuFor(folderItems),
+            subItems: folderItems,
+          },
+          {
+            id: 'tags',
+            label: t('assistant.chat.tags'),
+            submenu: submenuFor(tagItems),
+            subItems: tagItems,
+          },
           {
             id: 'delete',
             label: t('assistant.chat.delete'),

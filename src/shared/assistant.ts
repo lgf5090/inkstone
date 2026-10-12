@@ -275,16 +275,37 @@ export function titleFromMessage(message: string): string {
   return breakAt > 0 ? cut.slice(0, breakAt) : cut
 }
 
+/** One of the reader's own tags, as the chat list shows it. Tags live in the note tag table. */
+export interface ConversationTag {
+  id: string
+  name: string
+  color: string | null
+}
+
 export interface AssistantConversation {
   id: string
   title: string
   pinned: boolean
+  /** A folder from the notebook's own tree; null means the conversation is unfiled. */
+  folderId: string | null
   createdAt: number
   updatedAt: number
   messageCount: number
+  /** Only the list endpoints fill these in, so the thread view stays cheap. */
+  tags?: ConversationTag[]
   /** Rolling summary of the messages that no longer fit the context window. */
   summary?: string | null
   summaryUpto?: number | null
+}
+
+/** A folder of the note tree, with how many conversations it holds. */
+export interface ChatFolderNode {
+  id: string
+  name: string
+  parentId: string | null
+  icon: string | null
+  color: string | null
+  count: number
 }
 
 export interface ToolActivity {

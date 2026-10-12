@@ -91,13 +91,35 @@ function readerDayEnd(timezone: string): number {
 
 assistantRoutes.get('/conversations', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
-  return c.json({ conversations: await store(c).listConversations(query || undefined) })
+  const folder = c.req.query('folder')
+  const tag = c.req.query('tag')?.trim().slice(0, 26)
+  const filter: { folderId?: string | null, tagId?: string } = {}
+  // `folder=none` is the unfiled view; an absent parameter is the whole list.
+  if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
+  if (tag) filter.tagId = tag
+  return c.json({ conversations: await store(c).listConversations(query || undefined, filter) })
+})
+
+/** The note folder tree, with how many conversations each folder holds. */
+assistantRoutes.get('/folders', async (c) => c.json(await store(c).conversationFolderSummary()))
+
+/** The reader's tags with conversation counts, so the filter row can hide what labels nothing. */
+assistantRoutes.get('/tags', async (c) => {
+  const s = store(c)
+  const [tags, counts] = await Promise.all([s.conversationTags(), s.conversationTagCounts()])
+  return c.json({ tags: tags.map((tag) => ({ ...tag, count: counts.get(tag.id) ?? 0 })) })
 })
 
 assistantRoutes.post('/conversations', async (c) => {
-  const body = await readJson<{ title?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
   const title = body.title === undefined ? '' : text(body.title, MAX_CONVERSATION_TITLE_CHARS)
-  return c.json({ conversation: await store(c).createConversation(title) }, 201)
+  const s = store(c)
+  let folderId: string | null = null
+  if (typeof body.folderId === 'string') {
+    if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')
+    folderId = body.folderId
+  }
+  return c.json({ conversation: await s.createConversation(title, folderId) }, 201)
 })
 
 assistantRoutes.get('/conversations/:id', async (c) => {
@@ -112,6 +134,8 @@ assistantRoutes.get('/conversations/:id', async (c) => {
       ? { ...tool, approval: actions.get(tool.approval.id) ?? tool.approval }
       : tool)),
   }))
+  const withTags = await s.tagsForConversations([id])
+  if (conversation) conversation.tags = withTags.get(id) ?? []
   return c.json({ conversation, messages, streaming: await s.isRunning(id) })
 })
 
@@ -119,10 +143,37 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, folderId?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
-  return c.json({ conversation: await s.getConversation(id) })
+  if (body.folderId === null) await s.setConversationFolder(id, null)
+  else if (typeof body.folderId === 'string') {
+    if (!isValidId(body.folderId) || !(await s.knownFolder(body.folderId))) throw ApiError.badRequest('Unknown folder.')
+    await s.setConversationFolder(id, body.folderId)
+  }
+  const conversation = await s.getConversation(id)
+  if (conversation) conversation.tags = (await s.tagsForConversations([id])).get(id) ?? []
+  return c.json({ conversation })
+})
+
+assistantRoutes.post('/conversations/:id/tags', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  const body = await readJson<{ tagId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const tagId = requiredId(body.tagId)
+  if (!(await s.knownTag(tagId))) throw ApiError.badRequest('Unknown tag.')
+  await s.addConversationTag(id, tagId)
+  return c.json({ ok: true })
+})
+
+assistantRoutes.delete('/conversations/:id/tags/:tagId', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const tagId = requiredId(c.req.param('tagId'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  await s.removeConversationTag(id, tagId)
+  return c.json({ ok: true })
 })
 
 assistantRoutes.delete('/conversations/:id', async (c) => {

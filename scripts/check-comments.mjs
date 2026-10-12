@@ -687,6 +687,12 @@ const allowed = new Map([
     "/**\n * The bottom bar fits four Han characters per tab on a 360px phone, so the settings tab carries its\n * short name there; the rail and the header keep the full one.\n */",
     "/* Below md the five sections move to the same bottom bar the notebook uses; a second 48px\n          column beside the app rail would cost a quarter of a phone's width. */",
   ]],
+  ["src/client/features/chat/ChatTaxonomy.tsx", [
+    "/** Depth-first order with the level each node sits at, so the list can indent it. */",
+    "// A parent that is gone (deleted elsewhere) makes the node a root rather than losing it.",
+    "/** Every folder id that contains this one, roots first — used to keep an open branch visible. */",
+    "/**\n * Filing conversations: the notebook's own folders and tags.\n *\n * A conversation lives in a real `folders` row and carries real `tags` rows, so one folder can hold\n * notes and chats at once and a single tag colours both. Nothing here invents a second taxonomy —\n * these two components read the counts the assistant API computes over those shared tables.\n */",
+  ]],
   ["src/client/features/chat/ChatView.tsx", [
     "/**\n * The conversation surface: the list, the thread, and the composer.\n *\n * A reply lives in the store, not here, so switching to the memory tab mid-stream does not throw the\n * answer away — the generator keeps writing into the same record and this view re-attaches to it.\n *\n * The thread is deliberately not `.ink-prose`: that class carries the note writer's measure and its\n * 42vh tail padding, which turns a one-line reply into a screen of whitespace. `ink-chat-prose` in\n * `styles/chat.css` keeps the typography and drops the page furniture.\n */",
     "// A live reply belongs to its own conversation; only show it in the thread that owns it.",
@@ -698,6 +704,8 @@ const allowed = new Map([
     "// min-w-0 is not decoration: as a flex item this column would otherwise grow to its content's",
     "// min-content width and paint the search box and the row menus across the thread.",
     "/* The reference project puts a start-a-chat button at the head of the list as well as in the\n          thread header, and a reader scanning the list looks for it there. */",
+    "// Counts move whenever a conversation is filed or a turn adds one, so the tree rides along with it.",
+    "// The level is part of the label because the submenu is one flat list of rows.",
   ]],
   ["src/client/features/chat/MemoryView.tsx", [
     "/**\n * What the assistant remembers, and what it is unsure about.\n *\n * The list is grouped by category because a reader scanning \"where do I think I live\" reads by topic,\n * not by the order things happened to be saved. The four row actions are the interesting part: an\n * update that changes a fact keeps the old one as history rather than overwriting it, so \"what did I\n * used to say\" still answers — and a plain edit stays a plain edit, for fixing a typo.\n */",
@@ -723,6 +731,9 @@ const allowed = new Map([
     "// A reply still arriving belongs to its own conversation; navigating away must not cancel it.",
     "/**\n * The reader's own end of today, as the server reads a due date.\n *\n * A quick-add from the Today tab means \"by tonight\"; sending a bare date would land at 23:59 in the\n * *server's* zone, which is a different day for a reader in Shanghai or São Paulo.\n */",
     "/**\n * Brings the saved thread on screen.\n *\n * A stopped turn is filed by the worker a moment after the reader aborts the stream, so the first read\n * can still show the answer as running; the bubble is dropped only once the stored copy is visible, or\n * the reply blinks out and reappears on the next open.\n */",
+    "/** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */",
+    "/** Conversations with no folder; the tree counts the rest. */",
+    "/** The folder tree and the tag list, both counted for conversations. */",
   ]],
   ["src/client/features/chat/stream.ts", [
     "/**\n * Reading the assistant's streamed reply.\n *\n * The API helper in `lib/api` parses a JSON body, which is exactly the wrong shape for a turn: the\n * reader should watch the answer arrive. So this is the one place in the app that consumes a\n * `ReadableStream` by hand, and it carries the same three headers every other write does — without\n * `X-Inkstone-Client` the worker refuses the request before it reaches the assistant.\n */",
@@ -5053,6 +5064,7 @@ const allowed = new Map([
     "/** What the owner's own question answers: nothing, or where the show is and how long it may run — and in\n * either case how many browsers have been reading it lately (PR-M7). */",
     "/**\n   * Bodies for the local search index. Ids travel in the body, not the query string, so a page of 40\n   * note ids cannot outgrow the URL or land in an access log.\n   */",
     "/**\n   * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns\n   * these routes, and nothing in the notebook calls them.\n   */",
+    "/** A folder from the notebook's tree; null files the conversation back to unfiled. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -11744,6 +11756,10 @@ const allowed = new Map([
     "/**\n * Provider presets the settings form offers. A preset is only a starting point: the base URL and the\n * key are editable, and any other OpenAI-compatible endpoint works by picking that protocol.\n */",
     "/** A model id the settings form will accept, so a stray space cannot poison a request. */",
     "/**\n * What the assistant's provider records look like. `apiKey` never appears: the ciphertext lives in the\n * `chat_providers` row and the plaintext only ever exists inside the worker call that signs the\n * upstream request, so no route can echo a key back to a browser.\n */",
+    "/** One of the reader's own tags, as the chat list shows it. Tags live in the note tag table. */",
+    "/** A folder from the notebook's own tree; null means the conversation is unfiled. */",
+    "/** Only the list endpoints fill these in, so the thread view stays cheap. */",
+    "/** A folder of the note tree, with how many conversations it holds. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12099,6 +12115,9 @@ const allowed = new Map([
     "// The one change a backup may make to a schedule the reader already has is the safe one: pause it.",
     "/**\n * A backup may bring the reader's language, timezone and behaviour switches, but never a model, a\n * budget or an offline flag — those are the settings that decide what a file costs and what it touches.\n */",
     "// The scope names folders by id, and another account's ids mean nothing here.",
+    "// A folder belongs to the notebook, not to the backup: an id the reader does not have any more",
+    "// is dropped rather than left dangling, so the restored row shows up as unfiled.",
+    "// Tags are the notebook's objects; a link to one the reader deleted is not restored.",
   ]],
   ["src/worker/assistant/memory-service.ts", [
     "/**\n * Memory writes with history.\n *\n * A fact that changes should not have to be deleted: when the reader says they sold the car, the old\n * memory becomes a past fact rather than vanishing, so \"what car did I have before?\" still answers.\n * Only an explicit replacement does that automatically; anything less certain is parked as a review\n * the reader decides on, because a wrong automatic supersession is invisible until it matters.\n *\n * Detection runs on memory writes only, never per chat message, and is rule-based by default. The\n * optional AI double-check can only dismiss or explain a review — it can never retire or delete a\n * memory by itself, which is what keeps a model's opinion out of the reader's data.\n */",
@@ -12173,6 +12192,7 @@ const allowed = new Map([
   ]],
   ["src/worker/assistant/schema.ts", [
     "/**\n * The chat assistant's tables.\n *\n * Everything the assistant owns is prefixed `chat_` and keyed by `(user_id, id)` rather than by\n * `id` alone. That is the one place the port had to depart from the reference project's schema: it\n * stored all of this in a Durable Object belonging to a single owner, so a bare `id TEXT PRIMARY KEY`\n * was enough — and here it is not. A global id key would let a backup restored into a second account\n * collide with the first one's row, and a write that quietly does nothing is the worst kind of data\n * loss, because every status code still says it worked.\n *\n * Every query in `store.ts` binds `user_id` for the same reason; the columns below are what makes that\n * filter indexable rather than a full scan.\n */",
+    "// The join table mirrors note_tags: one row in tags, shared by whatever it labels.",
   ]],
   ["src/worker/assistant/store.ts", [
     "/**\n * Every read and write the assistant makes against D1.\n *\n * Two rules hold throughout, and both come from the difference between this app and the single-user\n * project it was ported from:\n *  - every statement carries `user_id`, so one reader's conversations, memories and schedules can\n *    never surface in another's assistant;\n *  - anything read out of a JSON column is decoded rather than trusted, because a row may have been\n *    written by an older build, restored from a backup file, or edited by hand — stored text is input.\n */",
@@ -12227,6 +12247,16 @@ const allowed = new Map([
     "/**\n   * Adds to today's counters.\n   *\n   * The record the caller holds is camelCase, the column it lands in is not, so the name is looked up\n   * rather than written into the SQL: an unmapped key is dropped instead of becoming a column reference\n   * that fails the statement — and a failing statement here would mark a finished answer as an error.\n   */",
     "/**\n * The counter a caller names, as the column it is stored in.\n *\n * `UsageCounters` is camelCase because it crosses the API, `chat_usage_daily` is snake_case\n * because it is a table, and the two are only safe to join through a list like this one.\n */",
     "/**\n * Every statement this module runs must name its owner.\n *\n * Twenty-odd of these were written before the pattern held, and the ones that slipped were silent: an\n * unscoped `DELETE FROM chat_messages` wipes every account's history and no test that runs one\n * account would notice. Reading `user_id = ?1` out of the SQL text is a cheap always-on check at the\n * one place all statements pass through, so the next unscoped statement fails loudly at the call\n * rather than quietly corrupting a neighbour. The cron sweep in `dueAutomations` is the one deliberate\n * exception, and it goes straight to `db.prepare` for that reason.\n */",
+    "/**\n   * Adds `column IN (?, ?, …)`. The placeholders come out of the same call that supplies the values,\n   * which is the whole point: a hand-numbered list is where a tenant filter goes missing.\n   */",
+    "/** The note folder tree with conversation counts, plus how many conversations hold no folder. */",
+    "/** The folder and every folder beneath it, walked to a depth no real tree reaches. */",
+    "/** The tags on these conversations, keyed by conversation id. */",
+    "// Written out rather than through Query: a join makes the builder's unqualified `user_id = ?1`",
+    "// ambiguous, and the failure is a 500 on every conversation list.",
+    "/** The reader's own tags, straight from the notebook's tag table. */",
+    "/** A folder the reader actually owns and has not deleted; the route turns a false into a 400. */",
+    "/** How many conversations carry each tag, for the filter row. */",
+    "/**\n   * The list, optionally narrowed to one folder (with its subfolders) or one tag.\n   *\n   * A folder's view includes what its children hold: a reader who files things underneath a project\n   * folder expects its parent to show the lot, the same way the notebook's folder rows do.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -12542,6 +12572,9 @@ const allowed = new Map([
     "// Writes are queued rather than awaited: a reader that has gone can leave a write unsettled, and a",
     "// turn that waits on one never reaches the lease check that ends it. The frames stay in order (the",
     "// stream's own write queue is sequential) and one turn is a few tens of kilobytes at most.",
+    "// `folder=none` is the unfiled view; an absent parameter is the whole list.",
+    "/** The note folder tree, with how many conversations each folder holds. */",
+    "/** The reader's tags with conversation counts, so the filter row can hide what labels nothing. */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -12757,6 +12790,10 @@ const allowed = new Map([
     "// and the turn is filed as an error even though the reply arrived whole.",
     "/**\n * The real vault, with a fake Durable Object state.\n *\n * A stub would only prove the route calls something; this proves the `ai:` scope the assistant added is\n * accepted by the vault's own allowlist, and that the bytes written to `chat_providers` are not the\n * key.\n */",
     "// LIKE metacharacters are data, not a pattern: they must match nothing rather than throw.",
+    "// Both read paths spell the columns out by hand, so the list has to carry the folder too.",
+    "// The folder count stays per-folder, so the tree can show where things actually sit.",
+    "// Twice is a no-op, not a duplicate row.",
+    "// The other account has neither the folder nor the tag.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

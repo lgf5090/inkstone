@@ -119,6 +119,11 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       summary: null,
       summary_upto: null,
       pinned: numberValue(conversation.pinned),
+      // A folder belongs to the notebook, not to the backup: an id the reader does not have any more
+      // is dropped rather than left dangling, so the restored row shows up as unfiled.
+      folder_id: typeof conversation.folder_id === 'string' && await store.knownFolder(conversation.folder_id)
+        ? conversation.folder_id
+        : null,
       created_at: numberValue(conversation.created_at, Date.now()),
       updated_at: numberValue(conversation.updated_at, Date.now()),
     }
@@ -127,7 +132,16 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
     summary.conversations++
   }
 
-  const conversations = new Set((await store.listConversations(undefined, 500)).map((entry) => entry.id))
+  const conversations = new Set((await store.listConversations(undefined, { limit: 500 })).map((entry) => entry.id))
+
+  for (const link of rows(data.conversation_tags)) {
+    const conversationId = idValue(link.conversation_id)
+    const tagId = idValue(link.tag_id)
+    if (!conversationId || !tagId || !conversations.has(conversationId)) continue
+    // Tags are the notebook's objects; a link to one the reader deleted is not restored.
+    if (!(await store.knownTag(tagId))) continue
+    await store.addConversationTag(conversationId, tagId)
+  }
   for (const message of rows(data.messages)) {
     const id = idValue(message.id)
     const conversationId = idValue(message.conversation_id)

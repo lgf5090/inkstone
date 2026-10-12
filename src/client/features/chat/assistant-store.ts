@@ -15,6 +15,8 @@
 import { create } from 'zustand'
 import type {
   AssistantConversation,
+  ChatFolderNode,
+  ConversationTag,
   AssistantMemory,
   AssistantMessage,
   AssistantModel,
@@ -59,6 +61,13 @@ interface AssistantState {
 
   conversations: AssistantConversation[]
   conversationQuery: string
+  /** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */
+  folderFilter: string
+  tagFilter: string | null
+  folderNodes: ChatFolderNode[]
+  /** Conversations with no folder; the tree counts the rest. */
+  unfiledCount: number
+  tagNodes: (ConversationTag & { count: number })[]
   activeId: string | null
   messages: AssistantMessage[]
   messagesReady: boolean
@@ -94,6 +103,12 @@ interface AssistantState {
   refreshAfterTurn: () => Promise<void>
   loadConversations: () => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
+  /** The folder tree and the tag list, both counted for conversations. */
+  loadTaxonomy: () => Promise<void>
+  setFolderFilter: (value: string) => Promise<void>
+  setTagFilter: (tagId: string | null) => Promise<void>
+  moveConversation: (id: string, folderId: string | null) => Promise<void>
+  toggleConversationTag: (id: string, tagId: string, on: boolean) => Promise<void>
   openConversation: (id: string | null) => Promise<void>
   newConversation: () => void
   send: (text: string, opts?: { retry?: boolean }) => Promise<void>
@@ -188,6 +203,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   conversations: [],
   conversationQuery: '',
+  folderFilter: 'all',
+  tagFilter: null,
+  folderNodes: [],
+  unfiledCount: 0,
+  tagNodes: [],
   activeId: null,
   messages: [],
   messagesReady: false,
@@ -258,8 +278,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   loadConversations: async () => {
     const token = ++conversationRequest
     try {
-      const query = get().conversationQuery.trim()
-      const result = await api.assistant.conversations(query || undefined)
+      const state = get()
+      const query = state.conversationQuery.trim()
+      const params: { q?: string, folder?: string, tag?: string } = {}
+      if (query) params.q = query
+      if (state.folderFilter !== 'all') params.folder = state.folderFilter
+      if (state.tagFilter) params.tag = state.tagFilter
+      const result = await api.assistant.conversations(params)
       if (token !== conversationRequest) return
       set({ conversations: result.conversations })
     } catch (error) {
@@ -270,6 +295,46 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setConversationQuery: async (query) => {
     set({ conversationQuery: query })
     await get().loadConversations()
+  },
+
+  loadTaxonomy: async () => {
+    try {
+      const [folders, tags] = await Promise.all([api.assistant.conversationFolders(), api.assistant.conversationTags()])
+      set({ folderNodes: folders.folders, unfiledCount: folders.unfiled, tagNodes: tags.tags })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  setFolderFilter: async (value) => {
+    set({ folderFilter: value })
+    await get().loadConversations()
+  },
+
+  setTagFilter: async (tagId) => {
+    set({ tagFilter: tagId })
+    await get().loadConversations()
+  },
+
+  moveConversation: async (id, folderId) => {
+    try {
+      await api.assistant.moveConversation(id, folderId)
+      await get().loadConversations()
+      await get().loadTaxonomy()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  toggleConversationTag: async (id, tagId, on) => {
+    try {
+      if (on) await api.assistant.addConversationTag(id, tagId)
+      else await api.assistant.removeConversationTag(id, tagId)
+      await get().loadConversations()
+      await get().loadTaxonomy()
+    } catch (error) {
+      toast(error)
+    }
   },
 
   openConversation: async (id) => {
