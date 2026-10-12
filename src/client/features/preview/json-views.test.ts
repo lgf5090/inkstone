@@ -18,7 +18,7 @@ import {
     renderJsonTree,
 } from './json-tree-view';
 import type { JsonViewControl } from './json-tree-view';
-import { renderJsonMap, showJsonDetail, zoomJsonMap, type JsonMapView } from './json-map-view';
+import { renderJsonMap, fitJsonMap, showJsonDetail, zoomJsonMap, type JsonMapView } from './json-map-view';
 
 function doc(body: string): JsonDocument {
     const parsed = parseJsonDocument(body);
@@ -212,33 +212,35 @@ describe('renderJsonMap', () => {
     it('sizes a card for the widest row it is actually going to draw', () => {
         // The measure callback and the painted row are two call sites that must agree, and nothing but
         // this assertion makes them: jsdom gives no canvas, so the fallback rule — seven pixels a
-        // character — is the only thing tying the card's width to its text. Deleting the ` : ` from the
+        // character — is the only thing tying the card's width to its text. Deleting the `: ` from the
         // key span, or letting a flex `gap` add advances, reddens this without reddening anything else.
         const parsed = doc(wide(60));
         renderJsonMap(host, parsed, view);
         const card = host.querySelector<HTMLElement>('.jm-card')!;
         const painted = [...host.querySelectorAll('.jm-row')].map(row => row.textContent!.length * 7);
+        // 22px of handle column on every row (a leaf pays it too, or its key starts left of a branch's),
         // 9px of padding on each side, and the 1px border on each side, because the card's width is a
         // border-box: leave either out and the widest row of every card ellipsizes (browser-measured).
-        expect(card.style.width).toBe(`${Math.max(...painted) + 2 * 9 + 2}px`);
+        expect(card.style.width).toBe(`${Math.max(...painted) + 22 + 2 * 9 + 2}px`);
     });
 
     it('paints one row per member and one card per container', () => {
         renderJsonMap(host, doc('{"a": 1, "b": {"c": 2}}'), view);
         expect(host.querySelectorAll('.jm-card')).toHaveLength(2);
-        expect([...host.querySelectorAll('.jm-key')].map(node => node.textContent)).toEqual(['a : ', 'c : ']);
-        // `b` got a card, so the row keeps only the handle and the summary; the name travels on the
-        // connector, which is the row's `.jm-value` text with the `−` of its fold button taken off.
+        // The branch's name is in its row as well as on the line it hangs: a reader who arrives at the
+        // `b` card by eye has to be able to ask which member it is without tracing the curve back.
+        expect([...host.querySelectorAll('.jm-key')].map(node => node.textContent)).toEqual(['a: ', 'b: ', 'c: ']);
         const branch = host.querySelector('.jm-row--branch')!;
-        expect(branch.querySelector('.jm-key')).toBeNull();
-        expect(branch.querySelector('.jm-value')?.textContent).toBe('{1}');
+        // This file runs without `initI18n`, so `t()` hands back the key — which is exactly what makes the
+        // assertion say something: `_one` proves a single-member object took the singular branch.
+        expect(branch.querySelector('.jm-value')?.textContent).toBe('{preview.json_map_key_one}');
         expect([...host.querySelectorAll('.jm-edge-label')].map(node => node.textContent)).toEqual(['b']);
     });
 
-    it('gives a colour value a swatch and every kind its own class', () => {
+    it('gives a colour value a chip and every kind its own class', () => {
         renderJsonMap(host, doc('{"tint": "#FF0000", "n": 3, "b": true, "z": null}'), view);
-        expect(host.querySelectorAll('.jm-swatch')).toHaveLength(1);
-        expect(host.querySelector('.jm-swatch')?.getAttribute('style')).toBe('background:#FF0000');
+        expect(host.querySelectorAll('.jm-chip')).toHaveLength(1);
+        expect(host.querySelector('.jm-chip')?.getAttribute('style')).toBe('background:#FF0000');
         expect(host.querySelector('.jm-value--string')?.textContent).toBe('#FF0000');
         for (const kind of ['string', 'number', 'boolean', 'null'])
             expect(host.querySelector(`.jm-value--${kind}`), kind).not.toBeNull();
@@ -252,10 +254,10 @@ describe('renderJsonMap', () => {
         expect(fold.getAttribute('aria-expanded')).toBe('true');
         setCollapsed(findNode(parsed.root, ['a'])!, true);
         renderJsonMap(host, parsed, view);
-        // No card means no connector, so the row takes the name back rather than losing it.
+        // No card means no connector, so the row is the only place the name can be.
         expect(host.querySelectorAll('.jm-card')).toHaveLength(1);
-        expect(host.querySelector('.jm-row--branch .jm-key')?.textContent).toBe('a : ');
-        expect(host.querySelector('.jm-row--branch .jm-value')?.textContent).toBe('[2]');
+        expect(host.querySelector('.jm-row--branch .jm-key')?.textContent).toBe('a: ');
+        expect(host.querySelector('.jm-row--branch .jm-value')?.textContent).toBe('[preview.json_map_item_other]');
         expect(host.querySelector('.jm-fold')?.getAttribute('aria-expanded')).toBe('false');
     });
 
@@ -287,6 +289,165 @@ describe('renderJsonMap', () => {
         expect(host.querySelector('.jm-detail')).not.toBeNull();
         zoomJsonMap(host, view, 1.2);
         expect(host.querySelector('.jm-detail')).toBeNull();
+    });
+
+    it('closes the detail card when the reader clicks anywhere else', () => {
+        // The complaint this answers: a card that only the × can shut. A reader who has finished reading
+        // clicks back on the canvas and expects the picture, not a second click on a small button.
+        const parsed = doc('{"a": 1}');
+        renderJsonMap(host, parsed, view);
+        showJsonDetail(host, parsed, ['a'], host.querySelector<HTMLElement>('.jm-card')!);
+        expect(host.querySelector('.jm-detail')).not.toBeNull();
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        expect(host.querySelector('.jm-detail')).toBeNull();
+    });
+
+    it('keeps the detail card under a press that lands inside it', () => {
+        // The closer runs on `pointerdown`, which is before the `click` that carries out the copy. Closing
+        // on the way past the card would remove the button the press was aimed at, and the copy would
+        // silently never happen — a gesture that looks like it worked.
+        const parsed = doc('{"a": 1}');
+        renderJsonMap(host, parsed, view);
+        showJsonDetail(host, parsed, ['a'], host.querySelector<HTMLElement>('.jm-card')!);
+        const copy = host.querySelector<HTMLElement>('[data-jt="copy-value"]')!;
+        copy.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        expect(host.querySelector('.jm-detail'), 'the press was inside the card').not.toBeNull();
+    });
+
+    it('keeps the block menu away from a right-click that a card claimed', () => {
+        // The live preview asks for the note's block menu from an ancestor of this host. Both menus opening
+        // on one press is what shipped first: the block menu painted over the card menu and its search box
+        // took the focus. So the press that a card answers for must stop there — and one that no card
+        // claims must travel, or the block's own tools become unreachable from the map.
+        const parsed = doc('{"a": {"b": 1}}');
+        renderJsonMap(host, parsed, view);
+        let reached = 0;
+        const witness = (): void => {
+            reached++;
+        };
+        document.body.addEventListener('contextmenu', witness);
+        try {
+            host.querySelector<HTMLElement>('.jm-row')!
+                .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+            expect(reached, 'the block menu was asked for as well').toBe(0);
+            host.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+            expect(reached, 'a right-click on bare canvas has to reach the block menu').toBe(1);
+        }
+        finally {
+            document.body.removeEventListener('contextmenu', witness);
+        }
+    });
+
+    it('takes the right-click away from the editor so the menu can keep the focus', () => {
+        // The block lives inside a `contenteditable` live preview, and a right-click's `mousedown` has a
+        // default action — put the caret back in the editor — that runs *after* the `contextmenu` handler.
+        // jsdom cannot show the theft, but it can show who claimed the default: without this the card menu
+        // opens, focuses its first item, and the browser then hands focus straight back to the editor.
+        const parsed = doc('{"a": {"b": 1}}');
+        renderJsonMap(host, parsed, view);
+        const row = host.querySelector<HTMLElement>('.jm-row')!;
+        const left = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+        row.dispatchEvent(left);
+        expect(left.defaultPrevented, 'a left press must stay the block\'s own click route').toBe(false);
+        const right = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 });
+        row.dispatchEvent(right);
+        expect(right.defaultPrevented, 'the caret-restoring default of a right press').toBe(true);
+        const elsewhere = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 });
+        host.dispatchEvent(elsewhere);
+        expect(elsewhere.defaultPrevented, 'a right-click on bare canvas is the reader\'s own').toBe(false);
+    });
+
+    it('opens a card menu on right-click, naming the member under the pointer', () => {
+        const parsed = doc('{"a": {"b": 1}, "c": [1, 2]}');
+        renderJsonMap(host, parsed, view);
+        // A fold redraws into the element that is already on the page, so the second draw is the one that
+        // used to leave two context-menu handlers behind: the second deleted the first menu, and focus
+        // landed on `<body>` with nothing open. One draw per gesture is what this pins.
+        renderJsonMap(host, parsed, view);
+        const row = host.querySelector<HTMLElement>('.jm-row[data-jm-path=\'["c"]\']')!;
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 30 }));
+        const menu = host.querySelector<HTMLElement>('[data-json-map-menu]');
+        expect(menu, 'the right-click never opened a menu').not.toBeNull();
+        expect(host.querySelectorAll('[data-json-map-menu]'), 'one draw, one menu').toHaveLength(1);
+        expect(menu!.getAttribute('role')).toBe('menu');
+        expect(menu!.dataset.jmPath).toBe('["c"]');
+        expect([...menu!.querySelectorAll<HTMLButtonElement>('[data-jt]')].map(item => item.dataset.jt))
+            .toEqual(['fold-branch', 'expand-all-map', 'fold-all-map', 'copy-value', 'copy-path', 'open-in-tree']);
+        // Every item is a real button, and the menu takes the focus, or the keyboard cannot follow the
+        // pointer that opened it.
+        for (const item of menu!.querySelectorAll('button'))
+            expect(item.getAttribute('role')).toBe('menuitem');
+        expect(menu!.contains(document.activeElement), 'the menu opened without taking focus').toBe(true);
+        // The count of menus cannot see a doubled handler — the second one replaces the first's card, so the
+        // page still shows exactly one. The wheel can: two installs zoom twice per notch, a map that runs
+        // away from the reader's finger at 1.2544x the scale they asked for. Read last, because a camera
+        // change retires the menu this test is holding.
+        view.camera.scale = 1;
+        view.camera.x = 0;
+        view.camera.y = 0;
+        host.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -10 }));
+        expect(view.camera.scale, 'the wheel ran twice').toBeCloseTo(1.12, 6);
+        host.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+        expect(view.camera.x, 'the arrow pan ran twice').toBe(24);
+    });
+
+    it('says expand rather than collapse for a branch that is already folded', () => {
+        const parsed = doc('{"a": {"b": 1}}');
+        setCollapsed(findNode(parsed.root, ['a'])!, true);
+        renderJsonMap(host, parsed, view);
+        host.querySelector<HTMLElement>('.jm-row')!
+            .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        const items = [...host.querySelectorAll<HTMLButtonElement>('[data-json-map-menu] [data-jt]')].map(item => item.dataset.jt);
+        expect(items[0]).toBe('expand-branch');
+        expect(items).not.toContain('fold-branch');
+    });
+
+    it('closes the card menu on a click away and on a camera move', () => {
+        const parsed = doc('{"a": 1}');
+        renderJsonMap(host, parsed, view);
+        host.querySelector<HTMLElement>('.jm-row')!
+            .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        expect(host.querySelector('[data-json-map-menu]')).not.toBeNull();
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        expect(host.querySelector('[data-json-map-menu]')).toBeNull();
+        host.querySelector<HTMLElement>('.jm-row')!
+            .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        // The menu names a place on the canvas; a pan leaves it pointing at a different member.
+        zoomJsonMap(host, view, 1.2);
+        expect(host.querySelector('[data-json-map-menu]')).toBeNull();
+    });
+
+    it('fits into the camera the caller handed over, never a replacement', () => {
+        // The pan handlers hold this object, so a fit that swaps it for a new one leaves the next drag
+        // moving the camera the fit just retired: measured in a browser, entering full screen fitted the
+        // map and the first drag snapped it back to the inline position it had left.
+        const parsed = doc(wide(60));
+        renderJsonMap(host, parsed, view);
+        const camera = view.camera;
+        view.camera.x = -900;
+        view.camera.y = -400;
+        expect(fitJsonMap(host, view), 'the fit declined on a box this test gave it size to').toBe(true);
+        expect(view.camera, 'the fit replaced the object').toBe(camera);
+        expect(camera.x).not.toBe(-900);
+    });
+
+    it('keeps a pan that is under way when a redraw arrives', () => {
+        // The other pane is a keystroke away, and a commit redraws this host. Re-installing the gestures for
+        // that would drop the drag in progress, so the reader's hand lifts and the map stops answering the
+        // pointer they are still holding down — the one thing a pan must not do.
+        host.setPointerCapture = () => {};
+        host.releasePointerCapture = () => {};
+        host.hasPointerCapture = () => false;
+        const parsed = doc(wide(30));
+        renderJsonMap(host, parsed, view);
+        const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 4, clientX: 300, clientY: 300 });
+        host.dispatchEvent(down);
+        host.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 4, clientX: 340, clientY: 320 }));
+        const panned = view.camera.x;
+        expect(panned, 'the drag never started, so the redraw cannot be said to keep it alive').not.toBe(0);
+        renderJsonMap(host, parsed, view);
+        host.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 4, clientX: 360, clientY: 320 }));
+        expect(view.camera.x, 'the redraw dropped the drag').toBe(panned + 20);
     });
 
     it('makes the host reachable so the keyboard pan is not dead code', () => {

@@ -29,10 +29,12 @@ import {
 } from './json-tree-view';
 import {
     centerJsonMap,
-    closeJsonDetail,
+    closeMapOverlays,
     fitJsonMap,
+    foldAllJsonMap,
     jsonMapSvg,
     renderJsonMap,
+    resizeJsonMapHost,
     showJsonDetail,
     toggleJsonMapNode,
     zoomJsonMap,
@@ -171,7 +173,7 @@ function draw(block: HTMLElement, host: HTMLElement, state: JsonBlockState, ctx:
         renderJsonTree(host, document, control, jsonFilterKept(document.root, state.filter));
         return;
     }
-    renderJsonMap(host, document, state.map);
+    renderJsonMap(host, document, state.map, jsonFilterKept(document.root, state.filter));
 }
 
 /**
@@ -264,7 +266,7 @@ function wireMapOpenInTree(block: HTMLElement, host: HTMLElement, ctx: BlockActi
         return;
     host.dataset.jsonOpenWired = '1';
     host.addEventListener('jsonmapopen', (event) => {
-        const path = (event as CustomEvent).detail as JsonPath;
+        const detail = (event as CustomEvent).detail as { path: JsonPath, edit: boolean };
         const state = jsonBlockState(block, { view: 'source', fold: 2 }, ctx.sourceNoteId ?? null);
         if (state.mode !== 'tree') {
             state.mode = 'tree';
@@ -272,8 +274,14 @@ function wireMapOpenInTree(block: HTMLElement, host: HTMLElement, ctx: BlockActi
             rebuildJsonBlockHead(block, ctx);
         }
         draw(block, host, state, ctx);
-        const row = revealJsonPath(host, path);
-        row?.querySelector<HTMLElement>('[data-jt="edit-value"], [data-jt="edit-key"]')?.click();
+        const row = revealJsonPath(host, detail.path);
+        // A double-click means "let me change this one", so it opens the editor. The card menu's item means
+        // "show me where this is", and starting an edit for that would put a caret in a reader's document
+        // that they never asked for — so it marks the row instead.
+        if (detail.edit)
+            row?.querySelector<HTMLElement>('[data-jt="edit-value"], [data-jt="edit-key"]')?.click();
+        else if (row)
+            markSelected(host, row);
     });
 }
 
@@ -344,15 +352,22 @@ export function runJsonBlockTool(action: string, block: HTMLElement, ctx: BlockA
         return;
     }
     if (action === 'export-svg') {
-        exportSvg(jsonMapSvg(document, host), ctx);
+        exportSvg(jsonMapSvg(document, host, jsonFilterKept(document.root, state.filter)), ctx);
         return;
     }
     if (action === 'export-png') {
-        exportPng(jsonMapSvg(document, host), ctx);
+        exportPng(jsonMapSvg(document, host, jsonFilterKept(document.root, state.filter)), ctx);
         return;
     }
     if (action === 'fit') {
         fitJsonMap(host, state.map);
+        return;
+    }
+    if (action === 'fold-all-map') {
+        // One button for both directions, the way the tree's collapse-all works: which way it goes is
+        // decided from the document in front of the reader, not from a label that cannot know.
+        foldAllJsonMap(document, host, state.map, !allCollapsed(document), jsonFilterKept(document.root, state.filter));
+        rememberFoldExceptions(state);
         return;
     }
     if (action === 'center') {
@@ -366,7 +381,7 @@ export function runJsonBlockTool(action: string, block: HTMLElement, ctx: BlockA
     if (action === 'fullscreen')
         enterJsonFullscreen(block, host, ctx);
     if (action === 'exit-fullscreen')
-        leaveJsonFullscreen(block);
+        leaveJsonFullscreen(block, ctx);
     if (action === 'copy-json')
         void copyText(jsonBlockBody(block), ctx);
 }
@@ -486,9 +501,11 @@ export function routeJsonViewPress(target: HTMLElement, block: HTMLElement, ctx:
     const control = controlFor(block, ctx, state, host);
     const path = pathOf(target);
 
+    const kept = jsonFilterKept(document.root, state.filter);
+
     const fold = target.closest<HTMLElement>('[data-jm="fold"]');
     if (fold) {
-        toggleJsonMapNode(document, host, state.map, path);
+        toggleJsonMapNode(document, host, state.map, path, kept);
         rememberFoldExceptions(state);
         return;
     }
@@ -499,16 +516,38 @@ export function routeJsonViewPress(target: HTMLElement, block: HTMLElement, ctx:
         // when a map gets big: what exactly is this member? The detail card answers it with the member's
         // own text and the path that names it, both of which survive being pasted elsewhere.
         const member = target.closest<HTMLElement>('[data-jm-path]');
-        if (member && !target.closest('.jm-detail'))
+        if (member && !target.closest('.jm-detail, .jm-map-menu'))
             showJsonDetail(host, document, path, member);
         return;
     }
+    if (target.closest('.jm-map-menu'))
+        closeMapOverlays(host);
     const action = press.dataset.jt!;
-    if (action === 'copy-value' || action === 'copy-path' || action === 'close-detail') {
-        if (action === 'close-detail')
-            closeJsonDetail(host);
-        else
-            void copyText(action === 'copy-path' ? formatJsonPath(path) : detailBody(document, path), ctx);
+    if (action === 'close-detail') {
+        closeMapOverlays(host);
+        // The × is a control the reader was inside; leaving them with focus on the canvas behind it is
+        // what the app's other closers do, and what keeps the next Tab in the right place.
+        host.focus();
+        return;
+    }
+    if (action === 'copy-value' || action === 'copy-path') {
+        void copyText(action === 'copy-path' ? formatJsonPath(path) : detailBody(document, path), ctx);
+        return;
+    }
+    // The map's own menu. Each item is a `[data-jt]` button carrying the path it acts on, so it reaches the
+    // same operation the tree's buttons and the detail card use rather than a second copy of it.
+    if (action === 'fold-branch' || action === 'expand-branch') {
+        toggleJsonMapNode(document, host, state.map, path, kept);
+        rememberFoldExceptions(state);
+        return;
+    }
+    if (action === 'fold-all-map' || action === 'expand-all-map') {
+        foldAllJsonMap(document, host, state.map, action === 'fold-all-map', kept);
+        rememberFoldExceptions(state);
+        return;
+    }
+    if (action === 'open-in-tree') {
+        host.dispatchEvent(new CustomEvent('jsonmapopen', { bubbles: true, composed: true, detail: { path, edit: false } }));
         return;
     }
     if (action === 'edit-key' || action === 'edit-value') {
@@ -624,15 +663,6 @@ function displayFor(node: JsonNode): string {
     return node.literal ?? String(node.value ?? '');
 }
 
-const FULLSCREEN_BAR = [
-  ['fit', 'preview.json_fit'],
-  ['center', 'preview.json_center'],
-  ['zoom-out', 'preview.json_zoom_out'],
-  ['zoom-in', 'preview.json_zoom_in'],
-  ['export-svg', 'preview.json_export_svg'],
-  ['export-png', 'preview.json_export_png'],
-] as const;
-
 /**
  * Puts one block's map on the whole window.
  *
@@ -644,6 +674,7 @@ const FULLSCREEN_BAR = [
 function enterJsonFullscreen(block: HTMLElement, host: HTMLElement, ctx: BlockActionContext): void {
     if (block.classList.contains('is-json-fullscreen'))
         return;
+    const state = jsonBlockState(block, { view: 'map', fold: 2 }, ctx.sourceNoteId ?? null);
     const slot = block.ownerDocument.createComment('json-fullscreen-slot');
     block.parentNode?.insertBefore(slot, block);
     (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot = slot;
@@ -653,68 +684,59 @@ function enterJsonFullscreen(block: HTMLElement, host: HTMLElement, ctx: BlockAc
     block.ownerDocument.body.appendChild(stage);
     stage.appendChild(block);
     // Both preview surfaces delegate their block-toolbar clicks from their own container, and this block
-    // has just left it: moved onto `<body>`, a press on the bar or on a fold handle bubbles to nothing,
+    // has just left it: moved onto `<body>`, a press on the head or on a fold handle bubbles to nothing,
     // and every tool in the full-screen view is dead while looking entirely wired. The stage carries the
     // same route for exactly as long as it holds the block.
     const press = (event: MouseEvent): void => {
         handleBlockToolbarClick(event, event.target as HTMLElement, ctx);
     };
     stage.addEventListener('click', press);
-    openStage = { block, stage, dispose: () => stage.removeEventListener('click', press) };
+    const esc = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape')
+            return;
+        // This listener is on `document` in the capture phase, so it sees the press before the map does.
+        // Escape with an overlay open means "put the card away", not "throw me out of the full-screen view",
+        // and the map's own handler is the one that closes it — so stand aside while one is on screen.
+        if (host.querySelector('[data-json-detail], [data-json-map-menu]'))
+            return;
+        event.stopPropagation();
+        leaveJsonFullscreen(block, ctx);
+    };
+    block.ownerDocument.addEventListener('keydown', esc, true);
+    openStage = {
+        block,
+        stage,
+        dispose: () => stage.removeEventListener('click', press),
+        closeEsc: () => block.ownerDocument.removeEventListener('keydown', esc, true),
+    };
     block.classList.add('is-json-fullscreen');
-    const bar = block.ownerDocument.createElement('div');
-    bar.className = 'json-fs-bar';
-    bar.dataset.jsonFullscreenBar = '';
-    const title = block.ownerDocument.createElement('span');
-    title.className = 'json-fs-title';
-    title.textContent = t('preview.json_view_map');
-    const close = block.ownerDocument.createElement('button');
-    close.type = 'button';
-    close.className = 'json-tool';
-    close.dataset.jv = 'exit-fullscreen';
-    close.title = t('preview.json_exit_fullscreen');
-    close.setAttribute('aria-label', t('preview.json_exit_fullscreen'));
-    close.textContent = '×';
-    bar.appendChild(title);
-    for (const [action, key] of FULLSCREEN_BAR) {
-        const button = block.ownerDocument.createElement('button');
-        button.type = 'button';
-        button.className = 'json-tool';
-        button.dataset.jv = action;
-        button.title = t(key);
-        button.setAttribute('aria-label', t(key));
-        button.textContent = { fit: '⤢', center: '◎', 'zoom-out': '−', 'zoom-in': '+', 'export-svg': 'SVG', 'export-png': 'PNG' }[action];
-        bar.appendChild(button);
-    }
-    bar.appendChild(close);
-    block.appendChild(bar);
+    // The head is the overlay's only tool surface, so it takes over the whole tool list — including the
+    // press that leaves again. Rebuilding goes through the toolbar module, which is where that list lives.
+    state.fullscreen = true;
+    rebuildJsonBlockHead(block, ctx);
+    // The inline box grew to fit the picture it was drawn into; the stage is the window now, and that
+    // leftover pixel height would stay as a band of empty field under the map.
+    host.style.height = '';
     // A write from inside the overlay replaces the block in the note, which would leave this copy
     // orphaned and every later edit landing on a different element. Leaving first is the honest answer.
     const original = ctx.api.editContent;
     ctx.api.editContent = (noteId: string, next: string) => {
-        leaveJsonFullscreen(block);
+        leaveJsonFullscreen(block, ctx);
         original(noteId, next);
     };
     // The overlay draws at the size of the window, so the fit the inline block settled on is no longer
     // the right one; `fitted` is reset so the first frame of the big view is fitted to the big box.
-    const view = jsonBlockState(block, { view: 'map', fold: 2 }, ctx.sourceNoteId ?? null).map;
-    view.fitted = false;
-    fitJsonMap(host, view);
-    const esc = (event: KeyboardEvent): void => {
-        if (event.key !== 'Escape')
-            return;
-        event.stopPropagation();
-        block.ownerDocument.removeEventListener('keydown', esc, true);
-        leaveJsonFullscreen(block);
-    };
-    block.ownerDocument.addEventListener('keydown', esc, true);
+    state.map.fitted = false;
+    fitJsonMap(host, state.map);
 }
 
-function leaveJsonFullscreen(block: HTMLElement): void {
+function leaveJsonFullscreen(block: HTMLElement, ctx: BlockActionContext): void {
     if (!block.classList.contains('is-json-fullscreen'))
         return;
+    const state = jsonBlockState(block, { view: 'map', fold: 2 }, ctx.sourceNoteId ?? null);
     block.classList.remove('is-json-fullscreen');
-    block.querySelector('[data-json-fullscreen-bar]')?.remove();
+    state.fullscreen = false;
+    closeMapOverlays(block);
     // Read the stage while the block is still inside it: once the block is put back, `closest` from the
     // block can no longer reach the wrapper and the empty stage would stay on the page covering the app.
     const stage = block.closest<HTMLElement>('[data-json-fullscreen-stage]');
@@ -723,7 +745,18 @@ function leaveJsonFullscreen(block: HTMLElement): void {
     slot?.remove();
     stage?.remove();
     delete (block as HTMLElement & { jsonSlot?: Comment }).jsonSlot;
+    rebuildJsonBlockHead(block, ctx);
+    // Back in the column, the box is the column's again: the height the inline draw asked for has to come
+    // back, and the fit the window decided on has to be redone or the reader returns to a map zoomed to a
+    // fragment of itself.
+    const host = hostOf(block);
+    if (host) {
+        resizeJsonMapHost(host);
+        state.map.fitted = false;
+        fitJsonMap(host, state.map);
+    }
     if (openStage?.block === block) {
+        openStage.closeEsc();
         openStage.dispose();
         openStage = null;
     }
@@ -736,12 +769,16 @@ function leaveJsonFullscreen(block: HTMLElement): void {
  * while it is open, nothing is left holding the stage and it stays on the page covering the app. Every
  * mount pass checks the recorded block is still attached and takes the stage back down if it is not.
  */
-let openStage: { block: HTMLElement, stage: HTMLElement, dispose: () => void } | null = null;
+let openStage: { block: HTMLElement, stage: HTMLElement, dispose: () => void, closeEsc: () => void } | null = null;
 
 /** Reaps an orphaned full screen stage. Returns whether one had to go. */
 export function reapJsonFullscreen(): boolean {
     if (!openStage || openStage.block.isConnected)
         return false;
+    // The Escape handler lives on `document`, not on the stage, so taking the stage down without it leaves
+    // a capture-phase listener that stops every later Escape press in the app — the command palette, a
+    // dialog, an inline editor — for the rest of the session.
+    openStage.closeEsc();
     openStage.dispose();
     openStage.stage.remove();
     openStage = null;

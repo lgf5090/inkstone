@@ -3069,6 +3069,26 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-sm);
 }
+/* The export tools are words, not glyphs: "SVG" and "PNG" say which format leaves the editor, and no icon
+   does that without a label next to it. They cost width, so they only appear where the picture being
+   exported is the whole window. */
+.ink-prose .json-tool--text {
+  width: auto;
+  padding: 0 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+}
+/* A phone's reading width cannot hold three tab names and eight tool buttons, and the tools are the part
+   nobody wants to lose. Each tab keeps its icon, and its name stays in the accessible name through the
+   button's own `aria-label`, so dropping the visible label drops nothing a screen reader had. */
+@media (max-width: 639px) {
+  .ink-prose .json-tab-label {
+    display: none;
+  }
+  .ink-prose .json-tab {
+    padding: 0 5px;
+  }
+}
 .ink-prose .json-filter {
   display: flex;
   padding: 5px 8px;
@@ -3312,7 +3332,7 @@
   stroke-linejoin: round;
 }
 /* A card is one container. Its rows are placed by the layout, which is why the row pitch, the handle and
-   the swatch advances are written here as well as in `json-map-view.ts`: the layout measures the row as
+   the chip advances are written here as well as in `json-map-view.ts`: the layout measures the row as
    this stylesheet will paint it, so a change to either alone shows up as clipped or drifting text.
    The kind stripe is an inset shadow rather than a thick border for exactly that reason: a 3px border
    would take 3px away from every row, and the widest row of every card would ellipsize. */
@@ -3320,7 +3340,7 @@
   --jm-stripe: inset 3px 0 0 var(--syntax-property);
   position: absolute;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   background: var(--bg-surface);
   box-shadow: var(--jm-stripe), var(--shadow-sm);
   user-select: none;
@@ -3339,14 +3359,19 @@
   position: absolute;
   display: flex;
   align-items: center;
-  /* No gap: the advances come from the handle's and swatch's own margins, which the measurer adds to the
+  /* No gap: the advances come from the handle's and chip's own margins, which the measurer adds to the
      label it is given. A `gap` here would paint `k : v` wider than the card was sized for. */
   gap: 0;
   white-space: nowrap;
 }
+/* Every member is a line of its own, so the card reads as a list rather than as a block of text. The
+   first row carries no rule because the card's own edge is above it. */
+.jm-row--rule {
+  border-top: 1px solid var(--border-subtle);
+}
 .jm-key {
   color: var(--syntax-property);
-  /* The layout's label is `key : value`, spaces included, and a flex item drops leading and trailing
+  /* The layout's label is `key: value`, spaces included, and a flex item drops leading and trailing
      spaces; `pre` is what keeps the painted run the same string the card was measured from. */
   white-space: pre;
   flex: none;
@@ -3374,15 +3399,15 @@
 .jm-value--array {
   color: var(--text-secondary);
 }
-.jm-swatch {
+.jm-chip {
   /* Without this the chip is an inline box, `width` is ignored and the colour never paints — measured in
      a browser, where the swatch came out 1px wide. `inline-block` keeps it inside the value's text run so
      an ellipsized value still carries its colour with it. */
   display: inline-block;
-  vertical-align: -2px;
+  vertical-align: -3px;
   flex: none;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   margin-right: 5px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-2);
@@ -3398,23 +3423,67 @@
 }
 .jm-fold {
   flex: none;
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
   padding: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--r-full);
+  border-radius: var(--r-2);
   /* The glyph is the only label on the button, and `--text-tertiary` measured 3.76:1 on a card in the
      dark theme — a control's name has to clear AA like any other text. */
   color: var(--text-secondary);
   background: var(--bg-inset);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
 }
 .jm-fold:hover {
   color: var(--text-primary);
   border-color: var(--accent);
+}
+/* A leaf has nothing to fold, but it still costs the same advance: every card's keys start on one
+   vertical line only if the rows that hold no handle reserve the room for one. */
+.jm-fold--none {
+  border-color: transparent;
+  background: none;
+  cursor: default;
+}
+
+.jm-map-menu {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  font-size: 11.5px;
+  cursor: auto;
+  user-select: none;
+}
+.jm-map-menu-item {
+  display: block;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.jm-map-menu-item:hover,
+.jm-map-menu-item:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-active);
+  outline: none;
 }
 
 .jm-detail {
@@ -3539,45 +3608,32 @@
   list-style: none;
 }
 
+/* The stage paints the window; the block fills it as a column, so the head, the filter row and the
+   picture each get their own height and the map takes whatever is left. The block is `position: relative`
+   rather than `fixed` because it has already been moved into a fixed wrapper — a second fixed box would
+   fight the one that carries the click route. */
 .code-block.is-json-fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   max-height: none;
   margin: 0;
   border: 0;
   border-radius: 0;
   background: var(--bg-base);
 }
+.code-block.is-json-fullscreen > .code-block-head,
+.code-block.is-json-fullscreen > .json-filter {
+  flex: none;
+}
 .code-block.is-json-fullscreen > .json-view {
-  height: calc(100% - 28px);
+  flex: 1;
+  height: auto;
+  min-height: 0;
   max-height: none;
-}
-.json-fs-bar {
-  position: absolute;
-  top: 34px;
-  right: 12px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 6px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--r-md);
-  background: var(--bg-overlay);
-  box-shadow: var(--shadow-pop);
-}
-.json-fs-title {
-  margin-right: 6px;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-}
-.code-block.is-json-fullscreen {
-  position: relative;
-  inset: auto;
-  z-index: auto;
-  border: 0;
-  border-radius: 0;
 }
 
 /* The map measures labels from this element's computed font, so the nodes inherit from here rather than
@@ -3599,9 +3655,6 @@
 .ink-prose .jt-node:hover:not(:has(.jt-node:hover)) {
   background: var(--bg-hover);
 }
-.code-block.is-json-fullscreen {
-  height: 100%;
-}
 .json-fs-stage {
   position: fixed;
   inset: 0;
@@ -3609,8 +3662,11 @@
   background: var(--bg-base);
 }
 /* The stage carries `.ink-prose` so the block keeps its scoped styling when it is moved to <body>, and
-   the prose column's own measure comes with it. Full screen means the window, not the reading width. */
+   the prose column's own measure comes with it. Full screen means the window, not the reading width — and
+   not the column's `42vh` of trailing padding either, which was leaving a 420px band of empty field below
+   the map at a 1000px window (measured: the block came out 580px tall, exactly the stage minus 42vh). */
 .json-fs-stage {
   width: 100%;
   max-width: none;
+  padding-block: 0;
 }

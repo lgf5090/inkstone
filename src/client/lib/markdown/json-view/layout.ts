@@ -2,21 +2,21 @@
  * The mind map's geometry, computed apart from anything that draws it.
  *
  * The map is drawn as **cards**, not as one box per value. A container is a card; each of its members is
- * a row inside it; only a member that is itself a container gets a card to the right, and the name that
- * produced it is written on the connector rather than repeated at the head of the child's box. That is
- * what makes a nested config read as a picture: one pill per scalar turns a 1200-key object into 1200
- * pills in a column 48 022px tall, which was measured on the previous round's build.
+ * one row inside it, named the way the document names it (`color : #FF0000`, `details : {2 keys}`); a
+ * member that is itself a container gets a card to the right, hung off the row that names it. An array of
+ * containers is the one place where the picture departs from the document's shape on purpose: the array
+ * stays a single row — `fruits : [3 items]` — and its elements fan out from that row, because a card
+ * listing `0 : {4}`, `1 : {4}`, `2 : {4}` tells the reader nothing the fan does not.
  *
  * Two things the ported reference hardcoded are still decided from the content instead. It placed every
- * level at `depth * 190` and drew each connector from `parent.x + 160`, so a label wider than the slot
- * ran into its neighbour and every line started somewhere inside the box it claimed to leave — visible on
- * its own demo, where `structured editor` is wider than the gap. Column widths therefore come from the
- * widest card on each level, and a link runs from the parent's right edge to the child's left edge.
+ * level at `depth * 190` and drew each connector from `parent.x + 160`, so a label wider than the slot ran
+ * into its neighbour and every line started somewhere inside the box it claimed to leave — visible on its
+ * own demo, where `structured editor` is wider than the gap. Column widths therefore come from the widest
+ * card on each level, and a link runs from the parent's right edge to the child's left edge.
  *
- * The layout produces the row's two strings (`key` and `value`) by asking the caller for them, and hands
- * the same row object to the caller's measure function, so the width a card is given is the width of the
- * text it will actually paint — handle, colour swatch and all. `label` is those two joined, kept because
- * it is what a test can assert on without knowing how the view splits a row into spans.
+ * The layout produces each row's two strings by taking the name from the document and asking the caller for
+ * the value text, then hands the same row object to the caller's measure function — so the width a card is
+ * given is the width of the text it will actually paint, handle, colour chip and all.
  */
 import type { JsonNode, JsonPath } from './types';
 import { pathKey } from './types';
@@ -24,23 +24,20 @@ import { pathKey } from './types';
 /** One line inside a card. */
 export interface MapRow {
     node: JsonNode
-    /**
-     * The name the card prints, or empty.
-     *
-     * A member that got a card has its name written on the connector instead, so the card leaves the name
-     * out — that duplication is the whole reason the row is not a box of its own. A folded branch has no
-     * card and therefore no connector, so it keeps its name in the row, next to the handle that opens it.
-     */
+    /** The member's name as the document gives it: a key, or the index inside an array. */
     key: string
     /** A scalar's own text, or a container's summary. */
     value: string
-    /** `key : value`, or just `value` when the key went to the connector: the text the card is measured by. */
+    /** `key : value` — the text the card is measured by. A nameless row (the `+N` line) is just its value. */
     label: string
-    /** A branch row owns the card to the right; a scalar row is only text. */
+    /** A branch row is one the reader can fold: it has, or would have, cards hanging off it. */
     branch: boolean
-    /** The card this row reaches, or null for a leaf and for a branch that is folded shut. */
-    slot: MapSlot | null
-    /** This member's path, which is not `slot.path` when the slot does not exist. */
+    /**
+     * The cards this row reaches: one for an object member, several for an array of containers, none for a
+     * scalar or for a branch that is folded shut.
+     */
+    cards: MapSlot[]
+    /** This member's own path, which is not any card's path when the row is folded or promoted. */
     path: JsonPath
     /** Vertical center of the row, in canvas coordinates. */
     y: number
@@ -73,8 +70,9 @@ export interface MapSlot {
 
 export interface MapLink {
     from: MapSlot
+    /** The row the line leaves from, so a four-row card's branches do not share a start point. */
+    row: MapRow
     to: MapSlot
-    /** The child's name, which the child's own card does not repeat. */
     label: string
     /** Where that name sits: the midpoint of the connector. */
     x: number
@@ -99,14 +97,20 @@ export interface MapLayoutOptions {
     /**
      * The text one member paints as its value: a scalar's own, or a container's summary.
      *
-     * `hidden` is how many of that member's own children the drawing left out, which the value text has
-     * to name — a card showing three of nine rows has to say so, or the reader counts three. The member's
-     * *name* is not asked for here: the layout already knows it, and needs it to decide what the row
-     * measures as and what the connector prints.
+     * `hidden` is how many of that member's own children the drawing left out, which the value text has to
+     * name — a card showing three of nine rows has to say so, or the reader counts three.
      */
     valueFor: (node: JsonNode, hidden: number) => string
     /** Width in canvas units for one row's content, before the card's padding. */
     measure: (row: MapRow) => number
+    /**
+     * Which members the drawing shows at all.
+     *
+     * A filter is the same idea as a fold — the picture is a chosen subset of the document — so it belongs
+     * here rather than in the painter, where it would have to re-derive paths the layout already knows.
+     * Omit it and everything is kept.
+     */
+    keep?: (node: JsonNode, path: JsonPath) => boolean
     rowHeight?: number
     cardPadding?: number
     levelGap?: number
@@ -115,11 +119,10 @@ export interface MapLayoutOptions {
     maxNodes?: number
     maxChildren?: number
     /**
-     * Whether an array of objects is drawn as one card per element instead of a card holding the array.
+     * Whether an array of containers is drawn as one row fanning out into a card per element.
      *
-     * The reference style promotes them: three fruits become three cards, each reached by a connector
-     * labelled `fruits`, which is how a reader sees that three cards are siblings of one list rather than
-     * three unrelated objects.
+     * Off, such an array gets a card of its own listing one row per element, which is one level deeper and
+     * reads as a table rather than as a list.
      */
     promoteArrays?: boolean
 }
@@ -153,8 +156,8 @@ function promotable(node: JsonNode): boolean {
 /**
  * Lays out the visible part of a document, left to right, as cards.
  *
- * A folded card lists no rows and spawns no children, which is what keeps a 20 000-node document
- * drawable: the ceilings are applied to what is actually on screen, not to the tree.
+ * A folded card lists no rows and spawns no children, which is what keeps a 20 000-node document drawable:
+ * the ceilings are applied to what is actually on screen, not to the tree.
  */
 export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLayout {
     const rowHeight = options.rowHeight ?? MAP_ROW_HEIGHT;
@@ -165,6 +168,7 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
     const maxNodes = options.maxNodes ?? Number.POSITIVE_INFINITY;
     const maxChildren = options.maxChildren ?? MAP_MAX_CHILDREN;
     const promoteArrays = options.promoteArrays !== false;
+    const keep = options.keep;
     const slots: MapSlot[] = [];
     const byKey = new Map<string, MapSlot>();
     let truncated = false;
@@ -194,23 +198,15 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
         return slot;
     };
 
-    /**
-     * A row for one member, and the card it reaches if it has one.
-     *
-     * `named` is the name the *card* prints; it is empty when the name has gone to the connector, which is
-     * only when there is a connector. So a folded branch keeps `features : [2]` in its row while an open one
-     * shows just `[2]` and spells `features` on the line.
-     */
-    const rowFor = (node: JsonNode, name: string, hidden: number, path: JsonPath, slot: MapSlot | null, branch: boolean): MapRow => {
+    const rowFor = (node: JsonNode, name: string, hidden: number, path: JsonPath, cards: MapSlot[]): MapRow => {
         const value = options.valueFor(node, hidden);
-        const named = slot ? '' : name;
         return {
             node,
-            key: named,
+            key: name,
             value,
-            label: named ? `${name} : ${value}` : value,
-            branch,
-            slot,
+            label: name ? `${name}: ${value}` : value,
+            branch: isContainer(node),
+            cards,
             path,
             y: 0,
             more: false,
@@ -222,50 +218,66 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
         if (hidden <= 0)
             return;
         const text = `+${hidden}`;
-        slot.rows.push({ node: slot.node, key: '', value: text, label: text, branch: false, slot: null, path: slot.path, y: 0, more: true });
+        slot.rows.push({ node: slot.node, key: '', value: text, label: text, branch: false, cards: [], path: slot.path, y: 0, more: true });
     };
 
-    /** Rows first, then the cards they point at, so a branch row's card is known while the card is built. */
     const fill = (slot: MapSlot): void => {
         const node = slot.node;
         const children = node.children;
         if (node.collapsed || !children || children.length === 0)
             return;
-        children.slice(0, maxChildren).forEach((child, index) => {
+        // One pass, indexed by position: filtering and then looking each survivor up again would cost a
+        // million comparisons on a flat 1200-key object just to draw forty rows.
+        const kept: number[] = [];
+        children.forEach((child, index) => {
+            if (!keep || keep(child, [...slot.path, node.kind === 'array' ? index : (child.key ?? '')]))
+                kept.push(index);
+        });
+        let listed = 0;
+        kept.forEach(index => {
+            const child = children[index]!;
             const segment = node.kind === 'array' ? String(index) : (child.key ?? '');
-            const pathSegment = node.kind === 'array' ? index : segment;
-            const hidden = Math.max(0, (child.children?.length ?? 0) - maxChildren);
+            const at = [...slot.path, node.kind === 'array' ? index : segment];
+            if (listed >= maxChildren)
+                return;
+            listed++;
             if (!isContainer(child)) {
-                slot.rows.push(rowFor(child, segment, hidden, [...slot.path, pathSegment], null, false));
+                slot.rows.push(rowFor(child, segment, 0, at, []));
                 return;
             }
+            const elements = child.children ?? [];
+            const overflow = Math.max(0, elements.length - maxChildren);
             if (child.collapsed) {
-                slot.rows.push(rowFor(child, segment, hidden, [...slot.path, pathSegment], null, true));
+                // Folded: the row keeps its handle and its name, and nothing hangs off it.
+                slot.rows.push(rowFor(child, segment, overflow, at, []));
                 return;
             }
             if (promoteArrays && promotable(child)) {
-                // The array's own name goes on every connector into its elements, which is the only way
-                // the reader can tell three sibling cards from three unrelated ones.
-                const elements = child.children ?? [];
-                elements.slice(0, maxChildren).forEach((element, position) => {
-                    const at = [...slot.path, pathSegment, position];
-                    const branch = element.collapsed
-                        ? null
-                        : open(element, at, slot.depth + 1, slot, segment);
-                    slot.rows.push(rowFor(element, String(position), Math.max(0, (element.children?.length ?? 0) - maxChildren), at, branch, true));
-                    if (branch)
-                        fill(branch);
+                // One row for the array, one card per element, all fanning from that row. The array's own
+                // name is what every connector says, which is how three cards read as one list.
+                const cards: MapSlot[] = [];
+                let shown = 0;
+                elements.forEach((element, position) => {
+                    if (keep && !keep(element, [...at, position]))
+                        return;
+                    if (shown >= maxChildren)
+                        return;
+                    shown++;
+                    const card = element.collapsed ? null : open(element, [...at, position], slot.depth + 1, slot, segment);
+                    if (card) {
+                        cards.push(card);
+                        fill(card);
+                    }
                 });
-                pushMore(slot, Math.max(0, elements.length - maxChildren));
+                slot.rows.push(rowFor(child, segment, Math.max(0, elements.length - shown), at, cards));
                 return;
             }
-            const at = [...slot.path, pathSegment];
-            const branch = open(child, at, slot.depth + 1, slot, segment);
-            slot.rows.push(rowFor(child, segment, hidden, at, branch, true));
-            if (branch)
-                fill(branch);
+            const card = open(child, at, slot.depth + 1, slot, segment);
+            slot.rows.push(rowFor(child, segment, overflow, at, card ? [card] : []));
+            if (card)
+                fill(card);
         });
-        pushMore(slot, Math.max(0, children.length - maxChildren));
+        pushMore(slot, Math.max(0, kept.length - maxChildren) + (children.length - kept.length));
     };
 
     const rootSlot = open(root, [], 0, null, '');
@@ -278,7 +290,7 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
         deepest = Math.max(deepest, slot.depth);
         const widest = slot.rows.reduce((best, row) => Math.max(best, options.measure(row)), 0);
         slot.w = widest + 2 * cardPadding;
-        // A folded or empty card still has to hold its own name and handle, so it is never zero tall.
+        // A folded or empty card still has to hold its own line, so it is never zero tall.
         slot.h = Math.max(1, slot.rows.length) * rowHeight + 2 * cardPadding;
         columnWidth[slot.depth] = Math.max(columnWidth[slot.depth] ?? 0, slot.w);
     }
@@ -293,13 +305,13 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
     /** Places one card and returns its center plus the lowest point under it, gap included. */
     const place = (slot: MapSlot): { center: number, bottom: number } => {
         slot.x = columnLeft[slot.depth] ?? padding;
-        const branches = slot.rows.filter(row => row.slot);
-        if (branches.length === 0) {
+        const cards = slot.rows.flatMap(row => row.cards);
+        if (cards.length === 0) {
             slot.y = cursor + slot.h / 2;
             cursor = slot.y + slot.h / 2 + siblingGap;
             return { center: slot.y, bottom: cursor };
         }
-        const placed = branches.map(row => place(row.slot!));
+        const placed = cards.map(card => place(card));
         slot.y = (placed[0]!.center + placed[placed.length - 1]!.center) / 2;
         const bottom = Math.max(slot.y + slot.h / 2 + siblingGap, ...placed.map(item => item.bottom));
         cursor = Math.max(cursor, bottom);
@@ -320,15 +332,16 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
     const links: MapLink[] = [];
     for (const slot of slots) {
         for (const row of slot.rows) {
-            if (!row.slot)
-                continue;
-            links.push({
-                from: slot,
-                to: row.slot,
-                label: row.slot.edgeLabel,
-                x: (slot.x + slot.w + row.slot.x) / 2,
-                y: (row.y + row.slot.y) / 2,
-            });
+            for (const card of row.cards) {
+                links.push({
+                    from: slot,
+                    row,
+                    to: card,
+                    label: card.edgeLabel,
+                    x: (slot.x + slot.w + card.x) / 2,
+                    y: (row.y + card.y) / 2,
+                });
+            }
         }
     }
 
@@ -346,13 +359,13 @@ export function layoutJsonMap(root: JsonNode, options: MapLayoutOptions): MapLay
 }
 
 /**
- * The bezier a connector draws: out of the parent card's right edge at the row that names the member,
- * into the child card's left edge at its own center. Leaving from the *row* rather than the card center
- * is what keeps a four-row card's four branches from all leaving from the same point.
+ * The bezier a connector draws: out of the parent card's right edge at the row that names the member, into
+ * the child card's left edge at its own center. Leaving from the *row* rather than the card center is what
+ * lets a reader follow which line of a five-row card a card on the right came from.
  */
 export function mapLinkPath(link: MapLink): string {
     const x1 = link.from.x + link.from.w;
-    const y1 = link.from.rows.find(row => row.slot === link.to)?.y ?? link.from.y;
+    const y1 = link.row.y;
     const x2 = link.to.x;
     const y2 = link.to.y;
     const bend = Math.max(18, (x2 - x1) / 2);
