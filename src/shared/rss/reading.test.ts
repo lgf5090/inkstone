@@ -12,11 +12,14 @@ import {
   groupedFeeds,
   mergeEntries,
   orderByStaleness,
+  groupKey,
   parseChannelKey,
+  remoteContentKey,
   refreshBackoffMs,
   selectEntries,
   sortEntries,
   stepIndex,
+  uniqueRemoteEntries,
   unreadCounts,
 } from './reading'
 
@@ -322,5 +325,81 @@ describe('nested folders, tags and the saved channels', () => {
     ] as const) {
       expect(parseChannelKey(channelKey(channel))).toEqual(channel)
     }
+  })
+})
+
+describe('WeChat and Xiaoyuzhou duplicates', () => {
+  const wx = (query: string) => `https://mp.weixin.qq.com/s?${query}`
+  const article = (id: string, link: string, publishedTs: number): RssEntry => ({
+    ...entry('fw', id, publishedTs, `Post ${id}`),
+    link,
+  })
+  const copyA = 'chksm=8f1&scene=27&devicemeta=1'
+  const copyB = 'chksm=9a2&from=timeline&isappinstalled=0'
+  const triple = '__biz=MzA5NjI4MzIyNQ%3D%3D&mid=2650&idx=1&sn=7c1d'
+
+  function bridge(): RssView {
+    const feed = newFeed('fw', 'https://wechat2rss.example/feed', '公众号「公路商店」', 0)
+    return {
+      library: { ...emptyLibrary(), feeds: [feed] },
+      articles: {
+        fw: [
+          article('e-old', wx(`${triple}&${copyA}`), 100),
+          article('e-new', wx(`${triple}&${copyB}`), 200),
+          article('e-other', wx(`__biz=MzA5NjI4MzIyNQ%3D%3D&mid=2651&idx=1&sn=9z&${copyA}`), 150),
+          article('e-plain', 'https://blog.example.com/post', 120),
+        ],
+      },
+    }
+  }
+
+  it('reads the identity out of the link and nothing else', () => {
+    expect(remoteContentKey(wx(`${triple}&${copyA}`))).toBe('wx:MzA5NjI4MzIyNQ==/2650/1')
+    expect(remoteContentKey(wx(`${triple}&${copyB}`))).toBe(remoteContentKey(wx(`${triple}&${copyA}`)))
+    expect(remoteContentKey(wx('__biz=MzA5Nj&mid=2650&sn=x'))).toBe('')
+    expect(remoteContentKey(wx('mid=2650&idx=1&sn=x'))).toBe('')
+    expect(remoteContentKey('http://mp.weixin.qq.com/s?__biz=a&mid=1&idx=1')).toBe('')
+    expect(remoteContentKey('https://mp.weixin.qq.com/profile?__biz=a&mid=1&idx=1')).toBe('')
+    expect(remoteContentKey('https://blog.example.com/s?__biz=a&mid=1&idx=1')).toBe('')
+    expect(remoteContentKey('')).toBe('')
+  })
+
+  it('reads a podcast episode id, with or without the share suffix', () => {
+    expect(remoteContentKey('https://www.xiaoyuzhoufm.com/episode/64f1a2b3c4d5e6f7a8b9c0d1')).toBe('xyz:64f1a2b3c4d5e6f7a8b9c0d1')
+    expect(remoteContentKey('https://www.xiaoyuzhoufm.com/episode/64F1A2B3C4D5E6F7A8B9C0D1/?share_medium=iphone')).toBe('xyz:64f1a2b3c4d5e6f7a8b9c0d1')
+    expect(remoteContentKey('https://www.xiaoyuzhoufm.com/podcast/64f1a2')).toBe('')
+  })
+
+  it('shows one row per article and keeps the newer copy', () => {
+    const list = uniqueRemoteEntries(bridge().articles.fw)
+    expect(list.map(item => item.id)).toEqual(['e-new', 'e-other', 'e-plain'])
+  })
+
+  it('never swaps the article the reader is looking at', () => {
+    const list = uniqueRemoteEntries(bridge().articles.fw, 'e-old')
+    expect(list.map(item => item.id)).toEqual(['e-old', 'e-other', 'e-plain'])
+  })
+
+  it('collapses the duplicates in a channel, not only in a helper', () => {
+    expect(channelEntries(bridge(), { kind: 'feed', feedId: 'fw' }).map(item => item.id)).toEqual(['e-new', 'e-other', 'e-plain'])
+  })
+
+  it('keeps a read article read when the bridge hands out a new id for it', () => {
+    const view = bridge()
+    // The reader finished the article when the only copy the feed had was `e-old`.
+    view.library.readIds = ['e-old']
+    const unread = selectEntries(channelEntries(view, { kind: 'feed', feedId: 'fw' }), { filter: 'unread' }, view)
+    expect(unread.map(item => item.id)).toEqual(['e-other', 'e-plain'])
+  })
+
+  it('counts the badge on the list it labels', () => {
+    expect(unreadCounts(bridge()).feeds.get('fw')).toBe(3)
+  })
+
+  it('folds the WeChat shelf names onto one group', () => {
+    expect(groupKey('公众号')).toBe('wechat')
+    expect(groupKey('微信公众号')).toBe('wechat')
+    expect(groupKey('WeChat')).toBe('wechat')
+    expect(groupKey('前端')).toBe('前端'.normalize('NFKC').toLowerCase())
   })
 })

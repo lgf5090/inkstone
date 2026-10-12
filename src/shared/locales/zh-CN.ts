@@ -5513,6 +5513,8 @@ console.log(\`Hello, \${name}!\`)
     "rss.error.save_failed": "订阅列表保存失败",
     "rss.error.save_pending": "部分改动尚未保存",
     "rss.error.offline": "当前离线，已缓存的文章仍可阅读。",
+    "rss.wechat_notice": "内容来自微信公众号的桥接订阅源，版权归原作者。",
+    "rss.wechat_original": "查看公众号原文",
     "rss.focus_mode": "专注阅读",
     "rss.key_escape": "关闭面板、搜索或取消选择",
     "rss.key_focus": "整屏阅读一篇文章",

@@ -17,7 +17,7 @@
  */
 
 import { tagKey } from '../markdown-utils'
-import { rssHash } from './model'
+import { rssHash, safeHttpUrl } from './model'
 import type { RssEntry, RssFeed, RssGroup, RssLibrary } from './model'
 
 export interface RssView {
@@ -109,6 +109,8 @@ export interface ChannelOptions {
   later?: Set<string>
   /** Entries per feed kept in a merged view, so 40 feeds do not paint 2,400 rows. */
   perFeedLimit?: number
+  /** The article on screen, which a de-duplication must not swap out from under the reader. */
+  selectedId?: string
 }
 
 /** How many articles each feed contributes to a merged channel. */
@@ -136,26 +138,23 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
   const marks = marksFor(view, options)
   const hidden = new Set(view.library.hiddenIds)
   const keep = (entry: RssEntry): boolean => !hidden.has(entry.id)
-  if (channel.kind === 'starred') {
-    return byNewest(allEntries(view).filter(entry => marks.starred.has(entry.id) && keep(entry)))
-  }
-  if (channel.kind === 'later') {
-    return byNewest(allEntries(view).filter(entry => marks.later.has(entry.id) && keep(entry)))
-  }
-  if (channel.kind === 'unread') {
-    return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry)))
-  }
-  if (channel.kind === 'recent') {
-    const opened = view.library.opened
-    return allEntries(view)
-      .filter(entry => opened[entry.id] !== undefined && keep(entry))
-      .sort((a, b) => (opened[b.id] ?? 0) - (opened[a.id] ?? 0))
-      .slice(0, RECENT_CHANNEL_SIZE)
-  }
   const feeds = feedsForChannel(view.library, channel)
   const limit = options.perFeedLimit ?? MERGED_PER_FEED
-  if (feeds.length === 1) return byNewest((view.articles[feeds[0].id] ?? []).filter(keep))
-  return mergeEntries(...feeds.map(feed => byNewest((view.articles[feed.id] ?? []).filter(keep)).slice(0, limit)))
+  const listed = (): RssEntry[] => {
+    if (channel.kind === 'starred') return byNewest(allEntries(view).filter(entry => marks.starred.has(entry.id) && keep(entry)))
+    if (channel.kind === 'later') return byNewest(allEntries(view).filter(entry => marks.later.has(entry.id) && keep(entry)))
+    if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry)))
+    if (channel.kind === 'recent') {
+      const opened = view.library.opened
+      return allEntries(view)
+        .filter(entry => opened[entry.id] !== undefined && keep(entry))
+        .sort((a, b) => (opened[b.id] ?? 0) - (opened[a.id] ?? 0))
+        .slice(0, RECENT_CHANNEL_SIZE)
+    }
+    if (feeds.length === 1) return byNewest((view.articles[feeds[0].id] ?? []).filter(keep))
+    return mergeEntries(...feeds.map(feed => byNewest((view.articles[feed.id] ?? []).filter(keep)).slice(0, limit)))
+  }
+  return uniqueRemoteEntries(listed(), options.selectedId)
 }
 
 /** How many articles the recently-read channel keeps on screen. */
@@ -270,12 +269,15 @@ export function selectEntries(
   options: ChannelOptions = {},
 ): RssEntry[] {
   const marks = marksFor(view, options)
+  // Over everything this device holds, not the list being filtered: the duplicate whose id carries
+  // the read mark has already been collapsed out of that list by the time this runs.
+  const readKeys = query.filter === 'unread' ? readKeysFor(allEntries(view), marks.read) : null
   const feedTitles = query.fields === 'entry-and-feed' && query.terms?.length
     ? new Map(view.library.feeds.map(feed => [feed.id, feed.title.toLowerCase()]))
     : null
   const terms = query.terms ?? []
   const matched = entries.filter((entry) => {
-    if (query.filter === 'unread' && marks.read.has(entry.id)) return false
+    if (query.filter === 'unread' && (marks.read.has(entry.id) || readKeys?.has(remoteContentKey(entry.link)))) return false
     if (query.filter === 'starred' && !marks.starred.has(entry.id)) return false
     if (query.filter === 'later' && !marks.later.has(entry.id)) return false
     if (!terms.length) return true
@@ -319,8 +321,10 @@ export function unreadCounts(view: RssView): { feeds: Map<string, number>, group
   const tags = new Map<string, number>()
   let total = 0
   for (const feed of view.library.feeds) {
+    // Counted on the de-duplicated list, so the badge beside a WeChat subscription says what the
+    // channel it labels will actually show.
     let unread = 0
-    for (const entry of view.articles[feed.id] ?? []) {
+    for (const entry of uniqueRemoteEntries(view.articles[feed.id] ?? [])) {
       if (!read.has(entry.id) && !hidden.has(entry.id)) unread++
     }
     feeds.set(feed.id, unread)
@@ -381,6 +385,9 @@ const GROUP_ALIASES: Record<string, string> = {
   news: 'news',
   '\u65b0\u95fb': 'news',
   '\u8d44\u8baf': 'news',
+  wechat: 'wechat',
+  '\u516c\u4f17\u53f7': 'wechat',
+  '\u5fae\u4fe1\u516c\u4f17\u53f7': 'wechat',
 }
 
 export function groupKey(name: string): string {
@@ -455,4 +462,79 @@ export function stepIndex(current: number, delta: number, length: number): numbe
   if (next < 0) return 0
   if (next >= length) return length - 1
   return next
+}
+
+/**
+ * The identity an article carries in its own link, or '' for every other address.
+ *
+ * Two publishers hand out a link that changes every time their bridge re-crawls them. WeChat's
+ * `mp.weixin.qq.com/s` keeps its `__biz`/`mid`/`idx` triple and rewrites the tracking parameters
+ * around it (`chksm`, `scene`, `devicemeta`), and Xiaoyuzhou returns the same episode with and without a
+ * share suffix. The feed gives those a different `guid` each pass, so a reader who subscribes to one
+ * WeChat account sees the same article three times and, worse, sees it turn unread again after they
+ * have read it — because the copy that survived this refresh is a different id than the one they
+ * marked.
+ */
+export function remoteContentKey(link: string): string {
+  const url = safeHttpUrl(link)
+  if (!url || url.protocol !== 'https:') return ''
+  if (url.hostname === 'mp.weixin.qq.com' && url.pathname === '/s') {
+    const biz = url.searchParams.get('__biz')
+    const mid = url.searchParams.get('mid')
+    const idx = url.searchParams.get('idx')
+    if (!biz || !/^\d+$/.test(mid ?? '') || !/^\d+$/.test(idx ?? '')) return ''
+    return `wx:${biz}/${mid}/${idx}`
+  }
+  if (url.hostname === 'www.xiaoyuzhoufm.com' || url.hostname === 'xiaoyuzhoufm.com') {
+    const episode = /^\/episode\/([a-z0-9]+)\/?$/i.exec(url.pathname)
+    return episode ? `xyz:${episode[1].toLowerCase()}` : ''
+  }
+  return ''
+}
+
+/**
+ * Collapse those duplicates down to one row each, newest first.
+ *
+ * Only the display is collapsed: the marks, the saved notes and the cache keep every id, so an
+ * article the reader starred under one copy is still theirs after the bridge hands out another.
+ */
+export function uniqueRemoteEntries(entries: RssEntry[], selectedId = ''): RssEntry[] {
+  const out: RssEntry[] = []
+  const at = new Map<string, number>()
+  for (const entry of entries) {
+    const key = remoteContentKey(entry.link)
+    if (!key) {
+      out.push(entry)
+      continue
+    }
+    const seen = at.get(key)
+    if (seen === undefined) {
+      at.set(key, out.length)
+      out.push(entry)
+      continue
+    }
+    const previous = out[seen]
+    // The open article must not be swapped out from under the reader, and otherwise the newer copy
+    // wins because it is the one whose body the bridge just fetched.
+    if (entry.id === selectedId || (previous.id !== selectedId && (entry.publishedTs ?? 0) > (previous.publishedTs ?? 0))) out[seen] = entry
+  }
+  return out
+}
+
+/**
+ * Which of these rows are already read, counting a duplicate as the same article.
+ *
+ * The read mark lives on the id that was on screen when the reader finished, and the next refresh
+ * may present a different id for the same `biz`/`mid`/`idx`. Without this the unread filter would
+ * resurrect an article the reader has read, which is the single most annoying thing an RSS app can
+ * do to a WeChat subscription.
+ */
+export function readKeysFor(entries: RssEntry[], readIds: Set<string>): Set<string> {
+  const out = new Set<string>()
+  for (const entry of entries) {
+    if (!readIds.has(entry.id)) continue
+    const key = remoteContentKey(entry.link)
+    if (key) out.add(key)
+  }
+  return out
 }

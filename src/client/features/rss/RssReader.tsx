@@ -42,7 +42,7 @@ import { Field, Input, Segmented, Select, Slider } from '../../components/form'
 import { fullTime, shortSince } from '../../lib/time'
 import { RSS_COLUMN_WIDTHS, RSS_FONT_SIZE_RANGE, RSS_LINE_HEIGHT_RANGE } from '@shared/constants'
 import { readingMinutes } from './sanitize'
-import { channelEntries, channelKey, findFeed, stepIndex } from '@shared/rss/reading'
+import { channelEntries, channelKey, findFeed, remoteContentKey, stepIndex } from '@shared/rss/reading'
 import { api } from '../../lib/api'
 import { articleDisplayHtml } from './sanitize'
 import { appendToDailyNote, dailyNoteTitle, saveArticleAsNote } from './notes'
@@ -281,6 +281,18 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
             {entry.publishedTs ? shortSince(entry.publishedTs) : ''}
             {feed?.siteUrl ? ` · ${hostOf(feed.siteUrl)}` : ''}
           </p>
+          {/* A WeChat article reaches this app through somebody else's bridge, so the reader is
+              told whose writing it is and where the real page lives. The reference does the same,
+              and it is the least an aggregator can do for the author. */}
+          {remoteContentKey(entry.link).startsWith('wx:') && (
+            <p className="-mt-4 mb-6 text-[0.7em] leading-[1.6] text-[var(--text-quaternary)]">
+              {t('rss.wechat_notice')}
+              {' '}
+              <a href={entry.link} target="_blank" rel="noopener noreferrer nofollow" className="text-[var(--accent)] hover:underline">
+                {t('rss.wechat_original')}
+              </a>
+            </p>
+          )}
           {playableAudio(entry.audioUrl) && (
             <figure className="mb-5">
               <audio controls preload="none" src={api.rss.relayUrl(playableAudio(entry.audioUrl))} className="w-full">

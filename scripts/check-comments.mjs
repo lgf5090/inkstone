@@ -4559,6 +4559,7 @@ const allowed = new Map([
     "/* Nine one-article actions do not fit beside a title on a phone, and a control that is off\n            screen is a control that does not exist. So the row wraps instead of scrolling. */",
     "// The reader picked a size, and it is honoured wherever it fits: on a 360px screen",
     "// 32px leaves nine characters a line, so the size is clamped to the viewport first.",
+    "/* A WeChat article reaches this app through somebody else's bridge, so the reader is\n              told whose writing it is and where the real page lives. The reference does the same,\n              and it is the least an aggregator can do for the author. */",
   ]],
   ["src/client/features/rss/RssSearchPanel.tsx", [
     "/**\n * Search over every article this device holds, not just the channel on screen.\n *\n * The list's own box filters what is loaded; this answers the other question — \"where did I see\n * that?\" — which a reader asks across months of reading, not one feed. The index is built from the\n * local caches with the bodies dropped, because the search only ever reads a title, a summary and a\n * source name, and a hundred kilobytes of HTML per row would turn a lookup into a stall.\n */",
@@ -12013,6 +12014,7 @@ const allowed = new Map([
   ]],
   ["src/shared/rss/reading.test.ts", [
     "// a1 and b2: b1 is read, a2 is hidden, and feed c has nothing cached.",
+    "// The reader finished the article when the only copy the feed had was `e-old`.",
   ]],
   ["src/shared/rss/reading.ts", [
     "/**\n * What the reader lists, sorts and counts, apart from anything that draws it.\n *\n * A channel is a question about the library rather than a screen: \"this feed\", \"this group\", \"all\n * of it\", \"what I starred\". Every surface — the rail's unread badges, the list, the keyboard's\n * next/previous, the position the reader returns to — asks the same question of the same data, and\n * the reason this file exists is that they must not disagree. Two views that disagree about what is\n * unread are the classic RSS bug, and no test of a single component can catch it.\n *\n * A `RssView` is the pair the question needs: the library (what is subscribed, what is marked) and\n * the articles this device has fetched. They are kept apart because only the first travels between\n * devices — an article list is rebuilt from the network in a second, while a subscription list is\n * years of small decisions a reader should not lose.\n *\n * Search is deliberately absent: matching a query is the app's fuzzy + pinyin rule, which lives in\n * the client layer with the rest of the things that need a DOM.\n */",
@@ -12045,6 +12047,16 @@ const allowed = new Map([
     "/**\n * Unread counts per feed, per folder and per tag, in one pass over what the device holds.\n *\n * A folder's count carries its descendants, and hidden articles are left out of every number: a\n * badge that counts what the channel it labels will not show is the disagreement this file exists\n * to prevent.\n */",
     "/** Groups in display order: named groups by their own position, then the unfiled feeds. */",
     "/**\n * A group's identity, so a rename that only changes case or spacing lands on the same shelf.\n *\n * Top-level ids are the folded name, which is what every library written so far already stores.\n * A nested folder adds its parent to the hash, because `front-end/articles` and `design/articles`\n * are two shelves a reader builds on purpose, and colliding ids would merge them on the next load.\n */",
+    "/** The article on screen, which a de-duplication must not swap out from under the reader. */",
+    "// Over everything this device holds, not the list being filtered: the duplicate whose id carries",
+    "// the read mark has already been collapsed out of that list by the time this runs.",
+    "// Counted on the de-duplicated list, so the badge beside a WeChat subscription says what the",
+    "// channel it labels will actually show.",
+    "/**\n * The identity an article carries in its own link, or '' for every other address.\n *\n * Two publishers hand out a link that changes every time their bridge re-crawls them. WeChat's\n * `mp.weixin.qq.com/s` keeps its `__biz`/`mid`/`idx` triple and rewrites the tracking parameters\n * around it (`chksm`, `scene`, `devicemeta`), and Xiaoyuzhou returns the same episode with and without a\n * share suffix. The feed gives those a different `guid` each pass, so a reader who subscribes to one\n * WeChat account sees the same article three times and, worse, sees it turn unread again after they\n * have read it — because the copy that survived this refresh is a different id than the one they\n * marked.\n */",
+    "/**\n * Collapse those duplicates down to one row each, newest first.\n *\n * Only the display is collapsed: the marks, the saved notes and the cache keep every id, so an\n * article the reader starred under one copy is still theirs after the bridge hands out another.\n */",
+    "// The open article must not be swapped out from under the reader, and otherwise the newer copy",
+    "// wins because it is the one whose body the bridge just fetched.",
+    "/**\n * Which of these rows are already read, counting a duplicate as the same article.\n *\n * The read mark lives on the id that was on screen when the reader finished, and the next refresh\n * may present a different id for the same `biz`/`mid`/`idx`. Without this the unread filter would\n * resurrect an article the reader has read, which is the single most annoying thing an RSS app can\n * do to a WeChat subscription.\n */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
