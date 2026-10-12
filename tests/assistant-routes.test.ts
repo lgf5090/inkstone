@@ -16,6 +16,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -607,6 +608,88 @@ describe('semantic memory recall', () => {
       const status = await call<{ vectors: number, pending: number }>('GET', '/api/assistant/semantic')
       expect(status.vectors).toBe(0)
       expect(status.pending).toBe(1)
+    } finally {
+      delete env.AI
+    }
+  })
+
+  it('embeds with the model the reader chose and rebuilds when it changes', async () => {
+    const ALT_MODEL = '@cf/baai/bge-small-en-v1.5'
+    env.AI = stubAi(AI_EMBEDDING_MODEL)
+    try {
+      await call('POST', '/api/assistant/memories', { content: '读者喜欢喝绿茶' })
+      expect((await call<{ vectors: number }>('GET', '/api/assistant/semantic')).vectors).toBe(1)
+    } finally {
+      delete env.AI
+    }
+    const other = stubAi(ALT_MODEL)
+    env.AI = other
+    try {
+      await call('PATCH', '/api/assistant/settings', { semanticModel: ALT_MODEL })
+      await settleTurns()
+      const status = await call<{ vectors: number, pending: number, model: string }>('GET', '/api/assistant/semantic')
+      expect(status.model).toBe(ALT_MODEL)
+      // The old encoder's vectors are gone and the background rebuild replaced them with new ones.
+      expect(status.vectors).toBe(1)
+      expect(status.pending).toBe(0)
+      expect(other.calls).toHaveLength(1)
+    } finally {
+      delete env.AI
+    }
+  })
+
+  it('drops the old encoder’s vectors even when no rebuild can run', async () => {
+    env.AI = stubAi(AI_EMBEDDING_MODEL)
+    try {
+      await call('POST', '/api/assistant/memories', { content: '读者喜欢喝美式' })
+      expect((await call<{ vectors: number }>('GET', '/api/assistant/semantic')).vectors).toBe(1)
+    } finally {
+      delete env.AI
+    }
+    // With no AI binding the rebuild is skipped, so the only thing standing between the reader and a
+    // count of vectors nothing can score is the clear that comes with the model change.
+    await call('PATCH', '/api/assistant/settings', { semanticModel: '@cf/baai/bge-small-en-v1.5' })
+    const status = await call<{ vectors: number, pending: number }>('GET', '/api/assistant/semantic')
+    expect(status.vectors).toBe(0)
+    expect(status.pending).toBe(1)
+  })
+
+  it('refuses a model id that is not a Workers AI model', async () => {
+    const saved = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', { semanticModel: '../../../../etc/passwd' })
+    expect(saved.settings.semanticModel).toBe(DEFAULT_SEMANTIC_MODEL)
+    const again = await call<{ settings: AssistantSettings }>('PATCH', '/api/assistant/settings', { semanticModel: 'gpt-4' })
+    expect(again.settings.semanticModel).toBe(DEFAULT_SEMANTIC_MODEL)
+  })
+
+  it('embeds the question during a turn, not only the memory write', async () => {
+    await useExampleModel()
+    const ai = stubAi(AI_EMBEDDING_MODEL)
+    env.AI = ai
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })))
+    try {
+      await call('POST', '/api/assistant/memories', { content: '读者喜欢喝手冲咖啡' })
+      const before = ai.calls.length
+      const events = await chatEvents({ message: '我平时喝什么咖啡？' })
+      await settleTurns()
+      expect(events.some((event) => event.type === 'done')).toBe(true)
+      // The write embedded the memory; the turn has to embed the question or the vector list is empty
+      // and the reader's semantic recall is a switch that does nothing.
+      expect(ai.calls.length, 'the turn never embedded the query').toBeGreaterThan(before)
+      expect(ai.calls.at(-1)).toEqual(['我平时喝什么咖啡？'])
+    } finally {
+      vi.unstubAllGlobals()
+      delete env.AI
+    }
+  })
+
+  it('forgets the vector along with the memory', async () => {
+    env.AI = stubAi(AI_EMBEDDING_MODEL)
+    try {
+      const created = await call<{ memory: AssistantMemory }>('POST', '/api/assistant/memories', { content: '读者搬去了成都' })
+      expect((await call<{ vectors: number }>('GET', '/api/assistant/semantic')).vectors).toBe(1)
+      await call('DELETE', `/api/assistant/memories/${created.memory.id}`)
+      const status = await call<{ vectors: number, pending: number }>('GET', '/api/assistant/semantic')
+      expect(status).toMatchObject({ vectors: 0, pending: 0 })
     } finally {
       delete env.AI
     }

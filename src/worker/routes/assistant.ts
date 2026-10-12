@@ -44,7 +44,7 @@ import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
-import { memoryEmbeddingStatus, reindexMemoryEmbeddings } from '../assistant/semantic'
+import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
 import { resolveNoteScope } from '../assistant/note-scope'
 
 export const assistantRoutes = new Hono<AppBindings>()
@@ -736,6 +736,19 @@ assistantRoutes.patch('/settings', async (c) => {
     // Wall-clock schedules have to move with the reader's clock, or a 07:30 digest arrives at 07:30 UTC.
     await new AutomationService(s, next).rearmAll()
   }
+  const changedModel = next.semanticModel !== current.semanticModel
+  if (changedModel) {
+    // A vector from another encoder is not comparable with these, so the index starts over rather than
+    // spending its daily budget on scores that would rank noise.
+    await s.clearMemoryEmbeddings()
+  }
+  if (c.env.AI && (changedModel || (next.semanticMemory && !current.semanticMemory))) {
+    // Turning the feature on, or pointing it at another model, embeds what is missing behind the reply.
+    // A failed backfill leaves the count pending, which is what the settings card reads and shows.
+    executionContext(c).waitUntil(
+      reindexMemoryEmbeddings(s, c.env, next.limits.maxEmbeddingsPerDay, semanticModel(next)).catch(() => undefined),
+    )
+  }
   return c.json({ settings: next })
 })
 
@@ -751,14 +764,14 @@ assistantRoutes.get('/semantic', async (c) => {
   const settings = await s.getSettings()
   return c.json({
     enabled: settings.semanticMemory,
-    ...(await memoryEmbeddingStatus(s, c.env, settings.limits.maxEmbeddingsPerDay)),
+    ...(await memoryEmbeddingStatus(s, c.env, settings.limits.maxEmbeddingsPerDay, semanticModel(settings))),
   })
 })
 
 assistantRoutes.post('/semantic/reindex', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()
-  const result = await reindexMemoryEmbeddings(s, c.env, settings.limits.maxEmbeddingsPerDay)
+  const result = await reindexMemoryEmbeddings(s, c.env, settings.limits.maxEmbeddingsPerDay, semanticModel(settings))
   await s.recordActivity('memory.reindexed', `${result.embedded} memory embedding(s) written`)
   return c.json(result)
 })

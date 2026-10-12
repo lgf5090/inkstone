@@ -28,7 +28,7 @@ import { resolveNoteScope, type NoteScope } from './note-scope'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest } from './upstream'
 import { loadModelAndProvider } from './model-config'
-import { fuseMemoryRecall, rankMemoriesByVector } from './semantic'
+import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
@@ -424,6 +424,7 @@ export class AssistantRunner {
         query,
         past ? ['active', 'uncertain', 'historical'] : ['active', 'uncertain'],
         MAX_RELEVANT_MEMORIES,
+        semanticModel(this.settings),
       )
       return fuseMemoryRecall(lexical, semantic, MAX_RELEVANT_MEMORIES)
     } catch {

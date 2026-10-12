@@ -113,6 +113,15 @@ export const DEFAULT_LIMITS: AssistantLimits = {
   maxEmbeddingsPerDay: 200,
 }
 
+/** A Workers AI text-embedding model id: the two hubs the binding can reach, and nothing else. */
+export const SEMANTIC_MODEL_PATTERN = /^@(?:cf|hf)\/[\w./-]{1,160}$/
+export const DEFAULT_SEMANTIC_MODEL = '@cf/baai/bge-m3'
+
+/** An unusable model id is replaced by the default rather than stored, so no request can name a path. */
+export function semanticModelValue(value: unknown, fallback = DEFAULT_SEMANTIC_MODEL): string {
+  return typeof value === 'string' && SEMANTIC_MODEL_PATTERN.test(value.trim()) ? value.trim() : fallback
+}
+
 export interface AssistantSettings {
   agentName: string
   language: 'en-US' | 'zh-CN'
@@ -122,6 +131,12 @@ export interface AssistantSettings {
   limits: AssistantLimits
   /** Recall memories by vector as well as by shared words; needs the deployment's AI binding. */
   semanticMemory: boolean
+  /**
+   * Which Workers AI embedding model the memory vectors come from. Any text-embedding model id works,
+   * but a change orphans every stored vector until the index is rebuilt, because a vector from one
+   * encoder is not comparable with one from another.
+   */
+  semanticModel: string
   /** Let the assistant store a lasting preference without being asked. */
   autoMemory: boolean
   /** Notice when a new memory replaces or contradicts an older one. Rule-based, no AI. */
@@ -147,6 +162,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
   semanticMemory: true,
+  semanticModel: DEFAULT_SEMANTIC_MODEL,
   autoMemory: false,
   conflictReview: true,
   aiConflictCheck: false,
@@ -233,6 +249,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,
     semanticMemory: booleanValue(raw.semanticMemory, DEFAULT_ASSISTANT_SETTINGS.semanticMemory),
+    semanticModel: semanticModelValue(raw.semanticModel, DEFAULT_ASSISTANT_SETTINGS.semanticModel),
     autoMemory: booleanValue(raw.autoMemory, DEFAULT_ASSISTANT_SETTINGS.autoMemory),
     conflictReview: booleanValue(raw.conflictReview, DEFAULT_ASSISTANT_SETTINGS.conflictReview),
     aiConflictCheck: booleanValue(raw.aiConflictCheck, DEFAULT_ASSISTANT_SETTINGS.aiConflictCheck),

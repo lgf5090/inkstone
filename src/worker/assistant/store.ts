@@ -1105,7 +1105,7 @@ export class AssistantStore {
     if (!settings.semanticMemory) return
     try {
       const { embedMemory } = await import('./semantic')
-      await embedMemory(this, this.env, { id: memoryId, content }, settings.limits.maxEmbeddingsPerDay)
+      await embedMemory(this, this.env, { id: memoryId, content }, settings.limits.maxEmbeddingsPerDay, settings.semanticModel)
     } catch {
       // The memory is saved; the index catches up on the next write or a re-index.
     }
@@ -1115,12 +1115,16 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_memory_reviews WHERE user_id = ?1 AND (memory_id = ?2 OR other_id = ?2)`, id)
     await this.write(`UPDATE chat_memories SET superseded_by = NULL WHERE user_id = ?1 AND superseded_by = ?2`, id)
     await this.write(`DELETE FROM chat_memories WHERE user_id = ?1 AND id = ?2`, id)
+    // The vector goes with the memory: a count of stored vectors that includes a memory the reader has
+    // forgotten is a number the settings card would keep showing as still indexed.
+    await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1 AND memory_id = ?2`, id)
   }
 
   async deleteAllMemories(): Promise<number> {
     const before = await this.one<{ n: number }>(`SELECT count(*) AS n FROM chat_memories WHERE user_id = ?1`, this.userId)
     await this.write(`DELETE FROM chat_memory_reviews WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_memories WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_memory_embeddings WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_activity WHERE user_id = ?1 AND type = 'memory.created'`)
     return before?.n ?? 0
   }

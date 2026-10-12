@@ -48,7 +48,7 @@ import { ZH_CN_MESSAGES } from '../src/shared/locales/zh-CN'
 import { assertToolsMatchSpecs } from '../src/worker/assistant/tools'
 import { anthropicEndpoint, geminiEndpoint, openAiEndpoint } from '../src/worker/assistant/upstream'
 import { buildContextWindow } from '../src/worker/assistant/runner'
-import { fuseMemoryRecall } from '../src/worker/assistant/semantic'
+import { SEMANTIC_FLOOR, fuseMemoryRecall, selectVectorHits } from '../src/worker/assistant/semantic'
 import { SCHEMA_STATEMENTS, chunkStatements } from '../src/worker/db/schema'
 import { ASSISTANT_REQUIRED_INDEXES, ASSISTANT_REQUIRED_TABLES } from '../src/worker/assistant/schema'
 
@@ -481,6 +481,42 @@ describe('message keys and tools', () => {
       expect(catalog[key], key).toBeTruthy()
       expect(chinese[key], key).toBeTruthy()
     }
+  })
+})
+
+describe('vector floors', () => {
+  const hit = (id: string, score: number, updatedAt = 1) => ({ id, score, updatedAt })
+
+  it('keeps the top hit and anything within the relative band', () => {
+    const kept = selectVectorHits([hit('a', 0.61), hit('b', 0.56), hit('c', 0.5)], SEMANTIC_FLOOR)
+    expect(kept.map((entry) => entry.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('fills from the backstop when even the best hit misses the absolute floor', () => {
+    const kept = selectVectorHits([hit('a', 0.53), hit('b', 0.47)], SEMANTIC_FLOOR)
+    expect(kept.map((entry) => entry.id)).toEqual(['a', 'b'])
+  })
+
+  it('returns nothing for a query with no real match', () => {
+    expect(selectVectorHits([hit('a', 0.384), hit('b', 0.3)], SEMANTIC_FLOOR)).toEqual([])
+  })
+
+  it('tops a strong single hit up to four from the backstop, best first', () => {
+    const kept = selectVectorHits(
+      [hit('a', 0.9), hit('b', 0.44), hit('c', 0.52), hit('d', 0.41), hit('e', 0.2)],
+      SEMANTIC_FLOOR,
+    )
+    expect(kept.map((entry) => entry.id)).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('never returns more than the fallback count', () => {
+    const many = Array.from({ length: 9 }, (_, index) => hit(`m${index}`, 0.9 - index * 0.01))
+    expect(selectVectorHits(many, SEMANTIC_FLOOR)).toHaveLength(4)
+  })
+
+  it('breaks a cosine tie with the newer memory and then the lower id', () => {
+    const kept = selectVectorHits([hit('z', 0.6, 5), hit('a', 0.6, 5), hit('b', 0.6, 9)], SEMANTIC_FLOOR)
+    expect(kept.map((entry) => entry.id)).toEqual(['b', 'a', 'z'])
   })
 })
 

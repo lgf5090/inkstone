@@ -5696,4 +5696,6 @@ console.log(\`Hello, \${name}!\`)
     "assistant.settings.semantic_done": "\u5df2\u5411\u91cf\u5316 {count} \u6761\u8bb0\u5fc6",
     "assistant.settings.semantic_capped": "\u5df2\u5230\u6bcf\u65e5\u4e0a\u9650\uff0c\u505c\u6b62\u5efa\u7d22\u5f15",
     "assistant.settings.semantic_none": "\u6ca1\u6709\u5f85\u5efa\u7d22\u5f15\u7684\u8bb0\u5fc6",
+    "assistant.settings.semantic_model": "向量模型",
+    "assistant.settings.semantic_model_hint": "默认 @cf/baai/bge-m3。可填任意 Workers AI 文本向量模型 id；换模型会清空索引，并在每日额度内重新向量化。",
 } as const satisfies Record<BaseMessageKey, string>;

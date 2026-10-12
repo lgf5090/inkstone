@@ -8,7 +8,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, KeyRound, Plus, Trash2, Upload } from 'lucide-react'
 import type { AssistantLimits, AssistantProvider, AssistantSettings } from '@shared/assistant'
-import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS } from '@shared/assistant'
+import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS, SEMANTIC_MODEL_PATTERN } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
@@ -423,7 +423,14 @@ function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.assistant.semantic>> | null>(null)
   const [busy, setBusy] = useState<'reindex' | 'clear' | null>(null)
+  const [model, setModel] = useState(settings.semanticModel)
   const toast = useUi((state) => state.toast)
+
+  // Another device, or the backfill this row itself starts, can leave the saved model behind the one
+  // the field shows; the field follows the setting rather than the other way round.
+  useEffect(() => {
+    setModel(settings.semanticModel)
+  }, [settings.semanticModel])
 
   const refresh = async () => {
     try {
@@ -501,7 +508,43 @@ function SemanticRecallRow({ settings }: { settings: AssistantSettings }) {
               </Button>
             </div>
           </SettingRow>
-          <p className="px-3 pb-2 text-[11px] text-[var(--text-quaternary)]">{status.model}</p>
+        </>
+      )}
+      {/* The model a reader picks is what the next write embeds with, so the field stays reachable on a
+          deployment that has no binding yet — the same rule the switch follows. */}
+      {settings.semanticMemory && (
+        <>
+          <SettingRow
+            title={t('assistant.settings.semantic_model')}
+            description={t('assistant.settings.semantic_model_hint')}
+          >
+            <form
+              className="flex shrink-0 items-center gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const next = model.trim()
+                if (!SEMANTIC_MODEL_PATTERN.test(next)) return
+                void Promise.resolve(saveSettings({ semanticModel: next })).then(refresh)
+              }}
+            >
+              <Input
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                aria-label={t('assistant.settings.semantic_model')}
+                maxLength={200}
+                className="h-8 w-56 font-mono text-[11px]"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                type="submit"
+                disabled={busy !== null || !SEMANTIC_MODEL_PATTERN.test(model.trim()) || model.trim() === settings.semanticModel}
+              >
+                {t('common.save')}
+              </Button>
+            </form>
+          </SettingRow>
+          {status && <p className="px-3 pb-2 text-[11px] text-[var(--text-quaternary)]">{status.model}</p>}
         </>
       )}
     </Group>

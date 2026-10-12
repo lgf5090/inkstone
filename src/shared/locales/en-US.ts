@@ -5696,6 +5696,8 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "assistant.settings.semantic_done": "Indexed {count} memories",
     "assistant.settings.semantic_capped": "Stopped at the daily embedding limit",
     "assistant.settings.semantic_none": "Nothing waiting to be indexed",
+    "assistant.settings.semantic_model": "Embedding model",
+    "assistant.settings.semantic_model_hint": "Default: @cf/baai/bge-m3. Any Workers AI text-embedding model id works; changing it clears the index and re-embeds what the daily budget allows.",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;
