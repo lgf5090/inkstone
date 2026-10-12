@@ -12,7 +12,7 @@
  */
 import { act, createElement } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { initI18n, setLocale, t } from '../../../../lib/i18n'
+import { initI18n, setLocaleAsync, t } from '../../../../lib/i18n'
 import { installTestGlobals, renderElement } from '../../../test-render'
 import { useSession } from '../../../../store/session'
 import type { PublicUser } from '@shared/types'
@@ -26,7 +26,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await act(async () => {
-    await setLocale('en-US', false)
+    await setLocaleAsync('en-US', false)
   })
   signedInAs(null)
 })
@@ -95,8 +95,11 @@ describe('the bar draws the questions this board can answer', () => {
     const { container } = mountBar()
     const english = t('preview.kanban_quick_overdue')
     expect(chip(container, 'overdue').textContent).toBe(english)
+    // The switch has to settle before the reading: `setLocale` returns void and fetches the other
+    // catalog behind itself, so awaiting it awaits nothing and this case only passed when some
+    // earlier file in the same worker had already loaded zh-CN.
     await act(async () => {
-      await setLocale('zh-CN', false)
+      await setLocaleAsync('zh-CN', false)
     })
     expect(chip(container, 'overdue').textContent).toBe(t('preview.kanban_quick_overdue'))
     expect(chip(container, 'overdue').textContent).not.toBe(english)

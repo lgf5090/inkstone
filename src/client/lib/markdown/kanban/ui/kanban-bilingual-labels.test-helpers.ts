@@ -10,7 +10,7 @@ import { act, type ReactElement } from 'react'
 import { afterEach, beforeAll } from 'vitest'
 import { EN_US_MESSAGES } from '../../../../../shared/locales/en-US'
 import { ZH_CN_MESSAGES } from '../../../../../shared/locales/zh-CN'
-import { initI18n, setLocale } from '../../../i18n'
+import { initI18n, setLocaleAsync } from '../../../i18n'
 import { installTestGlobals, renderElement } from '../../../test-render'
 
 export const LOCALES = ['en-US', 'zh-CN'] as const
@@ -30,8 +30,11 @@ export function messageIn(code: LocaleCode, key: string, params: Record<string, 
 }
 
 export async function inLocale(code: LocaleCode): Promise<void> {
+  // `setLocale` answers with void and loads the catalog behind itself, so awaiting it awaits
+  // nothing: on a worker that has not seen this language yet the caller's assertion runs against the
+  // previous catalog. The async form is the one that has actually switched by the time it settles.
   await act(async () => {
-    await setLocale(code, false)
+    await setLocaleAsync(code, false)
   })
 }
 
