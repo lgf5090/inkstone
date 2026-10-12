@@ -4759,6 +4759,10 @@ const allowed = new Map([
     "// the moment the task exists — a rejection that arrives while this function is still awaiting",
     "// something else would otherwise be reported as an unhandled error — and the outcome is inspected",
     "// below, where the cancellation is known.",
+    "/** What the bars take off a page, owned by the stylesheet and read back here. */",
+    "// A comic page is sized to the frame rather than to its own pixels, in both directions: a panel",
+    "// scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of",
+    "// a desktop page. The aspect is kept and the letterboxing left to `object-fit`.",
   ]],
   ["src/client/features/reading/reader/HighlightsPanel.tsx", [
     "/**\n * Everything the reader has marked in this book.\n *\n * Grouped by chapter rather than by colour, because the question a reader brings to this panel is\n * \"where did I write something?\", and the chapter heading is what lets them decide whether to jump.\n */",
@@ -11954,6 +11958,7 @@ const allowed = new Map([
     "/* A flowing page has no bars over its text at all. */",
     "/* A thumb is not a cursor: the bar's own controls grow to a 44px square, and the page has to clear the\n     taller bar that comes with them. Measured, not assumed — the reserve is the bar's height plus its\n     offset from the edge. */",
     "/* The page margin and the room the floating bars need belong here, not on the chapter: a fragmented\n     block only paints its own padding on its first and last piece, so a reader's margin would vanish\n     from every page after the first — and a book's `body { padding: 0 }`, which arrives scoped to the\n     chapter, could take the margin from all of them. The measure caps how wide a line of prose gets,\n     centring what is left over as margin, which is the difference between a page and a banner. The bottom\n     reserve carries one extra line: a column's last line box can spill a line past the column height, and\n     the bar would otherwise sit on top of it. */",
+    "/* What the chrome takes off a fixed page: the bar, its offset from the edge, and the progress rail\n     under it — the bars float over the *reader*, not over the stage, so the page has to clear all three.\n     The stage reads this back before it asks PDF.js how tall to paint a page, so the page that is\n     rendered is the page that fits. Plain lengths only: a `calc()` here would reach the reader as text. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",

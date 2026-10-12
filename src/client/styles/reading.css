@@ -384,7 +384,7 @@
     transition-duration: 60ms;
   }
 
-  .reader-stage[data-hud='hidden'] .reader-hud {
+  .reader-hud[data-hidden='true'] {
     transform: none;
   }
 }
@@ -419,6 +419,17 @@
 .reader-fixed {
   display: flex;
   overflow: hidden;
+  /* What the chrome takes off a fixed page: the bar, its offset from the edge, and the progress rail
+     under it — the bars float over the *reader*, not over the stage, so the page has to clear all three.
+     The stage reads this back before it asks PDF.js how tall to paint a page, so the page that is
+     rendered is the page that fits. Plain lengths only: a `calc()` here would reach the reader as text. */
+  --reader-fixed-pad: 82px;
+}
+
+@media (pointer: coarse) {
+  .reader-fixed {
+    --reader-fixed-pad: 94px;
+  }
 }
 
 .reader-fixed[data-mode='scroll'] {
@@ -433,7 +444,7 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  padding: 56px 8px;
+  padding: var(--reader-fixed-pad) 8px;
 }
 
 .reader-fixed-stack {
@@ -441,7 +452,7 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 56px 8px 64px;
+  padding: var(--reader-fixed-pad) 8px calc(var(--reader-fixed-pad) + 8px);
 }
 
 .reader-pdf-page {
@@ -462,7 +473,7 @@
 .reader-pdf-image {
   display: block;
   max-width: 100%;
-  height: auto;
+  object-fit: contain;
 }
 
 .reader-pdf-text {

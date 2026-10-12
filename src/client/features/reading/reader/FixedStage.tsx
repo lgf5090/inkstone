@@ -76,6 +76,8 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
    */
   const [stageWidth, setStageWidth] = useState(0)
   const [stageHeight, setStageHeight] = useState(0)
+  /** What the bars take off a page, owned by the stylesheet and read back here. */
+  const [barPad, setBarPad] = useState(82)
   const turnByRef = useRef<(direction: number) => void>(() => {})
   usePointerPaging(scrollerRef, {
     zones: paging.zones,
@@ -156,6 +158,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
     const measure = () => {
       setStageWidth(scroller.clientWidth)
       setStageHeight(scroller.clientHeight)
+      setBarPad(Number.parseFloat(window.getComputedStyle(scroller).getPropertyValue('--reader-fixed-pad')) || 82)
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -353,7 +356,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
               theme={theme}
               zoom={zoom}
               targetWidth={Math.max(240, ((stageWidth || 900) - 32 - 16) / shownPages.length)}
-              targetHeight={Math.max(240, (stageHeight || 800) - 112)}
+              targetHeight={Math.max(240, (stageHeight || 800) - barPad * 2)}
               fit="page"
               onMarkClick={onMarkClick}
             />
@@ -404,6 +407,11 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       picture.src = image
       picture.alt = ''
       picture.className = 'reader-pdf-image'
+      // A comic page is sized to the frame rather than to its own pixels, in both directions: a panel
+      // scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of
+      // a desktop page. The aspect is kept and the letterboxing left to `object-fit`.
+      picture.style.width = `${targetWidth}px`
+      if (fit === 'page' && targetHeight) picture.style.height = `${targetHeight}px`
       element.appendChild(picture)
       setState('scan')
       return () => {
