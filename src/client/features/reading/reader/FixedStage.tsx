@@ -13,6 +13,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { t } from '../../../lib/i18n'
 import { readBookBlob } from '../store/library'
 import { useSession } from '../../../store/session'
+import { usePointerPaging } from './usePointerPaging'
 import type { BookRecord, Highlight } from '../types'
 import type { BookPosition } from '../position'
 import { DEFAULT_HIGHLIGHT_PAINT, type ReaderTheme } from '../themes'
@@ -55,10 +56,12 @@ interface FixedStageProps {
   onPage: (page: number, pages: number) => void
   /** Null for a book whose pages hold no words, which is what disables its search box. */
   onSearchReady: (search: ((query: string) => Promise<FixedHit[]>) | null) => void
+  paging: { zones: 'thirds' | 'edges' | 'off'; swipe: boolean; onCenterTap: () => void }
 }
 
 export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function FixedStage({
   book, settings, theme, highlights, start, zoom, onPosition, onSelection, onMarkClick, onPage, onSearchReady,
+  paging,
 }, ref) {
   const userId = useSession((state) => state.user?.id ?? null)
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -73,6 +76,14 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
    */
   const [stageWidth, setStageWidth] = useState(0)
   const [stageHeight, setStageHeight] = useState(0)
+  const turnByRef = useRef<(direction: number) => void>(() => {})
+  usePointerPaging(scrollerRef, {
+    zones: paging.zones,
+    swipe: paging.swipe,
+    onNext: () => turnByRef.current(1),
+    onPrev: () => turnByRef.current(-1),
+    onCenterTap: paging.onCenterTap,
+  })
   const docRef = useRef<PdfHandle | null>(null)
   /** A CBZ's pages are pictures; they are handed out as blob URLs instead of being painted. */
   const images = useRef<string[]>([])
@@ -176,6 +187,8 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
     onPage(page, pages || 1)
     onPosition({ kind: 'fixed', page }, fraction)
   }, [onPage, onPosition, page, pages, settings.readMode, spread])
+
+  turnByRef.current = (direction) => setPage((current) => Math.min(pages, Math.max(1, current + direction * spread)))
 
   useImperativeHandle(ref, () => ({
     next: () => setPage((current) => Math.min(pages, current + spread)),

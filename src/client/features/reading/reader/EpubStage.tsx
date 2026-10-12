@@ -29,6 +29,7 @@ import {
   type PageGeometry,
 } from '../engine/paginate'
 import { spineIndexFor, stripFragment } from '../engine/epub-package'
+import { usePointerPaging } from './usePointerPaging'
 import type { BookPosition } from '../position'
 import type { Highlight } from '../types'
 import { t } from '../../../lib/i18n'
@@ -49,6 +50,8 @@ export interface EpubStageHandle {
   next(): void
   prev(): void
   goTo(position: BookPosition, fragment?: string): void
+  /** Land on a share of the whole book, ending on the page that shows it. */
+  goToFraction(fraction: number): void
   current(): BookPosition | null
   chapterIndex(): number
   /** Re-run the layout pass, which is what a settings change or a font arriving needs. */
@@ -66,6 +69,8 @@ interface EpubStageProps {
   onMarkClick: (ids: string[], rect: DOMRect) => void
   onChapter: (index: number) => void
   onPageChange: (page: number, pages: number) => void
+  /** Tap-zone and swipe paging, so a thumb works the way every other book app teaches it. */
+  paging: { zones: 'thirds' | 'edges' | 'off'; swipe: boolean; onCenterTap: () => void }
 }
 
 export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function EpubStage({
@@ -79,6 +84,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   onMarkClick,
   onChapter,
   onPageChange,
+  paging,
 }, ref) {
   const stageRef = useRef<HTMLDivElement>(null)
   const columnsRef = useRef<HTMLDivElement>(null)
@@ -89,9 +95,17 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   const [page, setPage] = useState(0)
   const [pages, setPages] = useState(1)
   const [failed, setFailed] = useState(false)
+  usePointerPaging(stageRef, {
+    zones: paging.zones,
+    swipe: paging.swipe,
+    onNext: () => turnToRef.current(1),
+    onPrev: () => turnToRef.current(-1),
+    onCenterTap: paging.onCenterTap,
+  })
+  const turnToRef = useRef<(next: number) => void>(() => {})
   const geometryRef = useRef<PageGeometry>(computeGeometry(800, 1, 24))
   /** Where to land once the next chapter has laid out: an offset, or the end of the chapter. */
-  const anchorRef = useRef<{ kind: 'offset'; offset: number } | { kind: 'end' } | { kind: 'fragment'; id: string } | null>(
+  const anchorRef = useRef<{ kind: 'offset'; offset: number } | { kind: 'end' } | { kind: 'fragment'; id: string } | { kind: 'fraction'; value: number } | null>(
     start?.kind === 'epub' ? { kind: 'offset', offset: start.offset } : null,
   )
   const indexRef = useRef<TextIndex | null>(null)
@@ -200,6 +214,8 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     let target = 0
     if (anchor.kind === 'end') {
       target = count - 1
+    } else if (anchor.kind === 'fraction') {
+      target = Math.round(anchor.value * Math.max(0, count - 1))
     } else if (anchor.kind === 'fragment') {
       const element = doc.querySelector<HTMLElement>(`[id="${cssEscape(anchor.id)}"]`)
       target = element ? pageForOffset(element.offsetLeft, next) : 0
@@ -306,22 +322,54 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     if (!index) return
     const offset = currentOffset()
     const scrollMode = settings.readMode === 'scroll'
-    // A column page is the whole chapter, so in scroll mode the bar tracks the scrolled height: a
-    // reader three quarters down is three quarters through.
+    const progress = scrollMode ? { page: 1, pages: 1 } : chapterProgress(page, pages)
+    // How far through the chapter is a share of its prose, not of its page count: a chapter that fits
+    // on one page would otherwise read as finished the moment it opened, and the scrubber could not
+    // round-trip through it.
+    const atEndOfBook = slot >= handle.pkg.spine.length - 1 && progress.page >= progress.pages
+    const chapterFraction = atEndOfBook ? 1 : Math.min(1, offset / Math.max(1, index.text.length))
     const fraction = scrollMode && stage && stage.scrollHeight > stage.clientHeight
       ? Math.min(1, (stage.scrollTop + stage.clientHeight) / stage.scrollHeight)
-      : chapterProgress(page, pages).fraction
-    const progress = scrollMode ? { page: 1, pages: 1 } : chapterProgress(page, pages)
+      : chapterFraction
     const signature = `${slot}:${offset}:${progress.page}:${progress.pages}:${fraction.toFixed(3)}`
     if (signature === lastSent.current) return
     lastSent.current = signature
     emit.current.onPageChange(progress.page, progress.pages)
     emit.current.onPosition({ kind: 'epub', chapter: slot, offset }, fraction)
-  }, [currentOffset, page, pages, settings.readMode, slot])
+  }, [currentOffset, handle.pkg.spine.length, page, pages, settings.readMode, slot])
 
   useEffect(() => {
     report()
   }, [report])
+
+  /**
+   * Reading hands-free.
+   *
+   * Driven by elapsed time rather than by a fixed pixel step per frame, so the page moves the same
+   * distance per second whether the display refreshes at 60 or 120 Hz. It stops by itself at the end
+   * of a chapter: a reader who is not watching should arrive at a chapter break, not be scrolled past
+   * it into the next one.
+   */
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage || settings.readMode !== 'scroll' || settings.autoScrollSpeed <= 0) return
+    let frame = 0
+    let previous = performance.now()
+    const step = (now: number) => {
+      const elapsed = now - previous
+      previous = now
+      if (document.visibilityState === 'visible') {
+        stage.scrollTop += (settings.autoScrollSpeed * elapsed) / 1000
+        const atEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1
+        if (atEnd) return
+      }
+      frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [chapter, settings.autoScrollSpeed, settings.readMode])
 
   /**
    * A scrolling reader reaches the end of a chapter and keeps going.
@@ -363,6 +411,20 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     }
   }, [handle.pkg.spine.length, pages, slot])
 
+  const jumpToFraction = useCallback((fraction: number) => {
+    const total = Math.max(1, handle.pkg.spine.length)
+    const scaled = Math.min(total - 0.0001, Math.max(0, fraction * total))
+    const chapter = Math.floor(scaled)
+    anchorRef.current = { kind: 'fraction', value: scaled - chapter }
+    if (chapter === slot) {
+      relayout()
+      return
+    }
+    setPages(1)
+    setPage(0)
+    setSlot(chapter)
+  }, [handle.pkg.spine.length, relayout, slot])
+
   const jump = useCallback((position: BookPosition, fragment?: string) => {
     if (position.kind !== 'epub') return
     anchorRef.current = fragment
@@ -377,14 +439,17 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     setSlot(position.chapter)
   }, [relayout, slot])
 
+  turnToRef.current = (direction) => turnTo(direction > 0 ? page + 1 : page - 1)
+
   useImperativeHandle(ref, () => ({
     next: () => turnTo(settings.readMode === 'scroll' ? pages : page + 1),
     prev: () => turnTo(settings.readMode === 'scroll' ? -1 : page - 1),
     goTo: jump,
+    goToFraction: jumpToFraction,
     current: () => ({ kind: 'epub', chapter: slot, offset: currentOffset() }),
     chapterIndex: () => slot,
     relayout,
-  }), [currentOffset, jump, page, pages, relayout, settings.readMode, slot, turnTo])
+  }), [currentOffset, jump, jumpToFraction, page, pages, relayout, settings.readMode, slot, turnTo])
 
   /**
    * A selection, converted to the chapter's own coordinates.

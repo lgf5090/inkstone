@@ -7,7 +7,7 @@
  * jumping under the reader's finger.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, Clock, FileText, List, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, Clock, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -63,6 +63,11 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const [lookup, setLookup] = useState<{ rect: DOMRect; pending: boolean; outcome: LookupOutcome | null; error: string | null; collected: boolean } | null>(null)
   const [chapter, setChapter] = useState(0)
   const [hudHidden, setHudHidden] = useState(false)
+  const [hudPinned, setHudPinned] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const scrubberRef = useRef<HTMLInputElement>(null)
+  const scrubbing = useRef(false)
   const [page, setPage] = useState({ page: 1, pages: 1 })
   const progress = useLibrary((state) => state.progress[book.id])
   const setProgress = useLibrary((state) => state.setProgress)
@@ -96,7 +101,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const theme = resolveReaderTheme(settings.theme as ReaderThemeName, appDark)
   void accentless
 
-  const busy = Boolean(panel || selection || comment)
+  const busy = Boolean(panel || selection || comment) || hudPinned
 
   /**
    * The HUD retracts when the reader stops moving, and never while something is open.
@@ -111,6 +116,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     }
     let timer = 0
     const wake = () => {
+      if (hudPinned) return
       setHudHidden(false)
       window.clearTimeout(timer)
       timer = window.setTimeout(() => setHudHidden(true), 3200)
@@ -138,6 +144,69 @@ export function ReaderView({ book }: { book: BookRecord }) {
       finishedAt: progress?.finishedAt ?? null,
     })
   }, [book.id, handle, progress?.finishedAt, setProgress])
+
+  const paging = {
+    zones: settings.tapZones,
+    swipe: settings.swipeTurns,
+    onCenterTap: () => setHudPinned((current) => !current),
+  }
+
+  /**
+   * Fullscreen is asked for on the reader, not the document: the bars, the rail and the operating
+   * system's own chrome are exactly what a page of text is supposed to be seen without.
+   */
+  const toggleFullscreen = useCallback(() => {
+    const node = rootRef.current
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {})
+      return
+    }
+    if (!node?.requestFullscreen) return
+    void node.requestFullscreen({ navigationUI: 'hide' }).catch(() => {
+      toast({ title: t('reading.fullscreen_blocked'), tone: 'warning' })
+    })
+  }, [toast])
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const scrubTo = useCallback((fraction: number) => {
+    if (isFixed) {
+      const total = Math.max(1, book.unitCount)
+      fixedStage.current?.goTo({ kind: 'fixed', page: Math.min(total, Math.max(1, Math.round(fraction * total))) })
+      return
+    }
+    // The stage resolves the share against the chapter's own page count, so where the reader let go is
+    // where the progress readout lands — a slider that reported somewhere else would fight the finger.
+    stage.current?.goToFraction(fraction)
+  }, [book.unitCount, isFixed])
+
+  /**
+   * "How much longer" is answered from the reader's own pace rather than a words-per-minute constant:
+   * the time already spent on this book divided by how far through it they are. A first-time reader
+   * with no elapsed time gets nothing, because a guess from page count would be a made-up number.
+   */
+  const minutesLeft = useMemo(() => {
+    if (!settings.estimateTimeLeft) return null
+    const spent = useLibrary.getState().stats[book.id]?.seconds ?? 0
+    const fraction = progress?.fraction ?? 0
+    if (spent < 60 || fraction < 0.03) return null
+    return Math.max(1, Math.round((spent / 60) * (1 - fraction) / fraction))
+  }, [book.id, progress?.fraction, settings.estimateTimeLeft])
+
+  /**
+   * The slider follows the book, but not while the reader is holding it: a page turn that lands
+   * somewhere else mid-drag would yank the handle out from under the finger.
+   */
+  useEffect(() => {
+    const node = scrubberRef.current
+    if (!node || scrubbing.current) return
+    const next = String(Math.round((progress?.fraction ?? 0) * 1000))
+    if (node.value !== next) node.value = next
+  }, [progress?.fraction, settings.showScrubber])
 
   const reportChapter = useCallback((index: number) => {
     setChapter(index)
@@ -205,6 +274,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
           break
         case 'h':
           setPanel(open && panel === 'highlights' ? null : 'highlights')
+          break
+        case 'f': case 'F':
+          toggleFullscreen()
           break
         case 'm':
           void addMark()
@@ -422,10 +494,13 @@ export function ReaderView({ book }: { book: BookRecord }) {
 
   return (
     <div
+      ref={rootRef}
       className="relative flex h-full min-h-0 flex-col"
       data-reader-root=""
       data-page-buttons={settings.pageButtons}
       data-selection-labels={settings.selectionLabels ? 'true' : 'false'}
+      data-fullscreen={fullscreen ? 'true' : 'false'}
+      data-scrubber={settings.showScrubber ? 'true' : 'false'}
       style={{ background: theme.background }}
     >
       {isFixed ? (
@@ -445,6 +520,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           }}
           onPage={reportFixedPage}
           onSearchReady={(fn) => { fixedSearch.current = fn }}
+          paging={paging}
         />
       ) : !handle ? (
         <div className="flex h-full items-center justify-center text-[12.5px] text-[var(--text-quaternary)]">
@@ -466,6 +542,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
             setComment({ ids, rect })
           }}
           onChapter={reportChapter}
+          paging={paging}
         />
       )}
 
@@ -493,6 +570,14 @@ export function ReaderView({ book }: { book: BookRecord }) {
             <IconButton label={t('reading.search_book')} size="sm" active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
               <Search size={15} />
             </IconButton>
+          <IconButton
+            label={fullscreen ? t('reading.exit_fullscreen') : t('reading.enter_fullscreen')}
+            size="sm"
+            active={fullscreen}
+            onClick={toggleFullscreen}
+          >
+            <Maximize2 size={15} />
+          </IconButton>
           {isFixed ? (
             <span className="reader-pill inline-flex items-center gap-0.5 px-1">
               <IconButton label={t('reading.zoom_out')} size="xs" onClick={() => setZoom((current) => Math.max(0.5, Math.round((current - 0.25) * 100) / 100))}>
@@ -531,12 +616,34 @@ export function ReaderView({ book }: { book: BookRecord }) {
           page={page}
           fraction={progress?.fraction ?? 0}
           chapterTitle={currentChapterTitle}
+          minutesLeft={minutesLeft}
           onJump={(position, fragment) => (isFixed ? fixedStage.current?.goTo(position) : stage.current?.goTo(position, fragment))}
         />
         <IconButton label={t('reading.next_page')} size="sm" onClick={() => turn(1)}>
           <ArrowRight size={15} />
         </IconButton>
       </div>
+
+      {settings.showScrubber ? (
+        <input
+          ref={scrubberRef}
+          type="range"
+          className="reader-scrubber"
+          min={0}
+          max={1000}
+          step={1}
+          defaultValue={Math.round((progress?.fraction ?? 0) * 1000)}
+          aria-label={t('reading.scrubber_label')}
+          onPointerDown={() => { scrubbing.current = true }}
+          onPointerUp={() => { scrubbing.current = false }}
+          onPointerCancel={() => { scrubbing.current = false }}
+          onChange={(event) => scrubTo(Number(event.target.value) / 1000)}
+        />
+      ) : null}
+
+      {settings.dimming > 0 ? (
+        <span className="reader-dim" aria-hidden="true" style={{ opacity: settings.dimming }} />
+      ) : null}
 
       <div className="reader-progress-rail" aria-hidden="true">
         <span style={{ width: `${formatPercentNumber(progress?.fraction ?? 0)}%` }} />

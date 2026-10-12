@@ -59,6 +59,15 @@ export interface ReaderSettings {
   translateEnabled: boolean
   translateTo: string
   translateEngine: 'google' | 'ai'
+  /** Where a tap turns the page: two edges, three zones, or never. */
+  tapZones: 'thirds' | 'edges' | 'off'
+  swipeTurns: boolean
+  showScrubber: boolean
+  estimateTimeLeft: boolean
+  /** A dark veil drawn over the page, for reading in the dark without lighting the whole screen. */
+  dimming: number
+  /** Pixels per second of automatic scrolling; 0 leaves the page still. */
+  autoScrollSpeed: number
   /** Whether a book's reading note is created on the first highlight or on request. */
   autoBookNote: boolean
   quoteBacklinks: boolean
@@ -95,6 +104,12 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   autoBookNote: true,
   quoteBacklinks: true,
   notesFolder: '',
+  tapZones: 'thirds',
+  swipeTurns: true,
+  showScrubber: true,
+  estimateTimeLeft: true,
+  dimming: 0,
+  autoScrollSpeed: 0,
 }
 
 /** Bounds the sliders share with the keyboard shortcuts that nudge the same values. */
@@ -142,6 +157,12 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     pageButtons: oneOf(parsed.pageButtons, ['always', 'hover'] as const, 'always'),
     translateEngine: oneOf(parsed.translateEngine, ['google', 'ai'] as const, 'google'),
     defaultHighlightColor: oneOf(parsed.defaultHighlightColor, ['yellow', 'green', 'blue', 'pink', 'red', 'purple'] as const, 'yellow'),
+    tapZones: oneOf(parsed.tapZones, ['thirds', 'edges', 'off'] as const, 'thirds'),
+    showScrubber: typeof parsed.showScrubber !== 'boolean' ? true : parsed.showScrubber,
+    swipeTurns: typeof parsed.swipeTurns !== 'boolean' ? true : parsed.swipeTurns,
+    estimateTimeLeft: typeof parsed.estimateTimeLeft !== 'boolean' ? true : parsed.estimateTimeLeft,
+    dimming: clamp(parsed.dimming, 0, 0.7, 0),
+    autoScrollSpeed: clamp(parsed.autoScrollSpeed, 0, 160, 0),
     importedFonts: Array.isArray(parsed.importedFonts)
       ? parsed.importedFonts.filter((one): one is ImportedFont => Boolean(one && typeof one.family === 'string' && typeof one.id === 'string'))
       : [],

@@ -154,6 +154,42 @@ export function AppearancePanel() {
         />
       </Row>
 
+      <SectionLabel className="px-0 pt-3">{t('reading.gestures')}</SectionLabel>
+      <Row label={t('reading.tap_zones')}>
+        <Segmented
+          size="sm"
+          value={settings.tapZones}
+          onChange={(value) => set('tapZones', value)}
+          options={[
+            { value: 'thirds', label: t('reading.tap_zones_thirds') },
+            { value: 'edges', label: t('reading.tap_zones_edges') },
+            { value: 'off', label: t('reading.tap_zones_off') },
+          ]}
+        />
+      </Row>
+      <Row label={t('reading.swipe_turns')}>
+        <Switch checked={settings.swipeTurns} onChange={(value) => set('swipeTurns', value)} label={t('reading.swipe_turns')} />
+      </Row>
+      <Row label={t('reading.show_scrubber')}>
+        <Switch checked={settings.showScrubber} onChange={(value) => set('showScrubber', value)} label={t('reading.show_scrubber')} />
+      </Row>
+      <Row label={t('reading.estimate_time_left')}>
+        <Switch checked={settings.estimateTimeLeft} onChange={(value) => set('estimateTimeLeft', value)} label={t('reading.estimate_time_left')} />
+      </Row>
+      <Slider label={t('reading.dimming')} value={settings.dimming} min={0} max={0.7} step={0.05} onChange={(value) => set('dimming', value)} />
+      {/* Auto-scroll is a property of a flowing page; a paginated one has nothing to scroll. */}
+      {settings.readMode === 'scroll' ? (
+        <Slider
+          label={t('reading.auto_scroll')}
+          value={settings.autoScrollSpeed}
+          min={0}
+          max={120}
+          step={10}
+          onChange={(value) => set('autoScrollSpeed', value)}
+          suffix={settings.autoScrollSpeed ? ' px/s' : ''}
+        />
+      ) : null}
+
       <SectionLabel className="px-0 pt-3">{t('reading.marking')}</SectionLabel>
       <div className="flex flex-wrap gap-2 py-2">
         {HIGHLIGHT_COLORS.map((color) => (

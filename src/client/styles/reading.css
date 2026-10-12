@@ -10,6 +10,9 @@
   /* The measure a scrolling page centres its text to, and the dot a commented mark draws. */
   --reader-measure: 44rem;
   --reader-mark-dot: var(--reader-accent);
+  /* Vertical panning stays the browser's; a horizontal drag is a page turn. Without this the browser
+     claims the swipe as a scroll, fires pointercancel, and the gesture never reaches the reader. */
+  touch-action: pan-y;
   position: relative;
   min-height: 0;
   flex: 1;
@@ -495,4 +498,46 @@
   [data-reader-root][data-selection-labels='true'] .reader-action-label {
     display: inline;
   }
+}
+
+/**
+ * The controls a thumb reaches for.
+ *
+ * The scrubber takes the bottom edge and the bar lifts above it, because a slider that overlaps the
+ * page number makes both unreadable; the rail is dropped while the slider is on, since the slider says
+ * the same thing and can be dragged.
+ */
+.reader-scrubber {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--reader-accent);
+}
+
+[data-reader-root][data-scrubber='true'] .reader-hud[data-edge='bottom'] {
+  bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 26px);
+}
+
+[data-reader-root][data-scrubber='true'] .reader-progress-rail {
+  display: none;
+}
+
+.reader-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: #000;
+  pointer-events: none;
+}
+
+/* Fullscreen is the page and nothing else, so the bars get the safe-area padding the rail used to
+   provide and the reader's own background fills the screen edge to edge. */
+[data-reader-root][data-fullscreen='true'] {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

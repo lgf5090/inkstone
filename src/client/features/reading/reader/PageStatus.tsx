@@ -15,10 +15,12 @@ export interface PageStatusProps {
   page: { page: number; pages: number }
   fraction: number
   chapterTitle: string
+  /** The reader's own pace turned into a guess; null until there is enough of a history to guess from. */
+  minutesLeft: number | null
   onJump: (position: BookPosition, fragment?: string) => void
 }
 
-export function PageStatus({ book, page, fraction, onJump }: PageStatusProps) {
+export function PageStatus({ book, page, fraction, minutesLeft, onJump }: PageStatusProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100)
@@ -64,6 +66,12 @@ export function PageStatus({ book, page, fraction, onJump }: PageStatusProps) {
       <span>{page.page} / {page.pages}</span>
       <span aria-hidden="true">·</span>
       <span>{percent}%</span>
+      {minutesLeft ? (
+        <span aria-hidden="true">·</span>
+      ) : null}
+      {minutesLeft ? (
+        <span title={t('reading.time_left_hint')}>{t('reading.minutes_short', { value0: minutesLeft })}</span>
+      ) : null}
     </button>
   )
 }

@@ -4681,6 +4681,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/reading/reader/AppearancePanel.tsx", [
     "/**\n * The appearance panel: the same settings as the app's own appearance section, reached from inside a\n * book because that is where a reader notices the type is wrong.\n *\n * Every control writes through to the store immediately and the page re-lays out live — a setting that\n * only applied on close would have to be imagined rather than tried.\n */",
+    "/**\n * A theme as the reader will meet it: the page colour with a few lines of ink on it. A swatch that showed\n * only the background could not be told apart from its neighbours, which is what the three rules are for.\n */",
   ]],
   ["src/client/features/reading/reader/CommentCard.tsx", [
     "/**\n * What a marked passage says.\n *\n * A highlight with a comment is the interesting case, so the card opens straight into the note the\n * reader wrote rather than into the mark's metadata. Clicking a passage that carries two overlapping\n * marks shows both, since the reader may have meant either.\n */",
@@ -4706,9 +4707,13 @@ const allowed = new Map([
     "/**\n   * The owner's callbacks live in a ref because a parent re-render hands over new function identities\n   * every time. Read directly from the props inside an effect, they re-trigger the effects that depend\n   * on them, which re-enter the parent's state, which re-renders — and the reader sees React's\n   * \"maximum update depth exceeded\" instead of a page.\n   */",
     "// Scroll mode has no bars over the text, so it does not need their height reserved.",
     "// In scroll mode the reader's place is a vertical position rather than a column offset.",
-    "// A column page is the whole chapter, so in scroll mode the bar tracks the scrolled height: a",
-    "// reader three quarters down is three quarters through.",
     "/**\n   * A scrolling reader reaches the end of a chapter and keeps going.\n   *\n   * The neighbour is loaded only within a few pixels of the bottom, so a tall image or a late font\n   * cannot pull the chapter forward while the reader is still looking at text.\n   */",
+    "/** Land on a share of the whole book, ending on the page that shows it. */",
+    "/** Tap-zone and swipe paging, so a thumb works the way every other book app teaches it. */",
+    "// How far through the chapter is a share of its prose, not of its page count: a chapter that fits",
+    "// on one page would otherwise read as finished the moment it opened, and the scrubber could not",
+    "// round-trip through it.",
+    "/**\n   * Reading hands-free.\n   *\n   * Driven by elapsed time rather than by a fixed pixel step per frame, so the page moves the same\n   * distance per second whether the display refreshes at 60 or 120 Hz. It stops by itself at the end\n   * of a chapter: a reader who is not watching should arrive at a chapter break, not be scrolled past\n   * it into the next one.\n   */",
   ]],
   ["src/client/features/reading/reader/FixedStage.tsx", [
     "/**\n * A book that arrives as pages rather than as prose.\n *\n * A PDF is a page description, so the reader keeps each page as the source of visual truth: PDF.js\n * paints it to a canvas and its own transparent text layer goes over the top, which is what makes the\n * words selectable, searchable and markable without rebuilding the page. A scan has no such layer, and\n * the reader says so by refusing the actions that need words rather than marking the wrong ones.\n *\n * A CBZ shares the machinery with one difference: its pages are pictures, so it always takes the\n * scan path.\n */",
@@ -4748,6 +4753,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/reading/reader/PageStatus.tsx", [
     "/**\n * Where the reader is, and a way to name somewhere else.\n *\n * The number is a page and a percentage at once because the two answer different questions: the page is\n * what the reader can see, the percentage is what they can compare against the whole book. The jump box\n * takes either, or a chapter number, which is what a reader holding a paper copy of the same book types.\n */",
+    "/** The reader's own pace turned into a guess; null until there is enough of a history to guess from. */",
   ]],
   ["src/client/features/reading/reader/ReaderPanel.tsx", [
     "/**\n * A reader panel: the contents, the search box, the settings.\n *\n * It is deliberately *not* the app's `Drawer`. A drawer is modal — it locks the page behind it and takes\n * the focus — and both of those are wrong here: a reader adjusting type size has to see the page change,\n * and a reader picking a chapter out of the contents wants to preview the jump. So this is a floating\n * card over the page, closable by Escape, the backdrop or its own button, and nothing else.\n */",
@@ -4772,6 +4778,11 @@ const allowed = new Map([
     "// icons leave no room for the title they are supposed to be beside.",
     "/** What the narrow bar's single menu holds: the same actions, one tap deeper. */",
     "/**\n   * The reader's own setting decides whether a mark files itself straight away.\n   *\n   * It reads the store after the write rather than this render's copy of the list, because the note has\n   * to hold the mark that was just made — and it stays silent, because being taken to a note while a\n   * book is open is the interruption the setting exists to allow turning off.\n   */",
+    "/**\n   * Fullscreen is asked for on the reader, not the document: the bars, the rail and the operating\n   * system's own chrome are exactly what a page of text is supposed to be seen without.\n   */",
+    "// The stage resolves the share against the chapter's own page count, so where the reader let go is",
+    "// where the progress readout lands — a slider that reported somewhere else would fight the finger.",
+    "/**\n   * \"How much longer\" is answered from the reader's own pace rather than a words-per-minute constant:\n   * the time already spent on this book divided by how far through it they are. A first-time reader\n   * with no elapsed time gets nothing, because a guess from page count would be a made-up number.\n   */",
+    "/**\n   * The slider follows the book, but not while the reader is holding it: a page turn that lands\n   * somewhere else mid-drag would yank the handle out from under the finger.\n   */",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -4792,6 +4803,12 @@ const allowed = new Map([
     "// every picture of every book this tab has opened alive until the tab closes.",
     "/** The selector a chapter's own stylesheet is confined to. */",
     "/** Forget a cached archive, which is what a deleted book needs so its bytes can be collected. */",
+  ]],
+  ["src/client/features/reading/reader/usePointerPaging.ts", [
+    "/**\n * Turning a page with a thumb.\n *\n * A reader on a phone expects to tap the right edge to go forward and to swipe, because that is what\n * every book app they have used does; the arrows in the bar are the fallback, not the gesture. So this\n * hook owns the two and stays out of everything else: a drag that was really a selection, a tap that\n * landed on a link or a mark, and a second finger coming down mid-gesture all end with the reader's\n * intent intact and no page turned.\n *\n * Mouse pointers are deliberately ignored. A click on a page with a mouse usually means \"put my caret\n * here\" or \"clear this selection\", and turning the page under it reads as the app misbehaving.\n */",
+    "/** `thirds` gives the middle of the screen to the chrome, `edges` keeps the text clickable. */",
+    "// A swipe is a move by definition, so it is judged before the \"did the finger wander\" guard that",
+    "// rules out a tap.",
   ]],
   ["src/client/features/reading/reader/useReadingTimer.ts", [
     "/**\n * How long the reader has been reading.\n *\n * Time is counted only while the tab is visible and the reader is actually doing something: a page left\n * open in a background tab is not a reading session, and counting it would make the daily goal a\n * measure of tab hygiene rather than of reading.\n */",
@@ -4843,6 +4860,9 @@ const allowed = new Map([
     "// A FileReader is used rather than a base64 loop because the platform's is the one that does not",
     "// build a second copy of an 8 MB face in JavaScript.",
     "/** The stack a page should ask for, with the imported faces named first when one is chosen. */",
+    "/** Where a tap turns the page: two edges, three zones, or never. */",
+    "/** A dark veil drawn over the page, for reading in the dark without lighting the whole screen. */",
+    "/** Pixels per second of automatic scrolling; 0 leaves the page still. */",
   ]],
   ["src/client/features/reading/themes.ts", [
     "/**\n * The reading surface's palettes.\n *\n * A book page is the one place in this app where the reader chooses the colours rather than the\n * deployment, so the themes are their own layer: they paint the page, not the chrome around it. Each\n * one carries the pair the page actually needs (paper and ink) plus the two tints that follow from\n * them, and `auto` hands the decision back to the app's own theme.\n *\n * Every entry is checked for contrast by `tests/reading-theme-contrast.test.ts`, because a warm-paper\n * theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they read a whole\n * chapter with a headache.\n */",
@@ -11875,6 +11895,9 @@ const allowed = new Map([
     "/** A page with no text layer says so on hover rather than letting a drag select nothing. */",
     "/* The bottom arrows can wait for the pointer; the status between them cannot, or the bar would look\n   empty and the reader would hunt for it. */",
     "/* A pointer device has room for words on the selection bar; a thumb does not. */",
+    "/* Vertical panning stays the browser's; a horizontal drag is a page turn. Without this the browser\n     claims the swipe as a scroll, fires pointercancel, and the gesture never reaches the reader. */",
+    "/**\n * The controls a thumb reaches for.\n *\n * The scrubber takes the bottom edge and the bar lifts above it, because a slider that overlaps the\n * page number makes both unreadable; the rail is dropped while the slider is on, since the slider says\n * the same thing and can be dragged.\n */",
+    "/* Fullscreen is the page and nothing else, so the bars get the safe-area padding the rail used to\n   provide and the reader's own background fills the screen edge to edge. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
