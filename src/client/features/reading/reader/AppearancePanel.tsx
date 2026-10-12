@@ -321,4 +321,5 @@ const THEME_KEYS: Record<Exclude<ReaderThemeName, 'auto'>, MessageKey> = {
   fog: 'reading.theme_fog',
   night: 'reading.theme_night',
   ink: 'reading.theme_ink',
+  eink: 'reading.theme_eink',
 }

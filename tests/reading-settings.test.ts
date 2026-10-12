@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_READER_SETTINGS, useReaderSettings } from '../src/client/features/reading/store/reader-settings'
 import type { ReaderSettings } from '../src/client/features/reading/store/reader-settings'
+import { READER_THEME_ORDER } from '../src/client/features/reading/themes'
 
 type Key = keyof typeof DEFAULT_READER_SETTINGS
 
@@ -67,6 +68,16 @@ describe('reader settings persistence', () => {
       expect(reloaded.getState()[key]).toEqual(fallback)
     })
   }
+
+  it('keeps every theme the picker offers, including the one added last', async () => {
+    for (const theme of ['auto', ...READER_THEME_ORDER]) {
+      localStorage.clear()
+      useReaderSettings.getState().patch({ theme })
+      vi.resetModules()
+      const { useReaderSettings: reloaded } = await import('../src/client/features/reading/store/reader-settings')
+      expect(reloaded.getState().theme, theme).toBe(theme)
+    }
+  })
 })
 
 /** The store picks its own key by mode, so the test reads it back from the write path instead of guessing. */

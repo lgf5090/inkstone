@@ -42,6 +42,14 @@
   column-fill: auto;
   height: 100%;
   direction: ltr;
+  /* The page margin and the room the floating bars need belong here, not on the chapter: a fragmented
+     block only paints its own padding on its first and last piece, so a reader's margin would vanish
+     from every page after the first — and a book's `body { padding: 0 }`, which arrives scoped to the
+     chapter, could take the margin from all of them. The measure caps how wide a line of prose gets,
+     centring what is left over as margin, which is the difference between a page and a banner. */
+  padding-inline: max(var(--reader-margin), calc((100% - var(--reader-measure) * var(--reader-columns, 1)) / 2));
+  padding-block: max(var(--reader-margin), var(--reader-hud, 52px))
+    max(calc(var(--reader-margin) + 12px), var(--reader-hud, 52px));
 }
 
 .reader-stage[data-mode='scroll'] .reader-columns {
@@ -50,11 +58,10 @@
   column-count: 1;
   column-width: auto;
   overflow: visible;
-  padding-inline: max(var(--reader-margin), calc((100% - var(--reader-measure)) / 2));
 }
 
-/* One chapter, laid out inside the column box. The padding is the margin the reader set; the gutter
-   between two columns is the same number, so a spread reads as one page with a fold in it. */
+/* One chapter, laid out inside the column box. Its own box is the reader's: the margin and the space
+   under the bars are painted by the column box, so nothing here has to survive fragmentation. */
 .reader-doc {
   break-inside: auto;
   font-family: var(--reader-font);
@@ -65,11 +72,6 @@
   hyphens: var(--reader-hyphens);
   word-break: normal;
   overflow-wrap: break-word;
-  /* The bars float over the page, so their height is reserved in the padding instead: a reader who
-     never moves the pointer gets the same page they would get with the bars showing, and the layout
-     does not re-paginate when they retract. */
-  padding: max(var(--reader-margin), var(--reader-hud, 52px)) var(--reader-margin)
-    max(calc(var(--reader-margin) + 12px), var(--reader-hud, 52px));
   max-width: 100%;
 }
 

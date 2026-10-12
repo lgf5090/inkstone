@@ -150,9 +150,16 @@ export function LibraryView() {
   }
 
   async function remove(book: BookRecord): Promise<void> {
+    const store = useLibrary.getState()
+    const marks = store.highlights[book.id]?.length ?? 0
+    const noteId = store.notes.byBook[book.id]
     const ok = await confirm({
       title: t('reading.remove_book_confirm_value0', { value0: book.title }),
-      description: t('reading.remove_book_confirm_hint'),
+      description: marks === 0
+        ? t('reading.remove_book_confirm_hint')
+        : t(noteId
+          ? 'reading.remove_book_in_note_value0'
+          : 'reading.remove_book_unsaved_value0', { value0: marks }),
       confirmLabel: t('reading.remove'),
       tone: 'danger',
     })

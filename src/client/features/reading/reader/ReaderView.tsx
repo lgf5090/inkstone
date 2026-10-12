@@ -39,10 +39,11 @@ import { LookupCard } from './LookupCard'
 import { useReadingTimer } from './useReadingTimer'
 import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
 import { ShortcutsPanel } from './ShortcutsPanel'
+import { StatsPanel } from './StatsPanel'
 import { lookupSelection, vocabularyEntry, type LookupOutcome } from '../lookup'
 import { ensureVocabularyNote } from '../vocabulary'
 
-type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | null
+type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | 'stats' | null
 
 export function ReaderView({ book }: { book: BookRecord }) {
   const settings = useReaderSettings()
@@ -507,6 +508,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
       { id: 'marks', label: t('reading.location_marks'), checked: panel === 'marks', onSelect: open('marks') },
       { id: 'appearance', label: t('reading.reading_settings'), checked: panel === 'appearance', onSelect: open('appearance') },
       { id: 'shortcuts', label: t('reading.shortcuts'), checked: panel === 'shortcuts', onSelect: open('shortcuts') },
+      { id: 'stats', label: t('reading.stats_title'), checked: panel === 'stats', onSelect: open('stats') },
     ]
   }
 
@@ -707,6 +709,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => removeHighlight(book.id, id)} onComment={(id, comment) => updateHighlight(book.id, id, { comment })} /> : null}
           {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
           {panel === 'shortcuts' ? <ShortcutsPanel /> : null}
+          {panel === 'stats' ? <StatsPanel bookId={book.id} goalMinutes={settings.dailyGoalMinutes} /> : null}
           {panel === 'search' ? (
             <SearchPanel
               search={search}
@@ -796,6 +799,7 @@ function panelTitle(panel: PanelName): string {
   if (panel === 'highlights') return t('reading.highlights')
   if (panel === 'marks') return t('reading.location_marks')
   if (panel === 'shortcuts') return t('reading.shortcuts')
+  if (panel === 'stats') return t('reading.stats_title')
   return t('reading.reading_settings')
 }
 

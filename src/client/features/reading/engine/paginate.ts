@@ -2,8 +2,9 @@
  * The column geometry that turns flowing text into pages.
  *
  * A paginated EPUB is one tall column box scrolled sideways: the browser breaks the text into
- * `column-count` columns of a fixed width, and a page turn moves `scrollLeft` by one column plus the
- * gutter between them. Every number the reader needs — how many pages a chapter has, which page an
+ * `column-count` columns of a fixed width, and a page turn moves `scrollLeft` by the whole spread rather
+ * than by one column, because a two-column page that turns half a page leaves the reader reading the same
+ * words twice. Every number the reader needs — how many pages a chapter has, which page an
  * element is on — comes out of that one relationship, so it is computed here rather than read off the
  * DOM in four different places.
  */
@@ -12,23 +13,31 @@ export interface PageGeometry {
   columnWidth: number
   /** The gutter between two columns. */
   gap: number
-  /** How far `scrollLeft` travels for one page. */
+  /** How far `scrollLeft` travels for one page: the whole spread, not one column. */
   step: number
-  /** The visible width the columns are laid out in. */
+  /** The width the scroller shows, which is the spread plus the page margins either side of it. */
   viewport: number
   columns: number
 }
 
-export function computeGeometry(width: number, columns: number, gap: number): PageGeometry {
+/**
+ * @param width the content the columns are laid out in, already cleared of the page margins
+ * @param inset the reader's page margin on each side, which the scroller shows at the start of every
+ *        page because it sits on the scroll container's own padding
+ */
+export function computeGeometry(width: number, columns: number, gap: number, inset = 0): PageGeometry {
   const safeColumns = Math.max(1, Math.round(columns))
   const safeWidth = Math.max(1, Math.floor(width))
   const totalGap = gap * (safeColumns - 1)
   const columnWidth = Math.max(120, Math.floor((safeWidth - totalGap) / safeColumns))
+  // The browser puts each column one pitch apart — a column plus the gutter — so a page of `columns`
+  // of them advances by that many pitches, and the gutter after the last column is part of the page.
+  const pitch = columnWidth + gap
   return {
     columnWidth,
     gap,
-    step: columnWidth + gap,
-    viewport: safeWidth,
+    step: pitch * safeColumns,
+    viewport: pitch * safeColumns - gap + 2 * Math.max(0, inset),
     columns: safeColumns,
   }
 }

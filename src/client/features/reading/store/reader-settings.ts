@@ -14,7 +14,7 @@ import { create } from 'zustand'
 import { createStore, del as idbRemove, get as idbGet, set as idbSet } from 'idb-keyval'
 import { CLIENT_DATABASE_NAME, IS_DEMO_MODE } from '../../../lib/runtime'
 import type { HighlightColor } from '../types'
-import type { ReaderThemeName } from '../themes'
+import { READER_THEMES, type ReaderThemeName } from '../themes'
 
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.reader.settings' : 'inkstone.reader.settings'
 const fontStore = createStore(CLIENT_DATABASE_NAME, 'kv')
@@ -159,7 +159,7 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     dimming: clamp(parsed.dimming, 0, 0.7, 0),
     autoScrollSpeed: clamp(parsed.autoScrollSpeed, 0, 160, 0),
     columns: parsed.columns === 2 ? 2 : 1,
-    theme: oneOf(parsed.theme, ['auto', 'paper', 'warm', 'celadon', 'moon', 'xuan', 'fog', 'night', 'ink'] as const, 'auto'),
+    theme: oneOf<ReaderThemeName>(parsed.theme, ['auto', ...Object.keys(READER_THEMES)] as ReaderThemeName[], 'auto'),
     fontFamily: oneOf(parsed.fontFamily, ['serif', 'sans', 'mono', 'custom'] as const, 'serif'),
     readMode: oneOf(parsed.readMode, ['paged', 'scroll'] as const, 'paged'),
     textAlign: oneOf(parsed.textAlign, ['left', 'justify'] as const, 'left'),

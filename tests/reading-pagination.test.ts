@@ -18,7 +18,27 @@ describe('computeGeometry', () => {
 
     const two = computeGeometry(800, 2, 24)
     expect(two.columnWidth).toBe(388)
-    expect(two.step).toBe(412)
+    // A spread of two columns is 388 + 24 + 388 of text, and the gutter after it belongs to the page:
+    // turning by one column would show the reader the second column twice.
+    expect(two.step).toBe(824)
+    expect(two.viewport).toBe(800)
+  })
+
+  it('shows the page margin on every page, not only the first', () => {
+    const one = computeGeometry(800, 1, 0, 24)
+    expect(one.step).toBe(800)
+    // The margin is the scroll container's padding, so the window is wider than the column it shows.
+    expect(one.viewport).toBe(848)
+    // n columns of text occupy the margin once, then a column each: three pages of prose measure 2448.
+    expect(pageCount(24 + 800 * 3, one)).toBe(3)
+    expect(pageCount(24 + 800, one)).toBe(1)
+  })
+
+  it('counts spreads, not columns', () => {
+    const two = computeGeometry(800, 2, 24)
+    // Four columns of a spread of two: 388 each with three gutters, and no margin.
+    expect(pageCount(388 * 4 + 24 * 3, two)).toBe(2)
+    expect(pageCount(388 * 6 + 24 * 5, two)).toBe(3)
   })
 
   it('keeps a usable column in a window too narrow for two', () => {

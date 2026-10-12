@@ -45,13 +45,13 @@ describe('rewriteUrls', () => {
 
 describe('scopeCss', () => {
   it('confines a comma-separated selector list', async () => {
-    const out = await scope('h1, h2, p > span { color: red }')
-    expect(out).toBe('.reader-doc h1,.reader-doc h2,.reader-doc p > span{color: red}')
+    const out = await scope('h1, h2, p > span { margin: 1em }')
+    expect(out).toBe('.reader-doc h1,.reader-doc h2,.reader-doc p > span{margin: 1em}')
   })
 
   it('drops rules that would reach outside the book', async () => {
-    const out = await scope('@page { margin: 0 } @charset "utf-8"; body { margin: 0 }')
-    expect(out).toBe('.reader-doc{margin: 0}')
+    const out = await scope('@page { margin: 0 } @charset "utf-8"; body { font-weight: 700 }')
+    expect(out).toBe('.reader-doc{font-weight: 700}')
   })
 
   it('scopes the rules inside a media block and keeps its condition', async () => {
@@ -67,7 +67,7 @@ describe('scopeCss', () => {
   })
 
   it('survives a brace inside a quoted value', async () => {
-    const out = await scope('p.note > span { color: "quoted } brace"; background: url(../images/note.png) }')
+    const out = await scope('p.note > span { content: "quoted } brace"; background: url(../images/note.png) }')
     expect(out).toContain('.reader-doc p.note > span')
     expect(out).toContain('"quoted } brace"')
     expect(out).toContain('blob:resolved/images/note.png')
@@ -89,9 +89,9 @@ describe('scopeCss', () => {
   })
 
   it('drops a stylesheet it cannot make sense of rather than emitting it raw', async () => {
-    const out = await scope('p { color: red /* no closing brace')
+    const out = await scope('p { margin: 0 /* no closing brace')
     expect(out).not.toContain('position: fixed')
-    expect(out).toContain('p{color: red')
+    expect(out).toContain('p{margin: 0')
   })
 })
 
@@ -104,5 +104,55 @@ describe('joinCssPath', () => {
   it('leaves an absolute or external reference alone', () => {
     expect(joinCssPath('OEBPS', 'https://cdn/x.css')).toBe('https://cdn/x.css')
     expect(joinCssPath('OEBPS', '/x.css')).toBe('/x.css')
+  })
+})
+describe('the reader palette', () => {
+  it('drops what the author painted the page with', async () => {
+    const css = await scope('body { color: #222; font-size: 1em }')
+    expect(css).toBe('.reader-doc{font-size: 1em}')
+    expect(css).not.toContain('color')
+  })
+
+  it('drops a flat background but keeps an ornament', async () => {
+    expect(await scope('p { background: #eee }')).toBe('.reader-doc p{}')
+    expect(await scope('p { background-color: red }')).toBe('.reader-doc p{}')
+    expect(await scope('p { background: url(art.png) no-repeat }')).toBe('.reader-doc p{background: url("blob:resolved/OEBPS/art.png") no-repeat}')
+  })
+
+  it('leaves everything that cannot make the prose unreadable', async () => {
+    const css = await scope('h1 { border-color: red; text-align: center; --brand: #f00 }')
+    expect(css).toContain('border-color: red')
+    expect(css).toContain('text-align: center')
+    expect(css).toContain('--brand: #f00')
+  })
+
+  it('keeps a font face untouched, semicolons and all', async () => {
+    expect(await scope('@font-face { font-family: X; src: url(x.woff2); }')).toBe('@font-face{font-family: X; src: url("blob:resolved/OEBPS/x.woff2");}')
+  })
+
+  it('applies the same rule inside a media block', async () => {
+    const css = await scope('@media (max-width: 40em) { p { color: blue; margin: 0 } }')
+    expect(css).toContain('margin: 0')
+    expect(css).not.toContain('color')
+  })
+})
+
+describe('the chapter box', () => {
+  it('refuses a book that would size or pin the page itself', async () => {
+    const css = await scope('body { padding: 0; margin: 0; position: fixed; width: 100vw; overflow: hidden }')
+    expect(css).toBe('.reader-doc{}')
+  })
+
+  it('leaves the same properties alone inside the chapter', async () => {
+    const css = await scope('p { padding: 4px; margin: 1em; width: 40em; text-indent: 2em }')
+    expect(css).toContain('padding: 4px')
+    expect(css).toContain('margin: 1em')
+    expect(css).toContain('width: 40em')
+    expect(css).toContain('text-indent: 2em')
+  })
+
+  it('keeps a qualified root rule, which describes a variant rather than the page', async () => {
+    const css = await scope('body.dark { padding: 8px }')
+    expect(css).toBe('.reader-doc.dark{padding: 8px}')
   })
 })

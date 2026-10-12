@@ -5567,6 +5567,18 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "reading.first_page": "First page",
     "reading.last_page": "Last page",
     "reading.shortcuts_hint": "Shortcuts work while the reader has focus, not while you are typing in a box.",
+    "reading.stats_streak": "Day streak",
+    "reading.stats_days_read": "Days read",
+    "reading.stats_library": "All books",
+    "reading.stats_average": "Average day",
+    "reading.stats_this_book": "This book",
+    "reading.stats_best_day": "Best day",
+    "reading.stats_goal_done": "Today's goal met",
+    "reading.stats_goal_left_value0": "{value0} to go today",
+    "reading.stats_by_book": "Time by book",
+    "reading.theme_eink": "E-ink",
+    "reading.remove_book_unsaved_value0": "{value0} highlights live only in this book and will be deleted with it",
+    "reading.remove_book_in_note_value0": "{value0} highlights will leave the book; the reading note keeps its copy",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

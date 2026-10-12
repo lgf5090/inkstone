@@ -20,6 +20,7 @@ export type ReaderThemeName =
   | 'fog'
   | 'night'
   | 'ink'
+  | 'eink'
 
 export interface ReaderTheme {
   name: ReaderThemeName
@@ -44,10 +45,13 @@ export const READER_THEMES: Record<Exclude<ReaderThemeName, 'auto'>, ReaderTheme
   fog: { name: 'fog', background: '#dfe7ee', foreground: '#22303b', muted: '#5d7080', accent: '#31698c', dark: false },
   night: { name: 'night', background: '#1b1d21', foreground: '#c9c6bd', muted: '#8a8880', accent: '#d08b5a', dark: true },
   ink: { name: 'ink', background: '#0d0f12', foreground: '#b9bcc2', muted: '#767a81', accent: '#9fb6d4', dark: true },
+  // Pure black on pure white, with no tint anywhere: on an e-paper panel every grey is a dithering
+  // pattern, and a warm paper reads as noise. 21:1 is the ceiling the contrast test allows.
+  eink: { name: 'eink', background: '#ffffff', foreground: '#000000', muted: '#3a3a3a', accent: '#000000', dark: false },
 }
 
 export const READER_THEME_ORDER: readonly Exclude<ReaderThemeName, 'auto'>[] = [
-  'paper', 'warm', 'celadon', 'moon', 'xuan', 'fog', 'night', 'ink',
+  'paper', 'warm', 'celadon', 'moon', 'xuan', 'fog', 'night', 'ink', 'eink',
 ]
 
 export const DEFAULT_HIGHLIGHT_PAINT: Record<string, string> = {

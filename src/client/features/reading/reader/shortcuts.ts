@@ -8,7 +8,7 @@ import type { MessageKey } from '../../../lib/i18n'
 
 export type ReaderAction =
   | 'next' | 'prev' | 'first' | 'last'
-  | 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts'
+  | 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts' | 'stats'
   | 'mark' | 'prevHighlight' | 'nextHighlight'
   | 'fullscreen' | 'close'
 
@@ -20,7 +20,7 @@ export interface ShortcutEntry {
   labelKey: MessageKey
   action: ReaderAction
   /** Panel toggles need to know which panel they are reopening. */
-  panel?: 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts'
+  panel?: 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts' | 'stats'
 }
 
 export const READING_SHORTCUTS: ShortcutEntry[] = [
@@ -39,6 +39,7 @@ export const READING_SHORTCUTS: ShortcutEntry[] = [
   { key: 'h', keys: ['H'], action: 'highlights', panel: 'highlights', labelKey: 'reading.highlights' },
   { key: 'b', keys: ['B'], action: 'marks', panel: 'marks', labelKey: 'reading.location_marks' },
   { key: 'i', keys: ['I'], action: 'appearance', panel: 'appearance', labelKey: 'reading.reading_settings' },
+  { key: 'r', keys: ['R'], action: 'stats', panel: 'stats', labelKey: 'reading.stats_title' },
   { key: 'f', keys: ['F'], action: 'fullscreen', labelKey: 'reading.enter_fullscreen' },
   { key: '?', keys: ['?'], action: 'shortcuts', panel: 'shortcuts', labelKey: 'reading.shortcuts' },
   { key: 'escape', keys: ['Esc'], action: 'close', labelKey: 'reading.close_overlay' },

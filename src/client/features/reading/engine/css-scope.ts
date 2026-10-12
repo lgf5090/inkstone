@@ -176,7 +176,8 @@ async function scopeStatement(css: string, options: CssScopeOptions, base: strin
     return `@${name} ${prelude}{${await scopeCss(body, options, base)}}`
   }
   if (name === 'font-face') {
-    return `@font-face{${rewriteDeclarations(body, options, base)}}`
+    // A face declaration has no page to paint, so only its references are rewritten.
+    return `@font-face{${rewriteUrls(body.trim(), (url) => options.resolveUrl(joinCssPath(dirOfCss(base), url)))}}`
   }
   if (name === 'keyframes' || name.startsWith('-')) {
     return PASSTHROUGH_AT_RULES.has(name) && name !== 'page'
@@ -193,12 +194,78 @@ function scopeRule(css: string, options: CssScopeOptions, base: string): string 
   const selectors = splitSelectors(css.slice(0, boundary)).map((one) => prefixSelector(one, options.scope))
     .filter(Boolean)
   if (!selectors.length) return ''
-  return `${selectors.join(',')}{${rewriteDeclarations(css.slice(boundary + 1, end), options, base)}}`
+  const root = selectors.every((one) => one === options.scope)
+  return `${selectors.join(',')}{${rewriteDeclarations(css.slice(boundary + 1, end), options, base, root)}}`
+}
+
+/**
+ * Split a declaration block on the semicolons that are not inside a string or a function.
+ */
+function splitDeclarations(body: string): string[] {
+  const out: string[] = []
+  let current = ''
+  let parens = 0
+  for (let at = 0; at < body.length; at++) {
+    const char = body[at]
+    if (char === '"' || char === "'") {
+      const end = skipQuoted(body, at)
+      current += body.slice(at, end)
+      at = end - 1
+      continue
+    }
+    if (char === '(') parens++
+    else if (char === ')') parens--
+    if (char === ';' && parens === 0) {
+      out.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  out.push(current)
+  return out.map((one) => one.trim()).filter(Boolean)
+}
+
+/**
+ * What the page is painted with is the reader's setting, not the author's.
+ *
+ * An EPUB that says `body { color: #222 }` is written for a white page, and this app renders the chapter
+ * on whatever palette the reader picked — so an author colour left in place puts dark ink on a night page
+ * and light ink on a paper one. A `background` that carries an image is kept, because that is ornament
+ * rather than palette; `border-color` and friends stay, since they cannot make the prose unreadable.
+ */
+const PALETTE_PROPERTIES = new Set(['color', 'background', 'background-color'])
+
+/**
+ * What the chapter's own box is, as opposed to what is inside it.
+ *
+ * A rule written against `body` describes the page the author had, which in this app is the column box
+ * the reader sets the margins, the measure and the page height of. The same rule on any element inside
+ * the chapter is left alone, because there it is layout rather than furniture.
+ */
+const BOX_PROPERTIES = new Set([
+  'width', 'height', 'max-width', 'min-width', 'max-height', 'min-height',
+  'position', 'top', 'right', 'bottom', 'left', 'display', 'overflow', 'overflow-x', 'overflow-y',
+])
+
+function keepsReaderStyle(declaration: string, root: boolean): boolean {
+  const colon = findTopLevel(declaration, 0, ':')
+  if (colon < 0) return true
+  const property = declaration.slice(0, colon).trim().toLowerCase()
+  if (PALETTE_PROPERTIES.has(property)) {
+    return property === 'background' && /url\(/i.test(declaration.slice(colon + 1))
+  }
+  if (!root) return true
+  return !BOX_PROPERTIES.has(property)
+    && !property.startsWith('padding')
+    && !property.startsWith('margin')
+    && !property.startsWith('inset')
 }
 
 /** Every relative reference is handed to the resolver already joined, whichever rule held it. */
-function rewriteDeclarations(body: string, options: CssScopeOptions, base: string): string {
-  return rewriteUrls(body.trim(), (url) => options.resolveUrl(joinCssPath(dirOfCss(base), url)))
+function rewriteDeclarations(body: string, options: CssScopeOptions, base: string, root = false): string {
+  const kept = splitDeclarations(body).filter((one) => keepsReaderStyle(one, root)).join(';')
+  return rewriteUrls(kept, (url) => options.resolveUrl(joinCssPath(dirOfCss(base), url)))
 }
 
 /** The sheet an `@import` names, with its `url()` wrapper and any media list taken off. */

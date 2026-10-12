@@ -171,12 +171,19 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
 
   const geometry = useCallback((): PageGeometry => {
     const stage = stageRef.current
-    const columns = settings.columns
-    const width = stage?.clientWidth ?? 800
-    // A single column has no gutter to cross, so the step is exactly the viewport; two columns share
-    // the reader's margin as the fold between them.
-    const gap = columns > 1 ? Math.max(16, settings.margin) : 0
-    return computeGeometry(width, columns, gap)
+    const columns = columnsRef.current
+    // Measure the padding the stylesheet actually applied instead of re-deriving the margin here, so the
+    // scroll arithmetic cannot drift away from the painted page on a window too narrow for both.
+    const style = columns ? window.getComputedStyle(columns) : null
+    const padding = style ? (Number.parseFloat(style.paddingInlineStart) || 0) + (Number.parseFloat(style.paddingInlineEnd) || 0) : 0
+    const width = Math.max(1, (stage?.clientWidth ?? 800) - padding)
+    // A phone has no room for a spread: two columns there are seven characters to a line, which is a
+    // column with delusions, so the page falls back to one until there is width enough for two.
+    const count = width >= 480 ? settings.columns : 1
+    // The gutter between neighbouring columns is the page margin twice over: a column has a margin on
+    // each side, and anything narrower lets the next page's text peek in from the edge of this one.
+    const gap = Math.max(16, padding)
+    return computeGeometry(width, count, gap, padding / 2)
   }, [settings.columns, settings.margin])
 
   const measure = useCallback((): number => {
@@ -573,6 +580,8 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     '--reader-tracking': `${settings.letterSpacing}em`,
     '--reader-para': `${settings.paragraphSpacing}`,
     '--reader-margin': `${settings.margin}px`,
+    // The measure is per column, so asking for a spread does not halve each page's line length.
+    '--reader-columns': `${settings.columns}`,
     '--reader-align': settings.textAlign,
     '--reader-hyphens': settings.hyphenate ? 'auto' : 'manual',
     '--reader-font': fontStackFor(settings),
