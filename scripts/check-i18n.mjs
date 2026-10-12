@@ -10,6 +10,38 @@ const forbiddenCjk = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u;
 const visibleAttributes = new Set(['alt', 'aria-label', 'description', 'hint', 'label', 'placeholder', 'title']);
 const ruleExampleCache = new WeakMap();
 const allowedHanFragments = new Map([
+    // A language's name is the only label its speakers look for: "Chinese" is not what a reader picks
+    // when the list is offering the endonym. These are data about the language, not interface copy.
+    [path.resolve('src/client/features/reading/reader/AppearancePanel.tsx'), [
+        '\u7b80\u4f53\u4e2d\u6587',
+        '\u7e41\u9ad4\u4e2d\u6587',
+        '\u65e5\u672c\u8a9e',
+    ]],
+    // The EPUB fixture is a Chinese book on purpose: the parser is proved against the title, creator and
+    // chapter names a reader actually has, and an ASCII-only fixture would leave the path that matters
+    // untested. Longest first, because the gate strips one occurrence per listed fragment.
+    [path.resolve('tests/reading-fixtures.ts'), [
+        '\u7b2c\u4e00\u6bb5\u6587\u5b57\u3002',
+        '\u7b2c\u4e8c\u6bb5\u6587\u5b57\uff0c\u542b',
+        '\u6d4b\u8bd5\u51fa\u7248\u793e',
+        '\u6d4b\u8bd5\u4e66',
+        '\u6d4b\u8bd5\u4e66',
+        '\u7b2c\u4e00\u7ae0',
+        '\u7b2c\u4e00\u7ae0',
+        '\u7b2c\u4e8c\u7ae0',
+        '\u7b2c\u4e8c\u7ae0',
+        '\u7b2c\u4e00\u573a',
+        '\u67d0\u4f5c\u8005',
+        '\u4e0b\u4e00\u7ae0',
+        '\u5f3a\u8c03',
+        '\u3002',
+    ]],
+    // A member name with a space and a Han character is the case under test: the reader has to answer a
+    // percent-encoded reference for the decoded name the archiver wrote.
+    [path.resolve('tests/reading-zip.test.ts'), [
+        '\u7b2c',
+        '\u7ae0',
+    ]],
     [path.resolve('README.md'), ['<a href="./README_ZH.md">\u4e2d\u6587</a>']],
     // The OAuth consent page is a self-contained HTML document with its own
     // language switch (cookie-based); it does not use the React i18n layer.
@@ -166,7 +198,10 @@ const allowedHanFragments = new Map([
  * prints it beside a translated day number. The `LUNAR_*`/`TERM_*` fixtures are the same argument in
  * a test - the table is only worth having if the test can read what it produces.
  */
-const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES', 'TERM_NAMES', 'LUNAR_MONTH_NAMES', 'LUNAR_DAY_NAMES', 'GANZI_VOCABULARY', 'ALMANAC_TEXT', 'FESTIVAL_DATA', 'LUNAR_ALMANAC_FIXTURES', 'LUNAR_TERM_FIXTURES', 'LUNAR_DAY_NAME_FIXTURES', 'LUNAR_MONTH_NAME_FIXTURES', 'LUNAR_SHORT_NAME_FIXTURES', 'FESTIVAL_CELL_FIXTURES', 'LUNAR_FESTIVAL_FIXTURES', 'ALMANAC_WORDS', 'ALMANAC_LOADER_FIXTURES', 'HAN_PUNCTUATION_CLASS', 'HEADINGS_TRAILING_PUNCTUATION', 'hanCharacterOrCommonChinesePunctuationRegex']);
+const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES', 'TERM_NAMES', 'LUNAR_MONTH_NAMES', 'LUNAR_DAY_NAMES', 'GANZI_VOCABULARY', 'ALMANAC_TEXT', 'FESTIVAL_DATA', 'LUNAR_ALMANAC_FIXTURES', 'LUNAR_TERM_FIXTURES', 'LUNAR_DAY_NAME_FIXTURES', 'LUNAR_MONTH_NAME_FIXTURES', 'LUNAR_SHORT_NAME_FIXTURES', 'FESTIVAL_CELL_FIXTURES', 'LUNAR_FESTIVAL_FIXTURES', 'ALMANAC_WORDS', 'ALMANAC_LOADER_FIXTURES', 'HAN_PUNCTUATION_CLASS', 'HEADINGS_TRAILING_PUNCTUATION', 'hanCharacterOrCommonChinesePunctuationRegex',
+    // The language picker's endonyms: a reader looks for the language's own name rather than for the
+    // translation of it, so these are data about the language and not interface copy.
+    'TARGET_LANGUAGES']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen

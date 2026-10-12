@@ -54,6 +54,9 @@ export const APP_TABS: readonly AppTab[] = [
  */
 export const DEFAULT_APP_TAB: AppTabId = 'notes'
 
+/** Containers that own their own sub-addresses, so a deep link stays on the tab that made it. */
+const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [['/reading/', 'reading']]
+
 const TAB_BY_PATH = new Map(APP_TABS.map((tab) => [tab.path, tab.id]))
 
 export function appTab(id: AppTabId): AppTab {
@@ -63,5 +66,10 @@ export function appTab(id: AppTabId): AppTab {
 /** The tab an address belongs to. Anything unrecognised answers with the notebook. */
 export function tabIdForPath(pathname: string): AppTabId {
   const path = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
-  return TAB_BY_PATH.get(path) ?? DEFAULT_APP_TAB
+  const exact = TAB_BY_PATH.get(path)
+  if (exact) return exact
+  for (const [prefix, id] of NESTED_TAB_PATHS) {
+    if (pathname.startsWith(prefix)) return id
+  }
+  return DEFAULT_APP_TAB
 }
