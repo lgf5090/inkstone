@@ -292,6 +292,26 @@ export function EditorSettings() {
           <Switch checked={preview.codeFormatButton} onChange={(codeFormatButton) => void update({ preview: { codeFormatButton } })} label={t("settings.code_format_button")}/>
         </SettingRow>
 
+        <SettingRow title={t("settings.json_view")} description={t("settings.json_view_description")}>
+          <Segmented<"source" | "tree" | "map"> label={t("settings.json_view")} value={preview.jsonView} onChange={(jsonView) => void update({ preview: { jsonView } })} options={[
+            { value: "source", label: t("preview.json_view_source") },
+            { value: "tree", label: t("preview.json_view_tree") },
+            { value: "map", label: t("preview.json_view_map") },
+          ]}/>
+        </SettingRow>
+
+        {preview.jsonView !== "source" && <SettingRow title={t("settings.json_fold")} description={t("settings.json_fold_description")}>
+          <Slider label={t("settings.json_fold")} className="w-[200px]" value={preview.jsonFold} min={0} max={8} step={1} onChange={(jsonFold) => void update({ preview: { jsonFold } })} suffix={t("settings.levels")}/>
+        </SettingRow>}
+
+        <SettingRow title={t("settings.json_editable")} description={t("settings.json_editable_description")}>
+          <Switch checked={preview.jsonEditable} onChange={(jsonEditable) => void update({ preview: { jsonEditable } })} label={t("settings.json_editable")}/>
+        </SettingRow>
+
+        <SettingRow title={t("settings.json_tolerant")} description={t("settings.json_tolerant_description")}>
+          <Switch checked={preview.jsonTolerant} onChange={(jsonTolerant) => void update({ preview: { jsonTolerant } })} label={t("settings.json_tolerant")}/>
+        </SettingRow>
+
         <SettingRow title={t("settings.table_bubble_menu")} description={t("settings.table_bubble_menu_description")}>
           <Switch checked={preview.tableBubbleMenu} onChange={(tableBubbleMenu) => void update({ preview: { tableBubbleMenu } })} label={t("settings.table_bubble_menu")}/>
         </SettingRow>

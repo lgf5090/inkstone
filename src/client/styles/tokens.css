@@ -290,7 +290,11 @@
   --syntax-type: #005cc5;
   --syntax-type-definition: #6f42c1;
   --syntax-variable: #24292e;
-  --syntax-property: #e36209;
+  /* #e36209 measured 2.51:1 on a hovered key's wash and 3.04:1 on a white card — the JSON faces paint
+     their keys, and every code block its `.token.property` and `.token.deleted`, with this token, so it
+     carries text, not decoration. #8d4500 is the same hue at the depth that clears 4.5:1 on all twelve
+     light backgrounds; the dark theme's #f69d50 already measured 4.72:1 and is untouched. */
+  --syntax-property: #8d4500;
   --syntax-operator: #d73a49;
   --syntax-punctuation: #24292e;
   --syntax-constant: #005cc5;

@@ -15,6 +15,8 @@ import { findNoteByTitle, useNotes } from '../store/notes';
 import { useUi } from '../store/ui';
 import { selectMarkdownTab, moveMarkdownTabFocus } from '../features/preview/markdown-tabs';
 import { enhanceBlockToolbars, handleBlockToolbarClick } from '../features/preview/block-actions';
+import { jsonBlockState } from '../features/preview/json-block-toolbar';
+import { jsonViews, jsonViewsSync } from '../features/preview/json-view-loader';
 import type { BlockActionContext } from '../features/preview/block-overlay';
 import { attachMediaLayoutHost } from '../features/preview/media-layout-drag';
 import type { MediaSurface } from '../features/preview/media-layout-drag';
@@ -90,6 +92,7 @@ class RenderedBlock extends WidgetType {
             // the block families get the same toolbars the preview gives them, so a block looks the same
             // whatever surface it is read on.
             enhanceBlockToolbars(host, blockToolbarOptions());
+            mountJsonViews(host, view);
             if (alive && settings.mermaid) await renderPendingMermaid(host, dark, { isCurrent: () => alive });
             if (alive && settings.chart) await renderPendingCharts(host, dark);
             // A query block answers from other notes, so it is filled on this live host after the rest of
@@ -262,13 +265,22 @@ function blockToolbarOptions() {
             tabSize: session.editor.tabSize,
             keywordCase: session.editor.codeFormatKeywordCase,
         },
+        // The note has to be part of what the enhance pass carries: the block head and the view
+        // mount are two calls, and if they key the block's state differently the head can show a face
+        // that the mount pass then declines to draw.
+        sourceNoteId: useUi.getState().activeNoteId,
         tabScope: { noteId: useUi.getState().activeNoteId, userId: useSession.getState().user?.id ?? null },
+        jsonView: session.preview.jsonView,
+        jsonFold: session.preview.jsonFold,
+        jsonEditable: session.preview.jsonEditable,
+        jsonTolerant: session.preview.jsonTolerant,
     };
 }
 
 /** The toolbar modules ask the surface for the note text and one write path; here both are the editor. */
 function blockActionContext(view: EditorView): BlockActionContext {
     const source = view.state.doc.toString();
+    const options = blockToolbarOptions();
     return {
         content: source,
         sourceNoteId: useUi.getState().activeNoteId,
@@ -278,7 +290,36 @@ function blockActionContext(view: EditorView): BlockActionContext {
             toast: (options) => useUi.getState().toast(options),
         },
         codeFormat: blockToolbarOptions().codeFormat,
+        jsonView: options.jsonView,
+        jsonFold: options.jsonFold,
+        jsonEditable: options.jsonEditable,
+        jsonTolerant: options.jsonTolerant,
     };
+}
+
+/**
+ * Draws the structure and mind-map faces of the note's JSON blocks.
+ *
+ * The live preview is a second surface with its own enhance pass, so it needs its own mount pass: the
+ * React preview pane's hook cannot see this host, and without it a block that asks for a face gets an
+ * empty one. The write path is the editor's own transaction, which is what keeps a rename one undo step
+ * and leaves the caret where the reader left it.
+ */
+function mountJsonViews(host: HTMLElement, view: EditorView): void {
+    const open = [...host.querySelectorAll<HTMLElement>('.code-block[data-json-block]')]
+        .filter(block => jsonBlockState(block, { view: 'source', fold: 2 }, useUi.getState().activeNoteId).mode !== 'source');
+    if (open.length === 0)
+        return;
+    const warm = jsonViewsSync();
+    if (warm) {
+        warm.mountJsonBlocks(open, blockActionContext(view));
+        return;
+    }
+    void jsonViews()
+        .then(module => module.mountJsonBlocks(open, blockActionContext(view)))
+        .catch((error: unknown) => {
+            console.warn('[inkstone] JSON view mount failed', error);
+        });
 }
 
 let sharedBlockResizeObserver: ResizeObserver | null = null;

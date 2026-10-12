@@ -66,6 +66,7 @@ import { createFenceBodies, takeFenceIndex, type FenceBodies } from './fence-bod
 // From the body module, not the kanban index: the index re-exports the React board, and a fence that
 // only needs the language list and the mode must not pull the whole UI into the markdown chunk.
 import { detectKanbanMode, KANBAN_LANGUAGES } from './kanban/body';
+import { isJsonViewLanguage } from './json-view/languages';
 import { EXAMPLE_SPLIT_DEFAULTS, exampleRatioLabel, parseExampleSplit, type ExampleFamily } from './example-split';
 import { isTimelineDateTime, parseTimelineItem, splitTimelineInfo } from './timeline-options';
 import type { TimelineItem, TimelineOptions, TimelineStatus } from './timeline-options';
@@ -903,6 +904,7 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         return renderExcalidrawBlock(token, line, rendererEnv);
     const title = info.title || info.language || t("markdown.code");
     const code = readCodeOptions(token.info);
+    const jsonView = isJsonViewLanguage(info.language);
     const optionAttrs = [
         info.lineNumbers ? ' data-line-numbers="true"' : '',
         info.highlightedLines.length ? ` data-highlight-lines="${info.highlightedLines.join(',')}"` : '',
@@ -910,15 +912,23 @@ md.renderer.rules.fence = (tokens, index, _options, rendererEnv) => {
         code.wrap ? ' data-code-wrap="true"' : '',
         code.collapse === null ? '' : ` data-code-collapse-at="${code.collapse}"`,
         code.theme === 'auto' ? '' : ` data-code-theme="${code.theme}"`,
+        jsonView ? ' data-json-block=""' : '',
+        jsonView && code.jsonView ? ` data-json-view="${code.jsonView}"` : '',
+        jsonView && code.jsonFold !== null ? ` data-json-fold="${code.jsonFold}"` : '',
+        jsonView && code.jsonReadonly ? ' data-json-readonly=""' : '',
     ].join('');
     return [
-        `<div class="code-block${info.lineNumbers ? ' has-line-numbers' : ''}"${line} data-lang="${escapeAttr(info.language)}" data-code-start="${info.startLine}"${optionAttrs}>`,
+        `<div class="code-block${info.lineNumbers ? ' has-line-numbers' : ''}${jsonView ? ' json-code-block' : ''}"${line} data-lang="${escapeAttr(info.language)}" data-code-start="${info.startLine}"${optionAttrs}>`,
         `<div class="code-block-head">`,
         `<span class="code-title">${escapeHtml(title)}</span>`,
         info.title && info.language ? `<span class="code-lang">${escapeHtml(info.language)}</span>` : '',
         `<button class="code-copy" data-copy type="button" aria-label="${escapeAttr(t("markdown.copy_code"))}">${escapeHtml(t("common.copy"))}</button>`,
         `</div>`,
         `<pre><code>${escapeHtml(token.content)}</code></pre>`,
+        // The host the structure and mind-map faces are drawn into, empty until a reader asks for one.
+        // Which face a block opens with is the preview's answer, not this markup's: a share page and an
+        // exported document draw the same block with no controls at all, and neither has a setting to read.
+        jsonView ? '<div class="json-view" data-json-host hidden></div>' : '',
         `</div>`,
     ].join('');
 };

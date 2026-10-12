@@ -266,6 +266,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
     codeBlockCollapse: true,
     codeBlockCollapseLines: 24,
     codeFormatButton: true,
+    jsonView: 'source',
+    jsonFold: 2,
+    jsonEditable: true,
+    jsonTolerant: true,
     tableBubbleMenu: true,
     mediaToolbar: true,
     mediaAutoBundle: false,
@@ -626,6 +630,12 @@ const EDITOR_FONTS = ['mono', 'sans'] as const
 const EDITOR_LAYOUTS = ['live', 'split', 'preview'] as const
 const PINNED_WINDOW_SIZES = ['small', 'medium', 'large', 'custom'] as const
 const OUTLINE_MODES = ['sidebar', 'floating-always', 'floating-hover', 'floating-circle'] as const
+/**
+ * The faces a ```json block can open with. Mirrored by `jsonViewName` in the client's code-options
+ * module, which reads the same three words off a fence's `view=`; the settings merge and the fence are
+ * the two places an author can say this, and they must not drift apart.
+ */
+export const JSON_VIEW_MODES = ['source', 'tree', 'map'] as const
 const OUTLINE_AUTO_EXPANDS = ['off', 'ancestors'] as const
 const OUTLINE_TEXT_DIRECTIONS = ['system', 'text'] as const
 const OUTLINE_TOOLTIP_SIDES = ['left', 'right'] as const
@@ -934,6 +944,10 @@ export function mergeSettings(partial: unknown): UserSettings {
     base.preview.codeBlockCollapseLines,
   )
   base.preview.codeFormatButton = booleanValue(preview.codeFormatButton, base.preview.codeFormatButton)
+  base.preview.jsonView = enumValue(preview.jsonView, JSON_VIEW_MODES, base.preview.jsonView)
+  base.preview.jsonFold = integerInRange(preview.jsonFold, 0, 8, base.preview.jsonFold)
+  base.preview.jsonEditable = booleanValue(preview.jsonEditable, base.preview.jsonEditable)
+  base.preview.jsonTolerant = booleanValue(preview.jsonTolerant, base.preview.jsonTolerant)
   base.preview.tableBubbleMenu = booleanValue(preview.tableBubbleMenu, base.preview.tableBubbleMenu)
   base.preview.mediaToolbar = booleanValue(preview.mediaToolbar, base.preview.mediaToolbar)
   base.preview.mediaAutoBundle = booleanValue(preview.mediaAutoBundle, base.preview.mediaAutoBundle)

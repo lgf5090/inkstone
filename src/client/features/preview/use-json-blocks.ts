@@ -1,0 +1,68 @@
+import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import type { BlockActionContext } from './block-overlay';
+import { JSON_BLOCK_SELECTOR, jsonBlockState } from './json-block-toolbar';
+import { jsonViews, jsonViewsSync } from './json-view-loader';
+
+interface UseJsonBlocksOptions {
+    hostRef: RefObject<HTMLDivElement | null>
+    /** Bumped once the preview has committed its markup, which is when a fresh host exists to fill. */
+    epoch: number
+    /** Read at mount time rather than captured, so a write always sees the committed text. */
+    context: () => BlockActionContext
+}
+
+/**
+ * Draws the structure and mind-map faces of the note's JSON blocks after each commit.
+ *
+ * The head a reader presses is built earlier, on the staging markup, so it is part of what the preview
+ * diffs against — a toolbar added after the swap would be wiped by the next keystroke. Only the *body*
+ * of a view comes from here, because it needs the document model, and that is fetched on demand: a note
+ * full of JSON that is read as text never downloads it.
+ */
+export function useJsonBlocks({ hostRef, epoch, context }: UseJsonBlocksOptions) {
+
+    useLayoutEffect(() => {
+        const host = hostRef.current;
+        if (!host || !epoch)
+            return;
+        const blocks = [...host.querySelectorAll<HTMLElement>(JSON_BLOCK_SELECTOR)];
+    const noteId = context().sourceNoteId ?? null;
+        const open = blocks.filter((block) => jsonBlockState(block, { view: 'source', fold: 2 }, noteId).mode !== 'source');
+        if (open.length === 0)
+            return;
+        // Once the chunk is warm this runs synchronously, inside the layout effect, so the host is
+        // filled before the browser paints. Awaiting a promise here is what showed an empty box for a
+        // frame after every edit.
+        const warm = jsonViewsSync();
+        if (warm) {
+            warm.mountJsonBlocks(open, context());
+            return;
+        }
+        void jsonViews()
+            .then(module => module.mountJsonBlocks(open, context()))
+            .catch((error: unknown) => {
+                // A block that could not be drawn keeps its source view standing, which is the state
+                // the reader can still read; the reason belongs in the console, not in their note.
+                console.warn('[inkstone] JSON view mount failed', error);
+            });
+    }, [context, epoch, hostRef]);
+
+    // A block whose face was closed by the last commit has nothing left to draw, and the host keeps the
+    // rows it built: dropping them here is what stops a stale tree being read back after a mode change.
+    useEffect(() => {
+        const host = hostRef.current;
+        if (!host)
+            return;
+        const noteId = context().sourceNoteId ?? null;
+        for (const block of host.querySelectorAll<HTMLElement>(JSON_BLOCK_SELECTOR)) {
+            if (jsonBlockState(block, { view: 'source', fold: 2 }, noteId).mode !== 'source')
+                continue;
+            if (block.dataset.jsonCleared === String(epoch))
+                continue;
+            block.dataset.jsonCleared = String(epoch);
+            block.querySelector<HTMLElement>(':scope > [data-json-host]')?.replaceChildren();
+        }
+    }, [epoch, hostRef]);
+
+    return {};
+}

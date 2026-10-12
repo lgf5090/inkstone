@@ -280,7 +280,10 @@ describe('code option reads from rendered markup', () => {
     enhanceCodeBlockToolbarsInRoot(built)
     openPanel(built)
     const block = node(built, '.code-block')
-    expect(readCodeOptions(info)).toEqual({
+    // The three JSON fields are deliberately out of this comparison: they are only written as attributes
+    // on a `json` fence, and `json-view-mount` reads them from the model rather than from the panel.
+    const { jsonView, jsonFold, jsonReadonly, ...read } = readCodeOptions(info)
+    expect(read).toEqual({
       title: block.dataset.codeTitle,
       lineNumbers: block.dataset.lineNumbers === 'true',
       startLine: Number(block.dataset.codeStart),
@@ -289,5 +292,6 @@ describe('code option reads from rendered markup', () => {
       collapse: block.dataset.codeCollapseAt === undefined ? null : Number(block.dataset.codeCollapseAt),
       theme: block.dataset.codeTheme ?? 'auto',
     })
+    expect([jsonView, jsonFold, jsonReadonly]).toEqual(['', null, false])
   })
 })

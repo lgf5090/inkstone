@@ -44,6 +44,7 @@ import { applyMediaEdit } from '../../lib/markdown/media-layout-source'
 import type { BlockActionContext } from './block-overlay'
 import { MindmapFullscreen } from './mindmap-fullscreen'
 import { MindmapThemeMenu } from './mindmap-theme-menu'
+import { useJsonBlocks } from './use-json-blocks'
 import { useMindmapBlocks } from './use-mindmap-blocks'
 import { useExcalidrawBlocks } from './use-excalidraw-blocks'
 import { NoteProperties } from './NoteProperties'
@@ -152,6 +153,12 @@ export const Preview = memo(function Preview({
     hostRef,
     epoch: mermaidEpoch,
     dark: theme === 'dark',
+  })
+
+  useJsonBlocks({
+    hostRef,
+    epoch: mermaidEpoch,
+    context: () => blockActionContext(),
   })
 
   useExcalidrawBlocks({
@@ -283,6 +290,10 @@ export const Preview = memo(function Preview({
           keywordCase: editorSettings.codeFormatKeywordCase,
         },
         tabScope,
+        jsonView: preview.jsonView,
+        jsonFold: preview.jsonFold,
+        jsonEditable: preview.jsonEditable,
+        jsonTolerant: preview.jsonTolerant,
       })
       if (cancelled || revision !== preparationRef.current) return
 
@@ -376,6 +387,10 @@ export const Preview = memo(function Preview({
       keywordCase: editorSettings.codeFormatKeywordCase,
     },
     mindmap: { fullscreen: mindmap.openFullscreen, themeMenu: mindmap.openThemeMenu },
+    jsonView: preview.jsonView,
+    jsonFold: preview.jsonFold,
+    jsonEditable: preview.jsonEditable,
+    jsonTolerant: preview.jsonTolerant,
   })
 
   /**

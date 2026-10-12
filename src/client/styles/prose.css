@@ -2996,3 +2996,621 @@
   width: 1px;
   background: var(--border-strong);
 }
+
+/* ---- JSON preview: the structure and mind-map faces of a ```json block ---- */
+
+.ink-prose .json-code-block[data-json-mode='tree'] > pre,
+.ink-prose .json-code-block[data-json-mode='map'] > pre {
+  display: none;
+}
+.ink-prose .json-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--bg-inset) 70%, var(--bg-base));
+}
+.ink-prose .json-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  /* A tab label is the only name the control has, so it is text, not chrome. */
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.ink-prose .json-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ink-prose .json-tab.is-active {
+  /* The tint and an underline say which tab is on; the label itself stays in the reading colour,
+     because the accent measured 2.59:1 against its own soft tint in the dark theme. */
+  background: var(--accent-soft);
+  box-shadow: inset 0 -1.5px 0 var(--accent);
+  color: var(--text-primary);
+}
+.ink-prose .json-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+.ink-prose .json-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.ink-prose .json-tool:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ink-prose .json-tool[aria-expanded='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ink-prose .json-tool.is-inline {
+  width: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+}
+.ink-prose .json-filter {
+  display: flex;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-inset);
+}
+.ink-prose .json-filter[hidden] {
+  display: none;
+}
+.ink-prose .json-filter-input {
+  width: 100%;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xs);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ink-prose .json-filter-input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: var(--shadow-ring);
+}
+.ink-prose .json-view {
+  position: relative;
+  max-height: min(60vh, 560px);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.ink-prose .json-view[hidden] {
+  display: none;
+}
+.ink-prose .json-view-note {
+  margin: 0;
+  padding: 7px 12px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+.ink-prose .json-view-note.is-invalid {
+  border-bottom: 1px solid color-mix(in oklab, var(--danger) 26%, transparent);
+  background: var(--danger-soft);
+  /* The wash and the rule carry the "this is an error"; the sentence has to be readable. */
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.ink-prose .json-tree {
+  padding: 6px 8px 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.ink-prose .jt-children {
+  padding-left: 15px;
+}
+.ink-prose .jt-node:hover {
+  background: var(--accent-softer);
+}
+.ink-prose .jt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: var(--r-xs);
+  white-space: nowrap;
+}
+.ink-prose .jt-row:hover {
+  background: var(--bg-active);
+}
+.ink-prose .jt-row.is-selected {
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
+}
+.ink-prose .jt-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-right: 1px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.ink-prose .jt-fold:hover {
+  color: var(--text-primary);
+}
+.ink-prose .jt-node.is-collapsed > .jt-fold {
+  transform: rotate(-90deg);
+}
+.ink-prose .jt-node.is-collapsed > .jt-children,
+.ink-prose .jt-node.is-collapsed > .jt-row--close {
+  display: none;
+}
+.ink-prose .jt-key {
+  color: var(--syntax-property);
+  cursor: text;
+  border-radius: var(--r-2);
+  padding: 0 2px;
+}
+/* An array index is how a reader addresses an element, so it is content rather than scaffolding and
+   carries the same weight as the value beside it. */
+.ink-prose .jt-index {
+  color: var(--text-secondary);
+}
+.ink-prose .jt-key:hover,
+.ink-prose .jt-value:hover {
+  background: var(--bg-active);
+}
+/* The tree's quiet parts are set smaller and lighter than the values, but never lighter than
+   `--text-secondary`: the bottom two tiers of the ramp measured 1.75–2.71:1 on a hovered row in the dark
+   theme, which is not a quieter grey, it is an invisible one. */
+.ink-prose .jt-colon {
+  color: var(--text-secondary);
+}
+.ink-prose .jt-brace {
+  color: var(--syntax-punctuation);
+}
+.ink-prose .jt-count {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.ink-prose .jt-value {
+  cursor: text;
+  border-radius: var(--r-2);
+  padding: 0 2px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.ink-prose .jt-value--string {
+  color: var(--syntax-string);
+}
+.ink-prose .jt-value--number {
+  color: var(--syntax-number);
+}
+.ink-prose .jt-value--boolean {
+  color: var(--syntax-constant);
+}
+.ink-prose .jt-value--null {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.ink-prose .jt-kind {
+  margin-left: 5px;
+  color: var(--text-secondary);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0;
+}
+.ink-prose .jt-row:hover .jt-kind {
+  opacity: 1;
+}
+.ink-prose .jt-ops {
+  display: none;
+  gap: 2px;
+  margin-left: 6px;
+}
+.ink-prose .jt-row:hover > .jt-ops,
+.ink-prose .jt-op:focus-visible {
+  display: inline-flex;
+}
+.ink-prose .jt-op {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-2);
+  /* The glyph is the button's whole accessible name, so it is text like any other. */
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ink-prose .jt-op:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.ink-prose .jt-input {
+  height: 17px;
+  padding: 0 3px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-2);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  font: inherit;
+  outline: none;
+}
+
+.ink-prose .json-code-block[data-json-mode='map'] > .json-view,
+.jm-stage {
+  position: relative;
+  max-height: none;
+  min-height: 340px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(var(--border-subtle) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.ink-prose .json-code-block[data-json-mode='map'] > .json-view.is-dragging,
+.jm-stage.is-dragging {
+  cursor: grabbing;
+}
+.jm-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.jm-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.jm-links path {
+  fill: none;
+  stroke: var(--graph-edge);
+  stroke-width: 1.4;
+}
+/* The name a card's row does not print travels on the connector instead, and it has to stay legible on
+   top of the dotted backdrop, so it gets the panel's own fill behind it rather than a heavier line. It is
+   a second reading of the same information as the row it points at, so it is allowed to be quieter than
+   the text — but not quieter than the backdrop's own noise, which is what the halo is for. */
+.jm-edge-label {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--bg-base);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+/* A card is one container. Its rows are placed by the layout, which is why the row pitch, the handle and
+   the swatch advances are written here as well as in `json-map-view.ts`: the layout measures the row as
+   this stylesheet will paint it, so a change to either alone shows up as clipped or drifting text.
+   The kind stripe is an inset shadow rather than a thick border for exactly that reason: a 3px border
+   would take 3px away from every row, and the widest row of every card would ellipsize. */
+.jm-card {
+  --jm-stripe: inset 3px 0 0 var(--syntax-property);
+  position: absolute;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  box-shadow: var(--jm-stripe), var(--shadow-sm);
+  user-select: none;
+}
+.jm-card:hover {
+  box-shadow: var(--jm-stripe), var(--shadow-pop);
+}
+.jm-card.is-selected,
+.jm-row.is-selected {
+  box-shadow: var(--jm-stripe), var(--shadow-ring);
+}
+.jm-card--array {
+  --jm-stripe: inset 3px 0 0 var(--syntax-number);
+}
+.jm-row {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  /* No gap: the advances come from the handle's and swatch's own margins, which the measurer adds to the
+     label it is given. A `gap` here would paint `k : v` wider than the card was sized for. */
+  gap: 0;
+  white-space: nowrap;
+}
+.jm-key {
+  color: var(--syntax-property);
+  /* The layout's label is `key : value`, spaces included, and a flex item drops leading and trailing
+     spaces; `pre` is what keeps the painted run the same string the card was measured from. */
+  white-space: pre;
+  flex: none;
+}
+.jm-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  color: var(--text-primary);
+}
+.jm-value--string {
+  color: var(--syntax-string);
+}
+.jm-value--number {
+  color: var(--syntax-number);
+}
+.jm-value--boolean {
+  color: var(--syntax-constant);
+}
+.jm-value--null {
+  color: var(--text-secondary);
+}
+.jm-value--object,
+.jm-value--array {
+  color: var(--text-secondary);
+}
+.jm-swatch {
+  /* Without this the chip is an inline box, `width` is ignored and the colour never paints — measured in
+     a browser, where the swatch came out 1px wide. `inline-block` keeps it inside the value's text run so
+     an ellipsized value still carries its colour with it. */
+  display: inline-block;
+  vertical-align: -2px;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+}
+/* The count of what the card left out is the one number the reader cannot get from the picture, so it
+   is not allowed to sit in the decorative tier. */
+.jm-more {
+  color: var(--text-secondary);
+}
+.jm-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.jm-fold {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  /* The glyph is the only label on the button, and `--text-tertiary` measured 3.76:1 on a card in the
+     dark theme — a control's name has to clear AA like any other text. */
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.jm-fold:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.jm-detail {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 260px;
+  max-width: calc(100% - 16px);
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  font-size: 11px;
+  cursor: auto;
+  user-select: text;
+}
+.jm-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.jm-detail-title {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+}
+.jm-detail-close {
+  padding: 0 2px;
+  border: 0;
+  color: var(--text-secondary);
+  background: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.jm-detail-close:hover {
+  color: var(--text-primary);
+}
+.jm-detail-body {
+  max-height: 118px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-primary);
+  white-space: pre;
+  line-height: 1.45;
+}
+.jm-detail-label {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.jm-detail-path {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-2);
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  font: inherit;
+  outline: none;
+}
+.jm-detail-actions {
+  display: flex;
+  gap: 6px;
+}
+.jm-detail-copy {
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  font: inherit;
+  cursor: pointer;
+}
+.jm-detail-copy:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.json-fullscreen-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+.json-fullscreen-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.json-fullscreen-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.json-fullscreen-stage .jm-stage {
+  height: 100%;
+}
+.json-shortcuts {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  color: var(--text-secondary);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.json-shortcuts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.code-block.is-json-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-base);
+}
+.code-block.is-json-fullscreen > .json-view {
+  height: calc(100% - 28px);
+  max-height: none;
+}
+.json-fs-bar {
+  position: absolute;
+  top: 34px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+}
+.json-fs-title {
+  margin-right: 6px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+.code-block.is-json-fullscreen {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+/* The map measures labels from this element's computed font, so the nodes inherit from here rather than
+   carrying the size themselves; a mismatch is what made every label ellipsize. */
+.ink-prose .json-view {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.jm-card,
+.jm-detail {
+  font-size: inherit;
+  font-family: inherit;
+}
+/* The hover wash names a range, it does not flag it: the accent tint reads as an error on the cinnabar
+   theme, where the accent is a red. */
+/* The range a hover names is the innermost container under the pointer. Without the `:has()` clause a
+   hover on a leaf satisfies `:hover` on every ancestor too, so the root's wash covers the whole document
+   and "highlight the range" becomes "highlight everything". */
+.ink-prose .jt-node:hover:not(:has(.jt-node:hover)) {
+  background: var(--bg-hover);
+}
+.code-block.is-json-fullscreen {
+  height: 100%;
+}
+.json-fs-stage {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--bg-base);
+}
+/* The stage carries `.ink-prose` so the block keeps its scoped styling when it is moved to <body>, and
+   the prose column's own measure comes with it. Full screen means the window, not the reading width. */
+.json-fs-stage {
+  width: 100%;
+  max-width: none;
+}

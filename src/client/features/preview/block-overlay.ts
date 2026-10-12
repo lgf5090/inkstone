@@ -1,4 +1,5 @@
 import { t } from '../../lib/i18n'
+import type { JsonViewName } from '../../lib/markdown/code-options'
 import type { SqlKeywordCase } from '../../lib/markdown/code-formatter'
 import type { TabScope } from './markdown-tabs'
 
@@ -93,6 +94,15 @@ export interface BlockActionContext {
    * holds the note has that state, so the toolbar asks for it through here.
    */
   mindmap?: { fullscreen: (node: HTMLElement) => void; themeMenu: (node: HTMLElement) => void }
+  /**
+   * Which face a JSON block opens with, and how deep it arrives folded, when the fence does not say for
+   * itself. A surface with no account to read leaves them out and the block stays as source.
+   */
+  jsonView?: JsonViewName
+  jsonFold?: number
+  /** Whether the JSON faces may write back into the note, and whether they read the loose shapes. */
+  jsonEditable?: boolean
+  jsonTolerant?: boolean
 }
 
 /**
@@ -131,6 +141,20 @@ export interface BlockToolbarOptions {
   tabScope?: TabScope
   /** Whether a layout block is allowed its settings bar and drag edges; the block always still renders. */
   mediaToolbar?: boolean
+  /**
+   * Which face a JSON block opens with and how deep it arrives folded, for the fences that do not say. A
+   * surface with no account to read leaves them out, and the block stays as source until asked otherwise.
+   */
+  jsonView?: JsonViewName
+  jsonFold?: number
+  jsonEditable?: boolean
+  jsonTolerant?: boolean
+  /**
+   * Whose note the surface is drawing. A block's remembered face is keyed by note and line, so the
+   * pass that builds the head and the pass that fills it have to agree on this or the head shows a face
+   * the mount declines to draw.
+   */
+  sourceNoteId?: string | null
 }
 
 export interface BlockToolbarModule {
