@@ -6,7 +6,6 @@ import { PRESENTATION_HOTKEYS } from '../presentation';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { useBreakpoint } from '../../lib/hooks';
 import { useDraggerPresentation } from '../../editor/dragger';
-import { useSyncEngine } from '../../lib/sync';
 import { preloadPinyin, textNeedsReading } from '../../lib/pinyin';
 import { Drawer } from '../../components/overlay';
 import { IconButton } from '../../components/primitives';
@@ -47,6 +46,8 @@ const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ 
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
 const LinkEditorPopover = lazy(() => import('../links/LinkEditorPopover').then((m) => ({ default: m.LinkEditorPopover })));
 const QuickAddLauncher = lazy(() => import('../quickadd/launcher').then((m) => ({ default: m.default })));
+/** The account the outline's opening was seeded from, which outlives a mount because the shell does. */
+let outlineSeededFor: string | null | undefined;
 export function AppShell() {
     const breakpoint = useBreakpoint();
     const role = useSession((s) => s.user?.role);
@@ -79,7 +80,6 @@ export function AppShell() {
       return () => window.clearTimeout(timer);
     }, []);
     const checkForUpdates = useUpdate((s) => s.check);
-    useSyncEngine();
     useGlobalHotkeys();
     useQuickAddBridge(userId);
     const hydrated = useNotes((s) => s.hydrated);
@@ -130,13 +130,19 @@ export function AppShell() {
     }, [indexReady, userId]);
 
     useEffect(() => {
+        // Seeded once per account rather than once per mount: the app tabs can bring this shell back,
+        // and a reader who closed the outline before visiting another notebook does not want it
+        // reopened by coming back.
+        if (outlineSeededFor === userId)
+            return;
+        outlineSeededFor = userId;
         const ui = useUi.getState();
         useUi.setState({
             outlineOpen: ui.workspaceSecondaryNoteId
                 ? false
                 : useSession.getState().settings.preview.showToc,
         });
-    }, []);
+    }, [userId]);
     const navWidth = useUi((s) => s.navWidth);
     const listWidth = useUi((s) => s.listWidth);
     const navCollapsed = useUi((s) => s.navCollapsed);

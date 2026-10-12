@@ -4561,6 +4561,12 @@ const allowed = new Map([
     "// A new or replaced passcode must be at least 8 characters (the server",
     "// enforces the same minimum); short codes are trivially brute-forced.",
   ]],
+  ["src/client/features/shell/AppRail.tsx", [
+    "/**\n * The left rail: one button per app container, the outermost piece of chrome the notebook has.\n *\n * Each entry is a real `<a>` to the container's own path, with the click intercepted for the\n * in-place case. That keeps the browser's own behaviour on the rail — middle-click and\n * open-in-new-tab reach a container directly, and the address a reader copies is the one they\n * are looking at — while a plain left click still swaps the container without a reload.\n */",
+    "// Only a plain left click belongs to the app; anything with a modifier or another button is the",
+    "// browser's own navigation, and preventing it would break open-in-new-tab on the rail.",
+    "/* The notebook's mobile shell pads itself below a notch, so the rail's icons stop at the same\n          line rather than starting under the status bar. On a desktop the inset is zero. */",
+  ]],
   ["src/client/features/shell/AppShell.tsx", [
     "// Keep settings prewarming out of the boot + first-sync window.",
     "// Ctrl+Shift+P is the first thing a returning user presses, and a cold chunk plus",
@@ -4584,6 +4590,46 @@ const allowed = new Map([
     "// sample of a grip shows exactly what the editor will draw.",
     "// The key formats the note the reader is typing in, so it has to reach the caret; a linter",
     "// switched off must not answer it, or the chord would swallow the keystroke for nothing.",
+    "/** The account the outline's opening was seeded from, which outlives a mount because the shell does. */",
+    "// Seeded once per account rather than once per mount: the app tabs can bring this shell back,",
+    "// and a reader who closed the outline before visiting another notebook does not want it",
+    "// reopened by coming back.",
+  ]],
+  ["src/client/features/shell/AppTabHost.tsx", [
+    "/**\n * The frame the app tabs live in: the rail on the left, one container on the right.\n *\n * The sync engine belongs here rather than to the notebook, because it keeps the account rather\n * than a screen. Mounted one level above the tab switch it stays up while the reader moves between\n * containers, so a vault does not go quiet every time someone looks at another app.\n */",
+    "/**\n * Which component answers for which tab. A tab the rail offers but this list does not name is a\n * container waiting for its app, and gets {@link AppTabPlaceholder}.\n */",
+  ]],
+  ["src/client/features/shell/AppTabPlaceholder.tsx", [
+    "/**\n * The container standing in for an app that has not been written yet.\n *\n * It is deliberately the real frame — header, body, the same tokens the notebook uses — so the\n * day an app lands it replaces this file's own body and nothing about the rail, the address or\n * the layout has to change. It says plainly that there is no app here rather than drawing a\n * picture of one, because a mock is read as a bug the moment a reader tries to use it.\n */",
+  ]],
+  ["src/client/features/shell/app-rail.test.ts", [
+    "// Middle-click and modifier-click are open-in-a-new-tab and friends; intercepting them would",
+    "// turn a rail that links real addresses into one that only appears to.",
+  ]],
+  ["src/client/features/shell/app-tab-host.test.ts", [
+    "// The notebook and the sync engine are both stubbed: what this file is about is which container the",
+    "// host puts down for which address, and mounting the real shell would spend the run on CodeMirror.",
+    "// The engine answers for the account, not the screen: one mount for the whole session is the",
+    "// point of hanging it off the host rather than leaving it inside the notebook.",
+    "// The engine is counted by mount rather than by call, because a hook body runs once a render and the",
+    "// engine it owns is created once a mount.",
+  ]],
+  ["src/client/features/shell/app-tab-placeholder.test.ts", [
+    "// The header and the body name the same container, and nothing else is claimed about it.",
+  ]],
+  ["src/client/features/shell/app-tabs.test.ts", [
+    "// The union is written out on purpose: add an id without a registry entry and this object stops",
+    "// compiling, which is the only place that disagreement can be caught before a reader sees a rail",
+    "// with a button that goes nowhere.",
+    "// A trailing slash here would make the rail link one address and the router answer another.",
+    "// A note's own deep link has no container of its own; the shell reads the id off the address",
+    "// once the notebook is up, so the fall-through is the whole rule.",
+  ]],
+  ["src/client/features/shell/app-tabs.ts", [
+    "/**\n * The app tabs, as data: one entry per button on the left rail, and the one place that knows\n * which URL path belongs to which container.\n *\n * Only the notebook has an implementation behind it today; the rest answer to a real path and show\n * their placeholder, so adding an app means writing its component and naming it in the host's\n * container list — the rail, the router and the deploy config already carry it.\n *\n * A new `path` has to be added to `run_worker_first` in both wrangler configs as well, or the\n * document served at that address comes from the asset layer's SPA fallback and never picks up the\n * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.\n */",
+    "/** The address this container answers to, and the only spelling the rail links with. */",
+    "/**\n * The container a reader gets when nothing in the address names one. This is what makes the bare\n * origin the notebook, and it is also where a note's own deep link (`/n/<id>`, which the shell\n * opens once the vault has hydrated) and any mistyped address land.\n */",
+    "/** The tab an address belongs to. Anything unrecognised answers with the notebook. */",
   ]],
   ["src/client/features/sidebar/ExplorerNote.tsx", [
     "// Every explorer row subscribes to several store slices; without memoising the row, a note",
@@ -4939,6 +4985,10 @@ const allowed = new Map([
     "/**\n     * The viewer's heartbeat. `undefined` means \"nothing moved since the last beat\" (a 304), which is\n     * why the caller keeps what it holds rather than treating it as a blank. `cache: 'no-store'`\n     * because a stored answer to \"where is the talk now\" is not a stale answer — it is a different\n     * question's.\n     */",
     "/** What the owner's own question answers: nothing, or where the show is and how long it may run — and in\n * either case how many browsers have been reading it lately (PR-M7). */",
     "/**\n   * Bodies for the local search index. Ids travel in the body, not the query string, so a page of 40\n   * note ids cannot outgrow the URL or land in an access log.\n   */",
+  ]],
+  ["src/client/lib/app-history.ts", [
+    "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
+    "/** Replace the address without a reload. A no-op on the address that is already up. */",
   ]],
   ["src/client/lib/async.ts", [
     "/**\n * Resolves when the work does or when it has had long enough, so a slow artifact delays what\n * comes next instead of hanging it. The timeout is the contract: the caller cannot wait\n * forever, and it must not learn about a failure it can do nothing about.\n */",
@@ -12183,6 +12233,10 @@ const allowed = new Map([
     "// Han here is almanac output, so it is spelled out in the same vocabulary the calendar prints.",
     "// This file owns the loader's module-level state: vitest gives every file a fresh registry, so the",
     "// \"not loaded yet\" assertions here cannot be polluted by another suite warming the chunk.",
+  ]],
+  ["tests/app-tab-routes.test.ts", [
+    "// An address missing from this list is still served — by the asset layer's SPA fallback,",
+    "// which never reaches the worker, so the document arrives without our Content-Security-Policy.",
   ]],
   ["tests/backlink-mentions.test.ts", [
     "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",

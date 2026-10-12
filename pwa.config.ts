@@ -23,6 +23,11 @@ const PUBLIC_ASSETS = [...CORE_PUBLIC_ASSETS, ...OPTIONAL_PUBLIC_ASSETS] as cons
 
 const CORE_LAZY_MODULES = [
   '/src/client/App.tsx',
+  // The tab host is what the authed page renders, so the chunk it lands in is part of the shell even
+  // though the notebook itself hangs off it. Dropping it here leaves an offline boot with a rail and
+  // no container: measured on this branch's build, AppShell's code moved into `AppTabHost-*.js` and
+  // that chunk fell out of CORE_URLS until both names were listed.
+  '/src/client/features/shell/AppTabHost.tsx',
   '/src/client/features/shell/AppShell.tsx',
   '/src/client/features/workspace/Workspace.tsx',
   '/src/shared/locales/en-US.ts',

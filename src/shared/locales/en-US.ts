@@ -5301,6 +5301,18 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "settings.excalidraw_embed_md_comments_desc": "Embed element reference comment links in exported Markdown drawing data.",
     "settings.excalidraw_sync_excalidraw": "Keep Excalidraw spec on sync",
     "settings.excalidraw_sync_excalidraw_desc": "Perform canonical validation on drawing data during sync and backup.",
+    "app.tabs.notes": "Notes",
+    "app.tabs.calendar": "Calendar",
+    "app.tabs.todo": "To-do",
+    "app.tabs.projects": "Projects",
+    "app.tabs.nav": "Navigator",
+    "app.tabs.chat": "Chat",
+    "app.tabs.reading": "Reading",
+    "app.tabs.rss": "RSS",
+    "app.tabs.music": "Music",
+    "app.tabs.tools": "Tools",
+    "app.tabs.navigation": "Application tabs",
+    "app.tabs.placeholder_hint": "This app is not part of Inkstone yet. The tab already has its own address, so there is a place for it to arrive in.",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

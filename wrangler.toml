@@ -21,6 +21,17 @@ run_worker_first = [
   "/mcp",
   "/mcp/*",
   "/.well-known/*",
+  "/n/*",
+  "/notes",
+  "/calendar",
+  "/todo",
+  "/projects",
+  "/nav",
+  "/chat",
+  "/reading",
+  "/rss",
+  "/music",
+  "/tools",
 ]
 
 [[d1_databases]]
