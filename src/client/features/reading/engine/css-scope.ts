@@ -237,6 +237,20 @@ function splitDeclarations(body: string): string[] {
 const PALETTE_PROPERTIES = new Set(['color', 'background', 'background-color'])
 
 /**
+ * The two things a reader sets for their *eyes*, which an author's sheet may also set.
+ *
+ * Leading and an absolute type size are dropped wherever they appear, not only on the chapter's own box,
+ * because a book that writes `p { line-height: 1.9; font-size: 14px }` is the common case rather than the
+ * exception, and a reader who moves the leading slider would see nothing change. A heading sized in `em`
+ * is left alone: it scales with the reader's choice, which is the relationship it was written to have.
+ */
+function keepsReaderTypography(property: string, value: string): boolean {
+  if (property === 'line-height') return false
+  if (property === 'font-size') return !/[\d.]+\s*(px|pt|rem)\b/i.test(value)
+  return true
+}
+
+/**
  * What the chapter's own box is, as opposed to what is inside it.
  *
  * A rule written against `body` describes the page the author had, which in this app is the column box
@@ -252,9 +266,11 @@ function keepsReaderStyle(declaration: string, root: boolean): boolean {
   const colon = findTopLevel(declaration, 0, ':')
   if (colon < 0) return true
   const property = declaration.slice(0, colon).trim().toLowerCase()
+  const value = declaration.slice(colon + 1)
   if (PALETTE_PROPERTIES.has(property)) {
-    return property === 'background' && /url\(/i.test(declaration.slice(colon + 1))
+    return property === 'background' && /url\(/i.test(value)
   }
+  if (!keepsReaderTypography(property, value)) return false
   if (!root) return true
   return !BOX_PROPERTIES.has(property)
     && !property.startsWith('padding')

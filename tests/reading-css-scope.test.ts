@@ -156,3 +156,18 @@ describe('the chapter box', () => {
     expect(css).toBe('.reader-doc.dark{padding: 8px}')
   })
 })
+
+describe('the reader’s type', () => {
+  it('takes the leading away from the book, wherever the book put it', async () => {
+    const css = await scope('p { text-indent: 2em; line-height: 1.9 }')
+    expect(css).toContain('text-indent: 2em')
+    expect(css).not.toContain('line-height')
+  })
+
+  it('keeps a heading sized in em and drops one nailed to the page', async () => {
+    expect(await scope('h1 { font-size: 1.6em }')).toContain('font-size: 1.6em')
+    expect(await scope('h2 { font-size: 150% }')).toContain('font-size: 150%')
+    expect(await scope('p { font-size: 14px }')).not.toContain('font-size')
+    expect(await scope('blockquote { font-size: 0.9rem }')).not.toContain('font-size')
+  })
+})

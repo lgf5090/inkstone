@@ -118,14 +118,33 @@ export const LINE_HEIGHT_RANGE = { min: 1.2, max: 2.8, step: 0.05 }
 export const MARGIN_RANGE = { min: 0, max: 96, step: 2 }
 export const MAX_FONT_BYTES = 8 * 1024 * 1024
 
+/**
+ * The page a device can carry before its reader changes anything.
+ *
+ * Type is set by the arm holding the device, not by the setting: 19px prose with a 24px margin leaves
+ * twelve characters to a line on the smallest phone this app supports, which is a column rather than a
+ * page. These are seeds only — the first slider moves and the device keeps its own answer, and a phone
+ * never inherits a desktop's spread because the record lives in that browser, not in the account.
+ */
+export function readerProfile(width: number): Pick<ReaderSettings, 'fontSize' | 'lineHeight' | 'margin'> {
+  if (width < 380) return { fontSize: 17, lineHeight: 1.62, margin: 14 }
+  if (width < 640) return { fontSize: 18, lineHeight: 1.7, margin: 18 }
+  if (width < 1024) return { fontSize: 19, lineHeight: 1.8, margin: 24 }
+  return { fontSize: 19, lineHeight: 1.8, margin: 32 }
+}
+
+function deviceProfile(): Pick<ReaderSettings, 'fontSize' | 'lineHeight' | 'margin'> {
+  return readerProfile(typeof window === 'undefined' ? 1024 : window.innerWidth)
+}
+
 function readStored(): ReaderSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return DEFAULT_READER_SETTINGS
+    if (!raw) return { ...DEFAULT_READER_SETTINGS, ...deviceProfile() }
     const parsed = JSON.parse(raw) as Partial<ReaderSettings>
-    return { ...DEFAULT_READER_SETTINGS, ...sanitise(parsed) }
+    return { ...DEFAULT_READER_SETTINGS, ...deviceProfile(), ...sanitise(parsed) }
   } catch {
-    return DEFAULT_READER_SETTINGS
+    return { ...DEFAULT_READER_SETTINGS, ...deviceProfile() }
   }
 }
 
@@ -237,7 +256,7 @@ export const useReaderSettings = create<ReaderSettingsState>((set, get) => {
       commit()
     },
     reset() {
-      set({ ...DEFAULT_READER_SETTINGS })
+      set({ ...DEFAULT_READER_SETTINGS, ...deviceProfile() })
       commit()
     },
     async loadFonts() {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_READER_SETTINGS, useReaderSettings } from '../src/client/features/reading/store/reader-settings'
+import { DEFAULT_READER_SETTINGS, readerProfile, useReaderSettings } from '../src/client/features/reading/store/reader-settings'
 import type { ReaderSettings } from '../src/client/features/reading/store/reader-settings'
 import { READER_THEME_ORDER } from '../src/client/features/reading/themes'
 
@@ -87,3 +87,44 @@ function storageKey(): string {
   if (!key) throw new Error('the settings store wrote nothing to localStorage')
   return key
 }
+
+/** jsdom answers innerWidth from the window, so the profile is driven by replacing it. */
+function setInnerWidth(value: number): void {
+  Object.defineProperty(window, 'innerWidth', { value, configurable: true, writable: true })
+}
+
+describe('the page a device starts with', () => {
+  it('shrinks the type and the margin as the screen does', () => {
+    expect(readerProfile(320).fontSize).toBeLessThan(readerProfile(390).fontSize)
+    expect(readerProfile(390).fontSize).toBeLessThan(readerProfile(1440).fontSize)
+    expect(readerProfile(320).margin).toBeLessThan(readerProfile(768).margin)
+    expect(readerProfile(768).margin).toBeLessThan(readerProfile(1440).margin)
+    for (const width of [320, 390, 768, 1440]) {
+      expect(readerProfile(width).lineHeight, `${width}`).toBeGreaterThanOrEqual(1.6)
+    }
+  })
+
+  it('seeds an untouched device, then steps behind the reader’s own choice', async () => {
+    localStorage.clear()
+    setInnerWidth(390)
+    vi.resetModules()
+    const phone = await import('../src/client/features/reading/store/reader-settings')
+    expect(phone.useReaderSettings.getState().fontSize).toBe(readerProfile(390).fontSize)
+    expect(phone.useReaderSettings.getState().margin).toBe(readerProfile(390).margin)
+
+    phone.useReaderSettings.getState().update('fontSize', 26)
+    setInnerWidth(320)
+    vi.resetModules()
+    const smaller = await import('../src/client/features/reading/store/reader-settings')
+    expect(smaller.useReaderSettings.getState().fontSize).toBe(26)
+
+    // A reset comes back to the device it was pressed on, not to a desktop's page.
+    setInnerWidth(1440)
+    smaller.useReaderSettings.getState().reset()
+    vi.resetModules()
+    const desktop = await import('../src/client/features/reading/store/reader-settings')
+    expect(desktop.useReaderSettings.getState().fontSize).toBe(readerProfile(1440).fontSize)
+    expect(desktop.useReaderSettings.getState().margin).toBe(readerProfile(1440).margin)
+    setInnerWidth(1024)
+  })
+})

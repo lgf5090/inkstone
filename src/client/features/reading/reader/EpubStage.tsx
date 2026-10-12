@@ -585,8 +585,6 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     '--reader-align': settings.textAlign,
     '--reader-hyphens': settings.hyphenate ? 'auto' : 'manual',
     '--reader-font': fontStackFor(settings),
-    // Scroll mode has no bars over the text, so it does not need their height reserved.
-    '--reader-hud': settings.readMode === 'scroll' ? '0px' : '52px',
   })
 
   return (

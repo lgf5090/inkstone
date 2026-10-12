@@ -10,6 +10,9 @@
   /* The measure a scrolling page centres its text to, and the dot a commented mark draws. */
   --reader-measure: 44rem;
   --reader-mark-dot: var(--reader-accent);
+  /* How much page the floating bars are allowed to cover. It is reserved whether or not they are
+     showing, so the text does not re-paginate when they retract. */
+  --reader-hud: 52px;
   /* Vertical panning stays the browser's; a horizontal drag is a page turn. Without this the browser
      claims the swipe as a scroll, fires pointercancel, and the gesture never reaches the reader. */
   touch-action: pan-y;
@@ -25,6 +28,22 @@
 .reader-stage[data-mode='scroll'] {
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* A flowing page has no bars over its text at all. */
+  --reader-hud: 0px;
+}
+
+@media (pointer: coarse) {
+  /* A thumb is not a cursor: the bar's own controls grow to a 44px square, and the page has to clear the
+     taller bar that comes with them. Measured, not assumed — the reserve is the bar's height plus its
+     offset from the edge. */
+  .reader-hud button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .reader-stage:not([data-mode='scroll']) {
+    --reader-hud: 64px;
+  }
 }
 
 /**
@@ -46,10 +65,12 @@
      block only paints its own padding on its first and last piece, so a reader's margin would vanish
      from every page after the first — and a book's `body { padding: 0 }`, which arrives scoped to the
      chapter, could take the margin from all of them. The measure caps how wide a line of prose gets,
-     centring what is left over as margin, which is the difference between a page and a banner. */
+     centring what is left over as margin, which is the difference between a page and a banner. The bottom
+     reserve carries one extra line: a column's last line box can spill a line past the column height, and
+     the bar would otherwise sit on top of it. */
   padding-inline: max(var(--reader-margin), calc((100% - var(--reader-measure) * var(--reader-columns, 1)) / 2));
   padding-block: max(var(--reader-margin), var(--reader-hud, 52px))
-    max(calc(var(--reader-margin) + 12px), var(--reader-hud, 52px));
+    max(calc(var(--reader-margin) + 12px), calc(var(--reader-hud, 52px) + var(--reader-leading) * var(--reader-size)));
 }
 
 .reader-stage[data-mode='scroll'] .reader-columns {
@@ -247,16 +268,16 @@
   justify-content: space-between;
 }
 
-.reader-stage[data-hud='hidden'] .reader-hud {
+.reader-hud[data-hidden='true'] {
   opacity: 0;
   pointer-events: none;
 }
 
-.reader-stage[data-hud='hidden'][data-mode='paged'] .reader-hud[data-edge='top'] {
+.reader-hud[data-edge='top'][data-hidden='true'] {
   transform: translateY(-140%);
 }
 
-.reader-stage[data-hud='hidden'][data-mode='paged'] .reader-hud[data-edge='bottom'] {
+.reader-hud[data-edge='bottom'][data-hidden='true'] {
   transform: translateY(140%);
 }
 
