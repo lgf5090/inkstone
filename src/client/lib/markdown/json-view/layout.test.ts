@@ -205,6 +205,34 @@ describe('layoutJsonMap', () => {
         expect(layout.slots).toHaveLength(3);
     });
 
+    it('keeps an array whose elements are all folded as a card of its own', () => {
+        // Promoting a folded element draws nothing, so an all-folded array would leave its row reading
+        // "expanded" with no card under it and a handle that folds what was never unfolded. Left in the
+        // card, each element keeps a row and a handle that really opens it.
+        const root = tree('{"fruits": [{"a": 1}, {"b": 2}]}');
+        for (const element of root.children![0]!.children!)
+            element.collapsed = true;
+        const layout = layoutJsonMap(root, options());
+        const fruits = layout.byKey.get(JSON.stringify(['fruits']));
+        expect(fruits, 'the folded array was promoted and drew no card').toBeDefined();
+        expect(fruits!.rows.map(row => row.label)).toEqual(['0: {1}', '1: {1}']);
+        expect(fruits!.rows.every(row => row.branch && row.cards.length === 0)).toBe(true);
+        // The array's own row in the root card is expanded and does have a card hanging off it.
+        const row = layout.byKey.get('[]')!.rows[0]!;
+        expect(row.cards).toEqual([fruits]);
+    });
+
+    it('promotes the same array as soon as one element is open', () => {
+        const root = tree('{"fruits": [{"a": 1}, {"b": 2}]}');
+        for (const element of root.children![0]!.children!)
+            element.collapsed = true;
+        root.children![0]!.children![1]!.collapsed = false;
+        const layout = layoutJsonMap(root, options());
+        expect(layout.byKey.has(JSON.stringify(['fruits']))).toBe(false);
+        expect(layout.slots.filter(slot => slot.depth === 1)).toHaveLength(1);
+        expect(layout.byKey.get('[]')!.rows[0]!.cards).toHaveLength(1);
+    });
+
     it('lays out a single node without a column of its own', () => {
         const layout = layoutJsonMap(tree('{"only": 1}'), options());
         expect(layout.slots).toHaveLength(1);

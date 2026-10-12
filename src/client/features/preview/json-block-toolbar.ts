@@ -61,6 +61,11 @@ const EXIT_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" s
 export interface JsonBlockState {
     mode: JsonViewName
     fold: number
+    /**
+     * The depth the model currently carries, which is not always `fold`: the map counts card columns rather
+     * than source levels, and promoting an array's elements into cards costs one. See `foldDepthFor`.
+     */
+    foldApplied: number
     filter: string
     body: string
     /**
@@ -106,6 +111,7 @@ export function jsonBlockState(
             // `fold=0` is the author asking for everything folded; `Number(x) || fallback` reads that
             // zero as "no value given" and hands back the default instead.
             fold: parseFoldAttribute(block.dataset.jsonFold, defaults.fold),
+            foldApplied: -1,
             filter: '',
             body: '',
             collapsed: new Map(),
