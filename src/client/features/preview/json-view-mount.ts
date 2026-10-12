@@ -68,22 +68,49 @@ function pathOf(target: Element): JsonPath {
  * Reusing it is what makes a fold survive the re-render that the next keystroke in the other pane causes:
  * the fold state lives on the model, and re-parsing would hand back a model that has never heard of it.
  */
-function documentFor(block: HTMLElement, state: JsonBlockState): { document: JsonDocument | null, failure: JsonFailure | null } {
-    const body = jsonBlockBody(block);
-    const cached = state.document as JsonDocument | null;
-    if (cached && state.body === body)
-        return { document: cached, failure: null };
-    const parsed = parseJsonDocument(body, { tolerant: state.tolerant });
-    if (!parsed.ok || !parsed.document)
-        return { document: null, failure: parsed.failure };
-    const document = parsed.document;
-    collapseToDepth(document.root, state.fold);
-    // Only the exceptions are replayed: the fold the block arrived at is already on the fresh model.
+/**
+ * The depth to put on the model for the face that is showing.
+ *
+ * The account's fold-depth setting counts *source levels*, which is what the structure list shows. The map counts card
+ * columns, and promoting an array of objects turns each element's row into a card one column out — so the
+ * same number costs the map a whole level, and an array of objects at the default 2 arrived as one lonely
+ * row with nothing hanging off it. One extra level makes "2" mean the same picture on both faces.
+ */
+function foldDepthFor(state: JsonBlockState): number {
+    if (state.mode !== 'map')
+        return state.fold;
+    return Number.isFinite(state.fold) ? state.fold + 1 : state.fold;
+}
+
+/** Puts the arrival fold, and then the reader's own exceptions, onto a model. */
+function applyFold(document: JsonDocument, state: JsonBlockState, depth: number): void {
+    collapseToDepth(document.root, depth);
     for (const [key, collapsed] of state.collapsed) {
         const node = walkTo(document.root, parseKey(key));
         if (node)
             node.collapsed = collapsed;
     }
+    state.foldApplied = depth;
+}
+
+function documentFor(block: HTMLElement, state: JsonBlockState): { document: JsonDocument | null, failure: JsonFailure | null } {
+    const body = jsonBlockBody(block);
+    const cached = state.document as JsonDocument | null;
+    const depth = foldDepthFor(state);
+    if (cached && state.body === body) {
+        // Switching face changes the depth without changing the text, and the fold lives on the model the
+        // two faces share — so the model has to be re-prepared here rather than being trusted from the last
+        // draw. The reader's own folds are replayed on top, which is what keeps a hand-folded card folded on
+        // both faces while the arrival depth differs.
+        if (state.foldApplied !== depth)
+            applyFold(cached, state, depth);
+        return { document: cached, failure: null };
+    }
+    const parsed = parseJsonDocument(body, { tolerant: state.tolerant });
+    if (!parsed.ok || !parsed.document)
+        return { document: null, failure: parsed.failure };
+    const document = parsed.document;
+    applyFold(document, state, depth);
     state.document = document;
     state.body = body;
     return { document, failure: null };
@@ -190,7 +217,10 @@ function rememberFoldExceptions(state: JsonBlockState): void {
     const walk = (node: JsonNode, path: JsonPath, level: number): void => {
         if (!node.children?.length)
             return;
-        if (node.collapsed !== (level >= state.fold))
+        // Compared against the depth the model was actually prepared at, which on the map is one more than
+        // the setting: comparing against `state.fold` here would record every card the arrival depth had
+        // opened as an exception the reader never made, and replay them onto the structure face.
+        if (node.collapsed !== (level >= state.foldApplied))
             exceptions.set(pathKey(path), node.collapsed);
         node.children.forEach((child, index) => {
             walk(child, [...path, node.kind === 'array' ? index : (child.key ?? '')], level + 1);

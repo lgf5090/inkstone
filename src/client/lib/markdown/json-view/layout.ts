@@ -145,12 +145,20 @@ function isContainer(node: JsonNode): boolean {
     return node.kind === 'object' || node.kind === 'array';
 }
 
-/** An array of containers is drawn as the containers themselves; an array of scalars stays one card. */
+/**
+ * An array of containers is drawn as the containers themselves; an array of scalars stays one card.
+ *
+ * A *fully folded* array is not promoted: a folded container gets no card, so promoting it would leave the
+ * array's row reading "expanded" with nothing under it — a handle that collapses what was never drawn. Left
+ * un-promoted the array takes a card of its own listing one row per element, each with a handle that really
+ * opens it, which is the same thing the structure face shows at that depth.
+ */
 function promotable(node: JsonNode): boolean {
     return node.kind === 'array'
       && node.children !== null
       && node.children.length > 0
-      && node.children.every(child => isContainer(child));
+      && node.children.every(child => isContainer(child))
+      && node.children.some(child => !child.collapsed);
 }
 
 /**
