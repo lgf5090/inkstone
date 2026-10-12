@@ -52,6 +52,9 @@ function drawInto(container: HTMLElement, vendor: MindmapVendor, body: MindmapPa
         dark: options.dark,
         locale: options.locale,
         newTopicName: '',
+        // A snapshot is a picture: the page that shows it owns no chrome to overlap, and a
+        // toolbar nobody can press would only crowd the drawing.
+        libraryToolBars: false,
         modifierWheelZoom: false,
         // A snapshot is drawn, read and thrown away: nothing is edited, so the library
         // builds no history and there is nothing to bound.

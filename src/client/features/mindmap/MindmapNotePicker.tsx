@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileText, Search } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
 import { Drawer } from '../../components/overlay';
@@ -33,9 +33,11 @@ const NO_ROWS: NoteRow[] = [];
  * notes called "Reading" are only told apart by where they live, and picking the
  * wrong one writes a link nobody notices until it points somewhere unexpected.
  */
-export function MindmapNotePicker({ open, title, excludeNoteId, onClose, onSelect }: {
+export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, onClose, onSelect }: {
     open: boolean;
     title: string;
+    /** What the reader had already typed where the list was opened from. */
+    initialQuery?: string;
     excludeNoteId?: string;
     onClose: () => void;
     onSelect: (note: PickedNote) => void;
@@ -44,6 +46,14 @@ export function MindmapNotePicker({ open, title, excludeNoteId, onClose, onSelec
     const folders = useNotes((s) => s.folders);
     const pinyinVersion = usePinyinVersion();
     const [query, setQuery] = useState('');
+
+    // The characters that opened the list are its first filter: a reader who typed `[[Rea`
+    // has already said what they are after, and an empty search box would ask them to type
+    // it again. Only on the way in — while the list is up, the box belongs to them.
+    useEffect(() => {
+        if (open)
+            setQuery(initialQuery ?? '');
+    }, [open, initialQuery]);
 
     // The walk and the sort happen once per open, not once per keystroke. Matching a query is
     // the only thing that has to keep up with typing, and paying for the folder chain and the

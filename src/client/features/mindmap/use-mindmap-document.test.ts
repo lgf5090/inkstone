@@ -2,7 +2,7 @@ import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initI18n } from '../../lib/i18n';
-import { APP_THEME_CHOICE, MINDMAP_UNDO_STEP_LIMIT, type MindmapHandle, type MindmapParsedBody, type MindmapVendor, type MindmapVendorLoader } from '../../lib/markdown/mindmap';
+import { APP_THEME_CHOICE, MINDMAP_UNDO_STEP_LIMIT, type MindmapHandle, type MindmapNodeMenuItem, type MindmapParsedBody, type MindmapVendor, type MindmapVendorLoader } from '../../lib/markdown/mindmap';
 import { useMindmapDocument, type MindmapDocumentController } from './use-mindmap-document';
 
 interface Handle extends MindmapHandle {
@@ -30,6 +30,7 @@ function fakeHandle(payload: unknown): Handle {
         layout: () => handle.calls.push('layout'),
         scaleFit: () => handle.calls.push('scaleFit'),
         fitFirstFrame: () => handle.calls.push('fitFirstFrame'),
+        zoom: (direction: -1 | 1) => handle.calls.push(`zoom:${direction}`),
         focus: () => {},
         undo: () => {},
         redo: () => {},
@@ -46,7 +47,14 @@ interface Rig {
     handle: Handle
     /** What the library would call on every drag frame; the note gets one write per burst. */
     operation: () => void
-    created: Array<{ editable: boolean; dark: boolean; modifierWheelZoom: boolean; undoStepLimit: number }>
+    created: Array<{
+        editable: boolean
+        dark: boolean
+        modifierWheelZoom: boolean
+        undoStepLimit: number
+        libraryToolBars: boolean
+        nodeMenu: readonly MindmapNodeMenuItem[]
+    }>
 }
 
 function makeRig(initialPayload: unknown): Rig {
@@ -60,6 +68,8 @@ function makeRig(initialPayload: unknown): Rig {
                 dark: options.dark,
                 modifierWheelZoom: options.modifierWheelZoom,
                 undoStepLimit: options.undoStepLimit,
+                libraryToolBars: options.libraryToolBars,
+                nodeMenu: options.nodeMenu ?? [],
             });
             operation = options.onOperation;
             return handle;
@@ -75,7 +85,10 @@ function makeRig(initialPayload: unknown): Rig {
                 theme: APP_THEME_CHOICE,
             };
         },
-        serialize: (data) => JSON.stringify(data),
+        // The real serializer writes the tree plus the fields that came off the file, and it
+        // writes them pretty. A fake that spelled the same document a different way would
+        // make the map look like it had changed twice, and no real drawer ever does that.
+        serialize: (data, _mode, extra) => JSON.stringify({ ...(data as Record<string, unknown>), ...extra }, null, 2),
     };
     return { vendor, handle, created, operation: () => operation() };
 }
@@ -99,7 +112,7 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let latest: MindmapDocumentController | null = null;
 
-function Harness(props: { content: string; dark: boolean; autoSaveMs: number; onBodyChange: (next: string) => void; loadVendor: MindmapVendorLoader; undoStepLimit?: number }) {
+function Harness(props: { content: string; dark: boolean; autoSaveMs: number; onBodyChange: (next: string) => void; loadVendor: MindmapVendorLoader; undoStepLimit?: number; nodeMenu?: readonly MindmapNodeMenuItem[] }) {
     const controller = useMindmapDocument({
         content: props.content,
         editable: true,
@@ -107,6 +120,7 @@ function Harness(props: { content: string; dark: boolean; autoSaveMs: number; on
         locale: 'en-US',
         autoSaveMs: props.autoSaveMs,
         undoStepLimit: props.undoStepLimit,
+        nodeMenu: props.nodeMenu,
         onBodyChange: props.onBodyChange,
         loadVendor: props.loadVendor,
     });
@@ -307,5 +321,96 @@ describe('useMindmapDocument', () => {
         const elsewhere = JSON.stringify({ nodeData: { id: 'r', topic: 'Root' }, direction: 1 });
         render(createElement(Harness, { content: elsewhere, dark: false, autoSaveMs: 100, onBodyChange: vi.fn(), loadVendor: async () => rig.vendor }));
         expect(latest!.fields).toEqual({ direction: 1 });
+    });
+});
+
+describe('the fields a document states about how it is drawn', () => {
+    it('sets one through the map, ahead of the text the surface was handed', async () => {
+        const rig = makeRig(JSON.parse(BODY));
+        const onBodyChange = vi.fn();
+        render(createElement(Harness, { content: BODY, dark: false, autoSaveMs: 100, onBodyChange, loadVendor: async () => rig.vendor }));
+        await settle();
+        // The map is ahead of the note by whatever the debounce has not written yet.
+        rig.handle.payload = { nodeData: { id: 'r', topic: 'Renamed' } };
+        act(() => {
+            rig.operation();
+        });
+        act(() => {
+            latest!.patchFields({ direction: 3 });
+        });
+        expect(JSON.parse(onBodyChange.mock.calls[0]![0])).toEqual({ nodeData: { id: 'r', topic: 'Renamed' }, direction: 3 });
+        expect(latest!.fields.direction).toBe(3);
+        expect(rig.handle.calls).toContain('refresh');
+    });
+
+    it('is not overwritten by the write that was already in flight when the field changed', async () => {
+        const rig = makeRig(JSON.parse(BODY));
+        const onBodyChange = vi.fn();
+        render(createElement(Harness, { content: BODY, dark: false, autoSaveMs: 100, onBodyChange, loadVendor: async () => rig.vendor }));
+        await settle();
+        rig.handle.payload = { nodeData: { id: 'r', topic: 'Renamed' } };
+        act(() => {
+            rig.operation();
+        });
+        act(() => {
+            latest!.patchFields({ compact: true });
+        });
+        expect(onBodyChange).toHaveBeenCalledTimes(1);
+        act(() => {
+            vi.advanceTimersByTime(200);
+        });
+        expect(onBodyChange, 'the debounce has nothing left to say: the map was written out already').toHaveBeenCalledTimes(1);
+        expect(JSON.parse(onBodyChange.mock.calls[0]![0])).toEqual({ nodeData: { id: 'r', topic: 'Renamed' }, compact: true });
+    });
+
+    it('keeps the fields that were already stated when one of them changes', async () => {
+        const stated = JSON.stringify({ nodeData: { id: 'r', topic: 'Root' }, direction: 3, theme: 'dark' });
+        const rig = makeRig(JSON.parse(stated));
+        const onBodyChange = vi.fn();
+        render(createElement(Harness, { content: stated, dark: false, autoSaveMs: 100, onBodyChange, loadVendor: async () => rig.vendor }));
+        await settle();
+        act(() => {
+            latest!.patchFields({ compact: true });
+        });
+        expect(JSON.parse(onBodyChange.mock.calls[0]![0])).toEqual({ nodeData: { id: 'r', topic: 'Root' }, direction: 3, theme: 'dark', compact: true });
+        expect(latest!.fields).toEqual({ direction: 3, compact: true, palette: 'dark' });
+    });
+
+    it('takes a field out when the writer says null, which is the only way to unstate one', async () => {
+        const stated = JSON.stringify({ nodeData: { id: 'r', topic: 'Root' }, theme: 'light' });
+        const rig = makeRig(JSON.parse(stated));
+        const onBodyChange = vi.fn();
+        render(createElement(Harness, { content: stated, dark: false, autoSaveMs: 100, onBodyChange, loadVendor: async () => rig.vendor }));
+        await settle();
+        act(() => {
+            latest!.patchFields({ palette: null });
+        });
+        expect(JSON.parse(onBodyChange.mock.calls[0]![0])).toEqual({ nodeData: { id: 'r', topic: 'Root' } });
+        expect(latest!.fields).toEqual({});
+    });
+
+    it('draws no library chrome and hands the node menu over once the map is built', async () => {
+        const rig = makeRig(JSON.parse(BODY));
+        const rows: MindmapNodeMenuItem[] = [{ id: 'link-note', label: 'Link to a note', onSelect: () => {} }];
+        render(createElement(Harness, { content: BODY, dark: false, autoSaveMs: 100, onBodyChange: vi.fn(), loadVendor: async () => rig.vendor, nodeMenu: rows }));
+        await settle();
+        expect(rig.created[0]!.libraryToolBars).toBe(false);
+        expect(rig.created[0]!.nodeMenu.map(row => row.id)).toEqual(['link-note']);
+    });
+
+    it('runs the row that is current when the click arrives, not the one that was there at the mount', async () => {
+        const rig = makeRig(JSON.parse(BODY));
+        let pressed = 'none';
+        const row = (who: string): MindmapNodeMenuItem => ({ id: 'link-note', label: 'Link to a note', onSelect: () => { pressed = who; } });
+        render(createElement(Harness, { content: BODY, dark: false, autoSaveMs: 100, onBodyChange: vi.fn(), loadVendor: async () => rig.vendor, nodeMenu: [row('first')] }));
+        await settle();
+        render(createElement(Harness, { content: BODY, dark: false, autoSaveMs: 100, onBodyChange: vi.fn(), loadVendor: async () => rig.vendor, nodeMenu: [row('second')] }));
+        await settle();
+        expect(rig.created, 'a new menu is not a reason to rebuild the map').toHaveLength(1);
+        const handed = rig.created[0]!.nodeMenu[0]!;
+        act(() => {
+            handed.onSelect();
+        });
+        expect(pressed, 'the row the map holds reaches the action the last render asked for').toBe('second');
     });
 });

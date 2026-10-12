@@ -79,8 +79,21 @@ export { applyEntryBody, flushEntry, serializeEntry, serializeEntryAs } from './
 export { relayoutMindmap, watchMindmapBox, watchMindmapContainer, type MindmapResizeTarget } from './resize';
 export { openMindmapSession, type MindmapSession } from './session';
 export { markdownToMindmapOutline, mindmapOutlineToMarkdown } from './outline';
-export { parseMindmapNodeLink, splitMindmapTopicLinks, type MindmapTopicSegment } from './links';
-export { decorateMindmapLinks, MINDMAP_NODE_LINK_ATTR, MINDMAP_NODE_LINK_CLASS } from './node-links';
+export {
+    applyTopicCompletion,
+    parseMindmapNodeLink,
+    splitMindmapTopicLinks,
+    topicCompletionQuery,
+    WIKI_LINK_CLOSE,
+    WIKI_LINK_OPEN,
+    type MindmapTopicSegment,
+} from './links';
+export {
+    decorateMindmapLinks,
+    MINDMAP_NODE_LINK_ATTR,
+    MINDMAP_NODE_LINK_CLASS,
+    MINDMAP_TOPIC_EDITOR_ID,
+} from './node-links';
 export {
     APP_THEME_CHOICE,
     MINDMAP_THEME_ATTR,
@@ -131,6 +144,7 @@ export type {
     MindmapFenceRef,
     MindmapFenceWriter,
     MindmapHandle,
+    MindmapNodeMenuItem,
     MindmapParsedBody,
     MindmapParseResult,
     MindmapThemeInput,

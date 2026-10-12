@@ -35,6 +35,7 @@ function fakeHandle(order: string[]): MindmapHandle {
         layout: bump('layout'),
         scaleFit: bump('scaleFit'),
         fitFirstFrame: bump('fitFirstFrame'),
+        zoom: () => {},
         focus: () => {},
         undo: () => {},
         redo: () => {},

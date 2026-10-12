@@ -1,11 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n';
 import { mindmapError, mindmapErrorCode, mindmapErrorText } from './errors';
-import { coalescedWheel, createMindmapVendor, fitForReading, fitToView, wheelHandler } from './mind-elixir-vendor';
+import { coalescedWheel, createMindmapVendor, fitForReading, fitToView, layoutFieldsOf, wheelHandler } from './mind-elixir-vendor';
 import type { MindmapReadViewport } from './mind-elixir-vendor';
 import { MINDMAP_BODY_LIMIT_BYTES, MINDMAP_NODE_LIMIT } from './nodes';
 import type { MindmapMode } from './body';
-import type { MindmapParsedBody } from './types';
+import type { MindmapNodeMenuItem, MindmapParsedBody } from './types';
 
 const vendor = createMindmapVendor();
 
@@ -40,6 +40,7 @@ function draw(body: MindmapParsedBody): HTMLElement {
             dark: false,
             locale: 'en-US',
             newTopicName: 'New node',
+            libraryToolBars: true,
             modifierWheelZoom: true,
             undoStepLimit: 0,
             onOperation: () => {},
@@ -361,6 +362,7 @@ describe('changes the library does not announce', () => {
             dark: false,
             locale: 'en-US',
             newTopicName: 'New node',
+            libraryToolBars: true,
             modifierWheelZoom: true,
             undoStepLimit: 0,
             onOperation: () => { operations++; },
@@ -616,6 +618,7 @@ describe('the undo history a map is allowed to grow', () => {
             dark: false,
             locale: 'en-US',
             newTopicName: 'New node',
+            libraryToolBars: true,
             modifierWheelZoom: true,
             undoStepLimit: limit,
             onOperation: () => {},
@@ -679,5 +682,103 @@ describe('the undo history a map is allowed to grow', () => {
         expect(map.children()).toBe(4);
         expect(map.handle.selectedNodeId(), 'and the map is still following the reader').not.toBeNull();
         map.dispose();
+    });
+});
+
+describe('the layout a body names for itself', () => {
+    function drawn(text: string, options: { nodeMenu?: MindmapNodeMenuItem[], libraryToolBars?: boolean } = {}) {
+        const el = document.createElement('div');
+        document.body.append(el);
+        const parsed = parse(text);
+        if (!parsed.ok)
+            throw new Error(parsed.error);
+        const handle = vendor.create({
+            el,
+            body: parsed,
+            editable: true,
+            dark: false,
+            locale: 'en-US',
+            newTopicName: 'New node',
+            libraryToolBars: options.libraryToolBars ?? true,
+            nodeMenu: options.nodeMenu,
+            modifierWheelZoom: true,
+            undoStepLimit: 0,
+            onOperation: () => {},
+            onEditingChange: () => {},
+        });
+        return { el, handle };
+    }
+
+    const TREE = '{"nodeData":{"id":"core","topic":"Core","children":[{"id":"b","topic":"Branch"}]}';
+    const withFields = (fields: string) => `${TREE}${fields}}`;
+    /** The same parse, narrowed: a fixture that will not build is a bug in the test, not a case. */
+    function good(text: string): MindmapParsedBody {
+        const parsed = parse(text);
+        if (!parsed.ok)
+            throw new Error(parsed.error);
+        return parsed;
+    }
+    /** What the layout pass writes: `down` on the node layer is the library's own mark for direction 3. */
+    const nodesClass = (el: HTMLElement) => el.querySelector('me-nodes')?.className ?? '(no node layer)';
+    const gap = (el: HTMLElement, name: string) => (el.querySelector('.map-container') as HTMLElement | null)?.style.getPropertyValue(name) ?? '';
+
+    it('lays the map out the way a later body names, not the way it was first drawn', () => {
+        const { el, handle } = drawn(withFields(',"direction":2'));
+        expect(nodesClass(el), 'a side map carries no marker on its node layer').toBe('');
+        handle.refresh(good(withFields(',"direction":3')));
+        expect(nodesClass(el), 'and a body that asks for downward is drawn downward').toBe('down');
+        handle.refresh(good(withFields(',"direction":1')));
+        expect(nodesClass(el), 'and back out of it again').toBe('');
+    });
+
+    it('tightens the gaps a compact body asks for, and gives them back', () => {
+        const { el, handle } = drawn(withFields(''));
+        expect(gap(el, '--node-gap-x')).toBe('30px');
+        handle.refresh(good(withFields(',"compact":true')));
+        expect(gap(el, '--node-gap-x'), 'the gaps are the whole of what compact does').toBe('15px');
+        handle.refresh(good(withFields(',"compact":false')));
+        expect(gap(el, '--node-gap-x')).toBe('30px');
+    });
+
+    it('leaves the layout alone for a body that says nothing about it', () => {
+        const { el, handle } = drawn(withFields(',"direction":3,"compact":true'));
+        handle.refresh(good('{"nodeData":{"id":"core","topic":"Renamed","children":[]}}'));
+        expect(nodesClass(el)).toBe('down');
+        expect(gap(el, '--node-gap-x')).toBe('15px');
+    });
+
+    it('draws no toolbars for a surface that has chrome of its own', () => {
+        expect(drawn(withFields('')).el.querySelectorAll('.mind-elixir-toolbar').length).toBe(2);
+        expect(drawn(withFields(''), { libraryToolBars: false }).el.querySelectorAll('.mind-elixir-toolbar').length).toBe(0);
+    });
+
+    it('adds the app rows to the node menu, and closes the menu on the click', () => {
+        let pressed = '';
+        const { el } = drawn(withFields(''), {
+            nodeMenu: [{ id: 'link-note', label: 'Link to a note', onSelect: () => { pressed = 'link-note'; } }],
+        });
+        const rows = [...el.querySelectorAll<HTMLElement>('.menu-list li')];
+        const row = rows.find(li => li.textContent?.includes('Link to a note'));
+        expect(row, 'the row the reader is looking for is in the menu').toBeTruthy();
+        expect(rows.indexOf(row!), 'and it sits after the library\'s own rows').toBeGreaterThan(rows.findIndex(li => li.id === 'cm-link'));
+        const menu = el.querySelector<HTMLElement>('.context-menu');
+        expect(menu, 'the menu the library appends').toBeTruthy();
+        menu!.hidden = false;
+        row!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(pressed).toBe('link-note');
+        expect(menu!.hidden, 'and a row that opens a dialog takes the menu out of the way first').toBe(true);
+    });
+
+    it('says what the two arrow rows do, in the app words rather than the library\'s', () => {
+        const { el } = drawn(withFields(''));
+        expect(el.querySelector('#cm-link')?.textContent).toBe(t('mindmap.menu_arrow'));
+        expect(el.querySelector('#cm-link')?.textContent, 'the library calls this "Link", which reads like a note link').not.toBe('Link');
+        expect(el.querySelector('#cm-link-bidirectional')?.textContent).toBe(t('mindmap.menu_arrow_two_way'));
+    });
+
+    it('reads only the values the library can lay out with', () => {
+        expect(layoutFieldsOf({ direction: 3, compact: false })).toEqual({ direction: 3, compact: false });
+        expect(layoutFieldsOf({ direction: 'down', compact: 'yes' })).toEqual({});
+        expect(layoutFieldsOf('not an object at all')).toEqual({});
     });
 });

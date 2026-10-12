@@ -144,4 +144,14 @@ describe('MindmapNotePicker', () => {
         expect(onSelect).toHaveBeenCalledWith({ id: 'n-b', title: 'Beta book' });
         expect(onClose).toHaveBeenCalledTimes(1);
     });
+
+    it('opens on the characters that called it, and on nothing when the menu did', () => {
+        render(createElement(MindmapNotePicker, { open: false, title: 'Link to a note', onClose: () => {}, onSelect: () => {} }));
+        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', initialQuery: 'bet', onClose: () => {}, onSelect: () => {} }));
+        expect(searchBox().value).toBe('bet');
+        expect(drawnRows().map((row) => row.title)).toEqual(['Beta book']);
+        render(createElement(MindmapNotePicker, { open: true, title: 'Link to a note', initialQuery: '', onClose: () => {}, onSelect: () => {} }));
+        expect(searchBox().value, 'a list opened from the menu has no query to carry in').toBe('');
+        expect(drawnRows().length).toBe(3);
+    });
 });

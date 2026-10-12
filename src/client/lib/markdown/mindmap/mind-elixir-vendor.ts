@@ -16,9 +16,10 @@ import { mindElixirToPlaintext, plaintextToMindElixir } from 'mind-elixir/plaint
 import type { MindElixirData, MindElixirInstance, Options } from 'mind-elixir';
 import type { AppLocale } from '@shared/types';
 import { safeReviver } from '../chart';
+import { t } from '../../i18n';
 import { isMindmapErrorCode, mindmapError } from './errors';
 import { normalizeEol, type MindmapMode } from './body';
-import { mindmapNodeId } from './document';
+import { mindmapNodeId, type MindmapDocumentDirection } from './document';
 import { assertMindmapBodySize, mindmapTextAsMarkup, sanitizeMindmapData } from './nodes';
 import { APP_THEME_CHOICE, readThemeChoice, resolveThemeChoice, type MindmapPalette } from './theme';
 import type { MindmapCreateOptions, MindmapHandle, MindmapParseResult, MindmapThemeInput, MindmapVendor } from './types';
@@ -35,8 +36,20 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
 }
 
-function localePack(locale: AppLocale): LangPack {
-    return locale === 'zh-CN' ? zh_CN : en;
+/**
+ * The library's own node menu, with the two rows this app can say better than the
+ * library does. Its `link` row is titled "Link" in English and reads like the note link
+ * the map really does keep, but it draws an arrow between two nodes of the same map, so
+ * the wording is replaced with one that names both ends. Everything else comes from the
+ * library's pack as it ships.
+ */
+function nodeMenuPack(locale: AppLocale): LangPack {
+    const base = locale === 'zh-CN' ? zh_CN : en;
+    return {
+        ...base,
+        link: t('mindmap.menu_arrow'),
+        linkBidirectional: t('mindmap.menu_arrow_two_way'),
+    };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,6 +102,56 @@ function documentFields(extra: Record<string, unknown>): { fields: Record<string
     if (isRecord(meta))
         fields.meta = meta;
     return { fields };
+}
+
+/**
+ * The two layout fields a body names, read off the object the library draws from.
+ *
+ * `init` looks at `direction` and `compact` on the way in; `refresh` does not — it takes
+ * the tree, the arrows, the summaries and the meta, and leaves the layout the map already
+ * had. So a document whose header said "go downward" would redraw sideways, and the file
+ * and the picture would disagree with no hint why. This is the read half of putting them
+ * back; the values have already been through `documentFields`, so anything reaching here
+ * is one the library accepts.
+ */
+export function layoutFieldsOf(data: unknown): { direction?: MindmapDocumentDirection, compact?: boolean } {
+    const record = isRecord(data) ? data : {};
+    const direction = record.direction;
+    const compact = record.compact;
+    return {
+        ...(direction === 0 || direction === 1 || direction === 2 || direction === 3 ? { direction } : {}),
+        ...(typeof compact === 'boolean' ? { compact } : {}),
+    };
+}
+
+/**
+ * The body as the library wants it, with one exception: `refresh` will not read the layout
+ * off it, so the caller takes those two out here rather than leaving them to be silently
+ * ignored. Returns what changed, because a map that moved to another layout has to be
+ * brought back to the middle, and one that merely redrew its nodes does not.
+ */
+export function applyLayoutFields(
+    target: { direction: MindmapDocumentDirection, compact: boolean },
+    data: unknown,
+): { directionChanged: boolean, compactChanged: boolean } {
+    const fields = layoutFieldsOf(data);
+    const directionChanged = fields.direction !== undefined && fields.direction !== target.direction;
+    const compactChanged = fields.compact !== undefined && fields.compact !== target.compact;
+    if (fields.direction !== undefined)
+        target.direction = fields.direction;
+    if (fields.compact !== undefined)
+        target.compact = fields.compact;
+    return { directionChanged, compactChanged };
+}
+
+/**
+ * The library closes its menu over its own rows and leaves the `extend` ones to the
+ * caller, so a row that opens a dialog would leave the menu sitting on top of it.
+ */
+function hideNodeMenu(instance: MindElixirInstance): void {
+    const menu = instance.container?.querySelector<HTMLElement>('.context-menu');
+    if (menu)
+        menu.hidden = true;
 }
 
 /** JSON bodies are validated before use; the outline parser reports its own errors. */
@@ -445,7 +508,18 @@ function createHandle(instance: MindElixirInstance, options: MindmapCreateOption
         },
         refresh: (body) => {
             theme.choice = body.theme;
-            instance.refresh(asData(body.data));
+            const data = asData(body.data);
+            const { directionChanged, compactChanged } = applyLayoutFields(instance, data);
+            // Compact is nothing but the four gap variables, and `changeTheme` is the only
+            // thing that writes them, so a map that turned compact has to be told before the
+            // layout measures against the gaps it is about to draw with.
+            if (compactChanged)
+                instance.changeTheme(instance.theme, false);
+            instance.refresh(data);
+            // The library's own layout buttons do the same: a map that moved from both sides
+            // to one is no longer where the reader was looking.
+            if (directionChanged)
+                instance.toCenter();
             // The new body may name a different palette; refresh() draws with the one the
             // instance already had.
             paintTheme(instance, theme);
@@ -471,6 +545,11 @@ function createHandle(instance: MindElixirInstance, options: MindmapCreateOption
         },
         scaleFit: () => fitToView(instance),
         fitFirstFrame: () => fitForReading(instance),
+        // One step of the library's own zoom, by its own sensitivity, so a button and a
+        // wheel notch move the map the same distance. The range needs no clamp here: the
+        // library's `scale` refuses a value past the floor and ceiling this map was built
+        // with, which is the same door the wheel goes through.
+        zoom: (direction: -1 | 1) => instance.scale(instance.scaleVal + direction * instance.scaleSensitivity),
         // The library binds every shortcut to its inner container (which carries
         // tabindex=0) and focuses it itself when an inline edit ends — this exposes
         // that same surface so a pointer interaction can do the same.
@@ -544,8 +623,27 @@ function createMindmap(options: MindmapCreateOptions): MindmapHandle {
         direction: MindElixir.SIDE,
         editable: options.editable,
         draggable: options.editable,
-        contextMenu: options.editable ? { locale: localePack(options.locale), focus: true, link: true } : false,
-        toolBar: options.editable,
+        contextMenu: options.editable
+            ? {
+                locale: nodeMenuPack(options.locale),
+                focus: true,
+                link: true,
+                extend: (options.nodeMenu ?? []).map(item => ({
+                    name: item.label,
+                    key: item.key ?? '',
+                    onclick: () => {
+                        if (holder.current)
+                            hideNodeMenu(holder.current);
+                        item.onSelect();
+                    },
+                })),
+            }
+            : false,
+        // The document surface draws its own capsule over the same corner the library's
+        // bottom-right bar occupies, and keeps its layout control in the header, so it says
+        // no here; a block leaves the answer to the library because nothing else offers it
+        // a zoom.
+        toolBar: options.editable && options.libraryToolBars,
         keypress: options.editable,
         allowUndo: options.editable,
         mouseSelectionButton: 0,
