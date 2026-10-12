@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decodeDataValue } from '../data-attr';
-import { parseMindmapNodeLink, splitMindmapTopicLinks } from './links';
+import { applyTopicCompletion, parseMindmapNodeLink, splitMindmapTopicLinks, topicCompletionQuery } from './links';
 import { decorateMindmapLinks, MINDMAP_NODE_LINK_ATTR } from './node-links';
 
 describe('parseMindmapNodeLink', () => {
@@ -116,5 +116,40 @@ describe('decorateMindmapLinks', () => {
 
     it('does nothing without a container', () => {
         expect(() => decorateMindmapLinks(null)).not.toThrow();
+    });
+});
+
+describe('the note a reader is in the middle of typing', () => {
+    it('reads the query out of an open bracket, and only out of an open one', () => {
+        expect(topicCompletionQuery('[[')).toBe('');
+        expect(topicCompletionQuery('Reading [[Rea')).toBe('Rea');
+        expect(topicCompletionQuery('[[Rea')).toBe('Rea');
+        expect(topicCompletionQuery('Reading [[Reading Notes]]')).toBeNull();
+        expect(topicCompletionQuery('[[One]] [[Tw')).toBe('Tw');
+        expect(topicCompletionQuery('Reading notes')).toBeNull();
+        expect(topicCompletionQuery('2 + 2')).toBeNull();
+    });
+
+    it('does not treat a bracket in the middle of the text as one still being typed', () => {
+        expect(topicCompletionQuery('[[Done]] and then some')).toBeNull();
+        expect(topicCompletionQuery('a [ b [[ c')).toBe(' c');
+    });
+
+    it('splices the pick into the open brackets, keeping what was written beside them', () => {
+        expect(applyTopicCompletion('[[Rea', 'Reading Notes')).toBe('[[Reading Notes]]');
+        expect(applyTopicCompletion('See [[Rea', 'Reading Notes')).toBe('See [[Reading Notes]]');
+        expect(applyTopicCompletion('[[', 'Reading Notes')).toBe('[[Reading Notes]]');
+        expect(applyTopicCompletion('[[Reading [[Rea', 'Reading Notes')).toBe('[[Reading [[Reading Notes]]');
+    });
+
+    it('replaces the whole topic when the brackets were closed by hand in the meantime', () => {
+        expect(applyTopicCompletion('[[Reading Notes]]', 'Other')).toBe('[[Other]]');
+        expect(applyTopicCompletion('Plain topic', 'Other')).toBe('[[Other]]');
+    });
+
+    it('leaves a finished topic a link the decoration recognises', () => {
+        const written = applyTopicCompletion('See [[Rea', 'Reading Notes');
+        expect(splitMindmapTopicLinks(written).map(segment => segment.target ?? segment.text)).toEqual(['See ', 'Reading Notes']);
+        expect(parseMindmapNodeLink(applyTopicCompletion('[[Rea', 'Reading Notes'))).toBe('Reading Notes');
     });
 });

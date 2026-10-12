@@ -10,9 +10,12 @@ import {
     readMindmapDocumentFields,
     watchMindmapBox,
     watchMindmapContainer,
+    writeMindmapDocumentFields,
     type MindmapDocumentFields,
+    type MindmapDocumentFieldWrite,
     type MindmapHandle,
     type MindmapMode,
+    type MindmapNodeMenuItem,
     type MindmapThemeChoice,
     type MindmapVendor,
     type MindmapVendorLoader,
@@ -31,6 +34,11 @@ export interface MindmapDocumentController {
     map(): MindmapHandle | null
     /** The document as it stands on screen, rendered into the given body format. */
     serializeAs(mode: MindmapMode): string | null
+    /**
+     * Sets the fields the file states about how it is drawn — the layout, the spacing, the
+     * palette — and writes them out at once rather than on the debounce.
+     */
+    patchFields(write: MindmapDocumentFieldWrite): void
 }
 
 interface Options {
@@ -41,6 +49,8 @@ interface Options {
     autoSaveMs: number
     /** Ceiling on this map's undo history; see ./mindmap-settings-store for why it needs one. */
     undoStepLimit?: number
+    /** Rows to add to the node context menu; read when the map is built. */
+    nodeMenu?: readonly MindmapNodeMenuItem[]
     /** Called with the whole new body after the map settles; the note's text is the document. */
     onBodyChange: (next: string) => void
     /** Stands in for the library chunk in tests; the registry takes the same seam. */
@@ -83,6 +93,8 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
     const darkAtMount = useRef(options.dark);
     const localeAtMount = useRef(options.locale);
     const editableAtMount = useRef(options.editable);
+    const nodeMenuRef = useRef(options.nodeMenu);
+    nodeMenuRef.current = options.nodeMenu;
     // The file's own drawing fields, kept with the map rather than read again by the surface
     // around it: the parse below already has them in hand, and re-parsing a 144 KB body on
     // every write tick to answer three toggles was the cost the header was paying. The first
@@ -186,6 +198,16 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
                 dark,
                 locale,
                 newTopicName: t('preview.mindmap_new_topic'),
+                // The capsule below the canvas and the header above it are this surface's
+                // chrome; the library's own bars would sit on top of them.
+                libraryToolBars: false,
+                nodeMenu: (options.nodeMenu ?? []).map(item => ({
+                    ...item,
+                    // The rows are read once, when the map is built, but the action behind
+                    // one belongs to the render that asked for it: a click looks its row up
+                    // again rather than running whatever closure was current at the mount.
+                    onSelect: () => nodeMenuRef.current?.find(row => row.id === item.id)?.onSelect(),
+                })),
                 // The document owns its viewport: plain wheel pans and zooms here, where a
                 // block in a scrolling preview has to leave the wheel to the note.
                 modifierWheelZoom: false,
@@ -268,5 +290,35 @@ export function useMindmapDocument(options: Options): MindmapDocumentController 
             : null;
     }, []);
 
-    return { hostRef, status, error, fields, map, serializeAs };
+    /**
+     * The three fields the file states about how it is drawn, set through the map rather
+     * than through the text the surface was handed.
+     *
+     * Patching that text would be the shorter code and it would be wrong: the map is ahead
+     * of it by whatever the debounce has not written yet, so a toggle pressed just after an
+     * edit would be answered by the write already in flight, and the file would land back on
+     * the layout it had before the click. Here the fields go onto the body the map is about
+     * to write, so the picture and the text cannot disagree about what the document says.
+     */
+    const patchFields = useCallback((write: MindmapDocumentFieldWrite) => {
+        const current = live.current;
+        if (!current)
+            return;
+        const body = writeMindmapDocumentFields(
+            current.vendor.serialize(current.handle.getData(), 'json', current.extra), write);
+        if (body === null)
+            return;
+        const parsed = current.vendor.parse(body, 'json', t('preview.mindmap_untitled'));
+        if (!parsed.ok)
+            return;
+        current.extra = parsed.extra;
+        current.choice = parsed.theme;
+        setFields(mindmapDocumentFieldsFromExtra(parsed.extra));
+        emitted.current = body;
+        current.handle.refresh({ ...parsed, theme: parsed.theme });
+        decorateMindmapLinks(hostRef.current);
+        bodyChange.current(body);
+    }, []);
+
+    return { hostRef, status, error, fields, map, serializeAs, patchFields };
 }

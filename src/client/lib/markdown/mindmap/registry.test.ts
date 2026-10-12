@@ -60,6 +60,7 @@ function fakeHandle(payload: unknown): FakeHandle {
         layout: () => bump('layout'),
         scaleFit: () => bump('scaleFit'),
         fitFirstFrame: () => bump('fitFirstFrame'),
+        zoom: () => bump('zoom'),
         focus: () => bump('focus'),
         undo: () => bump('undo'),
         redo: () => bump('redo'),

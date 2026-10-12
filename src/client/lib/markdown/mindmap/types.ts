@@ -71,6 +71,11 @@ export interface MindmapHandle {
      * shot, and a fit too small to read is not a fit at all.
      */
     fitFirstFrame(): void
+    /**
+     * One step of zoom, in or out, by the distance a wheel notch is worth. A surface that
+     * keeps the library's own zoom bar turned off has to offer the same reach somewhere.
+     */
+    zoom(direction: -1 | 1): void
     /** Puts DOM focus on the map's own keyboard surface, so its shortcuts fire. */
     focus(): void
     undo(): void
@@ -92,6 +97,18 @@ export interface MindmapThemeInput {
     choice: MindmapThemeChoice
 }
 
+/**
+ * A row this app adds to the library's node context menu, below the library's own.
+ * The library prints `label` as the whole row and puts `key` in the shortcut chip at
+ * its right, so a row that has no key is stated as a bare name.
+ */
+export interface MindmapNodeMenuItem {
+    id: string
+    label: string
+    key?: string
+    onSelect: () => void
+}
+
 export interface MindmapCreateOptions {
     el: HTMLElement
     body: MindmapParsedBody
@@ -99,6 +116,13 @@ export interface MindmapCreateOptions {
     dark: boolean
     locale: AppLocale
     newTopicName: string
+    /**
+     * Whether the library draws its own two toolbars — the layout bar at the top left and
+     * the zoom and full screen bar at the bottom right. A surface that carries chrome of
+     * its own over those corners says no; the flags are the library's, so a read-only map
+     * never draws them whatever this says.
+     */
+    libraryToolBars: boolean
     /**
      * Inline blocks sit in the scrolling preview, so plain wheel keeps scrolling
      * the note and only Ctrl/⌘ + wheel zooms; the full screen map owns its viewport
@@ -113,6 +137,8 @@ export interface MindmapCreateOptions {
      * that cannot edit — and so cannot undo — passes.
      */
     undoStepLimit: number
+    /** Rows this app adds to the node context menu, in the order given. */
+    nodeMenu?: readonly MindmapNodeMenuItem[]
     onOperation: () => void
     onEditingChange: (editing: boolean) => void
 }

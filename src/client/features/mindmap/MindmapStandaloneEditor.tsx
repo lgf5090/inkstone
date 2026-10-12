@@ -15,6 +15,7 @@ import {
     Maximize2,
     Minimize2,
     Moon,
+    MoreHorizontal,
     NotebookPen,
     Redo2,
     Save,
@@ -26,6 +27,8 @@ import {
     Undo2,
     Workflow,
     Zap,
+    ZoomIn,
+    ZoomOut,
 } from 'lucide-react';
 import type { NoteSummary } from '@shared/types';
 import { IconButton } from '../../components/primitives';
@@ -36,15 +39,18 @@ import { downloadBlob, safeFileName } from '../../lib/export-note';
 import { decodeDataValue } from '../../lib/markdown/data-attr';
 import { parseWikiTarget } from '../../lib/markdown/renderer';
 import {
+    applyTopicCompletion,
     MINDMAP_NODE_LINK_ATTR,
+    MINDMAP_TOPIC_EDITOR_ID,
     markdownToMindmapOutline,
     mindmapErrorText,
-    parseMindmapNodeLink,
     mindmapNodeTopic,
     mindmapOutlineToMarkdown,
-    writeMindmapDocumentFields,
+    parseMindmapNodeLink,
+    topicCompletionQuery,
     type MindmapDocumentDirection,
     type MindmapDocumentPalette,
+    type MindmapNodeMenuItem,
 } from '../../lib/markdown/mindmap';
 import { findNoteByTitle, useNotes } from '../../store/notes';
 import { useUi, type WorkspacePane } from '../../store/ui';
@@ -94,9 +100,12 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
     const [view, setView] = useState<ViewMode>('canvas');
     const [isMenuOpen, setMenuOpen] = useState(false);
     const [isPicking, setPicking] = useState<null | 'link' | 'outline'>(null);
+    const [pickSeed, setPickSeed] = useState('');
     const [isFullscreen, setIsFullscreen] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
     const shellRef = useRef<HTMLDivElement>(null);
+    /** The node a `[[` was typed into, and the text it held when the list opened. */
+    const completion = useRef<{ id: string, text: string } | null>(null);
 
     const onChangeRef = useRef(onChange);
     useEffect(() => {
@@ -107,6 +116,17 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         onChangeRef.current(next);
     }, []);
 
+    /**
+     * The rows added to the node context menu. They are assembled before the map exists —
+     * the hook takes them when it builds one — so each reaches its action through a box the
+     * render below refills, rather than through a closure over a map that is not there yet.
+     */
+    const nodeActions = useRef<{ openLink: () => void, createNote: () => void }>({ openLink: () => {}, createNote: () => {} });
+    const nodeMenu = useMemo<MindmapNodeMenuItem[]>(() => [
+        { id: 'link-note', label: t('mindmap.link_note'), onSelect: () => nodeActions.current.openLink() },
+        { id: 'new-note', label: t('mindmap.create_note_from_node'), onSelect: () => nodeActions.current.createNote() },
+    ], []);
+
     const surface = useMindmapDocument({
         content,
         editable: true,
@@ -114,6 +134,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         locale,
         autoSaveMs: autoSaveIntervalMs,
         undoStepLimit: undoHistoryLimit,
+        nodeMenu,
         onBodyChange: handleBodyChange,
     });
     const map = surface.map;
@@ -122,19 +143,58 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
     // note text, and re-reading 144 KB of JSON on every write tick to answer three toggles
     // was the price the header paid for showing them.
     const fields = surface.fields;
+    const ready = surface.status === 'ready';
     const isSynced = saveStatus === 'synced' || saveStatus === 'idle';
     const { hover, handlePin, onMouseLeave } = useLinkHoverHost(note.id);
 
-    const patchField = useCallback((write: {
-        direction?: MindmapDocumentDirection | null
-        compact?: boolean | null
-        palette?: MindmapDocumentPalette | null
-    }) => {
-        const next = writeMindmapDocumentFields(content, write);
-        if (next === null || next === content)
+    /**
+     * `[[` in a node opens the same list the menu does, with the characters typed so far
+     * already in its search box.
+     *
+     * The library owns the editor the brackets go into — a contenteditable it blurs to
+     * commit — so this only watches it: opening the picker takes the focus, which writes the
+     * half-finished text into the node as it stands, and the pick is spliced into that.
+     */
+    useEffect(() => {
+        const host = surface.hostRef.current;
+        if (!host)
             return;
-        onChangeRef.current(next);
-    }, [content]);
+        const onInput = (event: Event) => {
+            const editor = event.target;
+            if (!(editor instanceof HTMLElement) || editor.id !== MINDMAP_TOPIC_EDITOR_ID)
+                return;
+            const query = topicCompletionQuery(editor.textContent ?? '');
+            if (query === null)
+                return;
+            const id = map()?.selectedNodeId();
+            if (!id)
+                return;
+            completion.current = { id, text: editor.textContent ?? '' };
+            setPickSeed(query);
+            setPicking('link');
+        };
+        host.addEventListener('input', onInput);
+        return () => host.removeEventListener('input', onInput);
+    }, [map, surface.hostRef]);
+
+    /** The link the reader was writing: the open `[[query` gives way to the note they picked. */
+    const applyCompletion = useCallback((title: string) => {
+        const pending = completion.current;
+        completion.current = null;
+        const handle = map();
+        if (!pending || !handle)
+            return;
+        // Spliced into the topic the node holds now rather than the text as it was typed a
+        // moment ago: the editor committed — and trimmed — it in between.
+        const topic = mindmapNodeTopic(handle.getData(), pending.id) ?? pending.text;
+        handle.renameNode(pending.id, applyTopicCompletion(topic, title));
+    }, [map]);
+
+    const openLinkPicker = useCallback(() => {
+        completion.current = null;
+        setPickSeed('');
+        setPicking('link');
+    }, []);
 
     /**
      * A node that names another note carries the same `data-wikilink` a prose link does,
@@ -233,8 +293,12 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         const id = handle ? requireSelection() : null;
         if (!handle || !id)
             return;
-        const topic = mindmapNodeTopic(handle.getData(), id)?.trim();
-        if (!topic || topic.startsWith('[[')) {
+        const written = mindmapNodeTopic(handle.getData(), id)?.trim() ?? '';
+        // A node that already names a note is asked to make the note it names, not one
+        // spelled after the brackets: `[[Reading]]` is a pointer at "Reading", and the
+        // pointer is what the reader wrote.
+        const topic = parseMindmapNodeLink(written)?.trim() ?? written;
+        if (!topic) {
             toast({ title: t('mindmap.node_is_untitled'), tone: 'warning' });
             return;
         }
@@ -254,6 +318,11 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
             duration: 6000,
         });
     }, [map, requireSelection, toast]);
+
+    nodeActions.current = {
+        openLink: openLinkPicker,
+        createNote: () => void createNoteFromSelection(),
+    };
 
     const writeOutlineNote = useCallback(() => {
         const outline = surface.serializeAs('outline');
@@ -346,19 +415,19 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
             </Tooltip>
 
             <Tooltip label={t('mindmap.compact')}>
-              <IconButton label={t('mindmap.compact')} size="sm" active={fields.compact ?? false} onClick={() => patchField({ compact: !(fields.compact ?? false) })}>
+              <IconButton label={t('mindmap.compact')} size="sm" disabled={!ready} active={fields.compact ?? false} onClick={() => surface.patchFields({ compact: !(fields.compact ?? false) })}>
                 <Zap size={14}/>
               </IconButton>
             </Tooltip>
 
             <Tooltip label={`${t('mindmap.direction')}: ${t(DIRECTION_LABELS[fields.direction ?? 2])}`}>
-              <IconButton label={t('mindmap.direction')} size="sm" onClick={() => patchField({ direction: nextDirection(fields.direction) })}>
+              <IconButton label={t('mindmap.direction')} size="sm" disabled={!ready} onClick={() => surface.patchFields({ direction: nextDirection(fields.direction) })}>
                 <DirectionGlyph direction={fields.direction ?? 2}/>
               </IconButton>
             </Tooltip>
 
             <Tooltip label={t(PALETTE_LABELS[fields.palette ?? 'auto'])}>
-              <IconButton label={t('mindmap.palette')} size="sm" onClick={() => patchField({ palette: nextPalette(fields.palette) })}>
+              <IconButton label={t('mindmap.palette')} size="sm" disabled={!ready} onClick={() => surface.patchFields({ palette: nextPalette(fields.palette) })}>
                 {fields.palette === 'dark' ? <Moon size={14}/> : fields.palette === 'light' ? <Sun size={14}/> : <Sparkles size={14}/>}
               </IconButton>
             </Tooltip>
@@ -378,7 +447,7 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
             <Menu anchor={menuRef} open={isMenuOpen} onClose={() => setMenuOpen(false)} items={menuItems} align="end" width={240}/>
             <Tooltip label={t('mindmap.actions')}>
               <IconButton ref={menuRef} label={t('mindmap.actions')} size="sm" active={isMenuOpen} onClick={() => setMenuOpen((open) => !open)}>
-                <Download size={15}/>
+                <MoreHorizontal size={14}/>
               </IconButton>
             </Tooltip>
 
@@ -427,12 +496,14 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
             </div>
           )}
 
-          {view === 'canvas' && surface.status === 'ready' && (
+          {view === 'canvas' && ready && (
             <MindmapDocumentCapsule
               isFullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
               onUndo={() => map()?.undo()}
               onRedo={() => map()?.redo()}
+              onZoomIn={() => map()?.zoom(1)}
+              onZoomOut={() => map()?.zoom(-1)}
               onFit={() => map()?.scaleFit()}
               onCenter={() => map()?.toCenter()}
             />
@@ -455,10 +526,14 @@ export function MindmapStandaloneEditor({ note, content, onChange, onTitleChange
         <MindmapNotePicker
           open={isPicking !== null}
           title={isPicking === 'outline' ? t('mindmap.import_note_outline') : t('mindmap.link_note')}
+          initialQuery={pickSeed}
+          excludeNoteId={note.id}
           onClose={() => setPicking(null)}
           onSelect={(picked) => {
             if (isPicking === 'outline')
                 importOutline(picked.id);
+            else if (completion.current)
+                applyCompletion(picked.title || t('common.untitled_note'));
             else
                 linkSelection(picked.title || t('common.untitled_note'));
           }}
@@ -525,21 +600,30 @@ function rootTopic(data: unknown): string {
 
 /**
  * The view controls that belong over the canvas rather than in the head: the head is
- * already at its width on a phone. These are framing and history; the library's own
- * toolbar keeps node operations where it put them, so the two never overlap.
+ * already at its width on a phone.
+ *
+ * This is the whole of the map's chrome on this surface. The library draws two bars of its
+ * own — a layout one at the top left, a zoom and full screen one at the bottom right — and
+ * both are switched off where this capsule lives: the bottom-right one occupied the same
+ * corner, and the full screen button in it asked the browser to fullscreen the map alone,
+ * which is a different picture from the one the reader clicked on. What those bars offered
+ * that this did not — zoom in and out — is answered here, and what the layout bar offered
+ * the head has offered all along.
  */
 function MindmapDocumentCapsule(props: {
     isFullscreen: boolean
     onToggleFullscreen: () => void
     onUndo: () => void
     onRedo: () => void
+    onZoomIn: () => void
+    onZoomOut: () => void
     onFit: () => void
     onCenter: () => void
 }) {
-    const { isFullscreen, onToggleFullscreen, onUndo, onRedo, onFit, onCenter } = props;
+    const { isFullscreen, onToggleFullscreen, onUndo, onRedo, onZoomIn, onZoomOut, onFit, onCenter } = props;
     return (
       <div className="pointer-events-none absolute right-3 bottom-3 left-3 flex justify-end">
-        <div className="pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-1 shadow-[var(--shadow-pop)]">
+        <div data-mindmap-capsule className="pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-1 shadow-[var(--shadow-pop)]">
           <Tooltip label={t('preview.mindmap_undo')} side="top">
             <IconButton label={t('preview.mindmap_undo')} size="sm" onClick={onUndo}>
               <Undo2 size={15}/>
@@ -548,6 +632,16 @@ function MindmapDocumentCapsule(props: {
           <Tooltip label={t('preview.mindmap_redo')} side="top">
             <IconButton label={t('preview.mindmap_redo')} size="sm" onClick={onRedo}>
               <Redo2 size={15}/>
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('mindmap.zoom_out')} side="top">
+            <IconButton label={t('mindmap.zoom_out')} size="sm" onClick={onZoomOut}>
+              <ZoomOut size={15}/>
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('mindmap.zoom_in')} side="top">
+            <IconButton label={t('mindmap.zoom_in')} size="sm" onClick={onZoomIn}>
+              <ZoomIn size={15}/>
             </IconButton>
           </Tooltip>
           <Tooltip label={t('preview.mindmap_fit')} side="top">
@@ -561,7 +655,7 @@ function MindmapDocumentCapsule(props: {
             </IconButton>
           </Tooltip>
           <Tooltip label={isFullscreen ? t('mindmap.exit_fullscreen') : t('mindmap.fullscreen')} side="top">
-            <IconButton label={isFullscreen ? t('mindmap.exit_fullscreen') : t('mindmap.fullscreen')} size="sm" onClick={onToggleFullscreen}>
+            <IconButton label={isFullscreen ? t('mindmap.exit_fullscreen') : t('mindmap.fullscreen')} size="sm" active={isFullscreen} onClick={onToggleFullscreen}>
               {isFullscreen ? <Minimize2 size={15}/> : <Maximize2 size={15}/>}
             </IconButton>
           </Tooltip>

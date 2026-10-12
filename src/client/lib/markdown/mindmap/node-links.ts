@@ -25,6 +25,16 @@ const TOPIC_SELECTOR = 'me-tpc';
 const TOPIC_TEXT_SELECTOR = '.text';
 
 /**
+ * The id the library gives the one contenteditable it puts a topic into.
+ *
+ * A surface that watches what the reader is typing has to be able to tell that element
+ * from the nodes around it, and this is the only place the name is written down outside
+ * the vendor: the vendor itself cannot be imported here, because everything in this file
+ * has to be reachable without pulling the library chunk down the boot path.
+ */
+export const MINDMAP_TOPIC_EDITOR_ID = 'input-box';
+
+/**
  * Where a topic's text actually lives. The library caches the node's own `.text` span and
  * reads it back when it draws — its SVG export measures that element — so decorating the
  * topic element itself would replace the span and leave the library holding a detached

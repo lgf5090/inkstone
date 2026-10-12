@@ -15,8 +15,41 @@ const NODE_LINK_RE = /^\[\[([^[\]\n]{1,400})\]\]$/;
 /** What every link below opens with. A topic without these two characters has no link in it. */
 export const WIKI_LINK_OPEN = '[[';
 
+/** What closes one. The two together are the whole syntax a node's topic carries. */
+export const WIKI_LINK_CLOSE = ']]';
+
 /** Any `[[...]]` occurrence inside the topic, so a topic can carry a link among other text. */
 const EMBEDDED_LINK_RE = /\[\[([^[\]\n]{1,400})\]\]/g;
+
+/** One `[[` that is still open at the end of the text, with whatever has been typed after it. */
+const OPEN_LINK_TAIL_RE = /\[\[([^[\]\n]*)$/;
+
+/**
+ * The note a reader is in the middle of typing, from the text in the node editor.
+ *
+ * `[[` is the whole trigger and it stays one until the brackets close: `Community` after
+ * the last `[[` is a search, `Community]]` is a finished link, and `[[A]] [[B` is a second
+ * one being typed after a first. A topic with nothing open answers null, which is what lets
+ * this run on every keystroke with no state to keep track of.
+ */
+export function topicCompletionQuery(text: string): string | null {
+    const match = OPEN_LINK_TAIL_RE.exec(text);
+    return match ? match[1]! : null;
+}
+
+/**
+ * The topic a completion writes back: the open `[[query` the reader was working from,
+ * replaced by the link. A text that no longer ends with an open bracket is one they
+ * finished by hand in the meantime, and the link takes its place whole rather than
+ * nesting inside it.
+ */
+export function applyTopicCompletion(text: string, title: string): string {
+    const query = topicCompletionQuery(text);
+    if (query === null)
+        return `${WIKI_LINK_OPEN}${title}${WIKI_LINK_CLOSE}`;
+    const at = text.length - (WIKI_LINK_OPEN.length + query.length);
+    return `${text.slice(0, at)}${WIKI_LINK_OPEN}${title}${WIKI_LINK_CLOSE}`;
+}
 
 /**
  * The wiki target a node points at, or null when the topic is not one. Matches

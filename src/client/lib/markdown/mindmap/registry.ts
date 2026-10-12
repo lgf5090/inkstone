@@ -447,6 +447,9 @@ async function buildInstance(entry: MindmapBlockEntry): Promise<void> {
         dark: entry.dark,
         locale: entry.locale,
         newTopicName: t('preview.mindmap_new_topic'),
+        // A block has no chrome of its own over the map's corners, so the library's zoom bar
+        // and layout bar are what a reader on a block has.
+        libraryToolBars: true,
         modifierWheelZoom: true,
         // The block is built long after the mount pass that asked for it (the vendor chunk
         // arrives by promise), so the ceiling is read from the options the scope last
