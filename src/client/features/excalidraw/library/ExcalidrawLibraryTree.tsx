@@ -2,27 +2,30 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { usePinyinVersion } from '../../../lib/pinyin'
 import {
-  Folder,
-  FolderPlus,
-  FolderOpen,
-  ChevronRight,
-  ChevronDown,
-  Plus,
-  Trash2,
-  Edit2,
-  Download,
-  Upload,
-  Globe,
   Check,
-  X,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Download,
+  Edit2,
+  FolderPlus,
+  Globe,
   Layers,
-  Sparkles,
   Loader2,
+  MoreHorizontal,
+  Plus,
   Search,
+  SortAsc,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
 } from 'lucide-react'
 import { FilterInput } from '../../../components/FilterInput'
+import { Menu, MenuSubmenuList, useContextMenu } from '../../../components/overlay'
+import type { MenuItem } from '../../../components/overlay'
 import { compileQuery, queryMatches } from '../../../lib/query-match'
-import { splitByRanges } from '../../../lib/fuzzy'
+import { leftDropTarget } from '../../../lib/note-drag'
+import { useDropState } from '../../../lib/drop-state'
 import { t } from '../../../lib/i18n'
 import { toast } from './toast'
 import {
@@ -30,6 +33,9 @@ import {
   extractItemName,
   useExcalidrawLibraryStore,
 } from './library-store'
+import { LibraryFolderRow, toMoveTree } from './LibraryFolderRow'
+import type { LibraryFolderRowContext } from './LibraryFolderRow'
+import { currentFolderDrag, endFolderDrag, isFolderDrag, resolveFolderDrop } from './library-folder-drag'
 import { ExcalidrawOfficialLibraryModal } from './ExcalidrawOfficialLibraryModal'
 import { loadExcalidrawLib, restoreSceneElements } from '../../../lib/markdown/excalidraw/loader'
 import type {
@@ -273,13 +279,16 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   const toggleFolder = useExcalidrawLibraryStore((s) => s.toggleFolder)
   const createFolder = useExcalidrawLibraryStore((s) => s.createFolder)
   const renameFolder = useExcalidrawLibraryStore((s) => s.renameFolder)
-  const deleteFolder = useExcalidrawLibraryStore((s) => s.deleteFolder)
   const addItem = useExcalidrawLibraryStore((s) => s.addItem)
   const deleteItem = useExcalidrawLibraryStore((s) => s.deleteItem)
   const renameItem = useExcalidrawLibraryStore((s) => s.renameItem)
   const exportFolder = useExcalidrawLibraryStore((s) => s.exportFolder)
   const exportAll = useExcalidrawLibraryStore((s) => s.exportAll)
   const importFromLibraryData = useExcalidrawLibraryStore((s) => s.importFromLibraryData)
+  const moveFolder = useExcalidrawLibraryStore((s) => s.moveFolder)
+  const sortFolders = useExcalidrawLibraryStore((s) => s.sortFolders)
+  const expandAll = useExcalidrawLibraryStore((s) => s.expandAll)
+  const collapseAll = useExcalidrawLibraryStore((s) => s.collapseAll)
 
   const [searchText, setSearchText] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -291,6 +300,23 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   const [newSubfolderName, setNewSubfolderName] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** `undefined` follows the selected folder, `null` means the top level, an id means that folder. */
+  const importTargetRef = useRef<string | null | undefined>(undefined)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [rootDropping, setRootDropping] = useDropState(false)
+  const rootMenu = useContextMenu()
+  const [rootMenuOpen, setRootMenuOpen] = useState(false)
+  const rootRowRef = useRef<HTMLDivElement>(null)
+  /**
+   * Where a menu of this panel is portalled to.
+   *
+   * `document.body` will not do: the engine watches for a pointer outside its library panel and closes
+   * the panel when it sees one, so a menu on the body was outside - the first click on a row tore the
+   * panel, and with it the menu that was answering the click, out from under the user. The panel's own
+   * root is inside the engine's element and is not one of the children this app's stylesheet hides.
+   */
+  const rootRef = useRef<HTMLDivElement>(null)
+  const overlayContainer = rootRef.current
 
   useEffect(() => {
     void init()
@@ -299,6 +325,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   const compiledQuery = useMemo(() => compileQuery(searchText), [searchText])
   const pinyinVersion = usePinyinVersion()
   const tree = useMemo(() => buildLibraryTree(folders, items), [folders, items])
+  const moveTree = useMemo(() => toMoveTree(tree), [tree])
 
   const visibleFolders = useMemo(() => {
     if (!searchText.trim()) return tree
@@ -402,13 +429,20 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
     })
   }
 
+  const openImport = (target: string | null | undefined) => {
+    importTargetRef.current = target
+    fileInputRef.current?.click()
+  }
+
   const handleLocalFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    const requested = importTargetRef.current
+    importTargetRef.current = undefined
     try {
       const text = await file.text()
       const parsed = JSON.parse(text)
-      const count = await importFromLibraryData(parsed, activeFolderId, file.name)
+      const count = await importFromLibraryData(parsed, requested === undefined ? activeFolderId : requested, file.name)
       toast({
         title: t('excalidraw.import_success', { value0: count }),
         tone: 'success',
@@ -424,174 +458,104 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
     }
   }
 
-  const renderFolderItem = (node: LibraryFolderNode) => {
-    const isExpanded = expandedFolderIds.includes(node.id) || Boolean(searchText.trim())
-    const isActive = activeFolderId === node.id
-    const isEditing = editingFolderId === node.id
-    const hasChildren = node.children.length > 0
-    const match = searchText.trim() ? queryMatches(compiledQuery, node.name) : null
-
-    return (
-      <div key={node.id} className="flex flex-col select-none">
-        <div
-          onClick={() => setActiveFolderId(isActive ? null : node.id)}
-          className={`group relative flex h-8 items-center gap-1 rounded-md px-1 text-xs cursor-pointer transition-colors ${
-            isActive
-              ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-medium'
-              : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-          }`}
-          style={{ paddingLeft: `${6 + node.depth * 14}px` }}
-        >
-          <button
-            type="button"
-            aria-label={t('excalidraw.expand_or_collapse_folder')}
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleFolder(node.id)
-            }}
-            className={`p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-tertiary)] ${
-              !hasChildren ? 'invisible' : ''
-            }`}
-          >
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
-
-          {isActive ? (
-            <FolderOpen size={15} className="shrink-0 text-[var(--accent)]" />
-          ) : (
-            <Folder size={15} className="shrink-0 text-[var(--text-tertiary)]" />
-          )}
-
-          {isEditing ? (
-            <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
-              <input
-                type="text"
-                value={editingFolderName}
-                autoFocus
-                onChange={(e) => setEditingFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    renameFolder(node.id, editingFolderName)
-                    setEditingFolderId(null)
-                  } else if (e.key === 'Escape') {
-                    setEditingFolderId(null)
-                  }
-                }}
-                className="h-6 w-full rounded border border-[var(--accent)] bg-[var(--bg-surface)] px-1.5 text-xs text-[var(--text-primary)] focus:outline-none"
-              />
-              <button
-                type="button"
-                aria-label={t('excalidraw.rename_folder')}
-                onClick={() => {
-                  renameFolder(node.id, editingFolderName)
-                  setEditingFolderId(null)
-                }}
-                className="p-1 text-[var(--accent)] hover:opacity-80"
-              >
-                <Check size={12} />
-              </button>
-            </div>
-          ) : (
-            <span className="flex-1 truncate ml-0.5">
-              {match
-                ? splitByRanges(node.name, match.ranges).map(
-                    (part: { text: string; hit: boolean }, i: number) =>
-                      part.hit ? (
-                        <span key={i} className="font-semibold text-[var(--accent)]">
-                          {part.text}
-                        </span>
-                      ) : (
-                        <span key={i}>{part.text}</span>
-                      ),
-                  )
-                : node.name}
-            </span>
-          )}
-
-          <span className="text-[10.5px] tabular-nums text-[var(--text-quaternary)] mr-1">
-            {node.itemCount}
-          </span>
-
-          <div
-            className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              title={t('excalidraw.new_subfolder')}
-              onClick={() => {
-                setAddingToFolderId(node.id)
-                setNewSubfolderName('')
-              }}
-              className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 rounded"
-            >
-              <Plus size={12} />
-            </button>
-            <button
-              type="button"
-              title={t('sidebar.rename')}
-              onClick={() => {
-                setEditingFolderId(node.id)
-                setEditingFolderName(node.name)
-              }}
-              className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 rounded"
-            >
-              <Edit2 size={12} />
-            </button>
-            <button
-              type="button"
-              title={t('common.delete')}
-              onClick={() => deleteFolder(node.id)}
-              className="p-1 text-[var(--text-tertiary)] hover:text-[var(--danger)] hover:bg-black/5 dark:hover:bg-white/5 rounded"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        </div>
-
-        {addingToFolderId === node.id && (
-          <div
-            className="flex items-center gap-1 py-1 pr-2 my-0.5 rounded-md bg-[var(--bg-sunken)]"
-            style={{ paddingLeft: `${24 + node.depth * 14}px` }}
-          >
-            <input
-              type="text"
-              autoFocus
-              placeholder={t('excalidraw.new_subfolder')}
-              value={newSubfolderName}
-              onChange={(e) => setNewSubfolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateSubfolder(node.id)
-                else if (e.key === 'Escape') setAddingToFolderId(null)
-              }}
-              className="h-6 flex-1 rounded border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
-            />
-            <button
-              type="button"
-              aria-label={t('excalidraw.new_subfolder')}
-              onClick={() => handleCreateSubfolder(node.id)}
-              className="p-1 text-[var(--accent)]"
-            >
-              <Check size={13} />
-            </button>
-            <button
-              type="button"
-              aria-label={t('common.cancel')}
-              onClick={() => setAddingToFolderId(null)}
-              className="p-1 text-[var(--text-tertiary)]"
-            >
-              <X size={13} />
-            </button>
-          </div>
-        )}
-
-        {isExpanded && node.children.map((child) => renderFolderItem(child))}
-      </div>
-    )
+  /** Everything a folder row needs beyond its own node, assembled once per panel render. */
+  /**
+   * Ask the engine to bring its library panel back.
+   *
+   * A confirmation dialog is portalled to the body, and the engine closes its sidebar on a pointer
+   * down outside the panel - which is exactly what answering the dialog is. Without this the panel
+   * vanishes behind the dialog and the user is left on a bare canvas having only meant to rename a
+   * folder.
+   */
+  const restoreLibraryPanel = () => {
+    if (!api || typeof api.getAppState !== 'function' || typeof api.updateScene !== 'function') return
+    const current = api.getAppState()
+    const open = Boolean(current?.openSidebar && (current.openSidebar.name === 'default' || current.openSidebar.name === 'customSidebar'))
+    if (open) return
+    api.updateScene({ appState: { openSidebar: { name: 'default', tab: 'library' } } })
   }
 
+  const rowCtx: LibraryFolderRowContext = {
+    folders,
+    moveTree,
+    expandedIds: expandedFolderIds,
+    activeFolderId,
+    query: searchText.trim() ? compiledQuery : null,
+    dragId,
+    overlayContainer,
+    editingId: editingFolderId,
+    editingName: editingFolderName,
+    addingToId: addingToFolderId,
+    addingName: newSubfolderName,
+    setDragId,
+    onSelect: setActiveFolderId,
+    onToggle: toggleFolder,
+    onRenameStart: (id, name) => {
+      setEditingFolderId(id)
+      setEditingFolderName(name)
+    },
+    onRenameChange: setEditingFolderName,
+    onRenameCommit: (id) => {
+      renameFolder(id, editingFolderName)
+      setEditingFolderId(null)
+    },
+    onRenameCancel: () => setEditingFolderId(null),
+    onAddChildStart: (id) => {
+      setAddingToFolderId(id)
+      setNewSubfolderName('')
+    },
+    onAddChildChange: setNewSubfolderName,
+    onAddChildCommit: handleCreateSubfolder,
+    onAddCancel: () => setAddingToFolderId(null),
+    onExport: (id) => exportFolder(id),
+    onImportInto: (id) => openImport(id),
+    onDialogClosed: restoreLibraryPanel,
+  }
+
+
+  const dropAtTopLevel = (subjectId: string) => {
+    const move = resolveFolderDrop({ folders, subjectId, targetId: null, placement: 'inside' })
+    if (move?.changed) moveFolder(subjectId, move.parentId, move.beforeId)
+  }
+
+  const allExpanded = folders.length > 0 && folders.every((entry) => expandedFolderIds.includes(entry.id))
+  const rootMenuItems: MenuItem[] = [
+    {
+      id: 'new-folder',
+      label: t('excalidraw.new_folder'),
+      icon: <FolderPlus size={13} />,
+      onSelect: () => {
+        setAddingToFolderId('root')
+        setNewSubfolderName('')
+      },
+    },
+    { id: 'import', label: t('excalidraw.import_from_file'), icon: <Upload size={13} />, separatorBefore: true, onSelect: () => openImport(null) },
+    { id: 'export', label: t('excalidraw.export_library'), icon: <Download size={13} />, onSelect: () => exportAll() },
+    {
+      id: 'arrange',
+      label: t('folders.group_arrange'),
+      icon: <SortAsc size={13} />,
+      separatorBefore: true,
+      submenu: () => (
+        <MenuSubmenuList
+          label={t('folders.group_arrange')}
+          items={[
+            {
+              id: 'expand-all',
+              label: allExpanded ? t('folders.collapse_all') : t('folders.expand_all'),
+              icon: allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />,
+              disabled: tree.length === 0,
+              onSelect: () => (allExpanded ? collapseAll() : expandAll()),
+            },
+            { id: 'sort', label: t('folders.sort_by_name'), icon: <SortAsc size={13} />, disabled: tree.length < 2, onSelect: () => sortFolders(null) },
+          ]}
+        />
+      ),
+    },
+  ]
+
   return (
-    <div className="flex flex-col h-full w-full bg-[var(--bg-surface)] text-[var(--text-primary)] overflow-hidden">
+    <div ref={rootRef} className="flex flex-col h-full w-full bg-[var(--bg-surface)] text-[var(--text-primary)] overflow-hidden">
       <div className="flex flex-col gap-2 p-3 border-b border-[var(--border-subtle)] shrink-0">
         <FilterInput
           value={searchText}
@@ -640,7 +604,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
 
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => openImport(undefined)}
               title={t('excalidraw.import_from_file')}
               className="h-7 w-7 rounded-md bg-[var(--bg-sunken)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors border border-[var(--border-subtle)] flex items-center justify-center"
             >
@@ -701,24 +665,97 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="p-2 border-b border-[var(--border-subtle)]/70 max-h-[40%] overflow-y-auto">
+        <div
+          className={`p-2 border-b border-[var(--border-subtle)]/70 max-h-[40%] overflow-y-auto${rootDropping ? ' ring-1 ring-inset ring-[var(--accent)]' : ''}`}
+          onDragOver={(event) => {
+            if (!isFolderDrag(event.dataTransfer)) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+            setRootDropping(true)
+          }}
+          onDragLeave={(event) => {
+            if (leftDropTarget(event)) setRootDropping(false)
+          }}
+          onDrop={(event) => {
+            const subjectId = currentFolderDrag()
+            if (!subjectId) return
+            event.preventDefault()
+            event.stopPropagation()
+            setRootDropping(false)
+            endFolderDrag()
+            setDragId(null)
+            dropAtTopLevel(subjectId)
+          }}
+        >
           <div
+            ref={rootRowRef}
+            data-library-folder-root
             onClick={() => setActiveFolderId(null)}
-            className={`flex h-8 items-center gap-2 rounded-md px-2 text-xs cursor-pointer transition-colors ${
+            onContextMenu={(event) => {
+              setRootMenuOpen(false)
+              rootMenu.onContextMenu(event)
+            }}
+            onDragOver={(event) => {
+              if (!isFolderDrag(event.dataTransfer)) return
+              event.preventDefault()
+              event.stopPropagation()
+              event.dataTransfer.dropEffect = 'move'
+              setRootDropping(true)
+            }}
+            onDrop={(event) => {
+              const subjectId = currentFolderDrag()
+              if (!subjectId) return
+              event.preventDefault()
+              event.stopPropagation()
+              setRootDropping(false)
+              endFolderDrag()
+              setDragId(null)
+              dropAtTopLevel(subjectId)
+            }}
+            className={`group flex h-8 items-center gap-2 rounded-md px-2 text-xs cursor-pointer transition-colors ${
               activeFolderId === null
                 ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-medium'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
             }`}
           >
             <Layers size={15} />
-            <span className="flex-1">{t('excalidraw.all_folders')}</span>
-            <span className="text-[10.5px] tabular-nums text-[var(--text-quaternary)]">
+            <span className="flex-1 min-w-0 truncate">{t('excalidraw.all_folders')}</span>
+            <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0">
               {items.length}
             </span>
+            <button
+              type="button"
+              title={t('common.more_actions')}
+              aria-label={t('common.more_actions')}
+              aria-haspopup="menu"
+              aria-expanded={rootMenuOpen}
+              onClick={(event) => {
+                event.stopPropagation()
+                rootMenu.close()
+                setRootMenuOpen(true)
+              }}
+              className="shrink-0 rounded p-1 text-[var(--text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-black/5 hover:text-[var(--text-primary)] dark:hover:bg-white/5"
+            >
+              <MoreHorizontal size={12} />
+            </button>
           </div>
 
+          <Menu
+            anchor={rootRowRef}
+            open={rootMenuOpen}
+            onClose={() => setRootMenuOpen(false)}
+            items={rootMenuItems}
+            container={overlayContainer}
+            label={t('excalidraw.all_folders')}
+          />
+          {rootMenu.point && (
+            <Menu anchor={rootMenu.point} open onClose={rootMenu.close} items={rootMenuItems} container={overlayContainer} label={t('excalidraw.all_folders')} />
+          )}
+
           <div className="mt-1 flex flex-col gap-0.5">
-            {visibleFolders.map((folderNode) => renderFolderItem(folderNode))}
+            {visibleFolders.map((folderNode) => (
+              <LibraryFolderRow key={folderNode.id} node={folderNode} ctx={rowCtx} />
+            ))}
           </div>
         </div>
 

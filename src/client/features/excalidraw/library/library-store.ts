@@ -39,6 +39,7 @@ interface LibraryStoreState {
   renameFolder: (id: string, name: string) => void
   deleteFolder: (id: string) => void
   moveFolder: (id: string, targetParentId: string | null, beforeId?: string | null) => void
+  sortFolders: (parentId: string | null) => void
 
   addItem: (
     folderId: string | null,
@@ -167,7 +168,7 @@ export function buildLibraryTree(
 }
 
 export function getAllFolderDescendants(
-  folders: ExcalidrawLibraryFolder[],
+  folders: readonly ExcalidrawLibraryFolder[],
   rootFolderId: string,
 ): Set<string> {
   const result = new Set<string>([rootFolderId])
@@ -449,6 +450,32 @@ export const useExcalidrawLibraryStore = create<LibraryStoreState>((set, get) =>
     )
     const nextFolders = [...otherFolders, ...siblings]
 
+    set({ folders: nextFolders })
+    persistLocal({
+      version: 2,
+      folders: nextFolders,
+      items: state.items,
+      updatedAt: Date.now(),
+    })
+    scheduleSync(get)
+  },
+
+  sortFolders: (parentId) => {
+    const state = get()
+    const target = parentId ?? null
+    const ordered = state.folders
+      .filter((f) => (f.parentId ?? null) === target)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || a.order - b.order)
+    const rank = new Map(ordered.map((f, idx) => [f.id, idx]))
+    if (rank.size === 0) return
+    const stamp = Date.now()
+    const nextFolders = state.folders.map((f) => {
+      const idx = rank.get(f.id)
+      return idx === undefined || f.order === idx ? f : { ...f, order: idx, updatedAt: stamp }
+    })
+    // A group already in alphabetical order must not spend a write, an upload and a re-render of
+    // every surface reading the manifest.
+    if (nextFolders.every((f, idx) => f === state.folders[idx])) return
     set({ folders: nextFolders })
     persistLocal({
       version: 2,

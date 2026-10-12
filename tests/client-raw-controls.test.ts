@@ -327,8 +327,15 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
   [
     'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
     {
-      sites: 6,
-      reason: 'Four of the six are wrappers whose only handler is stopPropagation, keeping a click inside an inline rename field or a hover toolbar from reaching the row behind it. The other two are the folder row and the stencil tile: both select on click and carry hover buttons, so the row has to stay a container - a button cannot own the drag, the drop target and the nested actions at once.',
+      sites: 4,
+      reason: 'The stencil tile and the top-level row each select on click and carry hover buttons of their own, so neither can be a plain button. The other two are wrappers whose only handler is stopPropagation, keeping a click inside an inline rename field or a hover toolbar from reaching the tile behind it. Folder rows live in LibraryFolderRow.tsx now and are registered there.',
+    },
+  ],
+  [
+    'src/client/features/excalidraw/library/LibraryFolderRow.tsx',
+    {
+      sites: 3,
+      reason: 'The folder row is a drag source, a drop target for another folder, and the thing you click to filter the grid - all three on one box that also owns four hover buttons. The other two are stopPropagation wrappers: the inline rename field and the hover toolbar, each keeping its own click away from the row behind it.',
     },
   ],
   [

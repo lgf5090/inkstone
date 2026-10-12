@@ -11,6 +11,7 @@ import { switchThemeWithTransition, useUi } from '../../store/ui';
 import { useQuickAdd } from '../../store/quickadd';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
+import { useDropState } from '../../lib/drop-state';
 import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
 import { folderMoveExclusions, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { searchFolders } from '../../lib/folder-search';
@@ -962,30 +963,4 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
       <Menu anchor={buttonRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems}/>
       {menu.point && (<Menu anchor={menu.point} open onClose={menu.close} items={menuItems}/>)}
     </div>);
-}
-function useDropState<T>(idle: T) {
-    const [state, setState] = useState(idle);
-    useEffect(() => {
-        if (state === idle) return;
-        const reset = () => setState(idle);
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') reset();
-        };
-        const onLeaveWindow = (event: DragEvent) => {
-            if (event.target === document.documentElement && !event.relatedTarget) reset();
-        };
-        window.addEventListener('drop', reset, true);
-        window.addEventListener('dragend', reset, true);
-        window.addEventListener('blur', reset);
-        window.addEventListener('keydown', onKeyDown, true);
-        window.addEventListener('dragleave', onLeaveWindow, true);
-        return () => {
-            window.removeEventListener('drop', reset, true);
-            window.removeEventListener('dragend', reset, true);
-            window.removeEventListener('blur', reset);
-            window.removeEventListener('keydown', onKeyDown, true);
-            window.removeEventListener('dragleave', onLeaveWindow, true);
-        };
-    }, [state, idle]);
-    return [state, setState] as const;
 }
