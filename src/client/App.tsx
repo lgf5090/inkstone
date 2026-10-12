@@ -12,8 +12,8 @@ import { initializePwa, requestOfflineWarmup } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
 
-const AppShell = lazy(() =>
-  import('./features/shell/AppShell').then((module) => ({ default: module.AppShell })),
+const AppTabHost = lazy(() =>
+  import('./features/shell/AppTabHost').then((module) => ({ default: module.AppTabHost })),
 )
 const SharePage = lazy(() =>
   import('./features/share/SharePage').then((module) => ({ default: module.SharePage })),
@@ -102,7 +102,7 @@ export function App() {
         {status === 'anonymous' && <LoginPage />}
         {status === 'authed' && (
           <Suspense fallback={<PageFallback />}>
-            <AppShell />
+            <AppTabHost />
           </Suspense>
         )}
       </ErrorBoundary>
