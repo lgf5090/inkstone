@@ -489,7 +489,6 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       data-fixed-page={index}
       className="reader-pdf-page"
       data-textable={state === 'text' ? 'true' : 'false'}
-      title={state === 'scan' ? t('reading.page_has_no_text') : undefined}
       onClick={(event) => {
         const mark = (event.target as HTMLElement | null)?.closest<HTMLElement>('.reader-mark')
         if (!mark || !onMarkClick) return
@@ -502,6 +501,9 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       style={{ '--reader-mark-default': theme.accent } as React.CSSProperties}
     >
       <canvas ref={canvas} />
+      {/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on
+          the page itself. */}
+      {state === 'scan' ? <span className="reader-scan-hint">{t('reading.page_has_no_text')}</span> : null}
     </div>
   )
 }

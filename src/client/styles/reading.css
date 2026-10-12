@@ -606,3 +606,18 @@
     animation: none;
   }
 }
+
+/* A scanned page has no words to mark, and the reason has to be on the page rather than behind a hover
+   the reader may never make. */
+.reader-scan-hint {
+  position: absolute;
+  inset-inline: 8px;
+  bottom: 8px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--reader-fg) 12%, transparent);
+  color: var(--reader-fg);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}

@@ -4763,6 +4763,7 @@ const allowed = new Map([
     "// A comic page is sized to the frame rather than to its own pixels, in both directions: a panel",
     "// scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of",
     "// a desktop page. The aspect is kept and the letterboxing left to `object-fit`.",
+    "/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on\n          the page itself. */",
   ]],
   ["src/client/features/reading/reader/HighlightsPanel.tsx", [
     "/**\n * Everything the reader has marked in this book.\n *\n * Grouped by chapter rather than by colour, because the question a reader brings to this panel is\n * \"where did I write something?\", and the chapter heading is what lets them decide whether to jump.\n */",
@@ -11959,6 +11960,7 @@ const allowed = new Map([
     "/* A thumb is not a cursor: the bar's own controls grow to a 44px square, and the page has to clear the\n     taller bar that comes with them. Measured, not assumed — the reserve is the bar's height plus its\n     offset from the edge. */",
     "/* The page margin and the room the floating bars need belong here, not on the chapter: a fragmented\n     block only paints its own padding on its first and last piece, so a reader's margin would vanish\n     from every page after the first — and a book's `body { padding: 0 }`, which arrives scoped to the\n     chapter, could take the margin from all of them. The measure caps how wide a line of prose gets,\n     centring what is left over as margin, which is the difference between a page and a banner. The bottom\n     reserve carries one extra line: a column's last line box can spill a line past the column height, and\n     the bar would otherwise sit on top of it. */",
     "/* What the chrome takes off a fixed page: the bar, its offset from the edge, and the progress rail\n     under it — the bars float over the *reader*, not over the stage, so the page has to clear all three.\n     The stage reads this back before it asks PDF.js how tall to paint a page, so the page that is\n     rendered is the page that fits. Plain lengths only: a `calc()` here would reach the reader as text. */",
+    "/* A scanned page has no words to mark, and the reason has to be on the page rather than behind a hover\n   the reader may never make. */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
@@ -13077,6 +13079,13 @@ const allowed = new Map([
   ]],
   ["tests/reading-library-store.test.ts", [
     "/**\n * The library store is exercised through its merge, not its persistence: the point of the check is what\n * a file from outside can talk the app into believing, and IndexedDB is not the interesting half.\n */",
+  ]],
+  ["tests/reading-native-controls.test.ts", [
+    "/**\n * The reading app may not lean on browser-drawn UI.\n *\n * A native tooltip, select or bare input renders in the operating system's style — it ignores the page\n * palette, it cannot be themed for a night page, and on a phone a hover hint is simply unreachable. The\n * app already ships `Tooltip`, `Select`, `Input` and `Textarea`, so the reading feature has no reason to\n * reach for the browser's own, and this test is what keeps it that way.\n */",
+    "/** The tag a given line belongs to: the nearest `<name` at or before it. */",
+    "/** A hidden file picker and the app's own slider skin are the two native controls that stay. */",
+    "// A capitalised tag is one of this app's components, which take a `title` prop by design.",
+    "// An `<input>` that does not close itself would slip past the matcher above, so count them too.",
   ]],
   ["tests/reading-note.test.ts", [
     "// Halfway through four equal chapters is the end of the second one, which is the same place as the",

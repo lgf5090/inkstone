@@ -5,6 +5,7 @@
  * they set, and whether the streak is alive. Everything here is derived from the per-book day log the
  * timer writes, so deleting a book can neither invent a day nor lose one.
  */
+import { Tooltip } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { dayKey, formatReadingSeconds } from '../format-time'
 import { summariseStats } from '../reading-stats'
@@ -64,12 +65,12 @@ export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
       <p className="mb-1 text-[11px] opacity-55">{t('reading.stats_last_days', { value0: WINDOW_DAYS })}</p>
       <div className="mb-3 flex items-end gap-[3px]" role="img" aria-label={t('reading.stats_last_days', { value0: WINDOW_DAYS })}>
         {summary.recent.map((one) => (
-          <div
-            key={one.day}
-            className="flex-1 rounded-t-[2px] bg-current"
-            title={`${one.day} · ${formatReadingSeconds(one.seconds)}`}
-            style={{ height: `${Math.max(2, Math.round((one.seconds / peak) * 46))}px`, opacity: one.seconds ? 0.7 : 0.15 }}
-          />
+          <Tooltip key={one.day} label={`${one.day} · ${formatReadingSeconds(one.seconds)}`} side="top">
+            <div
+              className="flex-1 rounded-t-[2px] bg-current"
+              style={{ height: `${Math.max(2, Math.round((one.seconds / peak) * 46))}px`, opacity: one.seconds ? 0.7 : 0.15 }}
+            />
+          </Tooltip>
         ))}
       </div>
 

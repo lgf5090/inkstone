@@ -5,6 +5,7 @@
  * "where did I write something?", and the chapter heading is what lets them decide whether to jump.
  */
 import { Trash2 } from 'lucide-react'
+import { Textarea } from '../../../components/form'
 import { IconButton } from '../../../components/primitives'
 import { Tooltip } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -48,13 +49,12 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
                     {highlight.quote}
                   </button>
                   {highlight.comment ? (
-                    <textarea
+                    <Textarea
                       value={highlight.comment}
                       onChange={(event) => onComment(highlight.id, event.target.value)}
                       rows={2}
                       aria-label={t('reading.comment_for_quote')}
-                      className="mt-1 w-full resize-none rounded-[var(--r-sm)] border bg-transparent px-1.5 py-1 text-[11.5px] leading-snug opacity-80"
-                      style={{ borderColor: 'color-mix(in oklab, currentColor 18%, transparent)' }}
+                      className="mt-1 w-full border-transparent bg-transparent px-1.5 py-1 text-[11.5px] leading-snug opacity-80"
                     />
                   ) : null}
                 </span>

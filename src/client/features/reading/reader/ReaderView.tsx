@@ -207,8 +207,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
   useEffect(() => {
     const node = scrubberRef.current
     if (!node || scrubbing.current) return
-    const next = String(Math.round((progress?.fraction ?? 0) * 1000))
-    if (node.value !== next) node.value = next
+    const next = Math.round((progress?.fraction ?? 0) * 1000)
+    if (node.value !== String(next)) node.value = String(next)
+    node.style.setProperty('--pct', `${Math.round(next / 10)}%`)
   }, [progress?.fraction, settings.showScrubber])
 
   const goToFraction = useCallback((fraction: number) => {
@@ -593,7 +594,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
         <IconButton label={t('reading.back_to_shelf')} size="sm" onClick={() => navigateToPath('/reading')}>
           <ArrowLeft size={15} />
         </IconButton>
-        <span className="reader-title" title={book.title}>{shortTitle(book.title)}</span>
+        <Tooltip label={book.title} side="bottom">
+          <span className="reader-title">{shortTitle(book.title)}</span>
+        </Tooltip>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {settings.timerEnabled ? (
             <Tooltip label={t('reading.reading_time_hint', { value0: formatReadingSeconds(timer.todaySeconds) })} side="bottom">
@@ -671,7 +674,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
         <input
           ref={scrubberRef}
           type="range"
-          className="reader-scrubber"
+          className="reader-scrubber ink-slider appearance-none"
+          style={{ '--pct': `${Math.round((progress?.fraction ?? 0) * 100)}%` } as React.CSSProperties}
           min={0}
           max={1000}
           step={1}

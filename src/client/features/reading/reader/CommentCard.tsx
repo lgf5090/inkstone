@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
+import { Textarea } from '../../../components/form'
 import { Tooltip } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { useLibrary } from '../store/library'
@@ -69,14 +70,14 @@ export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: Co
           >
             {card.quote}
           </p>
-          <textarea
+          <Textarea
             value={drafts[card.id] ?? ''}
             onChange={(event) => setDrafts((current) => ({ ...current, [card.id]: event.target.value }))}
             onBlur={() => onEdit(card.id, { comment: (drafts[card.id] ?? '').trim() })}
             placeholder={t('reading.comment_placeholder')}
             rows={2}
             aria-label={t('reading.comment_for_quote')}
-            className="w-full resize-none rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-[12px] leading-snug"
+            className="w-full text-[12px] leading-snug"
           />
           <div className="flex items-center gap-1.5">
             <Button

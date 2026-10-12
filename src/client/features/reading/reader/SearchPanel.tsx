@@ -9,6 +9,7 @@
  * offset, a fixed one with a page, and both arrive as the same hit shape.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Input } from '../../../components/form'
 import { Search } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import type { BookPosition } from '../position'
@@ -78,7 +79,7 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
       <div className="shrink-0 p-2">
         <div className="relative">
           <Search size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 opacity-45" />
-          <input
+          <Input
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -89,7 +90,7 @@ export function SearchPanel({ search, start, onJump, unitLabel, fixedMode }: Sea
             }}
             placeholder={t('reading.search_book_placeholder')}
             aria-label={t('reading.search_book')}
-            className="h-8 w-full rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-raised)] ps-7 pe-12 text-[12.5px] outline-none"
+            className="h-8 w-full ps-7 pe-12 text-[12.5px]"
           />
           <span className="absolute top-1/2 right-2 -translate-y-1/2 text-[10.5px] tabular opacity-60">
             {hits?.length ? `${index + 1}/${hits.length}` : ''}

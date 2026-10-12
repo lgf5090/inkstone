@@ -7,8 +7,9 @@
  */
 import { useRef } from 'react'
 import { Upload } from 'lucide-react'
-import { SectionLabel } from '../../../components/primitives'
-import { Segmented, Slider, Switch } from '../../../components/form'
+import { Button, SectionLabel } from '../../../components/primitives'
+import { Segmented, Select, Slider, Switch } from '../../../components/form'
+import { Tooltip } from '../../../components/overlay'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import {
@@ -58,26 +59,26 @@ export function AppearancePanel() {
         ]}
       />
       {settings.importedFonts.length ? (
-        <select
+        <Select
           value={settings.customFamily}
           onChange={(event) => set('customFamily', event.target.value)}
-          className="mt-2 h-8 w-full rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-raised)] px-2 text-[12px]"
+          className="mt-2 h-8 w-full text-[12px]"
           aria-label={t('reading.pick_imported_font')}
         >
           <option value="">{t('reading.font_none')}</option>
           {settings.importedFonts.map((font) => (
             <option key={font.id} value={font.family}>{font.label}</option>
           ))}
-        </select>
+        </Select>
       ) : null}
-      <button
-        type="button"
-        className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2.5 text-[12px]"
+      <Button
+        size="sm"
+        className="mt-2 h-8 text-[12px]"
+        icon={<Upload size={13} />}
         onClick={() => fileInput.current?.click()}
       >
-        <Upload size={13} />
         {t('reading.import_font')}
-      </button>
+      </Button>
       <input
         ref={fileInput}
         type="file"
@@ -234,16 +235,16 @@ export function AppearancePanel() {
           />
           <div className="mt-2 flex items-center gap-2">
             <span className="text-[12px]">{t('reading.translate_to')}</span>
-            <select
+            <Select
               value={settings.translateTo}
               onChange={(event) => set('translateTo', event.target.value)}
-              className="h-8 flex-1 rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-raised)] px-2 text-[12px]"
+              className="h-8 flex-1 text-[12px]"
               aria-label={t('reading.translate_to')}
             >
               {TARGET_LANGUAGES.map((one) => (
                 <option key={one.code} value={one.code}>{one.label}</option>
               ))}
-            </select>
+            </Select>
           </div>
         </>
       ) : null}
@@ -263,9 +264,9 @@ function ThemeSwatch({ name, label, current, onPick }: {
 }) {
   const page = name === 'auto' ? READER_THEMES.paper : READER_THEMES[name]
   return (
+    <Tooltip label={label} side="top">
     <button
       type="button"
-      title={label}
       aria-label={label}
       aria-pressed={current === name}
       onClick={() => onPick('theme', name)}
@@ -279,6 +280,7 @@ function ThemeSwatch({ name, label, current, onPick }: {
       <span className="absolute inset-x-1.5 top-[15px] block h-px" style={{ background: page.foreground, opacity: 0.35 }} />
       <span className="absolute inset-x-1.5 top-[22px] block h-px" style={{ background: page.foreground, opacity: 0.22 }} />
     </button>
+    </Tooltip>
   )
 }
 

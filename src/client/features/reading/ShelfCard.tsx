@@ -73,7 +73,9 @@ export function ShelfCard({
       </button>
 
       <div className="mt-1.5 min-w-0">
-        <p className="truncate text-[12.5px] font-medium text-[var(--text-primary)]" title={book.title}>{book.title}</p>
+        <Tooltip label={book.title} side="top">
+          <p className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{book.title}</p>
+        </Tooltip>
         <p className="truncate text-[11px] text-[var(--text-tertiary)]">
           {book.author || t('reading.unknown_author')}
         </p>
