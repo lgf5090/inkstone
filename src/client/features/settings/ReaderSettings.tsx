@@ -62,6 +62,10 @@ export function ReaderSettings() {
         <Switch checked={settings.quoteBacklinks} onChange={(value) => update('quoteBacklinks', value)} label={t('settings.reading_backlinks')} />
       </SettingRow>
 
+      <SettingRow title={t('settings.reading_export_colors')} description={t('settings.reading_export_colors_desc')}>
+        <Switch checked={settings.exportColors} onChange={(value) => update('exportColors', value)} label={t('settings.reading_export_colors')} />
+      </SettingRow>
+
       <SettingRow title={t('settings.reading_default_color')} description={t('settings.reading_default_color_desc')}>
         <div className="flex gap-2">
           {HIGHLIGHT_COLORS.map((color) => (

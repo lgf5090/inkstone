@@ -355,6 +355,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'reading', titleKey: 'settings.reading_notes_folder', detailKey: 'settings.reading_notes_folder_desc' },
   { section: 'reading', titleKey: 'settings.reading_auto_note', detailKey: 'settings.reading_auto_note_desc' },
   { section: 'reading', titleKey: 'settings.reading_backlinks', detailKey: 'settings.reading_backlinks_desc' },
+  { section: 'reading', titleKey: 'settings.reading_export_colors', detailKey: 'settings.reading_export_colors_desc' },
   { section: 'reading', titleKey: 'settings.reading_default_color', detailKey: 'settings.reading_default_color_desc' },
   { section: 'reading', titleKey: 'settings.reading_timer', detailKey: 'settings.reading_timer_desc' },
   { section: 'reading', titleKey: 'settings.reading_daily_goal', detailKey: 'settings.reading_daily_goal_desc' },

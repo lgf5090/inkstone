@@ -21,6 +21,7 @@ const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.reader.settings' : 'inkstone.r
 const fontStore = createStore(CLIENT_DATABASE_NAME, 'kv')
 
 export type ReaderFontFamily = 'serif' | 'sans' | 'mono' | 'custom'
+export type CoverFit = 'cover' | 'contain'
 export type ReadMode = 'paged' | 'scroll'
 
 export interface ImportedFont {
@@ -74,6 +75,10 @@ export interface ReaderSettings {
   /** Pixels per second of automatic scrolling; 0 leaves the page still. */
   autoScrollSpeed: number
   /** Whether a book's reading note is created on the first highlight or on request. */
+  /** Write a mark's colour into the reading note, so the note reads like the page. */
+  exportColors: boolean
+  /** Per-book cover display: a scanned jacket wants to be seen whole, not cropped. */
+  coverFits: Record<string, CoverFit>
   autoBookNote: boolean
   quoteBacklinks: boolean
   /** Folder the reading notes are created in, by name. Empty means "wherever the app would". */
@@ -108,6 +113,8 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   translateEnabled: false,
   translateTo: 'zh-CN',
   translateEngine: 'google',
+  exportColors: true,
+  coverFits: {},
   autoBookNote: true,
   quoteBacklinks: true,
   notesFolder: '',
@@ -197,6 +204,11 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     customFamily: text(parsed.customFamily, 64, ''),
     translateTo: text(parsed.translateTo, 16, 'zh-CN'),
     notesFolder: text(parsed.notesFolder, 128, ''),
+    coverFits: parsed.coverFits && typeof parsed.coverFits === 'object'
+      ? Object.fromEntries(Object.entries(parsed.coverFits as Record<string, unknown>)
+        .filter(([id, value]) => typeof id === 'string' && id.length <= 200 && (value === 'cover' || value === 'contain'))
+        .slice(0, 2000)) as Record<string, CoverFit>
+      : {},
     importedFonts: Array.isArray(parsed.importedFonts)
       ? parsed.importedFonts.filter((one): one is ImportedFont => Boolean(one && typeof one.family === 'string' && typeof one.id === 'string'))
       : [],

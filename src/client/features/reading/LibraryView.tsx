@@ -7,7 +7,7 @@
  * what carries a reader's marks and positions to another machine.
  */
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { Download, FolderInput, Images, Inbox, LayoutGrid, List, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
+import { Download, FolderInput, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
 import { Button } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
@@ -69,6 +69,8 @@ export function LibraryView() {
   const moveBook = useLibrary((state) => state.moveBook)
   const addGroup = useLibrary((state) => state.addGroup)
   const [groupFilter, setGroupFilter] = useState<string | null>(null)
+  const coverFits = useReaderSettings((state) => state.coverFits)
+  const setCoverFit = useReaderSettings((state) => state.update)
   const view = resolveShelfView(shelfView, narrow)
   const importLibrary = useLibrary((state) => state.importLibrary)
 
@@ -124,6 +126,7 @@ export function LibraryView() {
       lastReadAt: progress[book.id]?.updatedAt,
       stoppedAt: stoppedAtLabel(progress[book.id]?.position, book),
       groupNames: groupsHolding(groups, book.id).map((one) => one.name),
+      coverFit: coverFits[book.id] ?? 'cover',
       onOpen: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`),
       onOpenNote: () => openBookNote(noteLinks.byBook[book.id]),
       onMenu: (event: React.MouseEvent) => {
@@ -196,6 +199,15 @@ export function LibraryView() {
         ? [{ id: 'note', label: t('reading.open_note'), icon: <MessageSquareQuote size={13} />, onSelect: () => openBookNote(noteLinks.byBook[book.id]) }]
         : []),
       { id: 'rename', label: t('reading.rename_book'), icon: <Pencil size={13} />, onSelect: () => void rename(book) },
+      {
+        id: 'fit',
+        label: coverFits[book.id] === 'contain' ? t('reading.cover_fill') : t('reading.cover_whole'),
+        icon: <Maximize2 size={13} />,
+        onSelect: () => setCoverFit('coverFits', {
+          ...coverFits,
+          [book.id]: coverFits[book.id] === 'contain' ? 'cover' : 'contain',
+        }),
+      },
       {
         id: 'finished',
         label: state?.finishedAt ? t('reading.mark_unfinished') : t('reading.mark_finished'),

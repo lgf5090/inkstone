@@ -25,6 +25,8 @@ export interface ShelfCardProps {
   groupNames?: string[]
   /** Covers mode: the picture is the whole card, so the caption gives its room to a bigger cover. */
   captionless?: boolean
+  /** `contain` shows a scanned jacket whole, with the paper showing through the sides. */
+  coverFit?: 'cover' | 'contain'
   onOpen: () => void
   onOpenNote: () => void
   onMenu: (event: React.MouseEvent) => void
@@ -40,6 +42,7 @@ export function ShelfCard({
   lastReadAt,
   groupNames = [],
   captionless = false,
+  coverFit = 'cover',
   onOpen,
   onOpenNote,
   onMenu,
@@ -55,7 +58,13 @@ export function ShelfCard({
         aria-label={t('reading.open_book_value0', { value0: book.title })}
       >
         {coverUrl ? (
-          <img src={coverUrl} alt="" loading="lazy" className="reader-shelf-cover" />
+          <img
+            src={coverUrl}
+            alt=""
+            loading="lazy"
+            className="reader-shelf-cover"
+            data-fit={coverFit === 'contain' ? 'contain' : undefined}
+          />
         ) : (
           <span className="reader-shelf-cover flex flex-col items-center justify-center gap-1.5 border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 text-center">
             <BookOpen size={22} className="text-[var(--text-quaternary)]" />

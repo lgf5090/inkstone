@@ -4522,6 +4522,7 @@ const allowed = new Map([
     "/** The three-dot affordance, drawn rather than imported so it sits on the same optical grid as the card. */",
     "/** Which of the reader's own groupings this book belongs to. */",
     "/** Covers mode: the picture is the whole card, so the caption gives its room to a bigger cover. */",
+    "/** `contain` shows a scanned jacket whole, with the paper showing through the sides. */",
   ]],
   ["src/client/features/reading/ShelfGroups.tsx", [
     "/**\n * The shelf's own groupings, as a row of chips.\n *\n * A chip is both a filter and a handle: pressing one narrows the shelf to its books, and the menu on it\n * is where the group gets renamed or thrown away. The count is the number of books on this shelf that\n * are in it — not the number the group remembers — because a book a reader deleted should not keep\n * inflating a group they can still see.\n */",
@@ -4943,6 +4944,11 @@ const allowed = new Map([
     "// A note the reader deleted out from under the book must not be resurrected by id: the title is the",
     "// only handle that survives, and a missing one means a fresh note.",
     "/** The folder a reader named in settings, matched by its whole path so same-named folders can be told apart. */",
+    "/** Keep each mark's colour in the note. A data attribute, not a `style`: the note\n   * renderer strips inline styles and keeps `data-*`, and the prose sheet paints the six colours. */",
+    "/**\n * Whether the note still declares a property of its own.\n *\n * A reader who deleted `highlights` from the front matter deleted it on purpose; refreshing the numbers\n * must not put it back. Only the leading block counts, so a word in the prose is never a property.\n */",
+    "/**\n * Bring the note's own summary of the book up to date.\n *\n * The front matter is written once, when the note is made, and the body between the markers is rewritten\n * on every change — which left the two halves telling different stories: a bar reading 0% beside a note\n * that said the reader was 74% through. Only the properties the note already has are touched, and\n * `highlights` keeps its number type so the properties panel still sorts and colours it.\n */",
+    "/** The note to write into, or null when this book needs one of its own made. */",
+    "/**\n * Which note this book owns, and what to call it if it has none.\n *\n * Two editions of the same novel carry the same title, and the note is named after the title, so the\n * title alone cannot decide ownership — measured on a real shelf: two books ended up linked to one note,\n * and opening the second rewrote the first one's marks away. So a note is only usable when no *other*\n * book claims it, the stored link included, and a book that finds nothing of its own gets a title that\n * says which book it belongs to.\n */",
   ]],
   ["src/client/features/reading/reading-stats.ts", [
     "/**\n * Adding up what the reader actually spent.\n *\n * The library stores time per book and per day, because a reader asks two different questions: how long\n * was I in *this* book, and did I keep the habit. Both are derived here rather than stored, so a day can\n * never be counted twice or lost when a book is deleted while its log survives.\n */",
@@ -5028,6 +5034,8 @@ const allowed = new Map([
     "/**\n * The page a device can carry before its reader changes anything.\n *\n * Type is set by the arm holding the device, not by the setting: 19px prose with a 24px margin leaves\n * twelve characters to a line on the smallest phone this app supports, which is a column rather than a\n * page. These are seeds only — the first slider moves and the device keeps its own answer, and a phone\n * never inherits a desktop's spread because the record lives in that browser, not in the account.\n */",
     "/** How the shelf lays its books out; see `shelf-view.ts` for what each mode means. */",
     "/** Dim every paragraph but the one the reader is on. */",
+    "/** Write a mark's colour into the reading note, so the note reads like the page. */",
+    "/** Per-book cover display: a scanned jacket wants to be seen whole, not cropped. */",
   ]],
   ["src/client/features/reading/themes.ts", [
     "/**\n * The reading surface's palettes.\n *\n * A book page is the one place in this app where the reader chooses the colours rather than the\n * deployment, so the themes are their own layer: they paint the page, not the chrome around it. Each\n * one carries the pair the page actually needs (paper and ink) plus the two tints that follow from\n * them, and `auto` hands the decision back to the app's own theme.\n *\n * Every entry is checked for contrast by `tests/reading-theme-contrast.test.ts`, because a warm-paper\n * theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they read a whole\n * chapter with a headache.\n */",
@@ -12053,6 +12061,7 @@ const allowed = new Map([
     "/* A leaf has nothing to fold, but it still costs the same advance: every card's keys start on one\n   vertical line only if the rows that hold no handle reserve the room for one. */",
     "/* The stage paints the window; the block fills it as a column, so the head, the filter row and the\n   picture each get their own height and the map takes whatever is left. The block is `position: relative`\n   rather than `fixed` because it has already been moved into a fixed wrapper — a second fixed box would\n   fight the one that carries the click route. */",
     "/* The stage carries `.ink-prose` so the block keeps its scoped styling when it is moved to <body>, and\n   the prose column's own measure comes with it. Full screen means the window, not the reading width — and\n   not the column's `42vh` of trailing padding either, which was leaving a 420px band of empty field below\n   the map at a 1000px window (measured: the block came out 580px tall, exactly the stage minus 42vh). */",
+    "/* A reading mark kept in colour by the reader's own note. The six values are the reader's own\n   palette, repeated here on purpose: a note has to look the same when no book is open. */",
   ]],
   ["src/client/styles/reading.css", [
     "/**\n * The reading surface.\n *\n * Two things here are not decoration and are worth the comments, because both look like a bug in the\n * other direction when they are changed: the column geometry that turns flowing text into pages, and\n * the HUD's habit of floating over the page instead of reserving a row.\n */",
@@ -13274,6 +13283,8 @@ const allowed = new Map([
   ["tests/reading-note.test.ts", [
     "// Halfway through four equal chapters is the end of the second one, which is the same place as the",
     "// start of the third; the walk stops on the chapter whose span it lands inside.",
+    "// An inline style would have been the obvious encoding, and this renderer forbids it.",
+    "// ...and the owner still uses it.",
   ]],
   ["tests/reading-pagination.test.ts", [
     "// A single column still advances by width + gap: that is where the browser puts the next column,",

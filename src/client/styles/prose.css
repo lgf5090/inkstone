@@ -3670,3 +3670,12 @@
   max-width: none;
   padding-block: 0;
 }
+
+/* A reading mark kept in colour by the reader's own note. The six values are the reader's own
+   palette, repeated here on purpose: a note has to look the same when no book is open. */
+.ink-prose mark[data-hl='yellow'] { background: rgba(255, 206, 64, 0.45); }
+.ink-prose mark[data-hl='green'] { background: rgba(118, 214, 108, 0.42); }
+.ink-prose mark[data-hl='blue'] { background: rgba(96, 165, 250, 0.42); }
+.ink-prose mark[data-hl='pink'] { background: rgba(248, 123, 168, 0.42); }
+.ink-prose mark[data-hl='red'] { background: rgba(245, 168, 160, 0.42); }
+.ink-prose mark[data-hl='purple'] { background: rgba(213, 184, 255, 0.42); }

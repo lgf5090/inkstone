@@ -16,7 +16,7 @@ const CHANGED: ReaderSettings = {
   pageButtons: 'hover', defaultHighlightColor: 'blue', selectionLabels: true, timerEnabled: false,
   dailyGoalMinutes: 30, translateEnabled: true, translateTo: 'en', translateEngine: 'ai',
   tapZones: 'edges', swipeTurns: false, showScrubber: false, estimateTimeLeft: false,
-  dimming: 0.4, autoScrollSpeed: 60, autoBookNote: false, quoteBacklinks: false, notesFolder: 'Reading',
+  dimming: 0.4, autoScrollSpeed: 60, exportColors: false, coverFits: { 'book-1': 'contain' }, autoBookNote: false, quoteBacklinks: false, notesFolder: 'Reading',
 }
 
 /**

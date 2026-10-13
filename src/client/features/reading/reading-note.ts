@@ -9,6 +9,7 @@
  * Rewriting the whole body on every new highlight would erase whatever they had typed under it — which
  * is the failure this design exists to prevent.
  */
+import { setFrontMatterValue } from '@shared/markdown-utils'
 import { createContextualNote, useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
@@ -51,6 +52,9 @@ function escapeQuote(value: string): string {
 
 export interface NoteOptions {
   backlinks: boolean
+  /** Keep each mark's colour in the note. A data attribute, not a `style`: the note
+   * renderer strips inline styles and keeps `data-*`, and the prose sheet paints the six colours. */
+  colors: boolean
   chapterTitles?: Map<number, string>
 }
 
@@ -85,13 +89,40 @@ export function renderReadingSection(
     out.push('')
     for (const highlight of list) {
       const link = options.backlinks ? ` [↩](${bookLink(book.id, { kind: 'epub', chapter: highlight.chapter, offset: highlight.start })})` : ''
-      out.push(`> ${escapeQuote(highlight.quote)}${link}`)
+      const quote = options.colors ? `<mark data-hl="${highlight.color}">${escapeQuote(highlight.quote)}</mark>` : escapeQuote(highlight.quote)
+      out.push(`> ${quote}${link}`)
       const comment = highlight.comment.trim()
       if (comment) out.push(`>\n> ${escapeQuote(comment)}`)
       out.push('')
     }
   }
   return out.join('\n')
+}
+
+/**
+ * Whether the note still declares a property of its own.
+ *
+ * A reader who deleted `highlights` from the front matter deleted it on purpose; refreshing the numbers
+ * must not put it back. Only the leading block counts, so a word in the prose is never a property.
+ */
+function declaresProperty(content: string, key: string): boolean {
+  const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
+  return Boolean(block && new RegExp(`^\s*${key}\\s*:`, 'm').test(block[1]))
+}
+
+/**
+ * Bring the note's own summary of the book up to date.
+ *
+ * The front matter is written once, when the note is made, and the body between the markers is rewritten
+ * on every change — which left the two halves telling different stories: a bar reading 0% beside a note
+ * that said the reader was 74% through. Only the properties the note already has are touched, and
+ * `highlights` keeps its number type so the properties panel still sorts and colours it.
+ */
+export function refreshReadingProperties(content: string, highlights: number, fraction: number): string {
+  let next = content
+  if (declaresProperty(next, 'reading-progress')) next = setFrontMatterValue(next, 'reading-progress', formatPercent(fraction))
+  if (declaresProperty(next, 'highlights')) next = setFrontMatterValue(next, 'highlights', highlights)
+  return next
 }
 
 /** Splice the generated section into a body, keeping anything the reader wrote outside the markers. */
@@ -134,26 +165,70 @@ export async function ensureReadingNote(
   }
   const section = renderReadingSection(book, highlights, fraction, {
     backlinks: settings.quoteBacklinks,
+    colors: settings.exportColors,
     chapterTitles,
   })
 
-  // A note the reader deleted out from under the book must not be resurrected by id: the title is the
-  // only handle that survives, and a missing one means a fresh note.
-  const title = noteTitle(book)
-  const linked = existingNoteId && notes.notes[existingNoteId] ? notes.notes[existingNoteId] : null
-  const target = linked
-    ?? Object.values(notes.notes).find((summary) => summary.title === title && !summary.deletedAt)
-    ?? null
-  if (target) {
-    const result = await notes.editRemoteContent(target.id, (content) => spliceNote(content, section))
+  const plan = planReadingNote({
+    book,
+    existingNoteId,
+    notes: notes.notes as Record<string, { id: string; title: string; deletedAt?: number | null }>,
+    byBook: useLibrary.getState().notes.byBook,
+    baseTitle: noteTitle(book),
+  })
+  const title = plan.title
+  if (plan.noteId) {
+    const targetId = plan.noteId
+    const result = await notes.editRemoteContent(targetId, (content) =>
+      refreshReadingProperties(spliceNote(content, section), highlights.length, fraction))
     if (result === 'conflict') useUi.getState().toast({ title: t('reading.note_conflict'), tone: 'warning' })
-    return target.id
+    return targetId
   }
   const folderId = settings.notesFolder
     ? findFolderByPath(notes.folders ?? [], settings.notesFolder) || undefined
     : undefined
   const body = `${frontmatter(book, highlights, fraction)}\n\n${NOTE_BEGIN}\n\n${section}\n${NOTE_END}\n`
   return createContextualNote({ title, content: body, open: false, ...(folderId ? { folderId } : {}) })
+}
+
+export interface NotePlan {
+  title: string
+  /** The note to write into, or null when this book needs one of its own made. */
+  noteId: string | null
+}
+
+/**
+ * Which note this book owns, and what to call it if it has none.
+ *
+ * Two editions of the same novel carry the same title, and the note is named after the title, so the
+ * title alone cannot decide ownership — measured on a real shelf: two books ended up linked to one note,
+ * and opening the second rewrote the first one's marks away. So a note is only usable when no *other*
+ * book claims it, the stored link included, and a book that finds nothing of its own gets a title that
+ * says which book it belongs to.
+ */
+export function planReadingNote(input: {
+  book: BookRecord
+  existingNoteId: string | undefined
+  notes: Record<string, { id: string; title: string; deletedAt?: number | null }>
+  byBook: Record<string, string>
+  baseTitle: string
+}): NotePlan {
+  const { book, existingNoteId, notes, byBook, baseTitle } = input
+  const claimedByOther = (noteId: string | undefined | null): boolean => Boolean(noteId)
+    && Object.entries(byBook).some(([otherBook, note]) => otherBook !== book.id && note === noteId)
+  const live = (noteId: string | undefined | null) => (noteId ? notes[noteId] && !notes[noteId].deletedAt : false)
+
+  if (live(existingNoteId) && !claimedByOther(existingNoteId)) return { title: notes[existingNoteId!].title, noteId: existingNoteId! }
+
+  // A note the reader deleted out from under the book must not be resurrected by id: the title is the
+  // only handle that survives, and a missing one means a fresh note.
+  const free = Object.values(notes).find((one) => one.title === baseTitle && !one.deletedAt && !claimedByOther(one.id))
+  if (free) return { title: free.title, noteId: free.id }
+
+  const tail = book.id.slice(-4)
+  const candidate = [baseTitle, `${baseTitle} (${book.format})`, `${baseTitle} (${tail})`]
+    .find((one) => !Object.values(notes).some((existing) => !existing.deletedAt && existing.title === one))
+  return { title: candidate ?? `${baseTitle} (${book.id})`, noteId: null }
 }
 
 /** The folder a reader named in settings, matched by its whole path so same-named folders can be told apart. */
