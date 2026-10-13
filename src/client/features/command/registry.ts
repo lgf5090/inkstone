@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Plus, Presentation, ScanSearch, Settings, Share2, Smile, SquarePen, Star, Sun, Moon, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -28,6 +28,7 @@ import { buildOutlineTree, stringifyOutline } from '../preview/outline-tree'
 import { outlineHeadingsFor } from '../preview/outline-registry'
 import { openEmojiPicker } from '../../store/emoji-picker'
 import { openOmnisearch } from '../omnisearch/store'
+import { openRssSection } from '../rss/rss-commands'
 import { createContextualNote, useNotes } from '../../store/notes'
 import { useQuickAdd } from '../../store/quickadd'
 import { useSession } from '../../store/session'
@@ -116,6 +117,39 @@ export function appCommands(): AppCommand[] {
         combo: APP_SHORTCUTS.emoji,
         group: t("command.commands"),
         run: () => openEmojiPicker(),
+    },
+    {
+        id: 'cmd-rss-open',
+        kind: 'command',
+        label: t("rss.cmd.open"),
+        icon: Rss,
+        group: t("command.commands"),
+        run: () => openRssSection('reader'),
+    },
+    {
+        id: 'cmd-rss-manage',
+        kind: 'command',
+        label: t("rss.cmd.manage"),
+        icon: ListChecks,
+        group: t("command.commands"),
+        run: () => openRssSection('manage'),
+    },
+    {
+        id: 'cmd-rss-discover',
+        kind: 'command',
+        label: t("rss.cmd.discover"),
+        icon: Compass,
+        group: t("command.commands"),
+        run: () => openRssSection('discover'),
+    },
+    {
+        id: 'cmd-rss-health',
+        kind: 'command',
+        label: t("rss.cmd.health"),
+        detail: t("rss.health.summary_desc"),
+        icon: Activity,
+        group: t("command.commands"),
+        run: () => openRssSection('health'),
     },
     ...(linterOn
         ? [

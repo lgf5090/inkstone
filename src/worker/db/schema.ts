@@ -14,6 +14,81 @@ const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
 const BACKUP_ARCHIVES_INDEX = `CREATE INDEX IF NOT EXISTS idx_backup_archives_retention
   ON backup_archives(user_id, target_id, destination, created_at DESC, archive_path DESC)`
 
+/**
+ * The reader's library, one row per thing the account decides about.
+ *
+ * Article text is not here: a feed's entries are rebuilt from the network and live on the device
+ * that fetched them, so what this schema keeps is the subscriptions, the folders, the tags, and the
+ * marks a reader made — read, starred, later, hidden, opened, and the note an article became.
+ */
+const RSS_LIBRARY_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS rss_feed (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    site_url TEXT NOT NULL DEFAULT '',
+    image_url TEXT NOT NULL DEFAULT '',
+    group_id TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT '',
+    error_count INTEGER NOT NULL DEFAULT 0,
+    last_error_at INTEGER NOT NULL DEFAULT 0,
+    etag TEXT NOT NULL DEFAULT '',
+    last_modified TEXT NOT NULL DEFAULT '',
+    paused INTEGER NOT NULL DEFAULT 0,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rss_feed_shelf ON rss_feed(user_id, group_id, position)`,
+
+  `CREATE TABLE IF NOT EXISTS rss_feed_tag (
+    user_id TEXT NOT NULL,
+    feed_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (user_id, feed_id, tag)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS rss_group (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    parent_id TEXT,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    collapsed INTEGER NOT NULL DEFAULT 0,
+    icon TEXT,
+    color TEXT,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, id)
+  )`,
+
+  /**
+   * One row per (kind, article): the marks that used to be six arrays in a JSON blob.
+   *
+   * `value` carries what the mark points at — the note id for `note`/`copy` — and `at` when it was
+   * made, which is what `opened` is and what lets a trimmed list keep its newest entries.
+   */
+  `CREATE TABLE IF NOT EXISTS rss_mark (
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT '',
+    at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, kind, entry_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rss_mark_recent ON rss_mark(user_id, kind, at DESC)`,
+
+  /** The one row per account that is not a list: where the reader was, and when the row set last moved. */
+  `CREATE TABLE IF NOT EXISTS rss_state (
+    user_id TEXT PRIMARY KEY,
+    last_channel TEXT NOT NULL DEFAULT '',
+    saved_at INTEGER NOT NULL DEFAULT 0
+  )`,
+]
+
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS app_meta (
     key TEXT PRIMARY KEY,
@@ -36,6 +111,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     settings TEXT NOT NULL DEFAULT '{}',
     template_library TEXT,
     quickadd TEXT,
+    rss TEXT,
     created_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL
   )`,
@@ -394,6 +470,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_community_templates_author
      ON community_templates(author_id)`,
   ...READER_SCHEMA_STATEMENTS,
+
+  ...RSS_LIBRARY_STATEMENTS,
 ]
 
 interface SchemaMigration {
@@ -718,12 +796,14 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    // The account's QuickAdd choices and their options, kept beside `template_library` for the
-    // same reason: a cleared browser and another device must both find them.
-    version: 29,
-    skipIfColumnExists: { table: 'users', column: 'quickadd' },
+    // The account's reading library: subscriptions, groups and what has been read. Beside
+    // `quickadd` for the same reason as that column — a cleared browser and another device must
+    // both find it — and as its own column rather than inside `settings`, because a few hundred
+    // feeds would crowd out every preference the account has.
+    version: 30,
+    skipIfColumnExists: { table: 'users', column: 'rss' },
     statements: [
-      `ALTER TABLE users ADD COLUMN quickadd TEXT`,
+      `ALTER TABLE users ADD COLUMN rss TEXT`,
     ],
   },
   {
@@ -756,6 +836,12 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 33,
     statements: [READER_GROUP_TABLE, READER_GROUP_INDEX],
   },
+  {
+    // The reading library as rows instead of one JSON column: one row per feed, per tag, per
+    // folder, per mark. Article text is deliberately absent — only the decisions travel.
+    version: 34,
+    statements: RSS_LIBRARY_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -778,7 +864,7 @@ const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
 const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_meta: ['key', 'value'],
   schema_migrations: ['version', 'applied_at'],
-  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'created_at', 'last_seen_at'],
+  users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'rss', 'created_at', 'last_seen_at'],
   folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at', 'deleted_at'],
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],
@@ -807,6 +893,11 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
   community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'uses', 'created_at'],
+  rss_feed: ['user_id', 'id', 'url', 'title', 'site_url', 'image_url', 'group_id', 'position', 'updated_at', 'last_attempt_at', 'error', 'error_count', 'last_error_at', 'etag', 'last_modified', 'paused', 'pinned'],
+  rss_feed_tag: ['user_id', 'feed_id', 'tag'],
+  rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
+  rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
+  rss_state: ['user_id', 'last_channel', 'saved_at'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -850,6 +941,11 @@ const REQUIRED_TABLES = [
   'reader_stats',
   'reader_notes',
   'reader_meta',
+  'rss_feed',
+  'rss_feed_tag',
+  'rss_group',
+  'rss_mark',
+  'rss_state',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -907,6 +1003,8 @@ const REQUIRED_INDEXES = [
   'idx_attachments_user_size',
   'idx_community_templates_created',
   'idx_community_templates_author',
+  'idx_rss_feed_shelf',
+  'idx_rss_mark_recent',
 ] as const
 
 

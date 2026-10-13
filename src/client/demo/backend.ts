@@ -3,6 +3,8 @@ import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { parseTemplateLibraryExport } from '@shared/note-templates'
 import { parseQuickAddText } from '@shared/quickadd'
+import { emptyLibrary, parseRssLibrary } from '@shared/rss/model'
+import { applyLibraryPatch, parseRssPatch } from '@shared/rss/patch'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
 import { parseQuery } from '@shared/search-query'
@@ -1310,6 +1312,40 @@ export function createDemoBackend(): DemoBackend {
     state.cursor++
     return c.json(result)
   })
+
+  // The demo has no Worker behind it, so nothing here can reach another website: the library is
+  // kept for the length of the visit, and a feed read says so plainly rather than pretending.
+  let rssLibrary: unknown = null
+  let rssSavedAt = 0
+  app.get('/api/rss/library', (c) => c.json({ savedAt: rssSavedAt, library: rssLibrary }))
+  app.put('/api/rss/library', async (c) => {
+    const body = await jsonBody(c.req.raw)
+    if (typeof body.library !== 'string') return apiError(400, 'bad_request', 'The RSS library must be sent as text')
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(body.library)
+    } catch {
+      return apiError(400, 'bad_request', 'The RSS library could not be read')
+    }
+    const { data } = parseRssLibrary(parsed)
+    if (!data) return apiError(400, 'bad_request', 'The RSS library could not be read')
+    rssLibrary = data
+    rssSavedAt = Date.now()
+    return c.json({ savedAt: rssSavedAt })
+  })
+  app.post('/api/rss/patch', async (c) => {
+    const body = await jsonBody(c.req.raw)
+    const patch = parseRssPatch(body.patch)
+    if (!patch) return apiError(400, 'bad_request', 'The change set could not be read')
+    const base = parseRssLibrary(rssLibrary).data ?? emptyLibrary()
+    const { data } = parseRssLibrary(applyLibraryPatch(base, patch))
+    if (!data) return apiError(400, 'bad_request', 'The change set could not be read')
+    rssLibrary = data
+    rssSavedAt = Date.now()
+    return c.json({ savedAt: rssSavedAt, rows: 0 })
+  })
+  app.post('/api/rss/fetch', () => apiError(400, 'bad_request', 'The demo cannot reach other websites'))
+  app.get('/api/rss/relay', () => apiError(400, 'bad_request', 'The demo cannot reach other websites'))
 
   app.all('/api/*', () => apiError(404, 'not_found', 'Demo endpoint not found'))
 

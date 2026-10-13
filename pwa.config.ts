@@ -165,7 +165,7 @@ function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: strin
 	const ALL_OFFLINE_URLS = ${JSON.stringify(allUrls)}
 	const OPTIONAL_URLS = ALL_OFFLINE_URLS.filter((url) => !CORE_URLS.includes(url))
 	const OPTIONAL_URL_SET = new Set(OPTIONAL_URLS)
-	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5|auto-|mind-elixir|vendor\\/excalidraw)/i
+	const ON_DEMAND_PATTERN = /(?:mermaid|diagram|cytoscape|langium|vscode-|chunk-KEIR6QF5|auto-|mind-elixir|vendor\\/excalidraw|\\/rss\\/)/i
 	const WARMUP_URLS = OPTIONAL_URLS.filter((url) => !ON_DEMAND_PATTERN.test(url))
 	const WARMUP_TOTAL = CORE_URLS.length + WARMUP_URLS.length
 	const CACHE_META_URL = '/.inkstone-cache-meta'

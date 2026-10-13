@@ -1,3 +1,4 @@
+import type { RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import type { ReaderUsage } from '@shared/types'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
@@ -529,6 +530,19 @@ export const api = {
       request<{ values: string[] }>(`/api/quickadd/field-values${toQuery(query)}`),
     fieldNotes: (query: { name: string; value?: string; folder?: string; tag?: string; excludeTag?: string; limit?: number }) =>
       request<{ notes: { id: string, title: string }[] }>(`/api/quickadd/field-notes${toQuery(query)}`),
+  },
+
+  rss: {
+    load: () => request<{ savedAt: number; library: unknown }>('/api/rss/library'),
+    save: (library: string) =>
+      request<{ savedAt: number }>('/api/rss/library', { method: 'PUT', body: { library } }),
+    /** One device's changes, folded into the account's rows by the Worker. */
+    patch: (patch: unknown) =>
+      request<{ savedAt: number; rows: number }>('/api/rss/patch', { method: 'POST', body: { patch } }),
+    fetch: (requests: Array<{ url: string; etag?: string; lastModified?: string }>) =>
+      request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
+    /** The same-origin address an article image or an episode enclosure loads from. */
+    relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
   },
 
   mcp: {

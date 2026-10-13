@@ -1,0 +1,233 @@
+/* The reader's own surface. The article body is `.ink-prose` first and this second, so only the
+   things a feed can contain and a note cannot are stated here. */
+
+.ink-prose[data-font='mono'] {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+/* A feed's tables are written for a page a fifth the width of a monitor, and a wide one would push
+   the whole column sideways rather than scroll inside itself. */
+.rss-prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rss-prose img {
+  height: auto;
+}
+
+/*
+ * Fonts the device already has. Nothing is downloaded: a reader who wants a face that is not on this
+ * list types its name into the device-font field, and the browser falls back to whatever it has when
+ * the name matches nothing. The CJK names are the ones macOS, Windows and a Linux desktop actually
+ * ship, in the order they resolve.
+ */
+.rss-prose[data-font='serif'] {
+  font-family: Georgia, 'Iowan Old Style', 'Times New Roman', 'Songti SC', SimSun, serif;
+}
+
+.rss-prose[data-font='sans'] {
+  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.rss-prose[data-font='songti'] {
+  font-family: 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', SimSun, serif;
+}
+
+.rss-prose[data-font='kaiti'] {
+  font-family: 'Kaiti SC', 'TW-Kai', KaiTi, 'AR PL UKai CN', serif;
+}
+
+.rss-prose[data-font='fangsong'] {
+  font-family: 'FangSong SC', FangSong, 'AR PL UKai CN', 'Songti SC', serif;
+}
+
+.rss-prose[data-font='custom'] {
+  font-family: var(--rss-custom-font, serif);
+}
+
+/*
+ * The reading themes.
+ *
+ * A theme is written by redefining the app's own tokens on the scroll box, not by painting over the
+ * classes inside it: custom properties inherit, so every `text-[var(--text-primary)]` the article
+ * body and its headings and links already carry resolves to the theme without a single selector
+ * having to know the article's markup. Feed HTML is whatever an author wrote it to be — this is the
+ * only way to set all of it down.
+ */
+.rss-scroll {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.rss-scroll[data-theme='light'] {
+  --bg-base: #ffffff;
+  --bg-hover: #f2f2f2;
+  --text-primary: #1c1c1c;
+  --text-secondary: #3f3f3f;
+  --text-tertiary: #6b6b6b;
+  --text-quaternary: #9a9a9a;
+  --border-subtle: #e8e8e8;
+}
+
+.rss-scroll[data-theme='paper'] {
+  --bg-base: #f7f1e3;
+  --bg-hover: #efe6d3;
+  --text-primary: #33291d;
+  --text-secondary: #4d4030;
+  --text-tertiary: #6f6049;
+  --text-quaternary: #94836a;
+  --border-subtle: #e4d8bf;
+}
+
+.rss-scroll[data-theme='sage'] {
+  --bg-base: #eef3ea;
+  --bg-hover: #e2ebdd;
+  --text-primary: #26332a;
+  --text-secondary: #3f5044;
+  --text-tertiary: #5f7264;
+  --text-quaternary: #85988a;
+  --border-subtle: #d9e4d3;
+}
+
+.rss-scroll[data-theme='mist'] {
+  --bg-base: #eaeef4;
+  --bg-hover: #dee5ef;
+  --text-primary: #262d38;
+  --text-secondary: #3d4757;
+  --text-tertiary: #5c6a80;
+  --text-quaternary: #8593a8;
+  --border-subtle: #d7dfea;
+}
+
+.rss-scroll[data-theme='dark'] {
+  --bg-base: #17181a;
+  --bg-hover: #232528;
+  --text-primary: #d6d3cd;
+  --text-secondary: #b6b3ad;
+  --text-tertiary: #8e8b86;
+  --text-quaternary: #6e6c68;
+  --border-subtle: #2c2e31;
+}
+
+.rss-scroll[data-theme='black'] {
+  --bg-base: #000000;
+  --bg-hover: #141414;
+  --text-primary: #c9c9c9;
+  --text-secondary: #a6a6a6;
+  --text-tertiary: #828282;
+  --text-quaternary: #5e5e5e;
+  --border-subtle: #1c1c1c;
+}
+
+/* Alone on the screen the column reads better centred than pinned to the left edge, which is where
+   it sits when a list is beside it. */
+.rss-scroll[data-focus='true'] .rss-prose {
+  margin-inline: auto;
+}
+
+/* Feed HTML arrives with whatever the author wrote: a 120-line code block, a hero image sized in
+   pixels. Each gets a ceiling and a scroll of its own so the article never sets the pane's width. */
+.rss-prose pre,
+.rss-prose code[class*='language-'],
+.rss-prose picture,
+.rss-prose figure {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rss-prose img,
+.rss-prose video,
+.rss-prose audio,
+.rss-prose embed,
+.rss-prose object {
+  max-width: 100%;
+}
+
+.rss-prose iframe {
+  max-width: 100%;
+}
+
+/* Paper. The reference reader asks Electron for a PDF; a browser has the same facility in its own
+   print dialogue, and what the app owes is the sheet it is handed: the article alone, at full width,
+   in dark ink on white, running to its end instead of stopping at the bottom of a scroll box. */
+@media print {
+  html.rss-printing,
+  html.rss-printing body,
+  html.rss-printing #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Presentation mode answers printing by hiding every child of <body> except its own sheet, and the
+     app root is one of those children. Without this the reader's paper is a blank page. */
+  html.rss-printing body > #root {
+    display: block !important;
+  }
+
+  /* Every scroll box in the app clips what it holds, and the shell sizes its panes to the viewport. */
+  html.rss-printing div,
+  html.rss-printing section {
+    overflow: visible !important;
+  }
+
+  html.rss-printing .h-full {
+    height: auto !important;
+  }
+
+  html.rss-printing [data-print='hide'],
+  html.rss-printing [role='dialog'],
+  html.rss-printing [role='menu'],
+  html.rss-printing [role='toolbar'],
+  html.rss-printing [role='tooltip'] {
+    display: none !important;
+  }
+
+  html.rss-printing [data-print='surface'] {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* A reading theme paints its paper by redefining tokens on the scroll box, so the tokens are what
+     has to be answered: an ink theme would otherwise print a black page with grey text on it. */
+  html.rss-printing .rss-scroll {
+    --bg-base: #ffffff;
+    --bg-inset: #ffffff;
+    --bg-sunken: #ffffff;
+    --bg-raised: #ffffff;
+    --bg-hover: #ffffff;
+    --bg-active: #ffffff;
+    --text-primary: #111111;
+    --text-secondary: #222222;
+    --text-tertiary: #444444;
+    --text-quaternary: #666666;
+    --border-subtle: #dddddd;
+    --border-default: #cccccc;
+    --accent: #111111;
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  html.rss-printing .rss-prose {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    orphans: 2;
+    widows: 2;
+  }
+
+  html.rss-printing .rss-prose pre,
+  html.rss-printing .rss-prose figure,
+  html.rss-printing .rss-prose img,
+  html.rss-printing .rss-prose table {
+    break-inside: avoid;
+  }
+
+  html.rss-printing .rss-prose :is(h1, h2, h3) {
+    break-after: avoid;
+  }
+}

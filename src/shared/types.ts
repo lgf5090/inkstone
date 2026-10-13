@@ -537,6 +537,65 @@ export interface UserSettings {
   notes: NotesSettings
   search: SearchSettings
   dataview: DataviewSettings
+  rss: RssSettings
+}
+
+/** Where an article's pictures come from. `relay` keeps the reader's browser off the author's host. */
+export type RssImageMode = 'relay' | 'direct' | 'off'
+
+/** The face an article is read in. `ui` is the interface face; `serif` is the notebook's own. */
+export type RssReadingFont = 'ui' | 'serif' | 'sans' | 'songti' | 'kaiti' | 'fangsong' | 'mono' | 'custom'
+
+/** How much of each row the list shows. Compact fits about twice as many. */
+export type RssListDensity = 'comfortable' | 'compact'
+
+/** The paper an article is set on. `auto` follows the app's own light or dark scheme. */
+export type RssReadingTheme = 'auto' | 'light' | 'paper' | 'sage' | 'mist' | 'dark' | 'black'
+
+export type RssSortOrder = 'newest' | 'oldest' | 'source'
+
+/** What the reader's own list of settings starts with when the RSS app is opened. */
+export type RssDefaultFilter = 'all' | 'unread' | 'starred'
+
+/** How a saved article's language is chosen when the model is asked to summarise it. */
+export type RssAiLanguage = 'source' | 'interface'
+
+/**
+ * The reading preferences, as one section of the account settings.
+ *
+ * What a reader *subscribes to* is not here: that is the RSS library, which has its own row
+ * because a few hundred feeds would crowd every other preference out of the settings column.
+ */
+export interface RssSettings {
+  /** Minutes between automatic refreshes. 0 reads the list only when the reader asks. */
+  refreshIntervalMinutes: number
+  defaultFilter: RssDefaultFilter
+  /** Opening an article marks it read. Off leaves the marking to the reader. */
+  markReadOnOpen: boolean
+  images: RssImageMode
+  showThumbnails: boolean
+  readingFont: RssReadingFont
+  /** The article body size, in px. */
+  fontSize: number
+  lineHeight: number
+  /** Measure width, in characters. */
+  columnWidth: 28 | 36 | 44
+  /** What a channel with no remembered order opens at. Each channel keeps its own choice. */
+  sortOrder: RssSortOrder
+  density: RssListDensity
+  readingTheme: RssReadingTheme
+  /** The article list's width in px; the reader takes the rest. */
+  listWidth: number
+  /** A font name typed by the reader, used only when {@link readingFont} is `custom`. */
+  customFont: string
+  /** Scrolling past a row marks it read, which is how a reader finishes a channel. */
+  markReadOnScroll: boolean
+  /** The folder a saved article is written to, by name. Empty asks the notebook's current one. */
+  articleFolder: string
+  /** The title of the note an article link is appended to, as a date pattern. Empty turns it off. */
+  dailyNoteTitle: string
+  aiEnabled: boolean
+  aiLanguage: RssAiLanguage
 }
 
 /** How a duration renders in a result cell. */

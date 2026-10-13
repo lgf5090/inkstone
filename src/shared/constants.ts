@@ -426,7 +426,42 @@ export const DEFAULT_SETTINGS: UserSettings = {
     allowHtmlInExports: false,
     savedQueries: [],
   },
+  rss: {
+    refreshIntervalMinutes: 0,
+    defaultFilter: 'all',
+    markReadOnOpen: true,
+    images: 'relay',
+    showThumbnails: true,
+    readingFont: 'serif',
+    fontSize: 17,
+    lineHeight: 1.8,
+    columnWidth: 36,
+    sortOrder: 'newest',
+    density: 'comfortable',
+    readingTheme: 'auto',
+    listWidth: 320,
+    customFont: '',
+    markReadOnScroll: false,
+    articleFolder: 'RSS',
+    dailyNoteTitle: 'YYYY-MM-DD',
+    aiEnabled: false,
+    aiLanguage: 'interface',
+  },
 }
+
+/** The choices the RSS panel offers, spelled once so the merge and the panel cannot drift. */
+export const RSS_IMAGE_MODES = ['relay', 'direct', 'off'] as const
+export const RSS_READING_FONTS = ['ui', 'serif', 'sans', 'songti', 'kaiti', 'fangsong', 'mono', 'custom'] as const
+export const RSS_LIST_DENSITIES = ['comfortable', 'compact'] as const
+export const RSS_READING_THEMES = ['auto', 'light', 'paper', 'sage', 'mist', 'dark', 'black'] as const
+export const RSS_SORT_ORDERS = ['newest', 'oldest', 'source'] as const
+export const RSS_LIST_WIDTH_RANGE = [220, 520] as const
+export const RSS_DEFAULT_FILTERS = ['all', 'unread', 'starred'] as const
+export const RSS_AI_LANGUAGES = ['source', 'interface'] as const
+export const RSS_COLUMN_WIDTHS = [28, 36, 44] as const
+export const RSS_FONT_SIZE_RANGE = [14, 32] as const
+export const RSS_LINE_HEIGHT_RANGE = [1.4, 2.4] as const
+export const RSS_REFRESH_INTERVALS = [0, 5, 15, 30, 60, 240, 720] as const
 
 export const TODO_TAG_LIST_MAX = 8
 
@@ -723,6 +758,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   const notes = asRecord(src.notes)
   const search = asRecord(src.search)
   const dataview = asRecord(src.dataview)
+  const rss = asRecord(src.rss)
 
   // the linter section is a nested record, so it is rebuilt from the reader's blob rather than
   // patched onto a default: an unknown rule or an oversized option has to be dropped, not stored
@@ -1153,6 +1189,30 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.dataview.taskCompletionText = trimmedText(dataview.taskCompletionText, 40) || DEFAULT_SETTINGS.dataview.taskCompletionText
   base.dataview.taskCompletionDateFormat = trimmedText(dataview.taskCompletionDateFormat, 40) || DEFAULT_SETTINGS.dataview.taskCompletionDateFormat
 
+  // The reading section is small and every one of its values is a choice the panel offers, so an
+  // out-of-range or unknown spelling falls back rather than being clamped into a setting the
+  // reader cannot name. A refresh interval of 0 is a real answer ("only when I ask"), which is
+  // why the interval keeps its zero and the measure width keeps only its three widths.
+  base.rss.refreshIntervalMinutes = integerInRange(rss.refreshIntervalMinutes, 0, 720, DEFAULT_SETTINGS.rss.refreshIntervalMinutes)
+  base.rss.defaultFilter = enumValue(rss.defaultFilter, RSS_DEFAULT_FILTERS, DEFAULT_SETTINGS.rss.defaultFilter)
+  base.rss.markReadOnOpen = booleanValue(rss.markReadOnOpen, DEFAULT_SETTINGS.rss.markReadOnOpen)
+  base.rss.images = enumValue(rss.images, RSS_IMAGE_MODES, DEFAULT_SETTINGS.rss.images)
+  base.rss.showThumbnails = booleanValue(rss.showThumbnails, DEFAULT_SETTINGS.rss.showThumbnails)
+  base.rss.readingFont = enumValue(rss.readingFont, RSS_READING_FONTS, DEFAULT_SETTINGS.rss.readingFont)
+  base.rss.fontSize = integerInRange(rss.fontSize, RSS_FONT_SIZE_RANGE[0], RSS_FONT_SIZE_RANGE[1], DEFAULT_SETTINGS.rss.fontSize)
+  base.rss.lineHeight = numberInRange(rss.lineHeight, RSS_LINE_HEIGHT_RANGE[0], RSS_LINE_HEIGHT_RANGE[1], DEFAULT_SETTINGS.rss.lineHeight)
+  base.rss.columnWidth = RSS_COLUMN_WIDTHS.includes(Number(rss.columnWidth) as 28) ? Number(rss.columnWidth) as 28 | 36 | 44 : DEFAULT_SETTINGS.rss.columnWidth
+  base.rss.sortOrder = enumValue(rss.sortOrder, RSS_SORT_ORDERS, DEFAULT_SETTINGS.rss.sortOrder)
+  base.rss.density = enumValue(rss.density, RSS_LIST_DENSITIES, DEFAULT_SETTINGS.rss.density)
+  base.rss.readingTheme = enumValue(rss.readingTheme, RSS_READING_THEMES, DEFAULT_SETTINGS.rss.readingTheme)
+  base.rss.listWidth = integerInRange(rss.listWidth, RSS_LIST_WIDTH_RANGE[0], RSS_LIST_WIDTH_RANGE[1], DEFAULT_SETTINGS.rss.listWidth)
+  base.rss.customFont = typeof rss.customFont === 'string' ? rss.customFont.slice(0, 80) : DEFAULT_SETTINGS.rss.customFont
+  base.rss.markReadOnScroll = booleanValue(rss.markReadOnScroll, DEFAULT_SETTINGS.rss.markReadOnScroll)
+  base.rss.articleFolder = trimmedText(rss.articleFolder, 120)
+  base.rss.dailyNoteTitle = trimmedText(rss.dailyNoteTitle, 60) || DEFAULT_SETTINGS.rss.dailyNoteTitle
+  base.rss.aiEnabled = booleanValue(rss.aiEnabled, DEFAULT_SETTINGS.rss.aiEnabled)
+  base.rss.aiLanguage = enumValue(rss.aiLanguage, RSS_AI_LANGUAGES, DEFAULT_SETTINGS.rss.aiLanguage)
+
   return base
 }
 
@@ -1347,7 +1407,7 @@ function draggerKnownStyleOrder(value: unknown, styleIds: readonly string[]): st
   return [...kept, ...styleIds.filter((id) => !seen.has(id))]
 }
 
-const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter'] as const
+const SETTINGS_SECTIONS = ['appearance', 'editor', 'preview', 'properties', 'backup', 'sync', 'notes', 'search', 'dataview', 'linter', 'rss'] as const
 
 export function normalizeTodoTags(value: unknown): string {
   if (typeof value !== 'string')
@@ -1432,6 +1492,7 @@ function cloneDefaultSettings(): UserSettings {
       ...DEFAULT_SETTINGS.dataview,
       savedQueries: [],
     },
+    rss: { ...DEFAULT_SETTINGS.rss },
   }
 }
 

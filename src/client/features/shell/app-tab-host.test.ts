@@ -91,9 +91,13 @@ describe('the tab host', () => {
 
   it('names the container the address asked for, on both sides of the switch', () => {
     view = renderElement(createElement(AppTabHost))
+    // Both apps have arrived by now, so the tell is the other way round: an address with a
+    // container never gets the placeholder, and one without it still does.
     act(() => { navigateToPath('/rss') })
-    expect(placeholderHeading()).toBe(t('app.tabs.rss'))
+    expect(placeholderHeading()).toBeNull()
     expect(view.container.querySelector('nav a[href="/rss"][aria-current="page"]')).not.toBeNull()
+    act(() => { navigateToPath('/music') })
+    expect(placeholderHeading()).toBe(t('app.tabs.music'))
   })
 
   it('hands a container its own sub-address instead of falling back to the notebook', () => {

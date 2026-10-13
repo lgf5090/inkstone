@@ -27,6 +27,7 @@ import { excalidrawLibraryRoutes } from './routes/excalidraw-library'
 import { readingRoutes } from './routes/reading'
 import { readerLibraryRoutes } from './routes/reader-library'
 import { readerDiscoveryRoutes } from './routes/reader-discovery'
+import { rssRoutes } from './routes/rss'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -92,6 +93,7 @@ export function createApp() {
   app.route('/api/templates/community', communityTemplatesRoutes)
   app.route('/api/templates', templateLibraryRoutes)
   app.route('/api/quickadd', quickAddRoutes)
+  app.route('/api/rss', rssRoutes)
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)
   app.route('/api/files', filesRoutes)

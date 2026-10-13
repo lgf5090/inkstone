@@ -40,6 +40,42 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'appearance', titleKey: 'settings.content_width', termKeys: ['settings.narrow', 'settings.standard', 'settings.wide', 'settings.full'] },
   { section: 'appearance', titleKey: 'settings.preview_typography', termKeys: ['settings.body_font', 'settings.body_text_size', 'settings.line_height', 'settings.content_width'] },
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  { section: 'rss', titleKey: 'rss.settings.refresh', detailKey: 'rss.settings.refresh_hint', termKeys: ['rss.settings.refresh_off', 'rss.settings.refresh_minutes', 'rss.settings.refresh_hours'] },
+  { section: 'rss', titleKey: 'rss.settings.default_filter', termKeys: ['rss.filter_all', 'rss.filter_unread', 'rss.filter_starred'] },
+  { section: 'rss', titleKey: 'rss.settings.sort', detailKey: 'rss.settings.sort_desc', termKeys: ['rss.sort_newest', 'rss.sort_oldest', 'rss.sort_source'] },
+  { section: 'rss', titleKey: 'rss.settings.density', detailKey: 'rss.settings.density_desc', termKeys: ['rss.settings.density_comfortable', 'rss.settings.density_compact'] },
+  { section: 'rss', titleKey: 'rss.settings.mark_read_scroll', detailKey: 'rss.settings.mark_read_scroll_desc' },
+  { section: 'rss', titleKey: 'rss.settings.mark_read', detailKey: 'rss.settings.mark_read_desc' },
+  { section: 'rss', titleKey: 'rss.settings.thumbnails', detailKey: 'rss.settings.thumbnails_desc' },
+  { section: 'rss', titleKey: 'rss.settings.images', detailKey: 'rss.settings.images_desc', termKeys: ['rss.settings.images_relay', 'rss.settings.images_direct', 'rss.settings.images_off'] },
+  { section: 'rss', titleKey: 'rss.theme', detailKey: 'rss.theme_desc', termKeys: ['rss.theme_auto', 'rss.theme_light', 'rss.theme_paper', 'rss.theme_sage', 'rss.theme_mist', 'rss.theme_dark', 'rss.theme_black'] },
+  { section: 'rss', titleKey: 'rss.font', termKeys: ['rss.font_ui', 'rss.font_serif', 'rss.font_sans', 'rss.font_songti', 'rss.font_kaiti', 'rss.font_fangsong', 'rss.font_mono', 'rss.font_custom'] },
+  { section: 'rss', titleKey: 'rss.custom_font', detailKey: 'rss.custom_font_desc' },
+  { section: 'rss', titleKey: 'rss.list_width' },
+  { section: 'rss', titleKey: 'rss.font_size' },
+  { section: 'rss', titleKey: 'rss.line_height' },
+  { section: 'rss', titleKey: 'rss.measure' },
+  { section: 'rss', titleKey: 'rss.settings.article_folder', detailKey: 'rss.settings.article_folder_desc' },
+  { section: 'rss', titleKey: 'rss.settings.daily_note', detailKey: 'rss.settings.daily_note_desc' },
+  { section: 'rss', titleKey: 'rss.ai.settings', detailKey: 'rss.ai.settings_hint', termKeys: ['rss.ai.base_url', 'rss.ai.api_key', 'rss.ai.model', 'rss.ai.test'] },
+  { section: 'rss', titleKey: 'rss.ai.language', termKeys: ['rss.ai.language_source', 'rss.ai.language_interface'] },
+  { section: 'rss', titleKey: 'rss.settings.cache', detailKey: 'rss.settings.clear_cache_confirm', termKeys: ['rss.settings.clear_cache', 'rss.storage.clear_bodies', 'rss.storage.feeds', 'rss.storage.articles_n', 'rss.storage.limit'] },
+  { section: 'rss', titleKey: 'rss.storage.images', detailKey: 'rss.storage.images_desc' },
   { section: 'queries', titleKey: 'settings.dataview_enabled', detailKey: 'settings.dataview_enabled_desc' },
   { section: 'queries', titleKey: 'settings.dataview_inline_fields', detailKey: 'settings.dataview_inline_fields_desc' },
   { section: 'queries', titleKey: 'settings.dataview_inline_queries', detailKey: 'settings.dataview_inline_queries_desc' },
