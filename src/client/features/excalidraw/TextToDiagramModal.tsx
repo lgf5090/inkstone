@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   AlignLeft,
@@ -27,6 +27,7 @@ import {
 } from '../../lib/ai';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { convertMermaidToExcalidrawElements } from '../../lib/markdown/excalidraw/mermaid';
+import { sanitizeSvg } from '../../lib/sanitize-svg';
 
 export interface TextToDiagramModalProps {
   isOpen: boolean;
@@ -140,6 +141,10 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
   const [copied, setCopied] = useState(false);
 
   const currentChat = chats.find((c) => c.id === currentChatId) || chats[0];
+
+  // The diagram is markup this app did not write, so it goes through the shared SVG pass before it
+  // is handed to `dangerouslySetInnerHTML`; the memo keeps a pan or a zoom from re-sanitising it.
+  const safePreviewSvg = useMemo(() => sanitizeSvg(previewSvg), [previewSvg]);
 
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
@@ -670,7 +675,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                       transition: isDragging ? 'none' : 'transform 0.05s ease-out',
                     }}
                     className="max-h-full max-w-full flex items-center justify-center pointer-events-none [&_svg]:max-h-full [&_svg]:max-w-full"
-                    dangerouslySetInnerHTML={{ __html: previewSvg }}
+                    dangerouslySetInnerHTML={{ __html: safePreviewSvg }}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center text-slate-500">

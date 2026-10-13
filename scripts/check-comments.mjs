@@ -1037,6 +1037,10 @@ const allowed = new Map([
     "// The same note can be open in two panes, each with its own engine. Refilling while this canvas",
     "// holds an edit it has not written yet would throw that work away, so wait for the save to land.",
   ]],
+  ["src/client/features/excalidraw/TextToDiagramModal.tsx", [
+    "// The diagram is markup this app did not write, so it goes through the shared SVG pass before it",
+    "// is handed to `dangerouslySetInnerHTML`; the memo keeps a pan or a zoom from re-sanitising it.",
+  ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
   ]],
@@ -1061,6 +1065,11 @@ const allowed = new Map([
     "/**\n   * Ask the engine to bring its library panel back.\n   *\n   * A confirmation dialog is portalled to the body, and the engine closes its sidebar on a pointer\n   * down outside the panel - which is exactly what answering the dialog is. Without this the panel\n   * vanishes behind the dialog and the user is left on a bare canvas having only meant to rename a\n   * folder.\n   */",
     "// The browser used to pay for a 100 kB catalog and a cold upstream on the click itself. Asking",
     "// while the reader is still looking at the panel means the official browser opens at once.",
+    "// The preview markup comes from a library manifest the server stored, not from this app, so it is",
+    "// sanitised on the way to `dangerouslySetInnerHTML`; the memo keeps a parent re-render cheap.",
+    "// A stencil preview is decoration: when the engine refuses to export one (a malformed",
+    "// element, a canvas it cannot paint), the tile falls back to the element count below rather",
+    "// than failing the library that still holds the real shapes.",
   ]],
   ["src/client/features/excalidraw/library/ExcalidrawOfficialLibraryModal.tsx", [
     "// Whatever the store already holds paints first; the request only fills in or refreshes it.",
@@ -3753,6 +3762,9 @@ const allowed = new Map([
     "// The epoch used to move on every prepared render, so a pass that changed nothing a block can read",
     "// still re-walked the host and re-mounted every mind map. Both halves are compared above because the",
     "// markup string is blind to a fence-body edit.",
+    "// A heading id is percent-encoded by the renderer, but a hand-written href may hold a bare",
+    "// `%`, which is not a valid escape; falling back to the raw fragment is what a browser does,",
+    "// so a failed decode is not worth reporting.",
   ]],
   ["src/client/features/preview/PropertyDecorations.tsx", [
     "// The app's submenu renderer: the bare row list it replaces drew straight onto the",
@@ -3848,6 +3860,9 @@ const allowed = new Map([
     "/**\n * The same run with extra names handed to the code as parameters. A Dataview DML block gets a `dv`\n * object this way: the shadowing list above still applies, so an injection can only add a name the note\n * could not reach anyway, and a note that rebinds `dv` itself rebinds a parameter, not the worker scope.\n */",
     "// A name the sandbox already shadows cannot be handed over as a second parameter: two parameters of",
     "// one name are a syntax error the moment the body says \"use strict\".",
+    "// `sendBeacon` is a second route off the worker, but a navigator that refuses the redefinition",
+    "// is one the note's code cannot reach without it either; the page-side timeout is the backstop,",
+    "// exactly as for the loop above, so a refusal here is never a reason to stop.",
   ]],
   ["src/client/features/preview/js-runner.ts", [
     "/**\n * The Worker thread is the sandbox: user code has no DOM and no parent reference, and `terminate()`\n * is the only hard stop for an endless loop. The page-side timeout is what bounds a run.\n */",
@@ -6918,6 +6933,11 @@ const allowed = new Map([
     "/** Which feeds the device holds and how large each is, so the cache can be trimmed without\n   * reading every value back to find out.\n   */",
     "/** The AI endpoint a reader configured here. The key is stored on this device and never sent\n   * anywhere except the relay it is about to be used against.\n   */",
     "/**\n   * What a model already answered about an article, on this device.\n   *\n   * A summary is a paid, streamed answer the reader should not have to ask for twice, and it is not\n   * the kind of thing to put in the account row: it belongs to whoever configured a key. One blob,\n   * trimmed by the store when it grows.\n   */",
+    "// A cache write is best-effort: the caller's in-memory state already holds the value, so a",
+    "// browser that refuses IndexedDB (private mode, a full disk) must not fail the edit behind it.",
+    "// Notifying the other tabs is best-effort: this tab's own state is already updated, and a",
+    "// browser that refuses the channel — or one without BroadcastChannel, guarded above — simply",
+    "// hears no echo.",
   ]],
   ["src/client/lib/drop-state.ts", [
     "/**\n * Drop-indicator state that cannot get stuck.\n *\n * A drag that ends outside the window, or one the user cancels with Escape, never fires `drop` on the\n * element that was highlighting itself, so a plain `useState` would leave the ring or the line painted\n * until the next drag. Every surface that shows a drop target needs the same five bail-outs, and a\n * surface that forgets one of them looks like a broken hover rather than a missing listener.\n */",
@@ -7056,6 +7076,9 @@ const allowed = new Map([
     "/**\n * Subscribes a component that calls {@link t} during render to the two things that change what `t`\n * answers: the active locale, and the resource version this locale's messages arrive under. A board\n * rendered outside the app's own locale-aware tree would otherwise keep last locale's copy after a\n * language switch, because React has no other reason to run its render again.\n */",
     "/**\n * The built-in template bodies are the one part of the catalog a reader may never\n * open, so they arrive on demand instead of riding the start-up locale chunk.\n * Registering them mutates the same table `t()` reads, which keeps lookups, the\n * language switch and the `resourcesVersion` signal exactly as they were.\n */",
     "/**\n * `localizedTexts` with its parameters filled in: a value that was written into a note\n * while the interface spoke another language is still the same string, so a lookup keyed\n * on display text has to answer in every shipped language at once.\n */",
+    "// Persisting the choice is a convenience, not the switch itself: the locale is already",
+    "// set in memory above, so a browser that refuses storage (private mode, a full quota)",
+    "// must not fail the language change.",
   ]],
   ["src/client/lib/linter/__tests__/auto-correct-common-misspellings.test.ts", [
     "// The word expression includes the backtick, so inline code must be a token before words can be found.",
@@ -12408,6 +12431,12 @@ const allowed = new Map([
     "/** OPML outlines, flattened: every `outline` that carries an `xmlUrl` is one subscription. */",
     "/**\n * Subscriptions as one OPML 2.0 document, with the folder nesting written back the way it was\n * read. A reader who exports from this app and imports into another — or the other way round —\n * should get the same tree, not a shelf named \"Front end / Reading\".\n */",
   ]],
+  ["src/client/lib/sanitize-svg.ts", [
+    "/**\n * Making a diagram's SVG safe to put into the page.\n *\n * Two surfaces here draw markup that is not the app's own: a Mermaid diagram the reader pasted into\n * the text-to-diagram dialog, and a stencil preview whose SVG was rendered elsewhere and stored in a\n * library manifest the server hands back. Both arrive as an SVG string and both are handed to\n * React's `dangerouslySetInnerHTML`, so both go through this one pass first. An SVG is a document\n * that can carry a script and an event handler exactly as HTML can, and neither surface may trust\n * where its markup came from, so the config is written for SVG alone: the SVG profile keeps the\n * shape elements and filters a diagram is drawn from, while the HTML profile stays off.\n *\n * `style` is the one thing a document pipeline would forbid that a diagram cannot lose — Mermaid and\n * the drawing engine both paint with inline styles and a `<style>` block inside the SVG — and\n * DOMPurify sanitises the declarations themselves rather than trusting them, so it is kept.\n */",
+    "// Both are part of an exported diagram — `use` draws markers and clones, `foreignObject` holds an",
+    "// HTML label — and neither is in the SVG profile by default, so they are added back explicitly.",
+    "/** The one pass both diagram sinks share; an empty string is answered without touching DOMPurify. */",
+  ]],
   ["src/client/lib/shortcuts.ts", [
     "// A show starts on the slide under the editor cursor, so the key has to reach into the editor;",
     "// `mod+shift+p` is already the command palette.",
@@ -15251,6 +15280,9 @@ const allowed = new Map([
     "/** The upstream a test wants: what each address answers, and what it was asked with. */",
     "// The mark row, and the account's own state row, which is what a save stamps.",
     "// Device B loaded the library before device A's star landed, and now sends only its own change.",
+  ]],
+  ["tests/sanitize-svg.test.ts", [
+    "/**\n * The SVG sinks both draw markup the app did not write — a pasted Mermaid diagram and a stencil\n * preview stored in a library manifest — so this proves the shared pass keeps a diagram whole while\n * taking away the two things an SVG can do that a picture cannot: run a script and carry a handler.\n */",
   ]],
   ["tests/search-folder-scope.test.ts", [
     "// A parent_id cycle has to terminate rather than spin.",
