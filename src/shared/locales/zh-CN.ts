@@ -1090,7 +1090,6 @@ export const ZH_CN_MESSAGES = {
     "outline.reading_time": "约需 {minutes} 分钟读完",
     "outline.reading_progress": "本篇已读 {percent}%",
     "outline.reset_position": "让面板回到默认角落",
-    "outline.regex": "按正则表达式匹配",
     "outline.toggle_search": "筛选标题",
     "overlay.confirm": "确定",
     "overlay.dialog": "对话框",

@@ -1090,7 +1090,6 @@ export const EN_US_MESSAGES = {
     "outline.reading_progress": "Read {percent}% of this note",
     "outline.reading_time": "~{minutes} min read",
     "outline.reset_position": "Return the panel to its corner",
-    "outline.regex": "Match as regular expression",
     "outline.toggle_search": "Filter headings",
     "overlay.confirm": "Confirm",
     "overlay.dialog": "Dialog",
