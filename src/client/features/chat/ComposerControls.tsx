@@ -268,7 +268,7 @@ export function PlusMenu({
   ]
   return (
     <>
-      <IconButton label={t('assistant.attach.menu')} size="sm" onClick={anchor.toggle} className="size-7 rounded-[var(--r-md)]">
+      <IconButton ref={anchor.ref} label={t('assistant.attach.menu')} size="sm" onClick={anchor.toggle} className="size-7 rounded-[var(--r-md)]">
         <Plus size={15} />
       </IconButton>
       <Menu anchor={anchor.ref} open={anchor.open} onClose={anchor.close} items={items} width={220} label={t('assistant.attach.menu')} />

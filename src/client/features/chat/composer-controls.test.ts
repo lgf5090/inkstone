@@ -5,7 +5,7 @@
  * callback the composer wired, because every one of these controls is a setting the reader can only
  * change from here.
  */
-import { act, createElement } from 'react'
+import { act, createElement, type ReactElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantModel } from '@shared/assistant'
@@ -163,6 +163,32 @@ describe('voice chip', () => {
     // The chip is not a dead button: with no engine the reader is told, and it never enters listening.
     expect(promptDialog).toHaveBeenCalledWith({ title: t('assistant.composer.voice_unsupported') })
     expect(byAria(t('assistant.composer.voice_stop'))).toBeUndefined()
+  })
+})
+
+describe('anchored menus', () => {
+  // jsdom has no layout, so the panel's position cannot be measured here. What can be measured is the
+  // mistake behind the corner-of-the-screen menu: a trigger that opens a menu without handing over its
+  // own element. The shared Menu warns when that happens, so the warning is the assertion.
+  it('every composer control hands its element to the menu it opens', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const cases: [string, () => ReactElement][] = [
+      ['plus', () => createElement(PlusMenu, { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt: vi.fn(), prompts: [] })],
+      ['model', () => createElement(ModelMenu, { models: [model()], activeId: 'm1', onPick: vi.fn(), onManage: vi.fn(), onVision: vi.fn() })],
+      ['thinking', () => createElement(ReasoningMenu, { value: 'auto', disabled: false, onChange: vi.fn() })],
+      ['context', () => createElement(ContextMenu, { value: null, onPick: vi.fn() })],
+      ['approval', () => createElement(ApprovalMenu, { auto: false, onChange: vi.fn() })],
+    ]
+    for (const [name, element] of cases) {
+      await act(async () => { root.render(element()) })
+      await click(buttons().at(0))
+      const unanchored = warn.mock.calls.filter((call) => String(call[0]).includes('without an attached anchor'))
+      expect(unanchored, `${name} opened a menu with no anchor`).toEqual([])
+      await act(async () => { root.unmount() })
+      root = createRoot(container)
+      warn.mockClear()
+    }
+    warn.mockRestore()
   })
 })
 

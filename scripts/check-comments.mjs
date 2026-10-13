@@ -316,6 +316,9 @@ const allowed = new Map([
     "// The filter field handles its own keys; a Space typed there is a character, not a press.",
     "/**\n     * Keep the spaces the user typed. A line prefix or a numbering template is often made of them,\n     * and the default trim would turn `{n}. ` into `{n}.` and glue the number to the text.\n     */",
     "/**\n     * How tall {@link header} actually is. The panel is placed before it is measured, so a header the\n     * row arithmetic cannot see — a colour grid, say — has to state its own height or the menu will\n     * open believing it is 44px and never flip up out of the way of the viewport edge.\n     */",
+    "// Without a measured anchor the panel keeps its initial 0,0 and opens in the corner of",
+    "// the screen, which reads as a broken control rather than a missing one. Naming it here",
+    "// is what makes a browser probe that checks for console noise catch the mistake.",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -795,6 +798,9 @@ const allowed = new Map([
     "// The chip is not a dead button: with no engine the reader is told, and it never enters listening.",
     "// A chip that is not ready must not open: there are no bytes behind it yet, and an image would put",
     "// an empty thumbnail into the lightbox.",
+    "// jsdom has no layout, so the panel's position cannot be measured here. What can be measured is the",
+    "// mistake behind the corner-of-the-screen menu: a trigger that opens a menu without handing over its",
+    "// own element. The shared Menu warns when that happens, so the warning is the assertion.",
   ]],
   ["src/client/features/chat/stream.ts", [
     "/**\n * Reading the assistant's streamed reply.\n *\n * The API helper in `lib/api` parses a JSON body, which is exactly the wrong shape for a turn: the\n * reader should watch the answer arrive. So this is the one place in the app that consumes a\n * `ReadableStream` by hand, and it carries the same three headers every other write does — without\n * `X-Inkstone-Client` the worker refuses the request before it reaches the assistant.\n */",

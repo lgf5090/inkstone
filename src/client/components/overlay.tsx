@@ -545,8 +545,14 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         }
         else {
             const rect = anchorRef?.current?.getBoundingClientRect();
-            if (!rect)
+            if (!rect) {
+                // Without a measured anchor the panel keeps its initial 0,0 and opens in the corner of
+                // the screen, which reads as a broken control rather than a missing one. Naming it here
+                // is what makes a browser probe that checks for console noise catch the mistake.
+                if (anchorRef)
+                    console.warn('[inkstone] A menu opened without an attached anchor; it cannot be placed near its trigger.');
                 return;
+            }
             top = rect.bottom + 5;
             left = align === 'end' ? rect.right - menuWidth : rect.left;
         }
