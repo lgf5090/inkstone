@@ -1,40 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { t } from '../../../i18n'
+import { useDebounced } from '../../../hooks'
 
 // Each keystroke used to commit the whole dataset, so filtering re-ran and the
 // undo history grew per character; the draft holds the box, the parent the query.
 const SEARCH_DEBOUNCE_MS = 200
-
-function useDebouncedSearch(value: string, commit: (next: string) => void) {
-  const [draft, setDraft] = useState(value)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const committedRef = useRef(value)
-
-  // A query set elsewhere (switching views, clearing filters) wins over the draft.
-  useEffect(() => {
-    if (value !== committedRef.current) setDraft(value)
-  }, [value])
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    },
-    [],
-  )
-
-  const handleChange = (next: string) => {
-    setDraft(next)
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null
-      committedRef.current = next
-      commit(next)
-    }, SEARCH_DEBOUNCE_MS)
-  }
-
-  return { draft, handleChange }
-}
 
 /**
  * What a collapsed box shows while it is still filtering. The query is view state, so a board can open
@@ -77,7 +48,13 @@ export function KanbanSearchBox({
   onSearchChange: (q: string) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
-  const { draft, handleChange } = useDebouncedSearch(searchQuery, onSearchChange)
+  const [draft, setDraft] = useState(searchQuery)
+  // A query set elsewhere (switching views, clearing filters) wins over the draft.
+  useEffect(() => { setDraft(searchQuery) }, [searchQuery])
+  const settled = useDebounced(draft, SEARCH_DEBOUNCE_MS)
+  useEffect(() => {
+    if (settled !== searchQuery) onSearchChange(settled)
+  }, [settled, searchQuery, onSearchChange])
 
   // The query is view state, so a board can open with a filter already in force while the box itself
   // starts closed. A bare icon then gives the reader no hint that what they see is not the whole board
@@ -107,7 +84,7 @@ export function KanbanSearchBox({
         autoFocus
         data-kanban-search-input
         value={draft}
-        onChange={(e) => handleChange(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)}
         placeholder={t('preview.kanban_search_placeholder')}
         className='h-full w-28 border-0 bg-transparent px-1.5 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none transition-[width] duration-200 ease-out focus:w-48'
       />
