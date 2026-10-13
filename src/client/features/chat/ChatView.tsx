@@ -85,9 +85,11 @@ export function ChatView() {
   // A reader with no model configured cannot ask anything real; the settings tab is the way out.
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
 
-  const lastFailed = useMemo(() => {
+  // Retry re-answers the reader's last message and drops the reply that followed it, so it belongs to
+  // the newest answer only — offered on an older one it would silently rewrite a different turn.
+  const lastAnswer = useMemo(() => {
     const last = messages.at(-1)
-    return last && last.role === 'assistant' && last.status === 'error' ? last : null
+    return last && last.role === 'assistant' ? last : null
   }, [messages])
 
   return (
@@ -137,7 +139,7 @@ export function ChatView() {
                 <MessageRow
                   key={message.id}
                   message={message}
-                  onRetry={lastFailed?.id === message.id && !streaming ? () => void send('', { retry: true }) : undefined}
+                  onRetry={message.id === lastAnswer?.id && !streaming ? () => void send('', { retry: true }) : undefined}
                 />
               ))}
               {turnHere && (
@@ -186,6 +188,8 @@ export function ChatView() {
 }
 
 function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?: () => void }) {
+  // A finished answer can be asked again; a half one is only ever resumed by its own retry.
+  const retryLabel = message.status === 'complete' ? 'assistant.chat.regenerate' : 'assistant.chat.retry'
   const fileIndex = useAssistant((state) => state.fileIndex)
   if (message.role === 'user') {
     return <UserBubble text={message.content} attachments={message.attachments ?? []} fileIndex={fileIndex} />
@@ -200,6 +204,8 @@ function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?:
       streaming={false}
       stage={undefined}
       onRetry={onRetry}
+      retryLabel={retryLabel}
+      usage={message.usage}
     />
   )
 }

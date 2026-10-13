@@ -754,6 +754,9 @@ const allowed = new Map([
     "// Only a model the reader marked as answering chat belongs in the picker; an embedding endpoint is",
     "// not a thing to hold a conversation with.",
     "// Their own saved prompts come first; the built-in openers are the empty library's fallback.",
+    "// Retry re-answers the reader's last message and drops the reply that followed it, so it belongs to",
+    "// the newest answer only — offered on an older one it would silently rewrite a different turn.",
+    "// A finished answer can be asked again; a half one is only ever resumed by its own retry.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/**\n * The composer's control row.\n *\n * Each control is a menu anchored to a chip that names what it currently selects, so the state is\n * readable without opening anything: which model answers, how much it is asked to think, how much\n * context it is given, and whether a write waits for a click. All four are per-conversation settings\n * the assistant already stores — the chips are the same switches the settings page has, moved to where\n * the decision is actually made.\n */",
@@ -783,6 +786,7 @@ const allowed = new Map([
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
     "// The object identity is what matters: a fresh literal on every render makes React rewrite",
     "// innerHTML each time anything else in the thread changes, which repaints the answer mid-stream.",
+    "/* A finished answer can be asked again from the same footer; the error card above carries its\n            own retry, so the two never appear on one message. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",

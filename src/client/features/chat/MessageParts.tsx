@@ -12,7 +12,16 @@
  * approval card is driven by the action's current status.
  */
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Check, ChevronDown, Copy, Loader2, ShieldAlert, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Copy,
+  Loader2,
+  RotateCcw,
+  ShieldAlert,
+  XCircle
+} from 'lucide-react'
 import type { ToolActivity } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
 import { cn } from '../../lib/cn'
@@ -149,6 +158,8 @@ export function AssistantBubble({
   cancelled,
   stage,
   onRetry,
+  retryLabel = 'assistant.chat.retry',
+  usage,
 }: {
   text: string
   reasoning: string
@@ -158,6 +169,8 @@ export function AssistantBubble({
   cancelled?: boolean
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
   onRetry?: () => void
+  retryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
+  usage?: { inputTokens: number, outputTokens: number } | null
 }) {
   const [copied, setCopied] = useState(false)
   const [showReasoning, setShowReasoning] = useState(false)
@@ -207,7 +220,7 @@ export function AssistantBubble({
             <span className="min-w-0 flex-1">{error}</span>
             {onRetry && (
               <button type="button" onClick={onRetry} className="shrink-0 font-medium underline underline-offset-2">
-                {t('assistant.chat.retry')}
+                {t(retryLabel)}
               </button>
             )}
           </div>
@@ -227,6 +240,24 @@ export function AssistantBubble({
             {copied ? <Check size={11} /> : <Copy size={11} />}
             {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
           </button>
+        )}
+        {/* A finished answer can be asked again from the same footer; the error card above carries its
+            own retry, so the two never appear on one message. */}
+        {!streaming && !error && text && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            aria-label={t(retryLabel)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+          >
+            <RotateCcw size={11} />
+            {t(retryLabel)}
+          </button>
+        )}
+        {!streaming && usage && (
+          <span className="shrink-0 text-[11px] text-[var(--text-quaternary)]" title={t('assistant.chat.usage_hint')}>
+            {t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}
+          </span>
         )}
       </div>
     </div>
