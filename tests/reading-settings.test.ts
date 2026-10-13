@@ -12,7 +12,7 @@ const CHANGED: ReaderSettings = {
   fontFamily: 'sans', customFamily: 'Noto Serif',
   importedFonts: [{ id: 'f1', family: 'Inkstone Test', label: 'test.ttf', bytes: 2048 }],
   columns: 2, margin: 40, textAlign: 'justify', hyphenate: true, firstLineIndent: false,
-  readMode: 'scroll', pageTurnAnimation: false, showFigures: false, immersive: false,
+  readMode: 'scroll', shelfView: 'covers', pageTurnAnimation: false, showFigures: false, immersive: false,
   pageButtons: 'hover', defaultHighlightColor: 'blue', selectionLabels: true, timerEnabled: false,
   dailyGoalMinutes: 30, translateEnabled: true, translateTo: 'en', translateEngine: 'ai',
   tapZones: 'edges', swipeTurns: false, showScrubber: false, estimateTimeLeft: false,

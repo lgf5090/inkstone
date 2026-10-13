@@ -14,6 +14,7 @@ import { create } from 'zustand'
 import { createStore, del as idbRemove, get as idbGet, set as idbSet } from 'idb-keyval'
 import { CLIENT_DATABASE_NAME, IS_DEMO_MODE } from '../../../lib/runtime'
 import type { HighlightColor } from '../types'
+import { isShelfViewMode, type ShelfViewMode } from '../shelf-view'
 import { READER_THEMES, type ReaderThemeName } from '../themes'
 
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.reader.settings' : 'inkstone.reader.settings'
@@ -47,6 +48,8 @@ export interface ReaderSettings {
   /** Indent the opening line of a paragraph, which unsegmented prose expects and English does not. */
   firstLineIndent: boolean
   readMode: ReadMode
+  /** How the shelf lays its books out; see `shelf-view.ts` for what each mode means. */
+  shelfView: ShelfViewMode
   pageTurnAnimation: boolean
   showFigures: boolean
   /** Controls float over the page and retract on idle, instead of reserving a row. */
@@ -90,6 +93,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   hyphenate: false,
   firstLineIndent: true,
   readMode: 'paged',
+  shelfView: 'adaptive',
   pageTurnAnimation: true,
   showFigures: true,
   immersive: true,
@@ -181,6 +185,7 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     theme: oneOf<ReaderThemeName>(parsed.theme, ['auto', ...Object.keys(READER_THEMES)] as ReaderThemeName[], 'auto'),
     fontFamily: oneOf(parsed.fontFamily, ['serif', 'sans', 'mono', 'custom'] as const, 'serif'),
     readMode: oneOf(parsed.readMode, ['paged', 'scroll'] as const, 'paged'),
+    shelfView: isShelfViewMode(parsed.shelfView) ? parsed.shelfView : DEFAULT_READER_SETTINGS.shelfView,
     textAlign: oneOf(parsed.textAlign, ['left', 'justify'] as const, 'left'),
     pageButtons: oneOf(parsed.pageButtons, ['always', 'hover'] as const, 'always'),
     translateEngine: oneOf(parsed.translateEngine, ['google', 'ai'] as const, 'google'),

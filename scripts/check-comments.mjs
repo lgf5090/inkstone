@@ -4504,6 +4504,12 @@ const allowed = new Map([
     "/**\n * The first-run shelf.\n *\n * It names the two formats that actually work rather than every format the reference product reads,\n * because a reader who drops a MOBI in here gets a rejection with a reason, and would have been better\n * served by being told up front.\n */",
     "// The parsed archive is cached for the session so returning to a book is instant; deleting one",
     "// has to drop that too, or its bytes stay reachable until the tab closes.",
+    "/** The four shelf layouts, in the order the toolbar offers them. */",
+    "/** One book's facts, so the grid, the cover wall and the list cannot disagree about what they show. */",
+    "/** The menu's own new-group flow: name it, then put this book straight into it. */",
+  ]],
+  ["src/client/features/reading/ProgressRing.tsx", [
+    "/**\n * How far into a book a reader is, as a ring.\n *\n * The grid card carries progress on the cover's own edge, but a list row has no cover big enough to\n * read a 3-pixel bar off, so the same number is drawn as a ring there. It is decorative: the row's own\n * label says the percentage in words.\n */",
   ]],
   ["src/client/features/reading/ReadingApp.tsx", [
     "/**\n * The reading app: a shelf, and one book at a time.\n *\n * The tab rail gives this container its own address, so a book gets a child of it. That is what makes\n * a `↩` in a reading note a normal link the app already knows how to follow, rather than a custom\n * scheme the note renderer would have to learn about.\n */",
@@ -4514,10 +4520,28 @@ const allowed = new Map([
   ["src/client/features/reading/ShelfCard.tsx", [
     "/**\n * One book on the shelf.\n *\n * The cover carries the progress: a reader scanning a shelf is asking \"where was I?\", and a bar drawn\n * on the cover's own edge answers it in the same glance that finds the book. The caption holds only\n * what the cover cannot say, and the count of marked passages is what makes a book look worth opening\n * again rather than merely unread.\n */",
     "/** The three-dot affordance, drawn rather than imported so it sits on the same optical grid as the card. */",
+    "/** Which of the reader's own groupings this book belongs to. */",
+    "/** Covers mode: the picture is the whole card, so the caption gives its room to a bigger cover. */",
+  ]],
+  ["src/client/features/reading/ShelfGroups.tsx", [
+    "/**\n * The shelf's own groupings, as a row of chips.\n *\n * A chip is both a filter and a handle: pressing one narrows the shelf to its books, and the menu on it\n * is where the group gets renamed or thrown away. The count is the number of books on this shelf that\n * are in it — not the number the group remembers — because a book a reader deleted should not keep\n * inflating a group they can still see.\n */",
+  ]],
+  ["src/client/features/reading/ShelfRow.tsx", [
+    "/**\n * One book on the shelf, as a row.\n *\n * The list view exists for two readers: one on a phone where a cover is too small to identify, and one\n * with four hundred books who is searching by author rather than by picture. So the row leads with the\n * title, gives the cover only enough room to be a fingerprint, and puts the numbers a reader actually\n * compares — progress, marks, when they last read it — on their own line.\n */",
+    "/** Which of the reader's own groupings this book belongs to. */",
+    "/** The three-dot affordance, drawn rather than imported so it matches the grid card's. */",
   ]],
   ["src/client/features/reading/SyncLine.tsx", [
     "/**\n * What the shelf is doing on the wire.\n *\n * A book is tens of megabytes, so an upload without a moving bar reads as a hung app. This is the one\n * place the reader learns whether their notes are on the server yet — including the honest case, which is\n * that they are not.\n */",
     "/** Bytes in the unit a reader compares against their own library, not the unit the API counts in. */",
+  ]],
+  ["src/client/features/reading/book-groups.ts", [
+    "/** Names are compared the way a reader reads them: trimmed, case-insensitive, spaces collapsed. */",
+    "/** What a shelf may hold, whatever arrived from the server or an import file. */",
+    "/** Newest touched first, so a group a reader just edited stays where they left it. */",
+    "/** In or out, and only the group that changed is rewritten. */",
+    "/** A book that is gone cannot be a member; a group emptied by that is still a group the reader made. */",
+    "/**\n * Groups: reader-named collections of books.\n *\n * A shelf of four hundred novels needs a way to say \"these are the ones I am working through\" that is\n * neither a folder (a book lives in one place) nor a tag on a note (the book is not a note). So a group\n * is a list of book ids a reader owns, and a book may sit in as many of them as they like, which is the\n * only shape that lets a genre and a reading status both be true of the same volume.\n *\n * Everything here is pure: the store holds the array, these functions return the next one, and the\n * rules a reader can hit — an empty name, a name already taken, a deleted book — are decided once.\n */",
   ]],
   ["src/client/features/reading/engine/book-import.ts", [
     "/**\n * Taking a file a reader hands over and turning it into a book on the shelf.\n *\n * The format is decided by what the bytes say, never by the extension: a `.zip` renamed to `.epub`\n * and a `.cbz` that is really an EPUB are both things people do, and the reader's job is to sort them\n * out rather than to complain. Everything the shelf will show — title, author, cover, chapter list —\n * is read here once, at import, so the shelf never has to open a 40 MB archive to paint a grid.\n */",
@@ -4887,6 +4911,11 @@ const allowed = new Map([
     "/** Consecutive days read, counting back from today — or from yesterday if today has not started yet. */",
     "/** Merge every book's day log into one day → seconds map. */",
   ]],
+  ["src/client/features/reading/shelf-view.ts", [
+    "/**\n * Which way the shelf is laid out.\n *\n * A reader on a phone is scanning a list, not a mosaic of 60-pixel covers, and a reader on a desktop\n * wants the covers back. So `adaptive` is the only mode that looks at the window, and the rest are\n * taken literally — the resolution is a pure function so the rule can be read without a browser.\n */",
+    "/** Below this width the shelf has room for one column of text, not a grid of pictures. */",
+    "/** The four modes in the order the toolbar shows them. */",
+  ]],
   ["src/client/features/reading/store/cloud.ts", [
     "/**\n * The shelf's conversation with the server.\n *\n * The local IndexedDB copy stays the source the UI reads — a page must paint before any request returns —\n * and this module is what keeps the two ends in step: a debounced push of the reading state, a book's\n * bytes uploaded once, and a pull for a device that has never seen the shelf.\n *\n * Every failure here is reported rather than swallowed. A reader who thinks their notes are backed up\n * when the push failed on the third try is worse off than one who was told.\n */",
     "/** Wall time of the last successful exchange, so the shelf can say when it last spoke to the server. */",
@@ -4928,6 +4957,11 @@ const allowed = new Map([
     "// placeholders — reading it out of the archive there would cost the whole book.",
     "/**\n * Send the files the server is still missing, one at a time.\n *\n * A shelf of ten books should not fill the reader's uplink and stall the page, and a device that does not\n * hold the file either is not a failure — another one will bring it, and the row already exists.\n */",
     "/** A GIF or AVIF comic frame stays on the device: the cloud keeps only the types the route accepts. */",
+    "/** The reader's own groupings of the shelf. See `book-groups.ts`. */",
+    "/** A new group. Refuses an empty or already-taken name, and a shelf that is full of them. */",
+    "/** Put a book in or out of one group; the group that changed is the one that moves up the list. */",
+    "// A shelf written before groups existed has no key to read, which is the same as an empty one.",
+    "/**\n * Both sides' groups, by name.\n *\n * An import file and this device can each hold a group of the same name with different members, and the\n * reader who sent the file means the union of them — a group is a list of books, none lost by joining.\n */",
   ]],
   ["src/client/features/reading/store/reader-settings.ts", [
     "/**\n * How the reader wants its page to look and behave.\n *\n * These are device settings rather than account settings: type size and column count belong to the\n * screen a reader is holding, not to the person, and a phone should not inherit a desktop's 2-column\n * spread. The one thing that does travel is what the reader writes — highlights and the reading note —\n * and that lives in the library store.\n *\n * Imported font files are the exception to the localStorage rule. A face is megabytes of binary, so\n * it goes to IndexedDB and comes back as a `data:` URL, which is what this app's content policy lets a\n * page load a font from (`blob:` is not in `font-src`).\n */",
@@ -4951,6 +4985,7 @@ const allowed = new Map([
     "/**\n * A hand-edited or half-written record must not reach the page as CSS.\n *\n * Every numeric setting is clamped rather than validated-and-dropped, because the reader who typed\n * `lineHeight: 40` wants a looser page, and the closest legal value is what they meant.\n *\n * The flags are not listed here on purpose: they are coerced by `FLAG_KEYS`, which is derived from the\n * defaults, so a new setting persists the moment it gets a default instead of needing a rule nobody\n * remembers to write.\n */",
     "/** The settings whose default is a boolean, so one pass can cover all of them. */",
     "/**\n * The page a device can carry before its reader changes anything.\n *\n * Type is set by the arm holding the device, not by the setting: 19px prose with a 24px margin leaves\n * twelve characters to a line on the smallest phone this app supports, which is a column rather than a\n * page. These are seeds only — the first slider moves and the device keeps its own answer, and a phone\n * never inherits a desktop's spread because the record lives in that browser, not in the account.\n */",
+    "/** How the shelf lays its books out; see `shelf-view.ts` for what each mode means. */",
   ]],
   ["src/client/features/reading/themes.ts", [
     "/**\n * The reading surface's palettes.\n *\n * A book page is the one place in this app where the reader chooses the colours rather than the\n * deployment, so the themes are their own layer: they paint the page, not the chrome around it. Each\n * one carries the pair the page actually needs (paper and ink) plus the two tints that follow from\n * them, and `auto` hands the decision back to the app's own theme.\n *\n * Every entry is checked for contrast by `tests/reading-theme-contrast.test.ts`, because a warm-paper\n * theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they read a whole\n * chapter with a headache.\n */",
@@ -12414,6 +12449,7 @@ const allowed = new Map([
     "/**\n * The reader's own tables, all prefixed `reader_` so they are recognisable in the D1 console and never\n * collide with the note tables.\n *\n * The book binaries are not here: they live in R2 under `reader/<user>/<id>.<ext>`, and `reader_books`\n * holds the key alongside the metadata. Every table is keyed on `user_id` first because the routes read\n * one account's shelf at a time, and a query that forgot the column would hand another reader's notes\n * over — the shape a `PRIMARY KEY (user_id, …)` makes impossible to write by accident.\n */",
     "/** Where a book's bytes live. Built from the row, never accepted from a client. */",
     "/**\n * Where a cover lives. The extension is chosen here from the image type the client sent, so a cover\n * cannot be talked into landing on a path some other object owns.\n */",
+    "/** A reader-named collection of books. Membership is the group's own list, so a book can be in several. */",
   ]],
   ["src/worker/db/rows.ts", [
     "/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */",
@@ -12465,6 +12501,8 @@ const allowed = new Map([
     "// SCHEMA_STATEMENTS.",
     "// The flag saying a book's file is in R2, so a shelf that predates the sync can be filled in.",
     "// The cover as its own object, so a second device can paint the shelf without pulling 40 MB of book.",
+    "// The reader's own groupings of the shelf. `IF NOT EXISTS` because a fresh database already gets",
+    "// them from SCHEMA_STATEMENTS.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -12701,6 +12739,11 @@ const allowed = new Map([
     "// a round trip. Either shape counts, so a cover is never left behind because of a field name.",
     "// The type was recorded when the cover went up; the key's extension is what to say when it",
     "// predates that, and it beats claiming every unknown cover is a PNG.",
+    "/** A group's name, trimmed the way the device trims it, or nothing if it is not usable. */",
+    "// A group is only worth keeping if the shelf it points at still exists, and two groups with the",
+    "// same name would be one group the reader cannot tell apart.",
+    "// A group keeps its name when it loses a member: the reader made the group, and an empty one",
+    "// is a place they will put the next book.",
   ]],
   ["src/worker/routes/reading.ts", [
     "/**\n * Word lookup and translation, through this deployment.\n *\n * The reader asks for a translation of a passage it selected, and the answer comes from a free\n * public endpoint that only speaks to a server: the browser cannot call it directly (the app's\n * `connect-src` allows only this origin), and asking the client to name an arbitrary URL would turn a\n * translation button into a redirector. So the target host is fixed here, and the only thing a caller\n * chooses is the text and the language.\n *\n * The AI engine is deliberately absent from this route: an AI translation goes through the reader's own\n * configured provider and the existing `/api/ai` relay, which is where that credential belongs.\n */",
@@ -13151,6 +13194,7 @@ const allowed = new Map([
     "// route that reads it looks like a route that does not.",
     "// A JPEG kept behind a `.png` key is a bucket nobody can reconcile and a browser that has to guess.",
     "// The shelf is nearly full; the same size again is legal because the old cover is given back first.",
+    "// The groups are still there — an emptied one is a place the next book goes, not a mistake.",
   ]],
   ["tests/reading-anchors.test.ts", [
     "// The offsets are nonsense (the edition moved), so only the context can say which of the two",
@@ -13200,6 +13244,9 @@ const allowed = new Map([
     "/** The store picks its own key by mode, so the test reads it back from the write path instead of guessing. */",
     "/** jsdom answers innerWidth from the window, so the profile is driven by replacing it. */",
     "// A reset comes back to the device it was pressed on, not to a desktop's page.",
+  ]],
+  ["tests/reading-shelf-view.test.ts", [
+    "/**\n * Which layout the shelf actually draws.\n *\n * `adaptive` is the only mode with a condition in it, and a condition that lives inside a component is\n * invisible to every other surface — so it is stated here as a table a reader can check by eye.\n */",
   ]],
   ["tests/reading-theme-contrast.test.ts", [
     "/**\n * The page palettes have to stay readable.\n *\n * A theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they have read a\n * whole chapter with a headache, so the whole table is measured here rather than eyeballed once.\n */",

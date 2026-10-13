@@ -7,10 +7,10 @@
  * what carries a reader's marks and positions to another machine.
  */
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { Download, Inbox, Pencil, Plus, Star, Trash2, Upload } from 'lucide-react'
+import { Download, FolderInput, Images, Inbox, LayoutGrid, List, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
 import { Button } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
-import { Menu, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { useNotes } from '../../store/notes'
@@ -19,6 +19,13 @@ import { useLibrary } from './store/library'
 import { hasBookExtension } from './engine/book-import'
 import { dropBookHandle } from './reader/useEpubHandle'
 import { ShelfCard } from './ShelfCard'
+import { ShelfRow } from './ShelfRow'
+import { ShelfGroups } from './ShelfGroups'
+import { groupsHolding, sortGroups } from './book-groups'
+import { SHELF_NARROW_QUERY, resolveShelfView, type ShelfViewMode } from './shelf-view'
+import { useReaderSettings } from './store/reader-settings'
+import { useMediaQuery } from '../../lib/hooks'
+import { cn } from '../../lib/cn'
 import { SyncLine } from './SyncLine'
 import type { BookRecord, ImportFailure } from './types'
 
@@ -35,6 +42,14 @@ type ShelfSort = 'recent' | 'added' | 'title' | 'author' | 'progress'
 
 const ACCEPT = '.epub,.pdf,.cbz,application/epub+zip,application/pdf'
 
+/** The four shelf layouts, in the order the toolbar offers them. */
+const SHELF_VIEW_ICONS: Record<ShelfViewMode, React.ReactNode> = {
+  adaptive: <Sparkles size={13} />,
+  grid: <LayoutGrid size={13} />,
+  list: <List size={13} />,
+  covers: <Images size={13} />,
+}
+
 export function LibraryView() {
   const books = useLibrary((state) => state.books)
   const progress = useLibrary((state) => state.progress)
@@ -46,6 +61,14 @@ export function LibraryView() {
   const renameBook = useLibrary((state) => state.renameBook)
   const markFinished = useLibrary((state) => state.markFinished)
   const exportLibrary = useLibrary((state) => state.exportLibrary)
+  const shelfView = useReaderSettings((state) => state.shelfView)
+  const updateSettings = useReaderSettings((state) => state.update)
+  const narrow = useMediaQuery(SHELF_NARROW_QUERY)
+  const groups = useLibrary((state) => state.groups)
+  const moveBook = useLibrary((state) => state.moveBook)
+  const addGroup = useLibrary((state) => state.addGroup)
+  const [groupFilter, setGroupFilter] = useState<string | null>(null)
+  const view = resolveShelfView(shelfView, narrow)
   const importLibrary = useLibrary((state) => state.importLibrary)
 
   const [query, setQuery] = useState('')
@@ -70,6 +93,7 @@ export function LibraryView() {
     const needle = query.trim().toLowerCase()
     const list = books.filter((book) => !needle
       || `${book.title} ${book.author} ${book.filename}`.toLowerCase().includes(needle))
+      .filter((book) => !groupFilter || (groups.find((one) => one.id === groupFilter)?.bookIds.includes(book.id) ?? false))
       .filter((book) => {
         const state = progress[book.id]
         if (filter === 'reading') return Boolean(state && !state.finishedAt && state.fraction > 0.005)
@@ -85,7 +109,27 @@ export function LibraryView() {
     else if (sort === 'progress') sorted.sort((a, b) => (progress[b.id]?.fraction ?? 0) - (progress[a.id]?.fraction ?? 0))
     else sorted.sort((a, b) => (progress[b.id]?.updatedAt ?? 0) - (progress[a.id]?.updatedAt ?? 0) || b.addedAt - a.addedAt)
     return sorted
-  }, [books, filter, highlights, progress, query, sort])
+  }, [books, filter, groupFilter, groups, highlights, progress, query, sort])
+
+  /** One book's facts, so the grid, the cover wall and the list cannot disagree about what they show. */
+  function shelfProps(book: BookRecord) {
+    return {
+      book,
+      coverUrl: covers[book.id] ?? book.coverUrl ?? undefined,
+      fraction: progress[book.id]?.fraction ?? 0,
+      finished: Boolean(progress[book.id]?.finishedAt),
+      highlightCount: highlights[book.id]?.length ?? 0,
+      noteCount: noteLinks.byBook[book.id] ? 1 : 0,
+      lastReadAt: progress[book.id]?.updatedAt,
+      groupNames: groupsHolding(groups, book.id).map((one) => one.name),
+      onOpen: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`),
+      onOpenNote: () => openBookNote(noteLinks.byBook[book.id]),
+      onMenu: (event: React.MouseEvent) => {
+        setActive(book)
+        menu.onContextMenu(event)
+      },
+    }
+  }
 
   async function ingest(files: File[]): Promise<void> {
     const wanted = files.filter((file) => hasBookExtension(file.name) || ACCEPT.split(',').includes(file.type))
@@ -124,7 +168,27 @@ export function LibraryView() {
 
   function menuFor(book: BookRecord): MenuItem[] {
     const state = progress[book.id]
+    const memberOf = new Set(groupsHolding(groups, book.id).map((one) => one.id))
+    const membership: MenuItem[] = sortGroups(groups).map((group) => ({
+      id: `group-${group.id}`,
+      label: group.name,
+      checked: memberOf.has(group.id),
+      onSelect: () => moveBook(group.id, book.id),
+    }))
+    membership.push({
+      id: 'group-new',
+      label: t('reading.new_group'),
+      separatorBefore: membership.length > 0,
+      onSelect: () => void newGroupFor(book),
+    })
     return [
+      {
+        id: 'groups',
+        label: t('reading.move_to_group'),
+        icon: <FolderInput size={13} />,
+        subItems: membership,
+        submenu: submenuFor(membership, 200),
+      },
       { id: 'open', label: t('reading.continue_reading'), onSelect: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`) },
       { id: 'rename', label: t('reading.rename_book'), icon: <Pencil size={13} />, onSelect: () => void rename(book) },
       {
@@ -144,8 +208,15 @@ export function LibraryView() {
     ]
   }
 
+  /** The menu's own new-group flow: name it, then put this book straight into it. */
+  async function newGroupFor(book: BookRecord): Promise<void> {
+    const name = await prompt({ title: t('reading.new_group'), confirmLabel: t('reading.create_group') })
+    if (name === null) return
+    const answer = addGroup(name)
+    if (answer.ok) moveBook(answer.groups[answer.groups.length - 1].id, book.id)
+  }
+
   async function rename(book: BookRecord): Promise<void> {
-    const { prompt } = await import('../../components/overlay')
     const next = await prompt({ title: t('reading.rename_book'), defaultValue: book.title, confirmLabel: t('common.save') })
     if (next && next.trim()) renameBook(book.id, next.trim().slice(0, 200))
   }
@@ -265,6 +336,17 @@ export function LibraryView() {
         />
         <Segmented
           size="sm"
+          value={shelfView}
+          onChange={(mode) => updateSettings('shelfView', mode)}
+          options={[
+            { value: 'adaptive', title: t('reading.shelf_view_adaptive'), label: SHELF_VIEW_ICONS.adaptive },
+            { value: 'grid', title: t('reading.shelf_view_grid'), label: SHELF_VIEW_ICONS.grid },
+            { value: 'list', title: t('reading.shelf_view_list'), label: SHELF_VIEW_ICONS.list },
+            { value: 'covers', title: t('reading.shelf_view_covers'), label: SHELF_VIEW_ICONS.covers },
+          ]}
+        />
+        <Segmented
+          size="sm"
           value={sort}
           onChange={setSort}
           options={[
@@ -275,6 +357,16 @@ export function LibraryView() {
           ]}
         />
       </div>
+
+      {books.length ? (
+        <div className="shrink-0 px-3 pt-2">
+          <ShelfGroups
+            active={groupFilter}
+            onSelect={setGroupFilter}
+            shelfBookIds={new Set(books.map((book) => book.id))}
+          />
+        </div>
+      ) : null}
 
       <div className="shrink-0 px-3">
         <SyncLine />
@@ -287,25 +379,23 @@ export function LibraryView() {
           <p className="px-3 py-12 text-center text-[12.5px] text-[var(--text-quaternary)]">
             {t('reading.no_books_match')}
           </p>
-        ) : (
-          <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7">
+        ) : view === 'list' ? (
+          <div className="flex flex-col gap-0.5">
             {visible.map((book) => (
-              <ShelfCard
-                key={book.id}
-                book={book}
-                coverUrl={covers[book.id] ?? book.coverUrl ?? undefined}
-                fraction={progress[book.id]?.fraction ?? 0}
-                finished={Boolean(progress[book.id]?.finishedAt)}
-                highlightCount={highlights[book.id]?.length ?? 0}
-                noteCount={noteLinks.byBook[book.id] ? 1 : 0}
-                lastReadAt={progress[book.id]?.updatedAt}
-                onOpen={() => navigateToPath(`/reading/${encodeURIComponent(book.id)}`)}
-                onOpenNote={() => openBookNote(noteLinks.byBook[book.id])}
-                onMenu={(event) => {
-                  setActive(book)
-                  menu.onContextMenu(event)
-                }}
-              />
+              <ShelfRow key={book.id} {...shelfProps(book)} />
+            ))}
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'grid gap-x-3 gap-y-5',
+              view === 'covers'
+                ? 'grid-cols-4 sm:grid-cols-6 md:grid-cols-8 xl:grid-cols-10'
+                : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7',
+            )}
+          >
+            {visible.map((book) => (
+              <ShelfCard key={book.id} captionless={view === 'covers'} {...shelfProps(book)} />
             ))}
           </div>
         )}

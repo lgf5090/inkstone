@@ -21,6 +21,10 @@ export interface ShelfCardProps {
   highlightCount: number
   noteCount: number
   lastReadAt?: number
+  /** Which of the reader's own groupings this book belongs to. */
+  groupNames?: string[]
+  /** Covers mode: the picture is the whole card, so the caption gives its room to a bigger cover. */
+  captionless?: boolean
   onOpen: () => void
   onOpenNote: () => void
   onMenu: (event: React.MouseEvent) => void
@@ -34,6 +38,8 @@ export function ShelfCard({
   highlightCount,
   noteCount,
   lastReadAt,
+  groupNames = [],
+  captionless = false,
   onOpen,
   onOpenNote,
   onMenu,
@@ -72,13 +78,25 @@ export function ShelfCard({
         ) : null}
       </button>
 
-      <div className="mt-1.5 min-w-0">
+      <div className={captionless ? 'sr-only' : 'mt-1.5 min-w-0'}>
         <Tooltip label={book.title} side="top">
           <p className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{book.title}</p>
         </Tooltip>
         <p className="truncate text-[11px] text-[var(--text-tertiary)]">
           {book.author || t('reading.unknown_author')}
         </p>
+        {groupNames.length ? (
+          <p className="mt-0.5 flex gap-1 overflow-hidden">
+            {groupNames.slice(0, 2).map((name) => (
+              <span key={name} className="max-w-full truncate rounded-full border border-[var(--border-subtle)] px-1.5 text-[10px] text-[var(--text-quaternary)]">
+                {name}
+              </span>
+            ))}
+            {groupNames.length > 2 ? (
+              <span className="text-[10px] tabular text-[var(--text-quaternary)]">+{groupNames.length - 2}</span>
+            ) : null}
+          </p>
+        ) : null}
         <p className="mt-0.5 flex items-center gap-1 truncate text-[10.5px] text-[var(--text-quaternary)]">
           {highlightCount > 0 ? (
             <span className="inline-flex items-center gap-0.5">

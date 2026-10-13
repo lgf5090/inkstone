@@ -33,8 +33,16 @@ const COVER_EXTENSIONS = READER_COVER_TYPES
 const COVER_MIME_BY_EXTENSION: Record<string, string> = Object.fromEntries(
   Object.entries(READER_COVER_TYPES).map(([type, extension]) => [extension, type]),
 )
+/** A group's name, trimmed the way the device trims it, or nothing if it is not usable. */
+function groupNameOf(row: Record<string, unknown>): string {
+  return typeof row.name === 'string' ? row.name.trim().replace(/\s+/g, ' ').slice(0, GROUP_NAME_MAX) : ''
+}
+
 /** The whole shelf's reading state, which is text and small. */
 const MAX_LIBRARY_BYTES = 6 * 1024 * 1024
+const GROUPS_MAX = 60
+const GROUP_NAME_MAX = 40
+const GROUP_BOOKS_MAX = 500
 const MAX_ROWS = 5000
 
 const EXTENSIONS: Record<BookFormat, string> = { epub: 'epub', pdf: 'pdf', cbz: 'cbz' }
@@ -91,7 +99,7 @@ function numberOf(row: Record<string, unknown>, key: string, fallback = 0): numb
 
 /** One account's whole shelf, in the shape the local store holds it. */
 async function loadLibrary(c: Context<AppBindings>, userId: string) {
-  const [books, progress, highlights, marks, stats, notes, meta] = await Promise.all([
+  const [books, progress, highlights, marks, stats, notes, meta, groups] = await Promise.all([
     c.env.DB.prepare('SELECT * FROM reader_books WHERE user_id = ?1 ORDER BY added_at DESC').bind(userId).all(),
     c.env.DB.prepare('SELECT * FROM reader_progress WHERE user_id = ?1').bind(userId).all(),
     c.env.DB.prepare('SELECT * FROM reader_highlights WHERE user_id = ?1').bind(userId).all(),
@@ -99,6 +107,7 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
     c.env.DB.prepare('SELECT * FROM reader_stats WHERE user_id = ?1').bind(userId).all(),
     c.env.DB.prepare('SELECT * FROM reader_notes WHERE user_id = ?1').bind(userId).all(),
     c.env.DB.prepare('SELECT * FROM reader_meta WHERE user_id = ?1').bind(userId).all(),
+    c.env.DB.prepare('SELECT * FROM reader_groups WHERE user_id = ?1 ORDER BY updated_at DESC').bind(userId).all(),
   ])
   const vocabulary = meta.results.find((one: any) => one.key === 'vocabulary')?.value ?? null
   return {
@@ -141,6 +150,13 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       byBook: Object.fromEntries(notes.results.map((row: any) => [row.book_id, row.note_id])),
       vocabulary: typeof vocabulary === 'string' ? vocabulary : null,
     },
+    groups: groups.results.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      bookIds: JSON.parse(row.book_ids || '[]'),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
   }
 }
 
@@ -188,6 +204,7 @@ readerLibraryRoutes.put('/library', async (c) => {
     `DELETE FROM reader_marks WHERE user_id = ?`,
     `DELETE FROM reader_stats WHERE user_id = ?`,
     `DELETE FROM reader_notes WHERE user_id = ?`,
+    `DELETE FROM reader_groups WHERE user_id = ?`,
   ].map((sql) => c.env.DB.prepare(sql).bind(userId))
 
   const books = Array.isArray(library.books) ? library.books.slice(0, MAX_ROWS) : []
@@ -196,6 +213,8 @@ readerLibraryRoutes.put('/library', async (c) => {
   }
   const missingBlobs: string[] = []
   const missingCovers: string[] = []
+  const bookIds = new Set(books.map((raw) => asRecord(raw, 'book').id))
+  const seenGroups = new Set<string>()
   for (const raw of books) {
     const row = asRecord(raw, 'book')
     const id = idOf(row, 'id', 'Book id')
@@ -289,7 +308,24 @@ readerLibraryRoutes.put('/library', async (c) => {
     ).bind(userId, notes.vocabulary.slice(0, 64), Date.now()))
   }
 
-  await c.env.DB.batch(statements as unknown as D1PreparedStatement[])
+  // A group is only worth keeping if the shelf it points at still exists, and two groups with the
+  // same name would be one group the reader cannot tell apart.
+  const groupStatements = (Array.isArray(library.groups) ? library.groups : []).slice(0, GROUPS_MAX).map((raw) => {
+    const row = asRecord(raw, 'group')
+    const id = idOf(row, 'id', 'Group id')
+    const name = groupNameOf(row)
+    if (!name || seenGroups.has(id) || seenGroups.has(name.toLowerCase())) return null
+    seenGroups.add(id)
+    seenGroups.add(name.toLowerCase())
+    const members = Array.isArray(row.bookIds)
+      ? [...new Set(row.bookIds.filter((one: unknown): one is string => typeof one === 'string' && bookIds.has(one)))].slice(0, GROUP_BOOKS_MAX)
+      : []
+    return c.env.DB.prepare(
+      `INSERT OR REPLACE INTO reader_groups (id, user_id, name, book_ids, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(id, userId, name, JSON.stringify(members), numberOf(row, 'createdAt', Date.now()), numberOf(row, 'updatedAt', Date.now()))
+  }).filter((one): one is D1PreparedStatement => one !== null)
+
+  await c.env.DB.batch([...statements, ...groupStatements] as unknown as D1PreparedStatement[])
   // Telling the device which files are still missing is what lets a shelf that predates the sync — or a
   // book that was on the device when the last push failed — catch up without a second round trip.
   return c.json({
@@ -418,6 +454,13 @@ readerLibraryRoutes.delete('/books/:id', async (c) => {
     c.env.DB.prepare('DELETE FROM reader_marks WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
     c.env.DB.prepare('DELETE FROM reader_stats WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
     c.env.DB.prepare('DELETE FROM reader_notes WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),
+    // A group keeps its name when it loses a member: the reader made the group, and an empty one
+    // is a place they will put the next book.
+    c.env.DB.prepare(
+      `UPDATE reader_groups SET book_ids = (SELECT COALESCE(json_group_array(value), '[]')
+                                               FROM json_each(reader_groups.book_ids) WHERE value != ?2)
+                                         WHERE user_id = ?1`,
+    ).bind(userId, id),
   ] as unknown as D1PreparedStatement[])
   return c.json({ ok: true as const, removed: true })
 })

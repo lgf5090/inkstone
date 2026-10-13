@@ -1,7 +1,7 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
-import { READER_SCHEMA_STATEMENTS } from './reader-schema'
+import { READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -750,6 +750,12 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE reader_books ADD COLUMN cover_size INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The reader's own groupings of the shelf. `IF NOT EXISTS` because a fresh database already gets
+    // them from SCHEMA_STATEMENTS.
+    version: 33,
+    statements: [READER_GROUP_TABLE, READER_GROUP_INDEX],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -837,6 +843,7 @@ const REQUIRED_TABLES = [
   'rewrite_queue',
   'community_templates',
   'reader_books',
+  'reader_groups',
   'reader_progress',
   'reader_highlights',
   'reader_marks',
@@ -872,6 +879,7 @@ const REQUIRED_INDEXES = [
   'idx_import_mappings_target',
   'idx_targets_user',
   'idx_reader_books_user',
+  'idx_reader_groups_user',
   'idx_reader_highlights_book',
   'idx_reader_marks_book',
   'idx_backup_archives_retention',

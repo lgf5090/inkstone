@@ -17,6 +17,7 @@ import { randomLocalId } from '../../../lib/random-id'
 import { importBook, ImportRejected } from '../engine/book-import'
 import { READER_COVER_TYPES } from '@shared/constants'
 import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, uploadCoverBytes, type SyncState } from './cloud'
+import { createGroup, deleteGroup, groupName, normaliseGroups, pruneGroups, renameGroup, toggleBook, type BookGroup, type GroupResult } from '../book-groups'
 import type { ReaderUsage } from '@shared/types'
 import type {
   BookRecord,
@@ -37,10 +38,13 @@ interface PersistedLibrary {
   marks: Record<string, LocationMark[]>
   stats: Record<string, BookStats>
   notes: ReadingNoteLinks
+  /** The reader's own groupings of the shelf. See `book-groups.ts`. */
+  groups: BookGroup[]
 }
 
 const EMPTY: PersistedLibrary = {
   books: [],
+  groups: [],
   progress: {},
   highlights: {},
   marks: {},
@@ -76,6 +80,12 @@ export interface LibraryState extends PersistedLibrary {
   highlightsOf: (bookId: string) => Highlight[]
   /** What the shelf is doing on the wire right now, which the header bar shows. */
   sync: SyncState
+  /** A new group. Refuses an empty or already-taken name, and a shelf that is full of them. */
+  addGroup: (name: string) => GroupResult
+  renameGroup: (id: string, name: string) => GroupResult
+  dropGroup: (id: string) => void
+  /** Put a book in or out of one group; the group that changed is the one that moves up the list. */
+  moveBook: (id: string, bookId: string) => GroupResult
   /** The account's storage figure, as the server last counted it. */
   usage: ReaderUsage | null
   /** Send the reading state up. Called on a debounce after a write, and by the shelf's sync button. */
@@ -109,6 +119,7 @@ function schedulePersist(getState: () => LibraryState): void {
       marks: state.marks,
       stats: state.stats,
       notes: state.notes,
+      groups: state.groups,
     })
   }
   window.clearTimeout(writeTimer)
@@ -175,6 +186,8 @@ async function loadLibrary(user: string | null): Promise<PersistedLibrary> {
     marks: stored.marks ?? {},
     stats: stored.stats ?? {},
     notes: { byBook: stored.notes?.byBook ?? {}, vocabulary: stored.notes?.vocabulary ?? null },
+    // A shelf written before groups existed has no key to read, which is the same as an empty one.
+    groups: normaliseGroups(stored.groups),
   }
 }
 
@@ -188,6 +201,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     ...EMPTY,
     status: 'idle',
     covers: {},
+    groups: [],
     userId: null,
     sync: { ...IDLE_SYNC },
     usage: null,
@@ -247,7 +261,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
               const now = get()
               await pushLibrary({
                 books: now.books, progress: now.progress, highlights: now.highlights,
-                marks: now.marks, stats: now.stats, notes: now.notes,
+                marks: now.marks, stats: now.stats, notes: now.notes, groups: now.groups,
               })
               await uploadBookBytes(record, new Blob([imported.bytes as unknown as BlobPart]), (sent, total) => {
                 set((state) => ({ sync: { ...state.sync, sent, total } }))
@@ -288,8 +302,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
         delete marks[id]
         delete stats[id]
         delete byBook[id]
+        const surviving = new Set(state.books.filter((book) => book.id !== id).map((book) => book.id))
         return {
           books: state.books.filter((book) => book.id !== id),
+          groups: pruneGroups(state.groups, surviving),
           covers,
           progress,
           highlights,
@@ -407,6 +423,38 @@ export const useLibrary = create<LibraryState>((set, get) => {
     bookById: (id) => get().books.find((book) => book.id === id),
     highlightsOf: (bookId) => get().highlights[bookId] ?? [],
 
+    addGroup(name) {
+      const answer = createGroup(get().groups, name)
+      if (answer.ok) {
+        set({ groups: answer.groups })
+        schedulePersist(get)
+      }
+      return answer
+    },
+
+    renameGroup(id, name) {
+      const answer = renameGroup(get().groups, id, name)
+      if (answer.ok) {
+        set({ groups: answer.groups })
+        schedulePersist(get)
+      }
+      return answer
+    },
+
+    dropGroup(id) {
+      set({ groups: deleteGroup(get().groups, id) })
+      schedulePersist(get)
+    },
+
+    moveBook(id, bookId) {
+      const answer = toggleBook(get().groups, id, bookId)
+      if (answer.ok) {
+        set({ groups: answer.groups })
+        schedulePersist(get)
+      }
+      return answer
+    },
+
     async syncPush() {
       const state = get()
       if (!state.userId) return
@@ -419,6 +467,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           marks: state.marks,
           stats: state.stats,
           notes: state.notes,
+          groups: state.groups,
         })
         // The server says which files it never received: a shelf that predates the sync, or a book whose
         // upload failed while the reader was offline, catches up here rather than staying local forever.
@@ -446,6 +495,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           marks: library.marks ?? {},
           stats: library.stats ?? {},
           notes: { byBook: library.notes?.byBook ?? {}, vocabulary: library.notes?.vocabulary ?? null },
+          groups: normaliseGroups(library.groups),
           sync: { ...IDLE_SYNC, at: Date.now() },
         })
         schedulePersist(get)
@@ -467,6 +517,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         marks: state.marks,
         stats: state.stats,
         notes: state.notes,
+        groups: state.groups,
       }, null, 2)
     },
 
@@ -492,6 +543,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       }
       const merged: PersistedLibrary = {
         books: [...byId.values()].sort((a, b) => b.addedAt - a.addedAt),
+        groups: mergeGroups(state.groups, normaliseGroups(parsed.groups)),
         progress: { ...parsed.progress, ...state.progress },
         highlights: { ...state.highlights },
         marks: { ...state.marks },
@@ -556,6 +608,30 @@ export async function readBookBlob(userId: string | null, bookId: string): Promi
 /** A tiny seam so the free function above can report through the store without a circular import. */
 function setSync(sync: SyncState): void {
   useLibrary.setState({ sync })
+}
+
+/**
+ * Both sides' groups, by name.
+ *
+ * An import file and this device can each hold a group of the same name with different members, and the
+ * reader who sent the file means the union of them — a group is a list of books, none lost by joining.
+ */
+function mergeGroups(local: BookGroup[], incoming: BookGroup[]): BookGroup[] {
+  const byName = new Map(local.map((one) => [groupName(one.name).toLowerCase(), one]))
+  for (const one of incoming) {
+    const key = groupName(one.name).toLowerCase()
+    const mine = byName.get(key)
+    if (!mine) {
+      byName.set(key, one)
+      continue
+    }
+    byName.set(key, {
+      ...mine,
+      bookIds: [...new Set([...mine.bookIds, ...one.bookIds])],
+      updatedAt: Math.max(mine.updatedAt, one.updatedAt),
+    })
+  }
+  return [...byName.values()]
 }
 
 /** A GIF or AVIF comic frame stays on the device: the cloud keeps only the types the route accepts. */

@@ -328,3 +328,63 @@ describe('the cover of a book', () => {
     expect(buckets.size).toBe(0)
   })
 })
+
+function shelfGroup(overrides: Record<string, unknown> = {}) {
+  return { id: 'group-1', name: '在读', bookIds: ['book-1'], createdAt: 1000, updatedAt: 2000, ...overrides }
+}
+
+describe('the groupings on the shelf', () => {
+  it('sends them back the way they went up', async () => {
+    await send('PUT', '/library', {
+      library: library({ groups: [shelfGroup(), shelfGroup({ id: 'group-2', name: '科幻', bookIds: [], updatedAt: 3000 })] }),
+    })
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.groups).toEqual([
+      { id: 'group-2', name: '科幻', bookIds: [], createdAt: 1000, updatedAt: 3000 },
+      { id: 'group-1', name: '在读', bookIds: ['book-1'], createdAt: 1000, updatedAt: 2000 },
+    ])
+  })
+
+  it('keeps a group whose book list is nonsense out of the shelf', async () => {
+    await send('PUT', '/library', {
+      library: library({ groups: [shelfGroup({ bookIds: ['book-1', 'never-imported', 'book-1', 7, null] })] }),
+    })
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.groups[0].bookIds).toEqual(['book-1'])
+  })
+
+  it('drops a second group with the same name and one with no name', async () => {
+    await send('PUT', '/library', {
+      library: library({ groups: [
+        shelfGroup(),
+        shelfGroup({ id: 'group-dup', name: ' 在读 ' }),
+        shelfGroup({ id: 'group-blank', name: '   ' }),
+      ] }),
+    })
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.groups.map((one: any) => one.id)).toEqual(['group-1'])
+  })
+
+  it('replaces the whole set, so a group deleted on one device stays deleted', async () => {
+    await send('PUT', '/library', { library: library({ groups: [shelfGroup(), shelfGroup({ id: 'group-2', name: '科幻' })] }) })
+    await send('PUT', '/library', { library: library({ groups: [shelfGroup({ name: '在读' })] }) })
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.groups.map((one: any) => one.id)).toEqual(['group-1'])
+  })
+
+  it('takes a book out of every group when the book goes', async () => {
+    await send('PUT', '/library', {
+      library: library({ groups: [shelfGroup(), shelfGroup({ id: 'group-2', name: '科幻', bookIds: ['book-1'] })] }),
+    })
+    await send('DELETE', '/books/book-1')
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    // The groups are still there — an emptied one is a place the next book goes, not a mistake.
+    expect(listed.library.groups.map((one: any) => [one.id, one.bookIds])).toEqual([['group-1', []], ['group-2', []]])
+  })
+
+  it('reads a shelf that predates groups as having none', async () => {
+    await send('PUT', '/library', { library: library() })
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.groups).toEqual([])
+  })
+})

@@ -29,8 +29,23 @@ export const READER_BOOK_TABLE = `CREATE TABLE IF NOT EXISTS reader_books (
   cover_size INTEGER NOT NULL DEFAULT 0
 )`
 
+/** A reader-named collection of books. Membership is the group's own list, so a book can be in several. */
+export const READER_GROUP_TABLE = `CREATE TABLE IF NOT EXISTS reader_groups (
+  id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  book_ids TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+)`
+
+export const READER_GROUP_INDEX = `CREATE INDEX IF NOT EXISTS idx_reader_groups_user ON reader_groups(user_id, updated_at DESC, id)`
+
 export const READER_SCHEMA_STATEMENTS: readonly string[] = [
   READER_BOOK_TABLE,
+  READER_GROUP_TABLE,
+  READER_GROUP_INDEX,
   `CREATE INDEX IF NOT EXISTS idx_reader_books_user ON reader_books(user_id, added_at DESC, id)`,
   `CREATE TABLE IF NOT EXISTS reader_progress (
     user_id TEXT NOT NULL,

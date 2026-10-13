@@ -12,6 +12,7 @@ import { api } from '../../../lib/api'
 import type { ReaderUsage } from '@shared/types'
 import { downloadAsBlob, uploadWithProgress } from '../../../lib/transfer'
 import type { BookRecord, BookStats, Highlight, LocationMark, ReadingNoteLinks, ReadingProgress } from '../types'
+import type { BookGroup } from '../book-groups'
 
 export interface SyncState {
   phase: 'idle' | 'uploading' | 'downloading' | 'pushing' | 'pulling'
@@ -33,6 +34,7 @@ export interface LibraryPayload {
   marks: Record<string, LocationMark[]>
   stats: Record<string, BookStats>
   notes: ReadingNoteLinks
+  groups: BookGroup[]
 }
 
 /** Upload a book's bytes. The row must already exist server-side, which the push of the state does. */
