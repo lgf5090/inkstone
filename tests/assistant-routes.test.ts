@@ -1195,3 +1195,34 @@ describe('oversized search terms', () => {
       .toEqual(['读者喜欢用 ZEBRAZEBRA 前缀命名文件'])
   })
 })
+
+describe('turn pins from the composer', () => {
+  it('tells the model which tools the reader asked for, and drops the ones that do not exist', async () => {
+    await useExampleModel()
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({
+      message: '找一下会议记录',
+      tools: ['search_notes', 'delete_the_whole_vault', 'search_notes'],
+      scopes: [
+        { kind: 'tag', id: 'g'.repeat(26), name: 'TAGPIN-9x' },
+        { kind: 'tag', id: 'not-an-id', name: 'FORGEPIN-7y' },
+        { kind: 'nonsense', id: 'g'.repeat(26), name: 'FORGEPIN-7y' },
+      ],
+    })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(events.some((event) => event.type === 'done')).toBe(true)
+    const prompt = bodies[0] ?? ''
+    expect(prompt).toContain('search_notes')
+    // A name the assistant cannot call is not something to tell the model about, and an id that is not
+    // an id never reaches the scope either.
+    expect(prompt).not.toContain('delete_the_whole_vault')
+    // A marker that appears nowhere else: the tag name reaches the model only through this turn's scope line.
+    expect(prompt).toContain('TAGPIN-9x')
+    expect(prompt).not.toContain('FORGEPIN-7y')
+  })
+})

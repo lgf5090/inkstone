@@ -10,9 +10,14 @@
 import { ApiError } from '../lib/errors'
 
 export interface NoteScope {
-  /** True when the reader named folders, so the note tools must filter. */
+  /** True when the reader named folders or tags, so the note tools must filter. */
   restricted: boolean
   folderIds: Set<string>
+  /**
+   * Tags pinned to one turn with `#`. A note has to carry at least one of them, which is how a reader
+   * says "answer from my meeting notes" without moving files.
+   */
+  tagIds: Set<string>
 }
 
 /**
@@ -20,10 +25,20 @@ export interface NoteScope {
  *
  * A folder scope that did not include its subtree would read as a bug the first time a reader picked
  * a parent: the folder tree is how they think about their vault, and "Notes" means what is inside it.
+ *
+ * `extra` is the per-turn addition: the conversation keeps a standing scope in settings, and the reader
+ * can pin more folders and tags for one message. Both are merged, because a turn may only narrow what the
+ * assistant sees, never widen it past what the settings allowed.
  */
-export async function resolveNoteScope(db: D1Database, userId: string, scopeFolderIds: readonly string[]): Promise<NoteScope> {
-  const wanted = [...new Set(scopeFolderIds.filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))]
-  if (!wanted.length) return { restricted: false, folderIds: new Set() }
+export async function resolveNoteScope(
+  db: D1Database,
+  userId: string,
+  scopeFolderIds: readonly string[],
+  extra: { folderIds?: readonly string[], tagIds?: readonly string[] } = {},
+): Promise<NoteScope> {
+  const wanted = [...new Set([...scopeFolderIds, ...(extra.folderIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))]
+  const tagIds = new Set([...(extra.tagIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))
+  if (!wanted.length) return { restricted: tagIds.size > 0, folderIds: new Set(), tagIds }
   const owned = new Set<string>()
   for (const id of wanted) {
     const row = await db.prepare(`SELECT id FROM folders WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
@@ -32,7 +47,7 @@ export async function resolveNoteScope(db: D1Database, userId: string, scopeFold
   }
   // Folders the reader no longer owns (deleted, or named by another account's backup) leave the set
   // empty, which reads as "nothing is in scope" — not as "no scope was set", which would open the vault.
-  if (!owned.size) return { restricted: true, folderIds: owned }
+  if (!owned.size) return { restricted: true, folderIds: owned, tagIds }
   const frontier = [...owned]
   for (let depth = 0; depth < 12 && frontier.length; depth++) {
     const placeholders = frontier.map((_, index) => `?${index + 2}`).join(', ')
@@ -46,7 +61,7 @@ export async function resolveNoteScope(db: D1Database, userId: string, scopeFold
       frontier.push(row.id)
     }
   }
-  return { restricted: true, folderIds: owned }
+  return { restricted: true, folderIds: owned, tagIds }
 }
 
 /** The subset of these note ids the scope allows, in one query. */
@@ -65,14 +80,25 @@ export async function readableNoteIds(
     return `?${binds.length}`
   }).join(', ')
   const folders = [...scope.folderIds]
-  if (!folders.length) return new Set()
-  const folderPlaceholders = folders.map((folder) => {
-    binds.push(folder)
-    return `?${binds.length}`
-  }).join(', ')
+  const tags = [...scope.tagIds]
+  if (!folders.length && !tags.length) return new Set()
+  let where = `user_id = ?1 AND deleted_at IS NULL AND id IN (${idPlaceholders})`
+  if (folders.length) {
+    const folderPlaceholders = folders.map((folder) => {
+      binds.push(folder)
+      return `?${binds.length}`
+    }).join(', ')
+    where += ` AND folder_id IN (${folderPlaceholders})`
+  }
+  if (tags.length) {
+    const tagPlaceholders = tags.map((tag) => {
+      binds.push(tag)
+      return `?${binds.length}`
+    }).join(', ')
+    where += ` AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = notes.id AND nt.tag_id IN (${tagPlaceholders}))`
+  }
   const { results } = await db.prepare(
-    `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NULL AND id IN (${idPlaceholders})
-      AND folder_id IN (${folderPlaceholders})`,
+    `SELECT id FROM notes WHERE ${where}`,
   ).bind(...binds).all<{ id: string }>()
   return new Set((results ?? []).map((row) => row.id))
 }

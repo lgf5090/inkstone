@@ -13,7 +13,7 @@
  */
 
 import type { AssistantMessage, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
-import { MAX_CHAT_ATTACHMENTS, estimateTokens, titleFromMessage } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
 import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
@@ -52,6 +52,10 @@ export interface TurnInput {
   message: string
   /** Attachment ids the reader added to this turn. */
   attachments?: string[]
+  /** Tool names the reader pinned to this turn with `/`. */
+  tools?: string[]
+  /** Note tags and folders the reader pinned to this turn with `#`. */
+  scopes?: AssistantTurnScope[]
   retry?: boolean
   signal: AbortSignal
   /** True once a write to the reader has failed, which is the only disconnect some platforms surface. */
@@ -70,6 +74,8 @@ export class AssistantRunner {
   private readonly memoryHistory: MemoryHistoryService
   private readonly automations: AutomationService
   private scopePromise: Promise<NoteScope> | null = null
+  private turnTools: string[] = []
+  private turnScopes: AssistantTurnScope[] = []
 
   constructor(private readonly deps: RunnerDeps) {
     this.automations = new AutomationService(deps.store, deps.settings)
@@ -90,6 +96,10 @@ export class AssistantRunner {
 
   async *chat(input: TurnInput): AsyncGenerator<ChatStreamEvent> {
     const message = input.message.trim()
+    // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
+    // for this turn has to be in place before anything asks for it.
+    this.turnTools = [...new Set(input.tools ?? [])].slice(0, MAX_TURN_TOOLS)
+    this.turnScopes = (input.scopes ?? []).slice(0, MAX_TURN_SCOPES)
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     if (input.conversationId && !conversation) throw ApiError.notFound('Conversation not found')
 
@@ -185,6 +195,8 @@ export class AssistantRunner {
         conversationSummary: conversation.summary,
         noteScope: this.settings.noteScope,
         noteScopeLabels: await this.scopeLabels(),
+        noteTagLabels: this.scopeTagLabels(),
+        turnTools: this.turnTools,
       })
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - 600)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
@@ -468,9 +480,17 @@ export class AssistantRunner {
   /** Resolved once per turn: every note tool consults it, and a second read would be a second answer. */
   private noteScope(): Promise<NoteScope> {
     if (!this.scopePromise) {
-      this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, this.settings.noteScope)
+      this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, this.settings.noteScope, {
+        folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
+        tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
+      })
     }
     return this.scopePromise
+  }
+
+  /** The tags this turn was narrowed to, spelled the way the reader named them. */
+  private scopeTagLabels(): string[] {
+    return this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.name).slice(0, 8)
   }
 
   private async scopeLabels(): Promise<string[]> {

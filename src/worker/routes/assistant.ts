@@ -14,6 +14,9 @@ import { Hono, type Context } from 'hono'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
+  ASSISTANT_TOOL_SPECS,
+  MAX_TURN_SCOPES,
+  MAX_TURN_TOOLS,
   AUTOMATION_KINDS,
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
@@ -26,6 +29,7 @@ import {
   titleFromMessage,
   type AssistantMemoryCategory,
   type AssistantProtocol,
+  type AssistantTurnScope,
   type MemoryReviewAction,
   type TaskPriority,
   type TaskStatus,
@@ -255,7 +259,7 @@ assistantRoutes.delete('/conversations', async (c) => {
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -266,6 +270,23 @@ assistantRoutes.post('/chat', async (c) => {
   const attachments = Array.isArray(body.attachments)
     ? (await store(c).chatAttachments(body.attachments.filter((id): id is string => typeof id === 'string' && isValidId(id))).then((rows) => rows.map((row) => row.id)))
     : []
+
+  // A tool the assistant cannot actually call is not a request, and a scope has to be a real id: both
+  // narrow what the turn may reach, so neither may be invented by the caller.
+  const callable = new Set(ASSISTANT_TOOL_SPECS.map((spec) => spec.name))
+  const tools = Array.isArray(body.tools)
+    ? [...new Set(body.tools.filter((name): name is string => typeof name === 'string' && callable.has(name)))].slice(0, MAX_TURN_TOOLS)
+    : []
+  const scopes: AssistantTurnScope[] = (Array.isArray(body.scopes) ? body.scopes : [])
+    .map((entry): AssistantTurnScope | null => {
+      if (typeof entry !== 'object' || entry === null) return null
+      const record = entry as Record<string, unknown>
+      if (record.kind !== 'tag' && record.kind !== 'folder') return null
+      if (typeof record.id !== 'string' || !isValidId(record.id)) return null
+      return { kind: record.kind, id: record.id, name: typeof record.name === 'string' ? record.name.slice(0, 60) : '' }
+    })
+    .filter((entry): entry is AssistantTurnScope => entry !== null)
+    .slice(0, MAX_TURN_SCOPES)
 
   if (conversationId) {
     if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
@@ -320,6 +341,8 @@ assistantRoutes.post('/chat', async (c) => {
         conversationId,
         message,
         attachments,
+        tools,
+        scopes,
         retry: body.retry === true,
         signal: controller.signal,
         readerGone: () => readerGone,

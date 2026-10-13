@@ -359,11 +359,14 @@ export const NOTE_TOOLS: ToolDefinition[] = [
     description: 'Search the reader\'s notes. Returns titles, ids and short excerpts.',
     fields: { query: { type: 'string', minLength: 1, maxLength: 200 } },
     async run(args, ctx) {
+      const scope = await ctx.noteScope()
       const response = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
         query: String(args.query),
         limit: 8,
+        // Tags narrow the search itself; the folder scope still filters the hits below, so a turn
+        // that asked for `#meeting` cannot reach an untagged note by naming it exactly.
+        ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
       })
-      const scope = await ctx.noteScope()
       const allowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, response.results.map((hit) => hit.id), scope)
       return {
         results: response.results.filter((hit) => allowed.has(hit.id)).slice(0, 8).map((hit) => ({
@@ -615,8 +618,12 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
         ctx.store.searchMemories(query, 5, 'all'),
         ctx.store.listConversations(query, { limit: 5 }),
       ])
-      const notes = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, { query, limit: 5 })
       const scope = await ctx.noteScope()
+      const notes = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
+        query,
+        limit: 5,
+        ...(scope.tagIds.size ? { tags: [...scope.tagIds] } : {}),
+      })
       const allowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, notes.results.map((hit) => hit.id), scope)
       return {
         tasks: tasks.map(presentTask),

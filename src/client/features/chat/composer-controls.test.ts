@@ -16,6 +16,7 @@ import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { ApprovalMenu, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, VoiceButton, formatContext } from './ComposerControls'
 import { AttachmentStrip } from './ChatAttachments'
+import { detectTrigger, filterRows, TOOL_TRIGGER_ROWS, TriggerPanel, type TriggerRow } from './ComposerTriggers'
 
 const promptDialog = vi.fn(async (_options: { title?: string }) => undefined)
 vi.mock('../../components/overlay', async (importOriginal) => {
@@ -243,3 +244,47 @@ describe('attachment chips', () => {
 })
 
 
+
+describe('inline triggers', () => {
+  it('reads a trigger only where a token begins', () => {
+    expect(detectTrigger('@会', 2)).toEqual({ sigil: '@', query: '会', start: 0 })
+    // The caret decides: a token with no sigil under it is not a trigger, and text after it is not part of the query.
+    expect(detectTrigger('总结一下 @meeting notes', 19)).toBeNull()
+    expect(detectTrigger('总结一下 @meeting notes', 13)).toEqual({ sigil: '@', query: 'meeting', start: 5 })
+    expect(detectTrigger('/search', 7)).toEqual({ sigil: '/', query: 'search', start: 0 })
+    expect(detectTrigger('#', 1)).toEqual({ sigil: '#', query: '', start: 0 })
+    // An email fragment and a path are not requests for a picker.
+    expect(detectTrigger('mail me@now.example', 15)).toBeNull()
+    expect(detectTrigger('//path', 6)).toBeNull()
+    expect(detectTrigger('@tag more', 4)).toEqual({ sigil: '@', query: 'tag', start: 0 })
+  })
+
+  it('filters rows by words or by id and keeps the list scannable', () => {
+    const rows: TriggerRow[] = [
+      { id: 'search_notes', label: '搜索笔记' },
+      { id: 'read_note', label: '读一篇笔记' },
+      { id: 'create_task', label: '建任务' },
+    ]
+    expect(filterRows(rows, '笔记').map((row) => row.id)).toEqual(['search_notes', 'read_note'])
+    expect(filterRows(rows, 'create').map((row) => row.id)).toEqual(['create_task'])
+    expect(filterRows(Array.from({ length: 30 }, (_, index) => ({ id: String(index), label: `row ${index}` })), '').length).toBe(8)
+    // The tool catalog the `/` panel offers is the one the assistant can actually call.
+    expect(TOOL_TRIGGER_ROWS.length).toBeGreaterThanOrEqual(22)
+    expect(TOOL_TRIGGER_ROWS.filter((row) => row.danger).length).toBeGreaterThan(0)
+  })
+
+  it('marks the active row and hands a click back to the composer', async () => {
+    const rows: TriggerRow[] = [{ id: 'search_notes', label: '搜索笔记', hint: '只读' }, { id: 'read_note', label: '读一篇笔记' }]
+    const onPick = vi.fn()
+    const onHover = vi.fn()
+    await act(async () => {
+      root.render(createElement(TriggerPanel, { sigil: '/', rows, activeIndex: 1, busy: false, onPick, onHover }))
+    })
+    const options = [...document.body.querySelectorAll('[role="option"]')]
+    expect(options.map((node) => node.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    await click(options[0])
+    expect(onPick).toHaveBeenCalledWith(rows[0])
+    await act(async () => { options[1]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+    expect(onHover).toHaveBeenCalledWith(1)
+  })
+})

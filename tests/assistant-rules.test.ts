@@ -40,7 +40,7 @@ import {
   zonedTimeToUtc,
 } from '../src/shared/assistant-schedule'
 import { localDayBounds, parseLocalTime, toLocalMinute } from '../src/shared/assistant-time'
-import { buildSystemPrompt, fill, offlineAnswer, promptCatalog } from '../src/shared/assistant-prompt'
+import { buildSystemPrompt, fill, offlineAnswer, promptCatalog, type SystemPromptContext } from '../src/shared/assistant-prompt'
 import { EN_US_ASSISTANT_PROMPT } from '../src/shared/locales/en-US-assistant-prompt'
 import { ZH_CN_ASSISTANT_PROMPT } from '../src/shared/locales/zh-CN-assistant-prompt'
 import { EN_US_MESSAGES } from '../src/shared/locales/en-US'
@@ -418,6 +418,26 @@ describe('prompt catalog', () => {
   it('leaves a JSON example in the catalog alone while filling the real ones', () => {
     expect(fill('Reply with {"relationship": "x"} and {name}', { name: 'Friday' }))
       .toBe('Reply with {"relationship": "x"} and Friday')
+  })
+
+  it('adds the tools and tags the reader pinned to this turn, and only when they did', () => {
+    const promptWith = (over: Partial<SystemPromptContext>) => buildSystemPrompt({
+      agentName: 'Friday',
+      language: 'zh-CN',
+      timezone: 'Asia/Shanghai',
+      localTime: '2026-10-12 09:00',
+      autoMemory: false,
+      memories: [],
+      noteScope: [],
+      ...over,
+    })
+    const catalog = promptCatalog('zh-CN')
+    const pinned = promptWith({ noteTagLabels: ['会议'], turnTools: ['search_notes'] })
+    expect(pinned).toContain(catalog.note_scope_tags.replace('{tags}', '会议'))
+    expect(pinned).toContain(catalog.turn_tools.replace('{tools}', 'search_notes'))
+    const plain = promptWith({})
+    expect(plain).not.toContain(catalog.note_scope_tags.slice(0, 11))
+    expect(plain).not.toContain(catalog.turn_tools.slice(0, 11))
   })
 
   it('builds a prompt that states the clock, the scope and the memories', () => {

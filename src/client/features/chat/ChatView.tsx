@@ -21,6 +21,15 @@ import { api } from '../../lib/api'
 import { ConversationTabStrip, ConversationTaxonomyPanel, orderedFolders } from './ChatTaxonomy'
 import { AttachmentStrip, MessageAttachments } from './ChatAttachments'
 import {
+  detectTrigger,
+  filterRows,
+  TOOL_TRIGGER_ROWS,
+  TriggerPanel,
+  TurnPinRow,
+  type ActiveTrigger,
+  type TriggerRow,
+} from './ComposerTriggers'
+import {
   ApprovalMenu,
   ContextMenu,
   ModelMenu,
@@ -568,6 +577,16 @@ function Composer({
   const saveSettings = useAssistant((state) => state.saveSettings)
   const setView = useAssistant((state) => state.setView)
   const [pickingNote, setPickingNote] = useState(false)
+  const [trigger, setTrigger] = useState<ActiveTrigger | null>(null)
+  const [triggerRows, setTriggerRows] = useState<TriggerRow[]>([])
+  const [triggerIndex, setTriggerIndex] = useState(0)
+  const [triggerBusy, setTriggerBusy] = useState(false)
+  const turnTools = useAssistant((state) => state.turnTools)
+  const turnScopes = useAssistant((state) => state.turnScopes)
+  const addTurnTool = useAssistant((state) => state.addTurnTool)
+  const dropTurnTool = useAssistant((state) => state.dropTurnTool)
+  const addTurnScope = useAssistant((state) => state.addTurnScope)
+  const dropTurnScope = useAssistant((state) => state.dropTurnScope)
   const toast = useUi((state) => state.toast)
   // Translated at render, so a reader who switches language sees the new words without a reload.
   const quickPrompts = useMemo(
@@ -592,7 +611,96 @@ function Composer({
     setValue('')
   }
 
+  /** The panel answers the keyboard before the box does: Enter picks a row, it must not send the message. */
+  const onTriggerKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!trigger) return false
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setTriggerIndex((current) => (current + step + triggerRows.length) % triggerRows.length)
+      return true
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setTrigger(null)
+      setTriggerRows([])
+      return true
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      // An IME commit is not a pick: the keystroke belongs to the input method.
+      if (event.nativeEvent.isComposing) return false
+      event.preventDefault()
+      const row = triggerRows[triggerIndex]
+      // Nothing to pick: the first Enter only steps out of the trigger, so a half-typed `@…` never
+      // rides along into a message the reader meant to send. The second Enter sends.
+      if (row) pickTriggerRow(row)
+      setTrigger(null)
+      setTriggerRows([])
+      return true
+    }
+    return false
+  }
+
+  /** Rows for the trigger the caret is inside. `@` asks the server; the other two filter locally. */
+  const loadTriggerRows = async (next: ActiveTrigger) => {
+    setTriggerIndex(0)
+    if (next.sigil === '/') {
+      setTriggerBusy(false)
+      setTriggerRows(filterRows(TOOL_TRIGGER_ROWS, next.query))
+      return
+    }
+    setTriggerBusy(true)
+    try {
+      if (next.sigil === '#') {
+        const [tags, folders] = await Promise.all([api.tags.list(), api.folders.list()])
+        const rows: TriggerRow[] = [
+          ...tags.tags.map((tag) => ({ id: tag.id, label: `#${tag.name}`, kind: 'tag' as const })),
+          ...folders.folders.map((folder) => ({ id: folder.id, label: folder.name, kind: 'folder' as const })),
+        ]
+        setTriggerRows(filterRows(rows, next.query.replace(/^#/, '')))
+      } else {
+        const found = await api.search(next.query || t('assistant.attach.note_prompt'), 8)
+        setTriggerRows(found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') })))
+      }
+    } catch {
+      // A failed lookup leaves the panel empty rather than closing it: the reader is still typing, and a
+      // panel that vanishes under them reads as the app ignoring the trigger.
+      setTriggerRows([])
+    } finally {
+      setTriggerBusy(false)
+    }
+  }
+
+  const onTextChange = (next: string, caret: number) => {
+    setValue(next)
+    const found = detectTrigger(next, caret)
+    setTrigger(found)
+    if (found) void loadTriggerRows(found)
+    else setTriggerRows([])
+  }
+
+  /** Splice the trigger token out, then apply what the reader chose. */
+  const pickTriggerRow = (row: TriggerRow) => {
+    if (!trigger) return
+    const caret = ref.current?.selectionStart ?? value.length
+    const head = value.slice(0, trigger.start)
+    const tail = value.slice(caret)
+    const gap = tail === '' || tail.startsWith(' ') ? '' : ' '
+    if (trigger.sigil === '@') {
+      setValue(`${head}[[${row.label}]]${gap}${tail}`)
+      setTrigger(null)
+      setTriggerRows([])
+      return
+    }
+    if (trigger.sigil === '/') addTurnTool(row.id)
+    else addTurnScope({ kind: row.kind ?? 'tag', id: row.id, name: row.label.replace(/^#/, '') })
+    setValue(`${head}${tail.replace(/^ /, '')}`)
+    setTrigger(null)
+    setTriggerRows([])
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (onTriggerKey(event)) return
     if (event.key !== 'Enter') return
     // A Chinese or Japanese input commits with Enter; that keystroke belongs to the IME, not to send.
     if (event.nativeEvent.isComposing) return
@@ -628,6 +736,16 @@ function Composer({
   return (
     <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 pb-3 pt-2.5 md:px-6">
       <div className="mx-auto w-full max-w-[720px]">
+        {trigger && (
+          <TriggerPanel
+            sigil={trigger.sigil}
+            rows={triggerRows}
+            activeIndex={triggerIndex}
+            busy={triggerBusy}
+            onHover={setTriggerIndex}
+            onPick={pickTriggerRow}
+          />
+        )}
         <div
           ref={boxRef}
           onDragOver={(event) => {
@@ -646,11 +764,12 @@ function Composer({
           )}
         >
           <AttachmentStrip items={pending} onRemove={(localId) => void dropAttachment(localId)} />
+          <TurnPinRow tools={turnTools} scopes={turnScopes} onDropTool={dropTurnTool} onDropScope={dropTurnScope} />
           <textarea
             ref={ref}
             rows={1}
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => onTextChange(event.target.value, event.target.selectionStart ?? event.target.value.length)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             maxLength={16_000}

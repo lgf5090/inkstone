@@ -97,3 +97,47 @@ describe('archive scope of search', () => {
     expect(await titles('Archived is:archived')).toEqual(['Archived In Folder'])
   })
 })
+
+describe('assistant note scope narrowed by tags', () => {
+  // Ids have to be the 26-character shape the assistant accepts, unlike the short ones above.
+  const FOLDER = 'f'.repeat(26)
+  const TAGGED = 't'.repeat(26)
+  const PLAIN = 'p'.repeat(26)
+  const TAG = 'g'.repeat(26)
+  const OTHER_TAG = 'h'.repeat(26)
+
+  beforeEach(() => {
+    folder(FOLDER, MINE, 'Meetings', null)
+    note(TAGGED, MINE, 'Kickoff', FOLDER)
+    note(PLAIN, MINE, 'Groceries', FOLDER)
+    sqlite.prepare('INSERT INTO tags (id, user_id, name, created_at) VALUES (?, ?, ?, 1)').run(TAG, MINE, 'meeting')
+    sqlite.prepare('INSERT INTO tags (id, user_id, name, created_at) VALUES (?, ?, ?, 1)').run(OTHER_TAG, MINE, 'home')
+    sqlite.prepare('INSERT INTO note_tags (note_id, tag_id) VALUES (?, ?)').run(TAGGED, TAG)
+  })
+
+  const scopeFor = async (extra: { folderIds?: string[], tagIds?: string[] } = {}) => {
+    const { resolveNoteScope, readableNoteIds } = await import('../src/worker/assistant/note-scope')
+    const scope = await resolveNoteScope(db, MINE, [], extra)
+    return readableNoteIds(db, MINE, [TAGGED, PLAIN], scope)
+  }
+
+  it('keeps only the notes carrying a tag the turn pinned', async () => {
+    const allowed = await scopeFor({ tagIds: [TAG] })
+    expect([...allowed].sort()).toEqual([TAGGED])
+  })
+
+  it('does not let an unrelated tag id claim the whole vault', async () => {
+    const allowed = await scopeFor({ tagIds: [OTHER_TAG] })
+    expect(allowed.size).toBe(0)
+  })
+
+  it('leaves everything readable when no tag was pinned', async () => {
+    const allowed = await scopeFor()
+    expect(allowed.size).toBe(2)
+  })
+
+  it('applies a pinned folder and a pinned tag together', async () => {
+    const allowed = await scopeFor({ folderIds: [FOLDER], tagIds: [TAG] })
+    expect([...allowed]).toEqual([TAGGED])
+  })
+})

@@ -366,6 +366,17 @@ export interface ChatAttachment {
   createdAt: number
 }
 
+/** A note tag or folder the reader pinned to one turn with `#`. */
+export interface AssistantTurnScope {
+  kind: 'tag' | 'folder'
+  id: string
+  name: string
+}
+
+/** Ceilings for one turn's inline picks, so a composer cannot ask for the whole vault. */
+export const MAX_TURN_TOOLS = 6
+export const MAX_TURN_SCOPES = 6
+
 export interface AssistantConversation {
   id: string
   title: string

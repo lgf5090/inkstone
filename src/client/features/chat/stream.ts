@@ -8,7 +8,7 @@
  */
 
 import { CLIENT_HEADER } from '@shared/constants'
-import type { ChatStreamEvent } from '@shared/assistant'
+import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
 import { ApiError, CLIENT_ID } from '../../lib/api'
 import { getLocale } from '../../lib/i18n'
 
@@ -17,6 +17,10 @@ export interface StreamTurnInput {
   message: string
   /** Attachment ids the reader hung on this turn. */
   attachments?: string[]
+  /** Tools the reader asked for with `/`, by name. */
+  tools?: string[]
+  /** Note tags and folders the reader pinned with `#`. */
+  scopes?: AssistantTurnScope[]
   retry?: boolean
 }
 
@@ -38,6 +42,8 @@ export async function streamAssistantTurn(
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       message: input.message,
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.tools?.length ? { tools: input.tools } : {}),
+      ...(input.scopes?.length ? { scopes: input.scopes } : {}),
       ...(input.retry ? { retry: true } : {}),
     }),
     credentials: 'same-origin',

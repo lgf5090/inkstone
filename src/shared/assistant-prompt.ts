@@ -43,6 +43,10 @@ export interface SystemPromptContext {
   noteScope: string[]
   /** Folder names the scope refers to, resolved by the caller for display. */
   noteScopeLabels?: string[]
+  /** Note tags the reader pinned to this one turn with `#`. */
+  noteTagLabels?: string[]
+  /** Tool names the reader pinned to this one turn with `/`. */
+  turnTools?: string[]
   scheduled?: boolean
 }
 
@@ -56,6 +60,15 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     context.noteScope.length
       ? fill(catalog.note_scope_folders, { folders: (context.noteScopeLabels?.length ? context.noteScopeLabels : context.noteScope).join(', ') })
       : catalog.note_scope_all,
+    // The tag filter is a second narrowing on top of the folder scope, so it only says anything when the
+    // reader pinned tags; the note tools enforce the same thing in SQL, and this line is what stops the
+    // model from searching for something it was told to ignore.
+    context.noteTagLabels?.length
+      ? fill(catalog.note_scope_tags, { tags: context.noteTagLabels.join(', ') })
+      : '',
+    context.turnTools?.length
+      ? fill(catalog.turn_tools, { tools: context.turnTools.join(', ') })
+      : '',
   ].filter(Boolean)
 
   const line = (memory: PromptMemory) => `- [${memory.category}] ${memory.content}${memory.note ? ` (${memory.note})` : ''}`

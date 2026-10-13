@@ -31,7 +31,7 @@ import type {
   Task as AssistantTask,
   ToolActivity,
 } from '@shared/assistant'
-import { MAX_CHAT_ATTACHMENTS, type ChatAttachment } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { streamAssistantTurn } from './stream'
@@ -156,6 +156,13 @@ interface AssistantState {
   attachFiles: (files: File[]) => Promise<void>
   attachUrl: (url: string) => Promise<void>
   attachPastedText: (text: string) => Promise<boolean>
+  /** Tools the reader pinned to this turn with `/`, and note scopes pinned with `#`. */
+  turnTools: string[]
+  turnScopes: AssistantTurnScope[]
+  addTurnTool: (name: string) => void
+  dropTurnTool: (name: string) => void
+  addTurnScope: (scope: AssistantTurnScope) => void
+  dropTurnScope: (id: string) => void
   dropAttachment: (localId: string) => Promise<void>
   clearAttachments: () => void
   stop: () => void
@@ -255,6 +262,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   unfiledCount: 0,
   tagNodes: [],
   pending: [],
+  turnTools: [],
+  turnScopes: [],
   fileIndex: {},
   listTab: 'folders',
   flagged: { starred: [], pinned: [] },
@@ -527,6 +536,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     set({ pending: [] })
   },
 
+  addTurnTool: (name) => set((current) => (current.turnTools.includes(name)
+    ? current
+    : { turnTools: [...current.turnTools, name].slice(0, MAX_TURN_TOOLS) })),
+
+  dropTurnTool: (name) => set((current) => ({ turnTools: current.turnTools.filter((entry) => entry !== name) })),
+
+  addTurnScope: (scope) => set((current) => (current.turnScopes.some((entry) => entry.id === scope.id)
+    ? current
+    : { turnScopes: [...current.turnScopes, scope].slice(0, MAX_TURN_SCOPES) })),
+
+  dropTurnScope: (id) => set((current) => ({ turnScopes: current.turnScopes.filter((entry) => entry.id !== id) })),
+
   send: async (text, opts = {}) => {
     const state = get()
     if (state.turn && !state.turn.done) return
@@ -602,7 +623,14 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
     try {
       await streamAssistantTurn(
-        { ...(conversationId ? { conversationId } : {}), message: text, attachments: attached, retry },
+        {
+          ...(conversationId ? { conversationId } : {}),
+          message: text,
+          attachments: attached,
+          tools: state.turnTools,
+          scopes: state.turnScopes,
+          retry,
+        },
         apply,
         controller.signal,
       )
@@ -614,7 +642,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       }
     } finally {
       inflight = null
-      if (!retry) set({ pending: [] })
+      if (!retry) set({ pending: [], turnTools: [], turnScopes: [] })
       const finishedId = get().turn?.conversationId ?? conversationId
       set((current) => (current.turn ? { turn: { ...current.turn, done: true } } : current))
       if (finishedId) await adoptThread(finishedId)
