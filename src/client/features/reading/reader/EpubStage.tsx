@@ -29,6 +29,8 @@ import {
   type PageGeometry,
 } from '../engine/paginate'
 import { spineIndexFor, stripFragment } from '../engine/epub-package'
+import { footnotePointerOf, noteTargetFromHtml, noteTextOf } from '../engine/footnotes'
+import { blockHolding, blockSpans, paintFocus } from '../engine/paragraph-focus'
 import { usePointerPaging } from './usePointerPaging'
 import type { BookPosition } from '../position'
 import type { Highlight } from '../types'
@@ -44,6 +46,14 @@ export interface StageSelection {
   rect: DOMRect
   /** Which chapter or page the selection was made on; the stage's own slot when it is absent. */
   chapter?: number
+}
+
+/** A footnote the reader is being shown without leaving the page. */
+export interface FootnotePreview {
+  text: string
+  label: string
+  rect: DOMRect
+  onJump: () => void
 }
 
 export interface EpubStageHandle {
@@ -67,6 +77,8 @@ interface EpubStageProps {
   onPosition: (position: BookPosition, fraction: number) => void
   onSelection: (selection: StageSelection | null) => void
   onMarkClick: (ids: string[], rect: DOMRect) => void
+  /** Null when the reader has moved away from every reference. */
+  onFootnote: (preview: FootnotePreview | null) => void
   onChapter: (index: number) => void
   onPageChange: (page: number, pages: number) => void
   /** Tap-zone and swipe paging, so a thumb works the way every other book app teaches it. */
@@ -82,6 +94,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   onPosition,
   onSelection,
   onMarkClick,
+  onFootnote,
   onChapter,
   onPageChange,
   paging,
@@ -123,11 +136,17 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
    * on them, which re-enter the parent's state, which re-renders — and the reader sees React's
    * "maximum update depth exceeded" instead of a page.
    */
-  const emit = useRef({ onPosition, onPageChange, onSelection, onMarkClick, onChapter })
+  const emit = useRef({ onPosition, onPageChange, onSelection, onMarkClick, onChapter, onFootnote })
   useEffect(() => {
-    emit.current = { onPosition, onPageChange, onSelection, onMarkClick, onChapter }
+    emit.current = { onPosition, onPageChange, onSelection, onMarkClick, onChapter, onFootnote }
   })
   const lastSent = useRef('')
+  /**
+   * The scroll a jump of the reader's own making caused, as opposed to a thumb dragging
+   * the page up. The end-of-chapter watcher below treats reaching the bottom as "keep going", and a
+   * footnote at the foot of a chapter is exactly the case where a jump arrives there unasked.
+   */
+  const programmaticScroll = useRef(false)
 
   /**
    * Loading is a function of the slot, never of the call that changed it.
@@ -222,12 +241,22 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     if (!anchor) return
     anchorRef.current = null
     if (scrollMode || count <= 1) {
+      let moved = false
       if (anchor.kind === 'offset') {
         const point = pointForOffset(indexRef.current!, anchor.offset)
-        point?.node.parentElement?.scrollIntoView({ block: 'start' })
+        const element = point?.node.parentElement
+        if (element) {
+          element.scrollIntoView({ block: 'start' })
+          moved = true
+        }
       } else if (anchor.kind === 'fragment') {
-        doc.querySelector(`[id="${cssEscape(anchor.id)}"]`)?.scrollIntoView({ block: 'start' })
+        const element = doc.querySelector<HTMLElement>(`[id="${cssEscape(anchor.id)}"]`)
+        if (element) {
+          element.scrollIntoView({ block: 'start' })
+          moved = true
+        }
       }
+      if (moved) programmaticScroll.current = true
       setPage(0)
       return
     }
@@ -334,10 +363,32 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     return index.text.length
   }, [page, settings.readMode])
 
+  /**
+   * Light the paragraph the reader is on and dim the rest.
+   *
+   * Paged mode reads the horizontal position because that is the axis the chapter is laid out along;
+   * scroll mode reads the middle of the window, which is where their eyes are.
+   */
+  const paintParagraphFocus = useCallback(() => {
+    const doc = docRef.current
+    const stage = stageRef.current
+    if (!doc || !stage) return
+    if (!settings.focusParagraph) {
+      paintFocus(doc, -1)
+      return
+    }
+    const scrollMode = settings.readMode === 'scroll'
+    const spans = blockSpans(doc, scrollMode ? 'y' : 'x')
+    if (!spans.length) return
+    const at = scrollMode ? stage.scrollTop + stage.clientHeight / 2 : page * geometryRef.current.step
+    paintFocus(doc, blockHolding(spans, at))
+  }, [page, settings.focusParagraph, settings.readMode])
+
   const report = useCallback(() => {
     const index = indexRef.current
     const stage = stageRef.current
     if (!index || chapterSlotRef.current !== slot) return
+    paintParagraphFocus()
     const offset = currentOffset()
     const scrollMode = settings.readMode === 'scroll'
     const progress = scrollMode ? { page: 1, pages: 1 } : chapterProgress(page, pages)
@@ -354,7 +405,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     lastSent.current = signature
     emit.current.onPageChange(progress.page, progress.pages)
     emit.current.onPosition({ kind: 'epub', chapter: slot, offset }, fraction)
-  }, [currentOffset, handle.pkg.spine.length, page, pages, settings.readMode, slot])
+  }, [currentOffset, handle.pkg.spine.length, page, pages, paintParagraphFocus, settings.readMode, slot])
 
   useEffect(() => {
     report()
@@ -399,6 +450,11 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const stage = stageRef.current
     if (!stage || settings.readMode !== 'scroll') return
     const onScroll = () => {
+      if (programmaticScroll.current) {
+        programmaticScroll.current = false
+        report()
+        return
+      }
       if (stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 8 && slot < handle.pkg.spine.length - 1) {
         anchorRef.current = { kind: 'offset', offset: 0 }
         setSlot(slot + 1)
@@ -551,6 +607,83 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   }, [readSelection])
 
   /** Marks and in-book links, both of which are the reader's business rather than the browser's. */
+  /** Notes already read out of another chapter, so a reader who hovers the same note twice is not
+   * made to wait for the archive again. */
+  const noteCache = useRef(new Map<string, string | null>())
+  const hoverTimer = useRef(0)
+  const hovered = useRef<HTMLElement | null>(null)
+
+  const noteFor = useCallback(async (anchor: HTMLElement): Promise<{ text: string; chapter: number; fragment: string } | null> => {
+    const doc = docRef.current
+    const fragment = anchor.dataset.readerFragment ?? ''
+    if (!doc || !fragment) return null
+    const href = anchor.dataset.readerHref ?? ''
+    // The document here is a div the chapter was painted into, so the id has to be found the way the
+    // anchor jump finds it: an escaped selector, because a book's ids are author-written.
+    const local = href === '' ? doc.querySelector<HTMLElement>(`[id="${cssEscape(fragment)}"]`) : null
+    if (!footnotePointerOf(anchor, local)) return null
+    if (local) return { text: noteTextOf(local), chapter: slot, fragment }
+    const chapter = spineIndexFor(handle.pkg, stripFragment(href))
+    if (chapter < 0) return null
+    const key = `${chapter}#${fragment}`
+    const known = noteCache.current.get(key)
+    if (known !== undefined) return known ? { text: known, chapter, fragment } : null
+    const prepared = await handle.prepare(chapter)
+    const element = prepared ? noteTargetFromHtml(prepared.html, fragment) : null
+    const text = element ? noteTextOf(element) : null
+    noteCache.current.set(key, text)
+    return text ? { text, chapter, fragment } : null
+  }, [handle, slot])
+
+  const showNote = useCallback((anchor: HTMLElement, note: { chapter: number; fragment: string; text: string }) => {
+    emit.current.onFootnote({
+      text: note.text,
+      label: (anchor.textContent ?? '').trim().slice(0, 12),
+      rect: anchor.getBoundingClientRect(),
+      onJump: () => {
+        const href = anchor.dataset.readerHref ?? ''
+        const chapter = href ? spineIndexFor(handle.pkg, stripFragment(href)) : slot
+        emit.current.onFootnote(null)
+        if (chapter >= 0) jump({ kind: 'epub', chapter, offset: 0 }, note.fragment)
+      },
+    })
+  }, [handle.pkg, jump, slot])
+
+  const onPointerOver = useCallback((event: React.PointerEvent) => {
+    if (event.pointerType === 'touch') return
+    const anchor = (event.target as HTMLElement | null)?.closest<HTMLElement>('a[data-reader-fragment]')
+    if (!anchor || anchor === hovered.current) return
+    hovered.current = anchor
+    window.clearTimeout(hoverTimer.current)
+    // A held hover is a question; a swept past one is not, and resolving the second would parse chapters
+    // the reader is only scrolling by.
+    hoverTimer.current = window.setTimeout(() => {
+      void noteFor(anchor).then((note) => {
+        if (note && hovered.current === anchor) showNote(anchor, note)
+      })
+    }, 180)
+  }, [noteFor, showNote])
+
+  const onPointerOut = useCallback((event: React.PointerEvent) => {
+    const anchor = (event.target as HTMLElement | null)?.closest<HTMLElement>('a[data-reader-fragment]')
+    if (!anchor || anchor !== hovered.current) return
+    hovered.current = null
+    window.clearTimeout(hoverTimer.current)
+  }, [])
+
+  const jumpTo = useCallback((link: HTMLElement) => {
+    const href = link.dataset.readerHref ?? ''
+    const fragment = link.dataset.readerFragment
+    if (!href) {
+      // Nothing to resolve: the words are already on this page, so the reader only has to be moved to them.
+      jump({ kind: 'epub', chapter: slot, offset: 0 }, fragment)
+      return
+    }
+    const target = spineIndexFor(handle.pkg, stripFragment(href))
+    if (target < 0) return
+    jump({ kind: 'epub', chapter: target, offset: 0 }, fragment)
+  }, [handle.pkg, jump, slot])
+
   const onClick = useCallback((event: React.MouseEvent) => {
     const doc = docRef.current
     if (!doc) return
@@ -561,14 +694,20 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       if (ids.length) emit.current.onMarkClick(ids, mark.getBoundingClientRect())
       return
     }
-    const link = (event.target as HTMLElement | null)?.closest<HTMLElement>('a[data-reader-href]')
+    const link = (event.target as HTMLElement | null)?.closest<HTMLElement>('a[data-reader-href], a[data-reader-fragment]')
     if (!link) return
     event.preventDefault()
-    const href = link.dataset.readerHref ?? ''
-    const target = spineIndexFor(handle.pkg, stripFragment(href))
-    if (target < 0) return
-    jump({ kind: 'epub', chapter: target, offset: 0 }, link.dataset.readerFragment)
-  }, [handle.pkg, jump])
+    // A thumb has no hover, so the first press asks the question the card answers and the card's own
+    // button is what moves the page. A mouse keeps the older, quicker habit: click goes there.
+    if (window.matchMedia?.('(pointer: coarse)').matches) {
+      void noteFor(link).then((note) => {
+        if (note) showNote(link, note)
+        else jumpTo(link)
+      })
+      return
+    }
+    jumpTo(link)
+  }, [jumpTo, noteFor, showNote])
 
   const cssVars = (): Record<string, string> => ({
     '--reader-bg': theme.background,
@@ -595,6 +734,8 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       data-motion={settings.pageTurnAnimation ? 'on' : 'off'}
       style={cssVars()}
       onClick={onClick}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
     >
       <style ref={styleRef} />
       <div ref={columnsRef} className="reader-columns" data-turn={turn ?? undefined}>
@@ -603,6 +744,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
           className="reader-doc"
           data-indent={String(settings.firstLineIndent)}
           data-figures={String(settings.showFigures)}
+          data-focus={String(settings.focusParagraph)}
           dir={handle.pkg.direction}
         />
       </div>

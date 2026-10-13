@@ -83,6 +83,16 @@
 
 /* One chapter, laid out inside the column box. Its own box is the reader's: the margin and the space
    under the bars are painted by the column box, so nothing here has to survive fragmentation. */
+/* Focus mode: the paragraph the reader is on, and a hint of everything else. */
+.reader-doc[data-focus='true'] > * {
+  opacity: 0.26;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reader-doc[data-focus='true'] > .reader-now {
+  opacity: 1;
+}
+
 .reader-doc {
   break-inside: auto;
   font-family: var(--reader-font);
@@ -665,4 +675,20 @@
   height: 100%;
   border-radius: 999px;
   background: var(--accent);
+}
+
+/*
+ * The footnote preview. Fixed to the viewport rather than to the stage: the stage scrolls and slides
+ * during a page turn, and a card that travels with the page leaves behind the word it was answering.
+ */
+.reader-note-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 8px 10px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-primary);
 }

@@ -4583,6 +4583,8 @@ const allowed = new Map([
     "// A book whose sheets import each other in a ring would otherwise recurse until the stack gives",
     "// out, and the reader would see a spinner rather than a page.",
     "/** Read, sanitize and prepare one spine item. Null when the archive does not actually hold it. */",
+    "// An anchor inside this chapter is the reader's jump too. Left to the browser it would scroll",
+    "// the words into view on its own and leave the page counter saying the page the reader was on.",
   ]],
   ["src/client/features/reading/engine/css-scope.ts", [
     "/**\n * Making a book's stylesheet safe to put on the same page as the app.\n *\n * The CSP this app serves forbids `frame-src`, so an EPUB cannot be rendered in an iframe the way\n * most web readers do. The alternative is to render the chapter in the document and quarantine its\n * CSS by prefixing every selector with the reader's own container — which is what this file does,\n * because a book's `body { position: fixed }` or `* { font-family: serif }` would otherwise reach\n * straight through to the app's chrome.\n *\n * The scanner is hand-written rather than `CSSStyleSheet`-based for two reasons: the reader has to\n * work before a document is in the DOM, and `cssRules` silently drops every rule a browser does not\n * understand, which is exactly the set of rules a book's author cared about.\n */",
@@ -4620,6 +4622,16 @@ const allowed = new Map([
     "// Some books put the target in the TOC as `chapter.xhtml#id` while the spine lists `c01.xhtml#id`;",
     "// matching the fragment against spine idrefs is the last thing that can still answer.",
   ]],
+  ["src/client/features/reading/engine/footnotes.ts", [
+    "/**\n * Footnotes: the reference and the note it points at.\n *\n * An EPUB says what a link is in three different dialects — `epub:type=\"noteref\"`, a class of\n * `footnote-ref`, or nothing but a `<sup>` around an anchor into an `<aside role=\"doc-endnote\">` — and a\n * reader's hover has to work on all three without mistaking a table-of-contents link for a note. So the\n * anchor and its target are both consulted, and a link only gets a preview when one of them says\n * plainly that it is a note.\n *\n * The text of a note is what the publisher wrote, minus the back-link they put at the end of it for a\n * paper reader to find their way back.\n */",
+    "/** The anchor's own words, which is usually a number in a circle. */",
+    "/** Package path of the chapter holding the note; empty when the note is in this one. */",
+    "/** A reference set in superscript, which is how a note is marked when the publisher adds no class. */",
+    "/** Whether a set of `epub:type`/`class` words names a note or a reference to one. */",
+    "/**\n * What a pressed or hovered element has to be for the reader to get a note.\n *\n * `target` is the element the fragment names, when the caller already has it: a `<sup>` around an anchor\n * with no class at all is a footnote as surely as `epub:type=\"noteref\"` is, but only the target can say\n * so without also catching every other superscript in the book.\n */",
+    "/**\n * The note's own words.\n *\n * Trailing back-links (`↩`, `[Back]`) are part of the container, not the note, and leaving them in makes\n * every preview end in a glyph that does nothing here.\n */",
+    "/** The element a fragment names, from a chapter's own HTML. Null when the chapter has no such id. */",
+  ]],
   ["src/client/features/reading/engine/highlight-anchor.ts", [
     "/**\n * Keeping a highlight attached to the words it was made on.\n *\n * A stored offset is only useful if the next render puts it back where the reader saw it, and that\n * fails the moment the file is replaced with a corrected edition of the same book. So a highlight also\n * carries its quote and the text on either side of it: the offsets are the fast path, the quote is the\n * recovery, and a highlight that can be recovered nowhere is shown as an orphan rather than silently\n * moved onto different words.\n */",
     "/** How much context is kept on each side — enough to disambiguate a repeated sentence, small enough to not matter. */",
@@ -4643,6 +4655,12 @@ const allowed = new Map([
     "/**\n * @param width the content the columns are laid out in, already cleared of the page margins\n * @param inset the reader's page margin on each side, which the scroller shows at the start of every\n *        page because it sits on the scroll container's own padding\n */",
     "// The browser puts each column one pitch apart — a column plus the gutter — so a page of `columns`",
     "// of them advances by that many pitches, and the gutter after the last column is part of the page.",
+  ]],
+  ["src/client/features/reading/engine/paragraph-focus.ts", [
+    "/**\n * Which paragraph the reader is standing on.\n *\n * The focus mode dims everything else, so a wrong answer is a page of grey text with the wrong line\n * lit up. Both reading modes ask the same question in a different axis: paged reads the horizontal\n * offset of the page's left edge, scroll reads the middle of the window.\n */",
+    "/** The last block that begins at or before `at`; the first block when nothing has begun yet. */",
+    "/**\n * The blocks the dimming works on: the chapter's own top-level elements.\n *\n * A nested `div` inside a section is not a paragraph to the reader, and dimming a whole section because\n * one line of it is on the page hides the rest of the chapter. So only the children of the document\n * root count, and empty ones (whitespace text nodes the publisher left behind) do not.\n */",
+    "/** Put the mark on one block and nowhere else. */",
   ]],
   ["src/client/features/reading/engine/pdf.ts", [
     "/**\n * PDF.js, wired to this app rather than to a viewer.\n *\n * A PDF is a page description, not a flowing text, so the reader keeps each page as the source of\n * visual truth: PDF.js paints the page to a canvas and its own `TextLayer` is laid over the top,\n * visually transparent but selectable, searchable and highlightable. That is also what decides what a\n * page can do — a scan has no text layer, so it gets progress and nothing that needs words.\n *\n * Everything here sits behind a dynamic import from the reader: the library, its worker, its CMaps and\n * its image decoders are the heaviest thing the reading app can load, and an EPUB-only reader should\n * never pay for them. The files themselves are served by `pdfjsVendorPlugin` in `vite.config.ts`.\n */",
@@ -4762,6 +4780,18 @@ const allowed = new Map([
     "// The gutter between neighbouring columns is the page margin twice over: a column has a margin on",
     "// each side, and anything narrower lets the next page's text peek in from the edge of this one.",
     "// The measure is per column, so asking for a spread does not halve each page's line length.",
+    "/** A footnote the reader is being shown without leaving the page. */",
+    "/** Null when the reader has moved away from every reference. */",
+    "/**\n   * The scroll a jump of the reader's own making caused, as opposed to a thumb dragging\n   * the page up. The end-of-chapter watcher below treats reaching the bottom as \"keep going\", and a\n   * footnote at the foot of a chapter is exactly the case where a jump arrives there unasked.\n   */",
+    "/**\n   * Light the paragraph the reader is on and dim the rest.\n   *\n   * Paged mode reads the horizontal position because that is the axis the chapter is laid out along;\n   * scroll mode reads the middle of the window, which is where their eyes are.\n   */",
+    "/** Notes already read out of another chapter, so a reader who hovers the same note twice is not\n   * made to wait for the archive again. */",
+    "// The document here is a div the chapter was painted into, so the id has to be found the way the",
+    "// anchor jump finds it: an escaped selector, because a book's ids are author-written.",
+    "// A held hover is a question; a swept past one is not, and resolving the second would parse chapters",
+    "// the reader is only scrolling by.",
+    "// Nothing to resolve: the words are already on this page, so the reader only has to be moved to them.",
+    "// A thumb has no hover, so the first press asks the question the card answers and the card's own",
+    "// button is what moves the page. A mouse keeps the older, quicker habit: click goes there.",
   ]],
   ["src/client/features/reading/reader/FixedStage.tsx", [
     "/**\n * A book that arrives as pages rather than as prose.\n *\n * A PDF is a page description, so the reader keeps each page as the source of visual truth: PDF.js\n * paints it to a canvas and its own transparent text layer goes over the top, which is what makes the\n * words selectable, searchable and markable without rebuilding the page. A scan has no such layer, and\n * the reader says so by refusing the actions that need words rather than marking the wrong ones.\n *\n * A CBZ shares the machinery with one difference: its pages are pictures, so it always takes the\n * scan path.\n */",
@@ -4794,6 +4824,14 @@ const allowed = new Map([
     "// scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of",
     "// a desktop page. The aspect is kept and the letterboxing left to `object-fit`.",
     "/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on\n          the page itself. */",
+  ]],
+  ["src/client/features/reading/reader/FootnotePopover.tsx", [
+    "/**\n * The note a footnote reference points at, without leaving the page.\n *\n * A reader hovers a superscript to ask \"what is this?\" and the answer has to appear where their eyes\n * already are, so the card is placed against the reference's own box and kept inside the window by\n * clipping to its scrollable ancestor — the same rule the rest of the reader's floating parts follow.\n * The card is not a tooltip: it holds a paragraph, a reader may need to select from it, and it stays\n * until they say otherwise.\n */",
+    "/** The note's own words. */",
+    "/** The reference's number or mark, which is how the reader knows which note this is. */",
+    "/** Where the note lives, so the card can say it before the reader goes there. */",
+    "// Measured after the first paint: the card's own height decides whether it goes above or below the",
+    "// reference, and a guessed height is how a card ends up covering the word it explains.",
   ]],
   ["src/client/features/reading/reader/HighlightsPanel.tsx", [
     "/**\n * Everything the reader has marked in this book.\n *\n * Grouped by chapter rather than by colour, because the question a reader brings to this panel is\n * \"where did I write something?\", and the chapter heading is what lets them decide whether to jump.\n */",
@@ -4844,6 +4882,7 @@ const allowed = new Map([
     "// that is the reader saying \"get me out of here\", and without it the search box would be a trap.",
     "// With nothing open, Escape belongs to the field itself — the page-number box uses it to cancel.",
     "/* A book this device never held arrives over the wire; the shelf's bar is not on this screen, so\n          the page says so itself rather than showing a spinner with no reason. */",
+    "// A card pinned to a word that has just moved off the page is a card about nothing.",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -4986,6 +5025,7 @@ const allowed = new Map([
     "/** The settings whose default is a boolean, so one pass can cover all of them. */",
     "/**\n * The page a device can carry before its reader changes anything.\n *\n * Type is set by the arm holding the device, not by the setting: 19px prose with a 24px margin leaves\n * twelve characters to a line on the smallest phone this app supports, which is a column rather than a\n * page. These are seeds only — the first slider moves and the device keeps its own answer, and a phone\n * never inherits a desktop's spread because the record lives in that browser, not in the account.\n */",
     "/** How the shelf lays its books out; see `shelf-view.ts` for what each mode means. */",
+    "/** Dim every paragraph but the one the reader is on. */",
   ]],
   ["src/client/features/reading/themes.ts", [
     "/**\n * The reading surface's palettes.\n *\n * A book page is the one place in this app where the reader chooses the colours rather than the\n * deployment, so the themes are their own layer: they paint the page, not the chrome around it. Each\n * one carries the pair the page actually needs (paper and ink) plus the two tints that follow from\n * them, and `auto` hands the decision back to the app's own theme.\n *\n * Every entry is checked for contrast by `tests/reading-theme-contrast.test.ts`, because a warm-paper\n * theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they read a whole\n * chapter with a headache.\n */",
@@ -12037,6 +12077,8 @@ const allowed = new Map([
     "/* What the chrome takes off a fixed page: the bar, its offset from the edge, and the progress rail\n     under it — the bars float over the *reader*, not over the stage, so the page has to clear all three.\n     The stage reads this back before it asks PDF.js how tall to paint a page, so the page that is\n     rendered is the page that fits. Plain lengths only: a `calc()` here would reach the reader as text. */",
     "/* A scanned page has no words to mark, and the reason has to be on the page rather than behind a hover\n   the reader may never make. */",
     "/* The one message the reader cannot do without while a book arrives: how much of it is there yet. */",
+    "/* Focus mode: the paragraph the reader is on, and a hint of everything else. */",
+    "/*\n * The footnote preview. Fixed to the viewport rather than to the stage: the stage scrolls and slides\n * during a page turn, and a card that travels with the page leaves behind the word it was answering.\n */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
@@ -13237,6 +13279,10 @@ const allowed = new Map([
     "// The margin is the scroll container's padding, so the window is wider than the column it shows.",
     "// n columns of text occupy the margin once, then a column each: three pages of prose measure 2448.",
     "// Four columns of a spread of two: 388 each with three gutters, and no margin.",
+  ]],
+  ["tests/reading-paragraph-focus.test.ts", [
+    "// jsdom has no layout, so every box is zero: the rule that survives is that a child with no words",
+    "// is not a paragraph to dim, and one with words is.",
   ]],
   ["tests/reading-settings.test.ts", [
     "/** One legal value per setting, none of them the default, so a dropped write is visible. */",

@@ -25,7 +25,8 @@ import { useEpubHandle } from './useEpubHandle'
 import { FixedStage, type FixedStageHandle } from './FixedStage'
 import { searchBook } from '../engine/book-search'
 import type { PanelHit } from './SearchPanel'
-import { EpubStage, type EpubStageHandle, type StageSelection } from './EpubStage'
+import { EpubStage, type EpubStageHandle, type FootnotePreview, type StageSelection } from './EpubStage'
+import { FootnotePopover } from './FootnotePopover'
 import { PageStatus } from './PageStatus'
 import { SelectionToolbar } from './SelectionToolbar'
 import { ReaderPanel } from './ReaderPanel'
@@ -62,6 +63,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const narrow = useMedia('(max-width: 767px)')
   const [panel, setPanel] = useState<PanelName>(null)
   const [selection, setSelection] = useState<StageSelection | null>(null)
+  const [footnote, setFootnote] = useState<FootnotePreview | null>(null)
   const [comment, setComment] = useState<{ ids: string[]; rect: DOMRect } | null>(null)
   const [lookup, setLookup] = useState<{ rect: DOMRect; pending: boolean; outcome: LookupOutcome | null; error: string | null; collected: boolean } | null>(null)
   const sync = useLibrary((state) => state.sync)
@@ -302,7 +304,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
       // A field owns its keystrokes. The exception is Escape while something is open over the page:
       // that is the reader saying "get me out of here", and without it the search box would be a trap.
       // With nothing open, Escape belongs to the field itself — the page-number box uses it to cancel.
-      const overlayUp = Boolean(panel || lookup || comment || selection)
+      const overlayUp = Boolean(footnote || panel || lookup || comment || selection)
       if (inField && !(event.key === 'Escape' && overlayUp)) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
       const entry = shortcutFor(event.key)
@@ -582,16 +584,33 @@ export function ReaderView({ book }: { book: BookRecord }) {
           highlights={highlightsHere}
           start={linkedPosition.current ?? progress?.position ?? null}
           onPosition={onPosition}
-          onPageChange={(next, total) => setPage({ page: next, pages: total })}
+          onPageChange={(next, total) => {
+            // A card pinned to a word that has just moved off the page is a card about nothing.
+            setFootnote(null)
+            setPage({ page: next, pages: total })
+          }}
           onSelection={setSelection}
+          onFootnote={setFootnote}
           onMarkClick={(ids, rect) => {
             setSelection(null)
             setComment({ ids, rect })
           }}
-          onChapter={reportChapter}
+          onChapter={(index) => {
+            setFootnote(null)
+            reportChapter(index)
+          }}
           paging={paging}
         />
       )}
+
+      {footnote ? (
+        <FootnotePopover
+          note={{ text: footnote.text, label: footnote.label }}
+          anchor={footnote.rect}
+          onJump={footnote.onJump}
+          onClose={() => setFootnote(null)}
+        />
+      ) : null}
 
       <div className="reader-hud" data-edge="top" data-hidden={hudHidden ? 'true' : 'false'}>
         <IconButton label={t('reading.back_to_shelf')} size="sm" onClick={() => navigateToPath('/reading')}>

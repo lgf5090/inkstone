@@ -116,7 +116,16 @@ async function rewriteReferences(
     const tag = element.tagName.toLowerCase()
     for (const name of ['src', 'href', 'xlink:href', 'poster'] as const) {
       const value = element.getAttribute(name)
-      if (!value || value.startsWith('#')) continue
+      if (!value) continue
+      if (value.startsWith('#')) {
+        // An anchor inside this chapter is the reader's jump too. Left to the browser it would scroll
+        // the words into view on its own and leave the page counter saying the page the reader was on.
+        if ((tag === 'a' || tag === 'area') && value.length > 1) {
+          element.setAttribute('data-reader-fragment', value.slice(1))
+          element.setAttribute('href', '#')
+        }
+        continue
+      }
       if (UNSAFE.test(value.trim())) {
         element.removeAttribute(name)
         continue

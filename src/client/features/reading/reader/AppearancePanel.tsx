@@ -137,6 +137,9 @@ export function AppearancePanel() {
       <Row label={t('reading.show_figures')}>
         <Switch checked={settings.showFigures} onChange={(value) => set('showFigures', value)} label={t('reading.show_figures')} />
       </Row>
+      <Row label={t('reading.focus_paragraph')}>
+        <Switch checked={settings.focusParagraph} onChange={(value) => set('focusParagraph', value)} label={t('reading.focus_paragraph')} />
+      </Row>
       <Row label={t('reading.page_turn_animation')}>
         <Switch checked={settings.pageTurnAnimation} onChange={(value) => set('pageTurnAnimation', value)} label={t('reading.page_turn_animation')} />
       </Row>

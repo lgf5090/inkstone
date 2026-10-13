@@ -48,6 +48,8 @@ export interface ReaderSettings {
   /** Indent the opening line of a paragraph, which unsegmented prose expects and English does not. */
   firstLineIndent: boolean
   readMode: ReadMode
+  /** Dim every paragraph but the one the reader is on. */
+  focusParagraph: boolean
   /** How the shelf lays its books out; see `shelf-view.ts` for what each mode means. */
   shelfView: ShelfViewMode
   pageTurnAnimation: boolean
@@ -93,6 +95,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   hyphenate: false,
   firstLineIndent: true,
   readMode: 'paged',
+  focusParagraph: false,
   shelfView: 'adaptive',
   pageTurnAnimation: true,
   showFigures: true,
