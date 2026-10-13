@@ -39,7 +39,7 @@ export function FolderPicker({
             .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
             .filter(({ folder, path }) => !excludedIds?.has(folder.id) && (compiled.error || !normalized || queryMatches(compiled, path) !== null))
             .sort((a, b) => a.path.localeCompare(b.path));
-    }, [compiled, excludedIds, folders, query]);
+    }, [compiled, excludedIds, folders, query, pinyinVersion]);
     const choose = (folderId: string | null) => {
         if (folderId !== currentId)
             onSelect(folderId);
