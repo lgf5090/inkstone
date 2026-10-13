@@ -869,6 +869,29 @@ export const PROVIDER_PRESETS: readonly { id: string, label: string, protocol: A
   { id: 'other', label: 'Gateway / other (https)', protocol: 'openai', baseUrl: 'https://', models: [''] },
 ]
 
+/**
+ * What one address field says, before anybody tries to reach it.
+ *
+ * The form and the route share this so the reader is told "that is not an address" beside the box they
+ * typed it in, instead of through a 400 that names nothing. Reachability is deliberately not judged here:
+ * a private host has the right shape and the route is what refuses it, so splitting the two rules keeps
+ * each one in the place that can enforce it.
+ */
+export function endpointFieldState(value: string): 'empty' | 'invalid' | 'ok' {
+  const trimmed = (value ?? '').trim()
+  // A bare scheme is what the preset seeds and what an autofill can leave behind: nothing was entered.
+  if (!trimmed || /^https?:\/{0,2}$/i.test(trimmed)) return 'empty'
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return 'invalid'
+  }
+  // Only the two schemes the request path can speak. A host is not checked separately because a WHATWG
+  // parser refuses an http(s) URL without one, so `https:///` is already caught above.
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? 'ok' : 'invalid'
+}
+
 /** A model id the settings form will accept, so a stray space cannot poison a request. */
 export function normalizeModelId(value: unknown): string {
   return typeof value === 'string' ? value.trim().replace(/\s+/g, '').slice(0, 120) : ''

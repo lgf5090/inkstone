@@ -18,6 +18,7 @@ import {
   normalizeAssistantSettings,
   normalizeLimits,
   titleFromMessage,
+  endpointFieldState,
 } from '../src/shared/assistant'
 import {
   AUTO_SUPERSEDE_CONFIDENCE,
@@ -623,5 +624,32 @@ describe('schema batching', () => {
   it('does not invent an empty trailing batch', () => {
     expect(chunkStatements([1, 2, 3, 4], 2)).toEqual([[1, 2], [3, 4]])
     expect(chunkStatements([], 40)).toEqual([])
+  })
+})
+
+describe('what an address field says', () => {
+  it('treats nothing entered, and a scheme nobody typed a host after, as no address', () => {
+    expect(endpointFieldState('')).toBe('empty')
+    expect(endpointFieldState('   ')).toBe('empty')
+    // The preset seeds `https://` as a starting point, and autofill can leave a bare scheme behind.
+    expect(endpointFieldState('https://')).toBe('empty')
+    expect(endpointFieldState('http://')).toBe('empty')
+  })
+
+  it('names a shape that cannot be an address, whatever the browser typed into the box', () => {
+    expect(endpointFieldState('lgf5090')).toBe('invalid')
+    expect(endpointFieldState('api.deepseek.com')).toBe('invalid')
+    expect(endpointFieldState('ftp://api.deepseek.com')).toBe('invalid')
+    expect(endpointFieldState('https://')).toBe('empty')
+    expect(endpointFieldState('javascript:alert(1)')).toBe('invalid')
+    expect(endpointFieldState('https:///')).toBe('invalid')
+  })
+
+  it('accepts any absolute http(s) host, because reachability is the server\u2019s business', () => {
+    // The shape rule stays here so the form can say "that is not an address"; the SSRF guard stays on
+    // the route so a private target is refused wherever it came from.
+    expect(endpointFieldState('https://api.deepseek.com')).toBe('ok')
+    expect(endpointFieldState('http://localhost:11434/v1')).toBe('ok')
+    expect(endpointFieldState('https://gw.example.test/anthropic/v1')).toBe('ok')
   })
 })

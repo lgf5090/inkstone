@@ -19,6 +19,7 @@ import {
   MAX_MCP_LABEL_CHARS,
   MAX_MCP_SERVERS,
   MAX_MCP_URL_CHARS,
+  endpointFieldState,
   parseModelModalities,
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
@@ -1246,8 +1247,19 @@ function vetEndpoints(value: unknown): Partial<Record<AssistantProtocol, string>
   const out: Partial<Record<AssistantProtocol, string>> = {}
   for (const [protocol, url] of Object.entries(value as Record<string, unknown>)) {
     if (!(ASSISTANT_PROTOCOLS as readonly string[]).includes(protocol)) continue
-    if (typeof url !== 'string' || !url.trim()) continue
-    out[protocol as AssistantProtocol] = vetBaseUrl(url)
+    if (typeof url !== 'string') continue
+    // These fields are optional, and two ordinary things land in them: the preset's bare `https://` and
+    // whatever the browser autocompleted. Neither is an address, and neither may refuse the save the
+    // reader is actually asking for.
+    if (endpointFieldState(url) === 'empty') continue
+    try {
+      out[protocol as AssistantProtocol] = vetBaseUrl(url)
+    } catch (error) {
+      // Name the box that failed: a bare 400 for a field the reader never meant to fill reads as
+      // "adding a provider is broken".
+      const reason = error instanceof Error ? error.message : 'not a usable address'
+      throw ApiError.badRequest(`The ${protocol} endpoint address is not usable: ${reason}`)
+    }
   }
   return out
 }

@@ -6225,6 +6225,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.settings.endpoint_other": "其它协议地址",
     "assistant.settings.edit_provider": "编辑服务商",
     "assistant.settings.endpoint_hint": "可留空。同一个 key 往往还开着别的接口；模型选了那个协议时就走这里。",
+    "assistant.settings.address_missing": "需要填一个 https 地址。",
+    "assistant.settings.address_invalid": "这不是一个地址。请写成 https://host/path，或者留空。",
     "assistant.settings.api_key": "API 密钥",
     "assistant.settings.api_key_hint": "在服务端加密保存，不会回传到本页。留空表示保留已保存的密钥。",
     "assistant.settings.models": "模型",
