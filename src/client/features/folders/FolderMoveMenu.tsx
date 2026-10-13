@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, ChevronRight, FolderClosed, Inbox } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
+import { stepIndex, treeIndent } from '../../components/tree';
 
 /**
  * What the flywheel reads from a folder: a name, its children, and how many things sit directly in it.
@@ -166,7 +167,7 @@ export function FolderMoveMenu({ tree, subject, currentParentId, excludedIds, in
             return;
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
-            focusRow(depth, (index, count) => (index + (event.key === 'ArrowDown' ? 1 : -1) + count) % count);
+            focusRow(depth, (index, count) => stepIndex(index, event.key === 'ArrowDown' ? 1 : -1, count));
             return;
         }
         if (event.key === 'Home' || event.key === 'End') {
@@ -241,7 +242,7 @@ function MoveRow({ depth, id, label, glyph, color, count, isCurrent, hasChildren
 }) {
     return (<button type="button" data-move-row data-move-depth={depth} data-move-id={id ?? ''} data-move-shortcut={shortcut ? '1' : undefined} data-move-has-children={hasChildren ? '1' : '0'} disabled={isCurrent} aria-current={isCurrent ? 'true' : undefined} onMouseEnter={(event) => onHover(event.currentTarget.getBoundingClientRect())} onFocus={(event) => onHover(event.currentTarget.getBoundingClientRect())} onClick={onSelect} className={cn('flex h-10 w-full items-center gap-2 rounded-[var(--r-sm)] pr-1 text-left text-[12.5px] transition-colors md:h-[30px]', isCurrent
             ? 'text-[var(--text-quaternary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')} style={{ paddingLeft: 4 + depth * 12 }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')} style={{ paddingLeft: treeIndent(depth) }}>
       <span className="flex size-4 shrink-0 items-center justify-center text-[13px] leading-none" style={{ color: typeof glyph === 'string' ? color ?? undefined : 'var(--text-tertiary)' }} aria-hidden="true">
         {typeof glyph === 'string' ? glyph : glyph ?? <FolderClosed size={13}/>}
       </span>
