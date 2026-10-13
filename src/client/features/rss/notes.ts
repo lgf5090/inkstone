@@ -12,9 +12,12 @@
  * starting a second copy.
  */
 import { LIMITS } from '@shared/constants'
-import type { RssEntry, RssFeed } from '@shared/rss/model'
+import type { RssEntry, RssFeed, RssLibrary } from '@shared/rss/model'
 import { findNoteByTitle, useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
+import { navigateToPath } from '../../lib/app-history'
+import { appTab } from '../shell/app-tabs'
 import { dateKey } from '../../lib/time'
 import { t } from '../../lib/i18n'
 import { htmlToMarkdown } from './markdown'
@@ -132,6 +135,30 @@ export async function saveArticleAsNote(entry: RssEntry, feed: RssFeed | undefin
   if (!noteId) return { ok: false, error: t('rss.save_failed') }
   useRss.getState().rememberSavedNote(entry.id, 'note', noteId)
   return { ok: true, noteId, title }
+}
+
+/** The note this article was saved into, or '' when it never was. */
+export function savedNoteId(library: RssLibrary, entryId: string): string {
+  return entryId ? library.savedNotes[`${entryId}|note`] ?? '' : ''
+}
+
+/**
+ * Take the reader to the note an article became.
+ *
+ * The notebook is a different container, so this is an address change plus the store's own open —
+ * the same call the sidebar makes, which is what keeps the note's pane, revision and scroll handled
+ * in one place. A note the reader deleted from the trash since then is said out loud rather than
+ * opening a blank page.
+ */
+export function openSavedNote(noteId: string): void {
+  const notes = useNotes.getState()
+  const summary = notes.notes[noteId]
+  if (!summary || summary.deletedAt) {
+    useUi.getState().toast({ title: t('rss.saved_note_gone'), tone: 'warning' })
+    return
+  }
+  navigateToPath(appTab('notes').path)
+  void notes.openNote(noteId)
 }
 
 /** One line of today's note: the article's title as a link, then who wrote it and when. */

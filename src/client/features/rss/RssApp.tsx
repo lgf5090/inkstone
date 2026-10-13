@@ -19,6 +19,7 @@ import { useSession } from '../../store/session'
 import { Button, IconButton } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
 import { channelKey } from '@shared/rss/reading'
+import { takeRssSection } from './rss-commands'
 import { useRss } from './store'
 import { RssChannelRail } from './RssChannelRail'
 import { RssArticleList } from './RssArticleList'
@@ -42,7 +43,7 @@ export function RssApp(): ReactElement {
   const userId = useSession(state => state.user?.id)
   const [pane, setPane] = useState<Pane>('list')
   const [railHidden, setRailHidden] = useState(false)
-  const [center, setCenter] = useState<'manage' | 'add' | null>(null)
+  const [center, setCenter] = useState<'manage' | 'add' | 'discover' | null>(null)
   const [preferences, setPreferences] = useState(false)
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
 
@@ -72,6 +73,15 @@ export function RssApp(): ReactElement {
   useEffect(() => {
     void useRss.getState().load()
   }, [userId])
+
+  // A screen asked for from the palette or an automation step. The ask arrives before this
+  // container exists — it is a lazy chunk the notebook navigates to — so it is taken here rather
+  // than passed down, and taking it is what keeps the back button from reopening the dialog.
+  useEffect(() => {
+    const section = takeRssSection()
+    if (section === 'manage' || section === 'add' || section === 'discover') setCenter(section)
+    else if (section === 'health') setPreferences(true)
+  }, [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -219,7 +229,11 @@ export function RssApp(): ReactElement {
         </Modal>
       )}
       {center && (
-        <SubscriptionCenter adding={center === 'add'} onClose={() => setCenter(null)} />
+        <SubscriptionCenter
+          adding={center === 'add'}
+          tab={center === 'discover' ? 'discover' : 'manage'}
+          onClose={() => setCenter(null)}
+        />
       )}
       <RssSearchPanel
         open={search}

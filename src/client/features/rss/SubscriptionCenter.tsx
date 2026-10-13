@@ -32,8 +32,10 @@ import { filterSources, loadDiscovery, topTags, type DiscoveryCatalog, type Disc
 
 type Tab = 'manage' | 'discover'
 
-export function SubscriptionCenter({ onClose, adding = false }: { onClose: () => void, adding?: boolean }): ReactElement {
-  const [tab, setTab] = useState<Tab>('manage')
+export function SubscriptionCenter({ onClose, adding = false, tab: initialTab = 'manage' }: { onClose: () => void, adding?: boolean, tab?: Tab }): ReactElement {
+  // Which shelf the palette named is only an opening position: both tabs stay mounted, so a reader
+  // who walks over to the catalogue and back keeps their search, their scroll and their selection.
+  const [tab, setTab] = useState<Tab>(initialTab)
   return (
     <Modal
       open

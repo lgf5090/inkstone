@@ -189,6 +189,18 @@ describe('refreshing', () => {
     expect(stored.entries[0].content).toContain('<p>Body one</p>')
     expect(useRss.getState().library.feeds[0].etag).toBe('"v2"')
   })
+
+  it('tells a later load what this device now holds', async () => {
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom, etag: '"v2"' }]
+    await boot()
+    await useRss.getState().refresh(['f1'], { force: true })
+    // The index is the only thing a cold load asks before it goes to the network. An article written
+    // to the device and not recorded there is refetched in full on every visit, and the cache
+    // accounting says the reader holds nothing.
+    const index = cache.get('index') as { articles: Record<string, { fetchedAt: number, bytes: number }> }
+    expect(index.articles.f1, 'the ledger names the feed whose articles were just stored').toBeTruthy()
+    expect(index.articles.f1.bytes).toBeGreaterThan(0)
+  })
 })
 
 describe('the library a reader edits', () => {

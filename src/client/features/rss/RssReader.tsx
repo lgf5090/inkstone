@@ -21,6 +21,7 @@ import {
   EyeOff,
   Focus,
   Bookmark,
+  BookOpen,
   Check,
   ExternalLink,
   FileType2,
@@ -45,7 +46,7 @@ import { readingMinutes } from './sanitize'
 import { channelEntries, channelKey, findFeed, remoteContentKey, stepIndex } from '@shared/rss/reading'
 import { api } from '../../lib/api'
 import { articleDisplayHtml } from './sanitize'
-import { appendToDailyNote, dailyNoteTitle, saveArticleAsNote } from './notes'
+import { appendToDailyNote, dailyNoteTitle, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
 import { aiReady, loadAiConfig, runArticleAi, type RssAiKind } from './ai'
 import { useRss } from './store'
 import { ExcerptPopup } from './ExcerptPopup'
@@ -86,7 +87,19 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const key = channelKey(channel)
   const view = views[key] ?? { entryId: '', filter: 'all' as const, query: '', listTop: 0, readerTop: 0 }
   const entries = useMemo(() => channelEntries({ library, articles }, channel), [library, articles, channel])
-  const entry = useMemo(() => entries.find(item => item.id === view.entryId) ?? null, [entries, view.entryId])
+  // The channel list is a filter, and an open article can leave it: marking the only unread article
+  // read, unstarring the only starred one, hiding it. That article is still the page the reader is
+  // looking at, so it is resolved from what this device holds rather than from what still matches —
+  // while previous/next keep stepping through the list the reader was actually browsing.
+  const entry = useMemo(() => {
+    const listed = entries.find(item => item.id === view.entryId)
+    if (listed) return listed
+    for (const list of Object.values(articles)) {
+      const left = list.find(item => item.id === view.entryId)
+      if (left) return left
+    }
+    return null
+  }, [entries, articles, view.entryId])
   const feed = entry ? findFeed(library, entry.feedId) : undefined
   const index = entry ? entries.findIndex(item => item.id === entry.id) : -1
   const read = entry ? library.readIds.includes(entry.id) : false
@@ -160,6 +173,11 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       : { title: result.error ?? t('rss.save_failed'), tone: 'danger' })
   }
 
+  // Saving an article twice rewrites the note the first save made, so the reader needs the way back
+  // to it as much as the way to it: one remembered id, one button that only exists once there is a
+  // note to open.
+  const noteId = savedNoteId(library, entry.id)
+
   const append = async (): Promise<void> => {
     const outcome = await appendToDailyNote(entry, feed)
     useUi.getState().toast(outcome === 'added'
@@ -209,6 +227,11 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
         <IconButton label={t('rss.save_note')} size="sm" onClick={() => void save()}>
           <FileType2 size={15} />
         </IconButton>
+        {noteId && (
+          <IconButton label={t('rss.open_saved_note')} size="sm" onClick={() => openSavedNote(noteId)}>
+            <BookOpen size={15} />
+          </IconButton>
+        )}
         {settings.dailyNoteTitle.trim() && (
           <IconButton label={t('rss.append_daily')} size="sm" onClick={() => void append()}>
             <NotebookPen size={15} />

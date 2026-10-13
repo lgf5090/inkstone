@@ -11,7 +11,7 @@ import type { ReactNode } from 'react'
 import { BookOpen, Bookmark, CalendarPlus, CheckCheck, ExternalLink, EyeOff, FolderInput, Hash, Link2, NotebookPen, Plus, Star } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { useUi, type ToastInput } from '../../store/ui'
-import { appendToDailyNote, saveArticleAsNote } from './notes'
+import { appendToDailyNote, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
 import { useRss } from './store'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { RSS_LIMITS, safeHttpUrl, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
@@ -161,6 +161,7 @@ export function entryMenuItems(entry: RssEntry, library: RssLibrary, actions: { 
   const starred = state.library.favorites.includes(entry.id)
   const later = state.library.readLater.includes(entry.id)
   const feed = findFeed(library, entry.feedId)
+  const noteId = savedNoteId(library, entry.id)
   const toast = (input: ToastInput): void => {
     useUi.getState().toast(input)
   }
@@ -223,6 +224,14 @@ export function entryMenuItems(entry: RssEntry, library: RssLibrary, actions: { 
         })
       },
     },
+    ...(noteId
+      ? [{
+          id: 'open-note',
+          label: t('rss.open_saved_note'),
+          icon: <BookOpen size={13} />,
+          onSelect: () => openSavedNote(noteId),
+        } satisfies MenuItem]
+      : []),
     {
       id: 'hide',
       label: t('rss.hide_article'),

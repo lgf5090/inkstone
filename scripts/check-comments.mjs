@@ -684,6 +684,7 @@ const allowed = new Map([
   ["src/client/features/command/registry.test.ts", [
     "// Lucide components are forwardRef objects, so a plain `typeof === 'function'` check is wrong.",
     "// The palette matches on the label, so the shared prefix is what makes one query find all three.",
+    "// Taking it clears it, which is what stops the back button reopening the same dialog.",
   ]],
   ["src/client/features/command/registry.ts", [
     "/**\n * The application commands, as data.\n *\n * The palette used to build this list inside its own component, which made the commands unreachable\n * from anywhere else — a QuickAdd macro could not say \"do what the palette entry called X does\"\n * without opening the palette. Every entry here reads what it needs from the stores when it is\n * called, so the palette, a hotkey and an automation step all run the same one implementation.\n */",
@@ -4519,6 +4520,9 @@ const allowed = new Map([
     "// button either way and a control that does nothing on a phone is a control that is broken.",
     "// A phone gets the rail as its one pane; a tablet gets it laid over the list it",
     "// is already showing, because 768px is wide enough for two and not for three.",
+    "// A screen asked for from the palette or an automation step. The ask arrives before this",
+    "// container exists — it is a lazy chunk the notebook navigates to — so it is taken here rather",
+    "// than passed down, and taking it is what keeps the back button from reopening the dialog.",
   ]],
   ["src/client/features/rss/RssArticleList.tsx", [
     "// Arm on the first press, act on the second: this marks every loaded row of the channel, and the",
@@ -4560,6 +4564,13 @@ const allowed = new Map([
     "// The reader picked a size, and it is honoured wherever it fits: on a 360px screen",
     "// 32px leaves nine characters a line, so the size is clamped to the viewport first.",
     "/* A WeChat article reaches this app through somebody else's bridge, so the reader is\n              told whose writing it is and where the real page lives. The reference does the same,\n              and it is the least an aggregator can do for the author. */",
+    "// Saving an article twice rewrites the note the first save made, so the reader needs the way back",
+    "// to it as much as the way to it: one remembered id, one button that only exists once there is a",
+    "// note to open.",
+    "// The channel list is a filter, and an open article can leave it: marking the only unread article",
+    "// read, unstarring the only starred one, hiding it. That article is still the page the reader is",
+    "// looking at, so it is resolved from what this device holds rather than from what still matches —",
+    "// while previous/next keep stepping through the list the reader was actually browsing.",
   ]],
   ["src/client/features/rss/RssSearchPanel.tsx", [
     "/**\n * Search over every article this device holds, not just the channel on screen.\n *\n * The list's own box filters what is loaded; this answers the other question — \"where did I see\n * that?\" — which a reader asks across months of reading, not one feed. The index is built from the\n * local caches with the bodies dropped, because the search only ever reads a title, a summary and a\n * source name, and a hundred kilobytes of HTML per row would turn a lookup into a stall.\n */",
@@ -4571,6 +4582,8 @@ const allowed = new Map([
     "/**\n * The one dialog where subscriptions are read and maintained.\n *\n * The reference reader this port follows keeps both tabs mounted while the dialog is open, and that\n * is the behaviour copied here rather than the layout: a reader who searches, selects four feeds,\n * glances at the catalogue and comes back has not asked to lose the search, the scroll position or\n * the selection. Two tabs that rebuild on switch make \"manage my library\" a series of small losses.\n *\n * Reading lives in the rail and the list; maintenance lives here. The dialog therefore has no\n * preview of an article at all — it previews a *feed*, which is the thing a reader is deciding\n * about.\n */",
     "// The blob is read when the click is handled, not when it is queued, so it outlives this tick.",
     "// A 5 MB OPML is a large library; the preview reads it all, so the ceiling is the file reader's, not ours.",
+    "// Which shelf the palette named is only an opening position: both tabs stay mounted, so a reader",
+    "// who walks over to the catalogue and back keeps their search, their scroll and their selection.",
   ]],
   ["src/client/features/rss/ai.ts", [
     "/**\n * Asking a model about an article, on the reader's own key.\n *\n * The reference reader this port follows got its Chinese rewrites from the service that publishes\n * the feeds, which is a reasonable design for a hosted product and an impossible one for a notebook\n * that must work without an account. Here the same two affordances — a summary, and a translation\n * into the reader's language — are offered against whatever endpoint the reader configures, so the\n * feature is off until they ask for it and costs nothing they did not choose.\n *\n * Two things are deliberate. The key is stored in this browser and never in the account row, so it\n * does not ride along in a backup or appear on another device the reader did not type it into; and\n * the article is sent as text a sanitizer already stripped, not as HTML, because a body full of\n * markup is both more tokens and more ways to say something to the model than the reader meant.\n */",
@@ -4608,9 +4621,21 @@ const allowed = new Map([
     "/** One line of today's note: the article's title as a link, then who wrote it and when. */",
     "/**\n * Add an article, and optionally an excerpt of it, to today's note.\n *\n * The link is the identity: a reader who taps the button twice, or who adds the same article from\n * two channels, gets one line. An excerpt added afterwards is put *under* the line that is already\n * there — dropping it because the article was already listed would lose the one thing the reader\n * just chose, and today's note is exactly where a marked passage belongs.\n */",
     "/** Free text a reader selected in the article, appended under a heading of its own. */",
+    "/** The note this article was saved into, or '' when it never was. */",
+    "/**\n * Take the reader to the note an article became.\n *\n * The notebook is a different container, so this is an address change plus the store's own open —\n * the same call the sidebar makes, which is what keeps the note's pane, revision and scroll handled\n * in one place. A note the reader deleted from the trash since then is said out loud rather than\n * opening a blank page.\n */",
+  ]],
+  ["src/client/features/rss/reader-surface.test.ts", [
+    "/**\n * Two things the reader pane must do that only the rendered pane can say.\n *\n * The first is the attribution line a bridged WeChat article carries: `remoteContentKey` is tested\n * as a pure function, and the branch that uses it is JSX — an expression that never renders is\n * exactly as invisible as one that was never written.\n *\n * The second is an article that left the channel it was opened from. The list is a filter, so\n * marking the only unread item read takes its own row away; the page the reader is looking at must\n * not go blank with it.\n */",
+    "// The reader cleared its cache for this feed: the remembered article is gone, and the pane has",
+    "// to say so rather than keep drawing a page out of nothing.",
   ]],
   ["src/client/features/rss/render.test.ts", [
     "/**\n * The three small transforms an article passes through on its way to the screen, tested on the\n * markup feeds actually ship.\n *\n * Each of these is a security or fidelity boundary that a screenshot cannot see: a body that keeps\n * an `onerror`, a Markdown export that turns a list into a paragraph, an SVG that arrives as an\n * \"image\". The fixtures are written the way a feed writes them — double-escaped, namespaced,\n * missing a closing quote — rather than the way a formatter would tidy them.\n */",
+  ]],
+  ["src/client/features/rss/rss-commands.ts", [
+    "/** Go to the reader, and show this part of it once it is up. */",
+    "/**\n * A screen of the reader, asked for from outside it.\n *\n * The palette, a hotkey and an automation step all live in the notebook container, and this reader\n * only exists at `/rss` — a lazy chunk that is not even mounted while the reader is somewhere else.\n * So an ask cannot be a prop or a callback: it is parked here, the address changes, and the reader\n * takes it as it mounts. Taking clears it, which is why the back button and a second visit land on\n * the article rather than reopening the same dialog for ever.\n */",
+    "/** The section asked for and not yet shown, or null. Reading it consumes it. */",
   ]],
   ["src/client/features/rss/rssMenus.tsx", [
     "/**\n * The pieces every RSS right-click menu is built from.\n *\n * Three surfaces — the channel rail, the article list and the reader — each own their own rows, so\n * each builds its own item list. What they must not each own is the *shape* of a choice: two\n * hand-written copies of \"which folder could this go into\" drift into two different answers about\n * which folder a feed cannot be moved into, and the reader finds out by losing a subscription into\n * its own descendant.\n */",
@@ -4655,6 +4680,9 @@ const allowed = new Map([
     "// The stored etag belongs to the account, not to this browser: sending it here is what made a",
     "// second device settle for `304` and an empty list forever.",
     "/** Read through this: an action's own `library` is the value the store held when it was taken. */",
+    "// The index is the only thing a cold load asks before it goes to the network. An article written",
+    "// to the device and not recorded there is refetched in full on every visit, and the cache",
+    "// accounting says the reader holds nothing.",
   ]],
   ["src/client/features/rss/store.ts", [
     "/**\n * The reader's state: what is subscribed, what this device has read, and what is on screen.\n *\n * Three stores meet here, and the split is the design:\n *\n *  — the **library** (subscriptions, groups, read marks, favourites) belongs to the account and\n *    travels between devices, so it is saved to the Worker, debounced, and refused outright if it\n *    would arrive truncated;\n *  — the **articles** belong to this device. They are rebuildable from the network, so they go in\n *    IndexedDB under a byte ceiling rather than into the account row, where 400 feeds would be a\n *    megabyte per save;\n *  — the **view** (which article, which filter, how far down the list) is transient enough that\n *    losing it costs a reader a second, so it is kept per channel in memory and written out with\n *    the cache index rather than synced.\n *\n * Everything that can fail does so here rather than in a component: a refresh that half-worked has\n * to leave the feeds that answered showing their new articles and the ones that did not keeping\n * their old ones, and a save the server refused has to stay pending so the reader's next action\n * carries it instead of losing it.\n */",
@@ -4702,6 +4730,10 @@ const allowed = new Map([
     "// bodies would hold a hundred megabytes of HTML for a lookup that never opens one.",
     "// An OPML outline chain becomes the same chain of folders here, so a reader who nests",
     "// their subscriptions gets them back nested instead of as one shelf with a slash in the name.",
+    "// The index is what a later load asks before it goes to the network: which feeds this device",
+    "// really holds, when it last saw them, and how much room they take. Written only here, it stays",
+    "// true to the blobs beside it — and a reload gets to keep its conditional GETs instead of",
+    "// refetching every subscription because the ledger said nothing was cached.",
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",

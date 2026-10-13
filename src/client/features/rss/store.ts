@@ -211,6 +211,11 @@ export const useRss = create<RssState>((set, get) => {
     const fetched = Date.now()
     index = { ...index, articles: { ...index.articles, [feedId]: { fetchedAt: fetched, bytes: articleBytes(entries) } } }
     await localDb.saveRssArticles({ feedId, fetchedAt: fetched, entries })
+    // The index is what a later load asks before it goes to the network: which feeds this device
+    // really holds, when it last saw them, and how much room they take. Written only here, it stays
+    // true to the blobs beside it — and a reload gets to keep its conditional GETs instead of
+    // refetching every subscription because the ledger said nothing was cached.
+    writeIndex()
     set(state => ({
       articles: { ...state.articles, [feedId]: entries },
       fetchedAt: { ...state.fetchedAt, [feedId]: fetched },

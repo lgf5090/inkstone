@@ -7,6 +7,7 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { openEmojiPicker } from '../../store/emoji-picker'
 import { appCommands, findAppCommand, runAppCommand } from './registry'
+import { takeRssSection } from '../rss/rss-commands'
 
 vi.mock('../../store/emoji-picker', () => ({ openEmojiPicker: vi.fn() }))
 
@@ -59,7 +60,7 @@ function renderable(value: unknown): boolean {
 describe('the command registry', () => {
   it('lists every command with the pieces the palette renders', () => {
     const commands = appCommands()
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(50)
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(54)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')
@@ -69,6 +70,19 @@ describe('the command registry', () => {
       // Lucide components are forwardRef objects, so a plain `typeof === 'function'` check is wrong.
       expect(renderable(entry.icon), `the icon of ${entry.id}`).toBe(true)
     }
+  })
+
+  it('sends the reader to the RSS app and names the screen it asked for', () => {
+    const asks = [['cmd-rss-open', 'reader'], ['cmd-rss-manage', 'manage'], ['cmd-rss-discover', 'discover'], ['cmd-rss-health', 'health']] as const
+    for (const [id, section] of asks) {
+      window.history.replaceState(null, '', '/notes')
+      takeRssSection()
+      expect(runAppCommand(id).ok, id).toBe(true)
+      expect(window.location.pathname, id).toBe('/rss')
+      expect(takeRssSection(), id).toBe(section)
+    }
+    // Taking it clears it, which is what stops the back button reopening the same dialog.
+    expect(takeRssSection()).toBeNull()
   })
 
   it('keeps the note-bound commands out of the list until a note is open', () => {

@@ -61,6 +61,7 @@ export function SourceHealth(): ReactElement | null {
 
   return (
     <section>
+      <h3 className="mb-1 text-[13px] font-semibold text-[var(--text-primary)]">{t('rss.health')}</h3>
       <div className="mb-2 text-[12px] text-[var(--text-tertiary)]">
         {t('rss.health.summary', { n: rows.length, sleeping })}
       </div>
