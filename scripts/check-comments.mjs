@@ -1103,6 +1103,7 @@ const allowed = new Map([
     "// hit: where there is no hover, the quick actions are simply painted.",
     "// swallowed every keystroke. Focusing after the commit, and selecting the name so the first",
     "// keystroke replaces it, is what makes the menu's rename and new-subfolder rows type somewhere.",
+    "/** The toggle column a child-name field clears so the field lines up under the row's own label. */",
   ]],
   ["src/client/features/excalidraw/library/library-folder-drag.test.ts", [
     "/**\n * a · b( c( d ) ) · e\n *\n * Three roots and a two-level branch under `b`: the only shape where a drop can try to land a folder\n * next to its own grandchild, which has to be refused rather than silently made into a cycle.\n */",

@@ -30,6 +30,7 @@ import { queryMatches } from '../../../lib/query-match'
 import type { Query } from '../../../lib/query-match'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
+import { treeIndent, treeItemProps } from '../../../components/tree'
 import { useMediaQuery } from '../../../lib/hooks'
 import { FolderMoveMenu } from '../../folders/FolderMoveMenu'
 import type { MoveMenuFolder } from '../../folders/FolderMoveMenu'
@@ -82,6 +83,9 @@ export interface LibraryFolderRowContext {
 function placementFrom(event: React.DragEvent<HTMLElement>): FolderDropPlacement {
   return folderDropPlacement(pointerRatio(event, event.currentTarget.getBoundingClientRect()))
 }
+
+/** The toggle column a child-name field clears so the field lines up under the row's own label. */
+const CHILD_FIELD_OFFSET = 18
 
 /** The library's own tree, in the shape the move picker reads. */
 export function toMoveTree(nodes: readonly LibraryFolderNode[]): MoveMenuFolder[] {
@@ -264,7 +268,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
   ]
 
   return (
-    <div className="flex flex-col select-none">
+    <div {...treeItemProps({ level: node.depth + 1, expanded: hasChildren ? expanded : undefined, selected: isActive })} className="flex flex-col select-none">
       <div
         ref={rowRef}
         data-library-folder={node.id}
@@ -318,7 +322,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
             ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-medium'
             : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
         }${isDragging ? ' opacity-50' : ''}${placement === 'inside' ? ' ring-1 ring-[var(--accent)]' : ''}`}
-        style={{ paddingLeft: `${6 + node.depth * 14}px` }}
+        style={{ paddingLeft: `${treeIndent(node.depth)}px` }}
       >
         {placement === 'before' && <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-px bg-[var(--accent)]" />}
         {placement === 'after' && <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-px bg-[var(--accent)]" />}
@@ -444,7 +448,7 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
       {isAddingChild && (
         <div
           className="flex items-center gap-1 py-1 pr-2 my-0.5 rounded-md bg-[var(--bg-sunken)]"
-          style={{ paddingLeft: `${24 + node.depth * 14}px` }}
+          style={{ paddingLeft: `${treeIndent(node.depth) + CHILD_FIELD_OFFSET}px` }}
         >
           <input
             ref={childRef}
@@ -478,7 +482,11 @@ export function LibraryFolderRow({ node, ctx }: { node: LibraryFolderNode; ctx: 
         </div>
       )}
 
-      {expanded && node.children.map((child) => <LibraryFolderRow key={child.id} node={child} ctx={ctx} />)}
+      {expanded && node.children.length > 0 && (
+        <div role="group">
+          {node.children.map((child) => <LibraryFolderRow key={child.id} node={child} ctx={ctx} />)}
+        </div>
+      )}
 
       <Menu anchor={rowRef} open={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} container={ctx.overlayContainer} label={t('excalidraw.folder_actions_value0', { value0: node.name })} />
       {menu.point && (
