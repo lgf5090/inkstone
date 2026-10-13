@@ -461,6 +461,50 @@ interface OpenSubmenu {
 }
 const SUBMENU_VIEWPORT_MARGIN = 8;
 const SUBMENU_GAP = 2;
+/** How far below a panel its own chrome may be nested before the scan gives up. */
+const OPAQUE_FILL_SCAN_LIMIT = 48;
+
+/** `rgb()`/`oklab()` with no alpha channel is opaque; an explicit channel has to reach 1. */
+export function isOpaqueBackgroundColor(color: string): boolean {
+    if (color === 'transparent' || color === 'none' || color === '')
+        return false;
+    const alpha = alphaChannel(color);
+    return alpha === null ? true : alpha >= 1;
+}
+
+/** The alpha a computed color declares, or null when it declares none. Percentages are fractions. */
+function alphaChannel(color: string): number | null {
+    const tokens = color.match(/[\d.]+%?/g);
+    if (!tokens)
+        return null;
+    const last = tokens[tokens.length - 1];
+    const percent = last.endsWith('%');
+    const value = Number(percent ? last.slice(0, -1) : last);
+    if (!Number.isFinite(value))
+        return null;
+    const alpha = percent ? value / 100 : value;
+    return color.includes('/') || tokens.length === 4 ? alpha : null;
+}
+
+/**
+ * Whether some element of this subtree paints a solid background across the whole box. A floating
+ * panel is only readable when it does — and because the chrome can sit on the panel itself or on a
+ * wrapper one or two levels in, checking one node's own style is not enough.
+ */
+export function paintsOpaqueFill(panel: HTMLElement): boolean {
+    const box = panel.getBoundingClientRect();
+    // An empty panel has nothing to hide behind, so there is nothing to warn about.
+    if (box.width < 1 || box.height < 1)
+        return true;
+    const candidates: HTMLElement[] = [panel, ...Array.from(panel.querySelectorAll<HTMLElement>('*')).slice(0, OPAQUE_FILL_SCAN_LIMIT)];
+    return candidates.some((node) => {
+        if (!isOpaqueBackgroundColor(getComputedStyle(node).backgroundColor))
+            return false;
+        const fill = node.getBoundingClientRect();
+        return fill.left <= box.left + 1 && fill.top <= box.top + 1 && fill.right >= box.right - 1 && fill.bottom >= box.bottom - 1;
+    });
+}
+
 export function Menu({ anchor, open, onClose, items, align = 'start', width = 208, zIndex = 260, label = t("overlay.menu"), panelId, container, header, headerHeight = 44, searchable = false, searchPlaceholder = t('overlay.search_menu'), searchActions, }: {
     anchor: RefObject<HTMLElement | null> | {
         x: number;
@@ -545,8 +589,14 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
         }
         else {
             const rect = anchorRef?.current?.getBoundingClientRect();
-            if (!rect)
+            if (!rect) {
+                // Without a measured anchor the panel keeps its initial 0,0 and opens in the corner of
+                // the screen, which reads as a broken control rather than a missing one. Naming it here
+                // is what makes a browser probe that checks for console noise catch the mistake.
+                if (anchorRef)
+                    console.warn('[inkstone] A menu opened without an attached anchor; it cannot be placed near its trigger.');
                 return;
+            }
             top = rect.bottom + 5;
             left = align === 'end' ? rect.right - menuWidth : rect.left;
         }
@@ -583,6 +633,11 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             top: Math.min(Math.max(viewport.top + SUBMENU_VIEWPORT_MARGIN, submenu.rect.top - 4), maxTop),
             left,
         });
+        // A submenu's own wrapper carries no paint by design: the panel it hosts is what makes the rows
+        // readable. A caller that writes its rows bare therefore renders text floating over whatever is
+        // behind the menu, which is invisible to a test that only counts the rows.
+        if (!paintsOpaqueFill(panel))
+            console.warn('[inkstone] A submenu panel paints no opaque background; its rows will float over the page behind them.');
     }, [submenu]);
     useEffect(() => {
         if (!submenu?.focus)

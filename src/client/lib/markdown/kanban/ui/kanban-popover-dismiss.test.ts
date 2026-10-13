@@ -13,7 +13,7 @@ import { installTestGlobals, renderElement } from '../../../test-render'
 import { KanbanArchiveAction } from './kanban-archive'
 import { KanbanColumnMenu } from './kanban-column-menu'
 import { KanbanCsvAction } from './kanban-csv'
-import { KanbanDatePicker } from './kanban-date-picker'
+import { DatePicker } from '../../../../components/date-picker'
 import { KanbanFilterPopover } from './kanban-filter-popover'
 import { KanbanIconPicker } from './kanban-icon-picker'
 import { KanbanItemDetail } from './kanban-item-detail'
@@ -156,9 +156,9 @@ describe.each(controlled)('%s dismissal', (_name, build) => {
   })
 })
 
-describe('KanbanDatePicker dismissal', () => {
+describe('DatePicker dismissal', () => {
   function openCalendar(): void {
-    const rendered = mount(createElement(KanbanDatePicker, { propertyName: 'Start date', onChange: vi.fn() }))
+    const rendered = mount(createElement(DatePicker, { label: 'Start date', onChange: vi.fn() }))
     const trigger = [...rendered.container.querySelectorAll('button')]
       .find((button) => button.textContent?.includes(t('preview.kanban_select_date')))
     if (!trigger) throw new Error('the date trigger was not rendered')

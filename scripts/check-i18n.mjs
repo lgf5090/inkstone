@@ -194,6 +194,9 @@ const allowedHanFragments = new Map([
  * `CJK_CHOICE_FIXTURES` is that argument one level up: a choice's name is text the reader typed, and
  * the launcher and the palette filter it through the same fuzzy + pinyin path the notes use.
  *
+ * `TITLE_BREAK_PUNCTUATION` is the assistant's own version of the heading rule: a long first line of
+ * a conversation is cut after a clause mark, and the full-width marks are what the reader typed.
+ *
  * The lunar block (`TERM_NAMES`, `LUNAR_MONTH_NAMES`, `LUNAR_DAY_NAMES`, `GANZI_VOCABULARY`,
  * `ALMANAC_TEXT`, `FESTIVAL_DATA`) is the almanac's own vocabulary: a solar term, a sexagenary year
  * or a traditional feast keeps its name whatever language the interface is in, and the calendar
@@ -203,7 +206,9 @@ const allowedHanFragments = new Map([
 const inputVocabularyConstants = new Set(['SCATTER_HEADER_WORDS', 'EMOJI_ICON_CATEGORIES', 'EMOJI_UNICODE_GROUPS', 'PROTECTED_SPANS', 'HALF_TO_FULL', 'FULL_TO_HALF', 'CJK_DATE_FIXTURES', 'CJK_CHOICE_FIXTURES', 'TERM_NAMES', 'LUNAR_MONTH_NAMES', 'LUNAR_DAY_NAMES', 'GANZI_VOCABULARY', 'ALMANAC_TEXT', 'FESTIVAL_DATA', 'LUNAR_ALMANAC_FIXTURES', 'LUNAR_TERM_FIXTURES', 'LUNAR_DAY_NAME_FIXTURES', 'LUNAR_MONTH_NAME_FIXTURES', 'LUNAR_SHORT_NAME_FIXTURES', 'FESTIVAL_CELL_FIXTURES', 'LUNAR_FESTIVAL_FIXTURES', 'ALMANAC_WORDS', 'ALMANAC_LOADER_FIXTURES', 'HAN_PUNCTUATION_CLASS', 'HEADINGS_TRAILING_PUNCTUATION', 'hanCharacterOrCommonChinesePunctuationRegex',
     // The language picker's endonyms: a reader looks for the language's own name rather than for the
     // translation of it, so these are data about the language and not interface copy.
-    'TARGET_LANGUAGES']);
+    'TARGET_LANGUAGES',
+    // The chat composer's own punctuation table: the values are data the assistant edits, not copy.
+    'TITLE_BREAK_PUNCTUATION']);
 // The built-in note template bodies live in their own file so they stay out of the
 // start-up locale chunk. The gate reads them as one catalog with the rest, otherwise
 // the two languages would be proven against each other only for the keys that happen
@@ -212,6 +217,16 @@ const noteTemplateBodyFiles = {
     en: [path.join(localeRoot, 'en-US-note-template-content.ts'), 'EN_US_NOTE_TEMPLATE_CONTENT'],
     zh: [path.join(localeRoot, 'zh-CN-note-template-content.ts'), 'ZH_CN_NOTE_TEMPLATE_CONTENT'],
 };
+// The assistant's model instructions are a catalog of their own so the worker can assemble a prompt
+// without loading the interface strings, and the interface never loads the instructions. They are read
+// by the prompt builder rather than by `t()`, so they keep short key names instead of the dotted form
+// the interface keys are held to — but the two languages are still proven against each other below.
+const assistantPromptBodyFiles = {
+    en: [path.join(localeRoot, 'en-US-assistant-prompt.ts'), 'EN_US_ASSISTANT_PROMPT'],
+    zh: [path.join(localeRoot, 'zh-CN-assistant-prompt.ts'), 'ZH_CN_ASSISTANT_PROMPT'],
+};
+// Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
+const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), noteTemplateBodyFiles.zh[0], assistantPromptBodyFiles.zh[0]];
 function readCatalog(variableFile, variableName, [bodyFile, bodyName]) {
     const messages = readMessages(variableFile, variableName);
     for (const [key, value] of readMessages(bodyFile, bodyName)) {
@@ -223,6 +238,22 @@ function readCatalog(variableFile, variableName, [bodyFile, bodyName]) {
 }
 const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES', noteTemplateBodyFiles.en);
 const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES', noteTemplateBodyFiles.zh);
+{
+    const instructions = readMessages(assistantPromptBodyFiles.en[0], assistantPromptBodyFiles.en[1]);
+    const translated = readMessages(assistantPromptBodyFiles.zh[0], assistantPromptBodyFiles.zh[1]);
+    for (const [key, value] of instructions) {
+        if (!translated.has(key))
+            failures.push(`missing zh-CN assistant prompt: ${key}`);
+        else if (placeholders(value) !== placeholders(translated.get(key)))
+            failures.push(`assistant prompt placeholder mismatch: ${key}`);
+        if (forbiddenCjk.test(value))
+            failures.push(`untranslated en-US assistant prompt: ${key}`);
+    }
+    for (const key of translated.keys()) {
+        if (!instructions.has(key))
+            failures.push(`missing en-US assistant prompt: ${key}`);
+    }
+}
 for (const key of english.keys()) {
     if (!chinese.has(key))
         failures.push(`missing zh-CN message: ${key}`);
@@ -251,7 +282,7 @@ const englishOnlyPaths = [
 for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? [...walkSource(target)] : [])) {
     // A test file holds note text and expected output, never interface copy, which is the same
     // exemption the scan below gives it.
-    if (file === path.join(localeRoot, 'zh-CN.ts') || file === noteTemplateBodyFiles.zh[0] || !isTextSource(file) || file.includes(".test."))
+    if (hanAllowedCatalogs.includes(file) || !isTextSource(file) || file.includes(".test."))
         continue;
     rejectHan(file);
 }

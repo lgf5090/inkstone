@@ -2,6 +2,12 @@
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
 import { READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
+import {
+  ASSISTANT_REQUIRED_COLUMNS,
+  ASSISTANT_REQUIRED_INDEXES,
+  ASSISTANT_REQUIRED_TABLES,
+  ASSISTANT_SCHEMA_STATEMENTS,
+} from '../assistant/schema'
 
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
@@ -494,6 +500,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...READER_SCHEMA_STATEMENTS,
 
   ...RSS_LIBRARY_STATEMENTS,
+  ...ASSISTANT_SCHEMA_STATEMENTS,
 ]
 
 export interface SchemaMigration {
@@ -848,6 +855,229 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 34,
     statements: RSS_LIBRARY_STATEMENTS,
   },
+  {
+    // The chat app's three later additions. Each is already in the table definition above, so only a
+    // database created before the round that added it needs the ALTER; `skipIfColumnExists` makes that
+    // a no-op on a fresh install, where the CREATE already carried the column.
+    version: 35,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'folder_id' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN folder_id TEXT`,
+    ],
+  },
+  {
+    version: 36,
+    skipIfColumnExists: { table: 'chat_usage_daily', column: 'embeddings' },
+    statements: [
+      `ALTER TABLE chat_usage_daily ADD COLUMN embeddings INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 37,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'starred' },
+    statements: [
+      `ALTER TABLE chat_conversations ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    // The composer's two per-model capabilities: how much the model is asked to think, and how much
+    // context it is fed. Both were added together, so one database missing either is one from before both.
+    version: 38,
+    skipIfColumnExists: { table: 'chat_models', column: 'reasoning' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN reasoning TEXT NOT NULL DEFAULT 'auto'`,
+    ],
+  },
+  {
+    version: 39,
+    skipIfColumnExists: { table: 'chat_models', column: 'context_tokens' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN context_tokens INTEGER`,
+    ],
+  },
+  {
+    // Whether the model may be shown an image at all. Measured against a live endpoint, not assumed:
+    // a text-only model that is sent a picture answers with an error the reader did not cause.
+    version: 40,
+    skipIfColumnExists: { table: 'chat_models', column: 'vision' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN vision INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // A message's own attachment ids, so a picture or a file stays with the turn that used it.
+    //
+    // Appended as 37 rather than slotted in beside the other chat columns: a version number is an
+    // identity, and an account that already recorded 35 as applied would never run a second meaning
+    // of it. That is exactly how a missing column survived every restart here.
+    version: 41,
+    skipIfColumnExists: { table: 'chat_messages', column: 'attachments' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // purpose: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 42,
+    skipIfColumnExists: { table: 'chat_models', column: 'purpose' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN purpose TEXT NOT NULL DEFAULT 'chat'`,
+    ],
+  },
+  {
+    // kind: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 43,
+    skipIfColumnExists: { table: 'chat_models', column: 'kind' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'`,
+    ],
+  },
+  {
+    // supports_tools: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 44,
+    skipIfColumnExists: { table: 'chat_models', column: 'supports_tools' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN supports_tools INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // max_input_tokens: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 45,
+    skipIfColumnExists: { table: 'chat_models', column: 'max_input_tokens' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN max_input_tokens INTEGER`,
+    ],
+  },
+  {
+    // top_p: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 46,
+    skipIfColumnExists: { table: 'chat_models', column: 'top_p' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN top_p REAL`,
+    ],
+  },
+  // Version 43 is spent: it added `chat_models.streaming`, a switch nothing could read, and it was
+  // dropped before release. Do not reuse the number — an account that recorded it would silently skip
+  // whatever else claimed it. The next chat migration is 45.
+  {
+    // custom_params: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 47,
+    skipIfColumnExists: { table: 'chat_models', column: 'custom_params' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN custom_params TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The reader's saved prompts. Created here as well as in the table list so an account that has been
+    // running since before the prompt library exists gets it on the next boot.
+    version: 48,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_prompts (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    group_name TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_prompts_user ON chat_prompts(user_id, updated_at)`,
+    ],
+  },
+  {
+    version: 49,
+    skipIfColumnExists: { table: 'chat_messages', column: 'duration_ms' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    // The answers a retry displaced. Created here as well as in the table list so an account that has
+    // been running since before answer history exists gets it on the next boot.
+    version: 50,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_answer_versions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tools TEXT NOT NULL DEFAULT '[]',
+    model_label TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_answer_versions_message ON chat_answer_versions(user_id, message_id, created_at, id)`,
+    ],
+  },
+  {
+    version: 51,
+    skipIfColumnExists: { table: 'chat_messages', column: 'model_label' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN model_label TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 52,
+    skipIfColumnExists: { table: 'chat_models', column: 'modalities' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN modalities TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The reader's own external MCP servers. Created here as well as in the table list so an account that
+    // has been running since before this existed gets it on the next boot.
+    version: 53,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_mcp_servers (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    url TEXT NOT NULL,
+    header_ciphertext TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    tool_mode TEXT NOT NULL DEFAULT 'ask',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_mcp_servers_user ON chat_mcp_servers(user_id, created_at)`,
+    ],
+  },
+  {
+    // An external tool call cannot be replayed from a target id the way deleting a note can: its
+    // arguments are the whole proposal, so the approved row has to carry them.
+    version: 54,
+    skipIfColumnExists: { table: 'chat_pending_actions', column: 'args' },
+    statements: [
+      `ALTER TABLE chat_pending_actions ADD COLUMN args TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
+  {
+    // One gateway can answer on more than one wire, so the other addresses belong to the provider.
+    version: 55,
+    skipIfColumnExists: { table: 'chat_providers', column: 'endpoints' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN endpoints TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
+  {
+    // Which of those wires a model is called on; null keeps following the provider.
+    version: 56,
+    skipIfColumnExists: { table: 'chat_models', column: 'protocol' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN protocol TEXT`,
+    ],  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -904,6 +1134,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
+  ...ASSISTANT_REQUIRED_COLUMNS,
 } as const
 
 const REQUIRED_TABLES = [
@@ -952,6 +1183,7 @@ const REQUIRED_TABLES = [
   'rss_group',
   'rss_mark',
   'rss_state',
+  ...ASSISTANT_REQUIRED_TABLES,
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -1011,10 +1243,31 @@ const REQUIRED_INDEXES = [
   'idx_community_templates_author',
   'idx_rss_feed_shelf',
   'idx_rss_mark_recent',
+  ...ASSISTANT_REQUIRED_INDEXES,
 ] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()
+
+/**
+ * D1 refuses a batch of more than about a hundred statements, and the schema list is now well past
+ * that with the assistant's tables. Local doubles accept any size, so the ceiling only shows up on a
+ * real deployment — which is why the chunking lives here rather than at each call site, and why
+ * `tests/schema-batch-size.test.ts` counts the calls instead of trusting the outcome.
+ */
+const SCHEMA_BATCH_STATEMENTS = 40
+
+export function chunkStatements<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let index = 0; index < items.length; index += size) out.push(items.slice(index, index + size))
+  return out
+}
+
+async function runStatements(db: D1Database, statements: readonly string[]): Promise<void> {
+  for (const group of chunkStatements(statements, SCHEMA_BATCH_STATEMENTS)) {
+    await db.batch(group.map((statement) => db.prepare(statement)))
+  }
+}
 
 export function initializeDatabase(env: Env): Promise<DatabaseState> {
   const existing = initializationCache.get(env.DB)
@@ -1036,16 +1289,16 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'users'`)
     .first<{ present: number }>()
   if (!initialized) {
-    await db.batch(SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+    await runStatements(db, SCHEMA_STATEMENTS)
   } else {
     // Existing installations must converge additively. CREATE IF NOT EXISTS
     // never rewrites user data; running table creation before indexes also
     // lets a partially initialized database recover missing feature tables.
-    await db.batch(TABLE_SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+    await runStatements(db, TABLE_SCHEMA_STATEMENTS)
   }
   await applyMigrations(db)
   if (initialized) {
-    await db.batch(INDEX_SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+    await runStatements(db, INDEX_SCHEMA_STATEMENTS)
   }
   await assertFinalSchema(db)
 

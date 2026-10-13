@@ -16,7 +16,7 @@ import { KanbanArchiveAction } from './kanban-archive'
 import { CardHeader } from './kanban-card-header'
 import { KanbanColumnHeader } from './kanban-column-header'
 import { KanbanCsvAction } from './kanban-csv'
-import { KanbanDatePicker } from './kanban-date-picker'
+import { DatePicker } from '../../../../components/date-picker'
 import { KanbanHeader } from './kanban-header'
 import { KanbanItemDetail } from './kanban-item-detail'
 import { KanbanPropertyCell } from './kanban-property-cell'
@@ -194,8 +194,8 @@ const PAIRS: Pair[] = [
   { label: 'status dropdown', node: detailNode, trigger: (root) => buttonByText(root, 'To Do'), panelRole: 'listbox' },
   {
     label: 'date calendar',
-    node: () => createElement(KanbanDatePicker, {
-      propertyName: 'Start date',
+    node: () => createElement(DatePicker, {
+      label: 'Start date',
       value: '2026-09-19',
       onChange: vi.fn(),
     }),

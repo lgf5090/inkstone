@@ -57,8 +57,11 @@ describe('a boot onto a database whose ledger lies', () => {
       sqlite.exec(`ALTER TABLE users DROP COLUMN ${column}`)
     }
     expect(columnsOf(sqlite, 'users')).not.toContain('rss')
-    // The other lineage's ledger runs to 60, so every number this one owns reads as spent.
-    for (let version = 35; version <= 60; version++) sqlite.exec(`INSERT INTO schema_migrations VALUES (${version}, 1)`)
+    // The other lineage's ledger runs past every number this one owns, so each of them reads as spent.
+    // Derived, because the array grows: a hardcoded window would collide with the real numbers the
+    // first boot just recorded.
+    const firstFree = Math.max(...SCHEMA_MIGRATIONS.map((migration) => migration.version)) + 1
+    for (let version = firstFree; version < firstFree + 26; version++) sqlite.exec(`INSERT INTO schema_migrations VALUES (${version}, 1)`)
 
     await reboot(sqlite)
     const users = columnsOf(sqlite, 'users')

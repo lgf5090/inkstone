@@ -1,6 +1,9 @@
 import type { RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import type { ReaderUsage } from '@shared/types'
+import type { ChatAttachment,
+  ChatPrompt,
+} from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
   PublicSharePresence,
@@ -47,6 +50,29 @@ import type {
   UpdateCheckResponse,
   UserSettings,
 } from '@shared/types'
+import type {
+  AssistantAnswerVersion,
+  AssistantMcpServer,
+  AssistantConversation,
+  ChatFolderNode,
+  ConversationTag,
+  AssistantImportSummary,
+  AssistantLimits,
+  AssistantMemory,
+  AssistantMessage,
+  AssistantModel,
+  AssistantNotification,
+  AssistantProvider,
+  AssistantSettings,
+  AssistantUsage,
+  AssistantVendorModel,
+  Automation as AssistantAutomation,
+  AutomationRun as AssistantAutomationRun,
+  MemoryReview,
+  PendingAction,
+  Project as AssistantProject,
+  Task as AssistantTask,
+} from '@shared/assistant'
 import { publishBroadcast } from './db'
 import { randomLocalId } from './random-id'
 import { getLocale, t, translateApiError } from './i18n'
@@ -295,6 +321,78 @@ function shouldNotifyOtherTabs(path: string): boolean {
 /** What the owner's own question answers: nothing, or where the show is and how long it may run — and in
  * either case how many browsers have been reading it lately (PR-M7). */
 export type PresenceStatus = { running: false, viewers: number } | { running: true, expiresAt: number, presence: PublicSharePresence, viewers: number }
+
+/**
+ * Uploads one chat attachment with a byte counter.
+ *
+ * `XMLHttpRequest` rather than `request()`: fetch reports nothing while the body is going out, and a
+ * multi-megabyte picture that appears to do nothing for ten seconds reads as a broken button.
+ */
+function uploadChatFileWithProgress(
+  file: File,
+  onProgress: (sent: number, total: number) => void,
+): Promise<ChatAttachment> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', file)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/assistant/files')
+    xhr.responseType = 'text'
+    xhr.setRequestHeader(CLIENT_HEADER, '1')
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total)
+    }
+    xhr.onload = () => {
+      let parsed: { attachment?: ChatAttachment, error?: { message?: string } } = {}
+      try {
+        parsed = JSON.parse(xhr.responseText || '{}') as typeof parsed
+      } catch {
+        parsed = {}
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && parsed.attachment) {
+        onProgress(file.size, file.size)
+        resolve(parsed.attachment)
+        return
+      }
+      reject(new Error(parsed.error?.message || `Upload failed (${xhr.status})`))
+    }
+    xhr.onerror = () => reject(new Error('The upload could not reach the server.'))
+    xhr.onabort = () => reject(new Error('The upload was cancelled.'))
+    xhr.send(form)
+  })
+}
+
+/** Reads a stored file back with a byte counter, for the viewer's progress bar. */
+async function downloadChatFileWithProgress(
+  id: string,
+  onProgress: (received: number, total: number) => void,
+): Promise<Blob> {
+  const response = await fetch(`/api/assistant/files/${id}`, { headers: { [CLIENT_HEADER]: '1' } })
+  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const total = Number(response.headers.get('content-length') ?? 0)
+  if (!response.body || !total) {
+    const blob = await response.blob()
+    onProgress(blob.size, blob.size)
+    return blob
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.byteLength
+    onProgress(received, total)
+  }
+  const merged = new Uint8Array(received)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new Blob([merged as unknown as BlobPart], { type: response.headers.get('content-type') ?? 'application/octet-stream' })
+}
 
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
@@ -671,6 +769,172 @@ export const api = {
     bookUrl: (number: string) => `/api/reader/discovery/book/${encodeURIComponent(number)}`,
     blobUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/blob`,
     coverUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/cover`,
+  },
+  /**
+   * The chat assistant. Its own group because it is its own app container: the rail's Chat tab owns
+   * these routes, and nothing in the notebook calls them.
+   */
+  assistant: {
+    conversations: (params: { q?: string, folder?: string, tag?: string, starred?: string, pinned?: string } = {}) =>
+      request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations${toQuery(params)}`),
+    createConversation: (title?: string, folderId?: string | null) =>
+      request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
+        method: 'POST',
+        body: folderId === undefined ? { title } : { title, folderId },
+      }),
+    /** A folder from the notebook's tree; null files the conversation back to unfiled. */
+    moveConversation: (id: string, folderId: string | null) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
+    conversationFolders: () =>
+      request<{ folders: ChatFolderNode[], unfiled: number }>('/api/assistant/folders'),
+    conversationTags: () =>
+      request<{ tags: (ConversationTag & { count: number })[] }>('/api/assistant/tags'),
+    addConversationTag: (id: string, tagId: string) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/tags`, { method: 'POST', body: { tagId } }),
+    removeConversationTag: (id: string, tagId: string) =>
+      request<{ ok: true }>(`/api/assistant/conversations/${id}/tags/${tagId}`, { method: 'DELETE' }),
+    conversation: (id: string) =>
+      request<{
+        conversation: AssistantConversation,
+        messages: AssistantMessage[],
+        attachments: ChatAttachment[],
+        streaming: boolean
+      }>(`/api/assistant/conversations/${id}`),
+    renameConversation: (id: string, title: string) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
+    // ------------------------------------------------------------ external MCP servers
+    mcpServers: () => request<{ servers: AssistantMcpServer[] }>('/api/assistant/mcp'),
+    createMcpServer: (body: { label: string, url: string, token?: string, toolMode?: string }) =>
+      request<{ server: AssistantMcpServer }>('/api/assistant/mcp', { method: 'POST', body }),
+    patchMcpServer: (id: string, body: Record<string, unknown>) =>
+      request<{ server: AssistantMcpServer }>(`/api/assistant/mcp/${id}`, { method: 'PATCH', body }),
+    removeMcpServer: (id: string) => request<{ ok: true }>(`/api/assistant/mcp/${id}`, { method: 'DELETE' }),
+    testMcpServer: (id: string, token?: string) =>
+      request<{ ok: boolean, error: string, tools: { name: string, remoteName: string, description: string }[] }>(
+        `/api/assistant/mcp/${id}/test`, { method: 'POST', body: token === undefined ? {} : { token } },
+      ),
+    /** The names the composer's / picker can offer, with the servers that failed to list. */
+    mcpTools: () => request<{ tools: { name: string, description: string }[], problems: { serverId: string, label: string, error: string }[] }>('/api/assistant/mcp/tools'),
+
+    /** The answers one turn displaced, oldest first. */
+    answerVersions: (conversationId: string, messageId: string) =>
+      request<{ versions: AssistantAnswerVersion[] }>(`/api/assistant/conversations/${conversationId}/messages/${messageId}/versions`),
+    /** Exchange the turn's live answer for one of its earlier ones. */
+    activateAnswerVersion: (conversationId: string, messageId: string, versionId: string) =>
+      request<{ message: AssistantMessage }>(
+        `/api/assistant/conversations/${conversationId}/messages/${messageId}/versions/${versionId}/activate`,
+        { method: 'POST' },
+      ),
+    pinConversation: (id: string, pinned: boolean) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
+    uploadChatFile: (file: File, onProgress: (sent: number, total: number) => void) =>
+      uploadChatFileWithProgress(file, onProgress),
+    chatFileUrl: (id: string) => `/api/assistant/files/${id}`,
+    downloadChatFile: (id: string, onProgress: (received: number, total: number) => void) =>
+      downloadChatFileWithProgress(id, onProgress),
+    addChatFileFromUrl: (url: string) =>
+      request<{ attachment: ChatAttachment }>('/api/assistant/files/url', { method: 'POST', body: { url } }),
+    prompts: (query?: string) =>
+      request<{ prompts: ChatPrompt[] }>(`/api/assistant/prompts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+    createPrompt: (body: { title: string, content: string, group?: string }) =>
+      request<{ prompt: ChatPrompt }>('/api/assistant/prompts', { method: 'POST', body }),
+    updatePrompt: (id: string, body: { title?: string, content?: string, group?: string }) =>
+      request<{ prompt: ChatPrompt }>(`/api/assistant/prompts/${id}`, { method: 'PATCH', body }),
+    removePrompt: (id: string) => request<{ deleted: boolean }>(`/api/assistant/prompts/${id}`, { method: 'DELETE' }),
+    chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
+    deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
+    starConversation: (id: string, starred: boolean) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { starred } }),
+    deleteConversation: (id: string) =>
+      request<{ deleted: true }>(`/api/assistant/conversations/${id}`, { method: 'DELETE' }),
+    deleteConversations: () =>
+      request<{ deleted: number }>('/api/assistant/conversations', { method: 'DELETE', body: { confirm: 'DELETE' } }),
+    cancel: (conversationId: string) =>
+      request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId } }),
+    approveAction: (id: string) =>
+      request<{ action: PendingAction }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
+    declineAction: (id: string) =>
+      request<{ action: PendingAction }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
+    memories: (params: { q?: string, status?: string, category?: string } = {}) =>
+      request<{ memories: AssistantMemory[], total: number, counts: { active: number, historical: number, review: number } }>(
+        `/api/assistant/memories${toQuery(params)}`,
+      ),
+    createMemory: (content: string, category: string) =>
+      request<{ memory: AssistantMemory, superseded: AssistantMemory[], reviews: number }>('/api/assistant/memories', {
+        method: 'POST',
+        body: { content, category },
+      }),
+    updateMemory: (id: string, patch: { content?: string, category?: string }) =>
+      request<{ memory: AssistantMemory, superseded: AssistantMemory[], reviews: number }>(`/api/assistant/memories/${id}`, {
+        method: 'PATCH',
+        body: patch,
+      }),
+    correctMemory: (id: string, content: string, category?: string) =>
+      request<{ memory: AssistantMemory, superseded: AssistantMemory[], reviews: number }>(`/api/assistant/memories/${id}/correct`, {
+        method: 'POST',
+        body: { content, category },
+      }),
+    memoryStatus: (id: string, status: string) =>
+      request<{ memory: AssistantMemory }>(`/api/assistant/memories/${id}/status`, { method: 'POST', body: { status } }),
+    semantic: () => request<{
+      enabled: boolean, available: boolean, model: string, vectors: number, pending: number, today: number, cap: number
+    }>('/api/assistant/semantic'),
+    reindexSemantic: () => request<{ embedded: number, capped: boolean }>('/api/assistant/semantic/reindex', { method: 'POST' }),
+    clearSemantic: () => request<{ deleted: number }>('/api/assistant/semantic', { method: 'DELETE' }),
+    memoryHistory: (id: string) =>
+      request<{ memory: AssistantMemory, previous: AssistantMemory[], next: AssistantMemory[] }>(`/api/assistant/memories/${id}/history`),
+    deleteMemory: (id: string) => request<{ deleted: true }>(`/api/assistant/memories/${id}`, { method: 'DELETE' }),
+    clearMemories: () => request<{ deleted: number }>('/api/assistant/memories', { method: 'DELETE', body: { confirm: 'DELETE' } }),
+    reviews: () => request<{ reviews: MemoryReview[] }>('/api/assistant/memories/reviews'),
+    resolveReview: (id: string, action: string) =>
+      request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
+    tasks: (params: { status?: string, view?: string, q?: string, project_id?: string, limit?: number } = {}) =>
+      request<{ tasks: AssistantTask[] }>(`/api/assistant/tasks${toQuery(params)}`),
+    createTask: (body: Record<string, unknown>) => request<{ task: AssistantTask }>('/api/assistant/tasks', { method: 'POST', body }),
+    updateTask: (id: string, body: Record<string, unknown>) =>
+      request<{ task: AssistantTask }>(`/api/assistant/tasks/${id}`, { method: 'PATCH', body }),
+    deleteTask: (id: string) => request<{ deleted: true }>(`/api/assistant/tasks/${id}`, { method: 'DELETE' }),
+    projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
+    createProject: (name: string, description?: string) =>
+      request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body: { name, description } }),
+    deleteProject: (id: string) => request<{ deleted: true }>(`/api/assistant/projects/${id}`, { method: 'DELETE' }),
+    automations: () =>
+      request<{ automations: AssistantAutomation[], runs: AssistantAutomationRun[], timezone: string }>('/api/assistant/automations'),
+    createAutomation: (body: Record<string, unknown>) =>
+      request<{ automation: AssistantAutomation }>('/api/assistant/automations', { method: 'POST', body }),
+    updateAutomation: (id: string, body: Record<string, unknown>) =>
+      request<{ automation: AssistantAutomation }>(`/api/assistant/automations/${id}`, { method: 'PATCH', body }),
+    deleteAutomation: (id: string) => request<{ deleted: true }>(`/api/assistant/automations/${id}`, { method: 'DELETE' }),
+    notifications: (unreadOnly?: boolean) =>
+      request<{ notifications: AssistantNotification[], unread: number }>(`/api/assistant/notifications${unreadOnly ? '?unread=1' : ''}`),
+    markNotificationsRead: (id?: string) =>
+      request<{ unread: number }>('/api/assistant/notifications/read', { method: 'POST', body: id ? { id } : {} }),
+    deleteNotification: (id: string) => request<{ unread: number }>(`/api/assistant/notifications/${id}`, { method: 'DELETE' }),
+    settings: () => request<{ settings: AssistantSettings, models: AssistantModel[] }>('/api/assistant/settings'),
+    saveSettings: (patch: Record<string, unknown>) =>
+      request<{ settings: AssistantSettings }>('/api/assistant/settings', { method: 'PATCH', body: patch }),
+    providers: () => request<{ providers: AssistantProvider[] }>('/api/assistant/providers'),
+    createProvider: (body: Record<string, unknown>) =>
+      request<{ provider: AssistantProvider }>('/api/assistant/providers', { method: 'POST', body }),
+    updateProvider: (id: string, body: Record<string, unknown>) =>
+      request<{ provider: AssistantProvider }>(`/api/assistant/providers/${id}`, { method: 'PATCH', body }),
+    deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
+    models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
+    /** The vendor's own list, asked through the worker so the key never reaches the browser. */
+    vendorModels: (id: string) =>
+      request<{ ok: boolean, error: string | null, models: AssistantVendorModel[] }>(`/api/assistant/providers/${id}/vendor-models`),
+    createModel: (body: Record<string, unknown>) =>
+      request<{ model: AssistantModel }>('/api/assistant/models', { method: 'POST', body }),
+    updateModel: (id: string, body: Record<string, unknown>) =>
+      request<{ model: AssistantModel }>(`/api/assistant/models/${id}`, { method: 'PATCH', body }),
+    deleteModel: (id: string) => request<{ deleted: true }>(`/api/assistant/models/${id}`, { method: 'DELETE' }),
+    usage: () =>
+      request<{ day: string, today: AssistantUsage, last7Days: AssistantUsage, limits: AssistantLimits }>('/api/assistant/usage'),
+    activity: () =>
+      request<{ activity: { id: string, type: string, summary: string, created_at: number }[] }>('/api/assistant/activity'),
+    exportUrl: '/api/assistant/export',
+    importBackup: (payload: unknown) =>
+      request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
   },
 }
 

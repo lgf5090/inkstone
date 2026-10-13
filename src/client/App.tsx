@@ -11,6 +11,7 @@ import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
+import { useUi } from './store/ui'
 
 const AppTabHost = lazy(() =>
   import('./features/shell/AppTabHost').then((module) => ({ default: module.AppTabHost })),
@@ -29,6 +30,9 @@ const PropertyDecorationHost = lazy(() =>
 )
 const LintPreviewHost = lazy(() =>
   import('./features/linter/LintPreview').then((module) => ({ default: module.LintPreviewHost })),
+)
+const Lightbox = lazy(() =>
+  import('./features/preview/Lightbox').then((module) => ({ default: module.Lightbox })),
 )
 
 export function App() {
@@ -111,6 +115,7 @@ export function App() {
           it. It is only mounted while a show is up, which is also what keeps the deck-splitting code
           out of the boot chunk for everyone who is not presenting. */}
       {status === 'authed' && <ShowOverlay />}
+      {status === 'authed' && <LightboxLayer />}
       {status === 'authed' && <DecorationLayer />}
       <Toaster />
       <ConfirmHost />
@@ -154,6 +159,24 @@ function ShowOverlay() {
   return (
     <Suspense fallback={null}>
       <PresentationOverlay />
+    </Suspense>
+  )
+}
+
+/**
+ * The picture viewer, hosted above the container switch.
+ *
+ * Any container can ask to enlarge an image — the notebook's preview and the chat's attachment chips
+ * both do — and `useUi().lightbox` is one global slot. Mounted inside one container it was reachable
+ * from that container only, and a chip elsewhere set the state with nothing left to render it: the
+ * click did nothing at all, with nothing in the console to say so.
+ */
+function LightboxLayer() {
+  const open = useUi((s) => s.lightbox !== null)
+  if (!open) return null
+  return (
+    <Suspense fallback={null}>
+      <Lightbox />
     </Suspense>
   )
 }

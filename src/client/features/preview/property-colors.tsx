@@ -82,7 +82,7 @@ export function PropertyColorPanel({ label, current, tinted, onPick }: {
         : ratio === null
             ? t('workspace.color_custom_hint')
             : t('color.contrast_ratio_value0', { value0: ratio.toFixed(1) });
-    return (<div ref={panelRef} className="p-1" style={{ width: PILL_PANEL_WIDTH }}>
+    return (<div ref={panelRef} className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)] outline-none" style={{ width: PILL_PANEL_WIDTH }} onClick={(event) => event.stopPropagation()}>
       <div className="flex min-w-0 items-baseline justify-between gap-2 px-0.5 pt-0.5 pb-2">
         <span className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
         {shown && (<span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-quaternary)]">

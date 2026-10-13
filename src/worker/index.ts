@@ -1,5 +1,6 @@
 import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
+import { runDueAssistantAutomations } from './assistant/scheduler'
 import type { Env } from './env'
 import { initializeDatabase } from './db/schema'
 import { drainAllFtsQueues } from './db/fts'
@@ -52,6 +53,14 @@ export default {
       // Index drains run on every cron fire; whole-library work (backups, attachment
       // cleanup, expired-record purges) only on the top of the hour, so a long backup
       // cannot take the embedding drains down with it.
+      // The assistant's schedules are swept on every fire, including the minute-granular one, because
+      // a reminder that arrives a quarter-hour late is a broken reminder. The existing drains keep the
+      // cadence they had: they still run when they used to, not sixty times a day.
+      const assistantTick = runDueAssistantAutomations(env)
+      if (!isDrainFire(event.scheduledTime)) {
+        await assistantTick
+        return
+      }
       const drains: Promise<unknown>[] = [
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),
@@ -71,6 +80,18 @@ export default {
     })())
   },
 } satisfies ExportedHandler<Env>
+
+/**
+ * Which cron fires keep the whole-library drains.
+ *
+ * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would
+ * multiply work the deployment never asked for, so the drains are gated to the times they had before
+ * the new pattern was added.
+ */
+export function isDrainFire(scheduledTime: number): boolean {
+  const minute = new Date(scheduledTime).getUTCMinutes()
+  return minute === 0 || minute === 15 || minute === 45
+}
 
 export function isHourStart(scheduledTime: number): boolean {
   return new Date(scheduledTime).getUTCMinutes() === 0

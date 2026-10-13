@@ -5,7 +5,7 @@ import { formatKanbanOptionLabel, formatKanbanPropertyName } from '../i18n-helpe
 import { safeKanbanUrl } from '../url'
 import type { ReactNode } from 'react'
 import type { KanbanItem, KanbanOption, KanbanProperty } from '../types'
-import { KanbanDatePicker } from './kanban-date-picker'
+import { DatePicker } from '../../../../components/date-picker'
 import { KanbanFilesCell } from './kanban-files-cell'
 import { KanbanPersonPicker } from './kanban-person-picker'
 import { KanbanSubtaskList } from './kanban-subtask-list'
@@ -183,8 +183,8 @@ function UrlDetailField({ value, onChange }: { value: string; onChange: (value: 
 /** The one date a detail field holds, through the same picker the table uses. */
 function DateDetailField({ column, value, onChange }: { column: KanbanProperty; value: unknown; onChange: (value: unknown) => void }) {
   return (
-    <KanbanDatePicker
-      propertyName={formatKanbanPropertyName(column)}
+    <DatePicker
+      label={formatKanbanPropertyName(column)}
       value={String(value ?? '')}
       onChange={onChange}
     />
@@ -342,8 +342,8 @@ export function DetailDatesGrid({
         <label className='text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)]'>
           {t('preview.kanban_prop_start_date')}
         </label>
-        <KanbanDatePicker
-          propertyName={t('preview.kanban_prop_start_date')}
+        <DatePicker
+          label={t('preview.kanban_prop_start_date')}
           value={String(startDateVal ?? '')}
           onChange={(val) => onPropertyChange('startDate', val)}
         />
@@ -352,8 +352,8 @@ export function DetailDatesGrid({
         <label className='text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)]'>
           {t('preview.kanban_prop_end_date')}
         </label>
-        <KanbanDatePicker
-          propertyName={t('preview.kanban_prop_end_date')}
+        <DatePicker
+          label={t('preview.kanban_prop_end_date')}
           value={String(dueDateVal ?? '')}
           onChange={(val) => onPropertyChange('dueDate', val)}
         />

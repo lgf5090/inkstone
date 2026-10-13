@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Crop, ImageOff, ImageIcon, LayoutGrid, Palette, Pencil, Smile } from 'lucide-react';
 import type { MenuItem } from '../../components/overlay';
-import { Menu, Tooltip, prompt } from '../../components/overlay';
+import { Menu, Tooltip, prompt, submenuFor } from '../../components/overlay';
 import { COVER_POSITIONS, COVER_SHAPES, coverWidthFor as sharedCoverWidthFor } from '@shared/property-decorations';
 import type { NoteBannerDecoration, NoteCoverDecoration, NoteIconDecoration } from '@shared/property-decorations';
 import type { PropertySettings } from '@shared/types';
@@ -70,6 +70,8 @@ function useDecorationMenu() {
 }
 
 export function coverMenuItems(cover: NoteCoverDecoration, settings: PropertySettings, actions: DecorationActions): MenuItem[] {
+    const shapeRows = coverShapeRows(cover, settings, actions);
+    const positionRows = coverPositionRows(cover, settings, actions);
     return [
         {
             id: 'cover-change',
@@ -81,41 +83,17 @@ export function coverMenuItems(cover: NoteCoverDecoration, settings: PropertySet
             id: 'cover-shape',
             label: t('properties.cover_shape'),
             icon: <Crop size={14}/>,
-            subItems: COVER_SHAPES.map(item => ({
-                id: `shape-${item}`,
-                label: shapeLabel(item),
-                checked: item === cover.shape,
-                onSelect: () => actions.setProperty(settings.coverShapeProperty, item),
-            })),
-            submenu: () => COVER_SHAPES.map(item => (<ChoiceRow key={item} label={shapeLabel(item)} active={item === cover.shape} onPick={() => actions.setProperty(settings.coverShapeProperty, item)}>
-                    <span aria-hidden="true" className={cn('shrink-0 border border-[var(--border-default)] bg-[var(--bg-inset)]', item === 'circle'
-                        ? 'size-3.5 rounded-full'
-                        : item === 'square'
-                            ? 'size-3.5 rounded-[2px]'
-                            : item.startsWith('vertical')
-                                ? 'h-4 w-2.5 rounded-[2px]'
-                                : item.startsWith('horizontal')
-                                    ? 'h-2.5 w-4 rounded-[2px]'
-                                    : 'h-3 w-4 rounded-[2px]')}/>
-                  </ChoiceRow>)),
+            subItems: shapeRows,
+            // The app's submenu renderer: the bare row list it replaces drew straight onto the
+            // transparent submenu wrapper, so the choices floated over the page behind them.
+            submenu: submenuFor(shapeRows, 196),
         },
         {
             id: 'cover-position',
             label: t('properties.cover_position'),
             icon: <LayoutGrid size={14}/>,
-            subItems: COVER_POSITIONS.map(item => ({
-                id: `position-${item}`,
-                label: positionLabel(item),
-                checked: item === cover.position,
-                onSelect: () => actions.setProperty(settings.coverPositionProperty, item),
-            })),
-            submenu: () => COVER_POSITIONS.map(item => (<ChoiceRow key={item} label={positionLabel(item)} active={item === cover.position} onPick={() => actions.setProperty(settings.coverPositionProperty, item)}>
-                    <span aria-hidden="true" className="flex h-3.5 w-4 shrink-0 items-center gap-px">
-                      <span className={cn('h-full rounded-[1px]', item === 'left' ? 'w-1.5 bg-[var(--accent)]' : 'w-0')}/>
-                      <span className={cn('h-1.5 flex-1 rounded-[1px] bg-[var(--bg-inset)] ring-1 ring-[var(--border-subtle)]', item === 'top' ? 'self-start' : item === 'bottom' ? 'self-end' : '')}/>
-                      <span className={cn('h-full rounded-[1px]', item === 'right' ? 'w-1.5 bg-[var(--accent)]' : 'w-0')}/>
-                    </span>
-                  </ChoiceRow>)),
+            subItems: positionRows,
+            submenu: submenuFor(positionRows, 196),
         },
         {
             id: 'cover-hide',
@@ -138,16 +116,45 @@ export function coverMenuItems(cover: NoteCoverDecoration, settings: PropertySet
     ];
 }
 
-function ChoiceRow({ label, active, onPick, children }: {
-    label: string;
-    active: boolean;
-    onPick: () => void;
-    children: React.ReactNode;
-}) {
-    return (<button type="button" role="menuitemradio" aria-checked={active} onClick={onPick} className={cn('flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)]', active && 'bg-[var(--bg-hover)]')}>
-        {children}
-        <span className="truncate">{label}</span>
-      </button>);
+function shapeGlyph(item: string): React.ReactNode {
+    return <span aria-hidden="true" className={cn('shrink-0 border border-[var(--border-default)] bg-[var(--bg-inset)]', item === 'circle'
+            ? 'size-3.5 rounded-full'
+            : item === 'square'
+                ? 'size-3.5 rounded-[2px]'
+                : item.startsWith('vertical')
+                    ? 'h-4 w-2.5 rounded-[2px]'
+                    : item.startsWith('horizontal')
+                        ? 'h-2.5 w-4 rounded-[2px]'
+                        : 'h-3 w-4 rounded-[2px]')}/>
+}
+
+/** The one list both the submenu and the search box read; a row added here cannot appear in only one. */
+function coverShapeRows(cover: NoteCoverDecoration, settings: PropertySettings, actions: DecorationActions): MenuItem[] {
+    return COVER_SHAPES.map(item => ({
+        id: `shape-${item}`,
+        label: shapeLabel(item),
+        icon: shapeGlyph(item),
+        checked: item === cover.shape,
+        onSelect: () => actions.setProperty(settings.coverShapeProperty, item),
+    }))
+}
+
+function positionGlyph(item: string): React.ReactNode {
+    return (<span aria-hidden="true" className="flex h-3.5 w-4 shrink-0 items-center gap-px">
+        <span className={cn('h-full rounded-[1px]', item === 'left' ? 'w-1.5 bg-[var(--accent)]' : 'w-0')}/>
+        <span className={cn('h-1.5 flex-1 rounded-[1px] bg-[var(--bg-inset)] ring-1 ring-[var(--border-subtle)]', item === 'top' ? 'self-start' : item === 'bottom' ? 'self-end' : '')}/>
+        <span className={cn('h-full rounded-[1px]', item === 'right' ? 'w-1.5 bg-[var(--accent)]' : 'w-0')}/>
+      </span>)
+}
+
+function coverPositionRows(cover: NoteCoverDecoration, settings: PropertySettings, actions: DecorationActions): MenuItem[] {
+    return COVER_POSITIONS.map(item => ({
+        id: `position-${item}`,
+        label: positionLabel(item),
+        icon: positionGlyph(item),
+        checked: item === cover.position,
+        onSelect: () => actions.setProperty(settings.coverPositionProperty, item),
+    }))
 }
 
 export function bannerMenuItems(banner: NoteBannerDecoration, settings: PropertySettings, actions: DecorationActions): MenuItem[] {

@@ -19,6 +19,7 @@ import { LoadingBlock } from '../../components/feedback'
  * who never opens the tab should not pay for it in the shell's own bytes.
  */
 const ReadingApp = lazy(() => import('../reading/ReadingApp').then((m) => ({ default: m.ReadingApp })))
+import { ChatApp } from '../chat/ChatApp'
 
 /**
  * Which component answers for which tab. A tab the rail offers but this list does not name is a
@@ -32,6 +33,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   notes: AppShell,
   reading: ReadingApp,
   rss: lazy(() => import('../rss/RssApp').then(module => ({ default: module.RssApp }))),
+  chat: ChatApp,
 }
 
 export function AppTabHost() {

@@ -113,6 +113,10 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
     'The dismiss affordance inside a toast: a 12px icon on the text line, wrapped in the `Tooltip` that names it. `IconButton`\'s smallest box is larger than that line and would grow every toast in the stack.',
   ],
   [
+    'src/client/components/date-picker.tsx',
+    'The picker draws three shapes no primitive sizes: a field-height trigger that has to sit on the same row box as every `Input`, 28px day cells on a seven-column grid, and the half-height chevrons that step the month and the clock. `Button` fixes a height per size and wraps its children in one non-stretching span, so none of them keep their geometry through it.',
+  ],
+  [
     'src/client/components/activity-calendar/year-view.tsx',
     'Calendar cells: the hit area is a grid track, and the element carries the roving tabIndex and `aria-label` the calendar navigation needs. `Button` sizes do not apply to a cell.',
   ],
@@ -364,6 +368,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
     {
       sites: 1,
       reason: 'The colour panel stops a click from reaching the row that opened it, so picking a swatch does not also dismiss the flyout that hosts the panel. The panel is not an affordance of its own: the swatches inside it are.',
+    },
+  ],
+  [
+    'src/client/features/preview/property-colors.tsx',
+    {
+      sites: 1,
+      reason: 'The property colour panel is the same shape as the tag and folder panels: its root box stops a click from reaching the note surface that opened the flyout, so tapping a swatch, the hex field or the native picker does not dismiss the submenu that hosts them. The panel is not an affordance of its own; the swatches inside it are.',
     },
   ],
   [

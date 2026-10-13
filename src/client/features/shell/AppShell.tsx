@@ -41,7 +41,6 @@ const ManageFoldersPanel = lazy(() => import('../folders/ManageFoldersPanel').th
 const TemplateGallery = lazy(() => import('../templates').then((m) => ({ default: m.TemplateGallery })));
 const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ default: m.SharePanel })));
 const VersionsPanel = lazy(() => import('../workspace/VersionsPanel').then((m) => ({ default: m.VersionsPanel })));
-const Lightbox = lazy(() => import('../preview/Lightbox').then((m) => ({ default: m.Lightbox })));
 const UpdateDialog = lazy(() => import('../update/UpdateDialog').then((m) => ({ default: m.UpdateDialog })));
 const EmojiPickerHost = lazy(() => import('../emoji/EmojiPickerHost').then((m) => ({ default: m.EmojiPickerHost })));
 const LinkEditorPopover = lazy(() => import('../links/LinkEditorPopover').then((m) => ({ default: m.LinkEditorPopover })));
@@ -265,7 +264,6 @@ function OverlayHost() {
     const linkEditOpen = useLinkEditor((s) => s.request !== null);
     const omnisearch = useOmnisearch();
     const closePanel = useUi((s) => s.closePanel);
-    const lightbox = useUi((s) => s.lightbox);
     const role = useSession((s) => s.user?.role);
     const updateDialogOpen = useUpdate((s) => s.dialogOpen);
     return (<>
@@ -279,7 +277,6 @@ function OverlayHost() {
         {panel === 'share' && <SharePanel onClose={closePanel}/>}
         {panel === 'versions' && <VersionsPanel onClose={closePanel}/>}
         {omnisearch.open && <OmnisearchPrompt mode={omnisearch.mode} seed={omnisearch.seed} noteId={omnisearch.noteId}/>}
-        {lightbox && <Lightbox />}
         {emojiOpen && <EmojiPickerHost />}
         {linkEditOpen && <LinkEditorPopover />}
       {panel === 'quickadd' && <QuickAddLauncher onClose={closePanel}/>}

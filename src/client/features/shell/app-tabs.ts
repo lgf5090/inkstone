@@ -2,9 +2,9 @@
  * The app tabs, as data: one entry per button on the left rail, and the one place that knows
  * which URL path belongs to which container.
  *
- * Only the notebook has an implementation behind it today; the rest answer to a real path and show
- * their placeholder, so adding an app means writing its component and naming it in the host's
- * container list — the rail, the router and the deploy config already carry it.
+ * The notebook and the assistant have implementations; the rest answer to a real path and show their
+ * placeholder, so adding an app means writing its component and naming it in the host's container
+ * list — the rail, the router and the deploy config already carry it.
  *
  * A new `path` has to be added to `run_worker_first` in both wrangler configs as well, or the
  * document served at that address comes from the asset layer's SPA fallback and never picks up the

@@ -1,0 +1,48 @@
+/*
+ * The chat assistant's own surfaces.
+ *
+ * `.ink-prose` is written for a note being *read*: a 72ch measure centred in the column and a 42vh
+ * tail so the last line can sit at eye level. Reusing it for a reply gave a one-line answer a body
+ * taller than the window (measured before this existed: 443px of bubble for 12 characters of text).
+ * These rules keep the typography — headings, lists, code, tables all come from prose.css — and drop
+ * only the page furniture, so an assistant answer and a note read the same and stack differently.
+ */
+
+.ink-chat-prose {
+  max-width: none;
+  margin-inline: 0;
+  padding-block: 0;
+  font-size: var(--text-13);
+  line-height: var(--ui-line);
+}
+
+.ink-chat-prose > *:first-child {
+  margin-top: 0;
+}
+
+.ink-chat-prose > *:last-child {
+  margin-bottom: 0;
+}
+
+/* A chat column is narrow, so a wide table scrolls inside its bubble rather than pushing the thread
+   sideways. prose.css gives `.table-wrap` its own page-level overflow, which does not exist here. */
+.ink-chat-prose table {
+  max-width: 100%;
+}
+
+.ink-chat-prose .table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Code a reader may want to copy is the commonest thing an assistant returns, so the block gets the
+   surface treatment the note editor gives one: a readable inset, no page-level padding. */
+.ink-chat-prose pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.ink-chat-prose img {
+  max-width: 100%;
+  height: auto;
+}
