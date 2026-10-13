@@ -355,6 +355,27 @@ const allowed = new Map([
   ["src/client/components/primitives.tsx", [
     "// dicebear ships full micah style data; keep it out of the boot chunk.",
   ]],
+  ["src/client/components/tree/indent.ts", [
+    "/**\n * The one source of truth for how far a tree row steps in per depth level.\n *\n * The sidebar folders, the tag tree, the stencil library and the move picker all draw the same row\n * geometry, so the step lives here rather than being re-derived as `6 + depth * 13` — and the four\n * other constants that grew beside it (`4 + depth * 13`, `6 + depth * 14`, `4 + depth * 12`). Rows\n * apply it as an inline `paddingLeft`, which is the runtime-value case the style rule allows.\n */",
+  ]],
+  ["src/client/components/tree/keyboard.ts", [
+    "/**\n * The keyboard contract every tree shares, read from the rendered DOM rather than from a model.\n *\n * A row is any `[data-tree-row]`, its fold control is `[data-tree-toggle]`, and the tree is the\n * nearest `[role=\"tree\"]` ancestor. Staying DOM-based is what lets one helper serve trees whose node\n * types never unify — folders, tags, calendar periods, stencil folders — because they already agree\n * on this shape, and it keeps the helpers testable without a React render.\n */",
+    "/** Jump to the first or last visible row, which is what Home and End mean in a tree. */",
+    "/**\n * The wrap-around step an index cursor takes. Shared by the tag tree's filter cursor and the move\n * picker's per-level walk, both of which pick a row by position rather than by DOM focus.\n */",
+  ]],
+  ["src/client/components/tree/tree-item.ts", [
+    "/** 1-based depth, the way `aria-level` counts. */",
+    "/** Omitted on a leaf; a branch states whether it is open. */",
+    "/** The size and 1-based position among the row's siblings, when the tree can tell. */",
+    "/**\n * The ARIA a tree row carries, so every tree exposes the same structure to a screen reader instead\n * of each one remembering a different subset. Spread it onto the element that wraps a row and its\n * `role=\"group\"` children; `undefined` fields are dropped rather than rendered as `aria-x=\"undefined\"`.\n */",
+  ]],
+  ["src/client/components/tree/use-expanded-set.ts", [
+    "/**\n * Expand/collapse state for a tree that owns it locally, keyed by node id or path.\n *\n * The sidebar keeps its expansion in the UI store because other panels reach for it; a tree with no\n * cross-panel reach — the tag tree — kept a fourth hand-rolled shape for the same idea. This is that\n * shape, once. `setExpanded` is exposed alongside `toggle`/`setMany` because a rename or a move has\n * to replay a whole set against a changed key, not flip one entry.\n */",
+  ]],
+  ["src/client/components/tree/use-tree-keyboard.ts", [
+    "/**\n   * Keys beyond the arrows and Home/End that a host owns — F2 to rename, Delete to remove. Return\n   * true when the event was handled, which is what makes the handler prevent the browser default.\n   */",
+    "/**\n * The shared tree keyboard: ArrowDown/ArrowUp walk the visible rows, ArrowRight expands or steps\n * into a branch, ArrowLeft collapses or returns to the parent, Home/End jump to the ends. The\n * handler reads the rendered DOM (see `./keyboard`), so a row only has to carry `data-tree-row`\n * and its fold control `data-tree-toggle`. Modifier chords and IME composition are left alone.\n */",
+  ]],
   ["src/client/demo/backend.ts", [
     "// Same subtree cascade as the worker: leaving `a/x` behind when `a` becomes `b` would",
     "// orphan the whole branch. Deepest first so each pass only sees its own exact name.",
@@ -5984,6 +6005,9 @@ const allowed = new Map([
     "// populated tree to be ordered against.",
     "// Document order is the whole claim: a pinned block that sits after the list",
     "// would pin over nothing and let the toolbar scroll away.",
+  ]],
+  ["src/client/features/sidebar/tree-keyboard.ts", [
+    "/**\n * Re-exported from the shared tree toolkit. `ExplorerNote.tsx` still imports these by their old\n * path; new trees should import from `../../components/tree` instead.\n */",
   ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
