@@ -39,6 +39,7 @@ const apiCodeMessages: Record<string, MessageKey> = {
     reader_space_exceeded: 'api.error.reader_space_exceeded',
     reader_book_quota_exceeded: 'api.error.reader_book_quota_exceeded',
     reader_book_too_large: 'api.error.reader_book_too_large',
+    reader_fetch_failed: 'api.error.reader_fetch_failed',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();

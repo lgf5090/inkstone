@@ -654,6 +654,7 @@ export const api = {
     remove: (bookId: string) => request<{ ok: true; removed: boolean }>(`/api/reader/books/${encodeURIComponent(bookId)}`, {
       method: 'DELETE',
     }),
+    bookUrl: (number: string) => `/api/reader/discovery/book/${encodeURIComponent(number)}`,
     blobUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/blob`,
     coverUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/cover`,
   },

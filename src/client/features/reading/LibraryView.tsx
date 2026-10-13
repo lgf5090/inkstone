@@ -7,7 +7,7 @@
  * what carries a reader's marks and positions to another machine.
  */
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { Download, FolderInput, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
+import { BookOpen, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
 import { Button } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
@@ -17,6 +17,9 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { useLibrary } from './store/library'
 import { hasBookExtension } from './engine/book-import'
+import { downloadAsBlob } from '../../lib/transfer'
+import { api } from '../../lib/api'
+import { IDLE_SYNC } from './store/cloud'
 import { stoppedAtLabel } from './position'
 import { dropBookHandle } from './reader/useEpubHandle'
 import { ShelfCard } from './ShelfCard'
@@ -79,6 +82,7 @@ export function LibraryView() {
   const [sort, setSort] = useState<ShelfSort>('recent')
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [fetching, setFetching] = useState(false)
   const [active, setActive] = useState<BookRecord | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const dataInput = useRef<HTMLInputElement>(null)
@@ -260,6 +264,58 @@ export function LibraryView() {
     }
   }
 
+  /**
+   * A book the reader found on Project Gutenberg, by its number or the page's address.
+   *
+   * The bytes come from this deployment rather than the mirror directly, because the app's content
+   * policy lets the page talk only to its own origin; the number is checked here only so a pasted URL
+   * works, and the route checks it again before it becomes a path.
+   */
+  async function importFromGutenberg(): Promise<void> {
+    const answer = await prompt({
+      title: t('reading.import_gutenberg'),
+      description: t('reading.import_gutenberg_hint'),
+      placeholder: '27819',
+      confirmLabel: t('reading.import_gutenberg'),
+    })
+    if (answer === null) return
+    const number = (/[0-9]{1,8}/.exec(answer.replace(/[^0-9]/g, ' ')) ?? [])[0] ?? ''
+    if (!number) {
+      toast({ title: t('reading.import_gutenberg_bad'), tone: 'warning' })
+      return
+    }
+    setFetching(true)
+    try {
+      const blob = await downloadAsBlob(api.readerLibrary.bookUrl(number), (sent, total) => {
+        useLibrary.setState({ sync: { phase: 'downloading', at: 0, bookId: null, sent, total, message: null } })
+      })
+      const file = new File([blob as unknown as BlobPart], `pg${number}.epub`, { type: 'application/epub+zip' })
+      const result = await addFiles([file])
+      toast(result.added.length
+        ? { title: t('reading.import_gutenberg_done_value0', { value0: number }), tone: 'success' }
+        : { title: t('reading.import_gutenberg_failed'), description: t(`reading.error_${result.failed[0]?.reason ?? 'corrupt'}`), tone: 'danger' })
+    } catch (err) {
+      toast({ title: t('reading.import_gutenberg_failed'), description: err instanceof Error ? err.message : String(err), tone: 'danger' })
+    } finally {
+      useLibrary.setState({ sync: { ...IDLE_SYNC, at: Date.now() } })
+      setFetching(false)
+    }
+  }
+
+  /** The sample the app ships with, so an empty shelf is not a dead end. */
+  async function loadSample(): Promise<void> {
+    setBusy(true)
+    try {
+      const blob = await downloadAsBlob('/reading/tao-te-ching-sample.epub')
+      const file = new File([blob as unknown as BlobPart], 'tao-te-ching-sample.epub', { type: 'application/epub+zip' })
+      await addFiles([file])
+    } catch (err) {
+      toast({ title: t('reading.sample_failed'), description: err instanceof Error ? err.message : String(err), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function runExport(): Promise<void> {
     const json = await exportLibrary()
     const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
@@ -325,6 +381,9 @@ export function LibraryView() {
           </Button>
           <Button size="sm" variant="secondary" aria-label={t('reading.import_library')} icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
             <span className="hidden sm:inline">{t('reading.import_library')}</span>
+          </Button>
+          <Button size="sm" variant="secondary" icon={<Globe size={13} />} loading={fetching} onClick={() => void importFromGutenberg()}>
+            {t('reading.import_gutenberg')}
           </Button>
           <Button size="sm" variant="primary" icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
             {t('reading.add_books')}
@@ -392,7 +451,7 @@ export function LibraryView() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {books.length === 0 ? (
-          <EmptyShelf busy={busy} onPick={() => fileInput.current?.click()} />
+          <EmptyShelf busy={busy || fetching} onPick={() => fileInput.current?.click()} onSample={() => void loadSample()} onGutenberg={() => void importFromGutenberg()} />
         ) : visible.length === 0 ? (
           <p className="px-3 py-12 text-center text-[12.5px] text-[var(--text-quaternary)]">
             {t('reading.no_books_match')}
@@ -469,7 +528,7 @@ export function LibraryView() {
  * because a reader who drops a MOBI in here gets a rejection with a reason, and would have been better
  * served by being told up front.
  */
-function EmptyShelf({ busy, onPick }: { busy: boolean; onPick: () => void }) {
+function EmptyShelf({ busy, onPick, onSample, onGutenberg }: { busy: boolean; onPick: () => void; onSample: () => void; onGutenberg: () => void }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-3 px-4 py-14 text-center">
       <span className="flex size-14 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
@@ -480,6 +539,14 @@ function EmptyShelf({ busy, onPick }: { busy: boolean; onPick: () => void }) {
       <Button variant="primary" size="md" icon={<Plus size={14} />} loading={busy} onClick={onPick}>
         {t('reading.add_books')}
       </Button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button variant="secondary" size="sm" icon={<BookOpen size={13} />} onClick={onSample}>
+          {t('reading.load_sample')}
+        </Button>
+        <Button variant="ghost" size="sm" icon={<Globe size={13} />} onClick={onGutenberg}>
+          {t('reading.import_gutenberg')}
+        </Button>
+      </div>
       <p className="text-[11.5px] text-[var(--text-quaternary)]">{t('reading.shelf_formats_hint')}</p>
     </div>
   )
