@@ -319,6 +319,14 @@ const allowed = new Map([
     "// Without a measured anchor the panel keeps its initial 0,0 and opens in the corner of",
     "// the screen, which reads as a broken control rather than a missing one. Naming it here",
     "// is what makes a browser probe that checks for console noise catch the mistake.",
+    "/** How far below a panel its own chrome may be nested before the scan gives up. */",
+    "/** `rgb()`/`oklab()` with no alpha channel is opaque; an explicit channel has to reach 1. */",
+    "/** The alpha a computed color declares, or null when it declares none. Percentages are fractions. */",
+    "/**\n * Whether some element of this subtree paints a solid background across the whole box. A floating\n * panel is only readable when it does — and because the chrome can sit on the panel itself or on a\n * wrapper one or two levels in, checking one node's own style is not enough.\n */",
+    "// An empty panel has nothing to hide behind, so there is nothing to warn about.",
+    "// A submenu's own wrapper carries no paint by design: the panel it hosts is what makes the rows",
+    "// readable. A caller that writes its rows bare therefore renders text floating over whatever is",
+    "// behind the menu, which is invisible to a test that only counts the rows.",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -766,6 +774,10 @@ const allowed = new Map([
     "/** `text` is what goes into the box; a saved prompt shows its title and inserts its content. */",
     "// The submenu's own list and the keyboard/search list are built from one array, so the manager entry cannot",
     "// appear in one and be missing from the other.",
+    "/** Icon-only below the small breakpoint, for chips whose words are not needed to act. */",
+    "/* A phone has ~360px for seven controls. The secondary ones keep only their icon there — the\n          value stays on the chip's accessible name, so it is still readable — because eight full words\n          pushed the row onto three lines and knocked the send button out of place. */",
+    "// The app's own submenu renderer, because the bare one it replaces drew its rows straight onto",
+    "// the page: with no panel background the composer's own words showed through the menu.",
   ]],
   ["src/client/features/chat/ComposerTriggers.tsx", [
     "/**\n * The composer's inline triggers: `@` cites a note, `/` picks a tool, `#` narrows the knowledge base.\n *\n * A trigger is a sigil that opens a token — at the caret's start or after whitespace — followed by the\n * words typed since. It ends at the next whitespace, so `[[a]] @no` reads `no` as the query and leaves\n * the rest of the message alone. Detection is a pure function of the text and the caret because both the\n * panel and the keyboard handler need the same answer, and a drift between them shows up as a panel that\n * filters one string while replacing another.\n */",
@@ -3645,6 +3657,11 @@ const allowed = new Map([
     "// still re-walked the host and re-mounted every mind map. Both halves are compared above because the",
     "// markup string is blind to a fence-body edit.",
   ]],
+  ["src/client/features/preview/PropertyDecorations.tsx", [
+    "// The app's submenu renderer: the bare row list it replaces drew straight onto the",
+    "// transparent submenu wrapper, so the choices floated over the page behind them.",
+    "/** The one list both the submenu and the search box read; a row added here cannot appear in only one. */",
+  ]],
   ["src/client/features/preview/block-actions.test.ts", [
     "// i18n is uninitialised in this file, so the fallback tab title arrives as its key.",
   ]],
@@ -4351,6 +4368,14 @@ const allowed = new Map([
     "// so a header that over-states its own body cannot make one click jump several columns.",
     "// The count stays the stepper's business: a width list that does not have one part per column",
     "// would reshape the block, so it is refused rather than applied.",
+  ]],
+  ["src/client/features/preview/property-submenu-chrome.test.ts", [
+    "/**\n * Hand-written submenu panels have to bring their own chrome.\n *\n * The wrapper `Menu` portals a submenu into is transparent by design — the panel inside it is what\n * makes the rows readable. A caller that writes its rows bare therefore draws text straight onto the\n * page behind the menu, and a test that only counts the rows still passes. jsdom resolves no\n * stylesheet, so the panels are pinned by the class they carry and the helper that reads the computed\n * style is pinned separately, against stubbed boxes.\n */",
+    "// The current value is marked in the panel, not only in the data the search reads.",
+    "// The panel is only worth its chrome if its swatches still do their job from inside it.",
+    "// A lightness percentage is not an alpha channel.",
+    "// The same chrome one pixel short of the wrapper leaves the edge unpainted.",
+    "// Nothing is drawn, so nothing can be unreadable.",
   ]],
   ["src/client/features/preview/property-surface-parity.test.ts", [
     "/**\n * The mirror's `<details>` is the panel column plus the collapse semantics a React `useState` gives the\n * reading pane; those two classes are the only markup the reading pane does not share.\n */",

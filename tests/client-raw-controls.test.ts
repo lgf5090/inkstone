@@ -371,6 +371,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
     },
   ],
   [
+    'src/client/features/preview/property-colors.tsx',
+    {
+      sites: 1,
+      reason: 'The property colour panel is the same shape as the tag and folder panels: its root box stops a click from reaching the note surface that opened the flyout, so tapping a swatch, the hex field or the native picker does not dismiss the submenu that hosts them. The panel is not an affordance of its own; the swatches inside it are.',
+    },
+  ],
+  [
     'src/client/lib/markdown/kanban/ui/kanban-card-subtasks.tsx',
     {
       sites: 3,

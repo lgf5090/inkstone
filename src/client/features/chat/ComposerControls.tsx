@@ -29,7 +29,7 @@ import type { AssistantModel, AssistantReasoning } from '@shared/assistant'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
-import { Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 
@@ -40,6 +40,7 @@ export function ControlChip({
   onClick,
   refObject,
   active,
+  hideValueOnPhone = false,
 }: {
   label: string
   value?: string
@@ -47,6 +48,8 @@ export function ControlChip({
   onClick: () => void
   refObject: React.RefObject<HTMLButtonElement | null>
   active?: boolean
+  /** Icon-only below the small breakpoint, for chips whose words are not needed to act. */
+  hideValueOnPhone?: boolean
 }) {
   return (
     <button
@@ -64,7 +67,10 @@ export function ControlChip({
       )}
     >
       <span className="shrink-0">{icon}</span>
-      {value && <span className="min-w-0 truncate">{value}</span>}
+      {/* A phone has ~360px for seven controls. The secondary ones keep only their icon there — the
+          value stays on the chip's accessible name, so it is still readable — because eight full words
+          pushed the row onto three lines and knocked the send button out of place. */}
+      {value && <span className={cn('min-w-0 truncate sm:max-w-[46%]', hideValueOnPhone ? 'max-w-0 overflow-hidden sm:max-w-[46%]' : 'max-w-[58px]')}>{value}</span>}
     </button>
   )
 }
@@ -154,6 +160,7 @@ export function ReasoningMenu({
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.thinking')}
+        hideValueOnPhone
         value={t(REASONING_LABELS[value])}
         icon={<Brain size={12} />}
         active={anchor.open}
@@ -196,6 +203,7 @@ export function ContextMenu({
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.context')}
+        hideValueOnPhone
         value={value === null ? t('assistant.context.follow_global') : formatContext(value)}
         icon={<Gauge size={12} />}
         active={anchor.open}
@@ -217,6 +225,7 @@ export function ApprovalMenu({ auto, onChange }: { auto: boolean, onChange: (nex
       <ControlChip
         refObject={anchor.ref}
         label={t('assistant.composer.approval')}
+        hideValueOnPhone
         value={auto ? t('assistant.approval.auto') : t('assistant.approval.ask')}
         icon={<ShieldQuestion size={12} />}
         active={anchor.open}
@@ -259,17 +268,14 @@ export function PlusMenu({
       label: t('assistant.attach.quick_prompts'),
       icon: <Wand2 size={13} />,
       separatorBefore: true,
-      subItems: [...prompts.map((promptEntry) => ({ id: promptEntry.id, label: promptEntry.label })), { id: '__manage', label: t('assistant.prompts.manage') }],
-      submenu: () => promptRows.map((promptEntry) => (
-        <button
-          key={promptEntry.id}
-          type="button"
-          onClick={() => (promptEntry.id === '__manage' ? onManagePrompts() : onPrompt(promptEntry.text ?? promptEntry.label))}
-          className="block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-        >
-          {promptEntry.label}
-        </button>
-      )),
+      subItems: promptRows.map((promptEntry) => ({ id: promptEntry.id, label: promptEntry.label })),
+      // The app's own submenu renderer, because the bare one it replaces drew its rows straight onto
+      // the page: with no panel background the composer's own words showed through the menu.
+      submenu: submenuFor(promptRows.map((promptEntry) => ({
+        id: promptEntry.id,
+        label: promptEntry.label,
+        onSelect: () => (promptEntry.id === '__manage' ? onManagePrompts() : onPrompt(promptEntry.text ?? promptEntry.label)),
+      })), 220),
     },
   ]
   return (
