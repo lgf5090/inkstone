@@ -71,4 +71,4 @@
 type：`feat` `fix` `refactor` `perf` `test` `docs` `style` `build` `ci` `chore` `revert`。  
 scope：业务模块 id（见 `AGENTS.md`）或 `theme` `ui` `i18n` `db` `infra` `docs` `auth` `api`。
 
-分批提交：门禁查工作区，非暂存快照。同一文件跨批次时勿回退工作区；工作区保持最终态，只 `git apply --cached` 本批 hunk。暂存快照用 `git archive HEAD | tar -x -C /tmp/snap` 单独验证。每批带自己白名单/元数据。多人 worktree 先 `git status`；慎用 `sync-comments-allowlist.mjs` 等重建脚本。
+分批提交：门禁查工作区，非暂存快照。同一文件跨批次时勿回退工作区；工作区保持最终态，只 `git apply --cached` 本批 hunk。暂存快照用 `git archive HEAD | tar -x -C /tmp/snap` 单独验证。每批带自己白名单/元数据。多人 worktree 先 `git status`。
