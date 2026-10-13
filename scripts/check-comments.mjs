@@ -4507,6 +4507,8 @@ const allowed = new Map([
     "/** The four shelf layouts, in the order the toolbar offers them. */",
     "/** One book's facts, so the grid, the cover wall and the list cannot disagree about what they show. */",
     "/** The menu's own new-group flow: name it, then put this book straight into it. */",
+    "/**\n   * A book the reader found on Project Gutenberg, by its number or the page's address.\n   *\n   * The bytes come from this deployment rather than the mirror directly, because the app's content\n   * policy lets the page talk only to its own origin; the number is checked here only so a pasted URL\n   * works, and the route checks it again before it becomes a path.\n   */",
+    "/** The sample the app ships with, so an empty shelf is not a dead end. */",
   ]],
   ["src/client/features/reading/ProgressRing.tsx", [
     "/**\n * How far into a book a reader is, as a ring.\n *\n * The grid card carries progress on the cover's own edge, but a list row has no cover big enough to\n * read a 3-pixel bar off, so the same number is drawn as a ring there. It is decorative: the row's own\n * label says the percentage in words.\n */",
@@ -12773,6 +12775,11 @@ const allowed = new Map([
     "/**\n * The notes whose property holds this value, newest first — the note-side half of the same scan, for\n * a capture target that names a property instead of a note. With no value it asks \"which notes have\n * this property at all\", which is what `property:type` means.\n */",
     "/** The notes a `property:field=value` capture target would write into. */",
   ]],
+  ["src/worker/routes/reader-discovery.ts", [
+    "/**\n * A book the reader found elsewhere, brought in through this deployment.\n *\n * The browser cannot fetch a foreign host itself — the app's `connect-src` allows only this origin — and\n * letting a caller name a URL would turn an import button into a redirector. So the host is fixed here\n * to Project Gutenberg's file mirror, and the only thing a caller chooses is the book's number, which is\n * checked to be digits before it is ever interpolated into a path.\n *\n * Only the download is implemented. A search box would need a machine-readable upstream, and the one\n * Gutenberg offers (`/ebooks/opensearch`, `/feeds/search.php`) answers 503/504 from here often enough\n * that writing a parser against its shape would mean coding to a guess; the error the reader sees when\n * the mirror has no such book is a fact that can be tested.\n */",
+    "/** Per isolate: a brake on a runaway client, not a quota. The size cap is the real limit. */",
+    "// The reader's own import path decides what the file is; this only carries the bytes.",
+  ]],
   ["src/worker/routes/reader-library.ts", [
     "/**\n * The reader's shelf, on the server.\n *\n * A book is two things: the bytes, which go to R2 under `reader/<user>/<id>.<ext>`, and the account's\n * reading of it — the shelf row, the position, the highlights — which go to the `reader_*` tables. The\n * browser keeps its own copy of both (IndexedDB, so a plane reads offline), and this route is what makes\n * a second device and a cleared browser find the same shelf.\n *\n * Two rules hold it together. A client names a book by id only: the R2 key is derived here from the\n * authenticated user and the row, so no request can read or overwrite another account's file. And the\n * state arrives whole — the local store is the author of record and a push replaces what the server had,\n * which is the only merge that cannot lose a highlight to a clock skew.\n */",
     "/** A novel is megabytes; a scanned art book is tens. Above this the reader should carry the file by hand. */",
@@ -13236,6 +13243,10 @@ const allowed = new Map([
     "// 420 notes: the window is the newest 400, so stamps 0..19 fall outside it.",
     "// The three bounds above are only worth having if the scan they cap is slow enough to notice. This",
     "// is the measurement behind the round-5 ledger entry: a full window of realistic notes, timed.",
+  ]],
+  ["tests/reader-discovery-route.test.ts", [
+    "// The host is the route's, not the caller's: only the number moved.",
+    "// No number at all never matches the route; either way no request leaves.",
   ]],
   ["tests/reader-library-route.test.ts", [
     "// A day key that is not a date is dropped rather than stored as noise.",
