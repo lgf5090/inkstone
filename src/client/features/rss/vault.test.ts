@@ -66,7 +66,7 @@ describe('vaultChannels', () => {
 describe('the article library asked about a note folder', () => {
   // A library that does have an article, so "nothing" is an answer rather than an accident.
   const view = {
-    library: { ...emptyLibrary(), feeds: [{ id: 'f1', url: 'https://x.test/feed', title: 'X', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 1, lastAttemptAt: 1, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false }] },
+    library: { ...emptyLibrary(), feeds: [{ id: 'f1', url: 'https://x.test/feed', title: 'X', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 1, lastAttemptAt: 1, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false, pinned: false }] },
     articles: { f1: [{ id: 'e1', feedId: 'f1', title: 'An article', link: 'https://x.test/1', author: '', publishedTs: 5, summary: '', content: '', imageUrl: '', audioUrl: '' }] },
   }
 

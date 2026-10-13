@@ -17,6 +17,7 @@
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { parseRssLibrary, RSS_LIMITS, type RssFetchResult } from '@shared/rss/model'
+import { loadRssLibrary, storeRssLibrary } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -204,40 +205,19 @@ rssRoutes.post('/fetch', async (c) => {
   return c.json({ results })
 })
 
-interface StoredLibrary {
-  savedAt: number
-  version: number
-  library: unknown
-}
-
-function readStored(raw: string | null): StoredLibrary | null {
-  if (!raw) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  }
-  catch {
-    return null
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-  const value = parsed as { savedAt?: unknown; version?: unknown; library?: unknown }
-  if (typeof value.savedAt !== 'number' || !Number.isFinite(value.savedAt)) return null
-  if (!value.library || typeof value.library !== 'object') return null
-  return {
-    savedAt: Math.trunc(value.savedAt),
-    version: typeof value.version === 'number' ? Math.trunc(value.version) : 0,
-    library: value.library,
-  }
-}
-
 rssRoutes.get('/library', async (c) => {
-  const row = await c.env.DB.prepare('SELECT rss FROM users WHERE id = ?1')
-    .bind(c.get('userId'))
-    .first<{ rss: string | null }>()
-  const stored = readStored(row?.rss ?? null)
-  return c.json({ savedAt: stored?.savedAt ?? 0, library: stored?.library ?? null })
+  const stored = await loadRssLibrary(c.env.DB, c.get('userId'))
+  return c.json({ savedAt: stored.savedAt, library: stored.library })
 })
 
+/**
+ * Store the whole library the device holds.
+ *
+ * The client still sends it as one text body, because that is what a device that has been reading
+ * offline already has, and because refusing a library that did not fit is only meaningful while the
+ * whole thing is in front of the route. What changed is the write: the library becomes rows, so a
+ * save that only starred something touches one row instead of rewriting every subscription.
+ */
 rssRoutes.put('/library', async (c) => {
   const userId = c.get('userId')
   const body = await readJson<{ library?: unknown }>(c, JSON_BODY_LIMITS.quickAdd)
@@ -257,12 +237,10 @@ rssRoutes.put('/library', async (c) => {
   if (dropped > 0 || truncated) {
     throw ApiError.badRequest('The RSS library holds entries that cannot be stored', { dropped, truncated })
   }
+  const account = await c.env.DB.prepare('SELECT id FROM users WHERE id = ?1').bind(userId).first()
+  if (!account) throw ApiError.notFound('Account not found')
   const savedAt = Date.now()
-  const envelope = JSON.stringify({ savedAt, version: data.version, library: data } satisfies StoredLibrary)
-  const result = await c.env.DB.prepare('UPDATE users SET rss = ?1 WHERE id = ?2')
-    .bind(envelope, userId)
-    .run()
-  if ((result.meta?.changes ?? 0) === 0) throw ApiError.notFound('Account not found')
+  await storeRssLibrary(c.env.DB, userId, data, savedAt)
   return c.json({ savedAt })
 })
 

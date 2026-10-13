@@ -59,6 +59,7 @@ function libraryWith(feeds: number): string {
       etag: '',
       lastModified: '',
       paused: false,
+      pinned: false,
     })
   }
   return JSON.stringify(library)
@@ -127,6 +128,26 @@ describe('the library', () => {
     })
     expect(res.status).toBe(400)
     expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/cannot be stored/)
+  })
+
+  it('writes rows and leaves the account column empty', async () => {
+    await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(2) }) })
+    const rows = sqlite.prepare('SELECT COUNT(*) AS n FROM rss_feed WHERE user_id = ?1').get(USER) as { n: number }
+    expect(rows.n).toBe(2)
+    const state = sqlite.prepare('SELECT saved_at FROM rss_state WHERE user_id = ?1').get(USER) as { saved_at: number }
+    expect(state.saved_at).toBeGreaterThan(0)
+    expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?1').get(USER)).toEqual({ rss: null })
+  })
+
+  it('splits a library the old column still holds, on the way out of a GET', async () => {
+    const library = JSON.parse(libraryWith(1)) as RssLibrary
+    library.favorites = ['e7']
+    sqlite.prepare('UPDATE users SET rss = ?1 WHERE id = ?2').run(JSON.stringify({ savedAt: 4242, version: 2, library }), USER)
+    const body = (await (await request('/library')).json()) as { savedAt: number, library: RssLibrary }
+    expect(body.savedAt).toBe(4242)
+    expect(body.library.favorites).toEqual(['e7'])
+    expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?1').get(USER)).toEqual({ rss: null })
+    expect((sqlite.prepare('SELECT COUNT(*) AS n FROM rss_mark WHERE user_id = ?1').get(USER) as { n: number }).n).toBe(1)
   })
 
   it('keeps one account\'s library away from another', async () => {

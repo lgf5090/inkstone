@@ -76,6 +76,8 @@ export interface RssFeed {
   etag: string
   lastModified: string
   paused: boolean
+  /** Pinned feeds sort above the rest inside their own folder. */
+  pinned: boolean
 }
 
 /**
@@ -146,6 +148,7 @@ export function newFeed(id: string, url: string, title: string, order: number): 
     etag: '',
     lastModified: '',
     paused: false,
+    pinned: false,
   }
 }
 
@@ -312,6 +315,7 @@ function normaliseFeed(value: unknown, order: number): RssFeed | null {
     etag: text(value.etag, 200),
     lastModified: text(value.lastModified, 200),
     paused: flag(value.paused),
+    pinned: flag(value.pinned),
   }
 }
 

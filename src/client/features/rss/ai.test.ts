@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { type RssEntry, type RssFeed } from '@shared/rss/model'
 import { buildExcerptPrompts, buildPrompts } from './ai'
 
-const feed: RssFeed = { id: 'f1', url: 'https://x.test/feed', title: 'A weekly', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 0, lastAttemptAt: 0, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false }
+const feed: RssFeed = { id: 'f1', url: 'https://x.test/feed', title: 'A weekly', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 0, lastAttemptAt: 0, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false, pinned: false }
 const entry: RssEntry = {
   id: 'e1', feedId: 'f1', title: 'On passages', link: 'https://x.test/1', author: 'Author',
   publishedTs: null, summary: '', content: '<p>First paragraph.</p><p>Second one.</p>', imageUrl: '', audioUrl: '',

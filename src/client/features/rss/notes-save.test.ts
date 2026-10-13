@@ -51,7 +51,7 @@ vi.mock('../../store/ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() })
 
 const { saveArticleAsNote } = await import('./notes')
 
-const feed: RssFeed = { id: 'f1', url: 'https://x.test/feed', title: 'A weekly', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 0, lastAttemptAt: 0, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false }
+const feed: RssFeed = { id: 'f1', url: 'https://x.test/feed', title: 'A weekly', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 0, lastAttemptAt: 0, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false, pinned: false }
 const entry: RssEntry = { id: 'e1', feedId: 'f1', title: 'An article', link: 'https://x.test/1', author: 'A', publishedTs: 1, summary: '', content: '<p>Words.</p>', imageUrl: '', audioUrl: '' }
 
 beforeEach(async () => {

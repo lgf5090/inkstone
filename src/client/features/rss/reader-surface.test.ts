@@ -27,7 +27,7 @@ const PLAIN_LINK = 'https://example.com/posts/onboarding'
 const feed: RssFeed = {
   id: FEED_ID, url: 'https://rsshub.example.com/wechat/first', title: 'Bridged account',
   siteUrl: 'https://mp.weixin.qq.com', imageUrl: '', groupId: '', tags: [], order: 0,
-  updatedAt: 1, lastAttemptAt: 1, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false,
+  updatedAt: 1, lastAttemptAt: 1, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false, pinned: false,
 }
 
 function entryFor(link: string, id: string): RssEntry {
