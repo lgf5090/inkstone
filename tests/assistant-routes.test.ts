@@ -451,6 +451,61 @@ describe('providers', () => {
   })
 })
 
+describe('the vendor’s own model list', () => {
+  async function addProvider(): Promise<AssistantProvider> {
+    const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'DeepSeek',
+      protocol: 'openai',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-route-secret-123456',
+      models: ['placeholder'],
+    })
+    return created.provider
+  }
+
+  it('answers with the vendor ids and sends the stored key only to that vendor', async () => {
+    const provider = await addProvider()
+    const seen: { url: string, auth?: string }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      seen.push({ url: String(url), auth: headers.authorization })
+      return new Response(JSON.stringify({ data: [{ id: 'deepseek-chat', owned_by: 'deepseek' }, { id: '   ' }] }), {
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    const listed = await call<{ ok: boolean, models: { id: string, label: string }[] }>('GET', `/api/assistant/providers/${provider.id}/vendor-models`)
+    vi.unstubAllGlobals()
+    expect(listed.ok).toBe(true)
+    expect(listed.models.map((model) => model.id)).toEqual(['deepseek-chat'])
+    expect(seen[0]?.url).toBe('https://api.deepseek.com/v1/models')
+    expect(seen[0]?.auth).toBe('Bearer sk-route-secret-123456')
+  })
+
+  it('reports a vendor failure in the body rather than failing the screen', async () => {
+    const provider = await addProvider()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Invalid API key' } }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    })))
+    const response = await app.fetch(new Request(`http://localhost/api/assistant/providers/${provider.id}/vendor-models`, {
+      headers: { 'x-inkstone-client': '1' },
+    }), env as never, ctx)
+    const body = await response.json() as { ok: boolean, error: string, models: unknown[] }
+    vi.unstubAllGlobals()
+    expect(response.status, 'a dead vendor must not close the picker').toBe(200)
+    expect(body.ok).toBe(false)
+    expect(body.error).toContain('Invalid API key')
+    expect(body.models).toEqual([])
+  })
+
+  it('keeps another account’s provider out of reach', async () => {
+    const provider = await addProvider()
+    asUser(OTHER)
+    expect(await status('GET', `/api/assistant/providers/${provider.id}/vendor-models`)).toBe(404)
+    asUser(USER)
+  })
+})
+
 describe('offline chat', () => {
   it('streams the same events and persists both messages', async () => {
     await call('PATCH', '/api/assistant/settings', { offlineMode: true })

@@ -707,6 +707,9 @@ const allowed = new Map([
     "/* The model a reader picks is what the next write embeds with, so the field stays reachable on a\n          deployment that has no binding yet — the same rule the switch follows. */",
     "/**\n * What the row says the model can do, derived rather than stored: a second list of capabilities would\n * disagree with the switches that set them the first time one of the two is changed.\n */",
     "/**\n * The reader's own MCP servers.\n *\n * Each row is a third party that can be asked to act, so the mode is stated on the row rather than hidden\n * in a menu: \"ask each time\" puts an Approve card in the thread for every call, \"run directly\" lets the\n * model use it without one, and \"off\" keeps its tools away from the request entirely.\n */",
+    "// A phone has no room for the name, the badges and the two selects on one line, and",
+    "// the row overflowed over the one above it; the name takes the first line there.",
+    "// The manual form is the other way in, and the picker has to be out of its way first.",
   ]],
   ["src/client/features/chat/AutomationsView.tsx", [
     "/**\n * Reminders and routines.\n *\n * The schedule editor builds a `ScheduleSpec` and shows the sentence it means before anything is sent,\n * because the commonest mistake in a scheduler is a form that says one thing and stores another. The\n * sentence is assembled from the locale catalog, so a reader whose interface is Chinese reads the\n * schedule in their own language rather than as an English string pasted next to it.\n *\n * Times are typed as wall-clock readings in the assistant's timezone, which is what \"remind me at 9\"\n * means to the reader; the conversion is the server's job and lives in `assistant-schedule`.\n */",
@@ -824,6 +827,11 @@ const allowed = new Map([
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
     "/**\n * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,\n * and the field still takes any number the presets do not offer.\n */",
   ]],
+  ["src/client/features/chat/ModelPickerDialog.tsx", [
+    "/**\n * The vendor's own model list, ticked into the reader's assistant.\n *\n * Nothing here is a bundled catalogue: the rows are what this key can call right now, and when the listing\n * fails the dialog says so and leaves the manual entry as the way in. Search and the chips are the reader's\n * filters over that list — a service answers with hundreds of ids and the one they want is named something\n * like `deepseek-v3.2-exp`, so the list has to be narrowed without leaving the dialog.\n */",
+    "/** The vendor families in the list, so the chips are the account's own, not a list of brands. */",
+    "// The filter reads the reading table, so a listing that lands before the dictionary does must be rebuilt.",
+  ]],
   ["src/client/features/chat/NotificationCenter.tsx", [
     "/**\n * The notification centre: what the schedules delivered.\n *\n * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.\n * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through\n * the same sanitized pipeline as a reply rather than as raw text.\n */",
     "// A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.",
@@ -876,6 +884,10 @@ const allowed = new Map([
     "// The composer’s / picker lists the reader’s own MCP tools, so they have to be known before the",
     "// first slash is typed — otherwise the picker shows only the built-ins until settings are opened.",
     "/** The composer's live-web-search switch, kept between turns like the other per-composer settings. */",
+    "/** The vendor's own list for one provider, asked when the picker opens. */",
+    "/** Adds every id the reader ticked; returns how many landed, so the dialog can say so. */",
+    "// A listing that never arrived is said in the dialog, which still has its manual entry.",
+    "// One id the route refuses must not lose the ones the reader also ticked.",
   ]],
   ["src/client/features/chat/chat-taxonomy.test.ts", [
     "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
@@ -904,6 +916,11 @@ const allowed = new Map([
     "/** The modal portals onto document.body, so that is where its controls have to be looked for. */",
     "/**\n * A preset inside one named row. '128K' is offered by both the context row and the input ceiling, so a\n * lookup that ignores which row it belongs to cannot tell the two settings apart.\n */",
     "// The granular half of the editor sits behind the \"more settings\" door, as the reader reaches it.",
+  ]],
+  ["src/client/features/chat/model-picker.test.ts", [
+    "/**\n * The picker that turns a vendor's listing into the reader's models.\n *\n * Two halves are pinned: the filter over the list (search, \"not added yet\", the families the account\n * actually reports), and the drive — ticking rows has to reach the store with exactly those ids, and a\n * listing that failed must leave the manual entry reachable rather than an empty dialog.\n */",
+    "// The store's failure path names the class, so the mock has to carry it.",
+    "// A second press takes the tick back off, or a mis-click could not be undone.",
   ]],
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",
@@ -5265,6 +5282,7 @@ const allowed = new Map([
     "/** Exchange the turn's live answer for one of its earlier ones. */",
     "// ------------------------------------------------------------ external MCP servers",
     "/** The names the composer's / picker can offer, with the servers that failed to list. */",
+    "/** The vendor's own list, asked through the worker so the key never reaches the browser. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -12008,6 +12026,7 @@ const allowed = new Map([
     "/** The namespaced name the model is offered. */",
     "/** The server's own name for it, which is what `tools/call` must carry. */",
     "/** For `mcp_problem`: which external server failed to list, and why. */",
+    "/** One row of a vendor's own listing: what this key can call, named the way the vendor names it. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12665,6 +12684,7 @@ const allowed = new Map([
     "/** Enabled servers only: a disabled one must not reach the model through any path. */",
     "/** Kept so an external call can be replayed after the reader approves it. */",
     "/** A JSON column that should hold an object; anything else reads as no arguments. */",
+    "/**\n   * Everything a vendor's own listing endpoint needs, read in one go.\n   *\n   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this is the one place\n   * that asks for it, and it hands back a decrypted key only to the caller that is about to make a\n   * vetted outbound request with it.\n   */",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -12742,6 +12762,13 @@ const allowed = new Map([
     "// composer's switch real on this protocol instead of a field that gets ignored.",
     "// One `tools` array: Google's grounding entry is a sibling of the function declarations, and a",
     "// second `tools` key in this object would silently drop whichever came first.",
+  ]],
+  ["src/worker/assistant/vendor-models.ts", [
+    "/**\n * Asking a vendor which models a key can call.\n *\n * The picker shows what the account actually has: nothing here is a bundled guess, and when the listing\n * fails the reader is told and can still type an id. The three protocols answer with three shapes and put\n * the useful name in three places, so the mapping is the part that has to be right.\n *\n * The address is built from the same endpoint helpers the chat calls use, so a base URL that works for\n * answering also works for listing, and it goes through the same guard: a key must never be sent to an\n * address inside the network or after a redirect.\n */",
+    "/** A listing is a convenience, not a data migration: past this the picker is unusable anyway. */",
+    "// The same two suffixes `geminiEndpoint` strips, so a base copied from either address works here.",
+    "// Gemini answers with a resource name, and the part after the slash is the id the request needs.",
+    "/** A vendor's error body is the reader's own diagnostic, so the message is kept and the rest dropped. */",
   ]],
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
@@ -13083,6 +13110,7 @@ const allowed = new Map([
     "// An external tool is not in the built-in registry, so its namespaced shape is what says it is real —",
     "// the call itself is refused later if the server turned out not to offer it.",
     "/**\n * The settings screen's \"test\" button: connect, handshake, list.\n *\n * The token is taken from the stored row when the body does not carry a new one, so a reader can test what\n * they already saved without retyping it — and the response still never echoes it back.\n */",
+    "/**\n * What the reader's key can actually call, straight from the vendor.\n *\n * The picker offers these ids rather than a bundled list, so a model that is not on this account never\n * looks like a bug. A failure is reported in the body rather than as a status the client has to\n * special-case: the screen still has to open, with the manual entry as the way forward.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -13393,6 +13421,11 @@ const allowed = new Map([
     "/** The JSON body a protocol would put on the wire for one request. */",
     "// Asserting only the absence would also pass when the whole tools key vanished.",
     "// Two keys in one object literal would have silently dropped one of them; both have to be present.",
+  ]],
+  ["tests/assistant-vendor-models.test.ts", [
+    "/**\n * Asking a vendor what its key can call.\n *\n * The picker has to show the account's real list, so the three shapes each put the name somewhere else\n * and a fourth failure mode — a base URL that points inside the network — has to be refused before the\n * request leaves. Recorded frames, not a live service.\n */",
+    "// The contract is the request option plus the name given to the answer: a followed redirect would",
+    "// carry the bearer key to a host nobody vetted, and a bare \"HTTP 302\" is not what the reader should read.",
   ]],
   ["tests/backlink-mentions.test.ts", [
     "/**\n * \"deep research notes\" in Chinese, plus the words it is made of, written as code points\n * so this file stays free of Han — the i18n gate allows Chinese only in the zh locale.\n * These strings are the point of the test: a CJK run is a single index token, so finding\n * the title in the middle of a sentence only works through the segmented phrase query.\n */",

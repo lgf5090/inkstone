@@ -63,6 +63,7 @@ import type {
   AssistantProvider,
   AssistantSettings,
   AssistantUsage,
+  AssistantVendorModel,
   Automation as AssistantAutomation,
   AutomationRun as AssistantAutomationRun,
   MemoryReview,
@@ -885,6 +886,9 @@ export const api = {
       request<{ provider: AssistantProvider }>(`/api/assistant/providers/${id}`, { method: 'PATCH', body }),
     deleteProvider: (id: string) => request<{ deleted: true }>(`/api/assistant/providers/${id}`, { method: 'DELETE' }),
     models: () => request<{ models: AssistantModel[] }>('/api/assistant/models'),
+    /** The vendor's own list, asked through the worker so the key never reaches the browser. */
+    vendorModels: (id: string) =>
+      request<{ ok: boolean, error: string | null, models: AssistantVendorModel[] }>(`/api/assistant/providers/${id}/vendor-models`),
     createModel: (body: Record<string, unknown>) =>
       request<{ model: AssistantModel }>('/api/assistant/models', { method: 'POST', body }),
     updateModel: (id: string, body: Record<string, unknown>) =>

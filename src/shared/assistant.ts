@@ -73,6 +73,14 @@ export interface AssistantProvider {
   updatedAt: number
 }
 
+/** One row of a vendor's own listing: what this key can call, named the way the vendor names it. */
+export interface AssistantVendorModel {
+  id: string
+  label: string
+  ownedBy: string | null
+  created: number | null
+}
+
 /** What a model is asked to do, so the picker only offers the ones that answer. */
 export const ASSISTANT_MODEL_PURPOSES = ['chat', 'image_generate', 'image_edit'] as const
 export type AssistantModelPurpose = (typeof ASSISTANT_MODEL_PURPOSES)[number]
@@ -826,7 +834,7 @@ export const PROVIDER_PRESETS: readonly { id: string, label: string, protocol: A
   { id: 'kimi', label: 'Kimi (Moonshot)', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-8k', 'kimi-latest'] },
   { id: 'qwen', label: 'Qwen (DashScope)', protocol: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-turbo'] },
   { id: 'openrouter', label: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', models: ['deepseek/deepseek-chat'] },
-  { id: 'local', label: 'Local / other', protocol: 'openai', baseUrl: 'http://127.0.0.1:11434/v1', models: [''] },
+  { id: 'other', label: 'Gateway / other (https)', protocol: 'openai', baseUrl: 'https://', models: [''] },
 ]
 
 /** A model id the settings form will accept, so a stray space cannot poison a request. */

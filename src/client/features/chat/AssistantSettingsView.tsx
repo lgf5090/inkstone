@@ -13,6 +13,7 @@ import { isValidTimeZone } from '@shared/assistant-schedule'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { REASONING_LABELS, REASONING_ORDER, formatContext } from './ComposerControls'
 import { ModelEditorDialog } from './ModelEditorDialog'
+import { ModelPickerDialog } from './ModelPickerDialog'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -129,7 +130,7 @@ function ModelBadges({ model }: { model: AssistantModel }) {
   const badges = modelBadges(model)
   if (badges.length === 0) return null
   return (
-    <span className="flex shrink-0 items-center gap-1">
+    <span className="flex min-w-0 flex-wrap items-center gap-1">
       {badges.map((badge) => (
         <span key={badge.key} className="rounded-full border border-[var(--border-subtle)] px-1.5 py-px text-[10px] text-[var(--text-quaternary)]">
           {badge.label}
@@ -148,8 +149,10 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
   const addModel = useAssistant((state) => state.addModel)
   const activateModel = useAssistant((state) => state.activateModel)
   const updateModel = useAssistant((state) => state.updateModel)
+  const toast = useUi((state) => state.toast)
   const [addingProvider, setAddingProvider] = useState(false)
   const [addingModel, setAddingModel] = useState<AssistantProvider | null>(null)
+  const [picking, setPicking] = useState<AssistantProvider | null>(null)
   const [editing, setEditing] = useState<AssistantModel | null>(null)
 
   const byProvider = useMemo(() => providers.map((provider) => ({
@@ -173,6 +176,9 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                   {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {provider.hasKey ? t('assistant.settings.key_stored') : t('assistant.settings.key_missing')}
                 </p>
               </div>
+              <IconButton label={t('assistant.picker.open')} size="xs" onClick={() => setPicking(provider)}>
+                <Download size={13} />
+              </IconButton>
               <IconButton label={t('assistant.settings.add_model')} size="xs" onClick={() => setAddingModel(provider)}>
                 <Plus size={13} />
               </IconButton>
@@ -198,14 +204,16 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
             ) : (
               <ul className="flex flex-col gap-px pl-6">
                 {list.map((model) => (
-                  <li key={model.id} className="flex items-center gap-2">
+                  <li key={model.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <button
                       type="button"
                       role="radio"
                       aria-checked={settings.activeModelId === model.id}
                       onClick={() => void activateModel(model.id)}
                       className={cn(
-                        'flex min-w-0 flex-1 items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[12.5px]',
+                        // A phone has no room for the name, the badges and the two selects on one line, and
+                        // the row overflowed over the one above it; the name takes the first line there.
+                        'flex min-w-0 basis-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1 text-left text-[12.5px] sm:basis-auto sm:flex-1',
                         settings.activeModelId === model.id
                           ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
                           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
@@ -222,7 +230,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                     <IconButton label={t('assistant.settings.delete_model')} size="xs" onClick={() => void removeModel(model.id)}>
                       <Trash2 size={12} />
                     </IconButton>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1">
                       <Select
                         aria-label={t('assistant.composer.thinking')}
                         value={model.reasoning}
@@ -284,6 +292,21 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
 
       <ProviderForm open={addingProvider} onClose={() => setAddingProvider(false)} />
       <ModelForm provider={addingModel} onClose={() => setAddingModel(null)} onAdd={addModel} />
+      {picking && (
+        <ModelPickerDialog
+          provider={picking}
+          onAdded={(count) => {
+            if (count) toast({ title: t('assistant.picker.added', { count }) })
+          }}
+          onClose={() => setPicking(null)}
+          onCustom={() => {
+            // The manual form is the other way in, and the picker has to be out of its way first.
+            const target = picking
+            setPicking(null)
+            setAddingModel(target)
+          }}
+        />
+      )}
     </>
   )
 }

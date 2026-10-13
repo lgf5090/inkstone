@@ -62,6 +62,7 @@ import { AssistantRunner } from '../assistant/runner'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
+import { listVendorModels } from '../assistant/vendor-models'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
 import { reasoningValue } from '@shared/assistant'
 import {
@@ -1198,6 +1199,19 @@ assistantRoutes.patch('/providers/:id', async (c) => {
   })
   if (!provider) throw ApiError.notFound('Provider not found')
   return c.json({ provider })
+})
+
+/**
+ * What the reader's key can actually call, straight from the vendor.
+ *
+ * The picker offers these ids rather than a bundled list, so a model that is not on this account never
+ * looks like a bug. A failure is reported in the body rather than as a status the client has to
+ * special-case: the screen still has to open, with the manual entry as the way forward.
+ */
+assistantRoutes.get('/providers/:id/vendor-models', async (c) => {
+  const access = await store(c).vendorAccess(requiredId(c.req.param('id')))
+  if (!access) throw ApiError.notFound('Provider not found')
+  return c.json(await listVendorModels(access.protocol, access.baseUrl, access.apiKey))
 })
 
 assistantRoutes.delete('/providers/:id', async (c) => {

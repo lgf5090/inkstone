@@ -532,6 +532,27 @@ export class AssistantStore {
     return (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? ''
   }
 
+  /**
+   * Everything a vendor's own listing endpoint needs, read in one go.
+   *
+   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this is the one place
+   * that asks for it, and it hands back a decrypted key only to the caller that is about to make a
+   * vetted outbound request with it.
+   */
+  async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
+    const row = await this.one<ProviderRow>(
+      `SELECT id, label, protocol, base_url, key_ciphertext, created_at, updated_at
+         FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    if (!row) return null
+    return {
+      protocol: pickEnum(row.protocol, ASSISTANT_PROTOCOLS, 'openai'),
+      baseUrl: row.base_url,
+      apiKey: await this.providerKey(row),
+    }
+  }
+
   // ------------------------------------------------------------------ models
 
   async listModels(): Promise<AssistantModel[]> {

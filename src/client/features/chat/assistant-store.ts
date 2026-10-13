@@ -25,6 +25,7 @@ import type {
   AssistantNotification,
   AssistantProvider,
   AssistantSettings,
+  AssistantVendorModel,
   Automation as AssistantAutomation,
   AutomationRun as AssistantAutomationRun,
   ChatStreamEvent,
@@ -240,6 +241,13 @@ interface AssistantState {
   updateModel: (id: string, body: Partial<AssistantModel>) => Promise<void>
   removeModel: (id: string) => Promise<void>
   activateModel: (id: string) => Promise<void>
+  /** The vendor's own list for one provider, asked when the picker opens. */
+  vendorModels: AssistantVendorModel[]
+  vendorModelsError: string | null
+  vendorModelsLoading: boolean
+  loadVendorModels: (providerId: string) => Promise<void>
+  /** Adds every id the reader ticked; returns how many landed, so the dialog can say so. */
+  addVendorModels: (providerId: string, ids: string[]) => Promise<number>
 }
 
 let inflight: AbortController | null = null
@@ -331,6 +339,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   mcpServers: [],
   mcpProblems: [],
   mcpTools: [],
+  vendorModels: [],
+  vendorModelsError: null,
+  vendorModelsLoading: false,
 
   setView: (view) => set({ view }),
 
@@ -1196,6 +1207,41 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     } catch (error) {
       toast(error)
     }
+  },
+
+  loadVendorModels: async (providerId) => {
+    set({ vendorModelsLoading: true, vendorModelsError: null })
+    try {
+      const listing = await api.assistant.vendorModels(providerId)
+      set({
+        vendorModels: listing.models,
+        vendorModelsError: listing.ok ? null : listing.error,
+        vendorModelsLoading: false,
+      })
+    } catch (error) {
+      // A listing that never arrived is said in the dialog, which still has its manual entry.
+      set({
+        vendorModels: [],
+        vendorModelsError: error instanceof Error ? error.message : t('assistant.model.list_failed'),
+        vendorModelsLoading: false,
+      })
+    }
+  },
+
+  addVendorModels: async (providerId, ids) => {
+    let added = 0
+    for (const id of ids) {
+      const listed = get().vendorModels.find((entry) => entry.id === id)
+      try {
+        await api.assistant.createModel({ providerId, model: id, ...(listed ? { label: listed.label } : {}) })
+        added += 1
+      } catch (error) {
+        // One id the route refuses must not lose the ones the reader also ticked.
+        toast(error)
+      }
+    }
+    if (added) await get().loadSettings()
+    return added
   },
 
   updateModel: async (id, body) => {
