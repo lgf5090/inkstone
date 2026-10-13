@@ -2,7 +2,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { emptyLibrary, parseRssLibrary, type RssLibrary } from '../src/shared/rss/model'
+import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '../src/shared/rss/model'
+import { diffLibrary } from '../src/shared/rss/patch'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
@@ -50,6 +51,7 @@ function libraryWith(feeds: number): string {
       siteUrl: '',
       imageUrl: '',
       groupId: '',
+      tags: [],
       order: index,
       updatedAt: 1,
       lastAttemptAt: 1,
@@ -154,6 +156,119 @@ describe('the library', () => {
     await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(1) }) })
     const other = (await (await request('/library', {}, 'other')).json()) as { library: unknown }
     expect(other.library).toBeNull()
+  })
+})
+
+describe('the change set', () => {
+  async function put(library: string) {
+    const res = await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library }) })
+    expect(res.status).toBe(200)
+  }
+
+  async function getLibrary(): Promise<RssLibrary> {
+    return ((await (await request('/library')).json()) as { library: RssLibrary }).library
+  }
+
+  function rows(table: string): unknown[] {
+    return sqlite.prepare(`SELECT * FROM ${table} WHERE user_id = ?1`).all(USER) as unknown[]
+  }
+
+  it('adds a mark without writing the rest of the library back', async () => {
+    const base = JSON.parse(libraryWith(2)) as RssLibrary
+    base.favorites = ['e1']
+    await put(JSON.stringify(base))
+    const before = rows('rss_feed').length
+    const res = await request('/patch', json({
+      patch: {
+        feeds: { upsert: [], remove: [] },
+        groups: { upsert: [], remove: [] },
+        tags: { upsert: [], remove: [] },
+        marks: { upsert: [{ kind: 'star', entryId: 'e9', value: '', at: 1234 }], remove: [] },
+        state: null,
+      },
+    }))
+    expect(res.status).toBe(200)
+    // The mark row, and the account's own state row, which is what a save stamps.
+    expect((await res.json()).rows).toBe(2)
+    expect(rows('rss_feed')).toHaveLength(before)
+    expect((await getLibrary()).favorites.sort()).toEqual(['e1', 'e9'])
+  })
+
+  it('keeps what a second device marked in the meantime', async () => {
+    const shared = JSON.parse(libraryWith(1)) as RssLibrary
+    shared.readIds = ['e1']
+    await put(JSON.stringify(shared))
+    // Device B loaded the library before device A's star landed, and now sends only its own change.
+    const older = structuredClone(shared)
+    const mine = structuredClone(shared)
+    mine.favorites = ['e7']
+    const patch = diffLibrary(older, mine)
+    expect((await request('/patch', json({ patch }))).status).toBe(200)
+    const back = await getLibrary()
+    expect(back.favorites).toEqual(['e7'])
+    expect(back.readIds).toEqual(['e1'])
+    expect(rows('rss_mark')).toHaveLength(2)
+  })
+
+  it('takes a feed and its tag rows out together', async () => {
+    const base = JSON.parse(libraryWith(2)) as RssLibrary
+    base.feeds[0].tags = ['tech']
+    await put(JSON.stringify(base))
+    expect(rows('rss_feed_tag')).toHaveLength(1)
+    const patch = diffLibrary(base, { ...base, feeds: [base.feeds[1]] })
+    expect((await request('/patch', json({ patch }))).status).toBe(200)
+    expect(rows('rss_feed')).toHaveLength(1)
+    expect(rows('rss_feed_tag')).toHaveLength(0)
+  })
+
+  it('migrates a library the old column still holds before folding the change in', async () => {
+    const legacy = JSON.parse(libraryWith(1)) as RssLibrary
+    sqlite.prepare('UPDATE users SET rss = ?1 WHERE id = ?2').run(JSON.stringify({ savedAt: 500, version: 2, library: legacy }), USER)
+    const next = structuredClone(legacy)
+    next.hiddenIds = ['e3']
+    expect((await request('/patch', json({ patch: diffLibrary(legacy, next) }))).status).toBe(200)
+    const back = await getLibrary()
+    expect(back.hiddenIds).toEqual(['e3'])
+    expect(back.feeds).toHaveLength(1)
+    expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?1').get(USER)).toEqual({ rss: null })
+  })
+
+  it('refuses a change set it cannot read', async () => {
+    for (const patch of [null, 'x', [], {}, { feeds: 'no' }, {
+      feeds: { upsert: [], remove: [] },
+      groups: { upsert: [], remove: [] },
+      tags: { upsert: [], remove: [] },
+      marks: { upsert: [{ kind: 'other', entryId: 'e1', value: '', at: 1 }], remove: [] },
+      state: null,
+    }]) {
+      expect((await request('/patch', json({ patch }))).status).toBe(400)
+    }
+  })
+
+  it('refuses a change set that would push the library past its ceiling', async () => {
+    const base = JSON.parse(libraryWith(1)) as RssLibrary
+    base.readIds = Array.from({ length: RSS_LIMITS.readIds }, (_unused, index) => `e${index}`)
+    await put(JSON.stringify(base))
+    const extra = Array.from({ length: 10 }, (_unused, index) => ({ kind: 'read', entryId: `new${index}`, value: '', at: 1 }))
+    const res = await request('/patch', json({
+      patch: {
+        feeds: { upsert: [], remove: [] },
+        groups: { upsert: [], remove: [] },
+        tags: { upsert: [], remove: [] },
+        marks: { upsert: extra, remove: [] },
+        state: null,
+      },
+    }))
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/cannot be stored/)
+  })
+
+  it('says nothing at all for a change set that changes nothing', async () => {
+    const base = JSON.parse(libraryWith(1)) as RssLibrary
+    await put(JSON.stringify(base))
+    const res = await request('/patch', json({ patch: diffLibrary(base, structuredClone(base)) }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).rows).toBe(0)
   })
 })
 

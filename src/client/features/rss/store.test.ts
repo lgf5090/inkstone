@@ -8,7 +8,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { channelEntries } from '@shared/rss/reading'
-import { RSS_LIMITS } from '@shared/rss/model'
+import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
+import { applyLibraryPatch } from '@shared/rss/patch'
 
 const feed = {
   id: 'f1',
@@ -17,6 +18,7 @@ const feed = {
   siteUrl: 'https://example.com/',
   imageUrl: '',
   groupId: '',
+  tags: [],
   order: 0,
   updatedAt: 1,
   lastAttemptAt: 1,
@@ -26,9 +28,10 @@ const feed = {
   etag: '"v1"',
   lastModified: 'Tue, 02 Sep 2025 08:30:00 GMT',
   paused: false,
+  pinned: false,
 }
 
-const saved = { version: 1, feeds: [feed], groups: [], readIds: [], favorites: [], readLater: [], opened: {}, savedNotes: {}, lastChannel: 'feed:f1' }
+const saved = { version: 1, feeds: [feed], groups: [], readIds: [], favorites: [], readLater: [], hiddenIds: [], opened: {}, savedNotes: {}, lastChannel: 'feed:f1' }
 
 const atom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Example</title>
   <link href="https://example.com/"/><entry><title>First</title><link href="https://example.com/1"/>
@@ -64,6 +67,13 @@ vi.mock('../../lib/api', () => ({
         if (saveFails) return Promise.reject(new Error('The RSS library holds entries that cannot be stored'))
         cache.set('library', JSON.parse(library))
         return Promise.resolve({ savedAt: Date.now() })
+      },
+      patch: (patch: unknown) => {
+        calls.push({ path: 'patch', body: patch })
+        if (saveFails) return Promise.reject(new Error('The RSS library holds entries that cannot be stored'))
+        const base = parseRssLibrary(cache.get('library')).data ?? emptyLibrary()
+        cache.set('library', applyLibraryPatch(base, patch as never))
+        return Promise.resolve({ savedAt: Date.now(), rows: 1 })
       },
       fetch: (requests: Array<{ url: string, etag?: string, lastModified?: string }>) => {
         calls.push({ path: 'fetch', body: requests })
@@ -176,9 +186,13 @@ describe('keeping a subscription at the top', () => {
     await boot()
     calls.length = 0
     useRss.getState().setPinned('f1', true)
-    await vi.waitFor(() => expect(calls.filter(call => call.path === 'save').length).toBe(1))
-    const sent = calls.filter(call => call.path === 'save').at(-1)?.body as { feeds: Array<{ id: string, pinned: boolean }> }
-    expect(sent.feeds.find(item => item.id === 'f1')?.pinned).toBe(true)
+    await vi.waitFor(() => expect(calls.filter(call => call.path === 'patch').length).toBe(1))
+    const sent = calls.filter(call => call.path === 'patch').at(-1)?.body as {
+      feeds: { upsert: Array<{ id: string, pinned: boolean }> }
+      marks: { upsert: unknown[] }
+    }
+    expect(sent.feeds.upsert.map(feed => [feed.id, feed.pinned])).toEqual([['f1', true]])
+    expect(sent.marks.upsert).toEqual([])
   })
 
   it('does nothing at all when the subscription is already as asked', async () => {
@@ -223,7 +237,8 @@ describe('loading on a device', () => {
     await useRss.getState().open({ kind: 'starred' })
     expect(useRss.getState().library.lastChannel).toBe('starred')
     await useRss.getState().flush()
-    expect((calls.filter(call => call.path === 'save').at(-1)?.body as { lastChannel: string }).lastChannel).toBe('starred')
+    const patch = calls.filter(call => call.path === 'patch').at(-1)?.body as { state: { lastChannel: string } | null }
+    expect(patch.state?.lastChannel).toBe('starred')
   })
 })
 
@@ -392,9 +407,40 @@ describe('saving', () => {
     useRss.getState().toggleLater('e2')
     await useRss.getState().flush()
     expect(useRss.getState().saveError).toBeNull()
-    const library = (calls.filter(call => call.path === 'save').at(-1)?.body) as { favorites: string[], readLater: string[] }
-    expect(library.favorites).toEqual(['e1'])
-    expect(library.readLater).toEqual(['e2'])
+    const patch = (calls.filter(call => call.path === 'patch').at(-1)?.body) as {
+      marks: { upsert: Array<{ kind: string, entryId: string }> }
+    }
+    expect(patch.marks.upsert.map(row => `${row.kind}:${row.entryId}`).sort()).toEqual(['later:e2', 'star:e1'])
+    expect((cache.get('library') as RssLibrary).favorites).toEqual(['e1'])
+  })
+
+  it('sends one mark rather than the whole library', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    calls.length = 0
+    useRss.getState().toggleFavorite('e1')
+    await useRss.getState().flush()
+    const writes = calls.filter(call => call.path === 'patch')
+    expect(writes).toHaveLength(1)
+    expect(calls.filter(call => call.path === 'save')).toHaveLength(0)
+    const patch = writes[0].body as {
+      feeds: { upsert: unknown[], remove: unknown[] }
+      groups: { upsert: unknown[], remove: unknown[] }
+      marks: { upsert: Array<{ kind: string, entryId: string, at: number }> }
+    }
+    expect(patch.feeds).toEqual({ upsert: [], remove: [] })
+    expect(patch.groups).toEqual({ upsert: [], remove: [] })
+    expect(patch.marks.upsert).toEqual([{ kind: 'star', entryId: 'e1', value: '', at: expect.any(Number) }])
+  })
+
+  it('sends nothing at all for a change that changed nothing', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    calls.length = 0
+    useRss.getState().setPaused('f1', false)
+    useRss.getState().setPinned('f1', false)
+    await useRss.getState().flush()
+    expect(calls).toHaveLength(0)
   })
 
   it('batches several quick changes into one write', async () => {
@@ -404,9 +450,10 @@ describe('saving', () => {
     useRss.getState().toggleFavorite('c')
     await new Promise(resolve => window.setTimeout(resolve, 1200))
     await useRss.getState().flush()
-    const writes = calls.filter(call => call.path === 'save')
+    const writes = calls.filter(call => call.path === 'patch')
     expect(writes.length).toBeLessThanOrEqual(2)
-    expect((writes.at(-1)?.body as { favorites: string[] }).favorites).toEqual(['c', 'b', 'a'])
+    const marks = (writes.at(-1)?.body as { marks: { upsert: Array<{ entryId: string }> } }).marks
+    expect(marks.upsert.map(row => row.entryId).sort()).toEqual(['a', 'b', 'c'])
   })
 })
 

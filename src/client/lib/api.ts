@@ -535,6 +535,9 @@ export const api = {
     load: () => request<{ savedAt: number; library: unknown }>('/api/rss/library'),
     save: (library: string) =>
       request<{ savedAt: number }>('/api/rss/library', { method: 'PUT', body: { library } }),
+    /** One device's changes, folded into the account's rows by the Worker. */
+    patch: (patch: unknown) =>
+      request<{ savedAt: number; rows: number }>('/api/rss/patch', { method: 'POST', body: { patch } }),
     fetch: (requests: Array<{ url: string; etag?: string; lastModified?: string }>) =>
       request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
     /** The same-origin address an article image or an episode enclosure loads from. */

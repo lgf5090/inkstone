@@ -4846,6 +4846,7 @@ const allowed = new Map([
     "/** Device data from an earlier build: keep what parses, drop the rest rather than half-trusting it. */",
     "/** Pin a subscription to the head of its shelf, or let it back down. */",
     "/**\n     * Pin a subscription, or let it back down into the shelf.\n     *\n     * The flag alone would leave two orders in the library — the reader's arrangement and the pinned\n     * band — and a drag or a move-up would then compute its index from one and land in the other.\n     * So the row is also moved to where the flag puts it, which keeps `order` and the array the same\n     * sequence the rail draws.\n     */",
+    "/**\n   * What this device last handed the account, in full.\n   *\n   * Every later write is measured from it, which is what makes a save a change set rather than a\n   * copy of the whole library — and why a write the server refused does not have to be repeated by\n   * hand: the next change set is still computed from the last one that landed, so it carries both.\n   */",
   ]],
   ["src/client/features/rss/vault.test.ts", [
     "/**\n * A note folder read as a subscription — the conversion, and the two ways it could lie.\n *\n * The rows must be the folder *and everything under it*, because that is what a folder means\n * everywhere else in the app; and a note in the trash or the archive must not appear, because the\n * channel offers no way out of either. The shapes are pinned too: no link, no body, the folder's own\n * id as the source, so nothing downstream mistakes a note for an article it can star or hide.\n */",
@@ -5359,6 +5360,7 @@ const allowed = new Map([
     "/** What the owner's own question answers: nothing, or where the show is and how long it may run — and in\n * either case how many browsers have been reading it lately (PR-M7). */",
     "/**\n   * Bodies for the local search index. Ids travel in the body, not the query string, so a page of 40\n   * note ids cannot outgrow the URL or land in an access log.\n   */",
     "/** The same-origin address an article image or an episode enclosure loads from. */",
+    "/** One device's changes, folded into the account's rows by the Worker. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/**\n * The address bar as the one source of truth for which app tab is up.\n *\n * The tab is a path rather than a store field so that a rail button is an ordinary link: the\n * address a reader copies is the screen they are looking at, the back button walks the tabs they\n * visited, and a cold load of `/calendar` needs nothing but the document the server already sends.\n * `history.pushState` fires no event of its own, so the writers here announce their own changes and\n * `popstate` covers everything the browser does by itself.\n */",
@@ -12138,6 +12140,16 @@ const allowed = new Map([
     "/** Any quantifier that is not inside a class, not a group prefix, and not a fixed `{1}` or `{2}`. */",
     "/** The group body cut at every `|` that is not inside a nested group or a class. */",
   ]],
+  ["src/shared/rss/marks.ts", [
+    "/**\n * The reading marks, as rows.\n *\n * Six arrays and two maps inside the library — what has been read, starred, saved for later,\n * dismissed, opened, and the note an article became — are one table with a `kind` column. This\n * module is the only place that knows how the two shapes map onto each other, so the Worker's row\n * store and the client's change set cannot drift apart into two different ideas of what a mark is.\n */",
+    "/** The mark kinds: four lists, one clock, and the two note ids an article was saved as. */",
+    "/** The kinds stored as an ordered list, where the newest mark is the first entry. */",
+    "/** What the mark points at: the note id for `note` and `copy`, empty for every other kind. */",
+    "/** When it happened. For a list mark this is what orders the list newest first. */",
+    "/** `<entryId>|<kind>`, the way the library spells a saved-note key. */",
+    "/** The library's marks, as the rows that carry them. */",
+    "/** The mark rows a library implies, put back into the library shape it came from. */",
+  ]],
   ["src/shared/rss/model.test.ts", [
     "// A leading # and a trailing / are how a tag is typed, not what it is called; the folded",
     "// duplicate is dropped, and a name with a space or a comma in it never was a name.",
@@ -12174,6 +12186,20 @@ const allowed = new Map([
     "// Two folders of the same name are a mistake only under the same parent: `front-end/articles`",
     "// and `design/articles` are the shape a reader builds on purpose.",
     "/** Pinned feeds sort above the rest inside their own folder. */",
+  ]],
+  ["src/shared/rss/patch.test.ts", [
+    "/** The same account as another device left it: a different star, a feed this one has never seen. */",
+  ]],
+  ["src/shared/rss/patch.ts", [
+    "/**\n * What changed between two libraries, in rows.\n *\n * The account used to be written as one blob: a device that starred an article sent every\n * subscription and every mark it knew about, and whatever a second device had marked in the\n * meantime was gone. A change set names only what moved, so two devices reading the same library\n * add to it instead of replacing each other.\n *\n * The diff is computed against what the sender last handed over rather than against what the server\n * holds, which is what keeps a retry after a refused write from losing the first attempt: the next\n * change set is still measured from the last one that landed, so it carries both.\n */",
+    "/** The four lists, and the library field each one lives in. */",
+    "/** The library as mark rows. A list row's stamp is left at zero: its position is its order. */",
+    "/**\n * The rows that turn `from` into `to`.\n *\n * `now` stamps a mark that is new to this sender. A list mark's stamp is what orders the list on the\n * way back — newest first — so a clock is passed in rather than read: a test has to be able to name\n * the stamp it expects, and two devices seconds apart must not land in each other's sequence.\n */",
+    "/** True when nothing would be written, which is how a save becomes a no-op. */",
+    "/**\n * A change set that arrived over the network, checked before anything is folded in.\n *\n * The client is the only sender, so anything else is either an old build or somebody at a console,\n * and neither gets to have a shape the merge would have to guess at: every field has to be there,\n * of the right kind, and no larger than the library it is meant to update.\n */",
+    "/** `{ upsert: [...], remove: [...] }`, each side an array of at most the ceiling it belongs to. */",
+    "/** How large a change set is, counted the way the route counts a body. */",
+    "/**\n * Fold a change set into the library the account already holds.\n *\n * A mark this patch adds goes to the front of its list, because newest-first is the order the\n * reader's own lists are kept in and the ceiling trims from the back.\n */",
   ]],
   ["src/shared/rss/platform.test.ts", [
     "/**\n * The platform table, on the addresses the reference reader's own library contains.\n *\n * The suffix rule is the one worth pinning: a host that ends in the string `youtube.com` without\n * being inside it is somebody else's page, and a badge that reads it as YouTube would be telling the\n * reader to trust an address that is pretending to be a known one.\n */",
@@ -12507,11 +12533,9 @@ const allowed = new Map([
   ]],
   ["src/worker/lib/rss-store.ts", [
     "/**\n * The reading library as rows.\n *\n * The account used to keep this as one JSON column, so starring an article sent the whole library\n * and a second device's newer save quietly replaced subscriptions it had never touched. Rows let one\n * change stay one change: a write is diffed against what is stored and only the rows that moved are\n * touched. Article text is still not here on purpose — a feed's entries are rebuilt from the network\n * and live on the device that fetched them, so what the account owns is the decisions a reader made\n * about them.\n *\n * The legacy column doubles as the migration marker, which is what separates an empty library from\n * an unmigrated one: rows are only authoritative once the account has an `rss_state` row, and the\n * column is set to NULL the moment it has been split. A reader who deleted every subscription keeps\n * the state row and an empty table set, and never re-runs the split.\n */",
-    "/** The marks that were six arrays and two maps inside the JSON blob. */",
     "/** D1 binds at most 100 variables per statement; stay under it the way `routes/tags.ts` does. */",
     "/** The written columns, in the order the values come. Primary key columns lead. */",
     "/** The identifying columns, without `user_id`. */",
-    "/** `<entryId>|<kind>`, the way the library spells a saved-note key. */",
     "/** What the old column held: the library plus the instant it was accepted, in an envelope. */",
     "/**\n * The stored rows, in the shape `parseRssLibrary` expects.\n *\n * The re-assembled object goes back through the whitelist rather than being built straight into a\n * library, so a half-written row set reads exactly like a half-written blob would: the ceilings, the\n * folder-link repair and the canonical-address dedupe cannot be bypassed by whoever wrote the rows.\n */",
     "/**\n * The mark rows a library implies.\n *\n * `keep` is what is already stored, so a full save does not churn rows it merely re-ordered: a list\n * mark's position is the reader's newest-first order, and rewriting five thousand rows to say the\n * same thing in another order is slow and pointless. A list mark that is new gets a small negative\n * `at` counting up from zero, which is what lets a library migrating out of the JSON blob keep its\n * order, while a mark made from now on carries a real clock and sorts ahead of all of them.\n */",
@@ -12707,6 +12731,7 @@ const allowed = new Map([
     "// Cleared once the headers are in: the body keeps streaming for as long as the listener",
     "// plays, and a timer that outlives this function would cut it off mid-episode.",
     "/**\n * Store the whole library the device holds.\n *\n * The client still sends it as one text body, because that is what a device that has been reading\n * offline already has, and because refusing a library that did not fit is only meaningful while the\n * whole thing is in front of the route. What changed is the write: the library becomes rows, so a\n * save that only starred something touches one row instead of rewriting every subscription.\n */",
+    "/**\n * Apply a change set: the rows one device touched, and nothing else.\n *\n * The merge happens here rather than on the device, because the account is the only place that\n * knows what is already stored. A mark this change set does not mention keeps its row, which is the\n * whole point: two devices reading the same library add to it instead of writing each other out.\n * The merged result still goes through the same whitelist as a whole save, so a change set that\n * would push the library past its ceilings is refused in the same words.\n */",
   ]],
   ["src/worker/routes/search.ts", [
     "// Trashing queues an fts_index_queue 'delete' row and purgeStaleFtsRows drops any row whose",
@@ -13149,6 +13174,8 @@ const allowed = new Map([
   ]],
   ["tests/rss-route.test.ts", [
     "/** The upstream a test wants: what each address answers, and what it was asked with. */",
+    "// The mark row, and the account's own state row, which is what a save stamps.",
+    "// Device B loaded the library before device A's star landed, and now sends only its own change.",
   ]],
   ["tests/search-folder-scope.test.ts", [
     "// A parent_id cycle has to terminate rather than spin.",

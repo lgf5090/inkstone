@@ -34,6 +34,7 @@ import {
   type RssLibrary,
 } from '@shared/rss/model'
 import { channelKey, descendantGroupIds, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, orderByStaleness, parseChannelKey, refreshBackoffMs, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
+import { diffLibrary, patchChars, patchIsEmpty } from '@shared/rss/patch'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
 import type { RssAiKind } from './ai'
@@ -200,6 +201,14 @@ export const useRss = create<RssState>((set, get) => {
   let saveInFlight: Promise<void> | null = null
   let dirty = false
   let index: CacheIndex = emptyIndex()
+  /**
+   * What this device last handed the account, in full.
+   *
+   * Every later write is measured from it, which is what makes a save a change set rather than a
+   * copy of the whole library — and why a write the server refused does not have to be repeated by
+   * hand: the next change set is still computed from the last one that landed, so it carries both.
+   */
+  let sent: RssLibrary | null = null
   const loading = new Map<string, Promise<void>>()
 
   function scheduleSave(): void {
@@ -218,9 +227,17 @@ export const useRss = create<RssState>((set, get) => {
     // reader did something else, which is how a debounce can lose the last keystroke.
     if (saveInFlight) return saveInFlight.then(() => (dirty ? flushSave() : undefined))
     if (!dirty) return Promise.resolve()
+    const current = get().library
+    const patch = sent ? diffLibrary(sent, current) : null
+    if (patch && patchIsEmpty(patch)) {
+      dirty = false
+      return Promise.resolve()
+    }
     const run: Promise<void> = (async () => {
       try {
-        await api.rss.save(JSON.stringify(get().library))
+        if (patch && patchChars(patch) < RSS_LIMITS.payloadChars) await api.rss.patch(patch)
+        else await api.rss.save(JSON.stringify(current))
+        sent = structuredClone(current)
         dirty = false
         set({ saveError: null, savedAt: Date.now() })
       }
@@ -474,6 +491,7 @@ export const useRss = create<RssState>((set, get) => {
       }
       const channel = parseChannelKey(library.lastChannel)
       set({ library, views: index.views, channel, status: 'ready' })
+      sent = structuredClone(library)
       await prepare(channel)
       // A feed this device holds no articles for is stale by definition: a second browser, a
       // cleared cache or an eviction all leave the subscription list intact and the reading empty,
@@ -493,6 +511,7 @@ export const useRss = create<RssState>((set, get) => {
       if (saveTimer) window.clearTimeout(saveTimer)
       saveTimer = 0
       dirty = false
+      sent = null
       index = emptyIndex()
       loading.clear()
       set({

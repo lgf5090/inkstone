@@ -14,12 +14,7 @@
  * the state row and an empty table set, and never re-runs the split.
  */
 import { emptyLibrary, parseRssLibrary, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
-
-/** The marks that were six arrays and two maps inside the JSON blob. */
-export const RSS_MARK_KINDS = ['read', 'star', 'later', 'hidden', 'opened', 'note', 'copy'] as const
-export type RssMarkKind = (typeof RSS_MARK_KINDS)[number]
-
-const LIST_KINDS: readonly RssMarkKind[] = ['read', 'star', 'later', 'hidden']
+import { libraryMarkRows, marksIntoLibrary, RSS_LIST_MARK_KINDS, type RssMarkKind } from '@shared/rss/marks'
 
 /** D1 binds at most 100 variables per statement; stay under it the way `routes/tags.ts` does. */
 const PARAM_BUDGET = 90
@@ -105,15 +100,6 @@ interface LibraryRows {
   tags: TagRecord[]
   marks: MarkRecord[]
   state: StateRecord | null
-}
-
-/** `<entryId>|<kind>`, the way the library spells a saved-note key. */
-export function splitSavedNoteKey(key: string): { entryId: string; kind: 'note' | 'copy' } | null {
-  const cut = key.lastIndexOf('|')
-  const tail = key.slice(cut + 1)
-  if (cut <= 0 || (tail !== 'note' && tail !== 'copy')) return null
-  const entryId = key.slice(0, cut)
-  return entryId ? { entryId, kind: tail } : null
 }
 
 function readLibraryRows(db: D1Database, userId: string): Promise<LibraryRows> {
@@ -213,32 +199,18 @@ function rowsToLibrary(rows: LibraryRows): RssLibrary | null {
     if (list) list.push(tag.tag)
     else tagsByFeed.set(tag.feed_id, [tag.tag])
   }
-  const readIds: string[] = []
-  const favorites: string[] = []
-  const readLater: string[] = []
-  const hiddenIds: string[] = []
-  const opened: Record<string, number> = {}
-  const savedNotes: Record<string, string> = {}
-  for (const mark of rows.marks) {
-    const entryId = mark.entry_id
-    if (mark.kind === 'read') readIds.push(entryId)
-    else if (mark.kind === 'star') favorites.push(entryId)
-    else if (mark.kind === 'later') readLater.push(entryId)
-    else if (mark.kind === 'hidden') hiddenIds.push(entryId)
-    else if (mark.kind === 'opened') opened[entryId] = mark.at
-    else if (mark.kind === 'note' || mark.kind === 'copy') savedNotes[`${entryId}|${mark.kind}`] = mark.value
-  }
-  return parseRssLibrary({
+  const marks = rows.marks.map(mark => ({
+    kind: mark.kind as RssMarkKind,
+    entryId: mark.entry_id,
+    value: mark.value,
+    at: mark.at,
+  }))
+  return parseRssLibrary(marksIntoLibrary(marks, {
+    ...emptyLibrary(),
     feeds: rows.feeds.map(feed => feedFromRow(feed, tagsByFeed.get(feed.id) ?? [])),
     groups: rows.groups.map(groupFromRow),
-    readIds,
-    favorites,
-    readLater,
-    hiddenIds,
-    opened,
-    savedNotes,
     lastChannel: rows.state.last_channel,
-  }).data
+  })).data
 }
 
 export interface RssStatement {
@@ -310,22 +282,14 @@ function groupValues(group: RssGroup): SqlValue[] {
  * order, while a mark made from now on carries a real clock and sorts ahead of all of them.
  */
 function markValues(library: RssLibrary, keep: Map<string, number>): SqlValue[][] {
-  const rows: SqlValue[][] = []
-  const lists = [library.readIds, library.favorites, library.readLater, library.hiddenIds]
-  lists.forEach((ids, index) => {
-    const kind = LIST_KINDS[index]!
-    ids.forEach((entryId, position) => {
-      rows.push([kind, entryId, '', keep.get(`${kind}|${entryId}`) ?? -position])
-    })
+  const seen: Partial<Record<RssMarkKind, number>> = {}
+  return libraryMarkRows(library).map((row) => {
+    const position = seen[row.kind] ?? 0
+    seen[row.kind] = position + 1
+    const list = (RSS_LIST_MARK_KINDS as readonly string[]).includes(row.kind)
+    const at = list ? keep.get(`${row.kind}|${row.entryId}`) ?? -position : row.at
+    return [row.kind, row.entryId, row.value, at]
   })
-  for (const [entryId, at] of Object.entries(library.opened)) {
-    rows.push(['opened', entryId.slice(0, 80), '', at])
-  }
-  for (const [key, noteId] of Object.entries(library.savedNotes)) {
-    const mark = splitSavedNoteKey(key)
-    if (mark) rows.push([mark.kind, mark.entryId, noteId, 0])
-  }
-  return rows
 }
 
 function tagValues(library: RssLibrary): SqlValue[][] {
