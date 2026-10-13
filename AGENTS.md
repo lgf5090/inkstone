@@ -51,3 +51,24 @@
 13. 可访问性红线：交互元素键盘可达、焦点顺序合理、焦点可见、语义正确、ARIA 恰当；图片/图标/表单/弹窗/菜单/表格有可访问名称和状态。对比度 WCAG AA，支持减少动画，触控目标合理，表单错误关联字段，必要时 live region。自定义组件测键盘与屏幕阅读器基本路径。
 14. 不顺手修无关问题：发现其他问题另开 issue 或单独提交，不夹带。
 15. AI 代理行为：遵守全文；不执行破坏性命令除非用户明确要求并二次确认；不读取/输出/提交密钥，不绕过权限安全；不伪造测试/lint/构建/审计，不能运行必须说明；不擅自装全局依赖、改系统配置、改 lockfile、提交大文件/生成物；需求不明先问或列假设；改动最小化，不夹带无关重构/格式化/依赖升级；不修改不理解代码。
+
+
+# Commit 规范
+
+基于 Conventional Commits；正文逐文件写到方法/组件级；琐碎提交可省/合并。
+
+格式：
+```
+<type>(<scope>): <subject>
+
+- <file>: <改动，到方法/组件级>
+
+[BREAKING CHANGE: ... / Closes #123]
+```
+
+规则：subject 祈使、无句号、中文≤25字；正文至少一条 `- 路径: 做了什么`；`style`=纯格式，CSS/UI 归 `feat`/`fix`/`refactor`；原子提交，不提交 WIP/调试/生成物/大文件。
+
+type：`feat` `fix` `refactor` `perf` `test` `docs` `style` `build` `ci` `chore` `revert`。  
+scope：业务模块 id（见 `AGENTS.md`）或 `theme` `ui` `i18n` `db` `infra` `docs` `auth` `api`。
+
+分批提交：门禁查工作区，非暂存快照。同一文件跨批次时勿回退工作区；工作区保持最终态，只 `git apply --cached` 本批 hunk。暂存快照用 `git archive HEAD | tar -x -C /tmp/snap` 单独验证。每批带自己白名单/元数据。多人 worktree 先 `git status`；慎用 `sync-comments-allowlist.mjs` 等重建脚本。
