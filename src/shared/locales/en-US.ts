@@ -5579,6 +5579,18 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "reading.theme_eink": "E-ink",
     "reading.remove_book_unsaved_value0": "{value0} highlights live only in this book and will be deleted with it",
     "reading.remove_book_in_note_value0": "{value0} highlights will leave the book; the reading note keeps its copy",
+    "reading.sync_now": "Sync",
+    "reading.sync_pushing": "Saving to your account",
+    "reading.sync_pulling": "Loading your shelf",
+    "reading.sync_uploading_value0": "Uploading {value0}",
+    "reading.sync_downloading_value0": "Downloading {value0}",
+    "reading.sync_idle_value0": "Synced {value0}",
+    "reading.sync_never": "Not synced yet",
+    "reading.sync_failed": "Sync failed",
+    "reading.usage_value0_value1": "{value0} of {value1} used",
+    "api.error.reader_space_exceeded": "There is no room left in this account's book shelf",
+    "api.error.reader_book_quota_exceeded": "This account's shelf holds as many books as it can",
+    "api.error.reader_book_too_large": "That file is too large for the shelf",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

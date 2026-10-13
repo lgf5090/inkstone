@@ -741,6 +741,15 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE reader_books ADD COLUMN has_blob INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The cover as its own object, so a second device can paint the shelf without pulling 40 MB of book.
+    version: 32,
+    skipIfColumnExists: { table: 'reader_books', column: 'cover_key' },
+    statements: [
+      `ALTER TABLE reader_books ADD COLUMN cover_key TEXT`,
+      `ALTER TABLE reader_books ADD COLUMN cover_size INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

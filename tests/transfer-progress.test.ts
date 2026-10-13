@@ -34,6 +34,16 @@ describe('the download bar', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })))
     await expect(downloadAsBlob('/api/reader/books/x/blob')).rejects.toThrow(/404/)
   })
+
+  it('says why the server said no, in the reader\'s own words', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(
+      { error: { code: 'unrecognised_code', message: 'This account has no shelf for that book' } },
+      { status: 403 },
+    )))
+    // The sync line prints exactly this string, so a body the transfer helper misreads shows up there as
+    // `[object Object]` — which is what the first version of this did.
+    await expect(downloadAsBlob('/api/reader/books/x/blob')).rejects.toThrow('This account has no shelf for that book')
+  })
 })
 
 describe('the upload bar', () => {
@@ -82,7 +92,28 @@ describe('the upload bar', () => {
     expect(sent).toEqual([[60, 120], [120, 120]])
   })
 
+  it('carries the server\'s reason for a refusal up to the sync line', async () => {
+    class RefusingXhr {
+      open() {}
+      setRequestHeader() {}
+      upload = { onprogress: null }
+      status = 403
+      responseType = ''
+      responseText = '{"error":{"code":"unrecognised_code","message":"This account\'s shelf has 12 bytes free and the file needs 4096"}}'
+
+      send() {
+        setTimeout(() => this.onload?.(), 0)
+      }
+
+      onload?: () => void
+    }
+    vi.stubGlobal('XMLHttpRequest', RefusingXhr)
+    await expect(uploadWithProgress('/api/reader/books/x/blob', new Blob(['x']), 1))
+      .rejects.toThrow('This account\'s shelf has 12 bytes free and the file needs 4096')
+  })
+
   it('reports a transport failure instead of a stalled bar', async () => {
+
     class BrokenXhr extends Object {
       open() {}
       setRequestHeader() {}

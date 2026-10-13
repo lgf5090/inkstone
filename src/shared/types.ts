@@ -1091,6 +1091,15 @@ export interface ApiErrorBody {
   }
 }
 
+/** How much of the account's shelf budget is in use, as the reader sees it in the shelf's sync line. */
+export interface ReaderUsage {
+  books: number
+  bytes: number
+  covers: number
+  quotaBytes: number
+  maxBooks: number
+}
+
 export type ApiErrorCode =
   | 'unauthenticated'
   | 'forbidden'
@@ -1113,6 +1122,9 @@ export type ApiErrorCode =
   | 'setup_token_required'
   | 'note_quota_exceeded'
   | 'organizer_quota_exceeded'
+  | 'reader_book_quota_exceeded'
+  | 'reader_space_exceeded'
+  | 'reader_book_too_large'
   | 'server_misconfigured'
   | 'two_factor_already_enabled'
   | 'two_factor_challenge_expired'

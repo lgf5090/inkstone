@@ -1,4 +1,5 @@
 import { LIMITS } from '@shared/constants'
+import type { ReaderUsage } from '@shared/types'
 import { ApiError } from '../lib/errors'
 
 export async function countLiveNotes(db: D1Database, userId: string): Promise<number> {
@@ -60,6 +61,60 @@ export async function assertOrganizerQuota(
       403,
       'organizer_quota_exceeded',
       `This account already holds ${max} ${entity}s; the quota is exhausted`,
+    )
+  }
+}
+
+/**
+ * The reader's shelf: how much of the account's book budget is gone, and whether more fits.
+ *
+ * Covers are counted with the books. They are small, but a shelf of five hundred is not, and a usage
+ * figure that quietly left them out would be a number nobody could reconcile against the bucket.
+ */
+export async function readerUsage(db: D1Database, userId: string): Promise<ReaderUsage> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS books,
+                     COALESCE(SUM(size), 0) AS bytes,
+                     COALESCE(SUM(cover_size), 0) AS covers
+                FROM reader_books WHERE user_id = ?1`)
+    .bind(userId)
+    .first<{ books: number; bytes: number; covers: number }>()
+  return {
+    books: row?.books ?? 0,
+    bytes: row?.bytes ?? 0,
+    covers: row?.covers ?? 0,
+    quotaBytes: LIMITS.readerQuotaBytes,
+    maxBooks: LIMITS.readerBooksMaxPerUser,
+  }
+}
+
+/**
+ * Refuse a file that would take the shelf over its budget.
+ *
+ * `replacingBytes` is the size the book being overwritten already counts for, so re-uploading a corrected
+ * copy of a book costs the difference rather than the whole file.
+ */
+export async function assertReaderRoom(
+  db: D1Database,
+  userId: string,
+  addingBytes: number,
+  addingBooks = 0,
+  replacingBytes = 0,
+): Promise<void> {
+  const usage = await readerUsage(db, userId)
+  if (addingBooks > 0 && usage.books + addingBooks > LIMITS.readerBooksMaxPerUser) {
+    throw new ApiError(
+      403,
+      'reader_book_quota_exceeded',
+      `This account's shelf holds at most ${LIMITS.readerBooksMaxPerUser} books`,
+    )
+  }
+  const next = usage.bytes + usage.covers + addingBytes - replacingBytes
+  if (next > LIMITS.readerQuotaBytes) {
+    throw new ApiError(
+      403,
+      'reader_space_exceeded',
+      `This account's shelf has ${Math.max(0, LIMITS.readerQuotaBytes - usage.bytes - usage.covers)} bytes free and the file needs ${addingBytes}`,
     )
   }
 }

@@ -293,7 +293,7 @@ export function LibraryView() {
               <ShelfCard
                 key={book.id}
                 book={book}
-                coverUrl={covers[book.id]}
+                coverUrl={covers[book.id] ?? book.coverUrl ?? undefined}
                 fraction={progress[book.id]?.fraction ?? 0}
                 finished={Boolean(progress[book.id]?.finishedAt)}
                 highlightCount={highlights[book.id]?.length ?? 0}

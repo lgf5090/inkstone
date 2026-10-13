@@ -16,7 +16,9 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
-import { readerBookKey } from '../db/reader-schema'
+import { readerBookKey, readerCoverKey } from '../db/reader-schema'
+import { assertReaderRoom, readerUsage } from '../db/quota'
+import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 
 type BookFormat = 'epub' | 'pdf' | 'cbz'
 
@@ -24,7 +26,13 @@ export const readerLibraryRoutes = new Hono<AppBindings>()
 readerLibraryRoutes.use('*', requireAuth)
 
 /** A novel is megabytes; a scanned art book is tens. Above this the reader should carry the file by hand. */
-const MAX_BOOK_BYTES = 40 * 1024 * 1024
+const MAX_BOOK_BYTES = LIMITS.readerBookMaxBytes
+const MAX_COVER_BYTES = LIMITS.readerCoverMaxBytes
+/** Which image types a cover may be, and the extension the key gets. Anything else is refused. */
+const COVER_EXTENSIONS = READER_COVER_TYPES
+const COVER_MIME_BY_EXTENSION: Record<string, string> = Object.fromEntries(
+  Object.entries(READER_COVER_TYPES).map(([type, extension]) => [extension, type]),
+)
 /** The whole shelf's reading state, which is text and small. */
 const MAX_LIBRARY_BYTES = 6 * 1024 * 1024
 const MAX_ROWS = 5000
@@ -107,6 +115,8 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       unitCount: row.unit_count,
       hasCover: row.has_cover === 1,
       hasBlob: row.has_blob === 1,
+      // A path, not a secret: the route resolves it against the authenticated account.
+      coverUrl: row.cover_key ? `/api/reader/books/${encodeURIComponent(row.id)}/cover` : null,
       toc: JSON.parse(row.toc || '[]'),
     })),
     progress: Object.fromEntries(progress.results.map((row: any) => [row.book_id, {
@@ -146,7 +156,11 @@ function group(rows: any[], key: string, shape: (row: any) => any): [string, any
 
 readerLibraryRoutes.get('/library', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
-  return c.json({ ok: true as const, library: await loadLibrary(c, userId) })
+  return c.json({
+    ok: true as const,
+    library: await loadLibrary(c, userId),
+    usage: await readerUsage(c.env.DB, userId),
+  })
 })
 
 /**
@@ -160,9 +174,11 @@ readerLibraryRoutes.put('/library', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const body = asRecord(await readJson<Record<string, unknown>>(c, MAX_LIBRARY_BYTES), 'Body')
   const library = asRecord(body.library, 'library')
-  const existing = await c.env.DB.prepare('SELECT id, r2_key, has_blob FROM reader_books WHERE user_id = ?1').bind(userId).all<any>()
+  const existing = await c.env.DB.prepare('SELECT id, r2_key, has_blob, cover_key, cover_size FROM reader_books WHERE user_id = ?1').bind(userId).all<any>()
   const keys = new Map(existing.results.map((row) => [row.id, row.r2_key]))
-  // Whether the bytes are in R2 is the server's fact, so a push that does not mention it keeps it.
+  const covers = new Map(existing.results.filter((row) => row.cover_key).map((row) => [row.id, row as { cover_key: string; cover_size: number }]))
+  // Whether the bytes and the cover are in R2 are the server's facts, so a push that does not mention
+  // them keeps them.
   const blobs = new Set(existing.results.filter((row) => row.has_blob === 1).map((row) => row.id))
 
   const statements: D1PreparedStatement[] = [
@@ -175,23 +191,32 @@ readerLibraryRoutes.put('/library', async (c) => {
   ].map((sql) => c.env.DB.prepare(sql).bind(userId))
 
   const books = Array.isArray(library.books) ? library.books.slice(0, MAX_ROWS) : []
+  if (books.length > LIMITS.readerBooksMaxPerUser) {
+    throw ApiError.badRequest(`A shelf holds at most ${LIMITS.readerBooksMaxPerUser} books`)
+  }
   const missingBlobs: string[] = []
+  const missingCovers: string[] = []
   for (const raw of books) {
     const row = asRecord(raw, 'book')
     const id = idOf(row, 'id', 'Book id')
     if (!blobs.has(id)) missingBlobs.push(id)
+    // The shelf says a book has a cover by naming the file inside it; `hasCover` is the same fact after
+    // a round trip. Either shape counts, so a cover is never left behind because of a field name.
+    const wantsCover = row.hasCover === true || (typeof row.coverPath === 'string' && row.coverPath.length > 0)
+    if (wantsCover && !covers.has(id)) missingCovers.push(id)
     const format = textOf(row, 'format', 8) as BookFormat
     if (!(format in EXTENSIONS)) throw ApiError.badRequest(`Unsupported book format: ${format}`)
     statements.push(c.env.DB.prepare(
-      `INSERT OR REPLACE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+      `INSERT OR REPLACE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
     ).bind(
       id, userId, textOf(row, 'title', 300, 'Untitled'), textOf(row, 'author', 200), format,
       textOf(row, 'filename', 240, `${id}.${EXTENSIONS[format]}`), textOf(row, 'language', 12), textOf(row, 'publisher', 200),
       Math.max(0, numberOf(row, 'size')), Math.max(0, numberOf(row, 'unitCount')),
       keys.get(id) ?? readerBookKey(userId, id, EXTENSIONS[format]),
-      row.hasCover === true ? 1 : 0, JSON.stringify(Array.isArray(row.toc) ? row.toc.slice(0, 800) : []),
+      wantsCover ? 1 : 0, JSON.stringify(Array.isArray(row.toc) ? row.toc.slice(0, 800) : []),
       numberOf(row, 'addedAt', Date.now()), Date.now(), blobs.has(id) ? 1 : 0,
+      covers.get(id)?.cover_key ?? null, covers.get(id)?.cover_size ?? 0,
     ))
   }
 
@@ -267,7 +292,13 @@ readerLibraryRoutes.put('/library', async (c) => {
   await c.env.DB.batch(statements as unknown as D1PreparedStatement[])
   // Telling the device which files are still missing is what lets a shelf that predates the sync — or a
   // book that was on the device when the last push failed — catch up without a second round trip.
-  return c.json({ ok: true as const, updatedAt: Date.now(), missingBlobs })
+  return c.json({
+    ok: true as const,
+    updatedAt: Date.now(),
+    missingBlobs,
+    missingCovers,
+    usage: await readerUsage(c.env.DB, userId),
+  })
 })
 
 /**
@@ -276,15 +307,19 @@ readerLibraryRoutes.put('/library', async (c) => {
 readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT format FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ format: string }>()
+  const row = await c.env.DB.prepare('SELECT format, size FROM reader_books WHERE user_id = ?1 AND id = ?2')
+    .bind(userId, id).first<{ format: string; size: number }>()
   if (!row) throw ApiError.notFound('Unknown book')
   const format = row.format as BookFormat
   const declared = Number(c.req.header('content-length') ?? 0)
   if (declared > MAX_BOOK_BYTES) throw ApiError.badRequest('That file is too large for the shelf')
   const bytes = await c.req.arrayBuffer()
   if (!bytes.byteLength) throw ApiError.badRequest('The upload was empty')
-  if (bytes.byteLength > MAX_BOOK_BYTES) throw ApiError.badRequest('That file is too large for the shelf')
+  if (bytes.byteLength > MAX_BOOK_BYTES) {
+    throw new ApiError(413, 'reader_book_too_large', `A book may be at most ${MAX_BOOK_BYTES} bytes`)
+  }
+  // The account's budget, charged for the difference the new file makes rather than its whole size.
+  await assertReaderRoom(c.env.DB, userId, bytes.byteLength, 0, row.size ?? 0)
 
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
@@ -317,13 +352,65 @@ readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   })
 })
 
+/**
+ * The cover on its own, so a device that has never held the book can still paint the shelf.
+ *
+ * Reading a 40 MB archive to find one 200 kB image is the wrong trade on a phone, and it is the reason
+ * this is a separate object rather than a field on the book.
+ */
+readerLibraryRoutes.put('/books/:id/cover', async (c) => {
+  const userId = requireId(c.get('userId'), 'User id')
+  const id = requireId(c.req.param('id'), 'Book id')
+  const row = await c.env.DB.prepare('SELECT cover_key, cover_size FROM reader_books WHERE user_id = ?1 AND id = ?2')
+    .bind(userId, id).first<{ cover_key: string | null; cover_size: number }>()
+  if (!row) throw ApiError.notFound('Unknown book')
+  const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+  const extension = COVER_EXTENSIONS[type]
+  if (!extension) throw ApiError.badRequest('A cover must be a PNG, JPEG or WebP image')
+  const bytes = await c.req.arrayBuffer()
+  if (!bytes.byteLength) throw ApiError.badRequest('The cover was empty')
+  if (bytes.byteLength > MAX_COVER_BYTES) throw ApiError.badRequest('That cover is too large')
+  await assertReaderRoom(c.env.DB, userId, bytes.byteLength, 0, row.cover_size ?? 0)
+
+  const r2 = c.env.FILES
+  if (!r2) throw ApiError.notFound('R2 storage is not configured')
+  const key = readerCoverKey(userId, id, extension)
+  if (row.cover_key && row.cover_key !== key) await r2.delete(row.cover_key).catch(() => {})
+  await r2.put(key, bytes, { httpMetadata: { contentType: type } })
+  await c.env.DB.prepare('UPDATE reader_books SET cover_key = ?1, cover_size = ?2 WHERE user_id = ?3 AND id = ?4')
+    .bind(key, bytes.byteLength, userId, id).run()
+  return c.json({ ok: true as const, size: bytes.byteLength, key })
+})
+
+readerLibraryRoutes.get('/books/:id/cover', async (c) => {
+  const userId = requireId(c.get('userId'), 'User id')
+  const id = requireId(c.req.param('id'), 'Book id')
+  const row = await c.env.DB.prepare('SELECT cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
+    .bind(userId, id).first<{ cover_key: string | null }>()
+  if (!row?.cover_key) throw ApiError.notFound('No cover for that book')
+  const object = await c.env.FILES?.get(row.cover_key)
+  if (!object) throw ApiError.notFound('The cover is not in storage')
+  return new Response(object.body, {
+    headers: {
+      // The type was recorded when the cover went up; the key's extension is what to say when it
+      // predates that, and it beats claiming every unknown cover is a PNG.
+      'Content-Type': object.httpMetadata?.contentType ?? COVER_MIME_BY_EXTENSION[row.cover_key.slice(row.cover_key.lastIndexOf('.') + 1)] ?? 'application/octet-stream',
+      'Content-Length': String(object.size),
+      'Cache-Control': 'private, max-age=604800',
+    },
+  })
+})
+
 readerLibraryRoutes.delete('/books/:id', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT r2_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ r2_key: string }>()
+  const row = await c.env.DB.prepare('SELECT r2_key, cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
+    .bind(userId, id).first<{ r2_key: string; cover_key: string | null }>()
   if (!row) return c.json({ ok: true as const, removed: false })
-  await c.env.FILES?.delete(row.r2_key)
+  await Promise.all([
+    c.env.FILES?.delete(row.r2_key),
+    row.cover_key ? c.env.FILES?.delete(row.cover_key) : Promise.resolve(),
+  ])
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM reader_books WHERE user_id = ?1 AND id = ?2').bind(userId, id),
     c.env.DB.prepare('DELETE FROM reader_progress WHERE user_id = ?1 AND book_id = ?2').bind(userId, id),

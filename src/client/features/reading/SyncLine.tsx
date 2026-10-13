@@ -12,10 +12,23 @@ import { formatPercent } from './position'
 import { useLibrary } from './store/library'
 import { formatLastRead } from './format-time'
 
+/** Bytes in the unit a reader compares against their own library, not the unit the API counts in. */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'kB', 'MB', 'GB', 'TB']
+  let value = Math.max(0, bytes)
+  let at = 0
+  while (value >= 1024 && at < units.length - 1) {
+    value /= 1024
+    at += 1
+  }
+  return `${at === 0 ? value : value.toFixed(1)} ${units[at]}`
+}
+
 export function SyncLine() {
   const sync = useLibrary((state) => state.sync)
   const books = useLibrary((state) => state.books)
   const syncPush = useLibrary((state) => state.syncPush)
+  const usage = useLibrary((state) => state.usage)
   const busy = sync.phase !== 'idle'
   const percent = sync.total > 0 ? Math.min(1, sync.sent / sync.total) : 0
   const named = sync.bookId ? books.find((one) => one.id === sync.bookId)?.title || '' : ''
@@ -55,6 +68,14 @@ export function SyncLine() {
       {busy ? (
         <span className="reader-sync-track h-[3px] w-24 shrink-0 overflow-hidden rounded-full bg-[var(--border-default)]">
           <span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${percent * 100}%` }} />
+        </span>
+      ) : null}
+      {!busy && usage ? (
+        <span className="shrink-0 text-[11px] tabular text-[var(--text-quaternary)]">
+          {t('reading.usage_value0_value1', {
+            value0: formatBytes(usage.bytes + usage.covers),
+            value1: formatBytes(usage.quotaBytes),
+          })}
         </span>
       ) : null}
     </div>

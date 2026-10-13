@@ -24,7 +24,9 @@ export const READER_BOOK_TABLE = `CREATE TABLE IF NOT EXISTS reader_books (
   added_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   /** Whether this account's bytes are actually in R2. The server owns it: a push never clears it. */
-  has_blob INTEGER NOT NULL DEFAULT 0
+  has_blob INTEGER NOT NULL DEFAULT 0,
+  cover_key TEXT,
+  cover_size INTEGER NOT NULL DEFAULT 0
 )`
 
 export const READER_SCHEMA_STATEMENTS: readonly string[] = [
@@ -92,4 +94,12 @@ export const READER_SCHEMA_STATEMENTS: readonly string[] = [
 /** Where a book's bytes live. Built from the row, never accepted from a client. */
 export function readerBookKey(userId: string, bookId: string, extension: string): string {
   return `reader/${userId}/${bookId}.${extension}`
+}
+
+/**
+ * Where a cover lives. The extension is chosen here from the image type the client sent, so a cover
+ * cannot be talked into landing on a path some other object owns.
+ */
+export function readerCoverKey(userId: string, bookId: string, extension: string): string {
+  return `reader/${userId}/${bookId}.cover.${extension}`
 }

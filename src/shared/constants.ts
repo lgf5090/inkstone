@@ -61,6 +61,15 @@ export const LIMITS = {
   attachmentMaxBytes: 25 * 1024 * 1024,
   attachmentQuotaBytes: 1024 * 1024 * 1024,
   attachmentUploadsPerHour: 100,
+  /**
+   * A book is one file the reader carries, not an image pasted into a note, so it gets a larger single
+   * ceiling and a larger account budget than attachments — and both are still ceilings: a shelf is a
+   * reading collection, not a place to mirror a drive.
+   */
+  readerBookMaxBytes: 40 * 1024 * 1024,
+  readerCoverMaxBytes: 2 * 1024 * 1024,
+  readerQuotaBytes: 2 * 1024 * 1024 * 1024,
+  readerBooksMaxPerUser: 500,
   importFilesMax: 500,
   importUploadMaxBytes: 64 * 1024 * 1024,
   importBundleMaxBytes: 32 * 1024 * 1024,
@@ -99,6 +108,18 @@ export const LIMITS = {
   /** What one note contributes to the client-side search index, in characters. */
   omnisearchDocumentChars: 100_000,
 } as const
+
+/**
+ * Cover image types the shelf is willing to keep in the cloud, and the extension each gets in the R2 key.
+ *
+ * One list on both sides: the route refuses anything else, and the device does not offer it. A comic's
+ * first frame can be a GIF or an AVIF, and those stay on the device rather than being silently re-labelled.
+ */
+export const READER_COVER_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+}
 
 export const ACCENTS: { name: AccentName; swatch: string; foreground: string }[] = [
   { name: 'cinnabar', swatch: 'oklch(58% 0.15 31)', foreground: 'white' },

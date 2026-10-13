@@ -4517,6 +4517,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/reading/SyncLine.tsx", [
     "/**\n * What the shelf is doing on the wire.\n *\n * A book is tens of megabytes, so an upload without a moving bar reads as a hung app. This is the one\n * place the reader learns whether their notes are on the server yet — including the honest case, which is\n * that they are not.\n */",
+    "/** Bytes in the unit a reader compares against their own library, not the unit the API counts in. */",
   ]],
   ["src/client/features/reading/engine/book-import.ts", [
     "/**\n * Taking a file a reader hands over and turning it into a book on the shelf.\n *\n * The format is decided by what the bytes say, never by the extension: a `.zip` renamed to `.epub`\n * and a `.cbz` that is really an EPUB are both things people do, and the reader's job is to sort them\n * out rather than to complain. Everything the shelf will show — title, author, cover, chapter list —\n * is read here once, at import, so the shelf never has to open a 40 MB archive to paint a grid.\n */",
@@ -4528,6 +4529,8 @@ const allowed = new Map([
     "/** Read one file into a shelf record, a cover and the bytes to keep. */",
     "// PDF.js hands the buffer to its worker, which detaches it from this thread. The caller still has",
     "// to store those bytes, so it gets a copy to give away.",
+    "/**\n * What a cover actually is, read off its bytes.\n *\n * The shelf hands this to R2 as the stored content type, so guessing it from a name would put JPEG bytes\n * behind a `.png` key and a second device would fetch an image whose header contradicts its own type.\n * An EPUB's cover href is often extensionless anyway, so the name is only the fallback.\n */",
+    "/** What the cover bytes really are, which is the type the shelf keeps and uploads them as. */",
   ]],
   ["src/client/features/reading/engine/book-search.ts", [
     "/**\n * Finding a word in a book.\n *\n * The index is the prose of every chapter, read once and kept for the session. That is a real cost —\n * a thousand-page book takes a second or two to walk — so it is paid lazily: the first query builds it\n * in the background and reports progress, and every later query is instant. A reader searching for a\n * name in a novel is asking a question the whole book has to answer, so there is no useful partial\n * index.\n */",
@@ -4889,6 +4892,7 @@ const allowed = new Map([
     "/** Wall time of the last successful exchange, so the shelf can say when it last spoke to the server. */",
     "/** The shelf as text: everything the local store holds except the book files themselves. */",
     "/** Upload a book's bytes. The row must already exist server-side, which the push of the state does. */",
+    "/** The cover on its own, so a second device paints a shelf of covers without downloading any book. */",
   ]],
   ["src/client/features/reading/store/library.ts", [
     "/**\n * The reading library, held on the device.\n *\n * A book file is 2 MB to 200 MB of somebody's private reading, and this app's attachment storage is\n * quota-limited, referenced-by-note, and pruned when nothing points at it — three ways for a shelf to\n * lose a book. So the bytes go to IndexedDB under the same account namespace the note cache uses, and\n * only what a reader *writes* (highlights, the reading note) becomes a note that syncs.\n *\n * That split is deliberate and worth stating to the reader: the shelf is per device, the notes are\n * per account. The export/import pair in the settings is what carries the rest across.\n */",
@@ -4919,8 +4923,11 @@ const allowed = new Map([
     "/** A tiny seam so the free function above can report through the store without a circular import. */",
     "// The server says which files it never received: a shelf that predates the sync, or a book whose",
     "// upload failed while the reader was offline, catches up here rather than staying local forever.",
-    "/** One at a time: a shelf of ten books should not fill the reader's uplink and stall the page. */",
-    "// This device does not hold the file either — another one will bring it, and the row already exists.",
+    "/** The account's storage figure, as the server last counted it. */",
+    "// The cover goes up too, so the shelf on another device is a shelf of covers and not of",
+    "// placeholders — reading it out of the archive there would cost the whole book.",
+    "/**\n * Send the files the server is still missing, one at a time.\n *\n * A shelf of ten books should not fill the reader's uplink and stall the page, and a device that does not\n * hold the file either is not a failure — another one will bring it, and the row already exists.\n */",
+    "/** A GIF or AVIF comic frame stays on the device: the cloud keeps only the types the route accepts. */",
   ]],
   ["src/client/features/reading/store/reader-settings.ts", [
     "/**\n * How the reader wants its page to look and behave.\n *\n * These are device settings rather than account settings: type size and column count belong to the\n * screen a reader is holding, not to the person, and a phone should not inherit a desktop's 2-column\n * spread. The one thing that does travel is what the reader writes — highlights and the reading note —\n * and that lives in the library store.\n *\n * Imported font files are the exception to the localStorage rule. A face is megabytes of binary, so\n * it goes to IndexedDB and comes back as a `data:` URL, which is what this app's content policy lets a\n * page load a font from (`blob:` is not in `font-src`).\n */",
@@ -4968,6 +4975,7 @@ const allowed = new Map([
     "/** A named place: \"come back here\", not \"this sentence matters\". */",
     "/** Day keys (`YYYY-MM-DD`) to seconds, which is what the daily goal is measured against. */",
     "/** Which note a book's highlights are being written into, and where the vocabulary note lives. */",
+    "/**\n   * Where the server keeps this book's cover, when it has one. The shelf paints it on a device that has\n   * never held the file, so a second laptop shows a shelf of covers rather than a shelf of placeholders.\n   */",
   ]],
   ["src/client/features/reading/vocabulary.ts", [
     "/**\n * The vocabulary note.\n *\n * One note per account holds every word a reader looked up, newest section last, each with the sentence\n * it came from and a link back into the book. A list of words with no context is a list nobody reviews,\n * which is why the entry carries the sentence and the position rather than just the translation.\n */",
@@ -11677,6 +11685,7 @@ const allowed = new Map([
     "/**\n * Byte transfers that tell the reader how far they have got.\n *\n * `fetch` cannot report how much of a request body the server has taken, which is the one number a\n * 40 MB book needs while it is going up, so the upload goes through `XMLHttpRequest` — the browser API\n * that still has `upload.onprogress` — and carries the same headers the rest of the app's requests do.\n * Downloads use `fetch` and count the chunks, because that side can be streamed.\n */",
     "/** PUT `body` to `url`, reporting bytes as they leave. Resolves with the parsed JSON response. */",
     "/** GET `url` as a Blob, counting chunks so a slow line still shows a moving bar. */",
+    "/**\n * Why the server said no, in the language the reader set the interface to.\n *\n * The sync line is the only place a shelf reports trouble, and `Upload failed (403)` tells a reader\n * nothing about the one refusal they will actually hit — an account whose book budget is full.\n */",
   ]],
   ["src/client/lib/year-grid-prefs.ts", [
     "// Corrupt or missing stored prefs fall back to the default below.",
@@ -12053,6 +12062,8 @@ const allowed = new Map([
     "// The id is a local identifier, not a database row: a saved query that lost its id would be a",
     "// different entry to the account snapshot, so a shape-matching one is kept and a stray is dropped.",
     "/**\n * The faces a ```json block can open with. Mirrored by `jsonViewName` in the client's code-options\n * module, which reads the same three words off a fence's `view=`; the settings merge and the fence are\n * the two places an author can say this, and they must not drift apart.\n */",
+    "/**\n   * A book is one file the reader carries, not an image pasted into a note, so it gets a larger single\n   * ceiling and a larger account budget than attachments — and both are still ceilings: a shelf is a\n   * reading collection, not a place to mirror a drive.\n   */",
+    "/**\n * Cover image types the shelf is willing to keep in the cloud, and the extension each gets in the R2 key.\n *\n * One list on both sides: the route refuses anything else, and the device does not offer it. A comic's\n * first frame can be a GIF or an AVIF, and those stay on the device rather than being silently re-labelled.\n */",
   ]],
   ["src/shared/linter.test.ts", [
     "/**\n * The settings blob's boundary.\n *\n * A reader can bring this object into the app from a backup restore as well as from the settings\n * page, and the panel's own refusals are not in the way then. So everything that a lint run will\n * later compile or iterate is checked here: the shape, the size, and the flags. A value the\n * normaliser cannot recognise is dropped rather than passed on, because the alternative is a stored\n * string reaching `new RegExp` or a rule's option.\n */",
@@ -12345,6 +12356,7 @@ const allowed = new Map([
     "/** How deep the structure and mind-map faces arrive folded; 0 folds everything below the root. */",
     "/** Whether those faces may write back into the note, or only read it. */",
     "/** Accept the shapes `JSON.parse` refuses — comments, trailing commas, unquoted keys — and say so. */",
+    "/** How much of the account's shelf budget is in use, as the reader sees it in the shelf's sync line. */",
   ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
@@ -12395,10 +12407,13 @@ const allowed = new Map([
   ]],
   ["src/worker/db/quota.ts", [
     "/**\n * Import runs hold a per-account import lease, so one count per request can budget every\n * note it inserts instead of paying a COUNT round trip per note.\n */",
+    "/**\n * The reader's shelf: how much of the account's book budget is gone, and whether more fits.\n *\n * Covers are counted with the books. They are small, but a shelf of five hundred is not, and a usage\n * figure that quietly left them out would be a number nobody could reconcile against the bucket.\n */",
+    "/**\n * Refuse a file that would take the shelf over its budget.\n *\n * `replacingBytes` is the size the book being overwritten already counts for, so re-uploading a corrected\n * copy of a book costs the difference rather than the whole file.\n */",
   ]],
   ["src/worker/db/reader-schema.ts", [
     "/**\n * The reader's own tables, all prefixed `reader_` so they are recognisable in the D1 console and never\n * collide with the note tables.\n *\n * The book binaries are not here: they live in R2 under `reader/<user>/<id>.<ext>`, and `reader_books`\n * holds the key alongside the metadata. Every table is keyed on `user_id` first because the routes read\n * one account's shelf at a time, and a query that forgot the column would hand another reader's notes\n * over — the shape a `PRIMARY KEY (user_id, …)` makes impossible to write by accident.\n */",
     "/** Where a book's bytes live. Built from the row, never accepted from a client. */",
+    "/**\n * Where a cover lives. The extension is chosen here from the image type the client sent, so a cover\n * cannot be talked into landing on a path some other object owns.\n */",
   ]],
   ["src/worker/db/rows.ts", [
     "/** Body + metadata without the per-row tag GROUP_CONCAT subquery. */",
@@ -12449,6 +12464,7 @@ const allowed = new Map([
     "// where they were left. `IF NOT EXISTS` because a fresh database already gets them from",
     "// SCHEMA_STATEMENTS.",
     "// The flag saying a book's file is in R2, so a shelf that predates the sync can be filled in.",
+    "// The cover as its own object, so a second device can paint the shelf without pulling 40 MB of book.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -12673,9 +12689,18 @@ const allowed = new Map([
     "/**\n * The book's bytes. The row decides the extension, so the only thing a client can name is an id.\n */",
     "/** The bytes back, with a length a download can measure itself against. */",
     "/**\n * Ids the reader app mints itself: `book-…`, and `file:<name>:<size>` for a book identified by its file.\n *\n * Colons, dots and dashes are allowed because the shelf already uses them; what may not appear is a path\n * separator or `..`, because the id is a component of the R2 key.\n */",
-    "// Whether the bytes are in R2 is the server's fact, so a push that does not mention it keeps it.",
     "// Telling the device which files are still missing is what lets a shelf that predates the sync — or a",
     "// book that was on the device when the last push failed — catch up without a second round trip.",
+    "/** Which image types a cover may be, and the extension the key gets. Anything else is refused. */",
+    "// A path, not a secret: the route resolves it against the authenticated account.",
+    "// Whether the bytes and the cover are in R2 are the server's facts, so a push that does not mention",
+    "// them keeps them.",
+    "// The account's budget, charged for the difference the new file makes rather than its whole size.",
+    "/**\n * The cover on its own, so a device that has never held the book can still paint the shelf.\n *\n * Reading a 40 MB archive to find one 200 kB image is the wrong trade on a phone, and it is the reason\n * this is a separate object rather than a field on the book.\n */",
+    "// The shelf says a book has a cover by naming the file inside it; `hasCover` is the same fact after",
+    "// a round trip. Either shape counts, so a cover is never left behind because of a field name.",
+    "// The type was recorded when the cover went up; the key's extension is what to say when it",
+    "// predates that, and it beats claiming every unknown cover is a PNG.",
   ]],
   ["src/worker/routes/reading.ts", [
     "/**\n * Word lookup and translation, through this deployment.\n *\n * The reader asks for a translation of a passage it selected, and the answer comes from a free\n * public endpoint that only speaks to a server: the browser cannot call it directly (the app's\n * `connect-src` allows only this origin), and asking the client to name an arbitrary URL would turn a\n * translation button into a redirector. So the target host is fixed here, and the only thing a caller\n * chooses is the text and the language.\n *\n * The AI engine is deliberately absent from this route: an AI translation goes through the reader's own\n * configured provider and the existing `/api/ai` relay, which is where that credential belongs.\n */",
@@ -13117,6 +13142,15 @@ const allowed = new Map([
     "// A day key that is not a date is dropped rather than stored as noise.",
     "// Bob cannot name Alice's book and have its bytes arrive.",
     "// A client that sends its own key changes nothing: the row keeps the server's.",
+    "// book-2 stands at nearly the whole budget, and book-1 is recorded as holding nothing, so any file",
+    "// the reader sends now is what tips the account over.",
+    "// The same size again: the old bytes are given back before the new ones are charged.",
+    "// A bigger file has to pay the difference, and there is none left to pay it with.",
+    "// The shelf on another device now knows where to look without holding the book.",
+    "// Real R2 keeps the content type a put declared and hands it back on get, so the double has to or a",
+    "// route that reads it looks like a route that does not.",
+    "// A JPEG kept behind a `.png` key is a bucket nobody can reconcile and a browser that has to guess.",
+    "// The shelf is nearly full; the same size again is legal because the old cover is given back first.",
   ]],
   ["tests/reading-anchors.test.ts", [
     "// The offsets are nonsense (the edition moved), so only the context can say which of the two",
@@ -13294,6 +13328,8 @@ const allowed = new Map([
   ]],
   ["tests/transfer-progress.test.ts", [
     "/**\n * The two progress contracts, measured rather than assumed.\n *\n * A bar that never moves is worse than no bar, and neither half of this can be seen on a 14 kB fixture in\n * a browser — the whole body arrives in one read. So the chunk arithmetic is pinned here, where a stream\n * can be fed deliberately.\n */",
+    "// The sync line prints exactly this string, so a body the transfer helper misreads shows up there as",
+    "// `[object Object]` — which is what the first version of this did.",
   ]],
   ["tests/trash-purge-batch.test.ts", [
     "// Two notes share a title so the link can be retargeted before the trashed one disappears.",

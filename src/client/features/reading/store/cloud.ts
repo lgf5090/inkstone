@@ -9,6 +9,7 @@
  * when the push failed on the third try is worse off than one who was told.
  */
 import { api } from '../../../lib/api'
+import type { ReaderUsage } from '@shared/types'
 import { downloadAsBlob, uploadWithProgress } from '../../../lib/transfer'
 import type { BookRecord, BookStats, Highlight, LocationMark, ReadingNoteLinks, ReadingProgress } from '../types'
 
@@ -52,14 +53,31 @@ export async function downloadBookBytes(
   return downloadAsBlob(api.readerLibrary.blobUrl(bookId), onProgress, signal)
 }
 
-export async function pushLibrary(library: LibraryPayload): Promise<{ at: number; missingBlobs: string[] }> {
-  const answer = await api.readerLibrary.put(library)
-  return { at: answer.updatedAt, missingBlobs: Array.isArray(answer.missingBlobs) ? answer.missingBlobs : [] }
+export interface PushResult {
+  at: number
+  missingBlobs: string[]
+  missingCovers: string[]
+  usage: ReaderUsage | null
 }
 
-export async function pullLibrary(): Promise<LibraryPayload | null> {
+export async function pushLibrary(library: LibraryPayload): Promise<PushResult> {
+  const answer = await api.readerLibrary.put(library)
+  return {
+    at: answer.updatedAt,
+    missingBlobs: Array.isArray(answer.missingBlobs) ? answer.missingBlobs : [],
+    missingCovers: Array.isArray(answer.missingCovers) ? answer.missingCovers : [],
+    usage: answer.usage ?? null,
+  }
+}
+
+export async function pullLibrary(): Promise<{ library: LibraryPayload | null; usage: ReaderUsage | null }> {
   const answer = await api.readerLibrary.get()
-  return answer?.library ?? null
+  return { library: answer?.library ?? null, usage: answer?.usage ?? null }
+}
+
+/** The cover on its own, so a second device paints a shelf of covers without downloading any book. */
+export async function uploadCoverBytes(bookId: string, blob: Blob): Promise<void> {
+  await uploadWithProgress(api.readerLibrary.coverUrl(bookId), blob, blob.size)
 }
 
 export async function deleteBookOnServer(bookId: string): Promise<void> {

@@ -36,6 +36,28 @@ function pkgMediaType(name: string): string {
   return IMAGE_EXTENSION_MIME[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] ?? ''
 }
 
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47]
+const JPEG_MAGIC = [0xff, 0xd8, 0xff]
+const GIF_MAGIC = [0x47, 0x49, 0x46, 0x38]
+const RIFF_MAGIC = [0x52, 0x49, 0x46, 0x46]
+const WEBP_TAG = [0x57, 0x45, 0x42, 0x50]
+
+/**
+ * What a cover actually is, read off its bytes.
+ *
+ * The shelf hands this to R2 as the stored content type, so guessing it from a name would put JPEG bytes
+ * behind a `.png` key and a second device would fetch an image whose header contradicts its own type.
+ * An EPUB's cover href is often extensionless anyway, so the name is only the fallback.
+ */
+export function coverMediaType(cover: Uint8Array | null, name: string | null): string {
+  if (!cover) return ''
+  if (startsWith(cover, PNG_MAGIC)) return 'image/png'
+  if (startsWith(cover, JPEG_MAGIC)) return 'image/jpeg'
+  if (startsWith(cover, GIF_MAGIC)) return 'image/gif'
+  if (startsWith(cover, RIFF_MAGIC) && startsWith(cover.subarray(8), WEBP_TAG)) return 'image/webp'
+  return name ? pkgMediaType(name) : ''
+}
+
 /** Cheap enough to run on every dropped file before the bytes are read. */
 export function hasBookExtension(filename: string): boolean {
   return /\.(epub|pdf|cbz)$/i.test(filename)
@@ -59,7 +81,7 @@ function tocFromPackage(pkg: EpubPackage): TocEntry[] {
   })
 }
 
-async function readEpub(file: File, archive: ZipArchive): Promise<{ record: BookRecord; cover: Uint8Array | null }> {
+async function readEpub(file: File, archive: ZipArchive): Promise<{ record: BookRecord; cover: Uint8Array | null; coverType: string }> {
   let pkg: EpubPackage
   try {
     pkg = await parseEpubPackage(archive)
@@ -87,11 +109,12 @@ async function readEpub(file: File, archive: ZipArchive): Promise<{ record: Book
       toc: tocFromPackage(pkg),
     },
     cover,
+    coverType: coverMediaType(cover, pkg.coverHref),
   }
 }
 
 /** A ZIP of pictures is a comic; a ZIP of anything else is not a book this reader can open. */
-async function readCbz(file: File, archive: ZipArchive): Promise<{ record: BookRecord; cover: Uint8Array | null }> {
+async function readCbz(file: File, archive: ZipArchive): Promise<{ record: BookRecord; cover: Uint8Array | null; coverType: string }> {
   const pages = archive.entries.filter((member) => !member.name.endsWith('/') && (
     IMAGE_TYPE.test(pkgMediaType(member.name)) || /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(member.name)
   ))
@@ -121,10 +144,11 @@ async function readCbz(file: File, archive: ZipArchive): Promise<{ record: BookR
       })),
     },
     cover,
+    coverType: coverMediaType(cover, first?.name ?? null),
   }
 }
 
-async function readPdf(file: File, bytes: Uint8Array): Promise<{ record: BookRecord; cover: Uint8Array | null }> {
+async function readPdf(file: File, bytes: Uint8Array): Promise<{ record: BookRecord; cover: Uint8Array | null; coverType: string }> {
   const { openPdfDocument, readPdfSummary, renderPdfThumbnail } = await import('./pdf')
   let opened: Awaited<ReturnType<typeof openPdfDocument>>
   try {
@@ -157,6 +181,7 @@ async function readPdf(file: File, bytes: Uint8Array): Promise<{ record: BookRec
         })),
       },
       cover,
+      coverType: coverMediaType(cover, null),
     }
   } finally {
     await opened.destroy()
@@ -166,6 +191,8 @@ async function readPdf(file: File, bytes: Uint8Array): Promise<{ record: BookRec
 export interface ImportedImage {
   record: BookRecord
   cover: Uint8Array | null
+  /** What the cover bytes really are, which is the type the shelf keeps and uploads them as. */
+  coverType: string
   bytes: Uint8Array
 }
 

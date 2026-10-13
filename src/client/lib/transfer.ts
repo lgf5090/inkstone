@@ -8,7 +8,7 @@
  */
 import { CLIENT_HEADER } from '@shared/constants'
 import { CLIENT_ID } from './api'
-import { getLocale } from './i18n'
+import { getLocale, translateApiError } from './i18n'
 
 export type ProgressFn = (sent: number, total: number) => void
 
@@ -25,6 +25,18 @@ function baseHeaders(): Record<string, string> {
     'X-Inkstone-Origin': CLIENT_ID,
     'Accept-Language': getLocale(),
   }
+}
+
+/**
+ * Why the server said no, in the language the reader set the interface to.
+ *
+ * The sync line is the only place a shelf reports trouble, and `Upload failed (403)` tells a reader
+ * nothing about the one refusal they will actually hit — an account whose book budget is full.
+ */
+function refusalMessage(parsed: unknown, status: number, kind: string): string {
+  const error = (parsed as { error?: { code?: string; message?: string } } | null)?.error
+  if (error?.code || error?.message) return translateApiError(error.code ?? 'unknown', error.message ?? '')
+  return `${kind} failed (${status})`
 }
 
 /** PUT `body` to `url`, reporting bytes as they leave. Resolves with the parsed JSON response. */
@@ -56,7 +68,7 @@ export function uploadWithProgress<T>(url: string, body: Blob | ArrayBuffer, tot
         parsed = null
       }
       if (xhr.status >= 200 && xhr.status < 300) resolve(parsed as T)
-      else reject(new Error((parsed as { error?: string } | null)?.error || `Upload failed (${xhr.status})`))
+      else reject(new Error(refusalMessage(parsed, xhr.status, 'Upload')))
     }
     xhr.send(body as XMLHttpRequestBodyInit)
   })
@@ -66,7 +78,13 @@ export function uploadWithProgress<T>(url: string, body: Blob | ArrayBuffer, tot
 export async function downloadAsBlob(url: string, onProgress?: ProgressFn, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(url, { headers: baseHeaders(), credentials: 'include', signal })
   if (!response.ok) {
-    throw new Error(`Download failed (${response.status})`)
+    let parsed: unknown = null
+    try {
+      parsed = await response.json()
+    } catch {
+      parsed = null
+    }
+    throw new Error(refusalMessage(parsed, response.status, 'Download'))
   }
   const total = Number(response.headers.get('content-length') ?? 0)
   if (!response.body) {

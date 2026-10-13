@@ -18,6 +18,11 @@ export interface BookRecord {
   unitCount: number
   /** Package path of the cover inside the archive, when the format carries one. */
   coverPath: string | null
+  /**
+   * Where the server keeps this book's cover, when it has one. The shelf paints it on a device that has
+   * never held the file, so a second laptop shows a shelf of covers rather than a shelf of placeholders.
+   */
+  coverUrl?: string | null
   /** The book's own contents, cached so the shelf, the note and the reader agree without a reparse. */
   toc: TocEntry[]
 }

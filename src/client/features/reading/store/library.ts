@@ -15,7 +15,9 @@ import { createStore, del as idbRemove, get as idbGet, set as idbSet } from 'idb
 import { CLIENT_DATABASE_NAME } from '../../../lib/runtime'
 import { randomLocalId } from '../../../lib/random-id'
 import { importBook, ImportRejected } from '../engine/book-import'
-import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, type SyncState } from './cloud'
+import { READER_COVER_TYPES } from '@shared/constants'
+import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, uploadCoverBytes, type SyncState } from './cloud'
+import type { ReaderUsage } from '@shared/types'
 import type {
   BookRecord,
   BookStats,
@@ -74,6 +76,8 @@ export interface LibraryState extends PersistedLibrary {
   highlightsOf: (bookId: string) => Highlight[]
   /** What the shelf is doing on the wire right now, which the header bar shows. */
   sync: SyncState
+  /** The account's storage figure, as the server last counted it. */
+  usage: ReaderUsage | null
   /** Send the reading state up. Called on a debounce after a write, and by the shelf's sync button. */
   syncPush: () => Promise<void>
   /** Take the server's shelf. Only ever adopted when this device has nothing of its own. */
@@ -186,6 +190,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     covers: {},
     userId: null,
     sync: { ...IDLE_SYNC },
+    usage: null,
 
     async bindUser(userId) {
       if (get().userId === userId && get().status === 'ready') return
@@ -225,10 +230,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
           const record = { ...imported.record, id }
           known.add(id)
           await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
-          if (imported.cover) {
-            const blob = new Blob([imported.cover as unknown as BlobPart], { type: 'image/png' })
-            await idbSet(keyFor(userId, `cover:${id}`), blob, store)
-            set((state) => ({ covers: { ...state.covers, [id]: URL.createObjectURL(blob) } }))
+          const coverBlob = imported.cover
+            ? new Blob([imported.cover as unknown as BlobPart], { type: imported.coverType || 'image/png' })
+            : null
+          if (coverBlob) {
+            await idbSet(keyFor(userId, `cover:${id}`), coverBlob, store)
+            set((state) => ({ covers: { ...state.covers, [id]: URL.createObjectURL(coverBlob) } }))
           }
           set((state) => ({ books: [record, ...state.books] }))
           added.push(record)
@@ -245,6 +252,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
               await uploadBookBytes(record, new Blob([imported.bytes as unknown as BlobPart]), (sent, total) => {
                 set((state) => ({ sync: { ...state.sync, sent, total } }))
               })
+              // The cover goes up too, so the shelf on another device is a shelf of covers and not of
+              // placeholders — reading it out of the archive there would cost the whole book.
+              if (coverBlob && isUploadableCover(coverBlob.type)) await uploadCoverBytes(id, coverBlob)
               set({ sync: { ...IDLE_SYNC, at: Date.now() } })
             } catch (err) {
               set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
@@ -412,8 +422,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
         })
         // The server says which files it never received: a shelf that predates the sync, or a book whose
         // upload failed while the reader was offline, catches up here rather than staying local forever.
-        await uploadMissingBlobs(get, answer.missingBlobs)
-        set({ sync: { ...IDLE_SYNC, at: answer.at } })
+        await uploadMissingFiles(get, answer.missingBlobs, answer.missingCovers)
+        set({ sync: { ...IDLE_SYNC, at: answer.at }, usage: answer.usage ?? get().usage })
       } catch (err) {
         set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
       }
@@ -424,8 +434,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
       if (!state.userId) return 0
       set({ sync: { ...state.sync, phase: 'pulling', message: null } })
       try {
-        const library = await pullLibrary()
+        const pulled = await pullLibrary()
+        const library = pulled.library
         if (!library) throw new Error('The server sent no shelf')
+        set({ usage: pulled.usage })
         const books = Array.isArray(library.books) ? library.books : []
         set({
           books,
@@ -546,18 +558,35 @@ function setSync(sync: SyncState): void {
   useLibrary.setState({ sync })
 }
 
-/** One at a time: a shelf of ten books should not fill the reader's uplink and stall the page. */
-async function uploadMissingBlobs(getState: () => LibraryState, ids: string[]): Promise<void> {
-  for (const id of ids) {
+/** A GIF or AVIF comic frame stays on the device: the cloud keeps only the types the route accepts. */
+function isUploadableCover(type: string): boolean {
+  return type in READER_COVER_TYPES
+}
+
+/**
+ * Send the files the server is still missing, one at a time.
+ *
+ * A shelf of ten books should not fill the reader's uplink and stall the page, and a device that does not
+ * hold the file either is not a failure — another one will bring it, and the row already exists.
+ */
+async function uploadMissingFiles(getState: () => LibraryState, bookIds: string[], coverIds: string[]): Promise<void> {
+  for (const id of bookIds) {
     const state = getState()
     const book = state.books.find((one) => one.id === id)
     if (!book || !state.userId) continue
     const blob = await idbGet<Blob>(keyFor(state.userId, `book:${id}`), store)
-    // This device does not hold the file either — another one will bring it, and the row already exists.
     if (!blob) continue
     setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, total: book.size || blob.size })
     await uploadBookBytes(book, blob, (sent, total) => {
       setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, sent, total })
     })
+  }
+  for (const id of coverIds) {
+    const state = getState()
+    if (!state.userId) continue
+    const cover = await idbGet<Blob>(keyFor(state.userId, `cover:${id}`), store)
+    if (!cover || !isUploadableCover(cover.type)) continue
+    setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, total: cover.size })
+    await uploadCoverBytes(id, cover)
   }
 }
