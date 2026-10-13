@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IS_MAC, isEditableTarget, matches, prettyCombo, register } from './hotkeys'
+import { handleKeyDown, IS_MAC, isEditableTarget, matches, prettyCombo, register } from './hotkeys'
 import { APP_SHORTCUTS } from './shortcuts'
 
 const disposers: (() => void)[] = []
@@ -99,5 +99,22 @@ describe('hotkey matching and display', () => {
       seen.set(chord, name)
     }
     expect(APP_SHORTCUTS.graph).toBe('mod+shift+g')
+  })
+})
+
+describe('the window keydown boundary', () => {
+  it('ignores a keydown that is not a keyboard event, instead of throwing over it', () => {
+    const handler = listen('mod+k')
+    expect(() => handleKeyDown(new Event('keydown'))).not.toThrow()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('still answers a real chord after a stranger event went past', () => {
+    const handler = listen('mod+k')
+    handleKeyDown(new Event('keydown'))
+    const event = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true })
+    handleKeyDown(event)
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(event.defaultPrevented).toBe(true)
   })
 })

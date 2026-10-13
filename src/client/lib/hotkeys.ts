@@ -46,22 +46,31 @@ export function hotkeyText(value: string | (() => string)): string {
 function ensureBound(): void {
   if (bound || typeof window === 'undefined') return
   bound = true
-  window.addEventListener('keydown', onKeyDown, { capture: true })
+  window.addEventListener('keydown', handleKeyDown, { capture: true })
 }
 
-function onKeyDown(event: KeyboardEvent): void {
-  if (event.defaultPrevented || event.isComposing || event.repeat || event.getModifierState('AltGraph')) return
-  const inInput = isEditableTarget(event.target)
+/**
+ * The window-level keydown listener, exported because it is a boundary rather than a helper.
+ *
+ * A capture listener on `window` also sees keydowns that other code on the page dispatched, and a
+ * hand-made `new Event('keydown')` has no modifier API on it at all — asking for one threw in front
+ * of whatever the reader was doing. Such an event can never match a chord, so it leaves here.
+ */
+export function handleKeyDown(event: Event): void {
+  if (typeof (event as KeyboardEvent).getModifierState !== 'function') return
+  const keyboard = event as KeyboardEvent
+  if (keyboard.defaultPrevented || keyboard.isComposing || keyboard.repeat || keyboard.getModifierState('AltGraph')) return
+  const inInput = isEditableTarget(keyboard.target)
   const inOverlay = Boolean(document.querySelector('[role="dialog"], [role="menu"]'))
 
   for (const hotkey of registry.values()) {
-    if (!matches(event, hotkey.combo)) continue
+    if (!matches(keyboard, hotkey.combo)) continue
     if (inInput && !hotkey.allowInInput) continue
     if (inOverlay && !hotkey.allowInOverlay) continue
     if (hotkey.enabled && !hotkey.enabled()) continue
-    event.preventDefault()
-    event.stopPropagation()
-    hotkey.handler(event)
+    keyboard.preventDefault()
+    keyboard.stopPropagation()
+    hotkey.handler(keyboard)
     return
   }
 }

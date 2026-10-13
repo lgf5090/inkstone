@@ -6739,6 +6739,9 @@ const allowed = new Map([
     "// than the last one debounced for something else: a show that opens must present the deck its note",
     "// has now, not the empty deck the closed overlay was holding.",
   ]],
+  ["src/client/lib/hotkeys.ts", [
+    "/**\n * The window-level keydown listener, exported because it is a boundary rather than a helper.\n *\n * A capture listener on `window` also sees keydowns that other code on the page dispatched, and a\n * hand-made `new Event('keydown')` has no modifier API on it at all — asking for one threw in front\n * of whatever the reader was doing. Such an event can never match a chord, so it leaves here.\n */",
+  ]],
   ["src/client/lib/i18n.ts", [
     "/** Provides typed runtime localization with on-demand locale loading. */",
     "// Preload the other locale in background for instant switching, but don't block init",
