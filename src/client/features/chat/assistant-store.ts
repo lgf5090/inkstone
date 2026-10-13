@@ -31,6 +31,7 @@ import type {
   Task as AssistantTask,
   ToolActivity,
 } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, type ChatAttachment } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { streamAssistantTurn } from './stream'
@@ -45,10 +46,34 @@ export type ConversationListTab = 'folders' | 'tags' | 'starred' | 'pinned'
 
 export const CONVERSATION_LIST_TABS: readonly ConversationListTab[] = ['folders', 'tags', 'starred', 'pinned']
 
+/**
+ * A paste at least this long is turned into a text file instead of being pasted into the box.
+ *
+ * The reader pasted it as context, not as something to scroll past for the next three turns.
+ */
+export const PASTE_FILE_MIN_CHARS = 2000
+
+/** One file on its way to the server, or waiting there for the reader to press send. */
+export interface PendingAttachment {
+  localId: string
+  /** Empty until the upload lands; the server's id is what the turn names. */
+  id: string
+  filename: string
+  mime: string
+  size: number
+  kind: 'image' | 'file'
+  /** 0..1 of the bytes the browser has handed over. */
+  progress: number
+  status: 'uploading' | 'ready' | 'error'
+  error?: string
+}
+
 /** What a reader has typed but the assistant has not answered yet. */
 interface LiveTurn {
   conversationId: string | null
   userText: string
+  /** The files the reader hung on this turn, so the bubble can show them before the row exists. */
+  attachments: string[]
   assistantId: string | null
   text: string
   reasoning: string
@@ -77,6 +102,10 @@ interface AssistantState {
   listTab: ConversationListTab
   /** The shortlists two of the tabs jump to; kept apart from the filtered main list. */
   flagged: { starred: AssistantConversation[], pinned: AssistantConversation[] }
+  /** The composer's queue: files uploaded for a turn that has not been sent yet. */
+  pending: PendingAttachment[]
+  /** Attachment rows behind the open conversation, by id, so a bubble can name what it carries. */
+  fileIndex: Record<string, ChatAttachment>
   activeId: string | null
   messages: AssistantMessage[]
   messagesReady: boolean
@@ -124,6 +153,11 @@ interface AssistantState {
   openConversation: (id: string | null) => Promise<void>
   newConversation: () => void
   send: (text: string, opts?: { retry?: boolean }) => Promise<void>
+  attachFiles: (files: File[]) => Promise<void>
+  attachUrl: (url: string) => Promise<void>
+  attachPastedText: (text: string) => Promise<boolean>
+  dropAttachment: (localId: string) => Promise<void>
+  clearAttachments: () => void
   stop: () => void
   renameConversation: (id: string, title: string) => Promise<void>
   pinConversation: (id: string, pinned: boolean) => Promise<void>
@@ -220,6 +254,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   folderNodes: [],
   unfiledCount: 0,
   tagNodes: [],
+  pending: [],
+  fileIndex: {},
   listTab: 'folders',
   flagged: { starred: [], pinned: [] },
   activeId: null,
@@ -383,6 +419,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (get().activeId !== id) return
       set({
         messages: detail.messages,
+        fileIndex: Object.fromEntries((detail.attachments ?? []).map((entry) => [entry.id, entry])),
         messagesReady: true,
         remoteStreaming: detail.streaming && !(get().turn && !get().turn?.done),
       })
@@ -399,18 +436,115 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     set({ activeId: null, messages: [], messagesReady: true, remoteStreaming: false, turn: null })
   },
 
+  attachFiles: async (files) => {
+    const room = MAX_CHAT_ATTACHMENTS - get().pending.length
+    if (room <= 0) {
+      toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
+      return
+    }
+    for (const file of files.slice(0, room)) {
+      const localId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const kind = file.type.startsWith('image/') ? 'image' : 'file'
+      set((current) => ({
+        pending: [...current.pending, {
+          localId, id: '', filename: file.name || 'file', mime: file.type, size: file.size, kind, progress: 0, status: 'uploading',
+        }],
+      }))
+      try {
+        const stored = await api.assistant.uploadChatFile(file, (sent, total) => {
+          const progress = total > 0 ? sent / total : 0
+          set((current) => ({
+            pending: current.pending.map((entry) => (entry.localId === localId ? { ...entry, progress } : entry)),
+          }))
+        })
+        set((current) => ({
+          pending: current.pending.map((entry) => (
+            entry.localId === localId
+              ? { ...entry, id: stored.id, progress: 1, status: 'ready' as const, filename: stored.filename, mime: stored.mime, kind: stored.kind }
+              : entry
+          )),
+          fileIndex: { ...current.fileIndex, [stored.id]: stored },
+        }))
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        set((current) => ({
+          pending: current.pending.map((entry) => (
+            entry.localId === localId ? { ...entry, status: 'error' as const, error: reason } : entry
+          )),
+        }))
+        toast({ title: t('assistant.attach.failed'), description: reason, tone: 'danger' })
+      }
+    }
+  },
+
+  attachUrl: async (url) => {
+    const trimmed = url.trim()
+    if (!trimmed) return
+    if (get().pending.length >= MAX_CHAT_ATTACHMENTS) {
+      toast({ title: t('assistant.attach.too_many', { count: MAX_CHAT_ATTACHMENTS }), tone: 'danger' })
+      return
+    }
+    try {
+      const stored = await api.assistant.addChatFileFromUrl(trimmed)
+      set((current) => ({
+        pending: [...current.pending, {
+          localId: stored.attachment.id,
+          id: stored.attachment.id,
+          filename: stored.attachment.filename,
+          mime: stored.attachment.mime,
+          size: stored.attachment.size,
+          kind: stored.attachment.kind,
+          progress: 1,
+          status: 'ready' as const,
+        }],
+        fileIndex: { ...current.fileIndex, [stored.attachment.id]: stored.attachment },
+      }))
+    } catch (error) {
+      toast({ title: t('assistant.attach.failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    }
+  },
+
+  /**
+   * A long paste becomes a file rather than a wall of text.
+   *
+   * The reader pasted it because it is context, not because they want to scroll past it for the next
+   * three turns; as an attachment it is read once, quoted by name, and stays out of the way.
+   */
+  attachPastedText: async (text) => {
+    if (text.trim().length < PASTE_FILE_MIN_CHARS) return false
+    const file = new File([text], `pasted-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.txt`, { type: 'text/plain' })
+    await get().attachFiles([file])
+    return true
+  },
+
+  dropAttachment: async (localId) => {
+    const entry = get().pending.find((item) => item.localId === localId)
+    set((current) => ({ pending: current.pending.filter((item) => item.localId !== localId) }))
+    if (entry?.id) await api.assistant.deleteChatFile(entry.id).catch(() => undefined)
+  },
+
+  clearAttachments: () => {
+    set({ pending: [] })
+  },
+
   send: async (text, opts = {}) => {
     const state = get()
     if (state.turn && !state.turn.done) return
     const conversationId = state.activeId
     const retry = opts.retry === true
-    if (!retry && !text.trim()) return
+    const attached = retry ? [] : state.pending.filter((entry) => entry.status === 'ready' && entry.id).map((entry) => entry.id)
+    if (!retry && !text.trim() && !attached.length) return
+    if (!retry && state.pending.some((entry) => entry.status === 'uploading')) {
+      toast({ title: t('assistant.attach.waiting'), tone: 'danger' })
+      return
+    }
     const controller = new AbortController()
     inflight = controller
     set({
       turn: {
         conversationId,
         userText: retry ? '' : text.trim(),
+        attachments: retry ? [] : attached,
         assistantId: null,
         text: '',
         reasoning: '',
@@ -468,7 +602,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
     try {
       await streamAssistantTurn(
-        { ...(conversationId ? { conversationId } : {}), message: text, retry },
+        { ...(conversationId ? { conversationId } : {}), message: text, attachments: attached, retry },
         apply,
         controller.signal,
       )
@@ -480,6 +614,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       }
     } finally {
       inflight = null
+      if (!retry) set({ pending: [] })
       const finishedId = get().turn?.conversationId ?? conversationId
       set((current) => (current.turn ? { turn: { ...current.turn, done: true } } : current))
       if (finishedId) await adoptThread(finishedId)

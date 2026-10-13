@@ -8,9 +8,9 @@
  * 42vh tail padding, which turns a one-line reply into a screen of whitespace. `ink-chat-prose` in
  * `styles/chat.css` keeps the typography and drops the page furniture.
  */
-import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, History, MoreHorizontal, Plus, Square, Star } from 'lucide-react'
-import type { AssistantConversation, AssistantMessage } from '@shared/assistant'
+import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUp, History, MoreHorizontal, Paperclip, Plus, Square, Star } from 'lucide-react'
+import type { AssistantConversation, AssistantMessage, ChatAttachment } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
@@ -19,8 +19,22 @@ import { Input } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { ConversationTabStrip, ConversationTaxonomyPanel, orderedFolders } from './ChatTaxonomy'
-import { useAssistant } from './assistant-store'
+import { AttachmentStrip, MessageAttachments } from './ChatAttachments'
+import {
+  ApprovalMenu,
+  ContextMenu,
+  ModelMenu,
+  NotePicker,
+  PlusMenu,
+  ReasoningMenu,
+  VoiceButton,
+} from './ComposerControls'
+import { useUi } from '../../store/ui'
+import { PASTE_FILE_MIN_CHARS, useAssistant } from './assistant-store'
 import { AssistantBubble } from './MessageParts'
+
+/** The composer's "common requests" list: the same openers the empty thread offers, by key. */
+const QUICK_PROMPT_KEYS = ['assistant.chat.ask_1', 'assistant.chat.ask_2', 'assistant.chat.ask_3', 'assistant.chat.ask_4'] as const
 
 const SUGGESTION_KEYS = [
   'assistant.chat.ask_1',
@@ -34,6 +48,8 @@ export function ChatView() {
   const activeId = useAssistant((state) => state.activeId)
   const messages = useAssistant((state) => state.messages)
   const messagesReady = useAssistant((state) => state.messagesReady)
+  // The uploads the composer just accepted are already indexed; the turn's chips read from there.
+  const fileIndexForTurn = useAssistant((state) => state.fileIndex)
   const turn = useAssistant((state) => state.turn)
   const remoteStreaming = useAssistant((state) => state.remoteStreaming)
   const send = useAssistant((state) => state.send)
@@ -117,7 +133,13 @@ export function ChatView() {
               ))}
               {turnHere && (
                 <>
-                  {turnHere.userText && <UserBubble text={turnHere.userText} />}
+                  {turnHere.userText && (
+                    <UserBubble
+                      text={turnHere.userText}
+                      attachments={turnHere.attachments}
+                      fileIndex={fileIndexForTurn}
+                    />
+                  )}
                   <AssistantBubble
                     text={turnHere.text}
                     reasoning={turnHere.reasoning}
@@ -155,7 +177,10 @@ export function ChatView() {
 }
 
 function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?: () => void }) {
-  if (message.role === 'user') return <UserBubble text={message.content} />
+  const fileIndex = useAssistant((state) => state.fileIndex)
+  if (message.role === 'user') {
+    return <UserBubble text={message.content} attachments={message.attachments ?? []} fileIndex={fileIndex} />
+  }
   return (
     <AssistantBubble
       text={message.content}
@@ -170,11 +195,20 @@ function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?:
   )
 }
 
-export function UserBubble({ text }: { text: string }) {
+export function UserBubble({
+  text,
+  attachments = [],
+  fileIndex = {},
+}: { text: string, attachments?: string[], fileIndex?: Record<string, ChatAttachment> }) {
   return (
     <div className="flex animate-[ink-fade-in_var(--dur-base)_var(--ease-out)] justify-end">
-      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[13.5px] leading-relaxed text-[var(--text-primary)]">
-        {text}
+      <div className="flex max-w-[85%] flex-col items-end gap-1">
+        {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
+        {text && (
+          <div className="whitespace-pre-wrap break-words rounded-[var(--r-lg)] rounded-br-[var(--r-xs)] bg-[var(--accent-soft)] px-3 py-2 text-[13.5px] leading-relaxed text-[var(--text-primary)]">
+            {text}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -519,6 +553,30 @@ function Composer({
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const folderRef = useRef<HTMLInputElement>(null)
+  const pending = useAssistant((state) => state.pending)
+  const attachFiles = useAssistant((state) => state.attachFiles)
+  const attachUrl = useAssistant((state) => state.attachUrl)
+  const attachPastedText = useAssistant((state) => state.attachPastedText)
+  const dropAttachment = useAssistant((state) => state.dropAttachment)
+  const models = useAssistant((state) => state.models)
+  const settings = useAssistant((state) => state.settings)
+  const activateModel = useAssistant((state) => state.activateModel)
+  const updateModel = useAssistant((state) => state.updateModel)
+  const saveSettings = useAssistant((state) => state.saveSettings)
+  const setView = useAssistant((state) => state.setView)
+  const [pickingNote, setPickingNote] = useState(false)
+  const toast = useUi((state) => state.toast)
+  // Translated at render, so a reader who switches language sees the new words without a reload.
+  const quickPrompts = useMemo(
+    () => QUICK_PROMPT_KEYS.map((key, index) => ({ id: String(index), label: t(key) })),
+    [],
+  )
+  const enabled = models.filter((model) => model.enabled)
+  const active = enabled.find((model) => model.id === settings?.activeModelId) ?? null
+  const uploading = pending.some((entry) => entry.status === 'uploading')
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -529,7 +587,7 @@ function Composer({
 
   const submit = () => {
     const text = value.trim()
-    if (!text || streaming || disabled) return
+    if ((!text && !pending.length) || streaming || disabled || uploading) return
     onSend(text)
     setValue('')
   }
@@ -544,47 +602,143 @@ function Composer({
     }
   }
 
+  const onPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...event.clipboardData.files]
+    const text = event.clipboardData.getData('text')
+    const asFile = !files.length && text.length >= PASTE_FILE_MIN_CHARS
+    // The decision has to be made before the handler returns: once the browser has pasted, calling
+    // preventDefault is a no-op and the reader gets the wall of text next to the file.
+    if (files.length || asFile) event.preventDefault()
+    if (files.length) {
+      void attachFiles(files)
+      return
+    }
+    if (!asFile) return
+    void attachPastedText(text).then((attached) => {
+      if (attached) toast({ title: t('assistant.attach.pasted_as_file'), tone: 'success' })
+    })
+  }
+
+  const takeFiles = (input: HTMLInputElement | null) => {
+    const picked = input?.files ? [...input.files] : []
+    if (input) input.value = ''
+    if (picked.length) void attachFiles(picked)
+  }
+
   return (
     <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 pb-3 pt-2.5 md:px-6">
       <div className="mx-auto w-full max-w-[720px]">
         <div
+          ref={boxRef}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+          }}
+          onDrop={(event) => {
+            const dropped = [...event.dataTransfer.files]
+            if (!dropped.length) return
+            event.preventDefault()
+            void attachFiles(dropped)
+          }}
           className={cn(
-            'flex items-end gap-2 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1.5',
+            'flex flex-col rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1.5',
             'transition-[border-color,box-shadow] duration-[var(--dur-fast)]',
             'focus-within:border-[var(--accent)] focus-within:shadow-[var(--shadow-ring)]',
           )}
         >
+          <AttachmentStrip items={pending} onRemove={(localId) => void dropAttachment(localId)} />
           <textarea
             ref={ref}
             rows={1}
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             maxLength={16_000}
             aria-label={t('assistant.chat.placeholder')}
             placeholder={t('assistant.chat.placeholder')}
             className={cn(
-              'max-h-[180px] min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[13.5px] leading-relaxed',
+              'max-h-[180px] min-h-[36px] w-full resize-none bg-transparent px-2 py-1.5 text-[13.5px] leading-relaxed',
               'text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none',
             )}
           />
-          {streaming ? (
-            <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">
-              <Square size={12} className="fill-current" />
+          {/* Seven controls will not fit one line at 360px; wrapping keeps every one of them reachable
+              instead of pushing the send button past the edge of the box. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-1 px-0.5">
+            <PlusMenu
+              prompts={quickPrompts}
+              onFiles={() => fileRef.current?.click()}
+              onFolder={() => folderRef.current?.click()}
+              onUrl={() => {
+                void prompt({ title: t('assistant.attach.url_prompt'), placeholder: 'https://' }).then(async (url) => {
+                  if (url?.trim()) await attachUrl(url.trim())
+                })
+              }}
+              onNote={() => setPickingNote(true)}
+              onPrompt={(text) => setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))}
+            />
+            <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">
+              <Paperclip size={14} />
             </IconButton>
-          ) : (
-            <IconButton
-              label={t('assistant.chat.send')}
-              size="sm"
-              variant="primary"
-              disabled={!value.trim() || disabled}
-              onClick={submit}
-              className="size-8 rounded-[var(--r-md)]"
-            >
-              <ArrowUp size={15} />
-            </IconButton>
-          )}
+            <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
+              {settings && <ApprovalMenu auto={settings.autoApproveWrites} onChange={(next) => void saveSettings({ autoApproveWrites: next })} />}
+              {active && (
+                <>
+                  <ReasoningMenu
+                    value={active.reasoning}
+                    disabled={active.reasoning === 'off'}
+                    onChange={(next) => void updateModel(active.id, { reasoning: next })}
+                  />
+                  <ContextMenu
+                    value={active.contextTokens}
+                    onPick={(tokens) => void updateModel(active.id, { contextTokens: tokens })}
+                  />
+                </>
+              )}
+              <ModelMenu
+                models={enabled}
+                activeId={settings?.activeModelId ?? null}
+                onPick={(id) => void activateModel(id)}
+                onManage={() => setView('settings')}
+                onVision={(next) => void updateModel(active?.id ?? '', { vision: next })}
+              />
+              <VoiceButton onText={(chunk) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${chunk}`)} />
+              {streaming ? (
+                <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">
+                  <Square size={12} className="fill-current" />
+                </IconButton>
+              ) : (
+                <IconButton
+                  label={t('assistant.chat.send')}
+                  size="sm"
+                  variant="primary"
+                  disabled={(!value.trim() && !pending.length) || disabled || uploading}
+                  onClick={submit}
+                  className="size-8 rounded-[var(--r-md)]"
+                >
+                  <ArrowUp size={15} />
+                </IconButton>
+              )}
+            </div>
+          </div>
         </div>
+        <input ref={fileRef} type="file" multiple hidden onChange={() => takeFiles(fileRef.current)} />
+        <input
+          ref={folderRef}
+          type="file"
+          multiple
+          hidden
+          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+          onChange={() => takeFiles(folderRef.current)}
+        />
+        <NotePicker
+          open={pickingNote}
+          onClose={() => setPickingNote(false)}
+          onPick={(title) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}[[${title}]]`)}
+          search={async (query) => {
+            const response = await api.search(query || t('assistant.attach.note_prompt'), 12)
+            return response.results.map((hit) => ({ id: hit.note.id, title: hit.note.title }))
+          }}
+        />
         <p className="mt-1.5 hidden text-center text-[10.5px] text-[var(--text-quaternary)] md:block">
           {t('assistant.chat.disclaimer')}
         </p>

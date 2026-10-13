@@ -1,4 +1,5 @@
 import { CLIENT_HEADER } from '@shared/constants'
+import type { ChatAttachment } from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
   PublicSharePresence,
@@ -313,6 +314,78 @@ function shouldNotifyOtherTabs(path: string): boolean {
 /** What the owner's own question answers: nothing, or where the show is and how long it may run — and in
  * either case how many browsers have been reading it lately (PR-M7). */
 export type PresenceStatus = { running: false, viewers: number } | { running: true, expiresAt: number, presence: PublicSharePresence, viewers: number }
+
+/**
+ * Uploads one chat attachment with a byte counter.
+ *
+ * `XMLHttpRequest` rather than `request()`: fetch reports nothing while the body is going out, and a
+ * multi-megabyte picture that appears to do nothing for ten seconds reads as a broken button.
+ */
+function uploadChatFileWithProgress(
+  file: File,
+  onProgress: (sent: number, total: number) => void,
+): Promise<ChatAttachment> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', file)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/assistant/files')
+    xhr.responseType = 'text'
+    xhr.setRequestHeader(CLIENT_HEADER, '1')
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total)
+    }
+    xhr.onload = () => {
+      let parsed: { attachment?: ChatAttachment, error?: { message?: string } } = {}
+      try {
+        parsed = JSON.parse(xhr.responseText || '{}') as typeof parsed
+      } catch {
+        parsed = {}
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && parsed.attachment) {
+        onProgress(file.size, file.size)
+        resolve(parsed.attachment)
+        return
+      }
+      reject(new Error(parsed.error?.message || `Upload failed (${xhr.status})`))
+    }
+    xhr.onerror = () => reject(new Error('The upload could not reach the server.'))
+    xhr.onabort = () => reject(new Error('The upload was cancelled.'))
+    xhr.send(form)
+  })
+}
+
+/** Reads a stored file back with a byte counter, for the viewer's progress bar. */
+async function downloadChatFileWithProgress(
+  id: string,
+  onProgress: (received: number, total: number) => void,
+): Promise<Blob> {
+  const response = await fetch(`/api/assistant/files/${id}`, { headers: { [CLIENT_HEADER]: '1' } })
+  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const total = Number(response.headers.get('content-length') ?? 0)
+  if (!response.body || !total) {
+    const blob = await response.blob()
+    onProgress(blob.size, blob.size)
+    return blob
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.byteLength
+    onProgress(received, total)
+  }
+  const merged = new Uint8Array(received)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new Blob([merged as unknown as BlobPart], { type: response.headers.get('content-type') ?? 'application/octet-stream' })
+}
 
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
@@ -682,11 +755,25 @@ export const api = {
     removeConversationTag: (id: string, tagId: string) =>
       request<{ ok: true }>(`/api/assistant/conversations/${id}/tags/${tagId}`, { method: 'DELETE' }),
     conversation: (id: string) =>
-      request<{ conversation: AssistantConversation, messages: AssistantMessage[], streaming: boolean }>(`/api/assistant/conversations/${id}`),
+      request<{
+        conversation: AssistantConversation,
+        messages: AssistantMessage[],
+        attachments: ChatAttachment[],
+        streaming: boolean
+      }>(`/api/assistant/conversations/${id}`),
     renameConversation: (id: string, title: string) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
     pinConversation: (id: string, pinned: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
+    uploadChatFile: (file: File, onProgress: (sent: number, total: number) => void) =>
+      uploadChatFileWithProgress(file, onProgress),
+    chatFileUrl: (id: string) => `/api/assistant/files/${id}`,
+    downloadChatFile: (id: string, onProgress: (received: number, total: number) => void) =>
+      downloadChatFileWithProgress(id, onProgress),
+    addChatFileFromUrl: (url: string) =>
+      request<{ attachment: ChatAttachment }>('/api/assistant/files/url', { method: 'POST', body: { url } }),
+    chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
+    deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
     starConversation: (id: string, starred: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { starred } }),
     deleteConversation: (id: string) =>

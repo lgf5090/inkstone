@@ -728,6 +728,11 @@ function describeUpstreamFailure(error: unknown): string {
   if (error instanceof ToolError) return error.message
   if (error instanceof ApiError) return error.message
   if (error instanceof Error && (error as UpstreamError).kind) return error.message
+  // A plain Error here is the platform, not the provider: a socket that would not open, an object
+  // store that refused a read. Naming the key sends the reader to change a setting that was never the
+  // problem, so the reason that actually happened is printed instead.
+  const reason = error instanceof Error ? error.message.trim() : ''
+  if (reason) return `The assistant could not finish this turn: ${reason.slice(0, 200)}`
   return 'The assistant could not answer. Check the model and key in Assistant settings.'
 }
 

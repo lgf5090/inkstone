@@ -15,6 +15,8 @@ import { getLocale } from '../../lib/i18n'
 export interface StreamTurnInput {
   conversationId?: string
   message: string
+  /** Attachment ids the reader hung on this turn. */
+  attachments?: string[]
   retry?: boolean
 }
 
@@ -35,6 +37,7 @@ export async function streamAssistantTurn(
     body: JSON.stringify({
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       message: input.message,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.retry ? { retry: true } : {}),
     }),
     credentials: 'same-origin',

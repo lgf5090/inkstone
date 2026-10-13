@@ -10,6 +10,8 @@ import { Download, KeyRound, Plus, Trash2, Upload } from 'lucide-react'
 import type { AssistantLimits, AssistantProvider, AssistantSettings } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS, SEMANTIC_MODEL_PATTERN } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
+import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
+import { REASONING_LABELS, REASONING_ORDER, formatContext } from './ComposerControls'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -104,6 +106,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
   const removeModel = useAssistant((state) => state.removeModel)
   const addModel = useAssistant((state) => state.addModel)
   const activateModel = useAssistant((state) => state.activateModel)
+  const updateModel = useAssistant((state) => state.updateModel)
   const [addingProvider, setAddingProvider] = useState(false)
   const [addingModel, setAddingModel] = useState<AssistantProvider | null>(null)
 
@@ -173,6 +176,39 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                     <IconButton label={t('assistant.settings.delete_model')} size="xs" onClick={() => void removeModel(model.id)}>
                       <Trash2 size={12} />
                     </IconButton>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Select
+                        aria-label={t('assistant.composer.thinking')}
+                        value={model.reasoning}
+                        className="h-7 w-[86px] text-[11px]"
+                        onChange={(event) => void updateModel(model.id, { reasoning: event.target.value })}
+                      >
+                        {REASONING_ORDER.map((level) => (
+                          <option key={level} value={level}>{t(REASONING_LABELS[level])}</option>
+                        ))}
+                      </Select>
+                      <Select
+                        aria-label={t('assistant.composer.context')}
+                        value={String(model.contextTokens ?? '')}
+                        className="h-7 w-[80px] text-[11px]"
+                        onChange={(event) => void updateModel(model.id, { contextTokens: event.target.value ? Number(event.target.value) : null })}
+                      >
+                        <option value="">{t('assistant.context.follow_global_short')}</option>
+                        {CONTEXT_TOKEN_STEPS.map((tokens) => (
+                          <option key={tokens} value={tokens}>{formatContext(tokens)}</option>
+                        ))}
+                      </Select>
+                      <Switch
+                        label={t('assistant.model.vision')}
+                        checked={model.vision}
+                        onChange={(next) => void updateModel(model.id, { vision: next })}
+                      />
+                      <Switch
+                        label={t('assistant.model.shown')}
+                        checked={model.enabled}
+                        onChange={(next) => void updateModel(model.id, { enabled: next })}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>

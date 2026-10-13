@@ -37,6 +37,7 @@ import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson } from '../lib/request'
 import { isValidId } from '../lib/id'
+import { isInlineSafe } from '../lib/image'
 import { AssistantStore } from '../assistant/store'
 import { MemoryHistoryService } from '../assistant/memory-service'
 import { AutomationService } from '../assistant/automations'
@@ -878,12 +879,17 @@ assistantRoutes.get('/files/:id', async (c) => {
   if (!row) throw ApiError.notFound('Attachment not found')
   const bytes = await readChatObject(c.env, row.key)
   if (!bytes) throw ApiError.notFound('The stored file is no longer there.')
-  const disposition = c.req.query('download') === '1' ? 'attachment' : 'inline'
+  // The mime on the row is whatever the browser claimed, so it cannot be a rendering promise: a file
+  // uploaded as `text/html` would otherwise run against this origin the moment someone opened its
+  // address. Only pictures are shown inline — the same rule the notebook's own file route applies, and
+  // the reason an `<img>` for a picture or a thumbnail still works while a document downloads instead.
+  const inline = c.req.query('download') !== '1' && isInlineSafe(row.mime)
   return new Response(bytes as unknown as BodyInit, {
     headers: {
       'content-type': row.mime || 'application/octet-stream',
       'content-length': String(bytes.byteLength),
-      'content-disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+      'content-disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+      'x-content-type-options': 'nosniff',
       'cache-control': 'private, max-age=300',
     },
   })

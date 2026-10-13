@@ -772,20 +772,24 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    // A message's own attachment ids, so a picture or a file stays with the turn that used it.
-    version: 35,
-    skipIfColumnExists: { table: 'chat_messages', column: 'attachments' },
-    statements: [
-      `ALTER TABLE chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`,
-    ],
-  },
-  {
     // Whether the model may be shown an image at all. Measured against a live endpoint, not assumed:
     // a text-only model that is sent a picture answers with an error the reader did not cause.
     version: 36,
     skipIfColumnExists: { table: 'chat_models', column: 'vision' },
     statements: [
       `ALTER TABLE chat_models ADD COLUMN vision INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // A message's own attachment ids, so a picture or a file stays with the turn that used it.
+    //
+    // Appended as 37 rather than slotted in beside the other chat columns: a version number is an
+    // identity, and an account that already recorded 35 as applied would never run a second meaning
+    // of it. That is exactly how a missing column survived every restart here.
+    version: 37,
+    skipIfColumnExists: { table: 'chat_messages', column: 'attachments' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
 ]

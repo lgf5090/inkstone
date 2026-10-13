@@ -117,9 +117,18 @@ function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallb
  * The app's shared `likePattern` is a *prefix* pattern — right for a tag tree, wrong here: a memory
  * search for "live" would only find statements that begin with it, which silently disables the whole
  * conflict check for anything but the first word.
+ *
+ * The literal is truncated before escaping because SQLite compiles a LIKE pattern into a program and
+ * refuses one longer than 50 000 characters with `LIKE or GLOB pattern too complex`. That is reachable
+ * from the composer: a chat body may be 64 KB, and a pasted log line or base64 blob arrives as one
+ * unbroken term, so an unguarded pattern used to fail the whole turn. 16 000 keeps even the worst case
+ * — a term made entirely of characters that escape to two — under the ceiling.
  */
+const LIKE_TERM_CEILING = 16_000
+
 function containsPattern(term: string): string {
-  return `%${term.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
+  const literal = term.slice(0, LIKE_TERM_CEILING)
+  return `%${literal.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
 }
 
 function parseJson(value: unknown): unknown {

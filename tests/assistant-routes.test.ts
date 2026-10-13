@@ -990,6 +990,31 @@ describe('chat attachments', () => {
     expect(chatR2.objects.has(uploaded.attachment.key)).toBe(false)
   })
 
+  it('never renders an uploaded document against this origin', async () => {
+    // The mime comes from the uploader, so a file claiming to be HTML must not come back as a page.
+    const html = await uploadFile('page.html', '<img src=x onerror=alert(1)>', 'text/html')
+    const served = await app.fetch(
+      new Request(`http://localhost/api/assistant/files/${html.attachment.id}`),
+      env as never, ctx,
+    )
+    expect(served.headers.get('content-disposition')).toMatch(/^attachment;/)
+    expect(served.headers.get('x-content-type-options')).toBe('nosniff')
+
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])
+    const picture = await uploadFile('shot.png', png, 'image/png')
+    const shown = await app.fetch(
+      new Request(`http://localhost/api/assistant/files/${picture.attachment.id}`),
+      env as never, ctx,
+    )
+    expect(shown.headers.get('content-disposition')).toMatch(/^inline;/)
+    // The composer's own download link asks for it, and a picture has to be forced out too.
+    const forced = await app.fetch(
+      new Request(`http://localhost/api/assistant/files/${picture.attachment.id}?download=1`),
+      env as never, ctx,
+    )
+    expect(forced.headers.get('content-disposition')).toMatch(/^attachment;/)
+  })
+
   it('puts an image under chat/images and a document under chat/files', async () => {
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])
     const image = await uploadFile('shot.png', png, 'image/png')
@@ -1108,5 +1133,65 @@ describe('chat attachments', () => {
     asUser(USER)
     // The other account's row is untouched, and so is its object.
     expect(chatR2.objects.has(uploaded.attachment.key)).toBe(true)
+  })
+})
+
+describe('large image encoding', () => {
+  it('base64s a big picture without exhausting the string builder', async () => {
+    await useExampleModel()
+    // 200 KB is 25 chunks of the encoder's step: enough to blow a one-shot String.fromCharCode(...),
+    // which is the failure a reader would see as a turn that simply refuses to answer.
+    const bytes = new Uint8Array(200_000).map((_, index) => index % 251)
+    const uploaded = await uploadFile('big.png', bytes, 'image/png')
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({ message: '这张大图里是什么？', attachments: [uploaded.attachment.id] })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+    expect(bodies[0]).toContain('"type":"image_url"')
+    expect((bodies[0].match(/data:image\/png;base64,/) ?? []).length).toBe(1)
+    expect(bodies[0].length).toBeGreaterThan(uploaded.attachment.size)
+  })
+})
+
+describe('upstream reachability', () => {
+  it('says the model was unreachable rather than blaming the key when the request cannot leave', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+    const events = await chatEvents({ message: '在吗？' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const failure = events.find((event) => event.type === 'error')
+    // The wire layer wraps a refused request as an unreachable provider; either way the reader is not
+    // sent to retype a key that was never the problem.
+    expect(failure?.message).toContain('fetch failed')
+    expect(failure?.message).not.toContain('Check the model and key')
+  })
+})
+
+describe('oversized search terms', () => {
+  // SQLite compiles a LIKE pattern into a program and refuses one longer than 50 000 characters with
+  // `LIKE or GLOB pattern too complex`. A chat body may be 64 KB, and a pasted log line or base64 blob
+  // arrives as one unbroken run, so the refusal was reachable from the composer with no attachment.
+  it('answers a term longer than SQLite can compile instead of failing the turn', async () => {
+    const { AssistantStore } = await import('../src/worker/assistant/store')
+    const store = new AssistantStore(env.DB as D1Database, USER, env as never)
+    await store.insertMemory({ content: '读者喜欢用 ZEBRAZEBRA 前缀命名文件', category: 'preference', source: 'manual' })
+    await store.insertMemory({ content: `${'A'.repeat(20_000)}`, category: 'preference', source: 'manual' })
+    const huge = `ZEBRAZEBRA${'x'.repeat(70_000)}TAILMARKTAIL`
+    expect(await store.searchMemories(huge, 8)).toEqual([])
+    expect(await store.listMemories({ query: huge })).toEqual([])
+    expect(await store.listConversations(huge)).toEqual([])
+    expect(await store.listTasks({ query: huge })).toEqual([])
+    // The ceiling is a truncation, not a switch: a long-but-ordinary query still matches what contains
+    // it, and an ordinary one still recalls the memory, so the guard cannot silently disable search.
+    expect((await store.searchMemories('A'.repeat(20_000), 8)).map((memory) => memory.content.length))
+      .toEqual([20_000])
+    expect((await store.searchMemories('ZEBRAZEBRA', 8)).map((memory) => memory.content))
+      .toEqual(['读者喜欢用 ZEBRAZEBRA 前缀命名文件'])
   })
 })
