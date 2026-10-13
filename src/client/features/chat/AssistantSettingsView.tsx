@@ -8,7 +8,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, KeyRound, Plus, Settings2, Trash2, Upload } from 'lucide-react'
 import type { AssistantLimits, AssistantModel, AssistantProvider, AssistantReasoning, AssistantSettings } from '@shared/assistant'
-import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS, SEMANTIC_MODEL_PATTERN } from '@shared/assistant'
+import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS, SEMANTIC_MODEL_PATTERN, endpointFieldState } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { REASONING_LABELS, REASONING_ORDER, formatContext } from './ComposerControls'
@@ -438,7 +438,7 @@ function McpTab() {
   )
 }
 
-function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: AssistantProvider | null, onClose: () => void }) {
+export function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: AssistantProvider | null, onClose: () => void }) {
   const addProvider = useAssistant((state) => state.addProvider)
   const updateProvider = useAssistant((state) => state.updateProvider)
   const editing = provider ?? null
@@ -450,6 +450,20 @@ function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: A
   const [models, setModels] = useState(PROVIDER_PRESETS[0]!.models.join(', '))
   const [extra, setExtra] = useState<Record<string, string>>({})
   const chosen = PROVIDER_PRESETS.find((entry) => entry.id === preset) ?? PROVIDER_PRESETS[0]!
+
+  // Which box says what, and why the save would be refused. The optional addresses are checked here for
+  // the same reason the route checks them: a browser can autocomplete a username into a text box sitting
+  // above a password field, and that must not read as "adding a provider is broken".
+  const problems = useMemo(() => {
+    const out: Record<string, string> = {}
+    const primary = endpointFieldState(baseUrl)
+    if (primary !== 'ok') out.base_url = primary === 'empty' ? t('assistant.settings.address_missing') : t('assistant.settings.address_invalid')
+    for (const [entry, url] of Object.entries(extra)) {
+      if (endpointFieldState(url) === 'invalid') out[entry] = t('assistant.settings.address_invalid')
+    }
+    return out
+  }, [baseUrl, extra])
+  const sendable = Object.fromEntries(Object.entries(extra).filter(([, url]) => endpointFieldState(url) === 'ok'))
 
   useEffect(() => {
     if (!open) return
@@ -481,14 +495,14 @@ function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: A
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
-            disabled={!label.trim() || !baseUrl.trim()}
+            disabled={!label.trim() || Object.keys(problems).length > 0}
             onClick={() => {
               if (editing) {
                 void updateProvider(editing.id, {
                   label: label.trim(),
                   protocol,
                   baseUrl: baseUrl.trim(),
-                  endpoints: Object.fromEntries(Object.entries(extra).filter(([, url]) => url.trim())),
+                  endpoints: sendable,
                   ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
                 }).then(onClose)
                 return
@@ -498,7 +512,7 @@ function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: A
                 protocol,
                 baseUrl: baseUrl.trim(),
                 apiKey: apiKey.trim(),
-                endpoints: Object.fromEntries(Object.entries(extra).filter(([, url]) => url.trim())),
+                endpoints: sendable,
                 models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
               }).then(onClose)
             }}
@@ -520,26 +534,35 @@ function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: A
           </Field>
         )}
         <Field label={t('assistant.settings.provider_name')}>
-          <Input value={label} maxLength={60} onChange={(event) => setLabel(event.target.value)} />
+          <Input value={label} maxLength={60} autoComplete="off" onChange={(event) => setLabel(event.target.value)} />
         </Field>
         <Field label={t('assistant.settings.protocol')}>
           <Select value={protocol} onChange={(event) => setProtocol(event.target.value)}>
             {ASSISTANT_PROTOCOLS.map((entry) => <option key={entry} value={entry}>{PROTOCOL_LABELS[entry]?.()}</option>)}
           </Select>
         </Field>
-        <Field label={t('assistant.settings.base_url')} hint={t('assistant.settings.base_url_hint')}>
-          <Input value={baseUrl} maxLength={300} onChange={(event) => setBaseUrl(event.target.value)} className="font-mono text-[12px]" />
+        <Field label={t('assistant.settings.base_url')} hint={problems.base_url ?? t('assistant.settings.base_url_hint')}>
+          <Input
+            value={baseUrl}
+            maxLength={300}
+            autoComplete="off"
+            invalid={Boolean(problems.base_url)}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            className="font-mono text-[12px]"
+          />
         </Field>
         {ASSISTANT_PROTOCOLS.filter((entry) => entry !== protocol).map((entry) => (
           <Field
             key={entry}
             label={`${t('assistant.settings.endpoint_other')} · ${PROTOCOL_LABELS[entry]?.()}`}
-            hint={t('assistant.settings.endpoint_hint')}
+            hint={problems[entry] ?? t('assistant.settings.endpoint_hint')}
           >
             <Input
               aria-label={`${t('assistant.settings.endpoint_other')} ${PROTOCOL_LABELS[entry]?.()}`}
               value={extra[entry] ?? ''}
               maxLength={300}
+              autoComplete="off"
+              invalid={Boolean(problems[entry])}
               placeholder="https://"
               onChange={(event) => setExtra((current) => ({ ...current, [entry]: event.target.value }))}
               className="font-mono text-[12px]"

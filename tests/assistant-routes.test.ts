@@ -581,6 +581,24 @@ describe('per-protocol provider endpoints', () => {
     const cleared = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { protocol: null })
     expect(cleared.model.protocol).toBeNull()
   })
+
+  it('says which address is unusable, and treats a half-typed scheme as no address', async () => {
+    const provider = await addGateway()
+    // A stray value in an optional field has to name itself: "bad request" is not a diagnosis.
+    const response = await app.fetch(new Request(`http://localhost/api/assistant/providers/${provider.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-inkstone-client': '1' },
+      body: JSON.stringify({ endpoints: { gemini: 'lgf5090' } }),
+    }), env as never, ctx)
+    const body = await response.json() as { error?: { message?: string } }
+    expect(response.status).toBe(400)
+    expect(body.error?.message).toMatch(/gemini/i)
+
+    const seeded = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${provider.id}`, {
+      endpoints: { gemini: 'https://', anthropic: '  ' },
+    })
+    expect(seeded.provider.endpoints).toEqual({})
+  })
 })
 
 describe('offline chat', () => {

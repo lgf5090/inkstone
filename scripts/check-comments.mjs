@@ -724,6 +724,9 @@ const allowed = new Map([
     "// the row overflowed over the one above it; the name takes the first line there.",
     "// The manual form is the other way in, and the picker has to be out of its way first.",
     "// An edit starts from what is stored, not from a preset that would overwrite the reader's address.",
+    "// Which box says what, and why the save would be refused. The optional addresses are checked here for",
+    "// the same reason the route checks them: a browser can autocomplete a username into a text box sitting",
+    "// above a password field, and that must not read as \"adding a provider is broken\".",
   ]],
   ["src/client/features/chat/AutomationsView.tsx", [
     "/**\n * Reminders and routines.\n *\n * The schedule editor builds a `ScheduleSpec` and shows the sentence it means before anything is sent,\n * because the commonest mistake in a scheduler is a form that says one thing and stores another. The\n * sentence is assembled from the locale catalog, so a reader whose interface is Chinese reads the\n * schedule in their own language rather than as an English string pasted next to it.\n *\n * Times are typed as wall-clock readings in the assistant's timezone, which is what \"remind me at 9\"\n * means to the reader; the conversion is the server's job and lives in `assistant-schedule`.\n */",
@@ -936,6 +939,10 @@ const allowed = new Map([
     "/**\n * The picker that turns a vendor's listing into the reader's models.\n *\n * Two halves are pinned: the filter over the list (search, \"not added yet\", the families the account\n * actually reports), and the drive — ticking rows has to reach the store with exactly those ids, and a\n * listing that failed must leave the manual entry reachable rather than an empty dialog.\n */",
     "// The store's failure path names the class, so the mock has to carry it.",
     "// A second press takes the tick back off, or a mis-click could not be undone.",
+  ]],
+  ["src/client/features/chat/provider-form.test.ts", [
+    "/**\n * The provider form's own guard rail.\n *\n * A browser can autocomplete a saved username into the text box sitting above a password field, and the\n * address boxes are optional. The reader must see which box says what, before any request is sent — and\n * the save they did mean must still go through.\n */",
+    "// A half-typed scheme is \"nothing entered\": it must not travel to the route as an address.",
   ]],
   ["src/client/features/chat/send-search.test.ts", [
     "/**\n * The web-search switch's way from a click to the request.\n *\n * Two half-wires have to be pinned together: the toggle writing the store, and the store reaching the\n * stream input. A chip that looked switched on while the turn went out without the flag is the worst\n * kind of control, because it is believed.\n */",
@@ -13110,6 +13117,10 @@ const allowed = new Map([
     "/**\n   * A second address per protocol, for the gateway that answers on more than one wire.\n   *\n   * Only the protocols the reader filled in are here; a model that asks for a protocol this map carries is\n   * called through that address instead of `baseUrl`.\n   */",
     "/** Tolerant by design: a backup written by an older build must not lose the rest of the provider. */",
     "/**\n   * Which wire this model is called on. Null follows the provider; a value is what lets one gateway key\n   * serve an Anthropic-shaped model beside an OpenAI-shaped one.\n   */",
+    "/**\n * What one address field says, before anybody tries to reach it.\n *\n * The form and the route share this so the reader is told \"that is not an address\" beside the box they\n * typed it in, instead of through a 400 that names nothing. Reachability is deliberately not judged here:\n * a private host has the right shape and the route is what refuses it, so splitting the two rules keeps\n * each one in the place that can enforce it.\n */",
+    "// A bare scheme is what the preset seeds and what an autofill can leave behind: nothing was entered.",
+    "// Only the two schemes the request path can speak. A host is not checked separately because a WHATWG",
+    "// parser refuses an http(s) URL without one, so `https:///` is already caught above.",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -14398,6 +14409,11 @@ const allowed = new Map([
     "/**\n * What the reader's key can actually call, straight from the vendor.\n *\n * The picker offers these ids rather than a bundled list, so a model that is not on this account never\n * looks like a bug. A failure is reported in the body rather than as a status the client has to\n * special-case: the screen still has to open, with the manual entry as the way forward.\n */",
     "/**\n * The extra addresses a provider answers on, each vetted exactly like the primary one.\n *\n * A gateway that speaks three wires still may not be pointed inside the network, so an entry that fails\n * the guard fails the save rather than being dropped in silence.\n */",
     "// Null is a value here: it is the reader putting the model back on the provider's own protocol.",
+    "// These fields are optional, and two ordinary things land in them: the preset's bare `https://` and",
+    "// whatever the browser autocompleted. Neither is an address, and neither may refuse the save the",
+    "// reader is actually asking for.",
+    "// Name the box that failed: a bare 400 for a field the reader never meant to fill reads as",
+    "// \"adding a provider is broken\".",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -14747,6 +14763,7 @@ const allowed = new Map([
     "// An edit that never mentions the endpoints must not wipe them, exactly like the MCP token.",
     "// The POST answers from the object it built, so only a re-read proves the column was written.",
     "// The same override decides what the web-search switch can ask for: only Anthropic has that tool.",
+    "// A stray value in an optional field has to name itself: \"bad request\" is not a diagnosis.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
@@ -14762,6 +14779,9 @@ const allowed = new Map([
     "// Already summarised rows are neither sent again nor listed as overflow waiting for a summary.",
     "// Both sentences open the same way; only the topic words are an overlap worth reporting.",
     "// The automation kind is spelled assistant_prompt; it is data, never a table name.",
+    "// The preset seeds `https://` as a starting point, and autofill can leave a bare scheme behind.",
+    "// The shape rule stays here so the form can say \"that is not an address\"; the SSRF guard stays on",
+    "// the route so a private target is refused wherever it came from.",
   ]],
   ["tests/assistant-upstream.test.ts", [
     "/**\n * The provider wire, tested against recorded frames rather than a live service.\n *\n * The three protocols all stream JSON in pieces, and the piece that matters — a tool call's arguments\n * arriving three characters at a time — is exactly what a hand-written parser gets wrong in a way no\n * other test can see. The failure looks like a tool that was called with `{}`.\n */",
