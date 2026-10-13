@@ -546,6 +546,11 @@ export interface PendingAction {
   targetId: string
   /** The target's own title, quoted on the approval card. */
   targetLabel: string
+  /**
+   * The arguments the model proposed, kept only so an external tool call can be replayed after approval:
+   * a note deletion can be redone from its target id, a remote search cannot.
+   */
+  args?: Record<string, unknown>
   status: PendingActionStatus
   error: string | null
   createdAt: number
@@ -560,6 +565,46 @@ export interface AssistantToolSpec {
   /** Only a destructive tool has one: the approval card names what will be removed. */
   approvalKey?: MessageKey
   permission: ToolPermission
+}
+
+/**
+ * An external MCP server the reader added.
+ *
+ * `toolMode` is the whole safety story for a third party: its tools can be hidden from the model, offered
+ * but gated behind an approval card for every call, or run on the model's own say-so. Nothing is auto by
+ * default — a server the reader pasted in from a blog post gets no write access to their notes silently.
+ */
+export const ASSISTANT_MCP_TOOL_MODES = ['off', 'ask', 'auto'] as const
+export type AssistantMcpToolMode = (typeof ASSISTANT_MCP_TOOL_MODES)[number]
+
+export interface AssistantMcpServer {
+  id: string
+  label: string
+  url: string
+  enabled: boolean
+  toolMode: AssistantMcpToolMode
+  /** Whether a bearer header is stored. The value itself never leaves the worker. */
+  hasKey: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export const MAX_MCP_SERVERS = 8
+export const MAX_MCP_TOOLS_PER_SERVER = 24
+/** A tool name the upstreams accept: `^[a-zA-Z0-9_-]{1,64}$` after namespacing. */
+export const MAX_MCP_TOOL_NAME_CHARS = 64
+export const MAX_MCP_LABEL_CHARS = 60
+export const MAX_MCP_URL_CHARS = 2048
+
+/** What one external tool looks like after listing, in the shape the composer and executor both need. */
+export interface AssistantMcpTool {
+  /** The namespaced name the model is offered. */
+  name: string
+  /** The server's own name for it, which is what `tools/call` must carry. */
+  remoteName: string
+  serverId: string
+  serverLabel: string
+  description: string
 }
 
 /**
@@ -790,7 +835,7 @@ export function normalizeModelId(value: unknown): string {
 }
 
 export interface ChatStreamEvent {
-  type: 'start' | 'text' | 'reasoning' | 'tool' | 'title' | 'stage' | 'usage' | 'error' | 'done'
+  type: 'start' | 'text' | 'reasoning' | 'tool' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem'
   conversationId?: string
   userMessageId?: string
   assistantMessageId?: string
@@ -799,6 +844,9 @@ export interface ChatStreamEvent {
   tool?: ToolActivity
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
   usage?: { inputTokens: number, outputTokens: number }
+  /** For `mcp_problem`: which external server failed to list, and why. */
+  server?: string
+  error?: string
   code?: string
   message?: string
   finalMessage?: AssistantMessage

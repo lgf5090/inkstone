@@ -13,8 +13,12 @@
 import { Hono, type Context } from 'hono'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
+  ASSISTANT_MCP_TOOL_MODES,
   ASSISTANT_MODEL_KINDS,
   MAX_CONTEXT_BUDGET_TOKENS,
+  MAX_MCP_LABEL_CHARS,
+  MAX_MCP_SERVERS,
+  MAX_MCP_URL_CHARS,
   parseModelModalities,
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
@@ -47,6 +51,8 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson } from '../lib/request'
+import { mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
+import { isExternalToolName, loadExternalTools } from '../assistant/mcp-tools'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
 import { AssistantStore } from '../assistant/store'
@@ -194,6 +200,94 @@ assistantRoutes.post('/conversations', async (c) => {
   return c.json({ conversation: await s.createConversation(title, folderId) }, 201)
 })
 
+// ------------------------------------------------------------------ external MCP servers
+
+/**
+ * The reader's own third-party MCP servers.
+ *
+ * Two rules hold here. The stored token is never read back — the listing only says whether one is stored —
+ * and the address is checked before anything is fetched, because this is the one place the worker is asked
+ * to reach a URL a person typed.
+ */
+assistantRoutes.get('/mcp', async (c) => c.json({ servers: await store(c).listMcpServers() }))
+
+assistantRoutes.post('/mcp', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const label = text(body.label, MAX_MCP_LABEL_CHARS)
+  const url = text(body.url, MAX_MCP_URL_CHARS).replace(/\s+/g, '')
+  const problem = mcpUrlProblem(url)
+  if (problem) throw ApiError.badRequest(problem)
+  if ((await s.listMcpServers()).length >= MAX_MCP_SERVERS) {
+    throw ApiError.conflict(`At most ${MAX_MCP_SERVERS} servers can be configured.`)
+  }
+  const server = await s.createMcpServer({
+    label,
+    url,
+    token: typeof body.token === 'string' ? body.token : '',
+    toolMode: pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) ?? 'ask',
+  })
+  return c.json({ server }, 201)
+})
+
+assistantRoutes.patch('/mcp/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  let url: string | undefined
+  if (body.url !== undefined) {
+    url = text(body.url, MAX_MCP_URL_CHARS).replace(/\s+/g, '')
+    const problem = mcpUrlProblem(url)
+    if (problem) throw ApiError.badRequest(problem)
+  }
+  const updated = await s.updateMcpServer(id, {
+    ...(body.label !== undefined ? { label: text(body.label, MAX_MCP_LABEL_CHARS) } : {}),
+    ...(url === undefined ? {} : { url }),
+    // An empty string means "remove it"; the settings form sends null for the same thing.
+    ...(body.token === null || body.token === '' ? { token: null } : typeof body.token === 'string' ? { token: body.token } : {}),
+    ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
+    ...(pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) !== undefined ? { toolMode: pickValue(body.toolMode, ASSISTANT_MCP_TOOL_MODES) } : {}),
+  })
+  if (!updated) throw ApiError.notFound('Server not found')
+  return c.json({ server: updated })
+})
+
+assistantRoutes.delete('/mcp/:id', async (c) => {
+  const removed = await store(c).deleteMcpServer(requiredId(c.req.param('id')))
+  if (!removed) throw ApiError.notFound('Server not found')
+  return c.json({ ok: true })
+})
+
+/**
+ * The settings screen's "test" button: connect, handshake, list.
+ *
+ * The token is taken from the stored row when the body does not carry a new one, so a reader can test what
+ * they already saved without retyping it — and the response still never echoes it back.
+ */
+assistantRoutes.post('/mcp/:id/test', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const record = await s.mcpServerRecord(id)
+  if (!record) throw ApiError.notFound('Server not found')
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as Record<string, unknown>)
+  const token = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : record.token
+  const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {}
+  const result = await mcpProbe(record.row.url, headers, record.row.id, record.row.label)
+  return c.json({
+    ok: result.ok,
+    error: result.error,
+    tools: (result.tools ?? []).map((tool) => ({ name: tool.name, remoteName: tool.remoteName, description: tool.description })),
+  })
+})
+
+assistantRoutes.get('/mcp/tools', async (c) => {
+  const loaded = await loadExternalTools(store(c))
+  return c.json({
+    tools: loaded.definitions.map((definition) => ({ name: definition.name, description: definition.description })),
+    problems: loaded.problems,
+  })
+})
+
 assistantRoutes.get('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
@@ -330,9 +424,12 @@ assistantRoutes.post('/chat', async (c) => {
 
   // A tool the assistant cannot actually call is not a request, and a scope has to be a real id: both
   // narrow what the turn may reach, so neither may be invented by the caller.
+  // An external tool is not in the built-in registry, so its namespaced shape is what says it is real —
+  // the call itself is refused later if the server turned out not to offer it.
   const callable = new Set(ASSISTANT_TOOL_SPECS.map((spec) => spec.name))
   const tools = Array.isArray(body.tools)
-    ? [...new Set(body.tools.filter((name): name is string => typeof name === 'string' && callable.has(name)))].slice(0, MAX_TURN_TOOLS)
+    ? [...new Set(body.tools.filter((name): name is string =>
+      typeof name === 'string' && (callable.has(name) || isExternalToolName(name))))].slice(0, MAX_TURN_TOOLS)
     : []
   const scopes: AssistantTurnScope[] = (Array.isArray(body.scopes) ? body.scopes : [])
     .map((entry): AssistantTurnScope | null => {
@@ -514,7 +611,9 @@ assistantRoutes.post('/actions/:id/cancel', async (c) => {
  */
 async function approvalContext(c: Context<AppBindings>, s: AssistantStore, settings: Awaited<ReturnType<AssistantStore['getSettings']>>) {
   const scope = await resolveNoteScope(c.env.DB, s.userId, settings.noteScope)
+  const external = await loadExternalTools(s)
   return {
+    externalByName: new Map(external.definitions.map((definition) => [definition.name, definition])),
     store: s,
     env: c.env,
     ftsEnabled: c.get('database').ftsEnabled,

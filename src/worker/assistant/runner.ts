@@ -16,6 +16,7 @@ import type { AssistantMessage, AssistantModelModality, AssistantProtocol, Assis
 import { customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
+import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
 import type { Env } from '../env'
@@ -243,12 +244,22 @@ export class AssistantRunner {
       }
 
       yield { type: 'stage', stage: 'generating' }
-      const executor = new ToolExecutor(await this.toolContext(conversationId), { maxToolCalls: limits.maxToolCalls })
+      // The reader's own third-party tools are listed once per turn: a server that is slow or down is
+      // reported to the settings screen rather than failing the answer, and the schemas have to exist
+      // before the model is offered them.
+      const external: ExternalToolsResult = await loadExternalTools(this.store)
+      const executor = new ToolExecutor(await this.toolContext(conversationId), { maxToolCalls: limits.maxToolCalls }, external.definitions)
       const schemas: ToolSchema[] = executor.available().map((definition) => ({
         name: definition.name,
         description: definition.description,
-        parameters: parametersSchema(definition.fields),
+        // A remote tool's own JSON Schema, because this file has no FieldSpec list for it.
+        parameters: external.schemas[definition.name] ?? parametersSchema(definition.fields),
       }))
+      // A server the reader added that will not answer is their business, not a silent absence: without
+      // this the tool list just looks shorter than it should be.
+      for (const problem of external.problems) {
+        yield { type: 'mcp_problem', server: problem.label, error: problem.error }
+      }
       const turns: ModelTurn[] = window.messages.map((entry) => ({
         role: entry.role,
         content: entry.content,

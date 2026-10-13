@@ -63,6 +63,13 @@ export interface ToolContext {
   noteScope: () => Promise<NoteScope>
   /** Present in chat mode: the note tools write through the same path the MCP server uses. */
   writeContext?: McpWriteContext
+  /**
+   * This reader's external tools by their namespaced name, loaded again for the approval replay.
+   *
+   * The card was raised by a listing taken a minute earlier; approving runs against a fresh one, so a
+   * server the reader removed in between simply has no entry here and the action reads as gone.
+   */
+  externalByName?: Map<string, ToolDefinition>
 }
 
 export interface PreparedTarget {
@@ -77,6 +84,12 @@ interface BaseTool {
   permission: 'read' | 'write' | 'destructive'
   fields: Record<string, FieldSpec>
   maxCallsPerTurn?: number
+  /**
+   * A tool the reader added through an external MCP server. Its arguments are validated by that server, not
+   * by this file, so the schema the server sent is what the model sees and the object it sends back is
+   * passed through as-is.
+   */
+  external?: boolean
 }
 
 export interface ImmediateTool extends BaseTool {
@@ -87,7 +100,12 @@ export interface ImmediateTool extends BaseTool {
 export interface DestructiveTool extends BaseTool {
   permission: 'destructive'
   prepare: (args: Record<string, unknown>, ctx: ToolContext) => Promise<PreparedTarget>
-  commit: (targetId: string, ctx: ToolContext) => Promise<unknown>
+  /**
+   * `args` is what the model proposed, replayed from the approved row. The notebook's own destructive tools
+   * ignore it — deleting a note needs only its id — but an external tool call cannot be re-derived from a
+   * target, so the arguments have to come back through the approval.
+   */
+  commit: (targetId: string, ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>
 }
 
 export type ToolDefinition = ImmediateTool | DestructiveTool
@@ -775,6 +793,8 @@ export class ToolExecutor {
   constructor(
     private readonly ctx: ToolContext,
     private readonly budget: ExecutorBudget,
+    /** This turn's external tools, listed by the runner before the first request goes out. */
+    private readonly external: ToolDefinition[] = [],
   ) {}
 
   get callCount(): number {
@@ -787,8 +807,12 @@ export class ToolExecutor {
 
   available(): ToolDefinition[] {
     if (this.budget.maxToolCalls <= 0) return []
-    if (this.ctx.mode === 'chat') return ALL_TOOLS
-    return ALL_TOOLS.filter((definition) => definition.permission === 'read' || definition.name === 'notify_reader')
+    const own = this.ctx.mode === 'chat'
+      ? ALL_TOOLS
+      : ALL_TOOLS.filter((definition) => definition.permission === 'read' || definition.name === 'notify_reader')
+    // An automation has no reader watching, so a remote tool that needs an Approve press is not offered.
+    const remote = this.ctx.mode === 'chat' ? this.external : this.external.filter((definition) => definition.permission !== 'destructive')
+    return [...own, ...remote]
   }
 
   find(name: string): ToolDefinition | undefined {
@@ -810,7 +834,7 @@ export class ToolExecutor {
     if (definition.maxCallsPerTurn !== undefined && used >= definition.maxCallsPerTurn) {
       throw new ToolError(`"${name}" was already used ${used} times in this request. Do not call it again.`)
     }
-    const args = validateArgs(definition.fields, rawArgs)
+    const args = definition.external ? asArgumentRecord(rawArgs) : validateArgs(definition.fields, rawArgs)
     const signature = `${name}:${stableStringify(args)}`
     if ((this.signatures.get(signature) ?? 0) >= 1) {
       throw new ToolError('This exact call was already made in this request. Use the earlier result instead of repeating it.')
@@ -826,7 +850,7 @@ export class ToolExecutor {
       // The same prepare/commit pair the approval card runs, minus the wait: skipping `prepare` would
       // also skip the lookup that decides what this tool is allowed to touch.
       const prepared = await definition.prepare(args, { ...this.ctx, callId })
-      return await definition.commit(prepared.targetId, { ...this.ctx, callId })
+      return await definition.commit(prepared.targetId, { ...this.ctx, callId }, args)
     }
     if (!this.ctx.conversationId) throw new ToolError(`"${name}" needs the reader's approval and can only be used in chat.`)
     const prepared = await definition.prepare(args, { ...this.ctx, callId })
@@ -835,6 +859,8 @@ export class ToolExecutor {
       tool: definition.name,
       targetId: prepared.targetId,
       targetLabel: prepared.targetLabel,
+      // What the model proposed, kept so approving runs exactly that and not a re-derivation.
+      args: definition.external ? args : undefined,
     })
     this.approvals.set(callId, { id: action.id, toolId: callId })
     return {
@@ -843,6 +869,11 @@ export class ToolExecutor {
       note: 'Nothing has changed yet. The reader now sees an Approve button for exactly this action. Tell them briefly what you proposed. Do not call this tool again for the same item, and do not say it is done.',
     }
   }
+}
+
+/** A remote tool decides what a valid argument object is; this only refuses the things that are not one. */
+function asArgumentRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function stableStringify(value: unknown): string {
@@ -861,7 +892,7 @@ function stableStringify(value: unknown): string {
 export async function runApprovedAction(store: AssistantStore, ctx: ToolContext, actionId: string) {
   const stored = await store.getPendingAction(actionId)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
-  const definition = TOOL_BY_NAME.get(stored.tool)
+  const definition = ctx.externalByName?.get(stored.tool) ?? TOOL_BY_NAME.get(stored.tool)
   if (!definition || definition.permission !== 'destructive') {
     throw ApiError.notFound('This action no longer exists.')
   }
@@ -873,7 +904,7 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
     throw ApiError.conflict('This action was already handled.')
   }
   try {
-    await definition.commit(stored.targetId, ctx)
+    await definition.commit(stored.targetId, ctx, stored.args ?? {})
   } catch (error) {
     await store.resolvePendingAction(actionId, {
       status: 'failed',

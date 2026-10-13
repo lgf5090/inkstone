@@ -20,6 +20,7 @@ import type {
   AssistantMemory,
   AssistantMessage,
   AssistantAnswerVersion,
+  AssistantMcpServer,
   AssistantModel,
   AssistantNotification,
   AssistantProvider,
@@ -140,6 +141,16 @@ interface AssistantState {
   settings: AssistantSettings | null
   providers: AssistantProvider[]
   models: AssistantModel[]
+
+  /** The reader's external MCP servers, and the tools they currently expose. */
+  mcpServers: AssistantMcpServer[]
+  mcpProblems: { serverId: string, label: string, error: string }[]
+  mcpTools: { name: string, description: string }[]
+  loadMcp: () => Promise<void>
+  addMcpServer: (body: { label: string, url: string, token?: string, toolMode?: string }) => Promise<boolean>
+  patchMcpServer: (id: string, body: Record<string, unknown>) => Promise<void>
+  removeMcpServer: (id: string) => Promise<void>
+  testMcpServer: (id: string) => Promise<{ ok: boolean, error: string, count: number }>
 
   setView: (view: AssistantView) => void
   bootstrap: (force?: boolean) => Promise<void>
@@ -313,6 +324,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   settings: null,
   providers: [],
   models: [],
+  mcpServers: [],
+  mcpProblems: [],
+  mcpTools: [],
 
   setView: (view) => set({ view }),
 
@@ -338,6 +352,9 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       else await get().openConversation(conversations.conversations[0]?.id ?? null)
       void get().loadProviders()
       void get().loadNotifications()
+      // The composer’s / picker lists the reader’s own MCP tools, so they have to be known before the
+      // first slash is typed — otherwise the picker shows only the built-ins until settings are opened.
+      void get().loadMcp()
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : t('assistant.toast.failed') })
       toast(error)
@@ -367,6 +384,54 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       set({ conversations: result.conversations })
     } catch (error) {
       toast(error)
+    }
+  },
+
+  loadMcp: async () => {
+    try {
+      const [servers, listing] = await Promise.all([api.assistant.mcpServers(), api.assistant.mcpTools()])
+      set({ mcpServers: servers.servers, mcpTools: listing.tools, mcpProblems: listing.problems })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  addMcpServer: async (body) => {
+    try {
+      await api.assistant.createMcpServer(body)
+      await get().loadMcp()
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  patchMcpServer: async (id, body) => {
+    try {
+      await api.assistant.patchMcpServer(id, body)
+      await get().loadMcp()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  removeMcpServer: async (id) => {
+    try {
+      await api.assistant.removeMcpServer(id)
+      await get().loadMcp()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  testMcpServer: async (id) => {
+    try {
+      const result = await api.assistant.testMcpServer(id)
+      await get().loadMcp()
+      return { ok: result.ok, error: result.error, count: result.tools.length }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error), count: 0 }
     }
   },
 
@@ -699,6 +764,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
               },
             }
           }
+          case 'mcp_problem':
+            // A server the reader added did not answer. The turn still proceeds without its
+            // tools, so this is said out loud rather than swallowed.
+            toast({ title: t('assistant.mcp.problem', { server: event.server ?? '', error: event.error ?? '' }), tone: 'warning' })
+            return current
           case 'error':
             return { turn: { ...turn, error: event.message ?? null } }
           case 'done':

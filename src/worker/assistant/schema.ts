@@ -169,6 +169,27 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_answer_versions_message
      ON chat_answer_versions(user_id, message_id, created_at, id)`,
 
+  /**
+   * External MCP servers the reader added.
+   *
+   * The bearer header is stored encrypted, and only its length is ever selected: a listing that returned
+   * the ciphertext would let a stolen backup be replayed against the third party.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_mcp_servers (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    url TEXT NOT NULL,
+    header_ciphertext TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    tool_mode TEXT NOT NULL DEFAULT 'ask',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_mcp_servers_user
+     ON chat_mcp_servers(user_id, created_at)`,
+
   `CREATE TABLE IF NOT EXISTS chat_memories (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -311,6 +332,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     tool TEXT NOT NULL,
     target_id TEXT NOT NULL,
     target_label TEXT NOT NULL DEFAULT '',
+    args TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'pending',
     error TEXT,
     created_at INTEGER NOT NULL,
@@ -409,6 +431,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_active_runs_user',
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
+  'idx_chat_mcp_servers_user',
 ]
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -421,6 +444,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
   chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
+  chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'header_ciphertext', 'enabled', 'tool_mode', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],
@@ -429,7 +453,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_automations: ['user_id', 'id', 'name', 'kind', 'message', 'schedule', 'enabled', 'status', 'next_run', 'last_run', 'last_result', 'last_error', 'run_count', 'claimed_at', 'created_at', 'updated_at'],
   chat_runs: ['user_id', 'id', 'automation_id', 'automation_name', 'started_at', 'finished_at', 'status', 'result', 'error'],
   chat_notifications: ['user_id', 'id', 'title', 'body', 'automation_id', 'read_at', 'created_at'],
-  chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
+  chat_pending_actions: ['user_id', 'id', 'conversation_id', 'tool', 'target_id', 'target_label', 'args', 'status', 'error', 'created_at', 'expires_at', 'resolved_at'],
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],

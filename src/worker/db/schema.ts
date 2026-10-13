@@ -910,6 +910,35 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_models ADD COLUMN modalities TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // The reader's own external MCP servers. Created here as well as in the table list so an account that
+    // has been running since before this existed gets it on the next boot.
+    version: 50,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_mcp_servers (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    url TEXT NOT NULL,
+    header_ciphertext TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    tool_mode TEXT NOT NULL DEFAULT 'ask',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_mcp_servers_user ON chat_mcp_servers(user_id, created_at)`,
+    ],
+  },
+  {
+    // An external tool call cannot be replayed from a target id the way deleting a note can: its
+    // arguments are the whole proposal, so the approved row has to carry them.
+    version: 51,
+    skipIfColumnExists: { table: 'chat_pending_actions', column: 'args' },
+    statements: [
+      `ALTER TABLE chat_pending_actions ADD COLUMN args TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -50,6 +50,7 @@ import type {
 } from '@shared/types'
 import type {
   AssistantAnswerVersion,
+  AssistantMcpServer,
   AssistantConversation,
   ChatFolderNode,
   ConversationTag,
@@ -766,6 +767,20 @@ export const api = {
       }>(`/api/assistant/conversations/${id}`),
     renameConversation: (id: string, title: string) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
+    // ------------------------------------------------------------ external MCP servers
+    mcpServers: () => request<{ servers: AssistantMcpServer[] }>('/api/assistant/mcp'),
+    createMcpServer: (body: { label: string, url: string, token?: string, toolMode?: string }) =>
+      request<{ server: AssistantMcpServer }>('/api/assistant/mcp', { method: 'POST', body }),
+    patchMcpServer: (id: string, body: Record<string, unknown>) =>
+      request<{ server: AssistantMcpServer }>(`/api/assistant/mcp/${id}`, { method: 'PATCH', body }),
+    removeMcpServer: (id: string) => request<{ ok: true }>(`/api/assistant/mcp/${id}`, { method: 'DELETE' }),
+    testMcpServer: (id: string, token?: string) =>
+      request<{ ok: boolean, error: string, tools: { name: string, remoteName: string, description: string }[] }>(
+        `/api/assistant/mcp/${id}/test`, { method: 'POST', body: token === undefined ? {} : { token } },
+      ),
+    /** The names the composer's / picker can offer, with the servers that failed to list. */
+    mcpTools: () => request<{ tools: { name: string, description: string }[], problems: { serverId: string, label: string, error: string }[] }>('/api/assistant/mcp/tools'),
+
     /** The answers one turn displaced, oldest first. */
     answerVersions: (conversationId: string, messageId: string) =>
       request<{ versions: AssistantAnswerVersion[] }>(`/api/assistant/conversations/${conversationId}/messages/${messageId}/versions`),

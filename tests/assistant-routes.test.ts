@@ -1584,3 +1584,178 @@ describe('answer versions', () => {
   })
 })
 
+
+describe('external MCP servers', () => {
+  /** A third party that answers the handshake and offers one read and one write tool. */
+  function fakeMcpServer(calls: string[]) {
+    return vi.fn(async (url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { method?: string, name?: string, arguments?: unknown }
+      calls.push(`${String(url)}:${body.method ?? '?'}:${body.params?.name ?? ''}:${JSON.stringify(body.params?.arguments ?? '')}`)
+      if (body.method === 'initialize') {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18', capabilities: {} } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'mcp-session-id': 'sess-77' },
+        })
+      }
+      if (body.method === 'tools/list') {
+        return new Response(`event: message\ndata: ${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          result: { tools: [
+            { name: 'resolve-library-id', description: 'Find a library id', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+            { name: 'drop_everything', description: 'Removes data', inputSchema: { type: 'object', properties: {} } },
+          ] },
+        })}\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      }
+      if (body.method === 'tools/call') {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: `ran ${body.name} with ${JSON.stringify(body.arguments)}` }] } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response('', { status: 202 })
+    })
+  }
+
+  async function addServer(url = 'https://mcp.example.test/mcp') {
+    return call<{ server: { id: string } }>('POST', '/api/assistant/mcp', { label: 'Example', url, token: 'ctx7sk-secret-value-1234' })
+  }
+
+  it('stores a server, keeps its token out of every read, and lists its tools', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', fakeMcpServer(calls))
+    const created = await addServer()
+    expect(created.server.id).toBeTruthy()
+    const listed = await call<{ servers: { label: string, url: string, hasKey: boolean, toolMode: string }[] }>('GET', '/api/assistant/mcp')
+    expect(listed.servers).toHaveLength(1)
+    expect(listed.servers[0]?.hasKey).toBe(true)
+    expect(listed.servers[0]?.toolMode).toBe('ask')
+    // The token must not appear anywhere a listing can carry it.
+    expect(JSON.stringify(listed)).not.toContain('ctx7sk-secret-value-1234')
+    const tools = await call<{ tools: { name: string }[], problems: unknown[] }>('GET', '/api/assistant/mcp/tools')
+    expect(tools.problems).toEqual([])
+    expect(tools.tools.map((entry) => entry.name)).toEqual([
+      expect.stringMatching(/^mcp_[a-z0-9]+_resolve-library-id$/),
+      expect.stringMatching(/^mcp_[a-z0-9]+_drop_everything$/),
+    ])
+    // The handshake asked for the session and echoed it back on the next call.
+    expect(calls.some((entry) => entry.includes(':initialize:'))).toBe(true)
+    expect(calls.some((entry) => entry.includes(':tools/list:'))).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('refuses an address inside the network before anything is fetched', async () => {
+    const fetches = vi.fn()
+    vi.stubGlobal('fetch', fetches)
+    expect(await status('POST', '/api/assistant/mcp', { label: 'Inside', url: 'http://169.254.169.254/latest/meta-data/' })).toBe(400)
+    expect(await status('POST', '/api/assistant/mcp', { label: 'Plain', url: 'https://example.test/mcp' })).toBe(201)
+    expect(await status('PATCH', '/api/assistant/mcp/' + (await call<{ servers: { id: string }[] }>('GET', '/api/assistant/mcp')).servers[0]!.id, { url: 'http://127.0.0.1:9/mcp' })).toBe(400)
+    expect(fetches).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('asks the reader before an external tool runs, and runs the approved call with the shown arguments', async () => {
+    await useExampleModel()
+    const calls: string[] = []
+    vi.stubGlobal('fetch', fakeMcpServer(calls))
+    const created = await addServer()
+    const tools = await call<{ tools: { name: string }[] }>('GET', '/api/assistant/mcp/tools')
+    const resolveName = tools.tools.find((entry) => entry.name.includes('resolve-library-id'))!.name
+
+    // The model asks for it; in `ask` mode nothing has run yet and a proposal is shown instead.
+    const answerFrames = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: resolveName, arguments: '{"query":"react-query"}' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: 'I asked you first.' } }] })}\n\n`,
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const body = String(init?.body ?? '')
+      if (body.includes('"model":"example-model"')) return new Response(sse(answerFrames), { headers: { 'content-type': 'text/event-stream' } })
+      return fakeMcpServer(calls)(url, init)
+    }))
+    const events = await chatEvents({ message: '帮我查 react-query 的库 id', tools: [resolveName] })
+    await settleTurns()
+    const activity = events.filter((event) => event.type === 'tool').map((event) => event.tool)
+    const proposed = activity.find((entry) => entry?.approval)
+    expect(proposed?.approval?.status, 'no approval card was offered').toBe('pending')
+    expect(calls.some((entry) => entry.includes(':tools/call:resolve-library-id'))).toBe(false)
+    const actionId = proposed!.approval!.id
+    const approved = await call<{ action: { status: string } }>('POST', `/api/assistant/actions/${actionId}/approve`)
+    expect(approved.action.status).toBe('approved')
+    // The replay carries the arguments the card showed: a remote call cannot be re-derived from a target id.
+    console.log('DEBUG calls tail:', JSON.stringify(calls.slice(-6)), 'statuses:', JSON.stringify(calls.map((c) => c.split(':').slice(3,5))))
+    const ran = calls.filter((entry) => entry.includes(':tools/call:resolve-library-id:'))
+    expect(ran.length, 'the approved call never reached the server').toBe(1)
+    expect(ran[0]).toContain('query')
+    expect(ran[0]).toContain('react-query')
+    const threadId = events.find((event) => event.type === 'start')!.conversationId!
+    const after = await call<{ messages: { tools: { name: string, status: string }[] }[] }>('GET', `/api/assistant/conversations/${threadId}`)
+    const settled = after.messages.flatMap((message) => message.tools).filter((entry) => entry.name.includes('resolve-library-id'))
+    expect(settled.some((entry) => entry.status === 'success'), 'the chip still says pending').toBe(true)
+    vi.unstubAllGlobals()
+    void created
+  })
+
+  it('runs an auto-mode server without a card, and never offers a disabled one', async () => {
+    await useExampleModel()
+    const calls: string[] = []
+    vi.stubGlobal('fetch', fakeMcpServer(calls))
+    const created = await addServer()
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'auto' })
+    const tools = await call<{ tools: { name: string }[] }>('GET', '/api/assistant/mcp/tools')
+    const resolveName = tools.tools.find((entry) => entry.name.includes('resolve-library-id'))!.name
+    const answerFrames = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: resolveName, arguments: '{"query":"svelte"}' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: '查到了。' } }] })}\n\n`,
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const body = String(init?.body ?? '')
+      if (body.includes('"model":"example-model"')) return new Response(sse(answerFrames), { headers: { 'content-type': 'text/event-stream' } })
+      return fakeMcpServer(calls)(url, init)
+    }))
+    const events = await chatEvents({ message: '查 svelte' })
+    await settleTurns()
+    expect(calls.some((entry) => entry.includes(':tools/call:resolve-library-id'))).toBe(true)
+    expect(events.filter((event) => event.type === 'tool').map((event) => event.tool).at(-1)?.approval).toBeUndefined()
+
+    await call('PATCH', `/api/assistant/mcp/${created.server.id}`, { enabled: false })
+    expect((await call<{ tools: unknown[] }>('GET', '/api/assistant/mcp/tools')).tools).toEqual([])
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps a stored token through an unrelated edit, and drops it only when told to', async () => {
+    vi.stubGlobal('fetch', fakeMcpServer([]))
+    const created = await addServer()
+    const renamed = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { label: 'Renamed' })
+    expect(renamed.server.hasKey, 'an edit that did not touch the token cleared it').toBe(true)
+    const cleared = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { token: null })
+    expect(cleared.server.hasKey).toBe(false)
+    const retyped = await call<{ server: { hasKey: boolean } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { token: 'another-secret-999' })
+    expect(retyped.server.hasKey).toBe(true)
+    expect(JSON.stringify(retyped)).not.toContain('another-secret-999')
+    vi.unstubAllGlobals()
+  })
+
+  it('offers nothing from a server set to off, while it stays configured', async () => {
+    vi.stubGlobal('fetch', fakeMcpServer([]))
+    const created = await addServer()
+    expect((await call<{ tools: unknown[] }>('GET', '/api/assistant/mcp/tools')).tools.length).toBeGreaterThan(0)
+    const off = await call<{ server: { enabled: boolean, toolMode: string } }>('PATCH', `/api/assistant/mcp/${created.server.id}`, { toolMode: 'off' })
+    expect(off.server.toolMode).toBe('off')
+    expect(off.server.enabled, 'switching the mode off must not silently disable the row').toBe(true)
+    expect((await call<{ tools: unknown[] }>('GET', '/api/assistant/mcp/tools')).tools).toEqual([])
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps one account’s servers out of another’s', async () => {
+    vi.stubGlobal('fetch', fakeMcpServer([]))
+    const mine = await addServer()
+    asUser('0123456789abcdefghjkmnpqrt')
+    expect((await call<{ servers: unknown[] }>('GET', '/api/assistant/mcp')).servers).toEqual([])
+    expect(await status('PATCH', `/api/assistant/mcp/${mine.server.id}`, { enabled: false })).toBe(404)
+    expect(await status('DELETE', `/api/assistant/mcp/${mine.server.id}`)).toBe(404)
+    asUser(USER)
+    expect(await status('DELETE', `/api/assistant/mcp/${mine.server.id}`)).toBe(200)
+    expect((await call<{ servers: unknown[] }>('GET', '/api/assistant/mcp')).servers).toEqual([])
+    vi.unstubAllGlobals()
+  })
+})

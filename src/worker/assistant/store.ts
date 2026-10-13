@@ -40,7 +40,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
-import { MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, parseModelModalities, reasoningValue, type AssistantAnswerVersion, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, MAX_MCP_LABEL_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, parseModelModalities, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -313,6 +313,30 @@ function toMessage(r: MessageRow): AssistantMessage {
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
     versionCount: r.version_count ?? undefined,
+  }
+}
+
+interface McpServerRow {
+  id: string
+  label: string
+  url: string
+  has_key?: number | null
+  enabled: number | null
+  tool_mode: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toMcpServer(r: McpServerRow): AssistantMcpServer {
+  return {
+    id: r.id,
+    label: r.label,
+    url: r.url,
+    enabled: bool(r.enabled),
+    toolMode: pickEnum(r.tool_mode, ASSISTANT_MCP_TOOL_MODES, 'ask'),
+    hasKey: bool(r.has_key),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   }
 }
 
@@ -1206,6 +1230,96 @@ export class AssistantStore {
     await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND conversation_id = ?2`, conversationId)
   }
 
+  // ------------------------------------------------------------ external MCP servers
+
+  /**
+   * The reader's own third-party MCP servers.
+   *
+   * `hasKey` is computed the same way a provider's is — from the ciphertext's length — because the token
+   * itself must never be selected, let alone returned by a route: the settings screen has to show whether
+   * one is stored without ever carrying it back to the browser.
+   */
+  async listMcpServers(): Promise<AssistantMcpServer[]> {
+    const rows = await this.rows<McpServerRow>(
+      `SELECT id, label, url, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, created_at, updated_at
+         FROM chat_mcp_servers WHERE user_id = ?1 ORDER BY created_at`,
+      this.userId,
+    )
+    return rows.map(toMcpServer)
+  }
+
+  async mcpServerRecord(id: string): Promise<{ row: AssistantMcpServer, token: string, ciphertext: string } | null> {
+    const r = await this.one<McpServerRow & { header_ciphertext: string | null }>(
+      `SELECT id, label, url, header_ciphertext, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, created_at, updated_at
+         FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    if (!r) return null
+    const ciphertext = r.header_ciphertext ?? ''
+    return {
+      row: toMcpServer(r),
+      ciphertext,
+      token: ciphertext ? (await decryptAssistantKey(this.env, this.userId, ciphertext)) ?? '' : '',
+    }
+  }
+
+  async createMcpServer(input: { label: string, url: string, token?: string, toolMode?: AssistantMcpToolMode }): Promise<AssistantMcpServer> {
+    const id = newId()
+    const at = Date.now()
+    const token = (input.token ?? '').trim()
+    const ciphertext = token ? await encryptAssistantKey(this.env, this.userId, token) : ''
+    const label = input.label.slice(0, MAX_MCP_LABEL_CHARS)
+    await this.write(
+      `INSERT INTO chat_mcp_servers (id, user_id, label, url, header_ciphertext, enabled, tool_mode, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, 1, ?6, ?7, ?7)`,
+      id, label, input.url, ciphertext, input.toolMode ?? 'ask', at,
+    )
+    return { id, label, url: input.url, enabled: true, toolMode: input.toolMode ?? 'ask', hasKey: Boolean(ciphertext), createdAt: at, updatedAt: at }
+  }
+
+  async updateMcpServer(
+    id: string,
+    patch: { label?: string, url?: string, token?: string | null, enabled?: boolean, toolMode?: AssistantMcpToolMode },
+  ): Promise<AssistantMcpServer | null> {
+    const existing = await this.mcpServerRecord(id)
+    if (!existing) return null
+    const at = Date.now()
+    // Three cases, and the third is the one a form gets wrong: an untouched token field means keep what is
+    // stored, not clear it.
+    let ciphertext = existing.ciphertext
+    if (patch.token === null) ciphertext = ''
+    else if (typeof patch.token === 'string' && patch.token.trim()) {
+      ciphertext = await encryptAssistantKey(this.env, this.userId, patch.token.trim())
+    }
+    await this.write(
+      `UPDATE chat_mcp_servers
+          SET label = ?2, url = ?3, header_ciphertext = ?4, enabled = ?5, tool_mode = ?6, updated_at = ?7
+        WHERE user_id = ?1 AND id = ?8`,
+      (patch.label ?? existing.row.label).slice(0, MAX_MCP_LABEL_CHARS),
+      patch.url ?? existing.row.url,
+      ciphertext,
+      patch.enabled === undefined ? (existing.row.enabled ? 1 : 0) : patch.enabled ? 1 : 0,
+      patch.toolMode ?? existing.row.toolMode,
+      at,
+      id,
+    )
+    const reread = await this.one<McpServerRow>(
+      `SELECT id, label, url, length(header_ciphertext) > 0 AS has_key, enabled, tool_mode, created_at, updated_at
+         FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return reread ? toMcpServer(reread) : null
+  }
+
+  async deleteMcpServer(id: string): Promise<boolean> {
+    return (await this.write(`DELETE FROM chat_mcp_servers WHERE user_id = ?1 AND id = ?2`, id)) > 0
+  }
+
+  /** Enabled servers only: a disabled one must not reach the model through any path. */
+  async enabledMcpServers(): Promise<AssistantMcpServer[]> {
+    return (await this.listMcpServers()).filter((server) => server.enabled && server.toolMode !== 'off')
+  }
+
   // ---------------------------------------------------------------- memories
 
   /**
@@ -1932,16 +2046,20 @@ export class AssistantStore {
 
   // --------------------------------------------------------- pending actions
 
-  async createPendingAction(input: { conversationId: string, tool: string, targetId: string, targetLabel: string }): Promise<PendingAction> {
+  async createPendingAction(input: {
+    conversationId: string, tool: string, targetId: string, targetLabel: string,
+    /** Kept so an external call can be replayed after the reader approves it. */
+    args?: Record<string, unknown>
+  }): Promise<PendingAction> {
     const id = newId()
     const at = Date.now()
     const expires = at + PENDING_ACTION_TTL_MS
     const label = input.targetLabel.slice(0, 300)
     await this.write(
       `INSERT INTO chat_pending_actions
-         (id, user_id, conversation_id, tool, target_id, target_label, status, created_at, expires_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, 'pending', ?7, ?8)`,
-      id, input.conversationId, input.tool, input.targetId, label, at, expires,
+         (id, user_id, conversation_id, tool, target_id, target_label, args, status, created_at, expires_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?9)`,
+      id, input.conversationId, input.tool, input.targetId, label, JSON.stringify(input.args ?? {}), at, expires,
     )
     return {
       id,
@@ -1949,6 +2067,7 @@ export class AssistantStore {
       conversationId: input.conversationId,
       targetId: input.targetId,
       targetLabel: label,
+      args: input.args ?? {},
       status: 'pending',
       error: null,
       createdAt: at,
@@ -2607,10 +2726,16 @@ interface ActionRow {
   tool: string
   target_id: string
   target_label: string | null
+  args?: string | null
   status: string
   error: string | null
   created_at: number
   expires_at: number
+}
+
+/** A JSON column that should hold an object; anything else reads as no arguments. */
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function toAction(r: ActionRow): PendingAction {
@@ -2624,6 +2749,7 @@ function toAction(r: ActionRow): PendingAction {
     conversationId: r.conversation_id,
     targetId: r.target_id,
     targetLabel: r.target_label ?? '',
+    args: recordValue(parseJson(r.args ?? '{}')),
     status,
     error: r.error,
     createdAt: r.created_at,
