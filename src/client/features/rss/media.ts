@@ -11,6 +11,8 @@
  * relay as pictures, which is why they play here at all.
  */
 import { safeHttpUrl } from '@shared/rss/model'
+import { platformOf } from '@shared/rss/platform'
+import type { MessageKey } from '@shared/locales/en-US'
 
 export interface VideoLink {
   host: string
@@ -40,4 +42,20 @@ export function videoLinkOf(value: string | null | undefined): VideoLink | null 
 export function playableAudio(url: string | null | undefined): string {
   const safe = safeHttpUrl(url ?? '')
   return safe?.protocol === 'https:' ? safe.href : ''
+}
+
+/**
+ * The one word that tells a reader what they are about to open, or nothing for a plain article.
+ *
+ * The address answers first — a YouTube video is labelled by the platform a reader already knows,
+ * and the word would be the same either way — and what is left is the two kinds worth deciding about
+ * before opening: something to play, and something to watch. A null here is the common case, so the
+ * row shows no badge at all rather than a word that says "article".
+ */
+export function articleBadge(entry: { audioUrl: string, link: string }): MessageKey | null {
+  const platform = platformOf(entry.link)
+  if (platform !== 'web') return `rss.platform_${platform}` as MessageKey
+  if (playableAudio(entry.audioUrl)) return 'rss.kind_podcast'
+  if (videoLinkOf(entry.link)) return 'rss.kind_video'
+  return null
 }

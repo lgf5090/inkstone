@@ -4533,6 +4533,7 @@ const allowed = new Map([
     "// top edge, so a long morning of reading does not end with forty rows still showing as new.",
     "// A list that has not been asked for anything in half a day says so, because the rows look exactly",
     "// like news and the reader has no other way to tell they are the last visit's.",
+    "// The counts are taken before the platform filter, so choosing one never hides the others away.",
   ]],
   ["src/client/features/rss/RssChannelRail.tsx", [
     "/**\n * The channel rail: where the reader is, and the whole subscription library that can be reached.\n *\n * It used to be a list of buttons and nothing else, on the theory that every other question about a\n * subscription belongs to the management dialog. That theory cost the reader two round trips for\n * every ordinary act — move a feed, rename a folder, pause a source — and the dialog has no more\n * room for a folder's colour than the rail does. So the rail now carries the three things a reader\n * does with a subscription without leaving the list of them: a right-click, a drag onto a folder,\n * and a name that can be typed in place.\n *\n * Folders nest, and the nesting is the note folders' own: `RssGroup` is shaped like `Folder` so\n * `buildFolderTree` can arrange both trees, and the colour and icon pickers are the same panels the\n * sidebar uses. Two implementations of \"which folder can this not go into\" is how a subscription\n * ends up inside its own descendant.\n *\n * An unread badge only appears for a feed this device has actually read from. A zero would be a\n * claim about the world the rail has no way to make.\n */",
@@ -4558,6 +4559,9 @@ const allowed = new Map([
     "// the reader onto a phone, where 449px of list does not fit in 420px of screen.",
     "// The saved views are empty because nothing has been marked, not because nothing arrived, so",
     "// their hint names the marking rather than offering a refresh that would change nothing.",
+    "/** A channel filter for the platforms its articles actually came from, with their counts. */",
+    "// A platform with nothing in the list is not offered: a filter that answers with an empty pane is",
+    "// a broken-looking feature, and the counts come from the list the reader is already looking at.",
   ]],
   ["src/client/features/rss/RssReader.tsx", [
     "/**\n * The reader: one article, and the things a reader does with it.\n *\n * The body is drawn with the notebook's own prose styles rather than a copy of them, so an article\n * and a note read as one library. The size, measure and spacing the reader picks are written as the\n * three prose custom properties on this container only — a change here is a change to how articles\n * look, not to how the editor looks.\n *\n * Every action in the toolbar is a question about one article, which is why they live here and not\n * on the list rows. The three that touch the notebook (save, add to today, excerpt) go through the\n * notes module, which is where the dedupe rules are; the two that ask a model go through the AI\n * module, which refuses to say anything until the reader has configured a key.\n */",
@@ -4628,6 +4632,7 @@ const allowed = new Map([
   ["src/client/features/rss/media.ts", [
     "/**\n * What an article carries besides text: an episode to play, a video to open.\n *\n * The reference reader embeds YouTube and Bilibili players. This app does not: its document policy\n * allows no third-party frames at all (`frame-src 'none'`), and an embedded player is a page of\n * somebody else's JavaScript running inside the notebook — a price worth not paying for a preview\n * thumbnail. So a video entry gets a card that names the host and opens it, which is also what a\n * phone reader wants.\n *\n * Podcast enclosures are a different case: they are audio files, and they come through the same\n * relay as pictures, which is why they play here at all.\n */",
     "/** An enclosure a reader can play. Plain HTTP is refused: the page is https, and the browser would block it. */",
+    "/**\n * The one word that tells a reader what they are about to open, or nothing for a plain article.\n *\n * The address answers first — a YouTube video is labelled by the platform a reader already knows,\n * and the word would be the same either way — and what is left is the two kinds worth deciding about\n * before opening: something to play, and something to watch. A null here is the common case, so the\n * row shows no badge at all rather than a word that says \"article\".\n */",
   ]],
   ["src/client/features/rss/notes.ts", [
     "/**\n * The reader's two ways of keeping an article: a note of its own, or a line in today's note.\n *\n * Both go through the notebook's own store rather than an API call of their own, because a note the\n * RSS app wrote has to behave like one the reader typed — it appears in the list at once, it joins\n * the sync queue, and it survives a reload. That is also why appending re-reads the note through\n * `editRemoteContent`: today's note is the one file two surfaces are likely to be editing at the\n * same time, and a blind write would drop whichever change came second.\n *\n * A saved article carries its address in front matter, so the note can be traced back to the feed\n * it came from, and so saving the same article twice updates the note it already made rather than\n * starting a second copy.\n */",
@@ -4686,6 +4691,8 @@ const allowed = new Map([
     "// Block ends become spaces first: `textContent` would otherwise glue `</li><li>` and `</p><p>`",
     "// together into one word, and a summary of a list then reads as a typo.",
     "/**\n * How long the body would take to read, in whole minutes, at four hundred characters a minute.\n *\n * A rate, not a promise: it is the number a reader uses to decide whether to open something now or\n * star it for later. Cached by id and body length because the list asks for sixty rows at a time\n * and a body can be a hundred kilobytes.\n */",
+    "/** One character of a Han, kana or hangul script is one word of it. */",
+    "/**\n * How many words the body is, counting a CJK character as a word and a Latin run as one.\n *\n * The reference only has a word count for podcasts, because its server supplies one; this is the\n * local answer to the same question, and it has to be script-aware or a Chinese article reads as one\n * long word. Cached the same way as the minutes, because the list asks per row.\n */",
   ]],
   ["src/client/features/rss/search.ts", [
     "/**\n * Article search, in the app's own terms.\n *\n * The list box is the same one every other listing in Inkstone uses, which means a reader can type\n * an author's initials in Han and find them, or type `/k8s/i` and get the regex. That is\n * `query-match`'s contract, and the only thing added here is *where* a match may land — title first,\n * then the summary and the feed's name — and what a row keeps so it can underline what it matched.\n *\n * Scoring only happens while a query is typed. An empty box leaves the channel's own order alone,\n * because a list that reshuffles itself for no input is indistinguishable from a bug.\n */",
@@ -4704,6 +4711,8 @@ const allowed = new Map([
     "// accounting says the reader holds nothing.",
     "// A validator left in place would answer 304 to a device that no longer holds what it promised,",
     "// and the bodies would never come back.",
+    "// The index is device data an earlier build wrote: the channel that comes back is the one the",
+    "// library remembers, and a value it does not know is dropped rather than trusted into the view.",
   ]],
   ["src/client/features/rss/store.ts", [
     "/**\n * The reader's state: what is subscribed, what this device has read, and what is on screen.\n *\n * Three stores meet here, and the split is the design:\n *\n *  — the **library** (subscriptions, groups, read marks, favourites) belongs to the account and\n *    travels between devices, so it is saved to the Worker, debounced, and refused outright if it\n *    would arrive truncated;\n *  — the **articles** belong to this device. They are rebuildable from the network, so they go in\n *    IndexedDB under a byte ceiling rather than into the account row, where 400 feeds would be a\n *    megabyte per save;\n *  — the **view** (which article, which filter, how far down the list) is transient enough that\n *    losing it costs a reader a second, so it is kept per channel in memory and written out with\n *    the cache index rather than synced.\n *\n * Everything that can fail does so here rather than in a component: a refresh that half-worked has\n * to leave the feeds that answered showing their new articles and the ones that did not keeping\n * their old ones, and a save the server refused has to stay pending so the reader's next action\n * carries it instead of losing it.\n */",
@@ -4769,6 +4778,8 @@ const allowed = new Map([
     "/**\n     * Keep the rows, drop the bodies.\n     *\n     * The body is the whole cost of an article cache — a title and a summary are a few dozen\n     * characters each — so this is the release valve for a device that wants to stay subscribed to a\n     * few hundred feeds without carrying their text. Two things have to follow or the list would lie:\n     * the validators go, because a feed that answers `304` would leave the bodies empty for good, and\n     * the search index goes, because it was built from bodies this device no longer has.\n     */",
     "// An index an older build wrote measured neither, and a guessed split is worse than none:",
     "// the storage panel leaves those feeds out of the body line until the feed is read again.",
+    "/** One platform of the channel, or all of them. */",
+    "/** Show one platform of this channel — its videos, its bridged posts — or all of it. */",
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
@@ -12080,6 +12091,14 @@ const allowed = new Map([
     "/**\n * Repair the folder links a stored library claims to have.\n *\n * A hand-edited or half-written library can point a folder at a parent that does not exist, at\n * itself, or into a ring of three folders that are each other's parents. Every one of those becomes\n * a root, because the alternative — dropping the folder — would take its subscriptions with it.\n * Returns how many links were cut, so the caller can report the library as truncated.\n */",
     "// Two folders of the same name are a mistake only under the same parent: `front-end/articles`",
     "// and `design/articles` are the shape a reader builds on purpose.",
+  ]],
+  ["src/shared/rss/platform.test.ts", [
+    "/**\n * The platform table, on the addresses the reference reader's own library contains.\n *\n * The suffix rule is the one worth pinning: a host that ends in the string `youtube.com` without\n * being inside it is somebody else's page, and a badge that reads it as YouTube would be telling the\n * reader to trust an address that is pretending to be a known one.\n */",
+  ]],
+  ["src/shared/rss/platform.ts", [
+    "/**\n * Where an article's address says it came from.\n *\n * The reader never picks a platform and no feed declares one: the address already says it, and a\n * second answer typed by hand is one more thing to get wrong. The table is the reference reader's —\n * the four hosts its Chinese-language library actually turns up — and an address that is not one of\n * them is an article, which is what the overwhelming majority are.\n */",
+    "/** A channel filter: everything, or one platform's articles. */",
+    "/** How many of a list of articles belong to each platform, for the filter's own counts. */",
   ]],
   ["src/shared/rss/reading.test.ts", [
     "// a1 and b2: b1 is read, a2 is hidden, and feed c has nothing cached.",

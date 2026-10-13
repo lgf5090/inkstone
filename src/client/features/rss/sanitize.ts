@@ -146,6 +146,28 @@ export function htmlToText(html: string, max = 400): string {
 }
 
 const minutesCache = new Map<string, number>()
+const wordCache = new Map<string, number>()
+
+/** One character of a Han, kana or hangul script is one word of it. */
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff66-\uff9f]/g
+
+/**
+ * How many words the body is, counting a CJK character as a word and a Latin run as one.
+ *
+ * The reference only has a word count for podcasts, because its server supplies one; this is the
+ * local answer to the same question, and it has to be script-aware or a Chinese article reads as one
+ * long word. Cached the same way as the minutes, because the list asks per row.
+ */
+export function wordCount(entry: { id: string, content: string, summary: string }): number {
+  const key = `${entry.id}:${entry.content.length}:${entry.summary.length}`
+  const hit = wordCache.get(key)
+  if (hit !== undefined) return hit
+  const text = (entry.content || entry.summary).replace(/<[^>]*>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ')
+  const words = (text.match(CJK) || []).length + (text.replace(CJK, ' ').match(/[\p{L}\p{N}]+/gu) || []).length
+  if (wordCache.size > 4000) wordCache.clear()
+  wordCache.set(key, words)
+  return words
+}
 
 /**
  * How long the body would take to read, in whole minutes, at four hundred characters a minute.

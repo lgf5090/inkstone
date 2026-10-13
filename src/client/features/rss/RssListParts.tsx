@@ -7,7 +7,7 @@
  * are the answers to "what does a row look like", and the two change for different reasons.
  */
 import { useMemo, useRef, useState, type ReactElement } from 'react'
-import { ArrowDownWideNarrow, Bookmark, CheckCheck, Clock, EyeOff, NotebookPen, Star, X } from 'lucide-react'
+import { ArrowDownWideNarrow, Bookmark, CheckCheck, Clock, EyeOff, MonitorPlay, NotebookPen, Star, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { formatDate, shortSince } from '../../lib/time'
@@ -17,11 +17,13 @@ export const MIN_LIST_WIDTH = 260
 export const MAX_LIST_WIDTH = 560
 import { findFeed } from '@shared/rss/reading'
 import type { RssChannel, RssFilter, RssSort } from '@shared/rss/reading'
+import { PLATFORMS, type LinkPlatform } from '@shared/rss/platform'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { RssEntry, RssFeed, RssLibrary } from '@shared/rss/model'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
 import { displayImageUrl, readingMinutes } from './sanitize'
+import { articleBadge } from './media'
 import { appendToDailyNote, saveArticleAsNote } from './notes'
 import { useRss } from './store'
 
@@ -118,6 +120,7 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
     : ''
   const mark = displayImageUrl(feed?.imageUrl || '', { images, relay: url => api.rss.relayUrl(url) })
   const minutes = readingMinutes(entry)
+  const badge = articleBadge(entry)
   const hoverable = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
 
@@ -163,6 +166,9 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-[10.5px] leading-4 text-[var(--text-quaternary)]">
           <span className="min-w-0 truncate font-medium text-[var(--text-tertiary)]">{feed?.title || t('rss.source_unknown')}</span>
+          {badge && (
+            <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1 py-px text-[9.5px] leading-[14px] text-[var(--text-tertiary)]">{t(badge)}</span>
+          )}
           {entry.publishedTs && <span className="shrink-0 tabular-nums">· {shortSince(entry.publishedTs)}</span>}
           {minutes > 0 && <span className="hidden shrink-0 tabular-nums sm:inline">· {t('rss.read_minutes', { n: minutes })}</span>}
           {starred && <Star size={10} className="shrink-0 fill-current text-[var(--accent)]" aria-hidden="true" />}
@@ -224,6 +230,56 @@ export function SortButton({ sort, onPick }: { sort: RssSort, onPick: (sort: Rss
       </Tooltip>
       {open && (
         <Menu anchor={ref} open onClose={() => setOpen(false)} items={items} width={176} label={t('rss.sort')} />
+      )}
+    </>
+  )
+}
+
+/** A channel filter for the platforms its articles actually came from, with their counts. */
+const PLATFORM_KEYS: Record<LinkPlatform, MessageKey> = {
+  youtube: 'rss.platform_youtube',
+  bilibili: 'rss.platform_bilibili',
+  wechat: 'rss.platform_wechat',
+  web: 'rss.platform_web',
+}
+
+export function PlatformButton({ value, counts, onPick }: {
+  value: LinkPlatform | 'all'
+  counts: Map<LinkPlatform, number>
+  onPick: (value: LinkPlatform | 'all') => void
+}): ReactElement {
+  const ref = useRef<HTMLButtonElement | null>(null)
+  const [open, setOpen] = useState(false)
+  // A platform with nothing in the list is not offered: a filter that answers with an empty pane is
+  // a broken-looking feature, and the counts come from the list the reader is already looking at.
+  const offered = PLATFORMS.filter(platform => (counts.get(platform) ?? 0) > 0)
+  const items: MenuItem[] = [
+    { id: 'all', label: t('rss.platform_all'), checked: value === 'all', onSelect: () => onPick('all') },
+    ...offered.map(platform => ({
+      id: platform,
+      label: `${t(PLATFORM_KEYS[platform])} · ${counts.get(platform)}`,
+      checked: value === platform,
+      onSelect: () => onPick(platform),
+    })),
+  ]
+  const label = value === 'all' ? t('rss.platform') : `${t('rss.platform')}: ${t(PLATFORM_KEYS[value])}`
+  return (
+    <>
+      <Tooltip label={label} side="bottom">
+        <IconButton
+          ref={ref}
+          label={label}
+          size="sm"
+          active={value !== 'all'}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+        >
+          <MonitorPlay size={14} />
+        </IconButton>
+      </Tooltip>
+      {open && (
+        <Menu anchor={ref} open onClose={() => setOpen(false)} items={items} width={190} label={t('rss.platform')} />
       )}
     </>
   )

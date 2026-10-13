@@ -8,9 +8,9 @@
  * missing a closing quote — rather than the way a formatter would tidy them.
  */
 import { describe, expect, it } from 'vitest'
-import { articleDisplayHtml, displayImageUrl, htmlToText, sanitizeFeedHtml } from './sanitize'
+import { articleDisplayHtml, displayImageUrl, htmlToText, sanitizeFeedHtml, wordCount } from './sanitize'
 import { htmlToMarkdown } from './markdown'
-import { playableAudio, videoLinkOf } from './media'
+import { articleBadge, playableAudio, videoLinkOf } from './media'
 
 const relay = (url: string): string => `/relay?u=${encodeURIComponent(url)}`
 
@@ -161,5 +161,43 @@ describe('media', () => {
     expect(playableAudio('https://cdn.example/e.mp3')).toBe('https://cdn.example/e.mp3')
     expect(playableAudio('http://cdn.example/e.mp3')).toBe('')
     expect(playableAudio('')).toBe('')
+  })
+})
+
+describe('the words a body is made of', () => {
+  const entry = (content: string, summary = ''): { id: string, content: string, summary: string } => ({ id: 'wc-' + content.length, content, summary })
+
+  it('counts one Han character as one word', () => {
+    expect(wordCount(entry('<p>深度研究笔记</p>'))).toBe(6)
+  })
+
+  it('counts a Latin run as one word and ignores the markup', () => {
+    expect(wordCount(entry('<p>Hello <strong>brave</strong> world</p>'))).toBe(3)
+  })
+
+  it('adds the two together, and reads the summary when there is no body', () => {
+    expect(wordCount(entry('', '两句话 plus English'))).toBe(5)
+  })
+
+  it('says nothing about an article with no text', () => {
+    expect(wordCount(entry('', ''))).toBe(0)
+  })
+})
+
+describe('the one badge a row carries', () => {
+  const item = (link: string, audioUrl = ''): { audioUrl: string, link: string } => ({ audioUrl, link })
+
+  it('names the platform when there is one', () => {
+    expect(articleBadge(item('https://www.youtube.com/watch?v=abcDEF12345'))).toBe('rss.platform_youtube')
+    expect(articleBadge(item('https://mp.weixin.qq.com/s?__biz=1&mid=2&idx=1&sn=3'))).toBe('rss.platform_wechat')
+  })
+
+  it('falls back to what the thing is, for a plain address', () => {
+    expect(articleBadge(item('https://p.oss-cdn.test/e.mp3', 'https://cdn.example/e.mp3'))).toBe('rss.kind_podcast')
+    expect(articleBadge(item('https://www.bilibili.com/video/BV1xx411c7mD/'))).toBe('rss.platform_bilibili')
+  })
+
+  it('stays out of an ordinary article', () => {
+    expect(articleBadge(item('https://blog.codingnow.com/2026/01/x.html'))).toBeNull()
   })
 })

@@ -417,6 +417,29 @@ describe('folders, tags and dismissals', () => {
     expect(s().view().sort).toBe('newest')
   })
 
+  it('keeps a platform filter per channel, and forgets one that is not a platform', async () => {
+    await boot()
+    expect(s().view().platform).toBe('all')
+    s().setPlatform('wechat')
+    expect(s().view().platform).toBe('wechat')
+    await s().open({ kind: 'starred' })
+    expect(s().view().platform, 'another channel starts unfiltered').toBe('all')
+    // The index is device data an earlier build wrote: the channel that comes back is the one the
+    // library remembers, and a value it does not know is dropped rather than trusted into the view.
+    const seed = async (platform: string): Promise<void> => {
+      await s().flush()
+      cache.set('index', { articles: {}, views: { starred: { entryId: '', filter: 'all', query: '', sort: 'newest', platform, listTop: 0, readerTop: 0 } } })
+      s().reset()
+    }
+    await seed('wechat')
+    await boot()
+    expect(s().channel.kind, 'the channel the library left off on').toBe('starred')
+    expect(s().view().platform, 'a filter the reader left behind comes back with it').toBe('wechat')
+    await seed('tiktok')
+    await boot()
+    expect(s().view().platform).toBe('all')
+  })
+
   it('keeps a dismissed article out of the channel it was hidden from', async () => {
     fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
     await boot()

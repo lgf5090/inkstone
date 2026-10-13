@@ -42,7 +42,7 @@ import { Drawer } from '../../components/overlay'
 import { Field, Input, Segmented, Select, Slider } from '../../components/form'
 import { fullTime, shortSince } from '../../lib/time'
 import { RSS_COLUMN_WIDTHS, RSS_FONT_SIZE_RANGE, RSS_LINE_HEIGHT_RANGE } from '@shared/constants'
-import { readingMinutes } from './sanitize'
+import { readingMinutes, wordCount } from './sanitize'
 import { channelEntries, channelKey, findFeed, remoteContentKey, stepIndex } from '@shared/rss/reading'
 import { api } from '../../lib/api'
 import { articleDisplayHtml } from './sanitize'
@@ -213,6 +213,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
             {entry.publishedTs ? fullTime(entry.publishedTs) : ''}
             {entry.author ? ` · ${entry.author}` : ''}
             {readingMinutes(entry) > 0 ? ` · ${t('rss.read_minutes', { n: readingMinutes(entry) })}` : ''}
+            {wordCount(entry) > 0 ? ` · ${t('rss.words', { n: wordCount(entry).toLocaleString() })}` : ''}
           </div>
         </div>
         <IconButton label={starred ? t('rss.unstar') : t('rss.star')} size="sm" active={starred} onClick={() => toggleFavorite(entry.id)}>

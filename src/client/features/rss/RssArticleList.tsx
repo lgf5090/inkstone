@@ -36,7 +36,8 @@ import type { RssEntry, RssFeed } from '@shared/rss/model'
 import { searchEntries } from './search'
 import { entryMenuItems } from './rssMenus'
 import { ArticlePreviewCard } from './ArticlePreviewCard'
-import { BulkBar, EmptyRow, EntryRows, ListDivider, MAX_LIST_WIDTH, MIN_LIST_WIDTH, SortButton } from './RssListParts'
+import { BulkBar, EmptyRow, EntryRows, ListDivider, MAX_LIST_WIDTH, MIN_LIST_WIDTH, PlatformButton, SortButton } from './RssListParts'
+import { filterByPlatform, platformCounts } from '@shared/rss/platform'
 import { useRss } from './store'
 import { channelCachedSince } from './cacheLine'
 import { shortSince } from '../../lib/time'
@@ -56,7 +57,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   const pinyinVersion = usePinyinVersion()
   const query = useMemo(() => compileQuery(view.query), [view.query, pinyinVersion])
 
-  const entries = useMemo(() => {
+  const listed = useMemo(() => {
     const all = channelEntries({ library: state.library, articles: state.articles }, state.channel)
     const ordered = sortEntries(all, view.sort, state.library.feeds)
     const filtered = selectEntries(ordered, { filter: view.filter }, { library: state.library, articles: state.articles })
@@ -64,6 +65,9 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     const names = new Map(state.library.feeds.map(feed => [feed.id, feed.title]))
     return searchEntries(filtered, query, names).map(item => item.entry)
   }, [state.library, state.articles, state.channel, view.filter, view.sort, query, pinyinVersion])
+  // The counts are taken before the platform filter, so choosing one never hides the others away.
+  const platforms = useMemo(() => platformCounts(listed), [listed])
+  const entries = useMemo(() => filterByPlatform(listed, view.platform), [listed, view.platform])
 
   const readIds = useMemo(() => new Set(state.library.readIds), [state.library.readIds])
   const starred = useMemo(() => new Set(state.library.favorites), [state.library.favorites])
@@ -259,6 +263,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
         />
         <div className="ml-auto flex items-center gap-1">
           <SortButton sort={view.sort} onPick={state.setSort} />
+          <PlatformButton value={view.platform} counts={platforms} onPick={state.setPlatform} />
           {unreadIds.length > 0 && (
             <Tooltip
               label={markArmed ? t('rss.mark_channel_read_confirm', { n: unreadIds.length }) : t('rss.mark_channel_read')}

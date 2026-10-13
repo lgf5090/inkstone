@@ -47,7 +47,7 @@ async function mount(item: RssEntry, channel: RssChannel = { kind: 'feed', feedI
     articles: { [FEED_ID]: [item] },
     fetchedAt: { [FEED_ID]: Date.now() },
     channel,
-    views: { [channelKey(channel)]: { entryId: item.id, filter: 'all', query: '', sort: 'newest', listTop: 0, readerTop: 0 } },
+    views: { [channelKey(channel)]: { entryId: item.id, filter: 'all', query: '', sort: 'newest', platform: 'all', listTop: 0, readerTop: 0 } },
   })
   await act(async () => { root.render(createElement(RssReader)) })
 }

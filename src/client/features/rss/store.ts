@@ -35,6 +35,7 @@ import {
 } from '@shared/rss/model'
 import { channelKey, descendantGroupIds, feedWantsRefresh, groupIdFor, groupKey, orderByStaleness, parseChannelKey, refreshBackoffMs, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
+import type { LinkPlatform } from '@shared/rss/platform'
 import { api } from '../../lib/api'
 import { localDb } from '../../lib/db'
 import { t } from '../../lib/i18n'
@@ -46,6 +47,8 @@ export interface RssChannelView {
   filter: RssFilter
   query: string
   sort: RssSort
+  /** One platform of the channel, or all of them. */
+  platform: LinkPlatform | 'all'
   listTop: number
   readerTop: number
 }
@@ -101,6 +104,8 @@ export interface RssState {
   setListTop: (top: number) => void
   setReaderTop: (top: number) => void
   setSort: (sort: RssSort) => void
+  /** Show one platform of this channel — its videos, its bridged posts — or all of it. */
+  setPlatform: (platform: LinkPlatform | 'all') => void
   /** Dismiss articles: they leave every channel until the reader undoes it. */
   hideEntries: (entryIds: string[], hidden: boolean) => void
   setFeedTags: (feedId: string, tags: string[]) => void
@@ -138,7 +143,7 @@ export interface RssState {
   retrySave: () => void
 }
 
-const DEFAULT_VIEW: RssChannelView = { entryId: '', filter: 'all', query: '', sort: 'newest', listTop: 0, readerTop: 0 }
+const DEFAULT_VIEW: RssChannelView = { entryId: '', filter: 'all', query: '', sort: 'newest', platform: 'all', listTop: 0, readerTop: 0 }
 const FETCH_BATCH = 25
 const SAVE_DEBOUNCE_MS = 900
 /** How many of a merged channel's feeds are read into memory when it is opened. */
@@ -489,6 +494,10 @@ export const useRss = create<RssState>((set, get) => {
 
     setSort(sort) {
       writeView(viewKey(), { sort })
+    },
+
+    setPlatform(platform) {
+      writeView(viewKey(), { platform })
     },
 
     hideEntries(entryIds, hidden) {
@@ -978,6 +987,7 @@ function normaliseIndex(value: unknown): CacheIndex {
         filter: stored.filter === 'unread' || stored.filter === 'starred' || stored.filter === 'later' ? stored.filter : 'all',
         query: typeof stored.query === 'string' ? stored.query.slice(0, 200) : '',
         sort: stored.sort === 'oldest' || stored.sort === 'source' ? stored.sort : 'newest',
+        platform: stored.platform === 'youtube' || stored.platform === 'bilibili' || stored.platform === 'wechat' || stored.platform === 'web' ? stored.platform : 'all',
         listTop: Number.isFinite(stored.listTop) ? Math.max(0, Math.trunc(Number(stored.listTop))) : 0,
         readerTop: Number.isFinite(stored.readerTop) ? Math.max(0, Math.trunc(Number(stored.readerTop))) : 0,
       }
