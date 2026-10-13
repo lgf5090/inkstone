@@ -99,6 +99,38 @@ function Group({ title, children }: { title: string, children: ReactNode }) {
   )
 }
 
+/**
+ * What the row says the model can do, derived rather than stored: a second list of capabilities would
+ * disagree with the switches that set them the first time one of the two is changed.
+ */
+export function modelBadges(model: AssistantModel): { key: Parameters<typeof t>[0], label: string }[] {
+  const badges: { key: Parameters<typeof t>[0], label: string }[] = []
+  if (model.reasoning !== 'off') badges.push({ key: 'assistant.model.reasoning_short', label: t('assistant.model.reasoning_short') })
+  if (model.supportsTools) badges.push({ key: 'assistant.model.tools_short', label: t('assistant.model.tools_short') })
+  if (model.vision) badges.push({ key: 'assistant.model.vision_short', label: t('assistant.model.vision_short') })
+  for (const modality of model.modalities) {
+    badges.push({
+      key: modality === 'audio' ? 'assistant.model.modality.audio' : 'assistant.model.modality.video',
+      label: t(modality === 'audio' ? 'assistant.model.modality.audio' : 'assistant.model.modality.video'),
+    })
+  }
+  return badges
+}
+
+function ModelBadges({ model }: { model: AssistantModel }) {
+  const badges = modelBadges(model)
+  if (badges.length === 0) return null
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {badges.map((badge) => (
+        <span key={badge.key} className="rounded-full border border-[var(--border-subtle)] px-1.5 py-px text-[10px] text-[var(--text-quaternary)]">
+          {badge.label}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 function ModelTab({ settings }: { settings: AssistantSettings }) {
   const providers = useAssistant((state) => state.providers)
   const models = useAssistant((state) => state.models)
@@ -173,7 +205,8 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                     >
                       <span aria-hidden className={cn('size-2 shrink-0 rounded-full border', settings.activeModelId === model.id ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]')} />
                       <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                      <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-quaternary)]">{model.model}</span>
+                      <ModelBadges model={model} />
+                      <span className="hidden shrink-0 font-mono text-[10.5px] text-[var(--text-quaternary)] md:block">{model.model}</span>
                     </button>
                     <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => setEditing(model)}>
                       <Settings2 size={12} />

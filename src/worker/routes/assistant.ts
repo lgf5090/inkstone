@@ -14,6 +14,8 @@ import { Hono, type Context } from 'hono'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_MODEL_KINDS,
+  MAX_CONTEXT_BUDGET_TOKENS,
+  parseModelModalities,
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
@@ -55,7 +57,7 @@ import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
-import { CONTEXT_TOKEN_STEPS, reasoningValue } from '@shared/assistant'
+import { reasoningValue } from '@shared/assistant'
 import {
   CHAT_IMAGE_MAX_BYTES,
   ChatUploadError,
@@ -92,11 +94,18 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, maxBytes: num
 }
 
 /** A context budget is the reader's own choice from the composer's slider; null means 'use the global limit'. */
+/**
+ * A per-model context budget in tokens.
+ *
+ * The ceiling is the hardware-sized one, not the composer's chip list: capping here at the largest chip
+ * (262K) silently rewrote a 1M model's own window down to a quarter of what it is, and the reader had no
+ * way to see it — the field showed the number they typed until the page was reloaded.
+ */
 function contextBudgetValue(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number) || number <= 0) return null
-  return Math.min(CONTEXT_TOKEN_STEPS[CONTEXT_TOKEN_STEPS.length - 1]!, Math.trunc(number))
+  return Math.min(MAX_CONTEXT_BUDGET_TOKENS, Math.trunc(number))
 }
 import { resolveNoteScope } from '../assistant/note-scope'
 
@@ -1178,6 +1187,9 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(pickValue(body.kind, ASSISTANT_MODEL_KINDS) !== undefined ? { kind: pickValue(body.kind, ASSISTANT_MODEL_KINDS) } : {}),
     ...(body.supportsTools !== undefined ? { supportsTools: Boolean(body.supportsTools) } : {}),
     ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, 4_000_000) } : {}),
+    // An unknown modality is dropped, not defaulted: a list of one typo must not silently reset the
+    // whole set the reader had already picked.
+    ...(Array.isArray(body.modalities) ? { modalities: parseModelModalities(body.modalities) } : {}),
     ...(body.topP !== undefined
       ? { topP: body.topP === null ? null : Math.min(1, Math.max(0, Number(body.topP))) }
       : {}),

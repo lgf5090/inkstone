@@ -903,6 +903,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_messages ADD COLUMN model_label TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    version: 49,
+    skipIfColumnExists: { table: 'chat_models', column: 'modalities' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN modalities TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -705,6 +705,7 @@ const allowed = new Map([
     "// Another device, or the backfill this row itself starts, can leave the saved model behind the one",
     "// the field shows; the field follows the setting rather than the other way round.",
     "/* The model a reader picks is what the next write embeds with, so the field stays reachable on a\n          deployment that has no binding yet — the same rule the switch follows. */",
+    "/**\n * What the row says the model can do, derived rather than stored: a second list of capabilities would\n * disagree with the switches that set them the first time one of the two is changed.\n */",
   ]],
   ["src/client/features/chat/AutomationsView.tsx", [
     "/**\n * Reminders and routines.\n *\n * The schedule editor builds a `ScheduleSpec` and shows the sentence it means before anything is sent,\n * because the commonest mistake in a scheduler is a form that says one thing and stores another. The\n * sentence is assembled from the locale catalog, so a reader whose interface is Chinese reads the\n * schedule in their own language rather than as an English string pasted next to it.\n *\n * Times are typed as wall-clock readings in the assistant's timezone, which is what \"remind me at 9\"\n * means to the reader; the conversion is the server's job and lives in `assistant-schedule`.\n */",
@@ -810,6 +811,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
+    "/**\n * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,\n * and the field still takes any number the presets do not offer.\n */",
   ]],
   ["src/client/features/chat/NotificationCenter.tsx", [
     "/**\n * The notification centre: what the schedules delivered.\n *\n * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.\n * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through\n * the same sanitized pipeline as a reply rather than as raw text.\n */",
@@ -877,6 +879,12 @@ const allowed = new Map([
     "// Picking a saved prompt inserts what it says, not what it is called.",
     "// A percentage of the chip's own box collapsed the label on a desktop, so the four-character value",
     "// ellipsized to two characters plus the mark.",
+  ]],
+  ["src/client/features/chat/model-editor-chips.test.ts", [
+    "/**\n * The model editor's quick picks and the badges the list derives from them.\n *\n * The chips exist so a reader sets 256K without typing 262144, and the badges exist so the same facts are\n * readable without opening the editor. Both are pinned by what they change in the draft, not by markup.\n */",
+    "/** The modal portals onto document.body, so that is where its controls have to be looked for. */",
+    "/**\n * A preset inside one named row. '128K' is offered by both the context row and the input ceiling, so a\n * lookup that ignores which row it belongs to cannot tell the two settings apart.\n */",
+    "// The granular half of the editor sits behind the \"more settings\" door, as the reader reaches it.",
   ]],
   ["src/client/features/chat/stream.ts", [
     "/**\n * Reading the assistant's streamed reply.\n *\n * The API helper in `lib/api` parses a JSON body, which is exactly the wrong shape for a turn: the\n * reader should watch the answer arrive. So this is the one place in the app that consumes a\n * `ReadableStream` by hand, and it carries the same three headers every other write does — without\n * `X-Inkstone-Client` the worker refuses the request before it reaches the assistant.\n */",
@@ -11958,6 +11966,11 @@ const allowed = new Map([
     "/** The model that produced it, kept as text: the model may be deleted while the answer is not. */",
     "/**\n * How many displaced answers one turn keeps. The notes app caps its history the same way; without a cap\n * a reader who regenerates twenty times stores twenty answers forever.\n */",
     "/** Answers the reader had paged away from, restored with their threads. */",
+    "/**\n * What the reader says the model can be *given*.\n *\n * `image` is deliberately absent: the older `vision` switch already owns that fact, the runner and its\n * tests read it, and a second column saying the same thing is a future disagreement. These three are the\n * modalities nothing else speaks for.\n */",
+    "/**\n * Quick picks, so the reader is not typing 262144 into a number field to get 256K. Each value is a round\n * thousand on purpose: the label under the button is produced by dividing by 1000, and a binary step such\n * as 32_768 would print as 33K and read like a different setting than the one it is.\n */",
+    "/** A ceiling on what the model can be *sent*, which is not the same number as its context window. */",
+    "/** What the reader says may be given to it, beyond a picture — see ASSISTANT_MODEL_MODALITIES. */",
+    "/** The largest per-model context window the field will store — a ceiling on the number, not a menu. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12301,6 +12314,9 @@ const allowed = new Map([
     "/** A picture is sent inline up to this size; past it the base64 body costs more than it answers. */",
     "/** The block appended to the reader's own text for the model. */",
     "/**\n * Reads the reader's own attachments by id. An id that is not theirs, or whose bytes are gone, is named\n * in the block rather than silently dropped, so the transcript never claims a file arrived that did not.\n */",
+    "/** Which sense a file needs, if any: a clip and a recording are not the same ask of a model. */",
+    "// A recording or a clip is named the way a picture is when the model cannot be shown one, so the",
+    "// transcript never reads as if the model had been given something it was not.",
   ]],
   ["src/worker/assistant/automations.ts", [
     "/**\n * Reminders and routines.\n *\n * The reference project armed a Durable Object alarm per schedule. This app runs on D1 with a cron\n * tick, so \"armed\" only means *next_run is in the future and the row is enabled*: the tick sweeps due\n * rows once a minute. That trades a precise alarm for a one-minute window, which is what a reminder\n * can absorb and a scheduler cannot.\n *\n * The two properties that matter and are easy to lose are kept here: a run that takes longer than the\n * sweep interval is claimed so the next tick does not start it twice, and a schedule whose next\n * occurrence is computed from the slot that fired rather than from \"now\" cannot drift later every time\n * it runs.\n */",
@@ -12954,6 +12970,9 @@ const allowed = new Map([
     "// reader fills in later — so neither goes through `text`, which refuses an empty value outright.",
     "/**\n * The answers this turn said before the reader asked again.\n *\n * Both routes check the message belongs to the conversation in the path: the store binds `user_id` to\n * every query, so the only thing a foreign id could otherwise reach is another of the same reader's\n * threads — and paging one turn's answers into another turn's bubble is a data leak of a kind the reader\n * would notice as a bug in their own words.\n */",
     "// A turn that is still streaming cannot be exchanged: the row is being written under this swap.",
+    "// An unknown modality is dropped, not defaulted: a list of one typo must not silently reset the",
+    "// whole set the reader had already picked.",
+    "/**\n * A per-model context budget in tokens.\n *\n * The ceiling is the hardware-sized one, not the composer's chip list: capping here at the largest chip\n * (262K) silently rewrote a 1M model's own window down to a quarter of what it is, and the reader had no\n * way to see it — the field showed the number they typed until the page was reloaded.\n */",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -13222,6 +13241,10 @@ const allowed = new Map([
     "// The turn recorded its own elapsed time, and the filed answer carries it out of the way.",
     "// The runner substitutes a sentence when a model says nothing, so a blank-but-complete row is only",
     "// reachable from restored or imported data. Written here, it is the case the guard exists for.",
+    "// The refusal is gone, and the recording is still not passed off as read: it is named as what it is.",
+    "// An absent field leaves the choice alone, which is what makes the other controls patchable in isolation.",
+    "// Capping at the chip list silently rewrote a 1M model down to 262144, which the field then showed",
+    "// as the number the reader had typed until the page was reloaded.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

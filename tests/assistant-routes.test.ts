@@ -19,7 +19,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_CONTEXT_BUDGET_TOKENS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -1350,7 +1350,70 @@ describe('prompt library', () => {
   })
 })
 
+describe('model input modalities', () => {
+
+  it('names a recording the model was not marked to take, and stops doing so once it is', async () => {
+    await useExampleModel()
+    const models = await call<{ models: { id: string }[] }>('GET', '/api/assistant/models')
+    const modelId = models.models[0]!.id
+    const clip = await uploadFile('voice-note.mp3', new Uint8Array([255, 251, 240, 128]), 'audio/mpeg')
+    const bodies: string[] = []
+    const stub = () => vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    stub()
+    await chatEvents({ message: '这条录音里说了什么？', attachments: [clip.attachment.id] })
+    await settleTurns()
+    const refused = bodies.at(-1) ?? ''
+    expect(refused).toContain('not marked as able to take audio')
+
+    await call('PATCH', `/api/assistant/models/${modelId}`, { modalities: ['audio'] })
+    stub()
+    await chatEvents({ message: '这条录音里说了什么？', attachments: [clip.attachment.id] })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const accepted = bodies.at(-1) ?? ''
+    // The refusal is gone, and the recording is still not passed off as read: it is named as what it is.
+    expect(accepted).not.toContain('not marked as able to take audio')
+    expect(accepted).toContain('voice-note.mp3')
+  })
+
+  it('stores a context budget above the composer’s largest chip, and caps an absurd one', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const modelId = models.models[0]!.id
+    // Capping at the chip list silently rewrote a 1M model down to 262144, which the field then showed
+    // as the number the reader had typed until the page was reloaded.
+    const big = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { contextTokens: 1_000_000 })
+    expect(big.model.contextTokens).toBe(1_000_000)
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    expect(listed.models.find((entry) => entry.id === modelId)?.contextTokens).toBe(1_000_000)
+    const absurd = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { contextTokens: 99_000_000 })
+    expect(absurd.model.contextTokens).toBe(MAX_CONTEXT_BUDGET_TOKENS)
+    const cleared = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { contextTokens: null })
+    expect(cleared.model.contextTokens).toBeNull()
+  })
+  it('round-trips modalities and drops an unknown one without resetting the rest', async () => {
+    await useExampleModel()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const modelId = models.models[0]!.id
+    expect(models.models[0]?.modalities).toEqual([])
+    const first = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { modalities: ['audio', 'video'] })
+    expect(first.model.modalities).toEqual(['audio', 'video'])
+    const second = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { modalities: ['telepathy', 'audio', 'audio'] })
+    expect(second.model.modalities).toEqual(['audio'])
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    expect(listed.models.find((entry) => entry.id === modelId)?.modalities).toEqual(['audio'])
+    // An absent field leaves the choice alone, which is what makes the other controls patchable in isolation.
+    const third = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${modelId}`, { label: 'Renamed' })
+    expect(third.model.modalities).toEqual(['audio'])
+  })
+})
+
 describe('answer versions', () => {
+
   /** One finished answer per call, distinguishable in the transcript and in the version rows. */
   function answering(text: string, elapsedMs = 6) {
     return vi.fn(async (_url: string, _init?: RequestInit) => {

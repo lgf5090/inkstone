@@ -40,7 +40,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
-import { MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, reasoningValue, type AssistantAnswerVersion, type ChatAttachment } from '@shared/assistant'
+import { MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, parseModelModalities, reasoningValue, type AssistantAnswerVersion, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -558,7 +558,7 @@ export class AssistantStore {
     return {
       id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens,
       reasoning, contextTokens, vision, enabled: true,
-      purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, topP: null, customParams: [],
+      purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
     }
   }
 
@@ -568,7 +568,8 @@ export class AssistantStore {
       label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
       reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean,
       purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
-      maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[]
+      maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
+      modalities?: readonly AssistantModelModality[]
     },
   ): Promise<AssistantModel | null> {
     const existing = await this.getModel(id)
@@ -588,6 +589,7 @@ export class AssistantStore {
       ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
       ...(patch.supportsTools !== undefined ? { supportsTools: patch.supportsTools } : {}),
       ...(patch.maxInputTokens !== undefined ? { maxInputTokens: patch.maxInputTokens } : {}),
+      ...(patch.modalities !== undefined ? { modalities: parseModelModalities(patch.modalities) } : {}),
       ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
       ...(patch.customParams !== undefined ? { customParams: parseCustomParams(patch.customParams) } : {}),
     }
@@ -595,12 +597,12 @@ export class AssistantStore {
       `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5,
          reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9,
          purpose = ?11, kind = ?12, supports_tools = ?13, max_input_tokens = ?14,
-         top_p = ?15, custom_params = ?16
+         modalities = ?17, top_p = ?15, custom_params = ?16
          WHERE user_id = ?1 AND id = ?10`,
       next.label, next.model, next.temperature, next.maxOutputTokens,
       next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
       next.purpose, next.kind, next.supportsTools ? 1 : 0, next.maxInputTokens,
-      next.topP, JSON.stringify(next.customParams),
+      next.topP, JSON.stringify(next.customParams), JSON.stringify(next.modalities),
     )
     return next
   }
@@ -2330,7 +2332,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
  * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
-  reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, top_p,
+  reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
   custom_params, enabled, position`
 
 interface PromptRow {
@@ -2367,6 +2369,7 @@ interface ModelRow {
   kind: string | null
   supports_tools: number | null
   max_input_tokens: number | null
+  modalities: string | null
   top_p: number | null
   custom_params: string | null
   enabled: number
@@ -2390,6 +2393,7 @@ function toModel(r: ModelRow): AssistantModel {
     kind: pickEnum(r.kind, ASSISTANT_MODEL_KINDS, 'text'),
     supportsTools: r.supports_tools === null ? true : bool(r.supports_tools),
     maxInputTokens: num(r.max_input_tokens),
+    modalities: parseModelModalities(parseJson(r.modalities)),
     topP: num(r.top_p),
     customParams: parseCustomParams(parseJson(r.custom_params)),
     enabled: bool(r.enabled),

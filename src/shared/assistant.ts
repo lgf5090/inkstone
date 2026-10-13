@@ -81,6 +81,38 @@ export type AssistantModelPurpose = (typeof ASSISTANT_MODEL_PURPOSES)[number]
 export const ASSISTANT_MODEL_KINDS = ['text', 'image', 'embedding', 'rerank'] as const
 export type AssistantModelKind = (typeof ASSISTANT_MODEL_KINDS)[number]
 
+/**
+ * What the reader says the model can be *given*.
+ *
+ * `image` is deliberately absent: the older `vision` switch already owns that fact, the runner and its
+ * tests read it, and a second column saying the same thing is a future disagreement. These three are the
+ * modalities nothing else speaks for.
+ */
+export const ASSISTANT_MODEL_MODALITIES = ['audio', 'video'] as const
+export type AssistantModelModality = (typeof ASSISTANT_MODEL_MODALITIES)[number]
+
+export function parseModelModalities(value: unknown): AssistantModelModality[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((entry): entry is AssistantModelModality =>
+    ASSISTANT_MODEL_MODALITIES.includes(entry as AssistantModelModality)))]
+}
+
+/**
+ * Quick picks, so the reader is not typing 262144 into a number field to get 256K. Each value is a round
+ * thousand on purpose: the label under the button is produced by dividing by 1000, and a binary step such
+ * as 32_768 would print as 33K and read like a different setting than the one it is.
+ */
+export const CONTEXT_WINDOW_STEPS: readonly number[] = [128_000, 200_000, 256_000, 400_000, 512_000, 1_000_000]
+export const MAX_OUTPUT_STEPS: readonly number[] = [1000, 4000, 8000, 16_000, 32_000, 64_000]
+/** A ceiling on what the model can be *sent*, which is not the same number as its context window. */
+export const MAX_INPUT_STEPS: readonly number[] = [8000, 32_000, 64_000, 128_000, 256_000, 512_000, 1_000_000]
+
+export function formatTokenStep(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`
+  return `${tokens}`
+}
+
 /** One extra field spliced into the upstream request body, typed so a number is not sent as a string. */
 export const ASSISTANT_PARAM_TYPES = ['string', 'number', 'boolean'] as const
 export type AssistantParamType = (typeof ASSISTANT_PARAM_TYPES)[number]
@@ -156,6 +188,8 @@ export interface AssistantModel {
   supportsTools: boolean
   /** Null means the reader has not said: the global limit answers for it. */
   maxInputTokens: number | null
+  /** What the reader says may be given to it, beyond a picture — see ASSISTANT_MODEL_MODALITIES. */
+  modalities: AssistantModelModality[]
   /** Null leaves the vendor default alone, which is what the Top-P switch off means. */
   topP: number | null
   customParams: AssistantCustomParam[]
@@ -176,6 +210,9 @@ export const ASSISTANT_REASONING_LEVELS: readonly AssistantReasoning[] = ['auto'
 export const REASONING_BUDGET_TOKENS: Record<'low' | 'medium' | 'high', number> = { low: 1024, medium: 4096, high: 10_240 }
 
 /** The context budgets the composer's slider snaps to, in tokens. */
+/** The largest per-model context window the field will store — a ceiling on the number, not a menu. */
+export const MAX_CONTEXT_BUDGET_TOKENS = 4_000_000
+
 export const CONTEXT_TOKEN_STEPS: readonly number[] = [4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144]
 
 export function reasoningValue(value: unknown): AssistantReasoning {

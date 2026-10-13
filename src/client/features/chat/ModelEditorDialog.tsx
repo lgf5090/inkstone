@@ -16,7 +16,9 @@ import type {
   AssistantModelPurpose,
   AssistantParamType,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, CONTEXT_WINDOW_STEPS, MAX_INPUT_STEPS, MAX_OUTPUT_STEPS, formatTokenStep } from '@shared/assistant'
+import type { AssistantModelModality } from '@shared/assistant'
+import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Field, Input, Segmented, Select, SettingRow, Slider, Switch } from '../../components/form'
 import { Button } from '../../components/primitives'
@@ -48,6 +50,7 @@ export interface ModelDraft {
   supportsTools: boolean
   contextTokens: number | null
   maxInputTokens: number | null
+  modalities: AssistantModelModality[]
   maxOutputTokens: number
   temperature: number | null
   topP: number | null
@@ -62,11 +65,49 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     supportsTools: model.supportsTools,
     contextTokens: model.contextTokens,
     maxInputTokens: model.maxInputTokens,
+    modalities: [...model.modalities],
     maxOutputTokens: model.maxOutputTokens,
     temperature: model.temperature,
     topP: model.topP,
     customParams: model.customParams.map((param) => ({ ...param })),
   }
+}
+
+const MODALITY_KEYS: Record<AssistantModelModality, Parameters<typeof t>[0]> = {
+  audio: 'assistant.model.modality.audio',
+  video: 'assistant.model.modality.video',
+}
+
+/**
+ * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,
+ * and the field still takes any number the presets do not offer.
+ */
+function ChipRow({ label, steps, value, onPick }: {
+  label: string
+  steps: readonly number[]
+  value: number | null
+  onPick: (tokens: number) => void
+}) {
+  return (
+    <div role='group' aria-label={label} className="mt-1 flex flex-wrap gap-1">
+      {steps.map((tokens) => (
+        <button
+          key={tokens}
+          type="button"
+          aria-pressed={value === tokens}
+          onClick={() => onPick(tokens)}
+          className={cn(
+            'rounded-full border px-1.5 py-0.5 text-[10.5px] tabular-nums transition-colors',
+            value === tokens
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+              : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+          )}
+        >
+          {formatTokenStep(tokens)}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function numberOrNull(value: string): number | null {
@@ -148,6 +189,31 @@ export function ModelEditorDialog({
             <SettingRow title={t('assistant.model.tools')} description={t('assistant.model.tools_hint')}>
               <Switch checked={draft.supportsTools} label={t('assistant.model.tools')} onChange={(checked) => patch({ supportsTools: checked })} />
             </SettingRow>
+
+            <Field label={t('assistant.model.modalities')}>
+              <div role="group" aria-label={t('assistant.model.modalities')} className="flex flex-wrap gap-1.5">
+                {ASSISTANT_MODEL_MODALITIES.map((modality) => {
+                  const on = draft.modalities.includes(modality)
+                  return (
+                    <button
+                      key={modality}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => patch({ modalities: on ? draft.modalities.filter((entry) => entry !== modality) : [...draft.modalities, modality] })}
+                      className={cn(
+                        'rounded-full border px-2 py-0.5 text-[11.5px] transition-colors',
+                        on
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                          : 'border-[var(--border-subtle)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
+                      )}
+                    >
+                      {t(MODALITY_KEYS[modality])}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-1 text-[11px] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.modalities_hint')}</p>
+            </Field>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <Field label={t('assistant.model.context')}>
                 <Input
@@ -158,6 +224,12 @@ export function ModelEditorDialog({
                   placeholder={String(model.maxOutputTokens)}
                   onChange={(event) => patch({ contextTokens: numberOrNull(event.target.value) })}
                 />
+                <ChipRow
+                  label={t('assistant.model.context')}
+                  steps={CONTEXT_WINDOW_STEPS}
+                  value={draft.contextTokens}
+                  onPick={(tokens) => patch({ contextTokens: tokens })}
+                />
               </Field>
               <Field label={t('assistant.model.max_input')}>
                 <Input
@@ -166,6 +238,12 @@ export function ModelEditorDialog({
                   aria-label={t('assistant.model.max_input')}
                   value={draft.maxInputTokens ?? ''}
                   onChange={(event) => patch({ maxInputTokens: numberOrNull(event.target.value) })}
+                />
+                <ChipRow
+                  label={t('assistant.model.max_input')}
+                  steps={MAX_INPUT_STEPS}
+                  value={draft.maxInputTokens}
+                  onPick={(tokens) => patch({ maxInputTokens: tokens })}
                 />
                 <p className="mt-1 text-[11px] leading-snug text-[var(--text-quaternary)]">{t('assistant.model.max_input_hint')}</p>
               </Field>
@@ -176,6 +254,12 @@ export function ModelEditorDialog({
                   aria-label={t('assistant.model.max_output')}
                   value={draft.maxOutputTokens}
                   onChange={(event) => patch({ maxOutputTokens: numberOrNull(event.target.value) ?? 1024 })}
+                />
+                <ChipRow
+                  label={t('assistant.model.max_output')}
+                  steps={MAX_OUTPUT_STEPS}
+                  value={draft.maxOutputTokens}
+                  onPick={(tokens) => patch({ maxOutputTokens: tokens })}
                 />
               </Field>
             </div>

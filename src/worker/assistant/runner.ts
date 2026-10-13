@@ -12,7 +12,7 @@
  *    who closes the tab still finds the half-answer and the reason.
  */
 
-import type { AssistantMessage, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantMessage, AssistantModelModality, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -220,7 +220,7 @@ export class AssistantRunner {
       yield { type: 'stage', stage: 'reading' }
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
-      const history = await this.contextHistory(conversationId, model.vision)
+      const history = await this.contextHistory(conversationId, model.vision, model.modalities)
       const system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
@@ -439,14 +439,14 @@ export class AssistantRunner {
   }
 
   /** Recent turns, oldest first, with the tool outcomes and approval results the model must see. */
-  private async contextHistory(conversationId: string, vision: boolean): Promise<HistoryEntry[]> {
+  private async contextHistory(conversationId: string, vision: boolean, modalities: readonly AssistantModelModality[]): Promise<HistoryEntry[]> {
     const messages = await this.store.messages(conversationId, 200)
     const actions = await this.store.actionStatesForConversation(conversationId)
     const payloads = new Map<string, AttachmentPayload>()
     for (const entry of messages) {
       const ids = entry.attachments ?? []
       if (entry.role !== 'user' || !ids.length || payloads.has(entry.id)) continue
-      payloads.set(entry.id, await expandChatAttachments(this.store, this.deps.env, ids, vision))
+      payloads.set(entry.id, await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities))
     }
     return messages
       .filter((entry) => entry.role === 'user' || entry.status === 'complete')
