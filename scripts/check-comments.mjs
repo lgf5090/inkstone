@@ -121,6 +121,10 @@ const allowed = new Map([
     "/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */",
     "/**\n * The picture viewer, hosted above the container switch.\n *\n * Any container can ask to enlarge an image — the notebook's preview and the chat's attachment chips\n * both do — and `useUi().lightbox` is one global slot. Mounted inside one container it was reachable\n * from that container only, and a chip elsewhere set the state with nothing left to render it: the\n * click did nothing at all, with nothing in the console to say so.\n */",
   ]],
+  ["src/client/components/DrawerSearchField.tsx", [
+    "/**\n * The search box a drawer puts above its list: the sticky header, the icon, a label the screen\n * reader reads, and the one filter reading every other listing in the app offers.\n *\n * Two drawers that list the whole notebook — the folder picker and the mindmap's note picker —\n * drew this box twice, character for character, and each stopped at the raw matcher instead of\n * {@link compileQuery}. A pattern that worked in every sidebar listing therefore quietly did\n * nothing here, and neither box could say why a refused one had. The compiled query is handed in\n * rather than compiled here so a caller filters with the same object the box is describing.\n *\n * Escape clears a box that is not empty and is swallowed there, so the drawer it sits in stays\n * open; an empty box lets the key through, which is the drawer's own close.\n */",
+    "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
+  ]],
   ["src/client/components/FilterInput.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
     "/** `panel` is the bordered, full-height box a modal or settings page draws; `sidebar` is the quiet one. */",
@@ -791,6 +795,9 @@ const allowed = new Map([
     "// row says which server it came from.",
     "// A server that has not been listed yet is awaited rather than skipped: showing the built-ins alone",
     "// would read as if the reader's own tools had disappeared.",
+    "/** How long the conversation box stops typing before the settled text reaches the store. */",
+    "// The query lives in the assistant store, so a keystroke that commits it there re-filters every",
+    "// row in the list; the box keeps its own draft and only the settled text crosses into the store.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/**\n * The composer's control row.\n *\n * Each control is a menu anchored to a chip that names what it currently selects, so the state is\n * readable without opening anything: which model answers, how much it is asked to think, how much\n * context it is given, and whether a write waits for a click. All four are per-conversation settings\n * the assistant already stores — the chips are the same switches the settings page has, moved to where\n * the decision is actually made.\n */",
