@@ -867,6 +867,42 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_chat_prompts_user ON chat_prompts(user_id, updated_at)`,
     ],
   },
+  {
+    version: 46,
+    skipIfColumnExists: { table: 'chat_messages', column: 'duration_ms' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    // The answers a retry displaced. Created here as well as in the table list so an account that has
+    // been running since before answer history exists gets it on the next boot.
+    version: 47,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_answer_versions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tools TEXT NOT NULL DEFAULT '[]',
+    model_label TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_answer_versions_message ON chat_answer_versions(user_id, message_id, created_at, id)`,
+    ],
+  },
+  {
+    version: 48,
+    skipIfColumnExists: { table: 'chat_messages', column: 'model_label' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN model_label TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

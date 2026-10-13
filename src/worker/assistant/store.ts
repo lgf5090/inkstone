@@ -40,7 +40,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
-import { MAX_CHAT_ATTACHMENTS, reasoningValue, type ChatAttachment } from '@shared/assistant'
+import { MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, reasoningValue, type AssistantAnswerVersion, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -278,11 +278,17 @@ interface MessageRow {
   source: string | null
   input_tokens: number | null
   output_tokens: number | null
+  duration_ms: number | null
+  model_label: string | null
   created_at: number
+  version_count?: number | null
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, created_at`
+  = `id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at`
+/** How many answers this turn has already displaced; only the transcript list pays for it. */
+const MESSAGE_VERSION_COUNT
+  = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
 
 /**
  * Two messages written in the same millisecond are common — a turn saves the reader's line and the
@@ -304,6 +310,39 @@ function toMessage(r: MessageRow): AssistantMessage {
     source: r.source === 'import' ? 'import' : 'chat',
     createdAt: r.created_at,
     usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
+    durationMs: r.duration_ms ?? 0,
+    modelLabel: r.model_label ?? '',
+    versionCount: r.version_count ?? undefined,
+  }
+}
+
+interface AnswerVersionRow {
+  id: string
+  message_id: string
+  conversation_id: string
+  content: string
+  tools: string | null
+  model_label: string | null
+  input_tokens: number | null
+  output_tokens: number | null
+  duration_ms: number | null
+  created_at: number
+}
+
+const ANSWER_VERSION_COLUMNS
+  = `id, message_id, conversation_id, content, tools, model_label, input_tokens, output_tokens, duration_ms, created_at`
+
+function toAnswerVersion(r: AnswerVersionRow): AssistantAnswerVersion {
+  return {
+    id: r.id,
+    messageId: r.message_id,
+    conversationId: r.conversation_id,
+    content: r.content ?? '',
+    tools: decodeTools(r.tools),
+    modelLabel: r.model_label ?? '',
+    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
+    durationMs: r.duration_ms ?? 0,
+    createdAt: r.created_at,
   }
 }
 
@@ -933,6 +972,7 @@ export class AssistantStore {
 
   async deleteConversation(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND conversation_id = ?2`, id)
+    await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1 AND conversation_id = ?2`, id)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1 AND conversation_id = ?2`, id)
@@ -945,6 +985,7 @@ export class AssistantStore {
       this.userId,
     )
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1`)
+    await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_pending_actions WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_active_runs WHERE user_id = ?1`)
     await this.write(`DELETE FROM chat_conversation_tags WHERE user_id = ?1`)
@@ -954,8 +995,8 @@ export class AssistantStore {
 
   async messages(conversationId: string, limit = 500): Promise<AssistantMessage[]> {
     const list = await this.rows<MessageRow>(
-      `SELECT ${MESSAGE_COLUMNS} FROM (
-         SELECT rowid AS seq, ${MESSAGE_COLUMNS} FROM chat_messages
+      `SELECT ${MESSAGE_COLUMNS}, version_count FROM (
+         SELECT rowid AS seq, ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages
           WHERE user_id = ?1 AND conversation_id = ?2
           ORDER BY created_at DESC, seq DESC LIMIT ?3
        ) ORDER BY ${MESSAGE_ORDER}`,
@@ -974,6 +1015,8 @@ export class AssistantStore {
     error?: string | null
     id?: string
     usage?: { inputTokens: number, outputTokens: number } | null
+    durationMs?: number
+    modelLabel?: string
     source?: 'chat' | 'import'
     createdAt?: number
   }): Promise<AssistantMessage> {
@@ -985,12 +1028,13 @@ export class AssistantStore {
     const error = input.error ?? null
     const source = input.source ?? 'chat'
     const usage = input.usage ?? null
+    const durationMs = Math.max(0, Math.round(input.durationMs ?? 0))
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+         (id, user_id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
       id, input.conversationId, input.role, input.content, JSON.stringify(tools), JSON.stringify(attachments),
-      status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, at,
+      status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -1008,10 +1052,34 @@ export class AssistantStore {
       source,
       createdAt: at,
       usage,
+      durationMs,
+      modelLabel: input.modelLabel ?? '',
     }
   }
 
+  /** One message by id, for the routes that have to check it belongs to the thread they were given. */
+  async getMessage(id: string): Promise<AssistantMessage | null> {
+    const r = await this.one<MessageRow>(
+      `SELECT ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return r ? toMessage(r) : null
+  }
+
   async deleteMessage(id: string): Promise<void> {
+    await this.deleteMessageRow(id)
+    // A displaced answer is worth nothing once its turn is gone, and leaving it behind would keep the
+    // pager's count alive over a row that no longer exists.
+    await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND message_id = ?2`, id)
+  }
+
+  /**
+   * Remove the turn's row and keep what it displaced.
+   *
+   * A regeneration is the only caller: it files the outgoing answer, then writes the new one back under
+   * the same id. Deleting through `deleteMessage` there would erase the history it just extended.
+   */
+  async deleteMessageRow(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_messages WHERE user_id = ?1 AND id = ?2`, id)
   }
 
@@ -1022,6 +1090,118 @@ export class AssistantStore {
       this.userId, conversationId,
     )
     return r ? toMessage(r) : null
+  }
+
+  // ---------------------------------------------------------------- answer versions
+
+  /**
+   * File the answer a retry is displacing.
+   *
+   * Returns null for an answer with no words in it: a turn stopped before the first token, or one that
+   * failed, is nothing the reader can page back to, and filing it would push a real answer out of the
+   * retained window.
+   */
+  async archiveAnswerVersion(input: {
+    messageId: string
+    conversationId: string
+    content: string
+    tools?: ToolActivity[]
+    modelLabel?: string
+    usage?: { inputTokens: number, outputTokens: number } | null
+    durationMs?: number
+    createdAt?: number
+  }): Promise<AssistantAnswerVersion | null> {
+    if (!input.content.trim())
+      return null
+    const id = newId()
+    const at = input.createdAt ?? Date.now()
+    const tools = input.tools ?? []
+    const usage = input.usage ?? null
+    const durationMs = Math.max(0, Math.round(input.durationMs ?? 0))
+    const modelLabel = input.modelLabel ?? ''
+    await this.write(
+      `INSERT INTO chat_answer_versions
+         (id, user_id, message_id, conversation_id, content, tools, model_label, input_tokens, output_tokens, duration_ms, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+      id, input.messageId, input.conversationId, input.content, JSON.stringify(tools), modelLabel,
+      usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, at,
+    )
+    await this.write(
+      `DELETE FROM chat_answer_versions
+        WHERE user_id = ?1 AND message_id = ?2
+          AND id NOT IN (SELECT id FROM chat_answer_versions
+                          WHERE user_id = ?1 AND message_id = ?2
+                          ORDER BY created_at DESC, rowid DESC LIMIT ?3)`,
+      input.messageId, MAX_ANSWER_VERSIONS,
+    )
+    return {
+      id,
+      messageId: input.messageId,
+      conversationId: input.conversationId,
+      content: input.content,
+      tools,
+      modelLabel,
+      usage,
+      durationMs,
+      createdAt: at,
+    }
+  }
+
+  /** The displaced answers of one turn, oldest first: a pager counts from the first thing it said. */
+  async listAnswerVersions(messageId: string): Promise<AssistantAnswerVersion[]> {
+    const rows = await this.rows<AnswerVersionRow>(
+      `SELECT ${ANSWER_VERSION_COLUMNS}
+         FROM chat_answer_versions
+        WHERE user_id = ?1 AND message_id = ?2
+        ORDER BY created_at ASC, rowid ASC`,
+      this.userId, messageId,
+    )
+    return rows.map(toAnswerVersion)
+  }
+
+  /**
+   * Exchange the turn's live answer for one of its earlier ones.
+   *
+   * A swap, not a copy: the displaced answer takes the slot the chosen one vacated, so the pager keeps
+   * the same count and the same order while the reader looks at something else. The notes app's version
+   * history restores the same way, for the same reason — a reader has to be able to get back.
+   */
+  async swapAnswerVersion(messageId: string, versionId: string): Promise<AssistantMessage | null> {
+    const current = await this.one<MessageRow>(
+      `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE user_id = ?1 AND id = ?2 AND role = 'assistant'`,
+      this.userId, messageId,
+    )
+    const chosen = await this.one<AnswerVersionRow>(
+      `SELECT ${ANSWER_VERSION_COLUMNS} FROM chat_answer_versions WHERE user_id = ?1 AND id = ?2 AND message_id = ?3`,
+      this.userId, versionId, messageId,
+    )
+    if (!current || !chosen)
+      return null
+    await this.write(
+      `UPDATE chat_answer_versions
+          SET content = ?2, tools = ?3, model_label = ?4, input_tokens = ?5, output_tokens = ?6, duration_ms = ?7
+        WHERE user_id = ?1 AND id = ?8`,
+      current.content, current.tools, current.model_label ?? '',
+      current.input_tokens ?? 0, current.output_tokens ?? 0, current.duration_ms ?? 0, versionId,
+    )
+    await this.write(
+      `UPDATE chat_messages
+          SET content = ?2, tools = ?3, status = 'complete', error = NULL, model_label = ?4,
+              input_tokens = ?5, output_tokens = ?6, duration_ms = ?7
+        WHERE user_id = ?1 AND id = ?8`,
+      chosen.content, chosen.tools, chosen.model_label,
+      chosen.input_tokens ?? 0, chosen.output_tokens ?? 0, chosen.duration_ms ?? 0, messageId,
+    )
+    const reread = await this.one<MessageRow>(
+      `SELECT ${MESSAGE_COLUMNS}, ${MESSAGE_VERSION_COUNT} FROM chat_messages WHERE user_id = ?1 AND id = ?2`,
+      this.userId, messageId,
+    )
+    return reread ? toMessage(reread) : null
+  }
+
+  /** Drop a conversation's whole answer history with it, so deleting a thread leaves nothing behind. */
+  async deleteAnswerVersionsForConversation(conversationId: string): Promise<void> {
+    await this.write(`DELETE FROM chat_answer_versions WHERE user_id = ?1 AND conversation_id = ?2`, conversationId)
   }
 
   // ---------------------------------------------------------------- memories
@@ -2014,6 +2194,7 @@ export class AssistantStore {
       conversations: await select('chat_conversations'),
       conversation_tags: await select('chat_conversation_tags'),
       messages: await select('chat_messages'),
+      answer_versions: await select('chat_answer_versions'),
       memories: await select('chat_memories'),
       tasks: await select('chat_tasks'),
       projects: await select('chat_projects'),
@@ -2033,7 +2214,8 @@ export class AssistantStore {
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
+  chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],

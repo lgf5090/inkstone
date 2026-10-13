@@ -578,7 +578,42 @@ export interface AssistantMessage {
   /** `import` marks a message restored from a backup: it is data, never live owner input. */
   source: 'chat' | 'import'
   usage?: { inputTokens: number, outputTokens: number } | null
+  /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
+  durationMs?: number
+  /** The model that answered, kept as text for the same reason a version keeps it. */
+  modelLabel?: string
+  /**
+   * Answers the reader has since regenerated away from, still kept for this turn. The count drives the
+   * pager under the bubble; the bodies are fetched when the pager is opened, the same way the notes
+   * app's version history lists its snapshots.
+   */
+  versionCount?: number
 }
+
+/**
+ * One earlier answer of the same turn.
+ *
+ * A retry does not stack a second bubble any more: the outgoing answer is filed here and the turn keeps
+ * one row, so the reader can page back through what the model actually said and bring any of them back.
+ */
+export interface AssistantAnswerVersion {
+  id: string
+  messageId: string
+  conversationId: string
+  content: string
+  tools: ToolActivity[]
+  /** The model that produced it, kept as text: the model may be deleted while the answer is not. */
+  modelLabel: string
+  usage: { inputTokens: number, outputTokens: number } | null
+  durationMs: number
+  createdAt: number
+}
+
+/**
+ * How many displaced answers one turn keeps. The notes app caps its history the same way; without a cap
+ * a reader who regenerates twenty times stores twenty answers forever.
+ */
+export const MAX_ANSWER_VERSIONS = 5
 
 export interface AssistantMemory {
   id: string
@@ -665,6 +700,8 @@ export interface AssistantNotification {
 export interface AssistantImportSummary {
   conversations: number
   messages: number
+  /** Answers the reader had paged away from, restored with their threads. */
+  answerVersions: number
   memories: number
   tasks: number
   projects: number

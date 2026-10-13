@@ -206,6 +206,11 @@ function MessageRow({ message, onRetry }: { message: AssistantMessage, onRetry?:
       onRetry={onRetry}
       retryLabel={retryLabel}
       usage={message.usage}
+      durationMs={message.durationMs ?? 0}
+      modelLabel={message.modelLabel ?? ''}
+      versionCount={message.versionCount ?? 0}
+      loadVersions={() => useAssistant.getState().loadAnswerVersions(message.id)}
+      onActivate={(versionId) => void useAssistant.getState().activateAnswerVersion(message.id, versionId)}
     />
   )
 }

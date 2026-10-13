@@ -19,6 +19,7 @@ import type {
   ConversationTag,
   AssistantMemory,
   AssistantMessage,
+  AssistantAnswerVersion,
   AssistantModel,
   AssistantNotification,
   AssistantProvider,
@@ -110,6 +111,11 @@ interface AssistantState {
   activeId: string | null
   messages: AssistantMessage[]
   messagesReady: boolean
+  /**
+   * The displaced answers of a turn, by message id; absent until the reader opens that turn's pager.
+   * A transcript of forty turns does not need forty histories fetched up front.
+   */
+  answerVersions: Record<string, AssistantAnswerVersion[] | undefined>
   remoteStreaming: boolean
   turn: LiveTurn | null
 
@@ -141,6 +147,10 @@ interface AssistantState {
   /** A turn can have written memories, tasks and schedules, so the other surfaces re-read once. */
   refreshAfterTurn: () => Promise<void>
   loadConversations: () => Promise<void>
+  /** The answers one turn displaced, fetched once per message and kept for the session. */
+  loadAnswerVersions: (messageId: string) => Promise<AssistantAnswerVersion[]>
+  /** Make one of those answers the turn's live one again. */
+  activateAnswerVersion: (messageId: string, versionId: string) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
   /** The folder tree and the tag list, both counted for conversations. */
   loadTaxonomy: () => Promise<void>
@@ -278,6 +288,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   activeId: null,
   messages: [],
   messagesReady: false,
+  answerVersions: {},
   remoteStreaming: false,
   turn: null,
 
@@ -354,6 +365,38 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       const result = await api.assistant.conversations(params)
       if (token !== conversationRequest) return
       set({ conversations: result.conversations })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  loadAnswerVersions: async (messageId) => {
+    const cached = get().answerVersions[messageId]
+    if (cached) return cached
+    const conversationId = get().activeId
+    if (!conversationId) return []
+    try {
+      const { versions } = await api.assistant.answerVersions(conversationId, messageId)
+      set((current) => ({ answerVersions: { ...current.answerVersions, [messageId]: versions } }))
+      return versions
+    } catch (error) {
+      toast(error)
+      return []
+    }
+  },
+
+  activateAnswerVersion: async (messageId, versionId) => {
+    const conversationId = get().activeId
+    if (!conversationId) return
+    try {
+      const { message } = await api.assistant.activateAnswerVersion(conversationId, messageId, versionId)
+      // The turn's own row changed, and the list of histories has to be re-read: what was live is now
+      // filed, and the entry the reader just chose is the one that is not.
+      set((current) => ({
+        messages: current.messages.map((entry) => (entry.id === message.id ? message : entry)),
+        answerVersions: { ...current.answerVersions, [messageId]: undefined },
+      }))
+      void get().loadAnswerVersions(messageId)
     } catch (error) {
       toast(error)
     }

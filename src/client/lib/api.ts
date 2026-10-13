@@ -49,6 +49,7 @@ import type {
   UserSettings,
 } from '@shared/types'
 import type {
+  AssistantAnswerVersion,
   AssistantConversation,
   ChatFolderNode,
   ConversationTag,
@@ -765,6 +766,15 @@ export const api = {
       }>(`/api/assistant/conversations/${id}`),
     renameConversation: (id: string, title: string) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { title } }),
+    /** The answers one turn displaced, oldest first. */
+    answerVersions: (conversationId: string, messageId: string) =>
+      request<{ versions: AssistantAnswerVersion[] }>(`/api/assistant/conversations/${conversationId}/messages/${messageId}/versions`),
+    /** Exchange the turn's live answer for one of its earlier ones. */
+    activateAnswerVersion: (conversationId: string, messageId: string, versionId: string) =>
+      request<{ message: AssistantMessage }>(
+        `/api/assistant/conversations/${conversationId}/messages/${messageId}/versions/${versionId}/activate`,
+        { method: 'POST' },
+      ),
     pinConversation: (id: string, pinned: boolean) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { pinned } }),
     uploadChatFile: (file: File, onProgress: (sent: number, total: number) => void) =>

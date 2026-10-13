@@ -134,6 +134,8 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     source TEXT NOT NULL DEFAULT 'chat',
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    model_label TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
@@ -141,6 +143,30 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
      ON chat_messages(user_id, conversation_id, created_at, id)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_messages_user
      ON chat_messages(user_id, created_at)`,
+
+  /**
+   * The answers a retry displaced, one row each.
+   *
+   * The turn itself keeps a single `chat_messages` row and the reader pages through these. Storing the
+   * model as text rather than as an id is deliberate: a version the reader can still open must survive
+   * the model that produced it being deleted.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_answer_versions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tools TEXT NOT NULL DEFAULT '[]',
+    model_label TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_answer_versions_message
+     ON chat_answer_versions(user_id, message_id, created_at, id)`,
 
   `CREATE TABLE IF NOT EXISTS chat_memories (
     user_id TEXT NOT NULL,
@@ -381,6 +407,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
   'idx_chat_prompts_user',
+  'idx_chat_answer_versions_message',
 ]
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -391,7 +418,8 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'created_at'],
+  chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],

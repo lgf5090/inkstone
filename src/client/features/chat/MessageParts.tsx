@@ -16,13 +16,15 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Loader2,
   RotateCcw,
   ShieldAlert,
   XCircle
 } from 'lucide-react'
-import type { ToolActivity } from '@shared/assistant'
+import type { AssistantAnswerVersion, ToolActivity } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -149,6 +151,67 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   )
 }
 
+/**
+ * The answers one turn has already displaced, walked with two arrows.
+ *
+ * The live answer is the last page; anything before it is a read-only look, and the reader has to press
+ * "use this one" before it becomes the turn's answer again. That is the notes app's version history in
+ * miniature, and for the same reason: looking must never overwrite.
+ */
+function AnswerVersionPager({ total, page, onStep, onRestore, busy }: {
+  total: number
+  page: number
+  onStep: (delta: 1 | -1) => void
+  onRestore: () => void
+  busy: boolean
+}) {
+  const viewingOld = page < total - 1
+  return (
+    <span role="group" aria-label={t('assistant.chat.answer_history')} className="inline-flex items-center gap-0.5">
+      <button
+        type="button"
+        onClick={() => onStep(-1)}
+        disabled={busy || page <= 0}
+        aria-label={t('assistant.chat.previous')}
+        className="inline-flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-40"
+      >
+        <ChevronLeft size={12} />
+      </button>
+      <span aria-live="polite" className="min-w-[34px] text-center text-[11px] tabular-nums text-[var(--text-quaternary)]">
+        {page + 1}/{total}
+      </span>
+      <button
+        type="button"
+        onClick={() => onStep(1)}
+        disabled={busy || page >= total - 1}
+        aria-label={t('assistant.chat.next')}
+        className="inline-flex size-5 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-40"
+      >
+        <ChevronRight size={12} />
+      </button>
+      {viewingOld && (
+        <button
+          type="button"
+          onClick={onRestore}
+          disabled={busy}
+          className="ml-0.5 inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] font-medium text-[var(--accent)] hover:bg-[var(--accent-soft)] disabled:opacity-50"
+        >
+          {t('assistant.chat.use_this')}
+        </button>
+      )}
+    </span>
+  )
+}
+
+/** The cost of the answer and the speed it arrived at: total tokens, then output tokens per second. */
+export function answerStats(usage: { inputTokens: number, outputTokens: number } | null | undefined, durationMs: number): string | null {
+  if (!usage || (!usage.inputTokens && !usage.outputTokens)) return null
+  const total = usage.inputTokens + usage.outputTokens
+  const seconds = durationMs / 1000
+  if (!usage.outputTokens || seconds <= 0) return `${total.toLocaleString('en-US')} ${t('assistant.chat.tokens')}`
+  return `${total.toLocaleString('en-US')} ${t('assistant.chat.tokens')} · ${(usage.outputTokens / seconds).toFixed(1)} ${t('assistant.chat.tokens_per_second')}`
+}
+
 export function AssistantBubble({
   text,
   reasoning,
@@ -160,6 +223,11 @@ export function AssistantBubble({
   onRetry,
   retryLabel = 'assistant.chat.retry',
   usage,
+  durationMs = 0,
+  modelLabel = '',
+  versionCount = 0,
+  loadVersions,
+  onActivate,
 }: {
   text: string
   reasoning: string
@@ -171,11 +239,40 @@ export function AssistantBubble({
   onRetry?: () => void
   retryLabel?: 'assistant.chat.retry' | 'assistant.chat.regenerate'
   usage?: { inputTokens: number, outputTokens: number } | null
+  durationMs?: number
+  modelLabel?: string
+  /** How many earlier answers this turn still holds. The pager appears at two or more pages. */
+  versionCount?: number
+  loadVersions?: () => Promise<AssistantAnswerVersion[]>
+  onActivate?: (versionId: string) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [showReasoning, setShowReasoning] = useState(false)
+  const [versions, setVersions] = useState<AssistantAnswerVersion[] | null>(null)
+  const [page, setPage] = useState<number | null>(null)
+  const [swapping, setSwapping] = useState(false)
+  const pages = (versions?.length ?? versionCount) + 1
+  // The last page is the live answer; anything before it is one of the displaced ones, whose body has to
+  // have arrived — and it has, because the list is fetched on the first arrow press.
+  const index = page === null ? pages - 1 : Math.min(page, pages - 1)
+  const viewing = index === pages - 1 ? null : versions?.[index] ?? null
+  const body = viewing ? viewing.content : text
+  const step = (delta: 1 | -1) => {
+    const advance = (list: AssistantAnswerVersion[]) => {
+      const total = list.length + 1
+      setPage((current) => Math.min(Math.max((current === null ? total - 1 : current) + delta, 0), total - 1))
+    }
+    if (versions) {
+      advance(versions)
+      return
+    }
+    void loadVersions?.().then((list) => {
+      setVersions(list)
+      advance(list)
+    })
+  }
   return (
-    <div className="flex gap-2.5">
+    <div className="group flex gap-2.5">
       <div className="min-w-0 flex-1 space-y-2">
         {tools.length > 0 && (
           <div role="group" aria-label={t('assistant.chat.tools_taken')} className="flex flex-wrap gap-1">
@@ -199,8 +296,8 @@ export function AssistantBubble({
             {reasoning}
           </p>
         )}
-        {text
-          ? <MarkdownReply source={text} />
+        {body
+          ? <div className="max-w-[72ch]"><MarkdownReply source={body} /></div>
           : streaming && tools.every((tool) => tool.status !== 'running')
             ? (
                 <div role="status" aria-label={t('assistant.chat.thinking')} className="flex h-6 items-center gap-1.5">
@@ -225,39 +322,78 @@ export function AssistantBubble({
             )}
           </div>
         )}
-        {!streaming && text && (
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard.writeText(text).then(() => {
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 1500)
-              })
-            }}
-            aria-label={t('assistant.chat.copy')}
-            className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-          >
-            {copied ? <Check size={11} /> : <Copy size={11} />}
-            {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
-          </button>
-        )}
-        {/* A finished answer can be asked again from the same footer; the error card above carries its
-            own retry, so the two never appear on one message. */}
-        {!streaming && !error && text && onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            aria-label={t(retryLabel)}
-            className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-          >
-            <RotateCcw size={11} />
-            {t(retryLabel)}
-          </button>
-        )}
-        {!streaming && usage && (
-          <span className="shrink-0 text-[11px] text-[var(--text-quaternary)]" title={t('assistant.chat.usage_hint')}>
-            {t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}
-          </span>
+        {!streaming && (body || pages > 1) && (
+          <div className={cn(
+            'flex flex-wrap items-center gap-x-2 gap-y-1 transition-opacity duration-[var(--dur-fast)]',
+            // Quiet until the pointer arrives — but only where a pointer exists. A touch screen has no
+            // hover, and a reader looking at an older answer must be able to see how to leave it.
+            !viewing && 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100',
+          )}>
+            {body && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(body).then(() => {
+                    setCopied(true)
+                    window.setTimeout(() => setCopied(false), 1500)
+                  })
+                }}
+                aria-label={t('assistant.chat.copy')}
+                className="inline-flex items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+              >
+                {copied ? <Check size={11} /> : <Copy size={11} />}
+                {copied ? t('assistant.chat.copied') : t('assistant.chat.copy')}
+              </button>
+            )}
+            {/* A finished answer can be asked again from the same footer; the error card above carries
+                its own retry, so the two never appear on one message. */}
+            {!error && body && onRetry && !viewing && (
+              <button
+                type="button"
+                onClick={onRetry}
+                aria-label={t(retryLabel)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-[var(--r-sm)] px-1 py-0.5 text-[11px] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+              >
+                <RotateCcw size={11} />
+                {t(retryLabel)}
+              </button>
+            )}
+            {pages > 1 && (
+              <AnswerVersionPager
+                total={pages}
+                page={index}
+                busy={swapping}
+                onStep={step}
+                onRestore={() => {
+                  if (!viewing || !onActivate) return
+                  setSwapping(true)
+                  void Promise.resolve(onActivate(viewing.id)).finally(() => {
+                    setSwapping(false)
+                    // The turn's history changed shape: the answer just filed is no longer one of the pages.
+                    setVersions(null)
+                    setPage(null)
+                  })
+                }}
+              />
+            )}
+            {viewing ? (
+              <span className="text-[11px] text-[var(--text-quaternary)]">
+                {t('assistant.chat.viewing_history')}
+                {viewing.modelLabel && ` · ${viewing.modelLabel}`}
+                {` · ${new Date(viewing.createdAt).toLocaleString()}`}
+              </span>
+            ) : (
+              usage && answerStats(usage, durationMs) && (
+                <span
+                  className="shrink-0 text-[11px] text-[var(--text-quaternary)]"
+                  title={t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}
+                >
+                  {answerStats(usage, durationMs)}
+                  {modelLabel && ` · ${modelLabel}`}
+                </span>
+              )
+            )}
+          </div>
         )}
       </div>
     </div>

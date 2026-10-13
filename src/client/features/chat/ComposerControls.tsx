@@ -70,7 +70,7 @@ export function ControlChip({
       {/* A phone has ~360px for seven controls. The secondary ones keep only their icon there — the
           value stays on the chip's accessible name, so it is still readable — because eight full words
           pushed the row onto three lines and knocked the send button out of place. */}
-      {value && <span className={cn('min-w-0 truncate sm:max-w-[46%]', hideValueOnPhone ? 'max-w-0 overflow-hidden sm:max-w-[46%]' : 'max-w-[58px]')}>{value}</span>}
+      {value && <span className={cn('min-w-0 truncate sm:max-w-none', hideValueOnPhone ? 'max-w-0 overflow-hidden' : 'max-w-[58px]')}>{value}</span>}
     </button>
   )
 }

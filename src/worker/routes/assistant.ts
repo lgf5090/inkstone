@@ -210,6 +210,41 @@ assistantRoutes.get('/conversations/:id', async (c) => {
   })
 })
 
+/**
+ * The answers this turn said before the reader asked again.
+ *
+ * Both routes check the message belongs to the conversation in the path: the store binds `user_id` to
+ * every query, so the only thing a foreign id could otherwise reach is another of the same reader's
+ * threads — and paging one turn's answers into another turn's bubble is a data leak of a kind the reader
+ * would notice as a bug in their own words.
+ */
+assistantRoutes.get('/conversations/:id/messages/:messageId/versions', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const messageId = requiredId(c.req.param('messageId'))
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId || message.role !== 'assistant') {
+    throw ApiError.notFound('Message not found')
+  }
+  return c.json({ versions: await s.listAnswerVersions(messageId) })
+})
+
+assistantRoutes.post('/conversations/:id/messages/:messageId/versions/:versionId/activate', async (c) => {
+  const s = store(c)
+  const conversationId = requiredId(c.req.param('id'))
+  const messageId = requiredId(c.req.param('messageId'))
+  const versionId = requiredId(c.req.param('versionId'))
+  const message = await s.getMessage(messageId)
+  if (!message || message.conversationId !== conversationId || message.role !== 'assistant') {
+    throw ApiError.notFound('Message not found')
+  }
+  // A turn that is still streaming cannot be exchanged: the row is being written under this swap.
+  if (await s.isRunning(conversationId)) throw ApiError.conflict('Stop the running reply first.')
+  const swapped = await s.swapAnswerVersion(messageId, versionId)
+  if (!swapped) throw ApiError.notFound('Answer version not found')
+  return c.json({ message: swapped })
+})
+
 assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))

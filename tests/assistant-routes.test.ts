@@ -8,7 +8,9 @@ import { assistantRoutes } from '../src/worker/routes/assistant'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import type { AppBindings } from '../src/worker/env'
 import type {
+  AssistantAnswerVersion,
   AssistantConversation,
+  AssistantMessage,
   AssistantMemory,
   AssistantProvider,
   AssistantSettings,
@@ -17,7 +19,7 @@ import type {
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_ANSWER_VERSIONS, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -1347,3 +1349,175 @@ describe('prompt library', () => {
     expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts.map((entry) => entry.id)).toEqual([mine.prompt.id])
   })
 })
+
+describe('answer versions', () => {
+  /** One finished answer per call, distinguishable in the transcript and in the version rows. */
+  function answering(text: string, elapsedMs = 6) {
+    return vi.fn(async (_url: string, _init?: RequestInit) => {
+      // A floor of real elapsed time, so "the turn recorded how long it took" is an assertion rather
+      // than a comparison of two zeroes.
+      await new Promise((resolve) => setTimeout(resolve, elapsedMs))
+      return new Response(sse([
+        openAiFrame({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: text } }] }),
+        openAiFrame({ choices: [], usage: { prompt_tokens: 30, completion_tokens: 9 } }),
+      ]), { headers: { 'content-type': 'text/event-stream' } })
+    })
+  }
+
+  async function openThread(): Promise<string> {
+    const events = await chatEvents({ message: 'VERSIONS-ASK' })
+    await settleTurns()
+    const started = events.find(event => event.type === 'start')
+    const conversationId = started?.conversationId
+    expect(conversationId).toBeTruthy()
+    return conversationId as string
+  }
+
+  async function thread(conversationId: string) {
+    const detail = await call<{ messages: Array<AssistantMessage & { versionCount?: number }> }>('GET', `/api/assistant/conversations/${conversationId}`)
+    return detail.messages
+  }
+
+  it('files the answer a regeneration displaces instead of stacking a second bubble', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('FIRST-ANSWER-1'))
+    const conversationId = await openThread()
+    vi.stubGlobal('fetch', answering('SECOND-ANSWER-2'))
+    const events = await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(events.some(event => event.type === 'done')).toBe(true)
+    const rows = await thread(conversationId)
+    // One reader line, one assistant line: the retry replaced the turn rather than appending to it.
+    expect(rows.filter(row => row.role === 'user')).toHaveLength(1)
+    expect(rows.filter(row => row.role === 'assistant')).toHaveLength(1)
+    const answer = rows.at(-1)!
+    expect(answer.content).toContain('SECOND-ANSWER-2')
+    expect(answer.versionCount).toBe(1)
+    // The turn recorded its own elapsed time, and the filed answer carries it out of the way.
+    expect(answer.durationMs).toBeGreaterThanOrEqual(6)
+    expect(answer.modelLabel).toBe('example-model')
+    const versions = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${answer.id}/versions`)
+    expect(versions.versions.map(version => version.content)).toEqual(['FIRST-ANSWER-1'])
+    expect(versions.versions[0]?.usage).toEqual({ inputTokens: 30, outputTokens: 9 })
+    expect(versions.versions[0]?.durationMs).toBeGreaterThanOrEqual(6)
+  })
+
+  it('swaps an earlier answer back, and the displaced one takes its slot', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('FIRST-ANSWER-1'))
+    const conversationId = await openThread()
+    vi.stubGlobal('fetch', answering('SECOND-ANSWER-2'))
+    await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const before = (await thread(conversationId)).at(-1)!
+    const versions = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${before.id}/versions`)
+    const first = versions.versions[0]!
+    const after = await call<{ message: AssistantMessage }>('POST',
+      `/api/assistant/conversations/${conversationId}/messages/${before.id}/versions/${first.id}/activate`)
+    expect(after.message.content).toContain('FIRST-ANSWER-1')
+    // A swap, not a copy: still one version, and it now holds what the reader just gave up.
+    expect(after.message.versionCount).toBe(1)
+    const swapped = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${before.id}/versions`)
+    expect(swapped.versions.map(version => version.id)).toEqual([first.id])
+    expect(swapped.versions[0]?.content).toContain('SECOND-ANSWER-2')
+  })
+
+  it('does not file an answer that never said anything', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('REAL-ANSWER-3'))
+    const conversationId = await openThread()
+    // A turn whose request cannot complete files an error row, and an error row has nothing to page back
+    // to: filing it would push the reader's real answer out of the retained window.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('upstream refused to answer')
+    }))
+    await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    const failed = (await thread(conversationId)).at(-1)!
+    expect(failed.status).toBe('error')
+    vi.stubGlobal('fetch', answering('REAL-ANSWER-4'))
+    await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const answer = (await thread(conversationId)).at(-1)!
+    expect(answer.role).toBe('assistant')
+    expect(answer.status).toBe('complete')
+    const filed = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${answer.id}/versions`)
+    // Only the one good answer was displaced; the failed turn contributed no version.
+    expect(filed.versions.map(version => version.content)).toEqual(['REAL-ANSWER-3'])
+    expect(answer.versionCount).toBe(1)
+  })
+
+  it('refuses to file an answer that is only whitespace', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('BLANK-BEFORE-4'))
+    const conversationId = await openThread()
+    // The runner substitutes a sentence when a model says nothing, so a blank-but-complete row is only
+    // reachable from restored or imported data. Written here, it is the case the guard exists for.
+    sqlite.prepare(`UPDATE chat_messages SET content = '   ' WHERE user_id = '${USER}' AND role = 'assistant'`).run()
+    vi.stubGlobal('fetch', answering('BLANK-AFTER-5'))
+    await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const answer = (await thread(conversationId)).at(-1)!
+    expect(answer.content).toContain('BLANK-AFTER-5')
+    expect(answer.versionCount ?? 0).toBe(0)
+  })
+
+  it('keeps the last five displaced answers and drops the oldest', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('V-ONE'))
+    const conversationId = await openThread()
+    for (const text of ['V-TWO', 'V-THREE', 'V-FOUR', 'V-FIVE', 'V-SIX', 'V-SEVEN']) {
+      vi.stubGlobal('fetch', answering(text))
+      await chatEvents({ conversationId, message: '', retry: true })
+      await settleTurns()
+    }
+    vi.unstubAllGlobals()
+    const answer = (await thread(conversationId)).at(-1)!
+    expect(answer.content).toContain('V-SEVEN')
+    const versions = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${conversationId}/messages/${answer.id}/versions`)
+    expect(versions.versions).toHaveLength(MAX_ANSWER_VERSIONS)
+    // Oldest first, and the first answer is the one that fell off the end of the window.
+    expect(versions.versions.map(version => version.content)).toEqual(['V-TWO', 'V-THREE', 'V-FOUR', 'V-FIVE', 'V-SIX'])
+    expect(versions.versions.map(version => version.content).join(' ')).not.toContain('V-ONE')
+  })
+
+  it('will not page one thread’s answers into another, not even for the same reader', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('MINE-ONE'))
+    const mine = await openThread()
+    vi.stubGlobal('fetch', answering('MINE-TWO'))
+    await chatEvents({ conversationId: mine, message: '', retry: true })
+    await settleTurns()
+    vi.stubGlobal('fetch', answering('OTHERS-ONE'))
+    const other = await openThread()
+    vi.unstubAllGlobals()
+    const myAnswer = (await thread(mine)).at(-1)!
+    const theirAnswer = (await thread(other)).at(-1)!
+    // Same account, different thread: the message id is real but does not belong to this conversation.
+    expect(await status('GET', `/api/assistant/conversations/${other}/messages/${myAnswer.id}/versions`)).toBe(404)
+    const versions = await call<{ versions: AssistantAnswerVersion[] }>('GET', `/api/assistant/conversations/${mine}/messages/${myAnswer.id}/versions`)
+    const foreign = versions.versions[0]!
+    expect(await status('POST', `/api/assistant/conversations/${other}/messages/${theirAnswer.id}/versions/${foreign.id}/activate`)).toBe(404)
+    // And the swap it should have made did not happen: the other thread still holds its own answer.
+    expect((await thread(other)).at(-1)?.content).toContain('OTHERS-ONE')
+  })
+
+  it('deleting a conversation leaves no version rows behind', async () => {
+    await useExampleModel()
+    vi.stubGlobal('fetch', answering('DROP-ONE'))
+    const conversationId = await openThread()
+    vi.stubGlobal('fetch', answering('DROP-TWO'))
+    await chatEvents({ conversationId, message: '', retry: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    const answer = (await thread(conversationId)).at(-1)!
+    expect(await status('DELETE', `/api/assistant/conversations/${conversationId}`)).toBe(200)
+    const left = sqlite.prepare('SELECT count(*) AS n FROM chat_answer_versions WHERE user_id = ? AND message_id = ?').all(USER, answer.id) as Array<{ n: number }>
+    expect(left[0]?.n).toBe(0)
+  })
+})
+

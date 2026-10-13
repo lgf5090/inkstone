@@ -77,6 +77,7 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
   const summary: ImportSummary = {
     conversations: 0,
     messages: 0,
+    answerVersions: 0,
     memories: 0,
     tasks: 0,
     projects: 0,
@@ -163,11 +164,37 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       source: 'import',
       input_tokens: numberValue(message.input_tokens),
       output_tokens: numberValue(message.output_tokens),
+      duration_ms: numberValue(message.duration_ms),
+      model_label: textValue(message.model_label, 200),
       created_at: numberValue(message.created_at, Date.now()),
     }
     if (await store.hasRow('chat_messages', id)) continue
     await store.importRow('chat_messages', row)
     summary.messages++
+  }
+
+  // The answers a reader paged away from. They ride with the thread they belong to: a restored
+  // conversation whose pager had counted three answers but listed none would lie in its own interface.
+  for (const version of rows(data.answer_versions)) {
+    const id = idValue(version.id)
+    const messageId = idValue(version.message_id)
+    const conversationId = idValue(version.conversation_id)
+    if (!id || !messageId || !conversationId || !conversations.has(conversationId)) continue
+    const row = {
+      id,
+      message_id: messageId,
+      conversation_id: conversationId,
+      content: textValue(version.content, 200_000),
+      tools: typeof version.tools === 'string' ? version.tools : '[]',
+      model_label: textValue(version.model_label, 200),
+      input_tokens: numberValue(version.input_tokens),
+      output_tokens: numberValue(version.output_tokens),
+      duration_ms: numberValue(version.duration_ms),
+      created_at: numberValue(version.created_at, Date.now()),
+    }
+    if (await store.hasRow('chat_answer_versions', id)) continue
+    await store.importRow('chat_answer_versions', row)
+    summary.answerVersions++
   }
 
   for (const memory of rows(data.memories)) {

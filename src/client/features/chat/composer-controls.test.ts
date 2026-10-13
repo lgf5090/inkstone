@@ -14,7 +14,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
-import { ApprovalMenu, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, VoiceButton, formatContext } from './ComposerControls'
+import { ApprovalMenu, ControlChip, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, VoiceButton, formatContext } from './ComposerControls'
 import { AttachmentStrip } from './ChatAttachments'
 import { detectTrigger, filterRows, TOOL_TRIGGER_ROWS, TriggerPanel, type TriggerRow } from './ComposerTriggers'
 
@@ -321,5 +321,38 @@ describe('inline triggers', () => {
     expect(onPick).toHaveBeenCalledWith(rows[0])
     await act(async () => { options[1]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
     expect(onHover).toHaveBeenCalledWith(1)
+  })
+})
+
+describe('a control chip’s own label', () => {
+  const renderChip = (props: Partial<React.ComponentProps<typeof ControlChip>>) => {
+    const ref = { current: null as HTMLButtonElement | null }
+    act(() => {
+      root.render(createElement(ControlChip, {
+        label: '审批模式',
+        value: '写入确认',
+        icon: createElement('i'),
+        onClick: () => undefined,
+        refObject: ref,
+        ...props,
+      }))
+    })
+    const span = document.querySelector('button > span + span')
+    return span?.className.split(/\s+/) ?? []
+  }
+  it('gives the word back on a machine with room for it', () => {
+    const tokens = renderChip({})
+    // A percentage of the chip's own box collapsed the label on a desktop, so the four-character value
+    // ellipsized to two characters plus the mark.
+    expect(tokens).toContain('sm:max-w-none')
+    expect(tokens).not.toContain('sm:max-w-[46%]')
+    expect(tokens).toContain('max-w-[58px]')
+  })
+  it('keeps the icon-only promise below the small breakpoint', () => {
+    const tokens = renderChip({ hideValueOnPhone: true })
+    expect(tokens).toContain('max-w-0')
+    expect(tokens).toContain('overflow-hidden')
+    expect(tokens).toContain('sm:max-w-none')
+    expect(tokens).not.toContain('max-w-[58px]')
   })
 })

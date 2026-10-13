@@ -103,11 +103,36 @@ export class AssistantRunner {
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     if (input.conversationId && !conversation) throw ApiError.notFound('Conversation not found')
 
+    // The turn's existing answer, when this is a regeneration of a turn that already has one. The row
+    // keeps its id and its place in the transcript; what the model said before goes to the version table
+    // so the reader can page back to it.
+    // The row this turn writes into. A retry always lands on the turn's own row — including when the
+    // attempt it replaces had failed — because that row is what the displaced answers are filed under.
+    let reuseId: string | null = null
     if (input.retry) {
       if (!conversation) throw ApiError.badRequest('There is nothing to retry without a conversation.')
       // Drop the failed reply, then answer the reader's own last message again.
       const last = await this.store.lastMessage(conversation.id)
-      if (last && last.role === 'assistant' && last.status !== 'complete') await this.store.deleteMessage(last.id)
+      if (last && last.role === 'assistant' && last.status === 'complete') {
+        reuseId = last.id
+        // Only the row goes: the answers this turn already displaced have to outlive this one.
+        await this.store.deleteMessageRow(last.id)
+        await this.store.archiveAnswerVersion({
+          messageId: last.id,
+          conversationId: conversation.id,
+          content: last.content,
+          tools: last.tools,
+          modelLabel: last.modelLabel ?? '',
+          usage: last.usage,
+          durationMs: last.durationMs,
+          createdAt: last.createdAt,
+        })
+      } else if (last && last.role === 'assistant') {
+        reuseId = last.id
+        // The failed or stopped attempt loses its row, but the answers already behind it stay: they
+        // belong to this turn, not to the attempt that went wrong.
+        await this.store.deleteMessageRow(last.id)
+      }
       const previous = await this.store.lastMessage(conversation.id)
       if (!previous || previous.role !== 'user') throw ApiError.conflict('Nothing to retry.')
       if (previous.source === 'import') {
@@ -137,7 +162,11 @@ export class AssistantRunner {
       })
     }
     const conversationId = conversation.id
-    const assistantId = newId()
+    const assistantId = reuseId ?? newId()
+    const startedAt = Date.now()
+    // The label is only known once the model resolves, and a turn that never got that far stores an
+    // answer with no model named — which is the honest reading, not a blank one claiming a model.
+    let modelLabel = ''
     // Either the request was aborted or the reader stopped taking bytes; both mean the answer
     // on screen is a fragment, and filing it as complete would let it look like the model stopped.
     const stopped = () => input.signal.aborted || (input.readerGone?.() ?? false)
@@ -163,6 +192,8 @@ export class AssistantRunner {
       tools,
       status,
       error,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      modelLabel,
       usage,
     })
 
@@ -172,6 +203,7 @@ export class AssistantRunner {
         throw ApiError.badRequest('No model is configured yet. Pick one under Assistant settings, or turn on offline mode.')
       }
       const { model, provider } = resolved
+      modelLabel = model.label
       const apiKey = await this.store.providerKey(provider)
       const limits = this.settings.limits
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
