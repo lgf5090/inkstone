@@ -751,6 +751,8 @@ const allowed = new Map([
     "// A failed lookup leaves the panel empty rather than closing it: the reader is still typing, and a",
     "// panel that vanishes under them reads as the app ignoring the trigger.",
     "/** Splice the trigger token out, then apply what the reader chose. */",
+    "// Only a model the reader marked as answering chat belongs in the picker; an embedding endpoint is",
+    "// not a thing to hold a conversation with.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/**\n * The composer's control row.\n *\n * Each control is a menu anchored to a chip that names what it currently selects, so the state is\n * readable without opening anything: which model answers, how much it is asked to think, how much\n * context it is given, and whether a write waits for a click. All four are per-conversation settings\n * the assistant already stores — the chips are the same switches the settings page has, moved to where\n * the decision is actually made.\n */",
@@ -777,6 +779,9 @@ const allowed = new Map([
     "/**\n * The pieces of one assistant reply.\n *\n * Three things the reference project got wrong in ways only a reader notices:\n *  - it reused the note prose class, so a one-line answer filled a screen;\n *  - it stored the tool chip's words in English inside the message row, so a Chinese interface showed\n *    English pills that no translation could reach;\n *  - it kept the Approve button live after the reply was saved, because it read the approval out of the\n *    message rather than out of the pending-action table.\n *\n * So the chip's words come from the locale catalog by tool name, the prose is its own class, and the\n * approval card is driven by the action's current status.\n */",
     "// The object identity is what matters: a fresh literal on every render makes React rewrite",
     "// innerHTML each time anything else in the thread changes, which repaints the answer mid-stream.",
+  ]],
+  ["src/client/features/chat/ModelEditorDialog.tsx", [
+    "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
   ]],
   ["src/client/features/chat/NotificationCenter.tsx", [
     "/**\n * The notification centre: what the schedules delivered.\n *\n * It is a drawer rather than a page because a reminder is read on the way past, not navigated to.\n * The bodies arrive as Markdown from the digest and from an AI routine, so they are rendered through\n * the same sanitized pipeline as a reply rather than as raw text.\n */",
@@ -808,6 +813,7 @@ const allowed = new Map([
     "/** Attachment rows behind the open conversation, by id, so a bubble can name what it carries. */",
     "/**\n   * A long paste becomes a file rather than a wall of text.\n   *\n   * The reader pasted it because it is context, not because they want to scroll past it for the next\n   * three turns; as an attachment it is read once, quoted by name, and stays out of the way.\n   */",
     "/** Tools the reader pinned to this turn with `/`, and note scopes pinned with `#`. */",
+    "/** Any subset of the model's own fields; the route validates each one it recognises. */",
   ]],
   ["src/client/features/chat/chat-taxonomy.test.ts", [
     "/**\n * The conversation list's four pickers live in one tab container, the same shape the notebook's sidebar\n * uses. What is pinned here is the coupling between the strip and the panel: exactly one tab is\n * selected, the panel answers to that tab, and the two shortlists reach the store's flag endpoints\n * rather than re-reading the whole conversation list.\n */",
@@ -11871,6 +11877,16 @@ const allowed = new Map([
     "/**\n   * Attachment ids this message carries, in the order the reader added them. The bytes live under the\n   * chat's own object prefix; the ids are what both the transcript and the model call need.\n   */",
     "/** A note tag or folder the reader pinned to one turn with `#`. */",
     "/** Ceilings for one turn's inline picks, so a composer cannot ask for the whole vault. */",
+    "/** What a model is asked to do, so the picker only offers the ones that answer. */",
+    "/** The kind of endpoint behind the id: only `text` models can hold a conversation. */",
+    "/** One extra field spliced into the upstream request body, typed so a number is not sent as a string. */",
+    "/** Parses the stored JSON, dropping anything malformed rather than sending half a request body. */",
+    "/**\n * The body fragment the reader's own parameters add, with values coerced to the type they declared.\n *\n * The request's own skeleton is off limits: a parameter named `stream` or `messages` would otherwise\n * turn the streaming parser into a silent failure, and `tools` would let the box take back the tool\n * list the reader just switched off.\n */",
+    "/** Null leaves the vendor default alone: the composer temperature switch off means exactly that. */",
+    "/** Only a `chat` model answers the composer; the rest are listed for their own callers. */",
+    "/** False stops the tool schemas going out at all, which is what a model that hallucinates calls needs. */",
+    "/** Null means the reader has not said: the global limit answers for it. */",
+    "/** Null leaves the vendor default alone, which is what the Top-P switch off means. */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12332,6 +12348,8 @@ const allowed = new Map([
     "// Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned",
     "// for this turn has to be in place before anything asks for it.",
     "/** The tags this turn was narrowed to, spelled the way the reader named them. */",
+    "// A model's own budget, and never more than the input it says it can take.",
+    "// A model that invents tool calls is silenced by not sending the schemas at all.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/**\n * The minute sweep that runs what is due.\n *\n * Wired into the worker's cron handler alongside the existing queue drains, and deliberately kept out\n * of the hourly branch: a reminder is cheap and late delivery is visible, while the heavy work that\n * runs on the hour (backups, attachment cleanup) must not be able to take the reminders down with it.\n *\n * A routine that calls a model can outlive the sweep that started it, so each automation is claimed\n * before it runs and the claim is only released when it is re-armed — which is what stops a slow AI\n * digest from being started twice by two overlapping ticks.\n */",
@@ -12441,6 +12459,11 @@ const allowed = new Map([
     "/** The reader's own attachment rows, in the order they were named. */",
     "/** Every attachment the reader has, newest first — the list the composer's picker walks. */",
     "/**\n * A contains-pattern for LIKE, with the wildcards in the reader's own text escaped.\n *\n * The app's shared `likePattern` is a *prefix* pattern — right for a tag tree, wrong here: a memory\n * search for \"live\" would only find statements that begin with it, which silently disables the whole\n * conflict check for anything but the first word.\n *\n * The literal is truncated before escaping because SQLite compiles a LIKE pattern into a program and\n * refuses one longer than 50 000 characters with `LIKE or GLOB pattern too complex`. That is reachable\n * from the composer: a chat body may be 64 KB, and a pasted log line or base64 blob arrives as one\n * unbroken term, so an unguarded pattern used to fail the whole turn. 16 000 keeps even the worst case\n * — a term made entirely of characters that escape to two — under the ceiling.\n */",
+    "// The columns keep their defaults, so the object handed back says the same thing the row does.",
+    "// Null is a value here, not an absent patch: it is the switch being turned off.",
+    "/**\n * The columns a model row is read with. One list, because two hand-copied ones are how a new column\n * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.\n */",
+    "// Null is the reader's own choice — \"leave the vendor default alone\" — so it must not be turned",
+    "// back into a number on the way out.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -12503,6 +12526,9 @@ const allowed = new Map([
     "/** Gemini: -1 leaves the decision to the model, 0 turns thinking off, a number asks for that much. */",
     "// Anthropic refuses a temperature other than 1 while thinking is on, so the level wins and the",
     "// reader's sampling setting is left at the vendor's default for that request.",
+    "/** Null leaves the vendor's own sampling default untouched. */",
+    "/** Null means the same for Top-P. */",
+    "/** Extra fields the reader typed into the model's own parameter list. */",
   ]],
   ["src/worker/attachments/backend.ts", [
     "/**\n * Ranged read for one chunk. R2 serves it storage-side; KV has no ranged get, so callers\n * must fall back to readAttachmentObject and slice in the isolate.\n */",
@@ -12608,6 +12634,14 @@ const allowed = new Map([
     "// Appended as 37 rather than slotted in beside the other chat columns: a version number is an",
     "// identity, and an account that already recorded 35 as applied would never run a second meaning",
     "// of it. That is exactly how a missing column survived every restart here.",
+    "// purpose: one version per column. A version number is an identity, and one entry that adds two",
+    "// columns cannot be retried for the half that failed on an account which already recorded it.",
+    "// kind: one version per column. A version number is an identity, and one entry that adds two",
+    "// supports_tools: one version per column. A version number is an identity, and one entry that adds two",
+    "// max_input_tokens: one version per column. A version number is an identity, and one entry that adds two",
+    "// top_p: one version per column. A version number is an identity, and one entry that adds two",
+    "// streaming: one version per column. A version number is an identity, and one entry that adds two",
+    "// custom_params: one version per column. A version number is an identity, and one entry that adds two",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -12806,6 +12840,9 @@ const allowed = new Map([
     "// the reason an `<img>` for a picture or a thumbnail still works while a document downloads instead.",
     "// A tool the assistant cannot actually call is not a request, and a scope has to be a real id: both",
     "// narrow what the turn may reach, so neither may be invented by the caller.",
+    "/** A token count the reader typed: clamped into range, and null means \"leave it unset\". */",
+    "// An unrecognised value is dropped rather than defaulted: falling back here would quietly reset",
+    "// what the reader had already chosen.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -13057,6 +13094,8 @@ const allowed = new Map([
     "// A name the assistant cannot call is not something to tell the model about, and an id that is not",
     "// an id never reaches the scope either.",
     "// A marker that appears nowhere else: the tag name reaches the model only through this turn's scope line.",
+    "/** The route used to hand-copy its own list of accepted fields, so a new column silently never saved. */",
+    "// The reader's own parameter may not replace the request's skeleton.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

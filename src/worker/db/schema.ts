@@ -792,6 +792,69 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`,
     ],
   },
+  {
+    // purpose: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 38,
+    skipIfColumnExists: { table: 'chat_models', column: 'purpose' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN purpose TEXT NOT NULL DEFAULT 'chat'`,
+    ],
+  },
+  {
+    // kind: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 39,
+    skipIfColumnExists: { table: 'chat_models', column: 'kind' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'`,
+    ],
+  },
+  {
+    // supports_tools: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 40,
+    skipIfColumnExists: { table: 'chat_models', column: 'supports_tools' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN supports_tools INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // max_input_tokens: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 41,
+    skipIfColumnExists: { table: 'chat_models', column: 'max_input_tokens' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN max_input_tokens INTEGER`,
+    ],
+  },
+  {
+    // top_p: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 42,
+    skipIfColumnExists: { table: 'chat_models', column: 'top_p' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN top_p REAL`,
+    ],
+  },
+  {
+    // streaming: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 43,
+    skipIfColumnExists: { table: 'chat_models', column: 'streaming' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN streaming INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    // custom_params: one version per column. A version number is an identity, and one entry that adds two
+    // columns cannot be retried for the half that failed on an account which already recorded it.
+    version: 44,
+    skipIfColumnExists: { table: 'chat_models', column: 'custom_params' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN custom_params TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

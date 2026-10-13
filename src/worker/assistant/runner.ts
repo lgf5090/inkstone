@@ -13,7 +13,7 @@
  */
 
 import type { AssistantMessage, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
-import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
+import { customParamBody, MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { expandChatAttachments, type AttachmentPayload } from './attachments'
 import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
@@ -176,7 +176,11 @@ export class AssistantRunner {
       const limits = this.settings.limits
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
       // composer's context control, and the global limit is what a model without one falls back to.
-      const contextTokens = model.contextTokens ?? limits.maxContextTokens
+      // A model's own budget, and never more than the input it says it can take.
+      const contextTokens = Math.min(
+        model.contextTokens ?? limits.maxContextTokens,
+        model.maxInputTokens ?? Number.POSITIVE_INFINITY,
+      )
       if (!(await this.reserve(1, limits.maxRequestsPerDay))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
       }
@@ -238,9 +242,12 @@ export class AssistantRunner {
           model: model.model,
           system,
           turns,
-          tools: schemas,
+          // A model that invents tool calls is silenced by not sending the schemas at all.
+          tools: model.supportsTools ? schemas : [],
           maxOutputTokens: Math.min(limits.maxOutputTokens, model.maxOutputTokens),
           temperature: model.temperature,
+          topP: model.topP,
+          extraBody: customParamBody(model.customParams),
           reasoning: model.reasoning,
           signal: input.signal,
         }, calls, usage)) {

@@ -58,7 +58,12 @@ export interface UpstreamRequest {
   turns: ModelTurn[]
   tools: ToolSchema[]
   maxOutputTokens: number
-  temperature: number
+  /** Null leaves the vendor's own sampling default untouched. */
+  temperature: number | null
+  /** Null means the same for Top-P. */
+  topP?: number | null
+  /** Extra fields the reader typed into the model's own parameter list. */
+  extraBody?: Record<string, string | number | boolean>
   /** How much the model is asked to think. `auto` sends nothing and lets the vendor decide. */
   reasoning: AssistantReasoning
   signal: AbortSignal
@@ -279,9 +284,11 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
     messages,
     stream: true,
     stream_options: { include_usage: true },
-    temperature: request.temperature,
+    ...(request.temperature === null ? {} : { temperature: request.temperature }),
+    ...(request.topP == null ? {} : { top_p: request.topP }),
     max_tokens: request.maxOutputTokens,
     ...openAiReasoning(request),
+    ...request.extraBody,
     ...(request.tools.length
       ? {
           tools: request.tools.map((tool) => ({
@@ -460,9 +467,13 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         max_tokens: request.maxOutputTokens,
         // Anthropic refuses a temperature other than 1 while thinking is on, so the level wins and the
         // reader's sampling setting is left at the vendor's default for that request.
-        ...(anthropicThinking(request).thinking ? {} : { temperature: request.temperature }),
+        ...(anthropicThinking(request).thinking || request.temperature === null
+          ? {}
+          : { temperature: request.temperature }),
+        ...(request.topP == null ? {} : { top_p: request.topP }),
         ...anthropicThinking(request),
         stream: true,
+        ...request.extraBody,
         ...(request.tools.length
           ? {
               tools: request.tools.map((tool) => ({
@@ -575,7 +586,8 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
         systemInstruction: { parts: [{ text: request.system }] },
         contents,
         generationConfig: {
-          temperature: request.temperature,
+          ...(request.temperature === null ? {} : { temperature: request.temperature }),
+          ...(request.topP == null ? {} : { topP: request.topP }),
           maxOutputTokens: request.maxOutputTokens,
           ...geminiThinking(request),
         },

@@ -206,7 +206,8 @@ interface AssistantState {
   updateProvider: (id: string, body: Record<string, unknown>) => Promise<void>
   removeProvider: (id: string) => Promise<void>
   addModel: (body: Record<string, unknown>) => Promise<void>
-  updateModel: (id: string, body: Record<string, unknown>) => Promise<void>
+  /** Any subset of the model's own fields; the route validates each one it recognises. */
+  updateModel: (id: string, body: Partial<AssistantModel>) => Promise<void>
   removeModel: (id: string) => Promise<void>
   activateModel: (id: string) => Promise<void>
 }

@@ -44,6 +44,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     reasoning TEXT NOT NULL DEFAULT 'auto',
     context_tokens INTEGER,
     vision INTEGER NOT NULL DEFAULT 1,
+    purpose TEXT NOT NULL DEFAULT 'chat',
+    kind TEXT NOT NULL DEFAULT 'text',
+    supports_tools INTEGER NOT NULL DEFAULT 1,
+    max_input_tokens INTEGER,
+    top_p REAL,
+    custom_params TEXT NOT NULL DEFAULT '[]',
     enabled INTEGER NOT NULL DEFAULT 1,
     position REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
@@ -360,7 +366,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'key_ciphertext', 'created_at', 'updated_at'],
-  chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision', 'enabled', 'position'],
+  chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
+    'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'top_p', 'custom_params', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],

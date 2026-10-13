@@ -73,12 +73,74 @@ export interface AssistantProvider {
   updatedAt: number
 }
 
+/** What a model is asked to do, so the picker only offers the ones that answer. */
+export const ASSISTANT_MODEL_PURPOSES = ['chat', 'image_generate', 'image_edit'] as const
+export type AssistantModelPurpose = (typeof ASSISTANT_MODEL_PURPOSES)[number]
+
+/** The kind of endpoint behind the id: only `text` models can hold a conversation. */
+export const ASSISTANT_MODEL_KINDS = ['text', 'image', 'embedding', 'rerank'] as const
+export type AssistantModelKind = (typeof ASSISTANT_MODEL_KINDS)[number]
+
+/** One extra field spliced into the upstream request body, typed so a number is not sent as a string. */
+export const ASSISTANT_PARAM_TYPES = ['string', 'number', 'boolean'] as const
+export type AssistantParamType = (typeof ASSISTANT_PARAM_TYPES)[number]
+
+export interface AssistantCustomParam {
+  name: string
+  type: AssistantParamType
+  value: string
+}
+
+export const MAX_CUSTOM_PARAMS = 12
+
+/** Parses the stored JSON, dropping anything malformed rather than sending half a request body. */
+export function parseCustomParams(value: unknown): AssistantCustomParam[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry): AssistantCustomParam | null => {
+      if (typeof entry !== 'object' || entry === null) return null
+      const record = entry as Record<string, unknown>
+      if (typeof record.name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_.]{0,40}$/.test(record.name)) return null
+      const type = ASSISTANT_PARAM_TYPES.includes(record.type as AssistantParamType)
+        ? record.type as AssistantParamType : 'string'
+      return { name: record.name, type, value: typeof record.value === 'string' ? record.value.slice(0, 400) : '' }
+    })
+    .filter((entry): entry is AssistantCustomParam => entry !== null)
+    .slice(0, MAX_CUSTOM_PARAMS)
+}
+
+/**
+ * The body fragment the reader's own parameters add, with values coerced to the type they declared.
+ *
+ * The request's own skeleton is off limits: a parameter named `stream` or `messages` would otherwise
+ * turn the streaming parser into a silent failure, and `tools` would let the box take back the tool
+ * list the reader just switched off.
+ */
+const RESERVED_PARAM_NAMES = new Set([
+  'model', 'messages', 'prompt', 'contents', 'systemInstruction', 'stream', 'stream_options',
+  'tools', 'tool_choice', 'generationConfig', 'max_tokens', 'max_output_tokens', 'stop', 'input',
+])
+export function customParamBody(params: readonly AssistantCustomParam[]): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {}
+  for (const param of params) {
+    if (!param.value || RESERVED_PARAM_NAMES.has(param.name)) continue
+    if (param.type === 'number') {
+      const numeric = Number(param.value)
+      if (Number.isFinite(numeric)) out[param.name] = numeric
+    } else if (param.type === 'boolean') {
+      out[param.name] = param.value === 'true'
+    } else out[param.name] = param.value
+  }
+  return out
+}
+
 export interface AssistantModel {
   id: string
   providerId: string
   model: string
   label: string
-  temperature: number
+  /** Null leaves the vendor default alone: the composer temperature switch off means exactly that. */
+  temperature: number | null
   maxOutputTokens: number
   enabled: boolean
   /** How much the model is asked to think before answering; `auto` leaves the vendor's choice alone. */
@@ -87,6 +149,16 @@ export interface AssistantModel {
   contextTokens: number | null
   /** Whether the model may be shown a picture. On by default; a text-only upstream is turned off here. */
   vision: boolean
+  /** Only a `chat` model answers the composer; the rest are listed for their own callers. */
+  purpose: AssistantModelPurpose
+  kind: AssistantModelKind
+  /** False stops the tool schemas going out at all, which is what a model that hallucinates calls needs. */
+  supportsTools: boolean
+  /** Null means the reader has not said: the global limit answers for it. */
+  maxInputTokens: number | null
+  /** Null leaves the vendor default alone, which is what the Top-P switch off means. */
+  topP: number | null
+  customParams: AssistantCustomParam[]
 }
 
 /**

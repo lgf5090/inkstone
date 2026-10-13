@@ -40,7 +40,8 @@ vi.mock('../../lib/api', () => ({
 function model(over: Partial<AssistantModel> = {}): AssistantModel {
   return {
     id: 'm1', providerId: 'p1', model: 'deepseek-flash', label: 'DeepSeek Flash',
-    temperature: 0.7, maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true, ...over,
+    temperature: 0.7, maxOutputTokens: 8192, enabled: true, reasoning: 'auto', contextTokens: null, vision: true,
+    purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, topP: null, customParams: [], ...over,
   }
 }
 

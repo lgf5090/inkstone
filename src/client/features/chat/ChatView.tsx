@@ -593,7 +593,9 @@ function Composer({
     () => QUICK_PROMPT_KEYS.map((key, index) => ({ id: String(index), label: t(key) })),
     [],
   )
-  const enabled = models.filter((model) => model.enabled)
+  // Only a model the reader marked as answering chat belongs in the picker; an embedding endpoint is
+  // not a thing to hold a conversation with.
+  const enabled = models.filter((model) => model.enabled && model.purpose === 'chat')
   const active = enabled.find((model) => model.id === settings?.activeModelId) ?? null
   const uploading = pending.some((entry) => entry.status === 'uploading')
 

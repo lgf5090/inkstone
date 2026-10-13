@@ -1226,3 +1226,77 @@ describe('turn pins from the composer', () => {
     expect(prompt).not.toContain('FORGEPIN-7y')
   })
 })
+
+describe('model editor fields', () => {
+  /** The route used to hand-copy its own list of accepted fields, so a new column silently never saved. */
+  it('round-trips every field the editor can change', async () => {
+    await useExampleModel()
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const id = listed.models[0]!.id
+    const cases: [string, Record<string, unknown>, string, unknown][] = [
+      ['label', { label: 'DeepSeek Flash' }, 'label', 'DeepSeek Flash'],
+      ['purpose', { purpose: 'image_generate' }, 'purpose', 'image_generate'],
+      ['purpose rejected', { purpose: 'embedding' }, 'purpose', 'image_generate'],
+      ['kind', { kind: 'rerank' }, 'kind', 'rerank'],
+      ['supportsTools', { supportsTools: false }, 'supportsTools', false],
+      ['maxInputTokens', { maxInputTokens: 128_000 }, 'maxInputTokens', 128_000],
+      ['topP', { topP: 0.85 }, 'topP', 0.85],
+      ['topP off', { topP: null }, 'topP', null],
+      ['temperature off', { temperature: null }, 'temperature', null],
+      ['customParams', { customParams: [{ name: 'reasoning_effort', type: 'number', value: '7' }] }, 'customParams', [{ name: 'reasoning_effort', type: 'number', value: '7' }]],
+    ]
+    for (const [name, patch, field, expected] of cases) {
+      const echoed = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${id}`, patch)
+      expect(echoed.model[field as keyof AssistantModel], `${name} (echo)`).toEqual(expected)
+      const after = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+      const model = after.models.find((entry) => entry.id === id)!
+      expect(model[field as keyof typeof model], name).toEqual(expected)
+    }
+  })
+
+  it('sends the reader\u2019s sampling and extra fields, and never lets a parameter take over the request', async () => {
+    await useExampleModel()
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const id = listed.models[0]!.id
+    await call('PATCH', `/api/assistant/models/${id}`, {
+      temperature: null,
+      topP: 0.4,
+      customParams: [
+        { name: 'reasoning_effort', type: 'string', value: 'high' },
+        { name: 'stream', type: 'boolean', value: 'false' },
+        { name: 'messages', type: 'string', value: '[]' },
+      ],
+    })
+    let sent = ''
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      sent = String(init?.body ?? '')
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({ message: 'hi' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(events.some((event) => event.type === 'done')).toBe(true)
+    expect(sent).toContain('"top_p":0.4')
+    expect(sent).toContain('"reasoning_effort":"high"')
+    expect(sent).not.toContain('"temperature"')
+    // The reader's own parameter may not replace the request's skeleton.
+    expect(JSON.parse(sent).stream).toBe(true)
+    expect(Array.isArray(JSON.parse(sent).messages)).toBe(true)
+  })
+
+  it('stops offering tools to a model that cannot use them', async () => {
+    await useExampleModel()
+    const listed = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const id = listed.models[0]!.id
+    await call('PATCH', `/api/assistant/models/${id}`, { supportsTools: false })
+    let sent = ''
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      sent = String(init?.body ?? '')
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ message: 'hi' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(sent).not.toContain('"tools"')
+  })
+})

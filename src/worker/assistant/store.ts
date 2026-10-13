@@ -9,6 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, parseCustomParams } from '@shared/assistant'
 import type {
   AssistantConversation,
   AssistantMemory,
@@ -17,6 +18,9 @@ import type {
   AssistantMemoryStatus,
   AssistantMessage,
   AssistantModel,
+  AssistantModelKind,
+  AssistantModelPurpose,
+  AssistantCustomParam,
   AssistantNotification,
   AssistantProvider,
   AssistantReasoning,
@@ -468,7 +472,7 @@ export class AssistantStore {
 
   async listModels(): Promise<AssistantModel[]> {
     const list = await this.rows<ModelRow>(
-      `SELECT id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position
+      `SELECT ${MODEL_SELECT_COLUMNS}
          FROM chat_models WHERE user_id = ?1 ORDER BY position, label`,
       this.userId,
     )
@@ -477,7 +481,7 @@ export class AssistantStore {
 
   async getModel(id: string): Promise<AssistantModel | null> {
     const r = await this.one<ModelRow>(
-      `SELECT id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position
+      `SELECT ${MODEL_SELECT_COLUMNS}
          FROM chat_models WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -510,14 +514,21 @@ export class AssistantStore {
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)`,
       id, input.providerId, input.model, label, temperature, maxOutputTokens, reasoning, contextTokens, vision ? 1 : 0, positionRow?.n ?? 1,
     )
-    return { id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens, reasoning, contextTokens, vision, enabled: true }
+    // The columns keep their defaults, so the object handed back says the same thing the row does.
+    return {
+      id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens,
+      reasoning, contextTokens, vision, enabled: true,
+      purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, topP: null, customParams: [],
+    }
   }
 
   async updateModel(
     id: string,
     patch: {
       label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
-      reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean
+      reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean,
+      purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
+      maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[]
     },
   ): Promise<AssistantModel | null> {
     const existing = await this.getModel(id)
@@ -526,19 +537,30 @@ export class AssistantStore {
       ...existing,
       ...(patch.label !== undefined ? { label: patch.label } : {}),
       ...(patch.model !== undefined ? { model: patch.model } : {}),
-      ...(patch.temperature !== undefined ? { temperature: patch.temperature ?? existing.temperature } : {}),
+      // Null is a value here, not an absent patch: it is the switch being turned off.
+      ...(patch.temperature !== undefined ? { temperature: patch.temperature } : {}),
       ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens ?? existing.maxOutputTokens } : {}),
       ...(patch.reasoning !== undefined ? { reasoning: patch.reasoning } : {}),
       ...(patch.contextTokens !== undefined ? { contextTokens: patch.contextTokens } : {}),
       ...(patch.vision !== undefined ? { vision: patch.vision } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.purpose !== undefined ? { purpose: patch.purpose } : {}),
+      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+      ...(patch.supportsTools !== undefined ? { supportsTools: patch.supportsTools } : {}),
+      ...(patch.maxInputTokens !== undefined ? { maxInputTokens: patch.maxInputTokens } : {}),
+      ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
+      ...(patch.customParams !== undefined ? { customParams: parseCustomParams(patch.customParams) } : {}),
     }
     await this.write(
       `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5,
-         reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9
+         reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9,
+         purpose = ?11, kind = ?12, supports_tools = ?13, max_input_tokens = ?14,
+         top_p = ?15, custom_params = ?16
          WHERE user_id = ?1 AND id = ?10`,
       next.label, next.model, next.temperature, next.maxOutputTokens,
       next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
+      next.purpose, next.kind, next.supportsTools ? 1 : 0, next.maxInputTokens,
+      next.topP, JSON.stringify(next.customParams),
     )
     return next
   }
@@ -2055,6 +2077,14 @@ function toProvider(r: ProviderRow): AssistantProvider {
   }
 }
 
+/**
+ * The columns a model row is read with. One list, because two hand-copied ones are how a new column
+ * ends up written but never read back: the editor saved `purpose` and the reader saw the old value.
+ */
+export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
+  reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, top_p,
+  custom_params, enabled, position`
+
 interface ModelRow {
   id: string
   provider_id: string
@@ -2065,6 +2095,12 @@ interface ModelRow {
   reasoning: string | null
   context_tokens: number | null
   vision: number | null
+  purpose: string | null
+  kind: string | null
+  supports_tools: number | null
+  max_input_tokens: number | null
+  top_p: number | null
+  custom_params: string | null
   enabled: number
   position: number
 }
@@ -2075,11 +2111,19 @@ function toModel(r: ModelRow): AssistantModel {
     providerId: r.provider_id,
     model: r.model,
     label: r.label || r.model,
-    temperature: r.temperature ?? DEFAULT_ASSISTANT_SETTINGS.temperature,
+    // Null is the reader's own choice — "leave the vendor default alone" — so it must not be turned
+    // back into a number on the way out.
+    temperature: num(r.temperature),
     maxOutputTokens: r.max_output_tokens ?? DEFAULT_ASSISTANT_SETTINGS.limits.maxOutputTokens,
     reasoning: reasoningValue(r.reasoning),
     contextTokens: num(r.context_tokens),
     vision: r.vision === null ? true : bool(r.vision),
+    purpose: pickEnum(r.purpose, ASSISTANT_MODEL_PURPOSES, 'chat'),
+    kind: pickEnum(r.kind, ASSISTANT_MODEL_KINDS, 'text'),
+    supportsTools: r.supports_tools === null ? true : bool(r.supports_tools),
+    maxInputTokens: num(r.max_input_tokens),
+    topP: num(r.top_p),
+    customParams: parseCustomParams(parseJson(r.custom_params)),
     enabled: bool(r.enabled),
   }
 }

@@ -6,12 +6,13 @@
  * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.
  */
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, KeyRound, Plus, Trash2, Upload } from 'lucide-react'
-import type { AssistantLimits, AssistantProvider, AssistantSettings } from '@shared/assistant'
+import { Download, KeyRound, Plus, Settings2, Trash2, Upload } from 'lucide-react'
+import type { AssistantLimits, AssistantModel, AssistantProvider, AssistantReasoning, AssistantSettings } from '@shared/assistant'
 import { ASSISTANT_PROTOCOLS, LIMIT_RANGES, PROVIDER_PRESETS, SEMANTIC_MODEL_PATTERN } from '@shared/assistant'
 import { isValidTimeZone } from '@shared/assistant-schedule'
 import { CONTEXT_TOKEN_STEPS } from '@shared/assistant'
 import { REASONING_LABELS, REASONING_ORDER, formatContext } from './ComposerControls'
+import { ModelEditorDialog } from './ModelEditorDialog'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -109,6 +110,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
   const updateModel = useAssistant((state) => state.updateModel)
   const [addingProvider, setAddingProvider] = useState(false)
   const [addingModel, setAddingModel] = useState<AssistantProvider | null>(null)
+  const [editing, setEditing] = useState<AssistantModel | null>(null)
 
   const byProvider = useMemo(() => providers.map((provider) => ({
     provider,
@@ -173,6 +175,9 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                       <span className="min-w-0 flex-1 truncate">{model.label}</span>
                       <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-quaternary)]">{model.model}</span>
                     </button>
+                    <IconButton label={t('assistant.model.edit')} size="xs" onClick={() => setEditing(model)}>
+                      <Settings2 size={12} />
+                    </IconButton>
                     <IconButton label={t('assistant.settings.delete_model')} size="xs" onClick={() => void removeModel(model.id)}>
                       <Trash2 size={12} />
                     </IconButton>
@@ -181,7 +186,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                         aria-label={t('assistant.composer.thinking')}
                         value={model.reasoning}
                         className="h-7 w-[86px] text-[11px]"
-                        onChange={(event) => void updateModel(model.id, { reasoning: event.target.value })}
+                        onChange={(event) => void updateModel(model.id, { reasoning: event.target.value as AssistantReasoning })}
                       >
                         {REASONING_ORDER.map((level) => (
                           <option key={level} value={level}>{t(REASONING_LABELS[level])}</option>
@@ -215,6 +220,14 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
             )}
           </div>
         ))}
+              {editing && (
+                <ModelEditorDialog
+                  model={editing}
+                  providerLabel={providers.find((entry) => entry.id === editing.providerId)?.label ?? ''}
+                  onClose={() => setEditing(null)}
+                  onSave={(draft) => void updateModel(editing.id, draft)}
+                />
+              )}
         <div className="flex justify-end py-2.5">
           <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setAddingProvider(true)}>
             {t('assistant.settings.add_provider')}

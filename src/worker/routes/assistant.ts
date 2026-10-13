@@ -13,8 +13,11 @@
 import { Hono, type Context } from 'hono'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
+  ASSISTANT_MODEL_KINDS,
+  ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
+  parseCustomParams,
   MAX_TURN_SCOPES,
   MAX_TURN_TOOLS,
   AUTOMATION_KINDS,
@@ -1051,6 +1054,18 @@ assistantRoutes.post('/models', async (c) => {
   return c.json({ model: created }, 201)
 })
 
+/** A token count the reader typed: clamped into range, and null means "leave it unset". */
+function clampTokens(value: unknown, min: number, max: number): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const numeric = Math.trunc(Number(value))
+  if (!Number.isFinite(numeric)) return null
+  return Math.min(max, Math.max(min, numeric))
+}
+
+function pickValue<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T : undefined
+}
+
 assistantRoutes.patch('/models/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
@@ -1062,8 +1077,18 @@ assistantRoutes.patch('/models/:id', async (c) => {
       ? { temperature: body.temperature === null ? null : Math.min(1.5, Math.max(0, Number(body.temperature))) }
       : {}),
     ...(body.maxOutputTokens !== undefined
-      ? { maxOutputTokens: body.maxOutputTokens === null ? null : Math.min(8192, Math.max(64, Math.trunc(Number(body.maxOutputTokens)))) }
+      ? { maxOutputTokens: body.maxOutputTokens === null ? null : clampTokens(body.maxOutputTokens, 64, 512_000) }
       : {}),
+    // An unrecognised value is dropped rather than defaulted: falling back here would quietly reset
+    // what the reader had already chosen.
+    ...(pickValue(body.purpose, ASSISTANT_MODEL_PURPOSES) !== undefined ? { purpose: pickValue(body.purpose, ASSISTANT_MODEL_PURPOSES) } : {}),
+    ...(pickValue(body.kind, ASSISTANT_MODEL_KINDS) !== undefined ? { kind: pickValue(body.kind, ASSISTANT_MODEL_KINDS) } : {}),
+    ...(body.supportsTools !== undefined ? { supportsTools: Boolean(body.supportsTools) } : {}),
+    ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, 4_000_000) } : {}),
+    ...(body.topP !== undefined
+      ? { topP: body.topP === null ? null : Math.min(1, Math.max(0, Number(body.topP))) }
+      : {}),
+    ...(body.customParams !== undefined ? { customParams: parseCustomParams(body.customParams) } : {}),
     ...(body.reasoning !== undefined ? { reasoning: reasoningValue(body.reasoning) } : {}),
     ...(body.contextTokens !== undefined ? { contextTokens: contextBudgetValue(body.contextTokens) } : {}),
     ...(body.vision !== undefined ? { vision: Boolean(body.vision) } : {}),
