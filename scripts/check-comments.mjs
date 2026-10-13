@@ -244,6 +244,15 @@ const allowed = new Map([
   ["src/client/components/calendar-grids.tsx", [
     "/** Draws one extra column ahead of each week row — the week number, or anything else a row owns. */",
   ]],
+  ["src/client/components/color-swatch.tsx", [
+    "/**\n * The two swatch shapes the app draws: `organizer` is the tag, folder and QuickAdd ramp — a filled\n * circle beside a \"no colour\" slot; `format` is the editor and property ramp — a rounded square that\n * keeps its own outline and holds focus while a hex field is being typed.\n */",
+    "/**\n * One colour swatch: a real button carrying the colour's name, its pressed state and an active ring,\n * drawn the same way everywhere a palette is offered. The genuine differences between the ramps are\n * props — the `icon` for the \"no colour\" slot, the resolved `background`, the check's colour, and\n * whether the no-colour slot keeps its fill while it is the active pick.\n */",
+    "/** The colour to paint; `null` is the \"no colour\" slot, which shows `icon` instead. */",
+    "/** Glyph drawn in the \"no colour\" slot. */",
+    "/** Resolved CSS colour painted behind a colour swatch. */",
+    "/** The active check, coloured to stay legible on the swatch under it. */",
+    "/** Whether the \"no colour\" slot is filled with the base background even when it is active. */",
+  ]],
   ["src/client/components/date-picker.test.ts", [
     "/**\n * The picker draws its calendar from the shared locale derivation, where the `Intl` reading itself is\n * pinned (`lib/time.test.ts`). What is checked here is that the rendered picker follows that one\n * number: its weekday row and the cells spilling in front of the 1st are read off the same value, so\n * a change to the derivation cannot move one of them and leave the other on Sunday.\n */",
     "// 2024-01-07 is a Sunday, the same reference date the picker's own week row walks from.",
@@ -6081,9 +6090,6 @@ const allowed = new Map([
     "/** In the sidebar tab the panel owns the column, so it grows instead of taking a slice of the editor. */",
   ]],
   ["src/client/features/workspace/EditorColorMenu.tsx", [
-    "/** The colour painted behind the panel, which is what a pick has to stand out from. */",
-    "// Holding the field's focus down means a half-typed hex cannot commit underneath this click:",
-    "// the swatch the user aimed at is the newer intent, and a blur here would apply the other one.",
     "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
     "// One commit per appearance. Committing closes the panel, and tearing a focused field down",
     "// fires its blur — a second offer of the half-typed value would land on top of this pick.",
@@ -7033,6 +7039,7 @@ const allowed = new Map([
     "/**\n * Highlights are painted as a wash, so what matters here is the hue: each of these is saturated\n * enough to still read at {@link HIGHLIGHT_ALPHA} over a light page or a dark one.\n */",
     "/** The colour a swatch must show so the panel and the page agree, wash and all. */",
     "/**\n * Whether a picked colour will show up on the page it is being picked for. A highlight is judged on\n * its own hue rather than the composited wash: at a fixed alpha the two move together, so a hue too\n * close to the page is the only way the wash can come out invisible. An unresolvable surface reads\n * as usable, the same way the folder guard reads it.\n */",
+    "/** The colour painted behind the panel, which is what a pick has to stand out from. */",
   ]],
   ["src/client/lib/fuzzy.ts", [
     "/**\n * Listings call this once per row per keystroke with a haystack the row already keeps a\n * stable reference to, so V8's cached string hash makes the lookup O(1) while\n * text.toLowerCase() would re-copy the whole body every time.\n */",

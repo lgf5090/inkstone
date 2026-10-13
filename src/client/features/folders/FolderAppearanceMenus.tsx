@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, FolderClosed, Palette, Search, Settings2 } from 'lucide-react';
+import { FolderClosed, Palette, Search, Settings2 } from 'lucide-react';
 import {
     ORGANIZER_COLORS,
     isCustomOrganizerColor,
@@ -9,6 +9,7 @@ import {
     organizerColorLabel,
 } from '@shared/organizer-colors';
 import { cn } from '../../lib/cn';
+import { Swatch } from '../../components/color-swatch';
 import { t, useLocale } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
 import {
@@ -21,7 +22,6 @@ import {
 } from '../../lib/emoji-catalog';
 import { pushRecentIcon, useFolderPreferences } from '../../lib/folder-prefs';
 
-const SWATCH_SIZE = 'size-7';
 const TILE_SIZE = 'size-[26px]';
 const COLOR_PANEL_WIDTH = 214;
 const ICON_PANEL_WIDTH = 258;
@@ -51,22 +51,6 @@ function MenuPanel({ label, hint, width, children, panelRef }: {
       </div>
       {children}
     </div>);
-}
-
-function SwatchButton({ active, label, color, onPick, children }: {
-    active: boolean;
-    label: string;
-    color: string | null;
-    onPick: () => void;
-    children: React.ReactNode;
-}) {
-    return (<button type="button" aria-label={label} title={label} aria-pressed={active} onClick={onPick} className={cn('flex', SWATCH_SIZE, 'items-center justify-center rounded-full transition-transform hover:scale-110', color === null && 'border bg-[var(--bg-base)]', active
-            ? color === null
-                ? 'border-[var(--accent)] text-[var(--accent)] ring-2 ring-[var(--accent-ring)]'
-                : 'ring-2 ring-[var(--accent-ring)] ring-offset-2 ring-offset-[var(--bg-overlay)]'
-            : color === null && 'border-[var(--border-default)] text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]')} style={color ? { backgroundColor: color } : undefined}>
-      {children}
-    </button>);
 }
 
 export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
@@ -109,18 +93,14 @@ export function FolderColorMenu({ color, onSelectColor, onManageFolders }: {
             </span>)
         : undefined}>
       <div role="group" aria-label={t("folders.color")} className="grid grid-cols-6 gap-1.5 px-0.5">
-        <SwatchButton active={!color} label={t("folders.no_color")} color={null} onPick={() => {
+        <Swatch color={null} label={t("folders.no_color")} active={!color} onPick={() => {
                 setRefused(false);
                 onSelectColor(null);
-            }}>
-          <FolderClosed size={13}/>
-        </SwatchButton>
-        {ORGANIZER_COLORS.map((value) => (<SwatchButton key={value} active={color === value} label={organizerColorLabel(value, t)} color={value} onPick={() => {
+            }} icon={<FolderClosed size={13}/>}/>
+        {ORGANIZER_COLORS.map((value) => (<Swatch key={value} color={value} label={organizerColorLabel(value, t)} active={color === value} background={value} onPick={() => {
                 setRefused(false);
                 onSelectColor(value);
-            }}>
-            {color === value && <Check size={13} className="text-white"/>}
-          </SwatchButton>))}
+            }}/>))}
       </div>
       <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
       <div className="flex items-center gap-1.5">

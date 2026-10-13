@@ -54,6 +54,18 @@ export function colorContrast(color: string, surface: string): number | null {
     return organizerColorContrast(color, surface);
 }
 
+/** The colour painted behind the panel, which is what a pick has to stand out from. */
+export function paintedSurface(node: HTMLElement | null): string {
+    let current: HTMLElement | null = node;
+    while (current) {
+        const painted = getComputedStyle(current).backgroundColor;
+        if (painted && painted !== 'transparent' && !/^rgba\([^)]*,\s*0\)$/.test(painted))
+            return painted;
+        current = current.parentElement;
+    }
+    return '';
+}
+
 export const FORMAT_COLOR_STORAGE_KEY = 'inkstone.editor-format-colors.v1';
 export const RECENT_COLOR_LIMIT = 8;
 

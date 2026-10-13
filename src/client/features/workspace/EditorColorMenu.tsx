@@ -1,50 +1,25 @@
 import { useRef, useState } from 'react';
-import { Ban, Check, Palette } from 'lucide-react';
-import { ORGANIZER_COLOR_MESSAGE_KEYS } from '@shared/organizer-colors';
-import { type MessageKey, t } from '../../lib/i18n';
+import { Ban, Palette } from 'lucide-react';
+import { isOrganizerColor, organizerColorLabel } from '@shared/organizer-colors';
+import { t } from '../../lib/i18n';
 import { cn } from '../../lib/cn';
 import { normalizeHexColor } from '../../editor/text-format';
 import {
     type ColorKind,
     colorContrast,
     isColorUsable,
+    paintedSurface,
     paletteOf,
     pushRecentColor,
     swatchColor,
     useRecentColors,
 } from '../../lib/format-colors';
+import { Swatch } from '../../components/color-swatch';
 
 const PANEL_WIDTH = 226;
 
 function colorName(kind: ColorKind, color: string): string {
-    const key = (ORGANIZER_COLOR_MESSAGE_KEYS as Record<string, MessageKey | undefined>)[color];
-    return key && kind === 'text' ? t(key) : color.toLocaleUpperCase();
-}
-
-/** The colour painted behind the panel, which is what a pick has to stand out from. */
-function paintedSurface(node: HTMLElement | null): string {
-    let current: HTMLElement | null = node;
-    while (current) {
-        const painted = getComputedStyle(current).backgroundColor;
-        if (painted && painted !== 'transparent' && !/^rgba\([^)]*,\s*0\)$/.test(painted))
-            return painted;
-        current = current.parentElement;
-    }
-    return '';
-}
-
-function Swatch({ kind, color, active, onPick }: {
-    kind: ColorKind;
-    color: string;
-    active: boolean;
-    onPick: (color: string) => void;
-}) {
-    const name = colorName(kind, color);
-    // Holding the field's focus down means a half-typed hex cannot commit underneath this click:
-    // the swatch the user aimed at is the newer intent, and a blur here would apply the other one.
-    return (<button type="button" aria-label={name} title={name} aria-pressed={active} onMouseDown={event => event.preventDefault()} onClick={() => onPick(color)} className={cn('flex size-7 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] transition-transform hover:scale-110', active && 'ring-2 ring-[var(--accent-ring)] ring-offset-1 ring-offset-[var(--bg-overlay)]')} style={{ backgroundColor: swatchColor(kind, color) }}>
-      {active && <Check size={13} className={kind === 'text' ? 'text-white' : 'text-[var(--text-primary)]'} aria-hidden="true"/>}
-    </button>);
+    return kind === 'text' && isOrganizerColor(color) ? organizerColorLabel(color, t) : color.toLocaleUpperCase();
 }
 
 export function EditorColorPanel({ kind, current, onPick }: {
@@ -97,13 +72,13 @@ export function EditorColorPanel({ kind, current, onPick }: {
           </span>)}
       </div>
       <div role="group" aria-label={t('workspace.color_palette')} className="grid grid-cols-6 gap-1.5 px-0.5">
-        {paletteOf(kind).map(color => <Swatch key={color} kind={kind} color={color} active={shown === color} onPick={pick}/>)}
+        {paletteOf(kind).map(color => <Swatch key={color} color={color} label={colorName(kind, color)} active={shown === color} background={swatchColor(kind, color)} variant="format" checkClassName={kind === 'text' ? 'text-white' : 'text-[var(--text-primary)]'} onPick={() => pick(color)}/>)}
       </div>
       {recent.length > 0 && (<>
           <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
           <div className="px-0.5 pb-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">{t('workspace.recent_colors')}</div>
           <div role="group" aria-label={t('workspace.recent_colors')} className="grid grid-cols-6 gap-1.5 px-0.5">
-            {recent.map(color => <Swatch key={color} kind={kind} color={color} active={shown === color} onPick={pick}/>)}
+            {recent.map(color => <Swatch key={color} color={color} label={colorName(kind, color)} active={shown === color} background={swatchColor(kind, color)} variant="format" checkClassName={kind === 'text' ? 'text-white' : 'text-[var(--text-primary)]'} onPick={() => pick(color)}/>)}
           </div>
         </>)}
       <div role="separator" className="my-2 h-px bg-[var(--border-subtle)]"/>
