@@ -53,13 +53,14 @@ import { leftDropTarget } from '../../lib/note-drag'
 import { tagKey } from '@shared/markdown-utils'
 import { channelKey, tagCounts, unreadCounts, type RssChannel } from '@shared/rss/reading'
 import { ExternalLink } from 'lucide-react'
-import { RSS_LIMITS, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
+import { RSS_LIMITS, safeHttpUrl, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { useSession } from '../../store/session'
 import { api } from '../../lib/api'
 import { displayImageUrl } from './sanitize'
-import { moveToFolderItem, RssContextMenu, tagsItem } from './rssMenus'
+import { copyFeedUrlItem, moveToFolderItem, RssContextMenu, tagsItem } from './rssMenus'
 import { FeedMark, feedIconUrl } from './FeedMark'
 import { useRss } from './store'
+import { feedCacheLine } from './cacheLine'
 
 export const RSS_FEED_DRAG = 'application/x-inkstone-rss-feed'
 export const RSS_GROUP_DRAG = 'application/x-inkstone-rss-group'
@@ -328,6 +329,7 @@ function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu
   setDropTarget: (id: string | null) => void
 }) {
   const settings = useSession(session => session.settings.rss)
+  const cache = useRss(state => state.cache)
   const src = displayImageUrl(feed.imageUrl || feedIconUrl(feed), {
     images: settings.images,
     relay: url => api.rss.relayUrl(url),
@@ -377,7 +379,9 @@ function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu
       )}
     </button>
   )
-  const hint = feed.error || feed.url
+  // The row is one line tall and the count has nowhere to go but here: what this device holds for
+  // this subscription, and the address or the failure a reader maintaining the list is looking for.
+  const hint = [feedCacheLine(cache[feed.id]), feed.error || feed.url].filter(Boolean).join(' · ')
   return hint ? <Tooltip label={hint} side="right">{row}</Tooltip> : row
 }
 
@@ -470,8 +474,14 @@ function buildMenuItems(
         id: 'open',
         label: t('rss.open_original'),
         icon: <ExternalLink size={13} />,
-        onSelect: () => window.open(feed.siteUrl || feed.url, '_blank', 'noopener,noreferrer'),
+        // The address came out of somebody else's document, so it is asked again before a window is
+        // opened with it — the same rule the article menu follows.
+        onSelect: () => {
+          const target = safeHttpUrl(feed.siteUrl || feed.url)
+          if (target) window.open(target.href, '_blank', 'noopener,noreferrer')
+        },
       },
+      copyFeedUrlItem(feed),
       {
         id: 'rename',
         label: t('rss.rename_feed'),

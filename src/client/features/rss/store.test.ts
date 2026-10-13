@@ -201,6 +201,26 @@ describe('refreshing', () => {
     expect(index.articles.f1, 'the ledger names the feed whose articles were just stored').toBeTruthy()
     expect(index.articles.f1.bytes).toBeGreaterThan(0)
   })
+
+  it('clears the bodies, keeps the rows, and drops the validators with them', async () => {
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom, etag: '"v2"' }]
+    await boot()
+    await useRss.getState().refresh(['f1'], { force: true })
+    const written = cache.get('articles:f1') as { entries: Array<{ content: string }> }
+    expect(written.entries[0].content).toContain('<p>Body one</p>')
+    expect(await useRss.getState().clearBodies()).toBe(1)
+    const kept = cache.get('articles:f1') as { entries: Array<{ title: string, content: string }> }
+    expect(kept.entries.map(entry => entry.title)).toEqual(['First', 'Second'])
+    expect(kept.entries.every(entry => entry.content === ''), 'only the text went').toBe(true)
+    const meta = (cache.get('index') as { articles: Record<string, { bytes: number, body?: number, count?: number }> }).articles.f1
+    expect(meta.body, 'the ledger stops counting text that is not there').toBe(0)
+    expect(meta.count, 'and still counts the rows').toBe(2)
+    expect(meta.bytes).toBeGreaterThan(0)
+    // A validator left in place would answer 304 to a device that no longer holds what it promised,
+    // and the bodies would never come back.
+    expect(useRss.getState().library.feeds[0].etag).toBe('')
+    expect(useRss.getState().cache.f1?.count).toBe(2)
+  })
 })
 
 describe('the library a reader edits', () => {

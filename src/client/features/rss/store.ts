@@ -65,12 +65,26 @@ export interface RssRefreshSummary {
   elapsedMs: number
 }
 
+/** What one feed's blob on this device costs, as the durable index recorded it. */
+export interface RssCacheMeta {
+  fetchedAt: number
+  /** Characters of title, summary and body. The LRU ceiling is counted in these. */
+  bytes: number
+  /** The part of {@link RssCacheMeta.bytes} that is article body. Absent for a feed this build has
+   * not stored or read since the field existed, which the storage panel says instead of guessing. */
+  body?: number
+  /** Articles in the blob, so a cold load can say what it holds without reading it. */
+  count?: number
+}
+
 export interface RssState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   library: RssLibrary
   /** feedId → the articles this device holds, newest first as the feed sent them. */
   articles: Record<string, RssEntry[]>
   fetchedAt: Record<string, number>
+  /** Per feed: when this device last stored it and what that storage costs. Survives a reload. */
+  cache: Record<string, RssCacheMeta>
   /** What {@link RssState.loadAllCached} built, or null before the first search asks for it. */
   allCached: RssEntry[] | null
   views: Record<string, RssChannelView>
@@ -115,6 +129,11 @@ export interface RssState {
   /** Every article this device holds, bodies dropped, built once and kept for the session. */
   loadAllCached: () => Promise<RssEntry[]>
   clearCache: () => Promise<void>
+  /**
+   * Drop the article bodies this device holds and keep the rows: the list still reads, the marks and
+   * the notes stay, and the bytes come back from the feeds when the reader opens something.
+   */
+  clearBodies: () => Promise<number>
   flush: () => Promise<void>
   retrySave: () => void
 }
@@ -126,7 +145,7 @@ const SAVE_DEBOUNCE_MS = 900
 const PREPARE_LIMIT = 80
 
 interface CacheIndex {
-  articles: Record<string, { fetchedAt: number, bytes: number }>
+  articles: Record<string, RssCacheMeta>
   views: Record<string, RssChannelView>
 }
 
@@ -181,10 +200,20 @@ export const useRss = create<RssState>((set, get) => {
     void localDb.saveRssCacheIndex(index)
   }
 
-  function articleBytes(entries: RssEntry[]): number {
+  /** What one feed's articles cost, split so the storage panel can say what the bytes are. */
+  function cacheMeta(entries: RssEntry[], fetchedAt: number): RssCacheMeta {
+    let body = 0
     let bytes = 0
-    for (const entry of entries) bytes += entry.content.length + entry.summary.length + entry.title.length
-    return bytes
+    for (const entry of entries) {
+      body += entry.content.length
+      bytes += entry.content.length + entry.summary.length + entry.title.length
+    }
+    return { fetchedAt, bytes, body, count: entries.length }
+  }
+
+  /** Hand the durable index to the components that show it. The index itself stays module-private. */
+  function publishCache(): void {
+    set({ cache: { ...index.articles } })
   }
 
   /** Keep the device cache inside its ceiling by dropping the feeds it has touched least recently. */
@@ -205,17 +234,19 @@ export const useRss = create<RssState>((set, get) => {
       })
     }
     writeIndex()
+    publishCache()
   }
 
   async function storeArticles(feedId: string, entries: RssEntry[]): Promise<void> {
     const fetched = Date.now()
-    index = { ...index, articles: { ...index.articles, [feedId]: { fetchedAt: fetched, bytes: articleBytes(entries) } } }
+    index = { ...index, articles: { ...index.articles, [feedId]: cacheMeta(entries, fetched) } }
     await localDb.saveRssArticles({ feedId, fetchedAt: fetched, entries })
     // The index is what a later load asks before it goes to the network: which feeds this device
     // really holds, when it last saw them, and how much room they take. Written only here, it stays
     // true to the blobs beside it — and a reload gets to keep its conditional GETs instead of
     // refetching every subscription because the ledger said nothing was cached.
     writeIndex()
+    publishCache()
     set(state => ({
       articles: { ...state.articles, [feedId]: entries },
       fetchedAt: { ...state.fetchedAt, [feedId]: fetched },
@@ -239,6 +270,15 @@ export const useRss = create<RssState>((set, get) => {
           writeIndex()
         }
         return
+      }
+      // A blob written before this build measured bodies and counts: record what it really holds
+      // now, so the storage panel and the per-source lines tell the truth without waiting for a
+      // refresh to overwrite the feed with the same articles.
+      const held = index.articles[feedId]
+      if (!held || held.count === undefined || held.body === undefined) {
+        index = { ...index, articles: { ...index.articles, [feedId]: cacheMeta(cached.entries, cached.fetchedAt) } }
+        writeIndex()
+        publishCache()
       }
       set((state) => {
         if (state.articles[feedId]) return state
@@ -357,6 +397,7 @@ export const useRss = create<RssState>((set, get) => {
     library: emptyLibrary(),
     articles: {},
     fetchedAt: {},
+    cache: {},
     allCached: null,
     views: {},
     channel: { kind: 'all' },
@@ -369,6 +410,7 @@ export const useRss = create<RssState>((set, get) => {
       if (get().status === 'loading' || get().status === 'ready') return
       set({ status: 'loading' })
       index = normaliseIndex(await localDb.loadRssCacheIndex())
+      publishCache()
       let library: RssLibrary
       try {
         const response = await api.rss.load()
@@ -411,6 +453,7 @@ export const useRss = create<RssState>((set, get) => {
         library: emptyLibrary(),
         articles: {},
         fetchedAt: {},
+        cache: {},
         allCached: null,
         views: {},
         channel: { kind: 'all' },
@@ -752,6 +795,7 @@ export const useRss = create<RssState>((set, get) => {
       delete articles[feedId]
       index = { ...index, articles }
       writeIndex()
+      publishCache()
       scheduleSave()
     },
 
@@ -861,7 +905,37 @@ export const useRss = create<RssState>((set, get) => {
       for (const feedId of Object.keys(index.articles)) await localDb.dropRssArticles(feedId)
       index = { ...index, articles: {} }
       writeIndex()
+      publishCache()
       set({ articles: {}, fetchedAt: {}, allCached: null })
+    },
+
+    /**
+     * Keep the rows, drop the bodies.
+     *
+     * The body is the whole cost of an article cache — a title and a summary are a few dozen
+     * characters each — so this is the release valve for a device that wants to stay subscribed to a
+     * few hundred feeds without carrying their text. Two things have to follow or the list would lie:
+     * the validators go, because a feed that answers `304` would leave the bodies empty for good, and
+     * the search index goes, because it was built from bodies this device no longer has.
+     */
+    async clearBodies() {
+      let feeds = 0
+      for (const feedId of Object.keys(index.articles)) {
+        const stored = await localDb.loadRssArticles(feedId)
+        if (!stored || !stored.entries.some(entry => entry.content)) continue
+        const entries = stored.entries.map(entry => ({ ...entry, content: '' }))
+        await localDb.saveRssArticles({ feedId, fetchedAt: stored.fetchedAt, entries })
+        index = { ...index, articles: { ...index.articles, [feedId]: cacheMeta(entries, stored.fetchedAt) } }
+        set(state => ({ articles: { ...state.articles, [feedId]: entries } }))
+        patchFeed(feedId, { etag: '', lastModified: '' })
+        feeds++
+      }
+      if (!feeds) return 0
+      writeIndex()
+      publishCache()
+      set({ allCached: null })
+      scheduleSave()
+      return feeds
     },
 
     async flush() {
@@ -882,9 +956,16 @@ function normaliseIndex(value: unknown): CacheIndex {
   const source = value as { articles?: unknown, views?: unknown }
   if (source.articles && typeof source.articles === 'object') {
     for (const [key, item] of Object.entries(source.articles as Record<string, unknown>)) {
-      const meta = item as { fetchedAt?: unknown, bytes?: unknown }
+      const meta = item as { fetchedAt?: unknown, bytes?: unknown, body?: unknown, count?: unknown }
       if (typeof meta?.fetchedAt === 'number' && typeof meta.bytes === 'number') {
-        out.articles[key.slice(0, 80)] = { fetchedAt: meta.fetchedAt, bytes: Math.max(0, meta.bytes) }
+        out.articles[key.slice(0, 80)] = {
+          fetchedAt: meta.fetchedAt,
+          bytes: Math.max(0, meta.bytes),
+          // An index an older build wrote measured neither, and a guessed split is worse than none:
+          // the storage panel leaves those feeds out of the body line until the feed is read again.
+          body: typeof meta.body === 'number' ? Math.max(0, Math.min(meta.body, meta.bytes)) : undefined,
+          count: typeof meta.count === 'number' ? Math.max(0, Math.trunc(meta.count)) : undefined,
+        }
       }
     }
   }

@@ -38,6 +38,8 @@ import { entryMenuItems } from './rssMenus'
 import { ArticlePreviewCard } from './ArticlePreviewCard'
 import { BulkBar, EmptyRow, EntryRows, ListDivider, MAX_LIST_WIDTH, MIN_LIST_WIDTH, SortButton } from './RssListParts'
 import { useRss } from './store'
+import { channelCachedSince } from './cacheLine'
+import { shortSince } from '../../lib/time'
 
 const PAGE = 60
 
@@ -77,6 +79,9 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     : state.channel.kind === 'group'
       ? state.library.feeds.filter(feed => feed.groupId === (state.channel as { groupId: string }).groupId).map(feed => feed.id)
       : state.library.feeds.map(feed => feed.id)
+  // A list that has not been asked for anything in half a day says so, because the rows look exactly
+  // like news and the reader has no other way to tell they are the last visit's.
+  const cachedSince = channelCachedSince(channelFeeds.map(id => state.cache[id]))
 
   useEffect(() => {
     setLimit(PAGE)
@@ -278,6 +283,11 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
           )}
         </div>
       </div>
+      {cachedSince !== null && entries.length > 0 && (
+        <p className="shrink-0 px-2 pb-2 text-[11px] leading-snug text-[var(--text-quaternary)]">
+          {t('rss.showing_cached', { time: shortSince(cachedSince) })}
+        </p>
+      )}
       <h2 className="sr-only">{title}</h2>
       <div
         ref={listRef}

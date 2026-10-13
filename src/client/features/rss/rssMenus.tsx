@@ -147,6 +147,26 @@ export function tagsItem(feed: RssFeed, library: RssLibrary, onToggle: (tag: str
 export const RSS_TAG_LIMIT = RSS_LIMITS.tagsPerFeed
 
 /**
+ * The row that puts a subscription's own address on the clipboard.
+ *
+ * The rail and the subscription dialog both need it, and a reader who is moving a feed to another
+ * app wants the address the subscription *is*, not the site it came from.
+ */
+export function copyFeedUrlItem(feed: RssFeed): MenuItem {
+  return {
+    id: 'copy-feed-url',
+    label: t('rss.copy_feed_url'),
+    icon: <Link2 size={13} />,
+    onSelect: () => {
+      void navigator.clipboard.writeText(feed.url).then(
+        () => useUi.getState().toast({ title: t('rss.copied_feed_url'), tone: 'success' }),
+        () => useUi.getState().toast({ title: t('rss.copy_failed'), tone: 'danger' }),
+      )
+    },
+  }
+}
+
+/**
  * The menu on one article row.
  *
  * Every mark a reader can put on an article is here, because the row is where the article is

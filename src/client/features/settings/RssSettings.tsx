@@ -20,6 +20,7 @@ import {
   RSS_REFRESH_INTERVALS,
 } from '@shared/constants'
 import type { RssListDensity, RssReadingFont, RssReadingTheme, RssSortOrder } from '@shared/types'
+import { RSS_LIMITS } from '@shared/rss/model'
 import { Button } from '../../components/primitives'
 import { Field, Input, Select, Segmented, SettingRow, Slider, Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
@@ -37,7 +38,6 @@ export function RssSettings(): ReactElement {
   const update = useSession(state => state.updateSettings)
   const patch = (next: Partial<typeof rss>): void => update({ rss: next })
   const library = useRss(state => state.library)
-  const articles = useRss(state => state.articles)
   const [ai, setAi] = useState<RssAiConfig | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean, text: string } | null>(null)
@@ -46,9 +46,34 @@ export function RssSettings(): ReactElement {
     void loadAiConfig().then(setAi)
   }, [])
 
-  const cachedFeeds = Object.keys(articles).length
-  const cachedBytes = Object.values(articles)
-    .reduce((total, entries) => total + entries.reduce((sum, entry) => sum + entry.content.length + entry.summary.length, 0), 0)
+  // The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds
+  // and has opened two still has 40 feeds on disk, and the reader is asking about the disk.
+  const cache = useRss(state => state.cache)
+  const clearBodies = useRss(state => state.clearBodies)
+  const held = Object.values(cache)
+  const cachedFeeds = held.length
+  const cachedArticles = held.reduce((sum, meta) => sum + (meta.count ?? 0), 0)
+  const cachedBytes = held.reduce((sum, meta) => sum + meta.bytes, 0)
+  const bodyBytes = held.reduce((sum, meta) => sum + (meta.body ?? 0), 0)
+  const unmeasured = held.filter(meta => meta.body === undefined).length
+  const bodyFeeds = held.filter(meta => (meta.body ?? 0) > 0).length
+
+  const cacheLine = [
+    t('rss.subscriptions_count', { n: library.feeds.length }),
+    cachedFeeds ? t('rss.storage.feeds', { n: cachedFeeds }) : t('rss.storage.nothing'),
+    cachedArticles ? t('rss.storage.articles_n', { n: cachedArticles }) : '',
+    t('rss.settings.cache_size', { size: formatBytes(cachedBytes) }),
+    unmeasured
+      ? t('rss.storage.unmeasured', { n: unmeasured })
+      : `${t('rss.storage.body', { size: formatBytes(bodyBytes) })} · ${t('rss.storage.meta', { size: formatBytes(Math.max(0, cachedBytes - bodyBytes)) })}`,
+    t('rss.storage.limit', { size: formatBytes(RSS_LIMITS.cacheBytes) }),
+  ].filter(Boolean).join(' · ')
+
+  const clearBodiesPressed = async (): Promise<void> => {
+    if (!(await confirm({ title: t('rss.storage.clear_bodies'), description: t('rss.storage.clear_bodies_confirm', { n: bodyFeeds }), tone: 'danger', confirmLabel: t('rss.storage.clear_bodies') }))) return
+    const feeds = await clearBodies()
+    useUi.getState().toast({ title: t('rss.storage.bodies_cleared', { n: feeds }), tone: 'success' })
+  }
 
   const test = async (): Promise<void> => {
     if (!ai) return
@@ -327,11 +352,23 @@ export function RssSettings(): ReactElement {
       <section>
         <SettingRow
           title={t('rss.settings.cache')}
-          description={t('rss.settings.cache_size', { size: formatBytes(cachedBytes) }) + ` · ${t('rss.subscriptions_count', { n: library.feeds.length })} · ${cachedFeeds}`}
+          description={cacheLine}
         >
-          <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => void clearCache()}>
-            {t('rss.settings.clear_cache')}
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Button
+              size="sm"
+              disabled={!bodyFeeds}
+              onClick={() => void clearBodiesPressed()}
+            >
+              {t('rss.storage.clear_bodies')}
+            </Button>
+            <Button size="sm" variant="danger" icon={<Trash2 size={13} />} disabled={!cachedFeeds} onClick={() => void clearCache()}>
+              {t('rss.settings.clear_cache')}
+            </Button>
+          </div>
+        </SettingRow>
+        <SettingRow title={t('rss.storage.images')} description={t('rss.storage.images_desc')}>
+          <span className="text-[11.5px] text-[var(--text-quaternary)]">{t('rss.storage.images_none')}</span>
         </SettingRow>
       </section>
     </div>

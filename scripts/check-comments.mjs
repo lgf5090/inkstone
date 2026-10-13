@@ -4531,6 +4531,8 @@ const allowed = new Map([
     "// Keyboard: j/k walk the list, Enter opens, x picks, s stars, Escape leaves the selection.",
     "// Scrolling past a row is how a reader finishes a channel: the list marks what has gone above the",
     "// top edge, so a long morning of reading does not end with forty rows still showing as new.",
+    "// A list that has not been asked for anything in half a day says so, because the rows look exactly",
+    "// like news and the reader has no other way to tell they are the last visit's.",
   ]],
   ["src/client/features/rss/RssChannelRail.tsx", [
     "/**\n * The channel rail: where the reader is, and the whole subscription library that can be reached.\n *\n * It used to be a list of buttons and nothing else, on the theory that every other question about a\n * subscription belongs to the management dialog. That theory cost the reader two round trips for\n * every ordinary act — move a feed, rename a folder, pause a source — and the dialog has no more\n * room for a folder's colour than the rail does. So the rail now carries the three things a reader\n * does with a subscription without leaving the list of them: a right-click, a drag onto a folder,\n * and a name that can be typed in place.\n *\n * Folders nest, and the nesting is the note folders' own: `RssGroup` is shaped like `Folder` so\n * `buildFolderTree` can arrange both trees, and the colour and icon pickers are the same panels the\n * sidebar uses. Two implementations of \"which folder can this not go into\" is how a subscription\n * ends up inside its own descendant.\n *\n * An unread badge only appears for a feed this device has actually read from. A zero would be a\n * claim about the world the rail has no way to make.\n */",
@@ -4539,6 +4541,10 @@ const allowed = new Map([
     "/** Drop a feed onto another feed: it joins that shelf and takes its place in the order. */",
     "/** Drop a dragged feed or folder onto a folder row. */",
     "/** The rail's whole right-click surface: a feed, a folder, a tag, or the empty space below them. */",
+    "// The row is one line tall and the count has nowhere to go but here: what this device holds for",
+    "// this subscription, and the address or the failure a reader maintaining the list is looking for.",
+    "// The address came out of somebody else's document, so it is asked again before a window is",
+    "// opened with it — the same rule the article menu follows.",
   ]],
   ["src/client/features/rss/RssKeys.tsx", [
     "/**\n * The shortcut sheet.\n *\n * A reader who has never used an RSS app does not know that `j` and `k` are the whole point of one,\n * and a reader who has used three of them does not want to learn a fourth set. So the keys are\n * listed where they are used, on the surface that answers to them, and every row is a key this app\n * actually handles — a sheet with a key that does nothing is worse than no sheet.\n */",
@@ -4584,6 +4590,8 @@ const allowed = new Map([
     "// A 5 MB OPML is a large library; the preview reads it all, so the ceiling is the file reader's, not ours.",
     "// Which shelf the palette named is only an opening position: both tabs stay mounted, so a reader",
     "// who walks over to the catalogue and back keeps their search, their scroll and their selection.",
+    "// The durable ledger, not what happens to be in memory: this row answers \"what is on this device",
+    "// for this subscription\", including for the forty feeds the reader has not opened today.",
   ]],
   ["src/client/features/rss/ai.ts", [
     "/**\n * Asking a model about an article, on the reader's own key.\n *\n * The reference reader this port follows got its Chinese rewrites from the service that publishes\n * the feeds, which is a reasonable design for a hosted product and an impossible one for a notebook\n * that must work without an account. Here the same two affordances — a summary, and a translation\n * into the reader's language — are offered against whatever endpoint the reader configures, so the\n * feature is off until they ask for it and costs nothing they did not choose.\n *\n * Two things are deliberate. The key is stored in this browser and never in the account row, so it\n * does not ride along in a backup or appear on another device the reader did not type it into; and\n * the article is sent as text a sanitizer already stripped, not as HTML, because a body full of\n * markup is both more tokens and more ways to say something to the model than the reader meant.\n */",
@@ -4591,6 +4599,16 @@ const allowed = new Map([
     "/** The provider a base URL belongs to, read from the address rather than asked for. */",
     "/** What the model is asked, in the language the reader's interface is in. */",
     "/**\n * Stream one answer.\n *\n * `onChunk` is what keeps a twenty-second summary from reading as a hang, and the abort signal is\n * what lets the reader stop one they no longer want — both go through the same relay the editor's\n * AI features use, so the key never leaves for the provider by a second path.\n */",
+  ]],
+  ["src/client/features/rss/cacheLine.test.ts", [
+    "/**\n * The cache line's own words, including the two cases where it has to admit what it does not know.\n *\n * A feed the ledger never measured gets a date and no count, and a channel where one feed answered\n * recently is not called stale by the other twelve — a notice that fires wrongly is a notice the\n * reader learns to ignore.\n */",
+    "// Five years back, so the wording of the date cannot change between the two calls to it.",
+  ]],
+  ["src/client/features/rss/cacheLine.ts", [
+    "/**\n * What this device holds, in the reader's words.\n *\n * The numbers come from the durable cache ledger rather than from the articles in memory, so a\n * subscription the reader has not opened this visit still says how much of it is on the disk — which\n * is the question the line answers. A feed the ledger has never measured says only when it was last\n * fetched, because inventing a count is how a cache line becomes a lie.\n */",
+    "/** How long a channel may look current from its own cache before the reader is told it is cached. */",
+    "/** One line for a channel of several feeds: how many articles, and the oldest fetch among them. */",
+    "/**\n * The moment the newest article on screen was fetched, when that moment is a long time ago.\n *\n * Only the newest is asked: a channel where one feed answered a minute ago is not showing a stale\n * list, and a notice that fires anyway teaches the reader to ignore the notice.\n */",
   ]],
   ["src/client/features/rss/discovery.ts", [
     "/**\n * The catalogue behind the Discover tab.\n *\n * It is a static asset rather than a module, for two reasons that point the same way: 2,000 feeds\n * of other people's names is not something a reader who never opens the tab should download, and a\n * file under `public/` can be updated without rebuilding the app. The three shelves are the three\n * kinds of thing a reader asks for — a handful of long-running writers, the independent-blog index,\n * and the news/podcast catalogue — and each says where it came from, because a list of other\n * people's work should be traceable to whoever compiled it.\n */",
@@ -4647,6 +4665,7 @@ const allowed = new Map([
     "/**\n * The menu on one article row.\n *\n * Every mark a reader can put on an article is here, because the row is where the article is\n * decided about — the reader pane's toolbar repeats the four common ones for the article that is\n * already open, and a fifth that needs a click on a row two screens away does not belong in a\n * toolbar. Hiding is the one that needs an undo: it is the only action whose effect outlives the\n * refresh that brought the article in.\n */",
     "// The address came from a cache this device wrote, so the scheme is checked again here",
     "// rather than trusted because the parser once asked for it.",
+    "/**\n * The row that puts a subscription's own address on the clipboard.\n *\n * The rail and the subscription dialog both need it, and a reader who is moving a feed to another\n * app wants the address the subscription *is*, not the site it came from.\n */",
   ]],
   ["src/client/features/rss/sanitize.ts", [
     "/**\n * Making a stranger's HTML safe enough to put inside the notebook.\n *\n * An article body is the one place in this app where the markup was written by nobody the reader\n * trusts, and it arrives through a relay that cannot read it. So it is sanitized on the way in —\n * once, before it is cached or written to a note — and the pass that renders it is a plain\n * `innerHTML` of the result. Two things follow from that ordering, and both are why this file\n * exists rather than a call to DOMPurify at the render site: the string a reader saves into a note\n * has to be the same safe string they were shown, and the sanitizer must not be the kind that lets\n * an `<img onerror>` through because it was configured for a different surface.\n *\n * Where the pictures come from is a *display* question, not a safety one, so it is answered\n * separately. A cached body keeps the addresses its author wrote; the reader's setting for\n * relaying, and the setting for showing pictures at all, are applied each time the body is drawn.\n * Changing that setting therefore needs no re-fetch, and a note saved from the article gets the\n * original addresses rather than a link that only works while this session lasts.\n */",
@@ -4683,6 +4702,8 @@ const allowed = new Map([
     "// The index is the only thing a cold load asks before it goes to the network. An article written",
     "// to the device and not recorded there is refetched in full on every visit, and the cache",
     "// accounting says the reader holds nothing.",
+    "// A validator left in place would answer 304 to a device that no longer holds what it promised,",
+    "// and the bodies would never come back.",
   ]],
   ["src/client/features/rss/store.ts", [
     "/**\n * The reader's state: what is subscribed, what this device has read, and what is on screen.\n *\n * Three stores meet here, and the split is the design:\n *\n *  — the **library** (subscriptions, groups, read marks, favourites) belongs to the account and\n *    travels between devices, so it is saved to the Worker, debounced, and refused outright if it\n *    would arrive truncated;\n *  — the **articles** belong to this device. They are rebuildable from the network, so they go in\n *    IndexedDB under a byte ceiling rather than into the account row, where 400 feeds would be a\n *    megabyte per save;\n *  — the **view** (which article, which filter, how far down the list) is transient enough that\n *    losing it costs a reader a second, so it is kept per channel in memory and written out with\n *    the cache index rather than synced.\n *\n * Everything that can fail does so here rather than in a component: a refresh that half-worked has\n * to leave the feeds that answered showing their new articles and the ones that did not keeping\n * their old ones, and a save the server refused has to stay pending so the reader's next action\n * carries it instead of losing it.\n */",
@@ -4734,6 +4755,20 @@ const allowed = new Map([
     "// really holds, when it last saw them, and how much room they take. Written only here, it stays",
     "// true to the blobs beside it — and a reload gets to keep its conditional GETs instead of",
     "// refetching every subscription because the ledger said nothing was cached.",
+    "/** What one feed's blob on this device costs, as the durable index recorded it. */",
+    "/** Characters of title, summary and body. The LRU ceiling is counted in these. */",
+    "/** The part of {@link RssCacheMeta.bytes} that is article body. Absent for a feed this build has\n   * not stored or read since the field existed, which the storage panel says instead of guessing. */",
+    "/** Articles in the blob, so a cold load can say what it holds without reading it. */",
+    "/** Per feed: when this device last stored it and what that storage costs. Survives a reload. */",
+    "/**\n   * Drop the article bodies this device holds and keep the rows: the list still reads, the marks and\n   * the notes stay, and the bytes come back from the feeds when the reader opens something.\n   */",
+    "/** What one feed's articles cost, split so the storage panel can say what the bytes are. */",
+    "/** Hand the durable index to the components that show it. The index itself stays module-private. */",
+    "// A blob written before this build measured bodies and counts: record what it really holds",
+    "// now, so the storage panel and the per-source lines tell the truth without waiting for a",
+    "// refresh to overwrite the feed with the same articles.",
+    "/**\n     * Keep the rows, drop the bodies.\n     *\n     * The body is the whole cost of an article cache — a title and a summary are a few dozen\n     * characters each — so this is the release valve for a device that wants to stay subscribed to a\n     * few hundred feeds without carrying their text. Two things have to follow or the list would lie:\n     * the validators go, because a feed that answers `304` would leave the bodies empty for good, and\n     * the search index goes, because it was built from bodies this device no longer has.\n     */",
+    "// An index an older build wrote measured neither, and a guessed split is worse than none:",
+    "// the storage panel leaves those feeds out of the body line until the feed is read again.",
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
@@ -4769,6 +4804,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/settings/RssSettings.tsx", [
     "/**\n * The RSS section of the settings panel.\n *\n * It edits `settings.rss`, which is the reading half of the feature: what a channel opens showing,\n * how an article is set, where a saved article goes. The other half — the subscriptions themselves —\n * is not here on purpose. A list of feeds is data a reader edits where they read it, with the\n * article counts beside it, and a settings page cannot show counts it has not fetched.\n *\n * The AI key is the one credential in this panel, and it is not stored with the rest: it lives in\n * this browser only, so it cannot ride out in a backup or appear on a device the reader never typed\n * it into. The note under the field says that rather than leaving it to be inferred.\n */",
+    "// The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds",
+    "// and has opened two still has 40 feeds on disk, and the reader is asking about the disk.",
   ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",

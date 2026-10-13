@@ -28,6 +28,8 @@ import { groupedFeeds } from '@shared/rss/reading'
 import { shortSince } from '../../lib/time'
 import { api } from '../../lib/api'
 import { useRss } from './store'
+import { feedCacheLine } from './cacheLine'
+import { copyFeedUrlItem } from './rssMenus'
 import { filterSources, loadDiscovery, topTags, type DiscoveryCatalog, type DiscoverySource, type ShelfName } from './discovery'
 
 type Tab = 'manage' | 'discover'
@@ -81,8 +83,6 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
 
 function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void }): ReactElement {
   const library = useRss(state => state.library)
-  const articles = useRss(state => state.articles)
-  const fetchedAt = useRss(state => state.fetchedAt)
   const store = useRss()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -210,8 +210,6 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
                 key={feed.id}
                 feed={feed}
                 group={group?.name ?? ''}
-                loaded={!!articles[feed.id]}
-                fetchedAt={fetchedAt[feed.id] ?? feed.updatedAt}
                 selected={selected.has(feed.id)}
                 menuOpen={menuFor === feed.id}
                 onToggleSelect={toggle}
@@ -256,17 +254,18 @@ async function readOpml(file: File | undefined): Promise<string | null> {
   return file.text()
 }
 
-function FeedRow({ feed, group, loaded, fetchedAt, selected, menuOpen, onToggleSelect, onMenu }: {
+function FeedRow({ feed, group, selected, menuOpen, onToggleSelect, onMenu }: {
   feed: RssFeed
   group: string
-  loaded: boolean
-  fetchedAt: number
   selected: boolean
   menuOpen: boolean
   onToggleSelect: (id: string) => void
   onMenu: (open: boolean) => void
 }): ReactElement {
   const anchor = useRef<HTMLButtonElement | null>(null)
+  // The durable ledger, not what happens to be in memory: this row answers "what is on this device
+  // for this subscription", including for the forty feeds the reader has not opened today.
+  const cache = useRss(state => state.cache)
   const items = useMemo(() => {
     const groups: MenuItem[] = [
       { id: 'none', label: t('rss.ungrouped'), onSelect: () => useRss.getState().moveFeed(feed.id, '') },
@@ -304,6 +303,7 @@ function FeedRow({ feed, group, loaded, fetchedAt, selected, menuOpen, onToggleS
         icon: <RefreshCw size={13} />,
         onSelect: () => void useRss.getState().refresh([feed.id], { force: true }),
       },
+      copyFeedUrlItem(feed),
       {
         id: 'unsubscribe',
         label: t('rss.unsubscribe'),
@@ -330,9 +330,7 @@ function FeedRow({ feed, group, loaded, fetchedAt, selected, menuOpen, onToggleS
         <div className="min-w-0 truncate text-[10.5px] text-[var(--text-quaternary)]">
           {feed.error
             ? <span className="text-[var(--danger)]">{feed.error}</span>
-            : loaded && fetchedAt
-              ? t('rss.last_updated', { time: shortSince(fetchedAt) })
-              : t('rss.never_fetched')}
+            : feedCacheLine(cache[feed.id])}
           {!feed.error && group ? ` · ${group}` : ''}
         </div>
       </div>
