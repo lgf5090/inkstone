@@ -2,6 +2,7 @@
 node_modules/
 dist/
 coverage/
+reports/
 .vite/
 *.tsbuildinfo
 worker-configuration.d.ts
@@ -44,7 +45,8 @@ worker-configuration.d.ts
 .trae/
 .trae-cn/
 .codebuddy/
-.workbuddy
+.workbuddy/
+.workbuddy-ai/
 .reasonix/
 
 # Private project documentation
