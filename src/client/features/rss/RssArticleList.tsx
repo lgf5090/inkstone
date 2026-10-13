@@ -315,10 +315,10 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
           thumbnail={settings.showThumbnails}
           groupByDay={view.sort !== 'source'}
           onPick={pick}
-          onMenu={(entry, event) => {
+          onMenu={(entry, point) => {
             setPreview(null)
             setMenuEntry(entry)
-            menu.onContextMenu(event)
+            menu.openAt(point)
           }}
           onPreview={(entry, feed, rect) => setPreview({ entry, feed, rect })}
         />

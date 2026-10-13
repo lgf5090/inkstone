@@ -91,6 +91,44 @@ function interfaceLanguageName(): string {
   return getLocale() === 'zh-CN' ? 'Simplified Chinese' : 'English'
 }
 
+/**
+ * A question about the passage the reader just marked.
+ *
+ * The passage comes first and the article around it second, because the reader selected the passage
+ * for a reason and the rest of the article is only context. The instruction to say so when the
+ * passage does not answer is the whole point: an ungrounded answer to a question about a text is how
+ * a reader ends up believing something the author never wrote.
+ */
+export function buildExcerptPrompts(question: string, excerpt: string, entry: RssEntry, feed: RssFeed | undefined, language: 'source' | 'interface'): string[] {
+  const target = language === 'interface' ? interfaceLanguageName() : 'the language the passage is written in'
+  const header = [feed?.title, entry.title].filter(Boolean).join(' / ')
+  const context = htmlToText(entry.content || entry.summary, 6000)
+  return [
+    'You answer one question about a passage a reader selected out of an article. Use only the passage and, when it helps, the article around it. If the passage does not answer the question, say so in one sentence and stop. Answer in Markdown with no preamble.',
+    `Answer in ${target}.\n\nQuestion: ${question.slice(0, 500)}\n\nPassage:\n${excerpt.slice(0, 4000)}\n\n${header}\n${context}`,
+  ]
+}
+
+/** One answer about a passage. Same relay, same key, same abort as the whole-article asks. */
+export function runExcerptAi(
+  entry: RssEntry,
+  feed: RssFeed | undefined,
+  question: string,
+  excerpt: string,
+  config: RssAiConfig,
+  language: 'source' | 'interface',
+  onChunk: (text: string) => void,
+): AiRun {
+  const controller = new AbortController()
+  const [system, user] = buildExcerptPrompts(question, excerpt, entry, feed, language)
+  const promise = streamChatCompletion(
+    [{ id: 'system', role: 'system', content: system }, { id: 'user', role: 'user', content: user }],
+    config,
+    { model: config.model, systemPrompt: undefined, signal: controller.signal, onChunk: (_chunk, full) => onChunk(full) },
+  ).then(result => result.content.trim())
+  return { promise, abort: () => controller.abort() }
+}
+
 export interface AiRun {
   promise: Promise<string>
   abort: () => void

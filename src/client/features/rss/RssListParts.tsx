@@ -26,10 +26,13 @@ import { displayImageUrl, readingMinutes } from './sanitize'
 import { articleBadge } from './media'
 import { appendToDailyNote, saveArticleAsNote } from './notes'
 import { useRss } from './store'
+import { useLongPress } from '../workspace/context-menu/use-long-press'
 
 export interface RowCallbacks {
   onPick: (entry: RssEntry, event: React.MouseEvent) => void
-  onMenu: (entry: RssEntry, event: React.MouseEvent) => void
+  /** Where the row's menu should open. A point rather than an event, because a long press and a
+   * right click are the same question asked by two different kinds of hand. */
+  onMenu: (entry: RssEntry, point: { x: number, y: number }) => void
   onPreview: (entry: RssEntry, feed: RssFeed | undefined, rect: DOMRect) => void
 }
 
@@ -123,13 +126,24 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
   const badge = articleBadge(entry)
   const hoverable = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  // A phone has no right button, and every per-article action lives in this menu, so a held press
+  // opens it at the finger.
+  const { handlers: longPress, justLongPressed } = useLongPress(point => onMenu(entry, point))
 
   return (
     <button
       type="button"
       data-entry={entry.id}
       onClick={event => onPick(entry, event)}
-      onContextMenu={event => onMenu(entry, event)}
+      onContextMenu={event => {
+        // A desktop browser answers a held touch with its own contextmenu event too; the row that
+        // already opened its menu at the finger must not be asked to open it a second time.
+        if (justLongPressed()) return
+        event.preventDefault()
+        event.stopPropagation()
+        onMenu(entry, { x: event.clientX, y: event.clientY })
+      }}
+      {...longPress}
       onMouseEnter={hoverable
         ? event => {
             const node = event.currentTarget

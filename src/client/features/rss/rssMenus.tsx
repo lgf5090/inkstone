@@ -8,7 +8,7 @@
  * its own descendant.
  */
 import type { ReactNode } from 'react'
-import { BookOpen, Bookmark, CalendarPlus, CheckCheck, ExternalLink, EyeOff, FolderInput, Hash, Link2, NotebookPen, Plus, Star } from 'lucide-react'
+import { BookOpen, Bookmark, CalendarPlus, CheckCheck, ExternalLink, EyeOff, FolderInput, Hash, Link2, NotebookPen, Plus, RefreshCw, Star } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { useUi, type ToastInput } from '../../store/ui'
 import { appendToDailyNote, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
@@ -167,6 +167,21 @@ export function copyFeedUrlItem(feed: RssFeed): MenuItem {
 }
 
 /**
+ * Ask one article's feed again, now, whatever the backoff says.
+ *
+ * A feed that published a summary first and the full text minutes later is the common case, so this
+ * is the reader's retry for the "this feed only sent a summary" article — and it is the same action
+ * from the row menu and from the reading pane, with the same answer either way.
+ */
+export function reloadEntry(entry: RssEntry): void {
+  void useRss.getState().refresh([entry.feedId], { force: true }).then(summary => {
+    useUi.getState().toast(summary.changed
+      ? { title: t('rss.reload_changed', { n: summary.changed }), tone: 'success' }
+      : { title: t('rss.reload_unchanged') })
+  })
+}
+
+/**
  * The menu on one article row.
  *
  * Every mark a reader can put on an article is here, because the row is where the article is
@@ -252,6 +267,12 @@ export function entryMenuItems(entry: RssEntry, library: RssLibrary, actions: { 
           onSelect: () => openSavedNote(noteId),
         } satisfies MenuItem]
       : []),
+    {
+      id: 'reload',
+      label: t('rss.reload_article'),
+      icon: <RefreshCw size={13} />,
+      onSelect: () => reloadEntry(entry),
+    },
     {
       id: 'hide',
       label: t('rss.hide_article'),

@@ -58,6 +58,7 @@ import { useSession } from '../../store/session'
 import { api } from '../../lib/api'
 import { displayImageUrl } from './sanitize'
 import { copyFeedUrlItem, moveToFolderItem, RssContextMenu, tagsItem } from './rssMenus'
+import { useLongPress } from '../workspace/context-menu/use-long-press'
 import { FeedMark, feedIconUrl } from './FeedMark'
 import { useRss } from './store'
 import { feedCacheLine } from './cacheLine'
@@ -101,7 +102,21 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
   const tags = [...tagCounts(library).entries()].sort((a, b) => a[0].localeCompare(b[0]))
   const hiddenCount = library.hiddenIds.length
 
+  // One gesture for the whole rail: a phone has no right button, and every row carries the target it
+  // is about in `data-menu-target`, so the held press is read from the row under the finger.
+  const { handlers: longPress, justLongPressed } = useLongPress((point, node) => {
+    const raw = node.closest('[data-menu-target]')?.getAttribute('data-menu-target') ?? ''
+    const separator = raw.indexOf(':')
+    if (separator < 0) return
+    const kind = raw.slice(0, separator)
+    const id = raw.slice(separator + 1)
+    if (kind === 'feed' || kind === 'group' || kind === 'tag') setMenu({ point, target: { kind, id } })
+  })
+
   const openMenu = (event: React.MouseEvent, target: MenuTarget): void => {
+    // A held finger already opened this menu; the contextmenu event a desktop browser sends for the
+    // same gesture must not open it a second time.
+    if (justLongPressed()) return
     event.preventDefault()
     event.stopPropagation()
     setMenu({ point: { x: event.clientX, y: event.clientY }, target })
@@ -113,6 +128,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
     <nav
       aria-label={t('rss.subscriptions')}
       onContextMenu={event => openMenu(event, { kind: 'blank' })}
+      {...longPress}
       className="flex h-full w-full min-w-0 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:w-56"
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -184,6 +200,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
                 count={total}
                 active={active === `tag:${tag}`}
                 onSelect={() => go({ kind: 'tag', tag })}
+                menuTarget={`tag:${tag}`}
                 onContextMenu={event => openMenu(event, { kind: 'tag', id: tag })}
               />
             ))}
@@ -227,6 +244,7 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
         aria-current={active === key ? 'page' : undefined}
         aria-expanded={!collapsed}
         onClick={() => go({ kind: 'group', groupId: node.id })}
+        data-menu-target={`group:${node.id}`}
         onContextMenu={event => openMenu(event, { kind: 'group', id: node.id })}
         onDragStart={event => {
           event.dataTransfer.setData(RSS_GROUP_DRAG, node.id)
@@ -341,6 +359,7 @@ function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu
       draggable
       aria-current={active ? 'page' : undefined}
       onClick={() => go({ kind: 'feed', feedId: feed.id })}
+      data-menu-target={`feed:${feed.id}`}
       onContextMenu={event => openMenu(event, { kind: 'feed', id: feed.id })}
       onDragStart={event => {
         event.dataTransfer.setData(RSS_FEED_DRAG, feed.id)
@@ -408,7 +427,7 @@ function dropOnGroup(event: React.DragEvent, groupId: string): void {
   if (moved && moved !== groupId) state.moveGroupTo(moved, groupId)
 }
 
-function Row({ icon: Icon, label, count, active, onSelect, trailing, indent, hint, muted, showCount = true, onContextMenu }: {
+function Row({ icon: Icon, label, count, active, onSelect, trailing, indent, hint, muted, showCount = true, menuTarget, onContextMenu }: {
   icon?: typeof Rss
   label: string
   count: number
@@ -419,6 +438,7 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, indent, hin
   hint?: string
   muted?: boolean
   showCount?: boolean
+  menuTarget?: string
   onContextMenu?: (event: React.MouseEvent) => void
 }) {
   const row = (
@@ -426,6 +446,7 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, indent, hin
       type="button"
       onClick={onSelect}
       onContextMenu={onContextMenu}
+      data-menu-target={menuTarget}
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-8 w-full min-w-0 items-center gap-2 rounded-[var(--r-md)] pr-1.5 text-left text-[12.5px]',

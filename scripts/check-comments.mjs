@@ -296,6 +296,7 @@ const allowed = new Map([
     "// The filter field handles its own keys; a Space typed there is a character, not a press.",
     "/**\n     * Keep the spaces the user typed. A line prefix or a numbering template is often made of them,\n     * and the default trim would turn `{n}. ` into `{n}.` and glue the number to the text.\n     */",
     "/**\n     * How tall {@link header} actually is. The panel is placed before it is measured, so a header the\n     * row arithmetic cannot see — a colour grid, say — has to state its own height or the menu will\n     * open believing it is 44px and never flip up out of the way of the viewport edge.\n     */",
+    "/** Open at a point nobody right-clicked to reach — a long press has no event worth keeping. */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -4502,6 +4503,12 @@ const allowed = new Map([
     "/**\n * The excerpt bar: what a reader can do with a piece of an article they selected.\n *\n * It is drawn in a portal on `document.body` rather than inside the article, because the reader\n * pane scrolls and an absolutely-positioned child of a scrolling column is clipped by it — and\n * because the article body is markup a stranger wrote, so a control that belongs to the app should\n * not be inside the region the app rebuilds on every article.\n *\n * The bar answers to the selection, not to the mouse: a keyboard reader who extends a selection with\n * shift-arrow gets it too, and a click that lands on one of its own buttons does not dismiss it\n * before the click arrives, which is the failure mode a \"hide on any pointer-down\" rule has.\n */",
     "// A press that starts a new selection is the reader changing their mind; one that lands",
     "// nowhere in particular is them leaving the article.",
+    "// The answer card keeps the place it opened at: the bar follows the selection and the reader's own",
+    "// scrolling takes it away, but a streamed answer that was asked for must survive that.",
+    "// The bar belongs to the selection and the card to the ask: typing a question into the prompt",
+    "// collapses the selection, which takes the bar away, and an answer that was already on its way",
+    "// must not leave with it.",
+    "/** The answer is kept the same way an excerpt is, and says the same three things when it is not. */",
   ]],
   ["src/client/features/rss/FeedMark.tsx", [
     "/**\n * A subscription's mark: its own picture if it has one, its initial if it does not.\n *\n * Favicons are the third-party asset an RSS reader cannot avoid, and they fail often — a host with\n * no `/favicon.ico`, a feed whose `image` is 512px of noise, an address the reader's own policy\n * says not to fetch. So the mark is always a circle of the right size with something in it, and the\n * picture only ever replaces the letter inside that circle once it has actually loaded.\n */",
@@ -4546,6 +4553,10 @@ const allowed = new Map([
     "// this subscription, and the address or the failure a reader maintaining the list is looking for.",
     "// The address came out of somebody else's document, so it is asked again before a window is",
     "// opened with it — the same rule the article menu follows.",
+    "// One gesture for the whole rail: a phone has no right button, and every row carries the target it",
+    "// is about in `data-menu-target`, so the held press is read from the row under the finger.",
+    "// A held finger already opened this menu; the contextmenu event a desktop browser sends for the",
+    "// same gesture must not open it a second time.",
   ]],
   ["src/client/features/rss/RssKeys.tsx", [
     "/**\n * The shortcut sheet.\n *\n * A reader who has never used an RSS app does not know that `j` and `k` are the whole point of one,\n * and a reader who has used three of them does not want to learn a fourth set. So the keys are\n * listed where they are used, on the surface that answers to them, and every row is a key this app\n * actually handles — a sheet with a key that does nothing is worse than no sheet.\n */",
@@ -4562,6 +4573,11 @@ const allowed = new Map([
     "/** A channel filter for the platforms its articles actually came from, with their counts. */",
     "// A platform with nothing in the list is not offered: a filter that answers with an empty pane is",
     "// a broken-looking feature, and the counts come from the list the reader is already looking at.",
+    "/** Where the row's menu should open. A point rather than an event, because a long press and a\n   * right click are the same question asked by two different kinds of hand. */",
+    "// A phone has no right button, and every per-article action lives in this menu, so a held press",
+    "// opens it at the finger.",
+    "// A desktop browser answers a held touch with its own contextmenu event too; the row that",
+    "// already opened its menu at the finger must not be asked to open it a second time.",
   ]],
   ["src/client/features/rss/RssReader.tsx", [
     "/**\n * The reader: one article, and the things a reader does with it.\n *\n * The body is drawn with the notebook's own prose styles rather than a copy of them, so an article\n * and a note read as one library. The size, measure and spacing the reader picks are written as the\n * three prose custom properties on this container only — a change here is a change to how articles\n * look, not to how the editor looks.\n *\n * Every action in the toolbar is a question about one article, which is why they live here and not\n * on the list rows. The three that touch the notebook (save, add to today, excerpt) go through the\n * notes module, which is where the dedupe rules are; the two that ask a model go through the AI\n * module, which refuses to say anything until the reader has configured a key.\n */",
@@ -4602,12 +4618,17 @@ const allowed = new Map([
     "// The durable ledger, not what happens to be in memory: this row answers \"what is on this device",
     "// for this subscription\", including for the forty feeds the reader has not opened today.",
   ]],
+  ["src/client/features/rss/ai.test.ts", [
+    "/**\n * What the reader's key is asked, in the reader's name.\n *\n * These two builders are the whole of what leaves the device for a model: the article as text a\n * sanitizer already stripped, the passage the reader marked, and the question they typed. Markup\n * would be more tokens and more ways for a feed to talk to the model than the reader meant, and an\n * uncapped passage would spend the reader's money on text nobody is asking about.\n */",
+  ]],
   ["src/client/features/rss/ai.ts", [
     "/**\n * Asking a model about an article, on the reader's own key.\n *\n * The reference reader this port follows got its Chinese rewrites from the service that publishes\n * the feeds, which is a reasonable design for a hosted product and an impossible one for a notebook\n * that must work without an account. Here the same two affordances — a summary, and a translation\n * into the reader's language — are offered against whatever endpoint the reader configures, so the\n * feature is off until they ask for it and costs nothing they did not choose.\n *\n * Two things are deliberate. The key is stored in this browser and never in the account row, so it\n * does not ride along in a backup or appear on another device the reader did not type it into; and\n * the article is sent as text a sanitizer already stripped, not as HTML, because a body full of\n * markup is both more tokens and more ways to say something to the model than the reader meant.\n */",
     "/** How much of an article a request carries. Beyond this the tail is dropped, not summarised badly. */",
     "/** The provider a base URL belongs to, read from the address rather than asked for. */",
     "/** What the model is asked, in the language the reader's interface is in. */",
     "/**\n * Stream one answer.\n *\n * `onChunk` is what keeps a twenty-second summary from reading as a hang, and the abort signal is\n * what lets the reader stop one they no longer want — both go through the same relay the editor's\n * AI features use, so the key never leaves for the provider by a second path.\n */",
+    "/**\n * A question about the passage the reader just marked.\n *\n * The passage comes first and the article around it second, because the reader selected the passage\n * for a reason and the rest of the article is only context. The instruction to say so when the\n * passage does not answer is the whole point: an ungrounded answer to a question about a text is how\n * a reader ends up believing something the author never wrote.\n */",
+    "/** One answer about a passage. Same relay, same key, same abort as the whole-article asks. */",
   ]],
   ["src/client/features/rss/cacheLine.test.ts", [
     "/**\n * The cache line's own words, including the two cases where it has to admit what it does not know.\n *\n * A feed the ledger never measured gets a date and no count, and a channel where one feed answered\n * recently is not called stale by the other twelve — a notice that fires wrongly is a notice the\n * reader learns to ignore.\n */",
@@ -4676,6 +4697,7 @@ const allowed = new Map([
     "// The address came from a cache this device wrote, so the scheme is checked again here",
     "// rather than trusted because the parser once asked for it.",
     "/**\n * The row that puts a subscription's own address on the clipboard.\n *\n * The rail and the subscription dialog both need it, and a reader who is moving a feed to another\n * app wants the address the subscription *is*, not the site it came from.\n */",
+    "/**\n * Ask one article's feed again, now, whatever the backoff says.\n *\n * A feed that published a summary first and the full text minutes later is the common case, so this\n * is the reader's retry for the \"this feed only sent a summary\" article — and it is the same action\n * from the row menu and from the reading pane, with the same answer either way.\n */",
   ]],
   ["src/client/features/rss/sanitize.ts", [
     "/**\n * Making a stranger's HTML safe enough to put inside the notebook.\n *\n * An article body is the one place in this app where the markup was written by nobody the reader\n * trusts, and it arrives through a relay that cannot read it. So it is sanitized on the way in —\n * once, before it is cached or written to a note — and the pass that renders it is a plain\n * `innerHTML` of the result. Two things follow from that ordering, and both are why this file\n * exists rather than a call to DOMPurify at the render site: the string a reader saves into a note\n * has to be the same safe string they were shown, and the sanitizer must not be the kind that lets\n * an `<img onerror>` through because it was configured for a different surface.\n *\n * Where the pictures come from is a *display* question, not a safety one, so it is answered\n * separately. A cached body keeps the addresses its author wrote; the reader's setting for\n * relaying, and the setting for showing pictures at all, are applied each time the body is drawn.\n * Changing that setting therefore needs no re-fetch, and a note saved from the article gets the\n * original addresses rather than a link that only works while this session lasts.\n */",

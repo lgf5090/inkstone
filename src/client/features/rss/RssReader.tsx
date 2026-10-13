@@ -28,6 +28,7 @@ import {
   Link2,
   NotebookPen,
   PlayCircle,
+  RefreshCw,
   Sparkles,
   Star,
   Type,
@@ -50,6 +51,7 @@ import { appendToDailyNote, dailyNoteTitle, openSavedNote, savedNoteId, saveArti
 import { aiReady, loadAiConfig, runArticleAi, type RssAiKind } from './ai'
 import { useRss, type RssReadingVersion } from './store'
 import { ExcerptPopup } from './ExcerptPopup'
+import { reloadEntry } from './rssMenus'
 import { playableAudio, videoLinkOf } from './media'
 
 const FONTS = ['ui', 'serif', 'sans', 'songti', 'kaiti', 'fangsong', 'mono', 'custom'] as const
@@ -431,6 +433,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           <Link2 size={13} aria-hidden="true" />
           {t('rss.copy_link')}
         </button>
+        {!entry.content && (
+          <ToolButton label={t('rss.reload_article')} icon={<RefreshCw size={13} aria-hidden="true" />} onClick={() => reloadEntry(entry)} />
+        )}
         <div className="flex flex-wrap items-center gap-1">
           {settings.aiEnabled && version === 'original' && (
             <>

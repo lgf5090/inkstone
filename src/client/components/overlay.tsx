@@ -867,6 +867,8 @@ export function useContextMenu() {
     return {
         point,
         close: () => setPoint(null),
+        /** Open at a point nobody right-clicked to reach — a long press has no event worth keeping. */
+        openAt: (at: { x: number; y: number }) => setPoint(at),
         onContextMenu: (event: React.MouseEvent) => {
             event.preventDefault();
             event.stopPropagation();
