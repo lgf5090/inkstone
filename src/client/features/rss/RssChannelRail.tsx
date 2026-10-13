@@ -265,12 +265,8 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
   const isDrop = dropTarget === key
   return (
     <div className="mb-0.5">
-      <button
-        type="button"
+      <div
         draggable
-        aria-current={active === key ? 'page' : undefined}
-        aria-expanded={!collapsed}
-        onClick={() => go({ kind: 'group', groupId: node.id })}
         data-menu-target={`group:${node.id}`}
         onContextMenu={event => openMenu(event, { kind: 'group', id: node.id })}
         onDragStart={event => {
@@ -293,7 +289,6 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
         className={cn(
           'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[var(--r-md)] pr-1.5 text-left text-[12.5px]',
           'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
-          'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
           active === key
             ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
@@ -301,29 +296,37 @@ function FolderBranch({ node, depth, shelfFeeds, counts, articles, active, dropT
         )}
         style={{ paddingLeft: 4 + depth * 12 }}
       >
-        <span
-          role="presentation"
+        <button
+          type="button"
+          aria-expanded={!collapsed}
           aria-label={`${collapsed ? t('rss.expand') : t('rss.collapse')} ${node.name}`}
           onClick={(event) => {
             event.stopPropagation()
             toggle(node.id)
           }}
-          className="grid size-4 shrink-0 place-items-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)]"
+          className="grid size-4 shrink-0 place-items-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
           {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-        </span>
-        {node.icon
-          ? <span aria-hidden="true" className="shrink-0 text-[13px] leading-none" style={{ color: node.color ?? undefined }}>{node.icon}</span>
-          : node.color
-            ? <CircleDot size={13} className="shrink-0" style={{ color: node.color }} aria-hidden="true" />
-            : (collapsed ? <FolderClosed size={13} className="shrink-0 opacity-70" /> : <FolderOpen size={13} className="shrink-0 opacity-70" />)}
-        <span className="min-w-0 flex-1 truncate">{node.name}</span>
-        {(counts.groups.get(node.id) ?? 0) > 0 && (
-          <span className="shrink-0 text-[10.5px] font-medium tabular-nums text-[var(--text-quaternary)]">
-            {(counts.groups.get(node.id) ?? 0) > 99 ? '99+' : counts.groups.get(node.id)}
-          </span>
-        )}
-      </button>
+        </button>
+        <button
+          type="button"
+          aria-current={active === key ? 'page' : undefined}
+          onClick={() => go({ kind: 'group', groupId: node.id })}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        >
+          {node.icon
+            ? <span aria-hidden="true" className="shrink-0 text-[13px] leading-none" style={{ color: node.color ?? undefined }}>{node.icon}</span>
+            : node.color
+              ? <CircleDot size={13} className="shrink-0" style={{ color: node.color }} aria-hidden="true" />
+              : (collapsed ? <FolderClosed size={13} className="shrink-0 opacity-70" /> : <FolderOpen size={13} className="shrink-0 opacity-70" />)}
+          <span className="min-w-0 flex-1 truncate">{node.name}</span>
+          {(counts.groups.get(node.id) ?? 0) > 0 && (
+            <span className="shrink-0 text-[10.5px] font-medium tabular-nums text-[var(--text-quaternary)]">
+              {(counts.groups.get(node.id) ?? 0) > 99 ? '99+' : counts.groups.get(node.id)}
+            </span>
+          )}
+        </button>
+      </div>
       {!collapsed && (
         <>
           {node.children.map(child => (

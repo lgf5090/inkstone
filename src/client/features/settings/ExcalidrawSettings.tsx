@@ -102,6 +102,22 @@ export function ExcalidrawSettings() {
   }>({ loading: false });
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const providerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const providerIds = Object.keys(PROVIDER_INFO);
+  const hasSelectedProvider = providerIds.includes(settings.aiDefaultProvider);
+
+  const moveProviderSelection = (id: string, key: string) => {
+    const index = providerIds.indexOf(id);
+    if (index < 0) return;
+    let next = index;
+    if (key === 'ArrowDown' || key === 'ArrowRight') next = (index + 1) % providerIds.length;
+    else if (key === 'ArrowUp' || key === 'ArrowLeft') next = (index - 1 + providerIds.length) % providerIds.length;
+    else if (key === 'Home') next = 0;
+    else if (key === 'End') next = providerIds.length - 1;
+    const nextId = providerIds[next]!;
+    update({ aiDefaultProvider: nextId });
+    providerRefs.current[nextId]?.focus();
+  };
 
   const handleTestConnection = async () => {
     setTestResult({ loading: true });
@@ -402,8 +418,13 @@ export function ExcalidrawSettings() {
                 </div>
               )}
 
-              <div data-setting-title={t('settings.excalidraw_ai_provider')} className="space-y-2 pt-1">
-                {Object.entries(PROVIDER_INFO).map(([id, info]) => {
+              <div
+                role="radiogroup"
+                aria-label={t('settings.excalidraw_ai_provider')}
+                data-setting-title={t('settings.excalidraw_ai_provider')}
+                className="space-y-2 pt-1"
+              >
+                {Object.entries(PROVIDER_INFO).map(([id, info], index) => {
                   const conf = settings.aiProviders[id];
                   const isSelected = settings.aiDefaultProvider === id;
                   const hasKey = Boolean(conf?.apiKey?.trim());
@@ -419,9 +440,26 @@ export function ExcalidrawSettings() {
                       }`}
                     >
                       <div className="flex items-center justify-between p-3">
-                        <div
-                          className="cursor-pointer flex-1"
+                        <button
+                          ref={(element) => {
+                            providerRefs.current[id] = element;
+                          }}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSelected}
+                          tabIndex={isSelected || (!hasSelectedProvider && index === 0) ? 0 : -1}
                           onClick={() => update({ aiDefaultProvider: id })}
+                          onKeyDown={(event) => {
+                            if (
+                              !['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(
+                                event.key,
+                              )
+                            )
+                              return;
+                            event.preventDefault();
+                            moveProviderSelection(id, event.key);
+                          }}
+                          className="flex-1 cursor-pointer rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                         >
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-[13px] text-[var(--text-primary)]">
@@ -443,7 +481,7 @@ export function ExcalidrawSettings() {
                                 : t('settings.excalidraw_status_not_configured')}
                             </span>
                           </div>
-                        </div>
+                        </button>
 
                         <div className="flex items-center gap-1">
                           <IconButton
