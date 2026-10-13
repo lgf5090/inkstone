@@ -29,6 +29,8 @@ import { groupsHolding, sortGroups } from './book-groups'
 import { SHELF_NARROW_QUERY, resolveShelfView, type ShelfViewMode } from './shelf-view'
 import { useReaderSettings } from './store/reader-settings'
 import { useMediaQuery } from '../../lib/hooks'
+import { compileQuery, queryMatches } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { SyncLine } from './SyncLine'
 import type { BookRecord, ImportFailure } from './types'
@@ -96,10 +98,11 @@ export function LibraryView() {
     void useNotes.getState().openNote(noteId)
   }
 
+  const pinyinVersion = usePinyinVersion()
+  const bookQuery = useMemo(() => compileQuery(query), [query])
+
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const list = books.filter((book) => !needle
-      || `${book.title} ${book.author} ${book.filename}`.toLowerCase().includes(needle))
+    const list = books.filter((book) => queryMatches(bookQuery, `${book.title} ${book.author} ${book.filename}`) !== null)
       .filter((book) => !groupFilter || (groups.find((one) => one.id === groupFilter)?.bookIds.includes(book.id) ?? false))
       .filter((book) => {
         const state = progress[book.id]
@@ -116,7 +119,7 @@ export function LibraryView() {
     else if (sort === 'progress') sorted.sort((a, b) => (progress[b.id]?.fraction ?? 0) - (progress[a.id]?.fraction ?? 0))
     else sorted.sort((a, b) => (progress[b.id]?.updatedAt ?? 0) - (progress[a.id]?.updatedAt ?? 0) || b.addedAt - a.addedAt)
     return sorted
-  }, [books, filter, groupFilter, groups, highlights, progress, query, sort])
+  }, [bookQuery, books, filter, groupFilter, groups, highlights, pinyinVersion, progress, sort])
 
   /** One book's facts, so the grid, the cover wall and the list cannot disagree about what they show. */
   function shelfProps(book: BookRecord) {

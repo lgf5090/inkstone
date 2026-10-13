@@ -14,6 +14,8 @@ import { confirm } from '../../components/overlay'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { t, useLocale, type MessageKey } from '../../lib/i18n'
+import { compileQuery, queryMatches } from '../../lib/query-match'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { patternSafety } from '@shared/regex-safety'
 import { LinterRuleTitle } from './LinterRuleTitles'
 import { RuleType, type Rule } from '../../lib/linter/rules'
@@ -104,23 +106,23 @@ export function LinterSettings() {
 
   const enabledCount = useMemo(() => rules.filter((rule) => rule.isEnabled(linter)).length, [rules, linter])
 
+  const pinyinVersion = usePinyinVersion()
+  const ruleQuery = useMemo(() => compileQuery(query), [query])
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase()
     const matches = (rule: Rule) => {
       if (typeFilter !== 'all' && rule.type !== typeFilter) return false
-      if (!needle) return true
       const haystack = [
         rule.getName(),
         rule.getDescription(),
         rule.alias,
         ...rule.options.map((option) => t(option.nameKey)),
-      ].join('\n').toLowerCase()
+      ].join('\n')
 
-      return haystack.includes(needle)
+      return queryMatches(ruleQuery, haystack) !== null
     }
 
     return rules.filter(matches)
-  }, [query, rules, typeFilter])
+  }, [ruleQuery, pinyinVersion, rules, typeFilter])
 
   /**
    * Switching a rule on can mean switching others off, and all of it has to be one write. Each patch
