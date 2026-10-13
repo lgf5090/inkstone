@@ -5652,5 +5652,8 @@ console.log(\`Hello, \${name}!\`)
     "rss.versions": "版本",
     "rss.unhide_all": "恢复显示隐藏的文章",
     "rss.words": "{n} 字",
+    "rss.vault_channels": "笔记文件夹",
+    "rss.vault_open_notebook": "在笔记本中打开这个文件夹",
+    "rss.vault_reader_hint": "这些行是你自己的笔记。笔记要在笔记本里读——在那里能编辑、能双链。",
     "settings.rss": "RSS 阅读",
 } as const satisfies Record<BaseMessageKey, string>;

@@ -43,6 +43,9 @@ import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { FolderPicker } from '../folders/FolderPicker'
+import { openFolderView } from '../../lib/folders'
+import { navigateToPath } from '../../lib/app-history'
+import { appTab } from '../shell/app-tabs'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Tooltip } from '../../components/overlay'
 import { Field, Input, Segmented, Select, Slider } from '../../components/form'
@@ -178,6 +181,24 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   }
 
   if (!entry) {
+    if (channel.kind === 'vault') {
+      // The channel's rows are notes, and a note is read where it can be edited, linked and synced.
+      // Saying so, with the way there, beats drawing a worse copy of the notebook.
+      return (
+        <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-[var(--bg-base)] px-6 text-center">
+          <p className="max-w-xs text-[13px] leading-relaxed text-[var(--text-tertiary)]">{t('rss.vault_reader_hint')}</p>
+          <Button
+            size="sm"
+            onClick={() => {
+              openFolderView(useNotes.getState().folders, channel.folderId)
+              navigateToPath(appTab('notes').path)
+            }}
+          >
+            {t('rss.vault_open_notebook')}
+          </Button>
+        </div>
+      )
+    }
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-[var(--bg-base)] px-6">
         <p className="max-w-xs text-center text-[13px] leading-relaxed text-[var(--text-tertiary)]">

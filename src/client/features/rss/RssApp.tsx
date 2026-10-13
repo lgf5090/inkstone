@@ -16,6 +16,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
+import { useNotes } from '../../store/notes'
 import { Button, IconButton } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
 import { channelKey } from '@shared/rss/reading'
@@ -265,6 +266,10 @@ function channelTitle(library: ReturnType<typeof useRss.getState>['library'], ch
   if (channel.kind === 'feed') return library.feeds.find(feed => feed.id === channel.feedId)?.title ?? t('rss.subscriptions')
   if (channel.kind === 'group') return library.groups.find(group => group.id === channel.groupId)?.name ?? t('rss.subscriptions')
   if (channel.kind === 'tag') return channel.tag
+  if (channel.kind === 'vault') {
+    const folder = useNotes.getState().folders.find(item => item.id === channel.folderId)
+    return folder?.name ?? t('rss.vault_channels')
+  }
   if (channel.kind === 'unread') return t('rss.channel_unread')
   if (channel.kind === 'recent') return t('rss.channel_recent')
   if (channel.kind === 'starred') return t('rss.channel_starred')

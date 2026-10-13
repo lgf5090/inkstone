@@ -40,6 +40,9 @@ import { BulkBar, EmptyRow, EntryRows, ListDivider, MAX_LIST_WIDTH, MIN_LIST_WID
 import { filterByPlatform, platformCounts } from '@shared/rss/platform'
 import { useRss } from './store'
 import { channelCachedSince } from './cacheLine'
+import { vaultEntries, vaultFeedId } from './vault'
+import { useNotes } from '../../store/notes'
+import { openSavedNote } from './notes'
 import { shortSince } from '../../lib/time'
 
 const PAGE = 60
@@ -56,15 +59,27 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   const view = state.view()
   const pinyinVersion = usePinyinVersion()
   const query = useMemo(() => compileQuery(view.query), [view.query, pinyinVersion])
+  // A note folder read as a channel: the rows are the folder's notes, newest first, and the filters
+  // that only mean something for articles (unread, starred, later) are not offered for them.
+  const vaultFolderId = state.channel.kind === 'vault' ? state.channel.folderId : ''
+  const noteFolders = useNotes(state => state.folders)
+  const noteList = useNotes(state => state.notes)
+  const vaultRows = useMemo(
+    () => (vaultFolderId ? vaultEntries(Object.values(noteList), noteFolders, vaultFolderId) : []),
+    [vaultFolderId, noteList, noteFolders],
+  )
 
   const listed = useMemo(() => {
-    const all = channelEntries({ library: state.library, articles: state.articles }, state.channel)
+    const all = vaultFolderId ? vaultRows : channelEntries({ library: state.library, articles: state.articles }, state.channel)
     const ordered = sortEntries(all, view.sort, state.library.feeds)
-    const filtered = selectEntries(ordered, { filter: view.filter }, { library: state.library, articles: state.articles })
+    const filtered = vaultFolderId
+      ? ordered
+      : selectEntries(ordered, { filter: view.filter }, { library: state.library, articles: state.articles })
     if (!query.text || query.error) return filtered
     const names = new Map(state.library.feeds.map(feed => [feed.id, feed.title]))
+    for (const folder of noteFolders) names.set(vaultFeedId(folder.id), folder.name)
     return searchEntries(filtered, query, names).map(item => item.entry)
-  }, [state.library, state.articles, state.channel, view.filter, view.sort, query, pinyinVersion])
+  }, [state.library, state.articles, state.channel, view.filter, view.sort, query, pinyinVersion, vaultFolderId, vaultRows, noteFolders])
   // The counts are taken before the platform filter, so choosing one never hides the others away.
   const platforms = useMemo(() => platformCounts(listed), [listed])
   const entries = useMemo(() => filterByPlatform(listed, view.platform), [listed, view.platform])
@@ -82,7 +97,9 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     ? [state.channel.feedId]
     : state.channel.kind === 'group'
       ? state.library.feeds.filter(feed => feed.groupId === (state.channel as { groupId: string }).groupId).map(feed => feed.id)
-      : state.library.feeds.map(feed => feed.id)
+      : state.channel.kind === 'vault'
+        ? []
+        : state.library.feeds.map(feed => feed.id)
   // A list that has not been asked for anything in half a day says so, because the rows look exactly
   // like news and the reader has no other way to tell they are the last visit's.
   const cachedSince = channelCachedSince(channelFeeds.map(id => state.cache[id]))
@@ -115,6 +132,12 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   }, [selected])
 
   const pick = useCallback((entry: RssEntry, event: React.MouseEvent): void => {
+    // A note row is a way into the notebook, not an article to be read here: no selection, no marks,
+    // no reading pane.
+    if (vaultFolderId) {
+      openSavedNote(entry.id)
+      return
+    }
     const index = entries.findIndex(item => item.id === entry.id)
     if (event.metaKey || event.ctrlKey) {
       const next = new Set(picked)
@@ -136,12 +159,15 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     }
     state.openEntry(entry.id)
     onOpen()
-  }, [entries, lastPicked, onOpen, picked, state])
+  }, [entries, lastPicked, onOpen, picked, state, vaultFolderId])
 
   // Keyboard: j/k walk the list, Enter opens, x picks, s stars, Escape leaves the selection.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      // The article marks have no meaning for a note row, and writing one would put a note id into
+      // the account's list of read articles.
+      if (vaultFolderId && (event.key === 'r' || event.key === 'm' || event.key === 's' || event.key === 'x' || event.key === 'v')) return
       const target = event.target as HTMLElement | null
       if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return
       if (event.key === 'Escape') {
@@ -197,12 +223,12 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [entries, selected, limit, state, onOpen, picked, readIds, channelFeeds])
+  }, [entries, selected, limit, state, onOpen, picked, readIds, channelFeeds, vaultFolderId])
 
   // Scrolling past a row is how a reader finishes a channel: the list marks what has gone above the
   // top edge, so a long morning of reading does not end with forty rows still showing as new.
   const markScrolled = useCallback((node: HTMLElement) => {
-    if (!settings.markReadOnScroll) return
+    if (!settings.markReadOnScroll || vaultFolderId) return
     const edge = node.getBoundingClientRect().top
     const done: string[] = []
     for (const row of node.querySelectorAll<HTMLElement>('[data-entry]')) {
@@ -211,7 +237,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     }
     const fresh = done.filter(id => !readIds.has(id))
     if (fresh.length) state.markRead(fresh, true)
-  }, [readIds, settings.markReadOnScroll, state])
+  }, [readIds, settings.markReadOnScroll, state, vaultFolderId])
 
   const title = channelTitle(state)
   const width = Math.min(MAX_LIST_WIDTH, Math.max(MIN_LIST_WIDTH, settings.listWidth))
@@ -235,7 +261,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
           <IconButton
             label={t('rss.refresh_channel')}
             size="sm"
-            disabled={refreshing}
+            disabled={refreshing || !!vaultFolderId}
             aria-busy={refreshing}
             onClick={() => void state.refresh(channelFeeds, { force: true })}
           >
@@ -249,22 +275,24 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
         </Tooltip>
       </div>
       <div className="flex shrink-0 items-center gap-2 px-2 pb-2">
-        <Segmented
-          size="sm"
-          label={t('rss.filter_all')}
-          value={view.filter}
-          onChange={filter => state.setFilter(filter as RssFilter)}
-          options={[
-            { value: 'all', label: t('rss.filter_all') },
-            { value: 'unread', label: t('rss.filter_unread') },
-            { value: 'starred', label: t('rss.filter_starred') },
-            { value: 'later', label: t('rss.filter_later') },
-          ]}
-        />
+        {!vaultFolderId && (
+          <Segmented
+            size="sm"
+            label={t('rss.filter_all')}
+            value={view.filter}
+            onChange={filter => state.setFilter(filter as RssFilter)}
+            options={[
+              { value: 'all', label: t('rss.filter_all') },
+              { value: 'unread', label: t('rss.filter_unread') },
+              { value: 'starred', label: t('rss.filter_starred') },
+              { value: 'later', label: t('rss.filter_later') },
+            ]}
+          />
+        )}
         <div className="ml-auto flex items-center gap-1">
           <SortButton sort={view.sort} onPick={state.setSort} />
           <PlatformButton value={view.platform} counts={platforms} onPick={state.setPlatform} />
-          {unreadIds.length > 0 && (
+          {!vaultFolderId && unreadIds.length > 0 && (
             <Tooltip
               label={markArmed ? t('rss.mark_channel_read_confirm', { n: unreadIds.length }) : t('rss.mark_channel_read')}
               side="bottom"
@@ -316,11 +344,13 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
           groupByDay={view.sort !== 'source'}
           onPick={pick}
           onMenu={(entry, point) => {
+            // Every item in that menu is a question about an article; a note answers to the notebook.
+            if (vaultFolderId) return
             setPreview(null)
             setMenuEntry(entry)
             menu.openAt(point)
           }}
-          onPreview={(entry, feed, rect) => setPreview({ entry, feed, rect })}
+          onPreview={(entry, feed, rect) => { if (!vaultFolderId) setPreview({ entry, feed, rect }) }}
         />
         {entries.length > limit && (
           <div className="px-2 pt-2">

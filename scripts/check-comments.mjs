@@ -4541,6 +4541,13 @@ const allowed = new Map([
     "// A list that has not been asked for anything in half a day says so, because the rows look exactly",
     "// like news and the reader has no other way to tell they are the last visit's.",
     "// The counts are taken before the platform filter, so choosing one never hides the others away.",
+    "// A note folder read as a channel: the rows are the folder's notes, newest first, and the filters",
+    "// that only mean something for articles (unread, starred, later) are not offered for them.",
+    "// A note row is a way into the notebook, not an article to be read here: no selection, no marks,",
+    "// no reading pane.",
+    "// The article marks have no meaning for a note row, and writing one would put a note id into",
+    "// the account's list of read articles.",
+    "// Every item in that menu is a question about an article; a note answers to the notebook.",
   ]],
   ["src/client/features/rss/RssChannelRail.tsx", [
     "/**\n * The channel rail: where the reader is, and the whole subscription library that can be reached.\n *\n * It used to be a list of buttons and nothing else, on the theory that every other question about a\n * subscription belongs to the management dialog. That theory cost the reader two round trips for\n * every ordinary act — move a feed, rename a folder, pause a source — and the dialog has no more\n * room for a folder's colour than the rail does. So the rail now carries the three things a reader\n * does with a subscription without leaving the list of them: a right-click, a drag onto a folder,\n * and a name that can be typed in place.\n *\n * Folders nest, and the nesting is the note folders' own: `RssGroup` is shaped like `Folder` so\n * `buildFolderTree` can arrange both trees, and the colour and icon pickers are the same panels the\n * sidebar uses. Two implementations of \"which folder can this not go into\" is how a subscription\n * ends up inside its own descendant.\n *\n * An unread badge only appears for a feed this device has actually read from. A zero would be a\n * claim about the world the rail has no way to make.\n */",
@@ -4557,6 +4564,8 @@ const allowed = new Map([
     "// is about in `data-menu-target`, so the held press is read from the row under the finger.",
     "// A held finger already opened this menu; the contextmenu event a desktop browser sends for the",
     "// same gesture must not open it a second time.",
+    "// The reader's own notes, as channels. Derived from the notebook's store rather than synced: the",
+    "// folder tree is the same one the sidebar shows, and a second copy of it would drift.",
   ]],
   ["src/client/features/rss/RssKeys.tsx", [
     "/**\n * The shortcut sheet.\n *\n * A reader who has never used an RSS app does not know that `j` and `k` are the whole point of one,\n * and a reader who has used three of them does not want to learn a fourth set. So the keys are\n * listed where they are used, on the surface that answers to them, and every row is a key this app\n * actually handles — a sheet with a key that does nothing is worse than no sheet.\n */",
@@ -4604,6 +4613,8 @@ const allowed = new Map([
     "/* A span, not a heading: the prose sheet sizes every h2 in the article, and this label is\n            chrome beside the answer rather than one of the article's own headings. */",
     "// Two ways out of \"the setting decides where my articles go\": name the folder for this one, or",
     "// keep the reading note and start a working copy beside it.",
+    "// The channel's rows are notes, and a note is read where it can be edited, linked and synced.",
+    "// Saying so, with the way there, beats drawing a worse copy of the notebook.",
   ]],
   ["src/client/features/rss/RssSearchPanel.tsx", [
     "/**\n * Search over every article this device holds, not just the channel on screen.\n *\n * The list's own box filters what is loaded; this answers the other question — \"where did I see\n * that?\" — which a reader asks across months of reading, not one feed. The index is built from the\n * local caches with the bodies dropped, because the search only ever reads a title, a summary and a\n * source name, and a hundred kilobytes of HTML per row would turn a lookup into a stall.\n */",
@@ -4830,6 +4841,17 @@ const allowed = new Map([
     "/**\n * A clock that cannot repeat.\n *\n * The answer budget is spent newest-first, so two answers written in the same millisecond still have\n * to order themselves — otherwise the trim keeps an arbitrary half of them and the reader loses the\n * one they asked for a second ago.\n */",
     "/**\n * The newest answers, inside the article and character ceilings.\n *\n * A summary is a paid, streamed answer, so it is worth keeping — and not worth keeping forever. The\n * budget is spent newest-first, and one article is always kept even if it is alone over the line, so\n * a reader who asked about exactly one enormous article still finds it there.\n */",
     "/** Device data from an earlier build: keep what parses, drop the rest rather than half-trusting it. */",
+  ]],
+  ["src/client/features/rss/vault.test.ts", [
+    "/**\n * A note folder read as a subscription — the conversion, and the two ways it could lie.\n *\n * The rows must be the folder *and everything under it*, because that is what a folder means\n * everywhere else in the app; and a note in the trash or the archive must not appear, because the\n * channel offers no way out of either. The shapes are pinned too: no link, no body, the folder's own\n * id as the source, so nothing downstream mistakes a note for an article it can star or hide.\n */",
+    "// A library that does have an article, so \"nothing\" is an answer rather than an accident.",
+  ]],
+  ["src/client/features/rss/vault.ts", [
+    "/**\n * A folder of the reader's own notes, read as a subscription.\n *\n * The reference reader can point a channel at local vault files, and the useful half of that idea\n * here is the *list*: a folder's notes, newest first, with the same rows, search and sort the feeds\n * get. What is deliberately not copied is the reading pane — a note is read in the notebook, where\n * it can be edited, linked and synced, so opening a row leaves this app rather than rendering a\n * second, worse copy of the note.\n *\n * A note is not an article, and the shapes below say so: no link, no body, and the folder's own name\n * where a source would be. The marks an article can carry (star, later, hide) are not offered for\n * these rows, because writing them would put note ids into the account's article lists.\n */",
+    "/** The channel's id for a note folder, so a row can be traced back to the folder it came from. */",
+    "/** Every note in the folder and under it, newest first, as a row. */",
+    "// `folderDescendantIds` already counts the folder itself, which is what a folder view means here.",
+    "/** The folders that can become a channel, each with how many notes it holds including its own. */",
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
@@ -12200,6 +12222,10 @@ const allowed = new Map([
     "// The open article must not be swapped out from under the reader, and otherwise the newer copy",
     "// wins because it is the one whose body the bridge just fetched.",
     "/**\n * Which of these rows are already read, counting a duplicate as the same article.\n *\n * The read mark lives on the id that was on screen when the reader finished, and the next refresh\n * may present a different id for the same `biz`/`mid`/`idx`. Without this the unread filter would\n * resurrect an article the reader has read, which is the single most annoying thing an RSS app can\n * do to a WeChat subscription.\n */",
+    "/**\n     * A folder of the reader's own notes, read as a channel. The rows are notes and the article\n     * pane never sees them: opening one goes to the notebook, which is where a note is read.\n     */",
+    "// A note folder is not a question about the article library; its rows are built by the client",
+    "// from the notebook's own store. Answering \"everything\" here would be the worst possible default.",
+    "// Nothing to fetch for a note folder: its rows are already on this device.",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

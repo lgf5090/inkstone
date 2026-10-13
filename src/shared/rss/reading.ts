@@ -38,6 +38,11 @@ export type RssChannel
     | { kind: 'group', groupId: string }
     | { kind: 'tag', tag: string }
     | { kind: 'feed', feedId: string }
+    /**
+     * A folder of the reader's own notes, read as a channel. The rows are notes and the article
+     * pane never sees them: opening one goes to the notebook, which is where a note is read.
+     */
+    | { kind: 'vault', folderId: string }
     | { kind: 'starred' }
     | { kind: 'later' }
 
@@ -50,6 +55,8 @@ export function channelKey(channel: RssChannel): string {
       return `group:${channel.groupId}`
     case 'tag':
       return `tag:${channel.tag}`
+    case 'vault':
+      return `vault:${channel.folderId}`
     default:
       return channel.kind
   }
@@ -59,6 +66,7 @@ export function parseChannelKey(key: string): RssChannel {
   if (key.startsWith('feed:')) return { kind: 'feed', feedId: key.slice(5) }
   if (key.startsWith('group:')) return { kind: 'group', groupId: key.slice(6) }
   if (key.startsWith('tag:')) return { kind: 'tag', tag: key.slice(4) }
+  if (key.startsWith('vault:')) return { kind: 'vault', folderId: key.slice(6) }
   if (key === 'starred') return { kind: 'starred' }
   if (key === 'later') return { kind: 'later' }
   if (key === 'unread') return { kind: 'unread' }
@@ -141,6 +149,9 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
   const feeds = feedsForChannel(view.library, channel)
   const limit = options.perFeedLimit ?? MERGED_PER_FEED
   const listed = (): RssEntry[] => {
+    // A note folder is not a question about the article library; its rows are built by the client
+    // from the notebook's own store. Answering "everything" here would be the worst possible default.
+    if (channel.kind === 'vault') return []
     if (channel.kind === 'starred') return byNewest(allEntries(view).filter(entry => marks.starred.has(entry.id) && keep(entry)))
     if (channel.kind === 'later') return byNewest(allEntries(view).filter(entry => marks.later.has(entry.id) && keep(entry)))
     if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry)))
@@ -174,6 +185,8 @@ export function feedsForChannel(library: RssLibrary, channel: RssChannel): RssFe
     const want = tagKey(channel.tag)
     return library.feeds.filter(feed => feed.tags.some(tag => tagInScope(tagKey(tag), want)))
   }
+  // Nothing to fetch for a note folder: its rows are already on this device.
+  if (channel.kind === 'vault') return []
   return library.feeds
 }
 

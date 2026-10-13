@@ -5652,6 +5652,9 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "rss.versions": "Version",
     "rss.unhide_all": "Show hidden articles again",
     "rss.words": "{n} words",
+    "rss.vault_channels": "Note folders",
+    "rss.vault_open_notebook": "Open this folder in the notebook",
+    "rss.vault_reader_hint": "These rows are your own notes. A note is read in the notebook, where it can be edited and linked.",
     "settings.rss": "RSS",
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;

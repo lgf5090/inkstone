@@ -16,7 +16,7 @@
  * An unread badge only appears for a feed this device has actually read from. A zero would be a
  * claim about the world the rail has no way to make.
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowDown,
   ArrowUp,
@@ -59,6 +59,8 @@ import { api } from '../../lib/api'
 import { displayImageUrl } from './sanitize'
 import { copyFeedUrlItem, moveToFolderItem, RssContextMenu, tagsItem } from './rssMenus'
 import { useLongPress } from '../workspace/context-menu/use-long-press'
+import { useNotes } from '../../store/notes'
+import { vaultChannels } from './vault'
 import { FeedMark, feedIconUrl } from './FeedMark'
 import { useRss } from './store'
 import { feedCacheLine } from './cacheLine'
@@ -100,6 +102,11 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
     for (const tag of feed.tags) if (!tagDisplay.has(tagKey(tag))) tagDisplay.set(tagKey(tag), tag)
   }
   const tags = [...tagCounts(library).entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  // The reader's own notes, as channels. Derived from the notebook's store rather than synced: the
+  // folder tree is the same one the sidebar shows, and a second copy of it would drift.
+  const noteFolders = useNotes(state => state.folders)
+  const noteList = useNotes(state => state.notes)
+  const vault = useMemo(() => vaultChannels(noteFolders, Object.values(noteList)), [noteFolders, noteList])
   const hiddenCount = library.hiddenIds.length
 
   // One gesture for the whole rail: a phone has no right button, and every row carries the target it
@@ -186,6 +193,24 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
             depth={0}
           />
         ))}
+
+        {vault.length > 0 && (
+          <>
+            <div className="mt-4 mb-1 px-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)] uppercase">
+              {t('rss.vault_channels')}
+            </div>
+            {vault.map(folder => (
+              <Row
+                key={folder.id}
+                label={folder.name}
+                icon={FolderOpen}
+                count={folder.count}
+                active={active === `vault:${folder.id}`}
+                onSelect={() => go({ kind: 'vault', folderId: folder.id })}
+              />
+            ))}
+          </>
+        )}
 
         {tags.length > 0 && (
           <>

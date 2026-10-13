@@ -379,7 +379,9 @@ export const useRss = create<RssState>((set, get) => {
       ? feeds.filter(feed => feed.id === channel.feedId)
       : channel.kind === 'group'
         ? feeds.filter(feed => feed.groupId === channel.groupId)
-        : feeds
+        : channel.kind === 'vault'
+          ? []
+          : feeds
     await Promise.all(members.slice(0, PREPARE_LIMIT).map(feed => ensureArticles(feed.id)))
   }
 
