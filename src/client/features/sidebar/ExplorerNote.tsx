@@ -12,7 +12,7 @@ import { useUi } from '../../store/ui';
 import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { writeNoteDrag } from '../../lib/note-drag';
-import { collapseOrLeave, moveTreeFocus } from './tree-keyboard';
+import { collapseOrLeave, moveTreeFocus } from '../../components/tree';
 import { noteFolderOwner } from '../../lib/folders';
 import { splitByRanges } from '../../lib/fuzzy';
 import { queryMatches, type Query } from '../../lib/query-match';

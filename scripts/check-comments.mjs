@@ -6007,9 +6007,6 @@ const allowed = new Map([
     "// Document order is the whole claim: a pinned block that sits after the list",
     "// would pin over nothing and let the toolbar scroll away.",
   ]],
-  ["src/client/features/sidebar/tree-keyboard.ts", [
-    "/**\n * Re-exported from the shared tree toolkit. `ExplorerNote.tsx` still imports these by their old\n * path; new trees should import from `../../components/tree` instead.\n */",
-  ]],
   ["src/client/features/tags/SidebarTags.tsx", [
     "// Expansion is keyed by path, so a rename or a move would otherwise collapse the branch the",
     "// user was looking at. Replay the path change against the open set as the tags arrive.",
