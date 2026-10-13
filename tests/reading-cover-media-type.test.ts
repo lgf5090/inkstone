@@ -1,6 +1,7 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { coverMediaType } from '../src/client/features/reading/engine/book-import'
+import { coverMediaType, importBook } from '../src/client/features/reading/engine/book-import'
+import { fixtureEpub, TINY_JPEG } from './reading-fixtures'
 
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]
 const JPEG = [0xff, 0xd8, 0xff, 0xe0]
@@ -32,5 +33,41 @@ describe('what a cover really is', () => {
 
   it('does not invent a type for a name that has no extension', () => {
     expect(coverMediaType(Uint8Array.from([1, 2, 3, 4]), 'cover')).toBe('')
+  })
+})
+
+/**
+ * What a whole import does with the cover a package declares, which is where the two rules above meet a
+ * real book. A shelf tile of markup is what one reader's novel produced: its package names a real
+ * cover.jpg the EPUB 2 way, the reader missed that and took the guide's cover *page* instead.
+ */
+async function imported(coverKind: 'property' | 'meta' | 'page') {
+  const bytes = fixtureEpub({ coverKind })
+  const file = new File([bytes] as unknown as BlobPart[], `cover-${coverKind}.epub`, { type: 'application/epub+zip' })
+  return importBook(file)
+}
+
+describe('the cover a book import keeps', () => {
+  it('keeps the picture an EPUB 3 property names', async () => {
+    const one = await imported('property')
+    expect(one.coverType).toBe('image/png')
+    expect(one.record.coverPath).toBe('OEBPS/images/cover.png')
+  })
+
+  it('keeps the picture an EPUB 2 meta names', async () => {
+    const one = await imported('meta')
+    expect(one.coverType).toBe('image/jpeg')
+    expect(Array.from(one.cover ?? [])).toEqual(Array.from(TINY_JPEG))
+    expect(one.record.coverPath).toBe('OEBPS/images/cover.jpg')
+  })
+
+  it('keeps nothing when the declared cover is a page', async () => {
+    const one = await imported('page')
+    expect(one.cover).toBeNull()
+    expect(one.coverType).toBe('')
+    // The record has to stop claiming one too, or the device offers the bytes up as a cover to store.
+    expect(one.record.coverPath).toBeNull()
+    // And the book itself is still a book.
+    expect(one.record.title.length).toBeGreaterThan(0)
   })
 })

@@ -14,8 +14,8 @@ import { create } from 'zustand'
 import { createStore, del as idbRemove, get as idbGet, set as idbSet } from 'idb-keyval'
 import { CLIENT_DATABASE_NAME } from '../../../lib/runtime'
 import { randomLocalId } from '../../../lib/random-id'
-import { importBook, ImportRejected } from '../engine/book-import'
-import { READER_COVER_TYPES } from '@shared/constants'
+import { coverMediaType, importBook, ImportRejected } from '../engine/book-import'
+import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, uploadCoverBytes, type SyncState } from './cloud'
 import { createGroup, deleteGroup, groupName, normaliseGroups, pruneGroups, renameGroup, toggleBook, type BookGroup, type GroupResult } from '../book-groups'
 import type { ReaderUsage } from '@shared/types'
@@ -191,9 +191,35 @@ async function loadLibrary(user: string | null): Promise<PersistedLibrary> {
   }
 }
 
-/** A stable id for a book that survives re-importing the same file, so highlights are not orphaned. */
-function identityOf(record: { filename: string; size: number }, identifier?: string): string {
-  return identifier || `file:${record.filename}:${record.size}`
+/**
+ * A stable id for a book that survives re-importing the same file, so highlights are not orphaned.
+ *
+ * The name in the middle is the reader's own, in their own language — which is exactly why the id is
+ * minted from a cleaned copy of it. The shelf route refuses a name with a path separator or a dot-dot in
+ * it, because its id becomes an R2 key, and a refusal at sync time reads to the reader as a broken app.
+ * Only characters the route cannot accept are replaced, so a name that was already well formed keeps its
+ * bytes: an id is a key, and changing one would file a book's highlights under something new.
+ *
+ * A name longer than the ceiling is hashed rather than sliced, for the same reason — the sliced form
+ * would name a different book the next time the same file arrived.
+ */
+const ID_NAME_UNSAFE = /[\\/\u0000-\u001f\u007f-\u009f"]/g
+
+function idSafeName(value: string): string {
+  return value.replace(ID_NAME_UNSAFE, '_').replace(/\.\./g, '.')
+}
+
+/** Length in front of a djb2 of the name, so two long names of different lengths never collide. */
+function digest(value: string): string {
+  let hash = 5381
+  for (let index = 0; index < value.length; index++) hash = ((hash << 5) + hash + value.charCodeAt(index)) | 0
+  return `n${value.length.toString(36)}-${(hash >>> 0).toString(36)}`
+}
+
+function identityOf(record: { filename: string; size: number }): string {
+  const name = idSafeName(record.filename)
+  const plain = `file:${name}:${record.size}`
+  return plain.length <= LIMITS.readerIdMaxChars ? plain : `file:${digest(name)}:${record.size}`
 }
 
 export const useLibrary = create<LibraryState>((set, get) => {
@@ -213,8 +239,18 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const data = await loadLibrary(userId)
       const covers: Record<string, string> = {}
       await Promise.all(data.books.map(async (book) => {
-        const blob = await idbGet<Blob>(keyFor(userId, `cover:${book.id}`), store).catch(() => null)
-        if (blob) covers[book.id] = URL.createObjectURL(blob)
+        const key = keyFor(userId, `cover:${book.id}`)
+        const blob = await idbGet<Blob>(key, store).catch(() => null)
+        if (!blob) return
+        // A cover kept before its bytes were checked can be the page that *draws* the cover rather than
+        // an image, and a tile of markup renders as a broken picture. The stored label is the thing that
+        // lied, so look at the header; the bytes are re-derivable from the book, so the bad one goes.
+        const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer())
+        if (!coverMediaType(head, null)) {
+          await idbRemove(key, store).catch(() => {})
+          return
+        }
+        covers[book.id] = URL.createObjectURL(blob)
       }))
       set({ ...data, covers, status: 'ready' })
       // A second device or a cleared browser has nothing to lose by adopting the shelf, and everything
@@ -245,7 +281,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           known.add(id)
           await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
           const coverBlob = imported.cover
-            ? new Blob([imported.cover as unknown as BlobPart], { type: imported.coverType || 'image/png' })
+            ? new Blob([imported.cover as unknown as BlobPart], { type: imported.coverType })
             : null
           if (coverBlob) {
             await idbSet(keyFor(userId, `cover:${id}`), coverBlob, store)

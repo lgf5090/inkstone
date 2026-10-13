@@ -142,9 +142,13 @@ describe('what a client is not allowed to choose', () => {
   })
 
   it('refuses an id that could climb out of the account folder', async () => {
-    for (const id of ['../../etc/passwd', 'a'.repeat(120), '', 'reader/../bob/x', 'a~b']) {
+    const tooLong = 'a'.repeat(LIMITS.readerIdMaxChars + 1)
+    const ids = ['../../etc/passwd', tooLong, '', 'reader/../bob/x', '~home', 'a/b', 'a\\b', 'a"b', 'a\u0001b', ' lead']
+    // A dot-dot with no separator around it cannot climb anything on its own, and is refused anyway:
+    // the id is a path component, and the guard should not depend on nobody ever adding a join.
+    for (const id of [...ids, '..', 'a..b', 'file:x..y.epub:1']) {
       const response = await send('PUT', '/library', { library: library({ books: [book({ id })] }) })
-      expect(response.status, id).toBe(400)
+      expect(response.status, JSON.stringify(id)).toBe(400)
     }
   })
 
@@ -156,6 +160,50 @@ describe('what a client is not allowed to choose', () => {
     const got = await send('GET', `/books/${encodeURIComponent(id)}/blob`)
     expect(got.status).toBe(200)
     expect(buckets.has(`reader/${ALICE}/${id}.epub`)).toBe(true)
+  })
+
+  /**
+   * A book named in Chinese is the common case for this shelf and was a 400 until the id check was an
+   * ASCII allowlist, so the whole path gets walked here: the row, its bytes, its cover, its download
+   * header and its deletion. The header is the part that would have failed next — a field value is a
+   * ByteString, so the name goes out percent-encoded.
+   */
+  it('walks a book whose name is not ASCII from the row to the download', async () => {
+    const id = 'file:凡人修仙传.epub:8500047'
+    const name = '凡人修仙传.epub'
+    const put = await send('PUT', '/library', { library: library({ books: [book({ id, filename: name })] }) })
+    expect(put.status).toBe(200)
+    const read = await (await send('GET', '/library')).json() as { library: any }
+    expect(read.library.books.map((one: any) => one.id)).toEqual([id])
+    expect(read.library.books[0].filename).toBe(name)
+
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 7])
+    expect((await send('PUT', `/books/${encodeURIComponent(id)}/blob`, undefined, bytes)).status).toBe(200)
+    expect(buckets.has(`reader/${ALICE}/${id}.epub`)).toBe(true)
+
+    const got = await send('GET', `/books/${encodeURIComponent(id)}/blob`)
+    expect(got.status).toBe(200)
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(bytes)
+    const disposition = got.headers.get('content-disposition') ?? ''
+    // The name the reader gave the file, not the id it was filed under.
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? ''
+    expect(decodeURIComponent(encoded)).toBe(name)
+    // A header value is a ByteString, so the plain half has to hold no character above 0x7e and no quote
+    // that would end the quoted-string early.
+    const plain = disposition.match(/filename="([^"]*)"/)?.[1] ?? ''
+    expect(plain).toBeTruthy()
+    expect(plain).toMatch(/^[\x20-\x7e]+$/)
+    expect(plain.endsWith('.epub')).toBe(true)
+
+    const cover = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1])
+    const coverPut = await app.request(`/api/reader/books/${encodeURIComponent(id)}/cover`, {
+      method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: cover as unknown as BodyInit,
+    }, env())
+    expect(coverPut.status).toBe(200)
+    expect((await send('GET', `/books/${encodeURIComponent(id)}/cover`)).status).toBe(200)
+
+    expect((await send('DELETE', `/books/${encodeURIComponent(id)}`)).status).toBe(200)
+    expect(buckets.has(`reader/${ALICE}/${id}.epub`)).toBe(false)
   })
 
   it('builds the R2 key itself, from the row it already trusts', async () => {
@@ -257,6 +305,23 @@ describe('the account budget', () => {
 })
 
 describe('the cover of a book', () => {
+  // The route reads the header of what it is given, so a cover fixture has to be a real one.
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 1, 2])
+  const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 20, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 3, 4])
+
+  it('refuses bytes that are not the image the type claims', async () => {
+    await send('PUT', '/library', { library: library({ books: [book({ hasCover: true })] }) })
+    const markup = new TextEncoder().encode('<html xmlns="http://www.w3.org/1999/xhtml"><body>x</body></html>')
+    const put = await app.request('/api/reader/books/book-1/cover', {
+      method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: markup as unknown as BodyInit,
+    }, { DB: db, FILES: r2 } as unknown as AppBindings['Bindings'])
+    expect(put.status).toBe(400)
+    // Nothing was stored, so the account is not charged for an object it does not have.
+    expect(buckets.size).toBe(0)
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.books[0].coverUrl).toBeNull()
+  })
+
   it('stores it apart from the book and hands it back', async () => {
     await send('PUT', '/library', { library: library({ books: [book({ hasCover: true })] }) })
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])
@@ -298,13 +363,15 @@ describe('the cover of a book', () => {
     const put = (bytes: Uint8Array) => app.request('/api/reader/books/book-1/cover', {
       method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: bytes,
     }, { DB: db, FILES: r2 } as unknown as AppBindings['Bindings'])
-    await put(new Uint8Array(4096))
+    // Sized covers, with a real header on the front, because the route now reads it.
+    const pngOf = (size: number) => { const one = new Uint8Array(size); one.set(PNG, 0); return one }
+    await put(pngOf(4096))
     // The shelf is nearly full; the same size again is legal because the old cover is given back first.
     await send('PUT', '/library', {
       library: library({ books: [book({ hasCover: true, size: LIMITS.readerQuotaBytes - 4096 })] }),
     })
-    expect((await put(new Uint8Array(4096))).status).toBe(200)
-    const over = await (await put(new Uint8Array(8192))).json() as { error: { code: string } }
+    expect((await put(pngOf(4096))).status).toBe(200)
+    const over = await (await put(pngOf(8192))).json() as { error: { code: string } }
     expect(over.error.code).toBe('reader_space_exceeded')
   })
 
@@ -312,7 +379,7 @@ describe('the cover of a book', () => {
     const first = await (await send('PUT', '/library', { library: library({ books: [book({ hasCover: true })] }) })).json() as { missingCovers: string[] }
     expect(first.missingCovers).toEqual(['book-1'])
     await app.request('/api/reader/books/book-1/cover', {
-      method: 'PUT', headers: { 'Content-Type': 'image/webp' }, body: new Uint8Array([1, 2]),
+      method: 'PUT', headers: { 'Content-Type': 'image/webp' }, body: WEBP,
     }, { DB: db, FILES: r2 } as unknown as AppBindings['Bindings'])
     const again = await (await send('PUT', '/library', { library: library({ books: [book({ hasCover: true })] }) })).json() as { missingCovers: string[] }
     expect(again.missingCovers).toEqual([])
@@ -321,7 +388,7 @@ describe('the cover of a book', () => {
   it('takes the cover object with the book', async () => {
     await send('PUT', '/library', { library: library() })
     await app.request('/api/reader/books/book-1/cover', {
-      method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: new Uint8Array([1, 2]),
+      method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: PNG,
     }, { DB: db, FILES: r2 } as unknown as AppBindings['Bindings'])
     expect(buckets.size).toBe(1)
     await send('DELETE', '/books/book-1')

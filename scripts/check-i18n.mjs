@@ -34,6 +34,8 @@ const allowedHanFragments = new Map([
         '\u67d0\u4f5c\u8005',
         '\u4e0b\u4e00\u7ae0',
         '\u5f3a\u8c03',
+        '\u5c01\u9762',
+        '\u5c01\u9762',
         '\u3002',
     ]],
     // A member name with a space and a Han character is the case under test: the reader has to answer a
