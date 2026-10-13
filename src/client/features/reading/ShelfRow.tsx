@@ -6,6 +6,7 @@
  * title, gives the cover only enough room to be a fingerprint, and puts the numbers a reader actually
  * compares — progress, marks, when they last read it — on their own line.
  */
+import { useState } from 'react'
 import { BookOpen, MessageSquareQuote, PenLine } from 'lucide-react'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
@@ -46,6 +47,9 @@ export function ShelfRow({
   onMenu,
 }: ShelfRowProps) {
   const lastRead = formatLastRead(lastReadAt)
+  // Same rule as the card: a cover that will not decode is the placeholder's job, not a broken picture.
+  const [undecodable, setUndecodable] = useState<string | null>(null)
+  const shown = coverUrl && undecodable !== coverUrl ? coverUrl : null
   return (
     <div className="reader-shelf-row group relative flex items-center gap-3 rounded-[var(--r-md)] ps-2 py-2 hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]">
       <button
@@ -55,8 +59,8 @@ export function ShelfRow({
         className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2"
         aria-label={t('reading.open_book_value0', { value0: book.title })}
       >
-        {coverUrl ? (
-          <img src={coverUrl} alt="" loading="lazy" className="h-[52px] w-[38px] shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] object-cover" />
+        {shown ? (
+          <img src={shown} alt="" loading="lazy" className="h-[52px] w-[38px] shrink-0 rounded-[var(--r-sm)] border border-[var(--border-subtle)] object-cover" onError={() => setUndecodable(shown)} />
         ) : (
           <span className="flex h-[52px] w-[38px] shrink-0 items-center justify-center rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
             <BookOpen size={15} className="text-[var(--text-quaternary)]" />

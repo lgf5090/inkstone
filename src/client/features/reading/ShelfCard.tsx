@@ -6,6 +6,7 @@
  * what the cover cannot say, and the count of marked passages is what makes a book look worth opening
  * again rather than merely unread.
  */
+import { useState } from 'react'
 import { BookOpen, MessageSquareQuote, PenLine } from 'lucide-react'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
@@ -48,6 +49,11 @@ export function ShelfCard({
   onMenu,
 }: ShelfCardProps) {
   const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100)
+  // A cover that will not decode is the placeholder's job, not a broken picture: the bytes can be a cover
+  // stored before the shelf checked what it was given, or an object that has since gone. Keyed by the URL
+  // so a cover that later arrives under a new one paints again.
+  const [undecodable, setUndecodable] = useState<string | null>(null)
+  const shown = coverUrl && undecodable !== coverUrl ? coverUrl : null
   return (
     <div className="reader-shelf-card group relative flex flex-col">
       <button
@@ -57,13 +63,14 @@ export function ShelfCard({
         className="relative block overflow-hidden rounded-[var(--r-md)] text-left focus-visible:outline-2 focus-visible:outline-offset-2"
         aria-label={t('reading.open_book_value0', { value0: book.title })}
       >
-        {coverUrl ? (
+        {shown ? (
           <img
-            src={coverUrl}
+            src={shown}
             alt=""
             loading="lazy"
             className="reader-shelf-cover"
             data-fit={coverFit === 'contain' ? 'contain' : undefined}
+            onError={() => setUndecodable(shown)}
           />
         ) : (
           <span className="reader-shelf-cover flex flex-col items-center justify-center gap-1.5 border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 text-center">

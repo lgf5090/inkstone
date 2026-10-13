@@ -196,6 +196,24 @@ export interface ImportedImage {
   bytes: Uint8Array
 }
 
+/**
+ * A cover that is not a picture is no cover at all.
+ *
+ * An EPUB's cover href commonly points at the XHTML *page* that draws the cover rather than at an image,
+ * and its href is often extensionless, so nothing about it announces that it is HTML. Keeping those bytes
+ * made a shelf tile of a broken image and put 1 kB of markup in storage under an image name — which is
+ * what a real reader's novel did here. Dropping it leaves the honest placeholder.
+ */
+function withRealCover(imported: ImportedImage): ImportedImage {
+  if (!imported.cover || IMAGE_TYPE.test(imported.coverType)) return imported
+  return {
+    ...imported,
+    cover: null,
+    coverType: '',
+    record: { ...imported.record, coverPath: null },
+  }
+}
+
 /** Read one file into a shelf record, a cover and the bytes to keep. */
 export async function importBook(file: File): Promise<ImportedImage> {
   if (file.size > MAX_BOOK_BYTES) throw new ImportRejected('size')
@@ -203,7 +221,7 @@ export async function importBook(file: File): Promise<ImportedImage> {
   if (!bytes.byteLength) throw new ImportRejected('corrupt')
   if (startsWith(bytes, PDF_MAGIC)) {
     const read = await readPdf(file, bytes)
-    return { ...read, bytes }
+    return withRealCover({ ...read, bytes })
   }
   if (!startsWith(bytes, ZIP_MAGIC)) throw new ImportRejected('format')
   let archive: ZipArchive
@@ -215,5 +233,5 @@ export async function importBook(file: File): Promise<ImportedImage> {
   const read = archive.has('META-INF/container.xml')
     ? await readEpub(file, archive)
     : await readCbz(file, archive)
-  return { ...read, bytes }
+  return withRealCover({ ...read, bytes })
 }

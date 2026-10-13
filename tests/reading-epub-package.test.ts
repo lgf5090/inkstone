@@ -75,9 +75,25 @@ describe('parseEpubPackage', () => {
     ])
   })
 
-  it('finds the cover through the metadata reference', async () => {
+  /**
+   * The two ways a package can name its cover, asked separately. This one used to be a single check on a
+   * fixture that declared the cover both ways, so the EPUB 2 branch — `<meta name="cover">` inside
+   * <metadata>, which is where the spec puts it — was never actually exercised, and a book that only has
+   * that fell through to the guide's cover page.
+   */
+  it('finds the cover an EPUB 3 property names', async () => {
     const pkg = await packageOf(fixtureEpub())
     expect(pkg.coverHref).toBe('OEBPS/images/cover.png')
+  })
+
+  it('finds the cover an EPUB 2 metadata reference names', async () => {
+    const pkg = await packageOf(fixtureEpub({ coverKind: 'meta' }))
+    expect(pkg.coverHref).toBe('OEBPS/images/cover.jpg')
+  })
+
+  it('takes the metadata reference over the guide, whose href is a different page', async () => {
+    const pkg = await packageOf(fixtureEpub({ coverKind: 'page' }))
+    expect(pkg.coverHref).toBe('OEBPS/coverpage.html')
   })
 
   it('carries a right-to-left book', async () => {

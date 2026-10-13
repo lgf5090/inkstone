@@ -132,7 +132,24 @@ p.note > span { color: "quoted } brace"; background: url(../images/note.png); }
 
 export const EXTRA_CSS = `.imported { text-indent: 1em; }`
 
-function opf(withNav: boolean, direction = ''): string {
+/** A JPEG header and trailer. A cover fixture only has to be something the reader will call a picture. */
+export const TINY_JPEG = new Uint8Array([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+  0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
+])
+
+/** The page many EPUB 2 books name as their cover, which is markup and not a picture. */
+const COVER_PAGE = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>封面</title></head>
+<body><div style="text-align:center"><img alt="封面" src="images/cover.jpg"/></div></body></html>`
+
+function opf(withNav: boolean, direction = '', coverKind: CoverKind = 'property'): string {
+  const declared = coverKind === 'page'
+    ? '<item id="coverpage" href="coverpage.html" media-type="application/xhtml+xml"/>'
+    : coverKind === 'meta'
+      ? '<item id="cover-image" href="images/cover.jpg" media-type="image/jpeg"/>'
+      : '<item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image"/>'
+  const pointsTo = coverKind === 'page' ? 'coverpage' : 'cover-image'
   return `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="${withNav ? '3.0' : '2.0'}" unique-identifier="id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -141,13 +158,13 @@ function opf(withNav: boolean, direction = ''): string {
     <dc:language>zh-CN</dc:language>
     <dc:identifier id="id">urn:uuid:1234</dc:identifier>
     <dc:publisher>测试出版社</dc:publisher>
-    <meta name="cover" content="cover-image"/>
+    <meta name="cover" content="${pointsTo}"/>
   </metadata>
   <manifest>
     <item id="c1" href="text/chapter1.xhtml" media-type="application/xhtml+xml"/>
     <item id="c2" href="text/chapter 2.xhtml" media-type="application/xhtml+xml"/>
     <item id="css" href="style.css" media-type="text/css"/>
-    <item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image"/>
+    ${declared}
     ${withNav ? '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>' : ''}
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
   </manifest>
@@ -171,23 +188,32 @@ const CHAPTER2 = `<?xml version="1.0" encoding="utf-8"?>
 
 const text = (value: string): RawMember['raw'] => encoder.encode(value)
 
+/** How a book declares its cover: the EPUB 3 property, the EPUB 2 meta, or a page that is not a picture. */
+export type CoverKind = 'property' | 'meta' | 'page'
+
 /** A two-chapter EPUB with a nav document, or an EPUB 2 that only carries an NCX. */
-export function fixtureEpubArchive(options: { nav?: boolean; direction?: string } = {}): BuiltZip {
+export function fixtureEpubArchive(options: { nav?: boolean; direction?: string; coverKind?: CoverKind } = {}): BuiltZip {
   const withNav = options.nav !== false
+  const coverKind = options.coverKind ?? 'property'
+  const coverMember = coverKind === 'page'
+    ? { name: 'OEBPS/coverpage.html', raw: text(COVER_PAGE), payload: deflateRawSync(text(COVER_PAGE)) }
+    : coverKind === 'meta'
+      ? { name: 'OEBPS/images/cover.jpg', raw: TINY_JPEG, payload: TINY_JPEG, method: 0 }
+      : { name: 'OEBPS/images/cover.png', raw: TINY_PNG, payload: TINY_PNG, method: 0 }
   return makeZip([
     { name: 'mimetype', raw: text('application/epub+zip'), payload: text('application/epub+zip'), method: 0 },
     { name: 'META-INF/container.xml', raw: text(CONTAINER_XML), payload: deflateRawSync(text(CONTAINER_XML)) },
-    { name: 'OEBPS/content.opf', raw: text(opf(withNav, options.direction)), payload: deflateRawSync(text(opf(withNav, options.direction))) },
+    { name: 'OEBPS/content.opf', raw: text(opf(withNav, options.direction, coverKind)), payload: deflateRawSync(text(opf(withNav, options.direction, coverKind))) },
     { name: 'OEBPS/style.css', raw: text(BOOK_CSS), payload: deflateRawSync(text(BOOK_CSS)) },
     { name: 'OEBPS/extra.css', raw: text(EXTRA_CSS), payload: deflateRawSync(text(EXTRA_CSS)) },
     { name: 'OEBPS/nav.xhtml', raw: text(NAV_XHTML), payload: deflateRawSync(text(NAV_XHTML)) },
     { name: 'OEBPS/toc.ncx', raw: text(NCX_XML), payload: deflateRawSync(text(NCX_XML)) },
     { name: 'OEBPS/text/chapter1.xhtml', raw: text(CHAPTER1), payload: deflateRawSync(text(CHAPTER1)) },
     { name: 'OEBPS/text/chapter 2.xhtml', raw: text(CHAPTER2), payload: deflateRawSync(text(CHAPTER2)) },
-    { name: 'OEBPS/images/cover.png', raw: TINY_PNG, payload: TINY_PNG, method: 0 },
+    coverMember,
   ])
 }
 
-export function fixtureEpub(options: { nav?: boolean; direction?: string } = {}): Uint8Array {
+export function fixtureEpub(options: { nav?: boolean; direction?: string; coverKind?: CoverKind } = {}): Uint8Array {
   return fixtureEpubArchive(options).bytes
 }

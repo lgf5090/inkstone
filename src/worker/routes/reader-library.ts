@@ -53,15 +53,31 @@ const CONTENT_TYPES: Record<BookFormat, string> = {
 }
 
 /**
- * Ids the reader app mints itself: `book-…`, and `file:<name>:<size>` for a book identified by its file.
+ * Ids the reader app mints itself: `book-…` from the package, and `file:<name>:<size>` when the only
+ * handle it has is the file the reader dropped in.
  *
- * Colons, dots and dashes are allowed because the shelf already uses them; what may not appear is a path
- * separator or `..`, because the id is a component of the R2 key.
+ * The name in the middle is whatever the reader called the file, in their own language, with their own
+ * punctuation, so this is a list of what may NOT appear rather than an ASCII allowlist. An allowlist
+ * rejected most of the world's books: a file named in Chinese got a 400 on sync, and every one of my
+ * tests passed because every fixture I had written was named in ASCII.
+ *
+ * What still may not appear, and why: a path separator or a dot-dot, because the id is a component of
+ * the R2 key; a double quote or a control character, because the id also goes into a download header;
+ * a leading tilde, because that is how a home-relative path starts; leading or trailing whitespace,
+ * because a device claims a book it already holds by comparing ids byte for byte. An id is never
+ * trimmed into validity, so these are refused rather than fixed.
  */
-const ID = /^[A-Za-z0-9_:.-]{1,80}$/
+const ID_UNSAFE = /[\\/\u0000-\u001f\u007f-\u009f"]/
+
+function isSaneId(value: string): boolean {
+  if (!value || value.length > LIMITS.readerIdMaxChars) return false
+  if (value.trim() !== value) return false
+  if (value.includes('..') || value.startsWith('~')) return false
+  return !ID_UNSAFE.test(value)
+}
 
 function requireId(value: string | undefined, what: string): string {
-  if (!value || !ID.test(value) || value.includes('..') || value.includes('~')) {
+  if (typeof value !== 'string' || !isSaneId(value)) {
     throw ApiError.badRequest(`${what} is not a valid identifier`)
   }
   return value
@@ -77,8 +93,8 @@ function asRecord(value: unknown, what: string): Record<string, unknown> {
 /**
  * An identifier is checked before it is used, never trimmed into validity.
  *
- * `textOf` would slice an 80-character id down to something that passes the pattern, and the reader's
- * book would come back under a different name than it went out.
+ * `textOf` would slice an id that is a character over the ceiling down to something that passes, and the
+ * reader's book would come back under a different name than it went out.
  */
 function idOf(row: Record<string, unknown>, key: string, what: string): string {
   const value = row[key]
@@ -95,6 +111,36 @@ function textOf(row: Record<string, unknown>, key: string, max: number, fallback
 function numberOf(row: Record<string, unknown>, key: string, fallback = 0): number {
   const value = row[key]
   return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : fallback
+}
+
+/**
+ * The name a download arrives with, spelled the way a header has to be.
+ *
+ * A header value is a ByteString: a name in Chinese, which is the whole point of this shelf, throws on
+ * `Response` construction rather than arriving mangled. So the readable name goes out in `filename*`
+ * percent-encoded as UTF-8 (RFC 5987), with an ASCII `filename` in front of it for a client that does not
+ * know the extension.
+ */
+const ATTR_CHAR = /[A-Za-z0-9!#$&+\-.^_|~]/
+
+function rfc5987(value: string): string {
+  let out = ''
+  for (const byte of new TextEncoder().encode(value)) {
+    const char = String.fromCharCode(byte)
+    out += ATTR_CHAR.test(char) ? char : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
+  }
+  return out
+}
+
+/** The name the reader gave the file, or the id if the row predates it, with the format's extension on. */
+function downloadFilename(stored: string, id: string, extension: string): string {
+  const base = stored.trim() || id.trim() || 'book'
+  return /\.[A-Za-z0-9]+$/.test(base) ? base : `${base}.${extension}`
+}
+
+function contentDisposition(full: string): string {
+  const ascii = full.replace(/[^\x20-\x7e]|["\\]/g, '_')
+  return `inline; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
 }
 
 /** One account's whole shelf, in the shape the local store holds it. */
@@ -370,8 +416,8 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
 readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
-  const row = await c.env.DB.prepare('SELECT format, r2_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
-    .bind(userId, id).first<{ format: string; r2_key: string }>()
+  const row = await c.env.DB.prepare('SELECT format, r2_key, filename FROM reader_books WHERE user_id = ?1 AND id = ?2')
+    .bind(userId, id).first<{ format: string; r2_key: string; filename: string | null }>()
   if (!row) throw ApiError.notFound('Unknown book')
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
@@ -382,7 +428,7 @@ readerLibraryRoutes.get('/books/:id/blob', async (c) => {
     headers: {
       'Content-Type': CONTENT_TYPES[format] ?? 'application/octet-stream',
       'Content-Length': String(object.size),
-      'Content-Disposition': `inline; filename="${id}.${EXTENSIONS[format]}"`,
+      'Content-Disposition': contentDisposition(downloadFilename(row.filename ?? '', id, EXTENSIONS[format])),
       'Cache-Control': 'private, max-age=3600',
     },
   })
@@ -394,6 +440,29 @@ readerLibraryRoutes.get('/books/:id/blob', async (c) => {
  * Reading a 40 MB archive to find one 200 kB image is the wrong trade on a phone, and it is the reason
  * this is a separate object rather than a field on the book.
  */
+/**
+ * The header each accepted cover type must start with.
+ *
+ * The declared content type is the client's, and a client that is wrong about one has already been wrong
+ * here: a book whose cover href was an XHTML page put 1 kB of markup behind a `.cover.png` key, and every
+ * device that later pulled the shelf painted a broken tile. The type decides the R2 key and the response
+ * header, so the bytes have to agree with it before anything is written.
+ */
+const COVER_MAGIC: Record<string, number[]> = {
+  'image/png': [0x89, 0x50, 0x4e, 0x47],
+  'image/jpeg': [0xff, 0xd8, 0xff],
+  // WebP is `RIFF....WEBP`, so this one is read at offset 8.
+  'image/webp': [0x57, 0x45, 0x42, 0x50],
+}
+
+function isDeclaredImage(type: string, bytes: Uint8Array): boolean {
+  const magic = COVER_MAGIC[type]
+  if (!magic) return false
+  const at = type === 'image/webp' ? 8 : 0
+  if (bytes.byteLength < at + magic.length) return false
+  return magic.every((byte, index) => bytes[at + index] === byte)
+}
+
 readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const id = requireId(c.req.param('id'), 'Book id')
@@ -403,19 +472,21 @@ readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
   const extension = COVER_EXTENSIONS[type]
   if (!extension) throw ApiError.badRequest('A cover must be a PNG, JPEG or WebP image')
-  const bytes = await c.req.arrayBuffer()
-  if (!bytes.byteLength) throw ApiError.badRequest('The cover was empty')
-  if (bytes.byteLength > MAX_COVER_BYTES) throw ApiError.badRequest('That cover is too large')
-  await assertReaderRoom(c.env.DB, userId, bytes.byteLength, 0, row.cover_size ?? 0)
+  const buffer = await c.req.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  if (!buffer.byteLength) throw ApiError.badRequest('The cover was empty')
+  if (!isDeclaredImage(type, bytes)) throw ApiError.badRequest('The cover is not the image its type claims')
+  if (buffer.byteLength > MAX_COVER_BYTES) throw ApiError.badRequest('That cover is too large')
+  await assertReaderRoom(c.env.DB, userId, buffer.byteLength, 0, row.cover_size ?? 0)
 
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
   const key = readerCoverKey(userId, id, extension)
   if (row.cover_key && row.cover_key !== key) await r2.delete(row.cover_key).catch(() => {})
-  await r2.put(key, bytes, { httpMetadata: { contentType: type } })
+  await r2.put(key, buffer, { httpMetadata: { contentType: type } })
   await c.env.DB.prepare('UPDATE reader_books SET cover_key = ?1, cover_size = ?2 WHERE user_id = ?3 AND id = ?4')
-    .bind(key, bytes.byteLength, userId, id).run()
-  return c.json({ ok: true as const, size: bytes.byteLength, key })
+    .bind(key, buffer.byteLength, userId, id).run()
+  return c.json({ ok: true as const, size: buffer.byteLength, key })
 })
 
 readerLibraryRoutes.get('/books/:id/cover', async (c) => {

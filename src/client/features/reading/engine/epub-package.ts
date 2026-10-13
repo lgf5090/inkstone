@@ -236,7 +236,14 @@ function localNameOfAttribute(name: string): string {
 }
 
 function findCover(opf: Element, manifest: Map<string, ManifestItem>, spine: SpineItem[], opfDir: string): string | null {
-  for (const node of Array.from(opf.children)) {
+  // EPUB 2 names the cover with `<meta name="cover" content="<manifest id>"/>`, and the spec puts that
+  // inside <metadata>. Reading only the package's own children left the whole of that first branch dead
+  // for a well-formed book: a reader's novel with a real cover.jpg fell through to the guide's cover
+  // *page*, which is HTML, and the shelf showed a broken tile. Both levels are scanned because both
+  // appear in books people actually send.
+  const metadata = firstChildByLocalName(opf, 'metadata')
+  const declared = [...Array.from(metadata ? metadata.children : []), ...Array.from(opf.children)]
+  for (const node of declared) {
     if (localName(node) !== 'meta') continue
     if ((node.getAttribute('name') ?? '').toLowerCase() !== 'cover') continue
     const item = manifest.get(node.getAttribute('content') ?? '')

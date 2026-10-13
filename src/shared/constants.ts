@@ -70,6 +70,12 @@ export const LIMITS = {
   readerCoverMaxBytes: 2 * 1024 * 1024,
   readerQuotaBytes: 2 * 1024 * 1024 * 1024,
   readerBooksMaxPerUser: 500,
+  /**
+   * How long a book id may be. A device that has no id from the package mints one out of the reader's own
+   * file name, so this is a ceiling on the *name*, and a name longer than it is hashed instead of sliced:
+   * a sliced id would come back on the next import as a different book, orphaning its highlights.
+   */
+  readerIdMaxChars: 200,
   importFilesMax: 500,
   importUploadMaxBytes: 64 * 1024 * 1024,
   importBundleMaxBytes: 32 * 1024 * 1024,
