@@ -125,6 +125,23 @@ export function parsePositionInput(raw: string, model: PositionModel): BookPosit
     : positionFromFraction((number - 1) / Math.max(1, model.total), model)
 }
 
+/**
+ * Where the reader stopped, in the book's own words.
+ *
+ * A shelf row that says only "read today" answers when but not where, and "where" is what decides
+ * whether to open this book now. The chapter's own title is the label a reader recognises, so it is
+ * read out of the contents the import cached rather than numbered.
+ */
+export function stoppedAtLabel(
+  position: BookPosition | null | undefined,
+  book: { unitCount: number; toc: { label: string; position: BookPosition | null }[] },
+): string {
+  if (!position) return ''
+  if (position.kind === 'fixed') return `${position.page} / ${Math.max(1, book.unitCount)}`
+  const entry = book.toc.find((one) => one.position?.kind === 'epub' && one.position.chapter === position.chapter)
+  return entry?.label?.trim() ?? ''
+}
+
 export function formatPercent(fraction: number): string {
   return `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`
 }

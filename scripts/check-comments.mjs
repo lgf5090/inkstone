@@ -4530,6 +4530,7 @@ const allowed = new Map([
     "/**\n * One book on the shelf, as a row.\n *\n * The list view exists for two readers: one on a phone where a cover is too small to identify, and one\n * with four hundred books who is searching by author rather than by picture. So the row leads with the\n * title, gives the cover only enough room to be a fingerprint, and puts the numbers a reader actually\n * compares — progress, marks, when they last read it — on their own line.\n */",
     "/** Which of the reader's own groupings this book belongs to. */",
     "/** The three-dot affordance, drawn rather than imported so it matches the grid card's. */",
+    "/** The chapter or page the reader stopped on, in the book's own words. */",
   ]],
   ["src/client/features/reading/SyncLine.tsx", [
     "/**\n * What the shelf is doing on the wire.\n *\n * A book is tens of megabytes, so an upload without a moving bar reads as a hung app. This is the one\n * place the reader learns whether their notes are on the server yet — including the honest case, which is\n * that they are not.\n */",
@@ -4734,6 +4735,7 @@ const allowed = new Map([
     "/**\n * A percentage of a book is not a percentage of chapters: a 40-page chapter and a 2-page preface are\n * not equal slices of the reading. Where the weights are known they decide; otherwise the split is\n * linear and the reader is told so by the position it lands on.\n */",
     "/** How far through a book a position is, on the same weighted scale `positionFromFraction` inverts. */",
     "/**\n * What a reader types into the \"go to\" box: `42%`, `128` (a page or location number), or nothing at\n * all when the text is neither.\n */",
+    "/**\n * Where the reader stopped, in the book's own words.\n *\n * A shelf row that says only \"read today\" answers when but not where, and \"where\" is what decides\n * whether to open this book now. The chapter's own title is the label a reader recognises, so it is\n * read out of the contents the import cached rather than numbered.\n */",
   ]],
   ["src/client/features/reading/reader/AppearancePanel.tsx", [
     "/**\n * The appearance panel: the same settings as the app's own appearance section, reached from inside a\n * book because that is where a reader notices the type is wrong.\n *\n * Every control writes through to the store immediately and the page re-lays out live — a setting that\n * only applied on close would have to be imagined rather than tried.\n */",
@@ -12079,6 +12081,9 @@ const allowed = new Map([
     "/* The one message the reader cannot do without while a book arrives: how much of it is there yet. */",
     "/* Focus mode: the paragraph the reader is on, and a hint of everything else. */",
     "/*\n * The footnote preview. Fixed to the viewport rather than to the stage: the stage scrolls and slides\n * during a page turn, and a card that travels with the page leaves behind the word it was answering.\n */",
+    "/*\n * The shelf's per-book controls.\n *\n * Two rules live here rather than as utilities on each surface. The list row reserves a fixed action\n * column so the progress ring lands on the same x for every book — a row that happens to have a\n * reading note must not push its ring 28 pixels to the left of its neighbours. And a thumb has no\n * hover: on a coarse pointer the controls stay put, because otherwise the book menu cannot be\n * reached from a phone at all.\n */",
+    "/*\n * The cover wall has no captions, so a hovered cover says its own title. On a thumb there is no hover,\n * and a wall of covers nobody can name is a wall of guesses — so the strip stays there permanently.\n */",
+    "/*\n * A cover wall on a phone is a wall of thumbnails: naming every one of them would cover the picture,\n * and the list view exists for readers who need the names. So the strip stays a hover affordance, and\n * the one floating control a thumb gets is the menu — the note shortcut moves into it.\n */",
   ]],
   ["src/client/styles/tokens.css", [
     "/* Small labels are used on both the editor and the darker sunken sidebar. */",
@@ -13293,6 +13298,7 @@ const allowed = new Map([
   ]],
   ["tests/reading-shelf-view.test.ts", [
     "/**\n * Which layout the shelf actually draws.\n *\n * `adaptive` is the only mode with a condition in it, and a condition that lives inside a component is\n * invisible to every other surface — so it is stated here as a table a reader can check by eye.\n */",
+    "/**\n * What a list row says about where the reader left off.\n *\n * The row has the book's cached contents and nothing else — no archive, no reparse — so the label is\n * read out of the table of contents, and a book whose contents do not name that chapter must say\n * nothing rather than invent a number.\n */",
   ]],
   ["tests/reading-theme-contrast.test.ts", [
     "/**\n * The page palettes have to stay readable.\n *\n * A theme that quietly drops to 3.1:1 is the kind of regression nobody notices until they have read a\n * whole chapter with a headache, so the whole table is measured here rather than eyeballed once.\n */",

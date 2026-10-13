@@ -6,6 +6,7 @@ import {
   resolveShelfView,
   type ResolvedShelfView,
 } from '../src/client/features/reading/shelf-view'
+import { stoppedAtLabel } from '../src/client/features/reading/position'
 
 /**
  * Which layout the shelf actually draws.
@@ -43,5 +44,38 @@ describe('the shelf layout a mode asks for', () => {
       expect(drawable).toContain(resolveShelfView(mode, false))
       expect(drawable).toContain(resolveShelfView(mode, true))
     }
+  })
+})
+
+/**
+ * What a list row says about where the reader left off.
+ *
+ * The row has the book's cached contents and nothing else — no archive, no reparse — so the label is
+ * read out of the table of contents, and a book whose contents do not name that chapter must say
+ * nothing rather than invent a number.
+ */
+describe('where the reader stopped', () => {
+  const toc = [
+    { label: ' 第一章 道可道 ', position: { kind: 'epub' as const, chapter: 0, offset: 0 }, level: 0 },
+    { label: '第二章', position: { kind: 'epub' as const, chapter: 1, offset: 0 }, level: 0 },
+    { label: '无序', position: null, level: 0 },
+  ]
+  const book = { unitCount: 120, toc }
+
+  it('names the chapter the position falls in, trimmed', () => {
+    expect(stoppedAtLabel({ kind: 'epub', chapter: 0, offset: 40 }, book)).toBe('第一章 道可道')
+    expect(stoppedAtLabel({ kind: 'epub', chapter: 1, offset: 0 }, book)).toBe('第二章')
+  })
+
+  it('counts a fixed-layout book by its page against its own extent', () => {
+    expect(stoppedAtLabel({ kind: 'fixed', page: 7 }, book)).toBe('7 / 120')
+    expect(stoppedAtLabel({ kind: 'fixed', page: 3 }, { ...book, unitCount: 0 })).toBe('3 / 1')
+  })
+
+  it('says nothing it cannot support', () => {
+    expect(stoppedAtLabel(undefined, book)).toBe('')
+    expect(stoppedAtLabel(null, book)).toBe('')
+    expect(stoppedAtLabel({ kind: 'epub', chapter: 9, offset: 0 }, book)).toBe('')
+    expect(stoppedAtLabel({ kind: 'epub', chapter: 0, offset: 0 }, { ...book, toc: [] })).toBe('')
   })
 })

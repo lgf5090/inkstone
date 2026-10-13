@@ -7,7 +7,7 @@
  * what carries a reader's marks and positions to another machine.
  */
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { Download, FolderInput, Images, Inbox, LayoutGrid, List, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
+import { Download, FolderInput, Images, Inbox, LayoutGrid, List, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
 import { Button } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
@@ -17,6 +17,7 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { useLibrary } from './store/library'
 import { hasBookExtension } from './engine/book-import'
+import { stoppedAtLabel } from './position'
 import { dropBookHandle } from './reader/useEpubHandle'
 import { ShelfCard } from './ShelfCard'
 import { ShelfRow } from './ShelfRow'
@@ -121,6 +122,7 @@ export function LibraryView() {
       highlightCount: highlights[book.id]?.length ?? 0,
       noteCount: noteLinks.byBook[book.id] ? 1 : 0,
       lastReadAt: progress[book.id]?.updatedAt,
+      stoppedAt: stoppedAtLabel(progress[book.id]?.position, book),
       groupNames: groupsHolding(groups, book.id).map((one) => one.name),
       onOpen: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`),
       onOpenNote: () => openBookNote(noteLinks.byBook[book.id]),
@@ -190,6 +192,9 @@ export function LibraryView() {
         submenu: submenuFor(membership, 200),
       },
       { id: 'open', label: t('reading.continue_reading'), onSelect: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`) },
+      ...(noteLinks.byBook[book.id]
+        ? [{ id: 'note', label: t('reading.open_note'), icon: <MessageSquareQuote size={13} />, onSelect: () => openBookNote(noteLinks.byBook[book.id]) }]
+        : []),
       { id: 'rename', label: t('reading.rename_book'), icon: <Pencil size={13} />, onSelect: () => void rename(book) },
       {
         id: 'finished',
@@ -291,22 +296,23 @@ export function LibraryView() {
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
         <span className="min-w-0 truncate text-[13.5px] font-semibold text-[var(--text-primary)]">{t('reading.shelf')}</span>
-        <span className="hidden shrink-0 text-[11.5px] tabular text-[var(--text-quaternary)] md:inline">
+        <span className="min-w-0 truncate text-[11.5px] tabular text-[var(--text-quaternary)]">
           {t('reading.book_count_value0', { value0: books.length })}
-          {totalMarked ? t('reading.marked_count_value0', { value0: totalMarked }) : ''}
+          {totalMarked ? <span className="hidden sm:inline">{t('reading.marked_count_value0', { value0: totalMarked })}</span> : ''}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Button
             size="sm"
             variant="secondary"
+            aria-label={t('reading.export_library')}
             icon={<Download size={13} />}
             disabled={!books.length}
             onClick={() => void runExport()}
           >
-            {t('reading.export_library')}
+            <span className="hidden sm:inline">{t('reading.export_library')}</span>
           </Button>
-          <Button size="sm" variant="secondary" icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
-            {t('reading.import_library')}
+          <Button size="sm" variant="secondary" aria-label={t('reading.import_library')} icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
+            <span className="hidden sm:inline">{t('reading.import_library')}</span>
           </Button>
           <Button size="sm" variant="primary" icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
             {t('reading.add_books')}
@@ -374,13 +380,13 @@ export function LibraryView() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {books.length === 0 ? (
-          <EmptyShelf busy={busy} onPick={() => fileInput.current?.click()} onDropHint={() => setDragging(true)} />
+          <EmptyShelf busy={busy} onPick={() => fileInput.current?.click()} />
         ) : visible.length === 0 ? (
           <p className="px-3 py-12 text-center text-[12.5px] text-[var(--text-quaternary)]">
             {t('reading.no_books_match')}
           </p>
         ) : view === 'list' ? (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex max-w-[1080px] flex-col gap-0.5">
             {visible.map((book) => (
               <ShelfRow key={book.id} {...shelfProps(book)} />
             ))}
@@ -390,7 +396,7 @@ export function LibraryView() {
             className={cn(
               'grid gap-x-3 gap-y-5',
               view === 'covers'
-                ? 'grid-cols-4 sm:grid-cols-6 md:grid-cols-8 xl:grid-cols-10'
+                ? 'grid-cols-3 sm:grid-cols-5 md:grid-cols-7 xl:grid-cols-10'
                 : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7',
             )}
           >
@@ -451,7 +457,7 @@ export function LibraryView() {
  * because a reader who drops a MOBI in here gets a rejection with a reason, and would have been better
  * served by being told up front.
  */
-function EmptyShelf({ busy, onPick }: { busy: boolean; onPick: () => void; onDropHint: () => void }) {
+function EmptyShelf({ busy, onPick }: { busy: boolean; onPick: () => void }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-3 px-4 py-14 text-center">
       <span className="flex size-14 items-center justify-center rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">

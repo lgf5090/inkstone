@@ -22,6 +22,8 @@ export interface ShelfRowProps {
   highlightCount: number
   noteCount: number
   lastReadAt?: number
+  /** The chapter or page the reader stopped on, in the book's own words. */
+  stoppedAt?: string
   /** Which of the reader's own groupings this book belongs to. */
   groupNames?: string[]
   onOpen: () => void
@@ -37,6 +39,7 @@ export function ShelfRow({
   highlightCount,
   noteCount,
   lastReadAt,
+  stoppedAt = '',
   groupNames = [],
   onOpen,
   onOpenNote,
@@ -44,7 +47,7 @@ export function ShelfRow({
 }: ShelfRowProps) {
   const lastRead = formatLastRead(lastReadAt)
   return (
-    <div className="group relative flex items-center gap-3 rounded-[var(--r-md)] px-2 py-2 hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]">
+    <div className="reader-shelf-row group relative flex items-center gap-3 rounded-[var(--r-md)] ps-2 py-2 hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]">
       <button
         type="button"
         onClick={onOpen}
@@ -86,10 +89,15 @@ export function ShelfRow({
             <span className="truncate">{lastRead || `${book.format.toUpperCase()} · ${Math.round(book.size / 1024)} kB`}</span>
           </span>
         </span>
+        {stoppedAt ? (
+          <span className="hidden max-w-[15rem] shrink-0 truncate text-right text-[11px] text-[var(--text-quaternary)] lg:block">
+            {stoppedAt}
+          </span>
+        ) : null}
         <ProgressRing fraction={fraction} finished={finished} />
       </button>
 
-      <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="reader-shelf-actions flex items-center gap-1">
         {noteCount > 0 ? (
           <Tooltip label={t('reading.open_note')} side="left">
             <IconButton label={t('reading.open_note')} size="xs" onClick={onOpenNote}>

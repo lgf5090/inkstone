@@ -405,6 +405,93 @@
   transition: none;
 }
 
+/*
+ * The shelf's per-book controls.
+ *
+ * Two rules live here rather than as utilities on each surface. The list row reserves a fixed action
+ * column so the progress ring lands on the same x for every book — a row that happens to have a
+ * reading note must not push its ring 28 pixels to the left of its neighbours. And a thumb has no
+ * hover: on a coarse pointer the controls stay put, because otherwise the book menu cannot be
+ * reached from a phone at all.
+ */
+.reader-shelf-actions {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reader-shelf-card:hover .reader-shelf-actions,
+.reader-shelf-row:hover .reader-shelf-actions,
+.reader-shelf-card:focus-within .reader-shelf-actions,
+.reader-shelf-row:focus-within .reader-shelf-actions {
+  opacity: 1;
+}
+
+.reader-shelf-row {
+  padding-inline-end: 56px;
+}
+
+.reader-shelf-row .reader-shelf-actions {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 8px;
+  transform: translateY(-50%);
+}
+
+@media (pointer: coarse) {
+  .reader-shelf-actions {
+    opacity: 1;
+  }
+
+  .reader-shelf-actions button {
+    min-width: 34px;
+    min-height: 34px;
+  }
+
+  .reader-shelf-row {
+    padding-inline-end: 76px;
+  }
+}
+
+/*
+ * The cover wall has no captions, so a hovered cover says its own title. On a thumb there is no hover,
+ * and a wall of covers nobody can name is a wall of guesses — so the strip stays there permanently.
+ */
+.reader-shelf-hover-title {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 14px 76px 5px 6px;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  background: linear-gradient(to top, var(--bg-overlay), transparent);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reader-shelf-card:hover .reader-shelf-hover-title,
+.reader-shelf-card:focus-within .reader-shelf-hover-title {
+  opacity: 1;
+}
+
+/*
+ * A cover wall on a phone is a wall of thumbnails: naming every one of them would cover the picture,
+ * and the list view exists for readers who need the names. So the strip stays a hover affordance, and
+ * the one floating control a thumb gets is the menu — the note shortcut moves into it.
+ */
+@media (pointer: coarse) {
+  .reader-shelf-card .reader-shelf-note {
+    display: none;
+  }
+}
+
 .reader-shelf-cover {
   aspect-ratio: 3 / 4;
   width: 100%;

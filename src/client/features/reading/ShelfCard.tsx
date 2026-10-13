@@ -46,7 +46,7 @@ export function ShelfCard({
 }: ShelfCardProps) {
   const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100)
   return (
-    <div className="group relative flex flex-col">
+    <div className="reader-shelf-card group relative flex flex-col">
       <button
         type="button"
         onClick={onOpen}
@@ -78,6 +78,7 @@ export function ShelfCard({
         ) : null}
       </button>
 
+      {captionless ? <span className="reader-shelf-hover-title">{book.title}</span> : null}
       <div className={captionless ? 'sr-only' : 'mt-1.5 min-w-0'}>
         <Tooltip label={book.title} side="top">
           <p className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">{book.title}</p>
@@ -114,10 +115,10 @@ export function ShelfCard({
         </p>
       </div>
 
-      <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="reader-shelf-actions absolute bottom-1.5 right-1.5 flex gap-1">
         {noteCount > 0 ? (
           <Tooltip label={t('reading.open_note')} side="left">
-            <IconButton label={t('reading.open_note')} size="xs" onClick={onOpenNote} className="border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-xs)]">
+            <IconButton label={t('reading.open_note')} size="xs" onClick={onOpenNote} className="reader-shelf-note border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-xs)]">
               <MessageSquareQuote size={12} />
             </IconButton>
           </Tooltip>
