@@ -123,7 +123,7 @@ export function RssApp(): ReactElement {
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
+      <header data-print="hide" className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
         <IconButton
           label={railOpen ? t('rss.collapse') : t('rss.expand')}
           size="sm"
@@ -194,7 +194,7 @@ export function RssApp(): ReactElement {
         : (
             <div className="relative flex min-h-0 flex-1">
               {!railHidden && !focus && (
-                <div className={cn(
+                <div data-print="hide" className={cn(
                   'min-h-0',
                   pane === 'rail'
                     // A phone gets the rail as its one pane; a tablet gets it laid over the list it
@@ -206,7 +206,7 @@ export function RssApp(): ReactElement {
                 </div>
               )}
               {!focus && (
-                <div className={cn('min-h-0 flex-1 md:flex-none lg:flex-none', pane === 'list' ? 'block' : 'hidden md:block')}>
+                <div data-print="hide" className={cn('min-h-0 flex-1 md:flex-none lg:flex-none', pane === 'list' ? 'block' : 'hidden md:block')}>
                   <RssArticleList
                     onOpen={() => setPane('reader')}
                     onManage={() => setCenter('manage')}

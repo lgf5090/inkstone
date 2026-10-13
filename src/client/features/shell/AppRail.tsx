@@ -18,6 +18,7 @@ export function AppRail() {
   return (
     <nav
       aria-label={t('app.tabs.navigation')}
+      data-print="hide"
       className="app-rail flex h-full w-12 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] py-2 md:w-14"
     >
       {/* The notebook's mobile shell pads itself below a notch, so the rail's icons stop at the same

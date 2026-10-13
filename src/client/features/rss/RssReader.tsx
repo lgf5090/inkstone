@@ -23,11 +23,14 @@ import {
   Bookmark,
   BookOpen,
   Check,
+  CopyPlus,
   ExternalLink,
   FileType2,
+  FolderInput,
   Link2,
   NotebookPen,
   PlayCircle,
+  Printer,
   RefreshCw,
   Sparkles,
   Star,
@@ -38,8 +41,10 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
+import { FolderPicker } from '../folders/FolderPicker'
 import { Button, IconButton } from '../../components/primitives'
-import { Drawer } from '../../components/overlay'
+import { Drawer, Tooltip } from '../../components/overlay'
 import { Field, Input, Segmented, Select, Slider } from '../../components/form'
 import { fullTime, shortSince } from '../../lib/time'
 import { RSS_COLUMN_WIDTHS, RSS_FONT_SIZE_RANGE, RSS_LINE_HEIGHT_RANGE } from '@shared/constants'
@@ -52,6 +57,7 @@ import { aiReady, loadAiConfig, runArticleAi, type RssAiKind } from './ai'
 import { useRss, type RssReadingVersion } from './store'
 import { ExcerptPopup } from './ExcerptPopup'
 import { reloadEntry } from './rssMenus'
+import { printArticle } from './print'
 import { playableAudio, videoLinkOf } from './media'
 
 const FONTS = ['ui', 'serif', 'sans', 'songti', 'kaiti', 'fangsong', 'mono', 'custom'] as const
@@ -86,6 +92,8 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const abortRef = useRef<(() => void) | null>(null)
   const [typography, setTypography] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const noteFolders = useNotes(state => state.folders)
   const [imagesOn, setImagesOn] = useState(false)
   const [ai, setAi] = useState<{ kind: RssAiKind, text: string, running: boolean, error: string } | null>(null)
 
@@ -186,6 +194,22 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       : { title: result.error ?? t('rss.save_failed'), tone: 'danger' })
   }
 
+  // Two ways out of "the setting decides where my articles go": name the folder for this one, or
+  // keep the reading note and start a working copy beside it.
+  const saveTo = async (folderId: string | null): Promise<void> => {
+    const result = await saveArticleAsNote(entry, feed, undefined, { folderId })
+    useUi.getState().toast(result.ok
+      ? { title: t('rss.saved_note', { title: result.title ?? '' }), tone: 'success' }
+      : { title: result.error ?? t('rss.save_failed'), tone: 'danger' })
+  }
+
+  const saveFresh = async (): Promise<void> => {
+    const result = await saveArticleAsNote(entry, feed, undefined, { fresh: true })
+    useUi.getState().toast(result.ok
+      ? { title: t('rss.saved_note', { title: result.title ?? '' }), tone: 'success' }
+      : { title: result.error ?? t('rss.save_failed'), tone: 'danger' })
+  }
+
   // Saving an article twice rewrites the note the first save made, so the reader needs the way back
   // to it as much as the way to it: one remembered id, one button that only exists once there is a
   // note to open.
@@ -212,7 +236,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
-      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
+      <header data-print="hide" className="flex min-h-11 shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
         {onBack && (
           <IconButton label={t('rss.back')} size="sm" onClick={onBack} className="lg:hidden">
             <ArrowLeft size={15} />
@@ -279,7 +303,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       </header>
 
       {settings.aiEnabled && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
+        <div data-print="hide" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
           <Segmented
             size="sm"
             label={t('rss.versions')}
@@ -296,12 +320,14 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
 
       <div
         ref={barRef}
+        data-print="hide"
         aria-hidden="true"
         className="h-0.5 shrink-0 bg-[var(--accent)]"
         style={{ width: '0%', transformOrigin: 'left' }}
       />
       <div
         ref={scrollRef}
+        data-print="surface"
         className="rss-scroll min-h-0 flex-1 overflow-y-auto"
         data-theme={settings.readingTheme}
         data-focus={focus ? 'true' : undefined}
@@ -407,7 +433,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
 
       </div>
 
-      <footer className="flex shrink-0 flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
+      <footer data-print="hide" className="flex shrink-0 flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
         <IconButton label={t('rss.previous_article')} size="sm" disabled={index <= 0} onClick={() => step(-1)}>
           <ArrowLeft size={15} />
         </IconButton>
@@ -433,6 +459,13 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           <Link2 size={13} aria-hidden="true" />
           {t('rss.copy_link')}
         </button>
+        <ToolButton label={t('rss.save_note_to')} icon={<FolderInput size={13} aria-hidden="true" />} onClick={() => setPicking(true)} />
+        <ToolButton label={t('rss.save_another_note')} icon={<CopyPlus size={13} aria-hidden="true" />} onClick={() => void saveFresh()} />
+        <Tooltip label={t('rss.print_hint')} side="top">
+          <span className="inline-flex">
+            <ToolButton label={t('rss.print_article')} icon={<Printer size={13} aria-hidden="true" />} onClick={printArticle} />
+          </span>
+        </Tooltip>
         {!entry.content && (
           <ToolButton label={t('rss.reload_article')} icon={<RefreshCw size={13} aria-hidden="true" />} onClick={() => reloadEntry(entry)} />
         )}
@@ -449,6 +482,14 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       <Drawer open={typography} onClose={() => setTypography(false)} title={t('rss.typography')} width={300}>
         <TypographyPanel />
       </Drawer>
+      <FolderPicker
+        open={picking}
+        title={t('rss.save_note_to')}
+        folders={noteFolders}
+        rootLabel={t('notes.remove_from_folder')}
+        onSelect={folderId => void saveTo(folderId)}
+        onClose={() => setPicking(false)}
+      />
       <ExcerptPopup rootRef={bodyRef} />
     </div>
   )

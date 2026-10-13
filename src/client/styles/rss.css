@@ -150,3 +150,84 @@
 .rss-prose iframe {
   max-width: 100%;
 }
+
+/* Paper. The reference reader asks Electron for a PDF; a browser has the same facility in its own
+   print dialogue, and what the app owes is the sheet it is handed: the article alone, at full width,
+   in dark ink on white, running to its end instead of stopping at the bottom of a scroll box. */
+@media print {
+  html.rss-printing,
+  html.rss-printing body,
+  html.rss-printing #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Presentation mode answers printing by hiding every child of <body> except its own sheet, and the
+     app root is one of those children. Without this the reader's paper is a blank page. */
+  html.rss-printing body > #root {
+    display: block !important;
+  }
+
+  /* Every scroll box in the app clips what it holds, and the shell sizes its panes to the viewport. */
+  html.rss-printing div,
+  html.rss-printing section {
+    overflow: visible !important;
+  }
+
+  html.rss-printing .h-full {
+    height: auto !important;
+  }
+
+  html.rss-printing [data-print='hide'],
+  html.rss-printing [role='dialog'],
+  html.rss-printing [role='menu'],
+  html.rss-printing [role='toolbar'],
+  html.rss-printing [role='tooltip'] {
+    display: none !important;
+  }
+
+  html.rss-printing [data-print='surface'] {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* A reading theme paints its paper by redefining tokens on the scroll box, so the tokens are what
+     has to be answered: an ink theme would otherwise print a black page with grey text on it. */
+  html.rss-printing .rss-scroll {
+    --bg-base: #ffffff;
+    --bg-inset: #ffffff;
+    --bg-sunken: #ffffff;
+    --bg-raised: #ffffff;
+    --bg-hover: #ffffff;
+    --bg-active: #ffffff;
+    --text-primary: #111111;
+    --text-secondary: #222222;
+    --text-tertiary: #444444;
+    --text-quaternary: #666666;
+    --border-subtle: #dddddd;
+    --border-default: #cccccc;
+    --accent: #111111;
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  html.rss-printing .rss-prose {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    orphans: 2;
+    widows: 2;
+  }
+
+  html.rss-printing .rss-prose pre,
+  html.rss-printing .rss-prose figure,
+  html.rss-printing .rss-prose img,
+  html.rss-printing .rss-prose table {
+    break-inside: avoid;
+  }
+
+  html.rss-printing .rss-prose :is(h1, h2, h3) {
+    break-after: avoid;
+  }
+}

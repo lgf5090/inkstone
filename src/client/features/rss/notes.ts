@@ -118,22 +118,35 @@ export interface SaveResult {
  * The second save of the same article goes back to the note the first one made — found through the
  * account library's own record — and rewrites it, because "Save as note" pressed twice is a reader
  * refreshing an article, not a reader asking for a duplicate.
+ *
+ * `folderId` says where the note should live instead of the setting, and moves a note that already
+ * exists when it is in the wrong place; `fresh` deliberately starts a second note for the same
+ * article, remembered under its own key so the article's first note is still the one a plain save
+ * returns to.
  */
-export async function saveArticleAsNote(entry: RssEntry, feed: RssFeed | undefined, excerpt?: string): Promise<SaveResult> {
+export async function saveArticleAsNote(
+  entry: RssEntry,
+  feed: RssFeed | undefined,
+  excerpt?: string,
+  options?: { folderId?: string | null, fresh?: boolean },
+): Promise<SaveResult> {
   const title = (entry.title || t('rss.untitled')).slice(0, LIMITS.titleMaxLength)
   const content = articleNoteBody(entry, feed, excerpt)
   const notes = useNotes.getState()
-  const remembered = entry.id ? useRss.getState().library.savedNotes[`${entry.id}|note`] : ''
+  const key = `${entry.id}|${options?.fresh ? 'copy' : 'note'}`
+  const remembered = entry.id ? useRss.getState().library.savedNotes[key] : ''
   const existing = remembered ? notes.notes[remembered] : undefined
+  const wanted = options?.folderId
   if (existing && !existing.deletedAt) {
     const outcome = await notes.editRemoteContent(existing.id, current => (current === content ? current : content))
     if (outcome !== 'written') return { ok: false, error: t('rss.save_failed') }
+    if (wanted !== undefined && wanted !== existing.folderId) await notes.patchNote(existing.id, { folderId: wanted })
     return { ok: true, noteId: existing.id, title: existing.title }
   }
-  const folderId = articleFolderId(useSession.getState().settings.rss.articleFolder)
+  const folderId = wanted !== undefined ? wanted : articleFolderId(useSession.getState().settings.rss.articleFolder)
   const noteId = await notes.createNote({ title, content, folderId, open: true })
   if (!noteId) return { ok: false, error: t('rss.save_failed') }
-  useRss.getState().rememberSavedNote(entry.id, 'note', noteId)
+  useRss.getState().rememberSavedNote(entry.id, options?.fresh ? 'copy' : 'note', noteId)
   return { ok: true, noteId, title }
 }
 
