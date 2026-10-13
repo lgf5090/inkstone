@@ -146,8 +146,11 @@ export function getViewportCenterInScene(api: any): { x: number; y: number } {
     return { x, y };
 }
 
+/** Glyph colour KaTeX paints the rendered formula in, by whether the canvas behind it is dark. */
+const LATEX_TEXT_COLOR = { light: '#f1f5f9', dark: '#0f172a' } as const
+
 export function createLatexSvg(latex: string, dark = false): { dataURL: string; width: number; height: number } {
-    const textColor = dark ? '#f1f5f9' : '#0f172a';
+    const textColor = dark ? LATEX_TEXT_COLOR.light : LATEX_TEXT_COLOR.dark;
     let html = '';
     try {
         html = katex.renderToString(latex, { displayMode: true, throwOnError: false });

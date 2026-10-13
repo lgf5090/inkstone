@@ -61,13 +61,15 @@ export function warmSettingsSection(section: SettingsSection): void {
 const warmupQueue: SettingsSection[] = []
 const queuedWarmup = new Set<SettingsSection>()
 let warmupTimer: number | undefined
+/** Spacing between warming two sections, so a warm-up queue never floods the network. */
+const WARMUP_STAGGER_MS = 150
 
 function drainWarmupQueue(): void {
   warmupTimer = undefined
   const section = warmupQueue.shift()
   if (!section) return
   warmSettingsSection(section)
-  if (warmupQueue.length) warmupTimer = window.setTimeout(drainWarmupQueue, 150)
+  if (warmupQueue.length) warmupTimer = window.setTimeout(drainWarmupQueue, WARMUP_STAGGER_MS)
 }
 
 export function scheduleSettingsWarmup(delay = 1200): void {

@@ -38,6 +38,9 @@ interface Ask {
   left: number
 }
 
+/** How long a finished selection is left to settle before the popup is placed, so a drag does not open it mid-way. */
+const SELECTION_SETTLE_MS = 120
+
 export function ExcerptPopup({ rootRef }: { rootRef: RefObject<HTMLElement | null> }): ReactNode {
   const [placed, setPlaced] = useState<Placed | null>(null)
   // The answer card keeps the place it opened at: the bar follows the selection and the reader's own
@@ -78,7 +81,7 @@ export function ExcerptPopup({ rootRef }: { rootRef: RefObject<HTMLElement | nul
       })
     }
 
-    const timer = window.setTimeout(read, 120)
+    const timer = window.setTimeout(read, SELECTION_SETTLE_MS)
     document.addEventListener('selectionchange', read)
     window.addEventListener('scroll', hide, true)
     return () => {

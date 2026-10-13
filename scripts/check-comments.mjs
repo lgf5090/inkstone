@@ -1048,6 +1048,7 @@ const allowed = new Map([
     "// animation; the hand-computed numbers below are a fallback for a build that exposes neither entry",
     "// point. Running both used to make the second call overwrite the animated target the first had just",
     "// set, which is why Fit View snapped instead of easing and sometimes landed on the wrong zoom.",
+    "/** Glyph colour KaTeX paints the rendered formula in, by whether the canvas behind it is dark. */",
   ]],
   ["src/client/features/excalidraw/excalidraw-settings-store.ts", [
     "/**\n * The delay every drawing surface waits before writing the note body. The settings field carries a\n * min/max, but that only shapes the widget: a value typed into the middle of the range, one restored\n * from localStorage, and one synced from another device all bypass it. A 1 ms debounce turns the one\n * 66-141 ms re-render that follows a gesture into one per engine change, which is what \"editing a\n * drawing stutters\" looks like from the inside - so the clamp lives where the delay is read, not in\n * the input, and a half-typed value can never reach a writer.\n */",
@@ -5401,6 +5402,7 @@ const allowed = new Map([
     "// collapses the selection, which takes the bar away, and an answer that was already on its way",
     "// must not leave with it.",
     "/** The answer is kept the same way an excerpt is, and says the same three things when it is not. */",
+    "/** How long a finished selection is left to settle before the popup is placed, so a drag does not open it mid-way. */",
   ]],
   ["src/client/features/rss/FeedMark.tsx", [
     "/**\n * A subscription's mark: its own picture if it has one, its initial if it does not.\n *\n * Favicons are the third-party asset an RSS reader cannot avoid, and they fail often — a host with\n * no `/favicon.ico`, a feed whose `image` is 512px of noise, an address the reader's own policy\n * says not to fetch. So the mark is always a circle of the right size with something in it, and the\n * picture only ever replaces the letter inside that circle once it has actually loaded.\n */",
@@ -5586,6 +5588,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/rss/print.ts", [
     "/**\n * Handing the article to the browser's print dialogue, which is where a PDF comes from.\n *\n * The reference reader runs inside Electron and calls `printToPDF`. This app runs in a browser, and\n * a browser's own \"Save as PDF\" is the same facility asked for a different way — so what the app has\n * to contribute is the *paper*: the reading pane alone, at full width, on white, with the whole\n * article in flow rather than clipped to a scroll box. Those rules live in `rss.css` under\n * `@media print`, keyed off the class set here.\n *\n * The class is removed on `afterprint` and again on a timer, because a browser that never fires the\n * event would otherwise leave the app printing chrome-less for the rest of the session.\n */",
+    "/** Backstop for the browser that never fires `afterprint`, which would otherwise leave the app printing chrome-less. */",
   ]],
   ["src/client/features/rss/reader-surface.test.ts", [
     "/**\n * Two things the reader pane must do that only the rendered pane can say.\n *\n * The first is the attribution line a bridged WeChat article carries: `remoteContentKey` is tested\n * as a pure function, and the branch that uses it is JSX — an expression that never renders is\n * exactly as invisible as one that was never written.\n *\n * The second is an article that left the channel it was opened from. The list is a filter, so\n * marking the only unread item read takes its own row away; the page the reader is looking at must\n * not go blank with it.\n */",
@@ -5812,6 +5815,9 @@ const allowed = new Map([
     "// Unmounting first: the notes store still has a subscriber while the field is on screen, and an",
     "// update it cannot see is what React calls an update outside `act`.",
     "// The second step carries the \"2\", so a reader hears which field a screen reader is on.",
+  ]],
+  ["src/client/features/settings/sections.ts", [
+    "/** Spacing between warming two sections, so a warm-up queue never floods the network. */",
   ]],
   ["src/client/features/settings/settingsSearch.ts", [
     "// The tier is a literal ranking: a crawling subsequence match would float an unrelated row to the",
@@ -6117,6 +6123,8 @@ const allowed = new Map([
     "// The context menu is handed to `Preview`, which is memoised, so its host object has to keep its",
     "// identity across the re-renders the cursor causes. These two read the note through a ref rather",
     "// than closing over it, which is what lets the callbacks be stable.",
+    "/** How long scrolling in a note must settle before its reading position is written. */",
+    "/** How many most-recently-edited notes are offered as link targets under the editor. */",
   ]],
   ["src/client/features/workspace/context-menu/EditorContextMenu.tsx", [
     "/**\n * The note's context menu.\n *\n * One component for every block kind: the rows come from `useContextMenuState`, which asks the kind's\n * own builder and then the note-wide ones. The header strip and the filter box are the parts that\n * belong to no kind, which is why they are attached here rather than repeated in each builder.\n */",
@@ -7021,6 +7029,8 @@ const allowed = new Map([
     "// is drawn as a still here the way the preview pane draws one for a card and a share page.",
     "// A layout block's numbers reach CSS the same way, and its handles are pointer furniture an exported",
     "// page has no script to answer.",
+    "/** Grace period before an object URL is revoked or a spent print frame is pulled from the page. */",
+    "/** Ceiling on how long a print frame is waited on before it is printed whether or not it has said it loaded. */",
   ]],
   ["src/client/lib/folder-search.test.ts", [
     "// `meet` is named, so its own note shows; `work` is only the road to it, so its report does not.",
@@ -11882,6 +11892,7 @@ const allowed = new Map([
     "/** Whether a label's reading has already been derived — the warm-up's own progress signal. */",
     "/**\n * Derive readings for up to `limit` labels that do not have one yet, starting at `from`, and return\n * the index to continue from. Bounded work in, bounded time out: this is the piece a keystroke would\n * otherwise pay all at once.\n */",
     "/**\n * Walk a listing's labels deriving their readings, a chunk per idle callback, and return a cancel.\n *\n * A 2000-note vault costs about 120ms of dictionary work — one long task on the first keystroke if\n * nothing spreads it out, invisible if idle does. Labels already cached are stepped over, so a\n * re-warm after the vault changes costs what is new and nothing else.\n */",
+    "/** Fallback idle slot when the browser offers no `requestIdleCallback`, so a warm-up still yields. */",
   ]],
   ["src/client/lib/query-match.test.ts", [
     "// The dictionary is lazy in the browser; here the literal is what a reader can type without it.",

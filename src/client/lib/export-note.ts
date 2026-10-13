@@ -18,6 +18,11 @@ const KATEX_CSS_INTEGRITY = 'sha384-1vdNCNel6Tx/NQa8IR1mGOGKsbGreCkOPfbtPPnUURJ5
 const CDN_MATH_STYLESHEET = `<link rel="stylesheet" href="${KATEX_CSS_URL}" crossorigin="anonymous" referrerpolicy="no-referrer" integrity="${KATEX_CSS_INTEGRITY}">`
 const INLINE_MATH_STYLESHEET = `<style>${katexPrintCss}</style>`
 
+/** Grace period before an object URL is revoked or a spent print frame is pulled from the page. */
+const CLEANUP_GRACE_MS = 1000
+/** Ceiling on how long a print frame is waited on before it is printed whether or not it has said it loaded. */
+const PRINT_READY_TIMEOUT_MS = 2000
+
 /**
  * The `:::` layout blocks, drawn for a document with no stylesheet of its own.
  *
@@ -59,7 +64,7 @@ export function downloadBlob(filename: string, blob: Blob): void {
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), CLEANUP_GRACE_MS)
 }
 
 export function downloadTextFile(filename: string, text: string, mime: string): void {
@@ -103,7 +108,7 @@ async function printHtml(html: string): Promise<void> {
     win.focus()
     win.print()
   } finally {
-    setTimeout(() => iframe.remove(), 1000)
+    setTimeout(() => iframe.remove(), CLEANUP_GRACE_MS)
   }
 }
 
@@ -116,7 +121,7 @@ async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
       resolve()
     }
     iframe.addEventListener('load', finish)
-    setTimeout(finish, 2000)
+    setTimeout(finish, PRINT_READY_TIMEOUT_MS)
   })
 }
 

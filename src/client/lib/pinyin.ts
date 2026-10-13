@@ -150,9 +150,12 @@ export function derivePinyinKeys(texts: readonly string[], from: number, limit: 
   return index
 }
 
+/** Fallback idle slot when the browser offers no `requestIdleCallback`, so a warm-up still yields. */
+const IDLE_FALLBACK_MS = 200
+
 function runWhenIdle(task: () => void): number {
   if (typeof window.requestIdleCallback === 'function') return window.requestIdleCallback(task, { timeout: 4_000 })
-  return window.setTimeout(task, 200)
+  return window.setTimeout(task, IDLE_FALLBACK_MS)
 }
 
 function cancelIdle(handle: number): void {
