@@ -16,6 +16,7 @@ import {
   FilePlus2,
   FolderPlus,
   Gauge,
+  Globe,
   Link2,
   MessageSquareQuote,
   Mic,
@@ -40,6 +41,8 @@ export function ControlChip({
   onClick,
   refObject,
   active,
+  pressed,
+  hint,
   hideValueOnPhone = false,
 }: {
   label: string
@@ -48,6 +51,10 @@ export function ControlChip({
   onClick: () => void
   refObject: React.RefObject<HTMLButtonElement | null>
   active?: boolean
+  /** A chip that is a switch: the accent colour says which way it is set, and colour is not readable. */
+  pressed?: boolean
+  /** What the control does, for the pointer that has to hover it to find out. */
+  hint?: string
   /** Icon-only below the small breakpoint, for chips whose words are not needed to act. */
   hideValueOnPhone?: boolean
 }) {
@@ -55,8 +62,12 @@ export function ControlChip({
     <button
       ref={refObject}
       type="button"
-      aria-label={label}
-      title={label}
+      // An aria-label replaces the chip's text, so the current value has to be carried into the name or
+      // it stops existing for anyone reading the row out loud — which is also the only way a phone, where
+      // the word is hidden to make seven controls fit, keeps telling what a chip is set to.
+      aria-label={value ? `${label}: ${value}` : label}
+      title={hint ?? label}
+      {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
       onClick={onClick}
       className={cn(
         'flex h-7 max-w-[46%] items-center gap-1 rounded-[var(--r-md)] border px-1.5 text-[11.5px]',
@@ -67,9 +78,8 @@ export function ControlChip({
       )}
     >
       <span className="shrink-0">{icon}</span>
-      {/* A phone has ~360px for seven controls. The secondary ones keep only their icon there — the
-          value stays on the chip's accessible name, so it is still readable — because eight full words
-          pushed the row onto three lines and knocked the send button out of place. */}
+      {/* A phone has ~360px for seven controls, and eight full words pushed the row onto three lines and
+          knocked the send button out of place. The word goes; the value stays in the accessible name. */}
       {value && <span className={cn('min-w-0 truncate sm:max-w-none', hideValueOnPhone ? 'max-w-0 overflow-hidden' : 'max-w-[58px]')}>{value}</span>}
     </button>
   )
@@ -211,6 +221,32 @@ export function ContextMenu({
       />
       <Menu anchor={anchor.ref} open={anchor.open} onClose={anchor.close} items={items} width={160} align="end" label={t('assistant.composer.context')} />
     </>
+  )
+}
+
+/**
+ * The web-search chip.
+ *
+ * It asks for a live web search this turn. What that means depends on the model: two protocols have a
+ * vendor-side search tool that is sent as-is, and where there is none the assistant pins a search-capable
+ * tool from the reader's own MCP servers instead. A switch that could do neither would be worse than no
+ * switch, because it would be believed.
+ */
+const SEARCH_REF: React.RefObject<HTMLButtonElement | null> = { current: null }
+
+export function WebSearchMenu({ value, onChange }: { value: boolean, onChange: (next: boolean) => void }) {
+  return (
+    <ControlChip
+      label={t('assistant.composer.search')}
+      value={value ? t('assistant.search.on') : t('assistant.search.off')}
+      icon={<Globe size={12} />}
+      active={value}
+      pressed={value}
+      hint={t('assistant.search.hint')}
+      hideValueOnPhone
+      onClick={() => onChange(!value)}
+      refObject={SEARCH_REF}
+    />
   )
 }
 

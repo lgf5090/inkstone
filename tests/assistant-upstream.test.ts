@@ -312,3 +312,41 @@ describe('thinking levels on the wire', () => {
     expect((auto.generationConfig as Record<string, unknown>).thinkingConfig).toBeUndefined()
   })
 })
+
+describe('the web-search switch on the wire', () => {
+  const searchNotes = { name: 'search_notes', description: 'd', parameters: { type: 'object' } }
+
+  it('asks Anthropic for its own search tool, beside the function tools', async () => {
+    const sent = await sentBody('anthropic', { webSearch: true, tools: [searchNotes] })
+    const tools = sent.tools as { type?: string, name?: string, max_uses?: number }[]
+    expect(tools.some((entry) => entry.type === 'web_search_20250305' && entry.name === 'web_search')).toBe(true)
+    expect(tools.map((entry) => entry.name)).toContain('search_notes')
+  })
+
+  it('keeps the search tool out of Anthropic when the switch is off', async () => {
+    const sent = await sentBody('anthropic', { tools: [searchNotes] })
+    const tools = sent.tools as { name?: string }[]
+    // Asserting only the absence would also pass when the whole tools key vanished.
+    expect(tools.map((entry) => entry.name)).toEqual(['search_notes'])
+    expect(JSON.stringify(sent.tools)).not.toContain('web_search')
+  })
+
+  it('adds Google grounding without dropping the function declarations', async () => {
+    const sent = await sentBody('gemini', { webSearch: true, tools: [searchNotes] })
+    const tools = sent.tools as { googleSearch?: unknown, functionDeclarations?: { name: string }[] }[]
+    // Two keys in one object literal would have silently dropped one of them; both have to be present.
+    expect(tools.some((entry) => entry.googleSearch !== undefined)).toBe(true)
+    expect(tools.flatMap((entry) => entry.functionDeclarations ?? []).map((entry) => entry.name)).toEqual(['search_notes'])
+  })
+
+  it('still sends the grounding entry to Gemini when the turn has no function tools', async () => {
+    const sent = await sentBody('gemini', { webSearch: true, tools: [] })
+    expect(sent.tools).toEqual([{ googleSearch: {} }])
+  })
+
+  it('sends no invented field for openai, where the runner pins a tool instead', async () => {
+    const sent = await sentBody('openai', { webSearch: true, tools: [searchNotes] })
+    expect(JSON.stringify(sent)).not.toContain('web_search')
+    expect((sent.tools as { function?: { name: string } }[]).map((entry) => entry.function?.name)).toEqual(['search_notes'])
+  })
+})

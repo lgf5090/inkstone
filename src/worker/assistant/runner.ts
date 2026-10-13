@@ -32,6 +32,9 @@ import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type T
 import { loadModelAndProvider } from './model-config'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
+/** The two protocols with a vendor-side web search that can simply be asked for. */
+const SEARCH_NATIVE_PROTOCOLS = new Set(['anthropic', 'gemini'])
+
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
 
@@ -57,6 +60,8 @@ export interface TurnInput {
   tools?: string[]
   /** Note tags and folders the reader pinned to this turn with `#`. */
   scopes?: AssistantTurnScope[]
+  /** The composer's web-search switch: ask this model for a live web search. */
+  webSearch?: boolean
   retry?: boolean
   signal: AbortSignal
   /** True once a write to the reader has failed, which is the only disconnect some platforms surface. */
@@ -76,6 +81,8 @@ export class AssistantRunner {
   private readonly automations: AutomationService
   private scopePromise: Promise<NoteScope> | null = null
   private turnTools: string[] = []
+  private webSearchRequested = false
+  private webSearchNative = false
   private turnScopes: AssistantTurnScope[] = []
 
   constructor(private readonly deps: RunnerDeps) {
@@ -100,6 +107,10 @@ export class AssistantRunner {
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
     // for this turn has to be in place before anything asks for it.
     this.turnTools = [...new Set(input.tools ?? [])].slice(0, MAX_TURN_TOOLS)
+    // The switch means different things per protocol, so it is resolved after the model is known:
+    // `webSearchNative` sends the vendor's own tool, otherwise a search-capable remote tool is pinned.
+    this.webSearchRequested = input.webSearch === true
+    this.webSearchNative = false
     this.turnScopes = (input.scopes ?? []).slice(0, MAX_TURN_SCOPES)
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     if (input.conversationId && !conversation) throw ApiError.notFound('Conversation not found')
@@ -219,6 +230,18 @@ export class AssistantRunner {
       }
 
       yield { type: 'stage', stage: 'reading' }
+      // The reader's own third-party tools are listed once per turn, and before the prompt is written:
+      // the web-search switch works on a protocol with no vendor search by naming one of these tools to
+      // the model, which only lands if the prompt has not been built yet. A server that is slow or down is
+      // reported to the settings screen rather than failing the answer.
+      const external: ExternalToolsResult = await loadExternalTools(this.store)
+      this.webSearchNative = this.webSearchRequested && SEARCH_NATIVE_PROTOCOLS.has(provider.protocol)
+      if (this.webSearchRequested && !this.webSearchNative) {
+        // No vendor-side search on this protocol: the next best thing that is actually true is a remote
+        // tool that can search, named for the model in the same line the reader's own pins use.
+        const searcher = external.definitions.find((definition) => /search|query|web|browse/i.test(definition.name))
+        if (searcher && !this.turnTools.includes(searcher.name)) this.turnTools = [...this.turnTools, searcher.name].slice(0, MAX_TURN_TOOLS)
+      }
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
       const history = await this.contextHistory(conversationId, model.vision, model.modalities)
@@ -244,10 +267,6 @@ export class AssistantRunner {
       }
 
       yield { type: 'stage', stage: 'generating' }
-      // The reader's own third-party tools are listed once per turn: a server that is slow or down is
-      // reported to the settings screen rather than failing the answer, and the schemas have to exist
-      // before the model is offered them.
-      const external: ExternalToolsResult = await loadExternalTools(this.store)
       const executor = new ToolExecutor(await this.toolContext(conversationId), { maxToolCalls: limits.maxToolCalls }, external.definitions)
       const schemas: ToolSchema[] = executor.available().map((definition) => ({
         name: definition.name,
@@ -287,6 +306,7 @@ export class AssistantRunner {
           turns,
           // A model that invents tool calls is silenced by not sending the schemas at all.
           tools: model.supportsTools ? schemas : [],
+          webSearch: this.webSearchNative,
           maxOutputTokens: Math.min(limits.maxOutputTokens, model.maxOutputTokens),
           temperature: model.temperature,
           topP: model.topP,

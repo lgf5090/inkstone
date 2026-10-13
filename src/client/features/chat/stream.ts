@@ -22,6 +22,8 @@ export interface StreamTurnInput {
   /** Note tags and folders the reader pinned with `#`. */
   scopes?: AssistantTurnScope[]
   retry?: boolean
+  /** The web-search switch: ask this model for a live search this turn. */
+  webSearch?: boolean
 }
 
 export async function streamAssistantTurn(
@@ -44,6 +46,7 @@ export async function streamAssistantTurn(
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.tools?.length ? { tools: input.tools } : {}),
       ...(input.scopes?.length ? { scopes: input.scopes } : {}),
+      ...(input.webSearch ? { webSearch: true } : {}),
       ...(input.retry ? { retry: true } : {}),
     }),
     credentials: 'same-origin',

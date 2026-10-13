@@ -410,7 +410,7 @@ assistantRoutes.delete('/conversations', async (c) => {
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -497,6 +497,7 @@ assistantRoutes.post('/chat', async (c) => {
         attachments,
         tools,
         scopes,
+        webSearch: body.webSearch === true,
         retry: body.retry === true,
         signal: controller.signal,
         readerGone: () => readerGone,

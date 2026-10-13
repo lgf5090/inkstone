@@ -36,6 +36,7 @@ import {
   NotePicker,
   PlusMenu,
   ReasoningMenu,
+  WebSearchMenu,
   VoiceButton,
 } from './ComposerControls'
 import { useUi } from '../../store/ui'
@@ -660,6 +661,8 @@ function Composer({
     return false
   }
 
+  const webSearch = useAssistant((state) => state.webSearch)
+  const setWebSearch = useAssistant((state) => state.setWebSearch)
   const mcpTools = useAssistant((state) => state.mcpTools)
   const mcpServers = useAssistant((state) => state.mcpServers)
   const loadMcp = useAssistant((state) => state.loadMcp)
@@ -847,6 +850,7 @@ function Composer({
                     value={active.contextTokens}
                     onPick={(tokens) => void updateModel(active.id, { contextTokens: tokens })}
                   />
+                  <WebSearchMenu value={webSearch} onChange={setWebSearch} />
                 </>
               )}
               <ModelMenu

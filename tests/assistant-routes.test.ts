@@ -1586,7 +1586,7 @@ describe('answer versions', () => {
 
 
 describe('external MCP servers', () => {
-  /** A third party that answers the handshake and offers one read and one write tool. */
+  /** A third party that answers the handshake and offers a read, a write and a web tool. */
   function fakeMcpServer(calls: string[]) {
     return vi.fn(async (url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as { method?: string, name?: string, arguments?: unknown }
@@ -1604,6 +1604,7 @@ describe('external MCP servers', () => {
           result: { tools: [
             { name: 'resolve-library-id', description: 'Find a library id', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
             { name: 'drop_everything', description: 'Removes data', inputSchema: { type: 'object', properties: {} } },
+            { name: 'web_lookup', description: 'Searches the live web', inputSchema: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] } },
           ] },
         })}\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } })
       }
@@ -1637,6 +1638,7 @@ describe('external MCP servers', () => {
     expect(tools.tools.map((entry) => entry.name)).toEqual([
       expect.stringMatching(/^mcp_[a-z0-9]+_resolve-library-id$/),
       expect.stringMatching(/^mcp_[a-z0-9]+_drop_everything$/),
+      expect.stringMatching(/^mcp_[a-z0-9]+_web_lookup$/),
     ])
     // The handshake asked for the session and echoed it back on the next call.
     expect(calls.some((entry) => entry.includes(':initialize:'))).toBe(true)
@@ -1682,7 +1684,6 @@ describe('external MCP servers', () => {
     const approved = await call<{ action: { status: string } }>('POST', `/api/assistant/actions/${actionId}/approve`)
     expect(approved.action.status).toBe('approved')
     // The replay carries the arguments the card showed: a remote call cannot be re-derived from a target id.
-    console.log('DEBUG calls tail:', JSON.stringify(calls.slice(-6)), 'statuses:', JSON.stringify(calls.map((c) => c.split(':').slice(3,5))))
     const ran = calls.filter((entry) => entry.includes(':tools/call:resolve-library-id:'))
     expect(ran.length, 'the approved call never reached the server').toBe(1)
     expect(ran[0]).toContain('query')
@@ -1757,5 +1758,88 @@ describe('external MCP servers', () => {
     expect(await status('DELETE', `/api/assistant/mcp/${mine.server.id}`)).toBe(200)
     expect((await call<{ servers: unknown[] }>('GET', '/api/assistant/mcp')).servers).toEqual([])
     vi.unstubAllGlobals()
+  })
+
+  describe('the web-search switch on a turn', () => {
+    /** The reader's server, with the one tool name a search turn can recognise on its own. */
+    async function addSearchServer(): Promise<string> {
+      vi.stubGlobal('fetch', fakeMcpServer([]))
+      await addServer()
+      const tools = await call<{ tools: { name: string }[] }>('GET', '/api/assistant/mcp/tools')
+      vi.unstubAllGlobals()
+      return tools.tools.find((entry) => entry.name.includes('web_lookup'))!.name
+    }
+
+    /** Records what the runner put on the wire, while the MCP handshake still gets answered. */
+    function watchModelRequest(model: string, frames: readonly string[]): string[] {
+      const bodies: string[] = []
+      const mcp = fakeMcpServer([])
+      vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+        const body = String(init?.body ?? '')
+        if (body.includes(`"model":"${model}"`)) {
+          bodies.push(body)
+          return new Response(sse(frames), { headers: { 'content-type': 'text/event-stream' } })
+        }
+        return mcp(url, init)
+      }))
+      return bodies
+    }
+
+    function systemOf(body: string | undefined): string {
+      const parsed = JSON.parse(body ?? '{}') as { messages?: { role: string, content: string }[], system?: string }
+      return String(parsed.messages?.find((entry) => entry.role === 'system')?.content ?? parsed.system ?? '')
+    }
+
+    it('names a remote search tool when the protocol has no vendor search', async () => {
+      await useExampleModel()
+      const searchName = await addSearchServer()
+      const bodies = watchModelRequest('example-model', FINAL_FRAMES)
+      const events = await chatEvents({ message: 'What is the weather in Shanghai today?', webSearch: true })
+      await settleTurns()
+      vi.unstubAllGlobals()
+      expect(events.some((event) => event.type === 'done')).toBe(true)
+      expect(systemOf(bodies[0])).toContain(searchName)
+    })
+
+    it('mentions nothing in the prompt when the switch is off, though the tool is still offered', async () => {
+      await useExampleModel()
+      const searchName = await addSearchServer()
+      const bodies = watchModelRequest('example-model', FINAL_FRAMES)
+      await chatEvents({ message: 'What is the weather in Shanghai today?' })
+      await settleTurns()
+      vi.unstubAllGlobals()
+      expect(systemOf(bodies[0])).not.toContain(searchName)
+      // The absence is only in the prompt line: the server's tool remains in the schema list, so a
+      // green here cannot come from the whole server having vanished.
+      expect(bodies[0] ?? '').toContain(searchName)
+    })
+
+    it('asks the vendor for its own search instead of pinning a remote tool', async () => {
+      await useExampleModel()
+      const searchName = await addSearchServer()
+      const providers = await call<{ providers: { id: string }[] }>('GET', '/api/assistant/providers')
+      await call('PATCH', `/api/assistant/providers/${providers.providers[0]!.id}`, { protocol: 'anthropic' })
+      const bodies = watchModelRequest('example-model', [
+        openAiFrame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Searching.' } }),
+        openAiFrame({ type: 'message_stop' }),
+      ])
+      const events = await chatEvents({ message: 'What is the weather in Shanghai today?', webSearch: true })
+      await settleTurns()
+      vi.unstubAllGlobals()
+      expect(events.some((event) => event.type === 'done')).toBe(true)
+      const sent = bodies[0] ?? ''
+      expect(sent).toContain('web_search_20250305')
+      expect(systemOf(sent)).not.toContain(searchName)
+    })
+
+    it('treats anything but true as off', async () => {
+      await useExampleModel()
+      const searchName = await addSearchServer()
+      const bodies = watchModelRequest('example-model', FINAL_FRAMES)
+      await chatEvents({ message: 'What is the weather in Shanghai today?', webSearch: 'yes' })
+      await settleTurns()
+      vi.unstubAllGlobals()
+      expect(systemOf(bodies[0])).not.toContain(searchName)
+    })
   })
 })

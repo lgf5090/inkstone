@@ -14,7 +14,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { api } from '../../lib/api'
 import { useUi } from '../../store/ui'
-import { ApprovalMenu, ControlChip, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, VoiceButton, formatContext } from './ComposerControls'
+import { ApprovalMenu, ControlChip, ContextMenu, ModelMenu, PlusMenu, ReasoningMenu, VoiceButton, WebSearchMenu, formatContext } from './ComposerControls'
 import { AttachmentStrip } from './ChatAttachments'
 import { detectTrigger, filterRows, TOOL_TRIGGER_ROWS, TriggerPanel, type TriggerRow } from './ComposerTriggers'
 
@@ -51,7 +51,11 @@ function pending(over: Partial<PendingAttachment> = {}): PendingAttachment {
 
 const buttons = () => [...document.body.querySelectorAll('button')]
 const byText = (text: string) => buttons().find((node) => node.textContent?.includes(text))
-const byAria = (name: string) => buttons().find((node) => node.getAttribute('aria-label') === name)
+// A chip's accessible name carries its value, so the label is a prefix of the name rather than all of it.
+const byAria = (name: string) => buttons().find((node) => {
+  const label = node.getAttribute('aria-label') ?? ''
+  return label === name || label.startsWith(`${name}: `)
+})
 const click = async (node: Element | undefined) => {
   if (!node) throw new Error('control is missing')
   await act(async () => { node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })) })
@@ -199,6 +203,29 @@ describe('voice chip', () => {
     // The chip is not a dead button: with no engine the reader is told, and it never enters listening.
     expect(promptDialog).toHaveBeenCalledWith({ title: t('assistant.composer.voice_unsupported') })
     expect(byAria(t('assistant.composer.voice_stop'))).toBeUndefined()
+  })
+})
+
+describe('web-search chip', () => {
+  it('reads as a switch, and each press asks for the other state', async () => {
+    const onChange = vi.fn()
+    await act(async () => { root.render(createElement(WebSearchMenu, { value: false, onChange })) })
+    const chip = byAria(t('assistant.composer.search'))
+    expect(chip?.getAttribute('aria-pressed')).toBe('false')
+    await click(chip)
+    expect(onChange).toHaveBeenCalledWith(true)
+  })
+
+  it('says which way it is set even where the word is hidden for a phone', async () => {
+    const onChange = vi.fn()
+    await act(async () => { root.render(createElement(WebSearchMenu, { value: true, onChange })) })
+    const chip = byAria(t('assistant.composer.search'))
+    // The visible word goes on a phone, so the state has to ride on the name and on the button.
+    expect(chip?.getAttribute('aria-pressed')).toBe('true')
+    expect(chip?.getAttribute('aria-label')).toBe(`${t('assistant.composer.search')}: ${t('assistant.search.on')}`)
+    expect(chip?.getAttribute('title')).toBe(t('assistant.search.hint'))
+    await click(chip)
+    expect(onChange).toHaveBeenCalledWith(false)
   })
 })
 

@@ -105,6 +105,9 @@ interface AssistantState {
   listTab: ConversationListTab
   /** The shortlists two of the tabs jump to; kept apart from the filtered main list. */
   flagged: { starred: AssistantConversation[], pinned: AssistantConversation[] }
+  /** The composer's live-web-search switch, kept between turns like the other per-composer settings. */
+  webSearch: boolean
+  setWebSearch: (value: boolean) => void
   /** The composer's queue: files uploaded for a turn that has not been sent yet. */
   pending: PendingAttachment[]
   /** Attachment rows behind the open conversation, by id, so a bubble can name what it carries. */
@@ -289,6 +292,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   folderNodes: [],
   unfiledCount: 0,
   tagNodes: [],
+  webSearch: false,
   pending: [],
   prompts: [],
   turnTools: [],
@@ -702,6 +706,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   dropTurnScope: (id) => set((current) => ({ turnScopes: current.turnScopes.filter((entry) => entry.id !== id) })),
 
+  setWebSearch: (value) => set({ webSearch: value }),
+
   send: async (text, opts = {}) => {
     const state = get()
     if (state.turn && !state.turn.done) return
@@ -788,6 +794,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           attachments: attached,
           tools: state.turnTools,
           scopes: state.turnScopes,
+          webSearch: state.webSearch,
           retry,
         },
         apply,

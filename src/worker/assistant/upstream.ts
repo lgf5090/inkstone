@@ -66,6 +66,13 @@ export interface UpstreamRequest {
   extraBody?: Record<string, string | number | boolean>
   /** How much the model is asked to think. `auto` sends nothing and lets the vendor decide. */
   reasoning: AssistantReasoning
+  /**
+   * The reader asked for a live web search this turn.
+   *
+   * Only two of the three protocols have a vendor-side search tool to say that with; where there is none,
+   * the runner does something else rather than sending a field that would be ignored.
+   */
+  webSearch?: boolean
   signal: AbortSignal
 }
 
@@ -474,13 +481,18 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         ...anthropicThinking(request),
         stream: true,
         ...request.extraBody,
-        ...(request.tools.length
+        ...(request.tools.length || request.webSearch
           ? {
-              tools: request.tools.map((tool) => ({
-                name: tool.name,
-                description: tool.description,
-                input_schema: tool.parameters,
-              })),
+              tools: [
+                ...request.tools.map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                  input_schema: tool.parameters,
+                })),
+                // The vendor's own search tool. Asking for it by its dated type is what makes the
+                // composer's switch real on this protocol instead of a field that gets ignored.
+                ...(request.webSearch ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] : []),
+              ],
             }
           : {}),
       }),
@@ -591,15 +603,22 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
           maxOutputTokens: request.maxOutputTokens,
           ...geminiThinking(request),
         },
-        ...(request.tools.length
+        // One `tools` array: Google's grounding entry is a sibling of the function declarations, and a
+        // second `tools` key in this object would silently drop whichever came first.
+        ...(request.tools.length || request.webSearch
           ? {
-              tools: [{
-                functionDeclarations: request.tools.map((tool) => ({
-                  name: tool.name,
-                  description: tool.description,
-                  parameters: tool.parameters,
-                })),
-              }],
+              tools: [
+                ...(request.webSearch ? [{ googleSearch: {} }] : []),
+                ...(request.tools.length
+                  ? [{
+                      functionDeclarations: request.tools.map((tool) => ({
+                        name: tool.name,
+                        description: tool.description,
+                        parameters: tool.parameters,
+                      })),
+                    }]
+                  : []),
+              ],
             }
           : {}),
       }),
