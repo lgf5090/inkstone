@@ -4764,6 +4764,9 @@ const allowed = new Map([
     "// library remembers, and a value it does not know is dropped rather than trusted into the view.",
     "// One clock reading for all of them: answers written inside the same millisecond still have to",
     "// order themselves, or the trim keeps an arbitrary 200 and the reader loses the one they just asked for.",
+    "/** The shelf as the rail reads it: pinned first, then the arrangement the library carries. */",
+    "// The flag and the arrangement say the same thing, so a drag or a move-up cannot land elsewhere.",
+    "// The pinned block keeps the order it was pinned in; the newest pin joins it at the end.",
   ]],
   ["src/client/features/rss/store.ts", [
     "/**\n * The reader's state: what is subscribed, what this device has read, and what is on screen.\n *\n * Three stores meet here, and the split is the design:\n *\n *  — the **library** (subscriptions, groups, read marks, favourites) belongs to the account and\n *    travels between devices, so it is saved to the Worker, debounced, and refused outright if it\n *    would arrive truncated;\n *  — the **articles** belong to this device. They are rebuildable from the network, so they go in\n *    IndexedDB under a byte ceiling rather than into the account row, where 400 feeds would be a\n *    megabyte per save;\n *  — the **view** (which article, which filter, how far down the list) is transient enough that\n *    losing it costs a reader a second, so it is kept per channel in memory and written out with\n *    the cache index rather than synced.\n *\n * Everything that can fail does so here rather than in a component: a refresh that half-worked has\n * to leave the feeds that answered showing their new articles and the ones that did not keeping\n * their old ones, and a save the server refused has to stay pending so the reader's next action\n * carries it instead of losing it.\n */",
@@ -4841,6 +4844,8 @@ const allowed = new Map([
     "/**\n * A clock that cannot repeat.\n *\n * The answer budget is spent newest-first, so two answers written in the same millisecond still have\n * to order themselves — otherwise the trim keeps an arbitrary half of them and the reader loses the\n * one they asked for a second ago.\n */",
     "/**\n * The newest answers, inside the article and character ceilings.\n *\n * A summary is a paid, streamed answer, so it is worth keeping — and not worth keeping forever. The\n * budget is spent newest-first, and one article is always kept even if it is alone over the line, so\n * a reader who asked about exactly one enormous article still finds it there.\n */",
     "/** Device data from an earlier build: keep what parses, drop the rest rather than half-trusting it. */",
+    "/** Pin a subscription to the head of its shelf, or let it back down. */",
+    "/**\n     * Pin a subscription, or let it back down into the shelf.\n     *\n     * The flag alone would leave two orders in the library — the reader's arrangement and the pinned\n     * band — and a drag or a move-up would then compute its index from one and land in the other.\n     * So the row is also moved to where the flag puts it, which keeps `order` and the array the same\n     * sequence the rail draws.\n     */",
   ]],
   ["src/client/features/rss/vault.test.ts", [
     "/**\n * A note folder read as a subscription — the conversion, and the two ways it could lie.\n *\n * The rows must be the folder *and everything under it*, because that is what a folder means\n * everywhere else in the app; and a note in the trash or the archive must not appear, because the\n * channel offers no way out of either. The shapes are pinned too: no link, no body, the folder's own\n * id as the source, so nothing downstream mistakes a note for an article it can star or hide.\n */",
@@ -12181,6 +12186,7 @@ const allowed = new Map([
   ["src/shared/rss/reading.test.ts", [
     "// a1 and b2: b1 is read, a2 is hidden, and feed c has nothing cached.",
     "// The reader finished the article when the only copy the feed had was `e-old`.",
+    "// Two rows that disagree about which is first still settle by the arrangement, not by name.",
   ]],
   ["src/shared/rss/reading.ts", [
     "/**\n * What the reader lists, sorts and counts, apart from anything that draws it.\n *\n * A channel is a question about the library rather than a screen: \"this feed\", \"this group\", \"all\n * of it\", \"what I starred\". Every surface — the rail's unread badges, the list, the keyboard's\n * next/previous, the position the reader returns to — asks the same question of the same data, and\n * the reason this file exists is that they must not disagree. Two views that disagree about what is\n * unread are the classic RSS bug, and no test of a single component can catch it.\n *\n * A `RssView` is the pair the question needs: the library (what is subscribed, what is marked) and\n * the articles this device has fetched. They are kept apart because only the first travels between\n * devices — an article list is rebuilt from the network in a second, while a subscription list is\n * years of small decisions a reader should not lose.\n *\n * Search is deliberately absent: matching a query is the app's fuzzy + pinyin rule, which lives in\n * the client layer with the rest of the things that need a DOM.\n */",
@@ -12227,6 +12233,7 @@ const allowed = new Map([
     "// A note folder is not a question about the article library; its rows are built by the client",
     "// from the notebook's own store. Answering \"everything\" here would be the worst possible default.",
     "// Nothing to fetch for a note folder: its rows are already on this device.",
+    "/**\n * The order a shelf of subscriptions shows in: pinned first, then the reader's own arrangement.\n *\n * The rail, the move-up and move-down menu and a dropped feed all have to agree on this, or the\n * index one of them computed lands somewhere else than the row the reader was pointing at.\n */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",

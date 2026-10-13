@@ -6,6 +6,7 @@ import {
   descendantGroupIds,
   channelKey,
   feedIsDue,
+  feedShelfOrder,
   feedWantsRefresh,
   findEntry,
   groupIdFor,
@@ -212,6 +213,18 @@ describe('list movement', () => {
     expect(stepIndex(4, 1, 5)).toBe(4)
     expect(stepIndex(-1, 1, 5)).toBe(0)
     expect(stepIndex(2, 1, 0)).toBe(-1)
+  })
+
+  it('puts a pinned subscription first, then leaves the arrangement alone', () => {
+    const a = newFeed('fa', 'https://a.test/feed', 'A', 0)
+    const b = newFeed('fb', 'https://b.test/feed', 'B', 1)
+    const c = newFeed('fc', 'https://c.test/feed', 'C', 2)
+    c.pinned = true
+    b.pinned = true
+    expect([a, b, c].sort(feedShelfOrder).map(feed => feed.id)).toEqual(['fb', 'fc', 'fa'])
+    // Two rows that disagree about which is first still settle by the arrangement, not by name.
+    a.order = 5
+    expect([a, c].sort(feedShelfOrder).map(feed => feed.id)).toEqual(['fc', 'fa'])
   })
 
   it('merges lists without duplicating an id and keeps the first copy', () => {

@@ -33,7 +33,7 @@ import {
   type RssGroup,
   type RssLibrary,
 } from '@shared/rss/model'
-import { channelKey, descendantGroupIds, feedWantsRefresh, groupIdFor, groupKey, orderByStaleness, parseChannelKey, refreshBackoffMs, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
+import { channelKey, descendantGroupIds, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, orderByStaleness, parseChannelKey, refreshBackoffMs, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
 import type { RssAiKind } from './ai'
@@ -134,6 +134,8 @@ export interface RssState {
   moveGroupTo: (groupId: string, parentId: string | null, index?: number) => void
   setGroupAppearance: (groupId: string, patch: { icon?: string | null, color?: string | null }) => void
   moveFeedTo: (feedId: string, groupId: string, index?: number) => void
+  /** Pin a subscription to the head of its shelf, or let it back down. */
+  setPinned: (feedId: string, pinned: boolean) => void
   openEntry: (entryId: string) => void
   view: () => RssChannelView
   markRead: (entryIds: string[], read: boolean) => void
@@ -891,6 +893,29 @@ export const useRss = create<RssState>((set, get) => {
     setPaused(feedId, paused) {
       patchFeed(feedId, { paused, ...(paused ? {} : { errorCount: 0, lastErrorAt: 0 }) })
       scheduleSave()
+    },
+
+    /**
+     * Pin a subscription, or let it back down into the shelf.
+     *
+     * The flag alone would leave two orders in the library — the reader's arrangement and the pinned
+     * band — and a drag or a move-up would then compute its index from one and land in the other.
+     * So the row is also moved to where the flag puts it, which keeps `order` and the array the same
+     * sequence the rail draws.
+     */
+    setPinned(feedId, pinned) {
+      const feed = get().library.feeds.find(item => item.id === feedId)
+      if (!feed || feed.pinned === pinned) return
+      set(state => ({
+        library: {
+          ...state.library,
+          feeds: state.library.feeds.map(item => (item.id === feedId ? { ...item, pinned } : item)),
+        },
+      }))
+      const shelf = get().library.feeds
+        .filter(item => item.groupId === feed.groupId)
+        .sort(feedShelfOrder)
+      get().moveFeedTo(feedId, feed.groupId, shelf.findIndex(item => item.id === feedId))
     },
 
     addGroup(name, parentId = null) {

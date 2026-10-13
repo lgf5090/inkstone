@@ -241,6 +241,16 @@ export function tagScopes(tags: readonly string[]): string[] {
   return [...out]
 }
 
+/**
+ * The order a shelf of subscriptions shows in: pinned first, then the reader's own arrangement.
+ *
+ * The rail, the move-up and move-down menu and a dropped feed all have to agree on this, or the
+ * index one of them computed lands somewhere else than the row the reader was pointing at.
+ */
+export function feedShelfOrder(a: RssFeed, b: RssFeed): number {
+  return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || a.order - b.order
+}
+
 export function findFeed(library: RssLibrary, id: string): RssFeed | undefined {
   return library.feeds.find(feed => feed.id === id)
 }

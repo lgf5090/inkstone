@@ -36,6 +36,8 @@ import {
   Pencil,
   Palette,
   Pause,
+  Pin,
+  PinOff,
   Play,
   RefreshCw,
   Rss,
@@ -51,7 +53,7 @@ import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenu
 import { buildFolderTree, type FolderNode } from '../../store/notes'
 import { leftDropTarget } from '../../lib/note-drag'
 import { tagKey } from '@shared/markdown-utils'
-import { channelKey, tagCounts, unreadCounts, type RssChannel } from '@shared/rss/reading'
+import { channelKey, feedShelfOrder, tagCounts, unreadCounts, type RssChannel } from '@shared/rss/reading'
 import { ExternalLink } from 'lucide-react'
 import { RSS_LIMITS, safeHttpUrl, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { useSession } from '../../store/session'
@@ -96,7 +98,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
   for (const feed of library.feeds) feedsByGroup.set(feed.groupId, (feedsByGroup.get(feed.groupId) ?? 0) + 1)
   const tree = buildFolderTree(library.groups, feedsByGroup)
   const shelfFeeds = (groupId: string): RssFeed[] =>
-    library.feeds.filter(feed => feed.groupId === groupId).sort((a, b) => a.order - b.order)
+    library.feeds.filter(feed => feed.groupId === groupId).sort(feedShelfOrder)
   const tagDisplay = new Map<string, string>()
   for (const feed of library.feeds) {
     for (const tag of feed.tags) if (!tagDisplay.has(tagKey(tag))) tagDisplay.set(tagKey(tag), tag)
@@ -416,6 +418,7 @@ function FeedRow({ feed, unread, loaded, active, depth, dropTarget, go, openMenu
       style={{ paddingLeft: 22 + depth * 12 }}
     >
       <FeedMark src={src} title={feed.title} size={16} />
+      {feed.pinned && <Pin size={10} className="shrink-0 opacity-55" aria-hidden="true" />}
       <span className="min-w-0 flex-1 truncate">{feed.title}</span>
       {feed.tags.length > 0 && <Hash size={10} className="shrink-0 opacity-45" aria-hidden="true" />}
       {loaded && unread > 0 && (
@@ -434,10 +437,10 @@ function dropOnFeed(event: React.DragEvent, target: RssFeed): void {
   const moving = event.dataTransfer.getData(RSS_FEED_DRAG)
   if (!moving || moving === target.id) return
   const library = useRss.getState().library
-  const before = library.feeds
-    .filter(feed => feed.groupId === target.groupId && feed.id !== target.id && feed.order < target.order)
-    .length
-  useRss.getState().moveFeedTo(moving, target.groupId, before)
+  const shelf = library.feeds
+    .filter(feed => feed.groupId === target.groupId && feed.id !== moving)
+    .sort(feedShelfOrder)
+  useRss.getState().moveFeedTo(moving, target.groupId, shelf.findIndex(feed => feed.id === target.id))
 }
 
 /** Drop a dragged feed or folder onto a folder row. */
@@ -507,7 +510,7 @@ function buildMenuItems(
     if (!feed) return []
     const siblings = library.feeds
       .filter(item => item.groupId === feed.groupId)
-      .sort((a, b) => a.order - b.order)
+      .sort(feedShelfOrder)
     const at = siblings.findIndex(item => item.id === feed.id)
     return [
       {
@@ -551,6 +554,12 @@ function buildMenuItems(
           : [...feed.tags, tag]
         state.setFeedTags(feed.id, next)
       }),
+      {
+        id: 'pin',
+        label: feed.pinned ? t('rss.unpin_feed') : t('rss.pin_feed'),
+        icon: feed.pinned ? <PinOff size={13} /> : <Pin size={13} />,
+        onSelect: () => state.setPinned(feed.id, !feed.pinned),
+      },
       {
         id: 'pause',
         label: feed.paused ? t('rss.resume_feed') : t('rss.pause_feed'),

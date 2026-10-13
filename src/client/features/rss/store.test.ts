@@ -127,6 +127,72 @@ function fetchCalls(): Array<{ path: string, body?: unknown }> {
   return calls.filter(call => call.path === 'fetch')
 }
 
+describe('keeping a subscription at the top', () => {
+  function shelfLibrary(): void {
+    const base = JSON.parse(JSON.stringify(saved)) as { feeds: unknown[] }
+    base.feeds = [
+      { ...feed, id: 'f1', url: 'https://a.test/feed', title: 'A', order: 0 },
+      { ...feed, id: 'f2', url: 'https://b.test/feed', title: 'B', order: 1 },
+      { ...feed, id: 'f3', url: 'https://c.test/feed', title: 'C', order: 2 },
+    ]
+    cache.set('library', base)
+  }
+
+  /** The shelf as the rail reads it: pinned first, then the arrangement the library carries. */
+  function shown(): string[] {
+    return useRss.getState().library.feeds
+      .slice()
+      .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || a.order - b.order)
+      .map(item => item.id)
+  }
+
+  it('floats a pinned subscription to the head of its shelf', async () => {
+    shelfLibrary()
+    await boot()
+    expect(shown()).toEqual(['f1', 'f2', 'f3'])
+    useRss.getState().setPinned('f3', true)
+    expect(shown()).toEqual(['f3', 'f1', 'f2'])
+    const feeds = useRss.getState().library.feeds
+    expect(feeds.find(item => item.id === 'f3')?.pinned).toBe(true)
+    // The flag and the arrangement say the same thing, so a drag or a move-up cannot land elsewhere.
+    expect(feeds.map(item => item.order)).toEqual([0, 1, 2])
+    expect(feeds.map(item => item.id)).toEqual(['f3', 'f1', 'f2'])
+  })
+
+  it('lets the row back down behind the ones that stay pinned', async () => {
+    shelfLibrary()
+    await boot()
+    useRss.getState().setPinned('f2', true)
+    useRss.getState().setPinned('f3', true)
+    // The pinned block keeps the order it was pinned in; the newest pin joins it at the end.
+    expect(shown()).toEqual(['f2', 'f3', 'f1'])
+    useRss.getState().setPinned('f2', false)
+    expect(shown()).toEqual(['f3', 'f2', 'f1'])
+    expect(useRss.getState().library.feeds.map(item => item.order)).toEqual([0, 1, 2])
+  })
+
+  it('saves the library the pin moved', async () => {
+    shelfLibrary()
+    await boot()
+    calls.length = 0
+    useRss.getState().setPinned('f1', true)
+    await vi.waitFor(() => expect(calls.filter(call => call.path === 'save').length).toBe(1))
+    const sent = calls.filter(call => call.path === 'save').at(-1)?.body as { feeds: Array<{ id: string, pinned: boolean }> }
+    expect(sent.feeds.find(item => item.id === 'f1')?.pinned).toBe(true)
+  })
+
+  it('does nothing at all when the subscription is already as asked', async () => {
+    shelfLibrary()
+    await boot()
+    const before = JSON.stringify(useRss.getState().library)
+    calls.length = 0
+    useRss.getState().setPinned('f1', false)
+    expect(JSON.stringify(useRss.getState().library)).toBe(before)
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(calls.filter(call => call.path === 'save')).toHaveLength(0)
+  })
+})
+
 describe('loading on a device', () => {
   it('asks a feed for its articles when this device holds none', async () => {
     fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
