@@ -222,3 +222,30 @@ describe('title and front matter stay in step', () => {
     expect(useNotes.getState().notes['n-7'].title).toHaveLength(LIMITS.titleMaxLength)
   })
 })
+
+describe('the deferred summary derivation', () => {
+  it('still runs when the window is gone by the time its timer fires', async () => {
+    useNotes.setState({
+      notes: { 'n-timer': { ...created('n-timer', 'Timer', 'one two'), wordCount: 1 } },
+      contents: { 'n-timer': 'one two' },
+    })
+    useNotes.getState().editContent('n-timer', 'one two three four five six')
+    // The derivation waits 70ms. In a fast test file that is long enough to outlive the jsdom
+    // environment, and the callback used to clear its own (already fired) timer through `window` —
+    // which turned a fully green run into a failed one.
+    vi.stubGlobal('window', {
+      get clearTimeout(): never {
+        throw new Error('the window is gone once the environment is torn down')
+      },
+    })
+    try {
+      await new Promise<void>(resolve => { globalThis.setTimeout(resolve, 140) })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+    const note = useNotes.getState().notes['n-timer']
+    expect(note.wordCount).toBe(6)
+    expect(note.charCount).toBe(useNotes.getState().contents['n-timer'].length)
+  })
+})
