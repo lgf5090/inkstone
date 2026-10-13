@@ -37,7 +37,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Drawer } from '../../components/overlay'
 import { Field, Input, Segmented, Select, Slider } from '../../components/form'
 import { fullTime, shortSince } from '../../lib/time'
@@ -48,7 +48,7 @@ import { api } from '../../lib/api'
 import { articleDisplayHtml } from './sanitize'
 import { appendToDailyNote, dailyNoteTitle, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
 import { aiReady, loadAiConfig, runArticleAi, type RssAiKind } from './ai'
-import { useRss } from './store'
+import { useRss, type RssReadingVersion } from './store'
 import { ExcerptPopup } from './ExcerptPopup'
 import { playableAudio, videoLinkOf } from './media'
 
@@ -74,6 +74,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const toggleFavorite = useRss(state => state.toggleFavorite)
   const toggleLater = useRss(state => state.toggleLater)
   const setReaderTop = useRss(state => state.setReaderTop)
+  const setVersion = useRss(state => state.setVersion)
+  const forgetResult = useRss(state => state.forgetResult)
+  const results = useRss(state => state.results)
   const settings = useSession(state => state.settings.rss)
   const hideEntries = useRss(state => state.hideEntries)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -85,7 +88,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const [ai, setAi] = useState<{ kind: RssAiKind, text: string, running: boolean, error: string } | null>(null)
 
   const key = channelKey(channel)
-  const view = views[key] ?? { entryId: '', filter: 'all' as const, query: '', listTop: 0, readerTop: 0 }
+  const view = views[key] ?? { entryId: '', filter: 'all' as const, query: '', sort: 'newest' as const, version: 'original' as const, platform: 'all' as const, listTop: 0, readerTop: 0 }
   const entries = useMemo(() => channelEntries({ library, articles }, channel), [library, articles, channel])
   // The channel list is a filter, and an open article can leave it: marking the only unread article
   // read, unstarring the only starred one, hiding it. That article is still the page the reader is
@@ -105,6 +108,8 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const read = entry ? library.readIds.includes(entry.id) : false
   const starred = entry ? library.favorites.includes(entry.id) : false
   const later = entry ? library.readLater.includes(entry.id) : false
+  const version: RssReadingVersion = view.version
+  const stored = entry ? results[entry.id] : undefined
 
       useEffect(() => {
     abortRef.current?.()
@@ -138,13 +143,19 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       return
     }
     abortRef.current?.()
+    const asked = entry
     setAi({ kind, text: '', running: true, error: '' })
     const run = runArticleAi(entry, feed, kind, live, settings.aiLanguage, text => {
       setAi(current => (current ? { ...current, text } : current))
     })
     abortRef.current = run.abort
     run.promise
-      .then(text => setAi(current => (current ? { ...current, text, running: false } : current)))
+      .then(text => {
+        // Kept against the article that was asked about, not whichever one is on screen now: a
+        // reader who moves on mid-stream should still find the answer where they left it.
+        useRss.getState().rememberResult(asked.id, kind, text)
+        setAi(current => (current ? { ...current, text, running: false } : current))
+      })
       .catch((error: unknown) => setAi({
         kind,
         text: '',
@@ -265,6 +276,22 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
         </IconButton>
       </header>
 
+      {settings.aiEnabled && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
+          <Segmented
+            size="sm"
+            label={t('rss.versions')}
+            value={version}
+            onChange={value => setVersion(value as RssReadingVersion)}
+            options={[
+              { value: 'original', label: t('rss.version_original') },
+              { value: 'summary', label: t('rss.ai.summary') },
+              { value: 'translation', label: t('rss.ai.translation') },
+            ]}
+          />
+        </div>
+      )}
+
       <div
         ref={barRef}
         aria-hidden="true"
@@ -341,24 +368,41 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
               </a>
             </p>
           )}
-          {display
-            ? <div ref={bodyRef} dangerouslySetInnerHTML={{ __html: display }} />
-            : <p className="text-[0.9em] text-[var(--text-tertiary)]">{entry.summary || t('rss.article_no_content')}</p>}
-          {settings.images === 'off' && entry.imageUrl && (
-            <button
-              type="button"
-              onClick={() => setImagesOn(true)}
-              className="mt-4 rounded-[var(--r-md)] border border-[var(--border-default)] px-2.5 py-1 text-[0.72em] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-            >
-              {t('rss.show_images')}
-            </button>
+          {version === 'original' && (
+            <>
+              {display
+                ? <div ref={bodyRef} dangerouslySetInnerHTML={{ __html: display }} />
+                : <p className="text-[0.9em] text-[var(--text-tertiary)]">{entry.summary || t('rss.article_no_content')}</p>}
+              {settings.images === 'off' && entry.imageUrl && (
+                <button
+                  type="button"
+                  onClick={() => setImagesOn(true)}
+                  className="mt-4 rounded-[var(--r-md)] border border-[var(--border-default)] px-2.5 py-1 text-[0.72em] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                >
+                  {t('rss.show_images')}
+                </button>
+              )}
+              {entry.content.length >= 99_000 && (
+                <p className="mt-6 text-[0.72em] text-[var(--text-quaternary)]">{t('rss.article_truncated')}</p>
+              )}
+            </>
           )}
-          {entry.content.length >= 99_000 && (
-            <p className="mt-6 text-[0.72em] text-[var(--text-quaternary)]">{t('rss.article_truncated')}</p>
+          {/* The other two versions are answers *about* this article, so they take its place rather
+              than trailing below it: a reader on the summary tab is deciding whether to read the
+              thing, and scrolling past the whole article to get there defeats the question. */}
+          {version !== 'original' && (
+            <VersionBody
+              kind={version}
+              answer={stored?.[version] ?? ''}
+              generatedAt={stored?.at ?? 0}
+              run={ai && ai.kind === version ? ai : null}
+              onAsk={() => void ask(version)}
+              onStop={() => abortRef.current?.()}
+              onForget={() => forgetResult(entry.id, version)}
+            />
           )}
         </article>
 
-        {ai && <AiPanel state={ai} onStop={() => abortRef.current?.()} onClear={() => setAi(null)} />}
       </div>
 
       <footer className="flex shrink-0 flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
@@ -388,10 +432,10 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           {t('rss.copy_link')}
         </button>
         <div className="flex flex-wrap items-center gap-1">
-          {settings.aiEnabled && (
+          {settings.aiEnabled && version === 'original' && (
             <>
-              <ToolButton label={t('rss.ai.summarise')} icon={<Sparkles size={13} aria-hidden="true" />} onClick={() => void ask('summary')} />
-              <ToolButton label={t('rss.ai.translate')} icon={<FileType2 size={13} aria-hidden="true" />} onClick={() => void ask('translation')} />
+              <ToolButton label={t('rss.ai.summarise')} icon={<Sparkles size={13} aria-hidden="true" />} onClick={() => { setVersion('summary'); void ask('summary') }} />
+              <ToolButton label={t('rss.ai.translate')} icon={<FileType2 size={13} aria-hidden="true" />} onClick={() => { setVersion('translation'); void ask('translation') }} />
             </>
           )}
         </div>
@@ -501,35 +545,65 @@ function TypographyPanel(): ReactElement {
   )
 }
 
-function AiPanel({ state, onStop, onClear }: { state: { kind: RssAiKind, text: string, running: boolean, error: string }, onStop: () => void, onClear: () => void }): ReactElement {
+/** One of the two versions that are not the author's own text. */
+function VersionBody({ kind, answer, generatedAt, run, onAsk, onStop, onForget }: {
+  kind: RssAiKind
+  answer: string
+  generatedAt: number
+  run: { text: string, running: boolean, error: string } | null
+  onAsk: () => void
+  onStop: () => void
+  onForget: () => void
+}): ReactElement {
+  const streaming = run?.running ?? false
+  const text = run && (streaming || run.error) ? run.text : answer
   return (
-    <section data-rss-ai className="mx-auto w-full max-w-[36em] px-4 pb-16 md:px-8">
-      <div className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-sunken)] p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <Sparkles size={13} className="text-[var(--accent)]" aria-hidden="true" />
-          <h2 className="text-[12.5px] font-semibold text-[var(--text-primary)]">
-            {state.kind === 'summary' ? t('rss.ai.summary') : t('rss.ai.translation')}
-          </h2>
-          <div className="ml-auto">
-            {state.running
-              ? (
-                  <button type="button" onClick={onStop} className="rounded-[var(--r-sm)] px-2 py-0.5 text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
-                    {t('rss.ai.stop')}
-                  </button>
-                )
-              : (
-                  <button type="button" onClick={onClear} className="rounded-[var(--r-sm)] px-2 py-0.5 text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
-                    {t('rss.ai.clear')}
-                  </button>
-                )}
-          </div>
+    <section data-rss-version={kind} className="text-[0.95em]">
+      <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] pb-2">
+        <Sparkles size={13} className="text-[var(--accent)]" aria-hidden="true" />
+        {/* A span, not a heading: the prose sheet sizes every h2 in the article, and this label is
+            chrome beside the answer rather than one of the article's own headings. */}
+        <span className="text-[12.5px] font-semibold text-[var(--text-primary)]">
+          {kind === 'summary' ? t('rss.ai.summary') : t('rss.ai.translation')}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {generatedAt && !streaming && (
+            <span className="text-[0.7em] text-[var(--text-quaternary)]">{t('rss.version_generated', { time: shortSince(generatedAt) })}</span>
+          )}
+          {streaming && (
+            <button type="button" onClick={onStop} className="rounded-[var(--r-sm)] px-2 py-0.5 text-[0.72em] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+              {t('rss.ai.stop')}
+            </button>
+          )}
+          {!streaming && text && (
+            <button type="button" onClick={onForget} className="rounded-[var(--r-sm)] px-2 py-0.5 text-[0.72em] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+              {t('rss.ai.clear')}
+            </button>
+          )}
         </div>
-        {state.error
-          ? <p className="text-[12px] text-[var(--danger)]">{state.error}</p>
-          : state.text
-            ? <p className="text-[13.5px] leading-[1.7] whitespace-pre-wrap text-[var(--text-primary)]">{state.text}</p>
-            : <p className="text-[12px] text-[var(--text-tertiary)]">{t('rss.ai.thinking')}</p>}
       </div>
+      {run?.error && <p className="mb-3 text-[0.82em] text-[var(--danger)]">{run.error}</p>}
+      {text
+        ? <p className="leading-[1.75] whitespace-pre-wrap text-[var(--text-primary)]">{text}</p>
+        : streaming
+          ? <p className="text-[0.85em] text-[var(--text-tertiary)]">{t('rss.ai.thinking')}</p>
+          : (
+              <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--border-default)] px-4 py-6 text-center">
+                <p className="text-[0.85em] text-[var(--text-tertiary)]">{t('rss.version_not_yet')}</p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<Sparkles size={13} aria-hidden="true" />}
+                  className="mt-3"
+                  onClick={onAsk}
+                >
+                  {kind === 'summary' ? t('rss.ai.summarise') : t('rss.ai.translate')}
+                </Button>
+              </div>
+            )}
+      {streaming && text && (
+        <p className="mt-3 text-[0.7em] text-[var(--text-quaternary)]">{t('rss.ai.thinking')}</p>
+      )}
     </section>
   )
 }

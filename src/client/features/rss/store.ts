@@ -36,17 +36,29 @@ import {
 import { channelKey, descendantGroupIds, feedWantsRefresh, groupIdFor, groupKey, orderByStaleness, parseChannelKey, refreshBackoffMs, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
+import type { RssAiKind } from './ai'
 import { api } from '../../lib/api'
 import { localDb } from '../../lib/db'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { sanitizeFeedHtml } from './sanitize'
 
+/** Which version of the article the reader is looking at: the author's, or an answer about it. */
+export type RssReadingVersion = 'original' | 'summary' | 'translation'
+
+/** What a model already answered about one article, kept on the device that asked. */
+export interface RssAiResult {
+  summary?: string
+  translation?: string
+  at: number
+}
+
 export interface RssChannelView {
   entryId: string
   filter: RssFilter
   query: string
   sort: RssSort
+  version: RssReadingVersion
   /** One platform of the channel, or all of them. */
   platform: LinkPlatform | 'all'
   listTop: number
@@ -88,6 +100,8 @@ export interface RssState {
   fetchedAt: Record<string, number>
   /** Per feed: when this device last stored it and what that storage costs. Survives a reload. */
   cache: Record<string, RssCacheMeta>
+  /** What a model answered, per article, on this device. */
+  results: Record<string, RssAiResult>
   /** What {@link RssState.loadAllCached} built, or null before the first search asks for it. */
   allCached: RssEntry[] | null
   views: Record<string, RssChannelView>
@@ -106,6 +120,12 @@ export interface RssState {
   setSort: (sort: RssSort) => void
   /** Show one platform of this channel — its videos, its bridged posts — or all of it. */
   setPlatform: (platform: LinkPlatform | 'all') => void
+  /** Which version of the article is on the reading pane. */
+  setVersion: (version: RssReadingVersion) => void
+  /** Keep a model's answer about one article, so the reader does not pay for it twice. */
+  rememberResult: (entryId: string, kind: RssAiKind, text: string) => void
+  /** Drop the stored answer of one kind for one article. */
+  forgetResult: (entryId: string, kind: RssAiKind) => void
   /** Dismiss articles: they leave every channel until the reader undoes it. */
   hideEntries: (entryIds: string[], hidden: boolean) => void
   setFeedTags: (feedId: string, tags: string[]) => void
@@ -143,7 +163,22 @@ export interface RssState {
   retrySave: () => void
 }
 
-const DEFAULT_VIEW: RssChannelView = { entryId: '', filter: 'all', query: '', sort: 'newest', platform: 'all', listTop: 0, readerTop: 0 }
+const DEFAULT_VIEW: RssChannelView = { entryId: '', filter: 'all', query: '', sort: 'newest', version: 'original', platform: 'all', listTop: 0, readerTop: 0 }
+/** How many articles keep a model's answer, and how much text that may be, on this device. */
+const RESULT_ARTICLES = 200
+const RESULT_CHARS = 400_000
+/**
+ * A clock that cannot repeat.
+ *
+ * The answer budget is spent newest-first, so two answers written in the same millisecond still have
+ * to order themselves — otherwise the trim keeps an arbitrary half of them and the reader loses the
+ * one they asked for a second ago.
+ */
+let lastResultAt = 0
+function resultStamp(): number {
+  lastResultAt = Math.max(Date.now(), lastResultAt + 1)
+  return lastResultAt
+}
 const FETCH_BATCH = 25
 const SAVE_DEBOUNCE_MS = 900
 /** How many of a merged channel's feeds are read into memory when it is opened. */
@@ -403,6 +438,7 @@ export const useRss = create<RssState>((set, get) => {
     articles: {},
     fetchedAt: {},
     cache: {},
+    results: {},
     allCached: null,
     views: {},
     channel: { kind: 'all' },
@@ -414,8 +450,10 @@ export const useRss = create<RssState>((set, get) => {
     async load() {
       if (get().status === 'loading' || get().status === 'ready') return
       set({ status: 'loading' })
-      index = normaliseIndex(await localDb.loadRssCacheIndex())
+      const [storedIndex, storedResults] = await Promise.all([localDb.loadRssCacheIndex(), localDb.loadRssResults()])
+      index = normaliseIndex(storedIndex)
       publishCache()
+      set({ results: normaliseResults(storedResults) })
       let library: RssLibrary
       try {
         const response = await api.rss.load()
@@ -459,6 +497,7 @@ export const useRss = create<RssState>((set, get) => {
         articles: {},
         fetchedAt: {},
         cache: {},
+        results: {},
         allCached: null,
         views: {},
         channel: { kind: 'all' },
@@ -498,6 +537,35 @@ export const useRss = create<RssState>((set, get) => {
 
     setPlatform(platform) {
       writeView(viewKey(), { platform })
+    },
+
+    setVersion(version) {
+      writeView(viewKey(), { version })
+    },
+
+    rememberResult(entryId, kind, text) {
+      const answer = text.trim()
+      if (!entryId || !answer) return
+      set((state) => {
+        const current = state.results[entryId] ?? { at: 0 }
+        const next: RssAiResult = { ...current, at: resultStamp(), [kind]: answer }
+        return { results: trimResults({ ...state.results, [entryId]: next }) }
+      })
+      void localDb.saveRssResults(get().results)
+    },
+
+    forgetResult(entryId, kind) {
+      set((state) => {
+        const current = state.results[entryId]
+        if (!current || !current[kind]) return state
+        const next = { ...current }
+        delete next[kind]
+        const results = { ...state.results }
+        if (next.summary || next.translation) results[entryId] = next
+        else delete results[entryId]
+        return { results: trimResults(results) }
+      })
+      void localDb.saveRssResults(get().results)
     },
 
     hideEntries(entryIds, hidden) {
@@ -959,6 +1027,46 @@ export const useRss = create<RssState>((set, get) => {
   }
 })
 
+/**
+ * The newest answers, inside the article and character ceilings.
+ *
+ * A summary is a paid, streamed answer, so it is worth keeping — and not worth keeping forever. The
+ * budget is spent newest-first, and one article is always kept even if it is alone over the line, so
+ * a reader who asked about exactly one enormous article still finds it there.
+ */
+function trimResults(results: Record<string, RssAiResult>): Record<string, RssAiResult> {
+  const kept: Record<string, RssAiResult> = {}
+  let chars = 0
+  const ordered = Object.entries(results)
+    .filter(([, result]) => Number.isFinite(result.at))
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, RESULT_ARTICLES)
+  for (const [id, result] of ordered) {
+    const size = (result.summary?.length ?? 0) + (result.translation?.length ?? 0)
+    if (chars && chars + size > RESULT_CHARS) break
+    kept[id] = result
+    chars += size
+  }
+  return kept
+}
+
+/** Device data from an earlier build: keep what parses, drop the rest rather than half-trusting it. */
+function normaliseResults(value: unknown): Record<string, RssAiResult> {
+  const out: Record<string, RssAiResult> = {}
+  if (!value || typeof value !== 'object') return out
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const stored = item as Partial<RssAiResult>
+    if (!stored || typeof stored !== 'object' || typeof stored.at !== 'number' || !Number.isFinite(stored.at)) continue
+    const result: RssAiResult = { at: Math.max(0, Math.trunc(stored.at)) }
+    for (const kind of ['summary', 'translation'] as const) {
+      const text = stored[kind]
+      if (typeof text === 'string' && text.trim()) result[kind] = text.slice(0, 20_000)
+    }
+    if (result.summary || result.translation) out[key.slice(0, 80)] = result
+  }
+  return trimResults(out)
+}
+
 function normaliseIndex(value: unknown): CacheIndex {
   const out = emptyIndex()
   if (!value || typeof value !== 'object') return out
@@ -987,6 +1095,7 @@ function normaliseIndex(value: unknown): CacheIndex {
         filter: stored.filter === 'unread' || stored.filter === 'starred' || stored.filter === 'later' ? stored.filter : 'all',
         query: typeof stored.query === 'string' ? stored.query.slice(0, 200) : '',
         sort: stored.sort === 'oldest' || stored.sort === 'source' ? stored.sort : 'newest',
+        version: stored.version === 'summary' || stored.version === 'translation' ? stored.version : 'original',
         platform: stored.platform === 'youtube' || stored.platform === 'bilibili' || stored.platform === 'wechat' || stored.platform === 'web' ? stored.platform : 'all',
         listTop: Number.isFinite(stored.listTop) ? Math.max(0, Math.trunc(Number(stored.listTop))) : 0,
         readerTop: Number.isFinite(stored.readerTop) ? Math.max(0, Math.trunc(Number(stored.readerTop))) : 0,

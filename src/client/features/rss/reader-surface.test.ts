@@ -13,8 +13,10 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { emptyLibrary, type RssEntry, type RssFeed } from '@shared/rss/model'
+import { DEFAULT_SETTINGS, mergeSettings } from '@shared/constants'
 import { channelKey, type RssChannel } from '@shared/rss/reading'
 import { initI18n, t } from '../../lib/i18n'
+import { useSession } from '../../store/session'
 import { useRss } from './store'
 import { RssReader } from './RssReader'
 
@@ -36,6 +38,7 @@ function entryFor(link: string, id: string): RssEntry {
 }
 
 const original = useRss.getState()
+const originalSession = useSession.getState()
 let root: Root
 let container: HTMLDivElement
 
@@ -47,7 +50,7 @@ async function mount(item: RssEntry, channel: RssChannel = { kind: 'feed', feedI
     articles: { [FEED_ID]: [item] },
     fetchedAt: { [FEED_ID]: Date.now() },
     channel,
-    views: { [channelKey(channel)]: { entryId: item.id, filter: 'all', query: '', sort: 'newest', platform: 'all', listTop: 0, readerTop: 0 } },
+    views: { [channelKey(channel)]: { entryId: item.id, filter: 'all', query: '', sort: 'newest', version: 'original', platform: 'all', listTop: 0, readerTop: 0 } },
   })
   await act(async () => { root.render(createElement(RssReader)) })
 }
@@ -68,6 +71,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   useRss.setState(original)
+  useSession.setState(originalSession)
 })
 
 describe('the WeChat attribution line', () => {
@@ -85,6 +89,40 @@ describe('the WeChat attribution line', () => {
     await mount(entryFor(PLAIN_LINK, 'plain-entry'))
     expect(container.textContent).not.toContain(t('rss.wechat_notice'))
     expect(anchors().some(anchor => anchor.textContent === t('rss.wechat_original'))).toBe(false)
+  })
+})
+
+describe('the reading versions', () => {
+  const item = () => entryFor(PLAIN_LINK, 'versioned')
+
+  it('shows a stored answer in place of the article, and says when it was made', async () => {
+    useSession.setState({ settings: mergeSettings({ rss: { ...DEFAULT_SETTINGS.rss, aiEnabled: true } }) })
+    const entry = item()
+    await mount(entry)
+    useRss.setState({ results: { [entry.id]: { summary: '一篇之长的摘要', at: Date.now() - 60_000 } } })
+    await act(async () => { useRss.getState().setVersion('summary') })
+    const body = container.querySelector('[data-rss-version="summary"]')
+    expect(body, 'the summary tab is the one showing').toBeTruthy()
+    expect(body?.textContent).toContain('一篇之长的摘要')
+    expect(container.querySelector('article')?.textContent).not.toContain('One paragraph of body.')
+    expect(container.textContent).toContain(t('rss.ai.summary'))
+  })
+
+  it('names the ask instead of showing an empty page when nothing was generated', async () => {
+    useSession.setState({ settings: mergeSettings({ rss: { ...DEFAULT_SETTINGS.rss, aiEnabled: true } }) })
+    await mount(item())
+    await act(async () => { useRss.getState().setVersion('translation') })
+    expect(container.textContent).toContain(t('rss.version_not_yet'))
+    const generate = [...container.querySelectorAll('button')].find(node => node.textContent?.trim() === t('rss.ai.translate'))
+    expect(generate, 'the tab offers the one thing that fills it').toBeTruthy()
+  })
+
+  it('leaves the article alone while the original tab is up', async () => {
+    useSession.setState({ settings: mergeSettings({ rss: { ...DEFAULT_SETTINGS.rss, aiEnabled: true } }) })
+    await mount(item())
+    expect(container.querySelector('[data-rss-version]')).toBeNull()
+    expect(container.textContent).toContain('One paragraph of body.')
+    expect(container.textContent).toContain(t('rss.version_original'))
   })
 })
 

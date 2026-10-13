@@ -31,6 +31,7 @@ const KEY = {
   rssArticles: (id: string) => `rssArticles:${id}`,
   rssCache: 'rssCache',
   rssAi: 'rssAi',
+  rssResults: 'rssResults',
   userId: 'userId',
   session: 'session',
 } as const
@@ -441,6 +442,18 @@ export const localDb = {
     return safeGet<unknown>(userScopedKey(KEY.rssAi))
   },
   saveRssAi: (value: unknown) => safeSet(userScopedKey(KEY.rssAi), value),
+
+  /**
+   * What a model already answered about an article, on this device.
+   *
+   * A summary is a paid, streamed answer the reader should not have to ask for twice, and it is not
+   * the kind of thing to put in the account row: it belongs to whoever configured a key. One blob,
+   * trimmed by the store when it grows.
+   */
+  async loadRssResults(): Promise<unknown> {
+    return safeGet<unknown>(userScopedKey(KEY.rssResults))
+  },
+  saveRssResults: (value: unknown) => safeSet(userScopedKey(KEY.rssResults), value),
 
   getOutbox: async (): Promise<OutboxItem[]> => normalizeOutbox(await safeGet<unknown>(userScopedKey(KEY.outbox))),
 

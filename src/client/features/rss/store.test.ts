@@ -50,6 +50,8 @@ vi.mock('../../lib/db', () => ({
     dropRssArticles: (id: string) => { cache.delete(`articles:${id}`); return Promise.resolve() },
     loadRssAi: () => Promise.resolve(null),
     saveRssAi: () => Promise.resolve(),
+    loadRssResults: () => Promise.resolve(cache.get('results') ?? null),
+    saveRssResults: (value: unknown) => { cache.set('results', value); return Promise.resolve() },
   },
 }))
 
@@ -484,5 +486,66 @@ describe('importing a library', () => {
     const imported = useRss.getState().library.feeds.filter(feed => wanted.has(feed.url))
     expect(imported).toHaveLength(2)
     expect(imported.every(feed => feed.groupId === shelf)).toBe(true)
+  })
+})
+
+describe('what a model answered', () => {
+  it('keeps both kinds against the article that asked', async () => {
+    await boot()
+    useRss.getState().rememberResult('e1', 'summary', '  A summary  ')
+    expect(useRss.getState().results.e1?.summary).toBe('A summary')
+    useRss.getState().rememberResult('e1', 'translation', 'A translation')
+    expect(useRss.getState().results.e1?.translation).toBe('A translation')
+    expect((cache.get('results') as Record<string, { summary?: string }>).e1.summary).toBe('A summary')
+    useRss.getState().rememberResult('e1', 'summary', '   ')
+    expect(useRss.getState().results.e1?.summary, 'an empty answer replaces nothing').toBe('A summary')
+    useRss.getState().forgetResult('e1', 'summary')
+    expect(useRss.getState().results.e1?.summary).toBeUndefined()
+    expect(useRss.getState().results.e1?.translation, 'the other kind stays').toBe('A translation')
+    useRss.getState().forgetResult('e1', 'translation')
+    expect(useRss.getState().results.e1, 'the record goes with its last answer').toBeUndefined()
+  })
+
+  it('reads the device answers back, and drops the ones that do not parse', async () => {
+    cache.set('results', {
+      good: { summary: 'ok', at: 5 },
+      undated: { summary: 'x' },
+      textual: { summary: 'x', at: '5' },
+      empty: { summary: '   ', at: 9 },
+    })
+    await boot()
+    expect(useRss.getState().results.good?.summary).toBe('ok')
+    expect(useRss.getState().results.undated, 'no timestamp means no trust').toBeUndefined()
+    expect(useRss.getState().results.textual, 'a timestamp in another type is no timestamp at all').toBeUndefined()
+    expect(useRss.getState().results.empty).toBeUndefined()
+  })
+
+  it('keeps the newest articles inside its ceiling', async () => {
+    await boot()
+    // One clock reading for all of them: answers written inside the same millisecond still have to
+    // order themselves, or the trim keeps an arbitrary 200 and the reader loses the one they just asked for.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+    for (let index = 0; index < 205; index++) {
+      useRss.getState().rememberResult(`e${index}`, 'summary', `answer ${index}`)
+    }
+    now.mockRestore()
+    const results = useRss.getState().results
+    expect(Object.keys(results).length).toBe(200)
+    expect(results['e204']?.summary, 'the last one asked about is kept').toBe('answer 204')
+    expect(results.e0, 'the oldest is the one that goes').toBeUndefined()
+  })
+
+  it('remembers which version the reader left the pane on', async () => {
+    await boot()
+    expect(useRss.getState().view().version).toBe('original')
+    useRss.getState().setVersion('summary')
+    expect(useRss.getState().view().version).toBe('summary')
+    await useRss.getState().open({ kind: 'starred' })
+    expect(useRss.getState().view().version, 'another channel opens on the article itself').toBe('original')
+    await useRss.getState().flush()
+    cache.set('index', { articles: {}, views: { starred: { entryId: '', filter: 'all', query: '', sort: 'newest', version: 'translation', platform: 'all', listTop: 0, readerTop: 0 } } })
+    useRss.getState().reset()
+    await boot()
+    expect(useRss.getState().view().version).toBe('translation')
   })
 })
