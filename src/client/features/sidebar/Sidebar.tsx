@@ -27,7 +27,7 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus';
 import { FolderMoveMenu } from '../folders/FolderMoveMenu';
 import { useLintFolderMenuItems } from '../linter/useLintMenuItems';
-import { collapseOrLeave, expandOrReveal, moveTreeFocus } from './tree-keyboard';
+import { treeIndent, treeItemProps, useTreeKeyboard } from '../../components/tree';
 import { SidebarTags } from '../tags/SidebarTags';
 import { SidebarRecent } from './SidebarRecent';
 import { SidebarVersions } from './SidebarVersions';
@@ -823,35 +823,20 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
         ...lintItems,
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
-    const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-        if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey)
-            return;
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            if (moveTreeFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1))
-                event.preventDefault();
-            return;
-        }
-        if (event.key === 'ArrowRight') {
-            if (expandOrReveal(event.currentTarget))
-                event.preventDefault();
-            return;
-        }
-        if (event.key === 'ArrowLeft') {
-            if (collapseOrLeave(event.currentTarget))
-                event.preventDefault();
-            return;
-        }
-        if (event.key === 'F2') {
-            event.preventDefault();
-            onStartRename(node.id);
-            return;
-        }
-        if (event.key === 'Delete') {
-            event.preventDefault();
-            void remove();
-        }
-    };
-    return (<div role="treeitem" aria-level={node.depth + 1} aria-expanded={hasChildren ? expanded : undefined} className={cn(justCreated && 'anim-tree-item-enter')} data-new-folder={justCreated || undefined}>
+    const onKeyDown = useTreeKeyboard({
+        onKey: (event) => {
+            if (event.key === 'F2') {
+                onStartRename(node.id);
+                return true;
+            }
+            if (event.key === 'Delete') {
+                void remove();
+                return true;
+            }
+            return false;
+        },
+    });
+    return (<div {...treeItemProps({ level: node.depth + 1, expanded: hasChildren ? expanded : undefined, selected: active, setSize: siblings.length, posInSet: index + 1 })} className={cn(justCreated && 'anim-tree-item-enter')} data-new-folder={justCreated || undefined}>
       <div ref={buttonRef} data-folder-drop-target onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);
@@ -899,7 +884,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             e.dataTransfer.effectAllowed = 'move';
         }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', 'transition-colors duration-[var(--dur-fast)]', active
             ? 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropState === 'inside' && 'ring-1 ring-[var(--accent)]')} style={{ paddingLeft: 6 + node.depth * 13 }}>
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]', dropState === 'inside' && 'ring-1 ring-[var(--accent)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
         {dropState === 'before' && <span aria-hidden="true" className="pointer-events-none absolute top-0 right-1 left-1 h-px bg-[var(--accent)]"/>}
         {dropState === 'after' && <span aria-hidden="true" className="pointer-events-none absolute right-1 bottom-0 left-1 h-px bg-[var(--accent)]"/>}
         <Tooltip label={expanded ? t("sidebar.collapse") : t("sidebar.expand")} side="right">
