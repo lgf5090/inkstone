@@ -20,6 +20,23 @@ import { DEFAULT_SEMANTIC_MODEL } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
+/** The chat's own object store: bytes in, bytes out, keyed by the path the route chose. */
+const chatR2 = {
+  objects: new Map<string, Uint8Array>(),
+  async put(key: string, value: Uint8Array | string) {
+    this.objects.set(key, typeof value === 'string' ? new TextEncoder().encode(value) : value)
+    return { key }
+  },
+  async get(key: string) {
+    const bytes = this.objects.get(key)
+    if (!bytes) return null
+    return { arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
+  },
+  async delete(key: string) {
+    this.objects.delete(key)
+  },
+}
+
 const USER = '0123456789abcdefghjkmnpqrs'
 const OTHER = '0123456789abcdefghjkmnpqrt'
 
@@ -170,6 +187,7 @@ beforeEach(() => {
       }),
     },
     PUBLIC_URL: 'http://localhost',
+    FILES: chatR2,
   }
   app = buildApp(USER)
 })
@@ -940,5 +958,155 @@ describe('backup', () => {
 
   it('refuses a file from another app', async () => {
     expect(await status('POST', '/api/assistant/import', { format: 'not-inkstone', version: 1, data: {} })).toBe(400)
+  })
+})
+
+async function uploadFile(name: string, content: string | Uint8Array, mime: string): Promise<{ attachment: { id: string, kind: string, key: string, filename: string, size: number } }> {
+  const form = new FormData()
+  const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content
+  form.append('file', new Blob([bytes as unknown as BlobPart], { type: mime }), name)
+  const response = await app.fetch(new Request('http://localhost/api/assistant/files', { method: 'POST', body: form }), env as never, ctx)
+  const text = await response.text()
+  if (!response.ok) throw new Error(`${response.status} ${text}`)
+  return JSON.parse(text) as { attachment: { id: string, kind: string, key: string, filename: string, size: number } }
+}
+
+describe('chat attachments', () => {
+  it('stores a text file under the chat prefix and reads it back', async () => {
+    const uploaded = await uploadFile('notes.md', '# 标题\n读者提到的重点', 'text/markdown')
+    expect(uploaded.attachment.kind).toBe('file')
+    expect(uploaded.attachment.key).toMatch(/^chat\/files\/0123456789abcdefghjkmnpqrs\/[0-9a-z]+\.md$/)
+    expect(chatR2.objects.has(uploaded.attachment.key)).toBe(true)
+    const served = await app.fetch(
+      new Request(`http://localhost/api/assistant/files/${uploaded.attachment.id}`),
+      env as never, ctx,
+    )
+    expect(served.status).toBe(200)
+    expect(served.headers.get('content-type')).toBe('text/markdown')
+    expect(await served.text()).toContain('读者提到的重点')
+
+    const removed = await call<{ deleted: boolean }>('DELETE', `/api/assistant/files/${uploaded.attachment.id}`)
+    expect(removed.deleted).toBe(true)
+    expect(chatR2.objects.has(uploaded.attachment.key)).toBe(false)
+  })
+
+  it('puts an image under chat/images and a document under chat/files', async () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])
+    const image = await uploadFile('shot.png', png, 'image/png')
+    expect(image.attachment.kind).toBe('image')
+    expect(image.attachment.key.startsWith('chat/images/')).toBe(true)
+    const csv = await uploadFile('data.csv', 'a,b\n1,2', 'text/csv')
+    expect(csv.attachment.key.startsWith('chat/files/')).toBe(true)
+    expect(csv.attachment.key).toMatch(/\.csv$/)
+  })
+
+  it('refuses an empty file and never leaves the object behind', async () => {
+    const before = chatR2.objects.size
+    let failure = ''
+    try {
+      await uploadFile('empty.txt', '', 'text/plain')
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error)
+    }
+    expect(failure).toContain('empty')
+    // The store is shared across the file, so the claim is that nothing was added, not that it is empty.
+    expect(chatR2.objects.size).toBe(before)
+  })
+
+  it('feeds an attached file to the model and keeps it on the next turn', async () => {
+    await useExampleModel()
+    const uploaded = await uploadFile('购物清单.txt', '买咖啡豆和燕麦奶', 'text/plain')
+    const events = await chatEvents({ message: '我附的文件里要买什么？', attachments: [uploaded.attachment.id] })
+    await settleTurns()
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    const userTurn = detail.messages.find((entry) => entry.role === 'user')!
+    expect(userTurn.attachments).toEqual([uploaded.attachment.id])
+    // The stored row is what the reader typed; the file joins the model's view, not the transcript.
+    expect(userTurn.content).toBe('我附的文件里要买什么？')
+    // The body the model is fed carries the file, so a second turn can still be told what it said.
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ conversationId, message: '再说一遍清单里的东西' })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(bodies.some((body) => body.includes('买咖啡豆和燕麦奶'))).toBe(true)
+  })
+
+  it('sends a picture as an image part when the model can see', async () => {
+    await useExampleModel()
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])
+    const uploaded = await uploadFile('photo.png', png, 'image/png')
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({ message: '这张图里是什么？', attachments: [uploaded.attachment.id] })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(events.some((event) => event.type === 'done')).toBe(true)
+    expect(bodies.length).toBeGreaterThan(0)
+    expect(bodies[0]).toContain('"type":"image_url"')
+    expect(bodies[0]).toContain('data:image/png;base64,')
+  })
+
+  it('names the picture instead of sending it when the model cannot see', async () => {
+    await useExampleModel()
+    const models = await call<{ models: { id: string }[] }>('GET', '/api/assistant/models')
+    await call('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { vision: false })
+    const uploaded = await uploadFile('photo.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), 'image/png')
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse(FINAL_FRAMES), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    await chatEvents({ message: '这张图里是什么？', attachments: [uploaded.attachment.id] })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(bodies[0]).not.toContain('image_url')
+    expect(bodies[0]).toContain('this model is not marked as able to')
+  })
+
+  it('drops an id that is not a real attachment before it reaches the model', async () => {
+    await useExampleModel()
+    const events = await chatEvents({ message: '附件呢？', attachments: ['nope', '../etc/passwd', '0123456789abcdefghjkmnpqrs'] })
+    await settleTurns()
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    // A shape that is not an id never becomes a row, and neither does an id the reader does not own.
+    expect(detail.messages.find((entry) => entry.role === 'user')?.attachments ?? []).toEqual([])
+  })
+
+  it('carries the attachment ids through a backup round-trip', async () => {
+    const uploaded = await uploadFile('keep.txt', '要留在备份里', 'text/plain')
+    await useExampleModel()
+    const events = await chatEvents({ message: '记住这个附件', attachments: [uploaded.attachment.id] })
+    await settleTurns()
+    const conversationId = events.find((event) => event.type === 'start')!.conversationId!
+    const payload = await call('GET', '/api/assistant/export') as Record<string, unknown>
+    expect(JSON.stringify(payload)).toContain(uploaded.attachment.id)
+    await call('DELETE', `/api/assistant/conversations/${conversationId}`)
+    await call('POST', '/api/assistant/import', payload)
+    const detail = await call<{ messages: AssistantMessage[] }>('GET', `/api/assistant/conversations/${conversationId}`)
+    const restored = detail.messages.find((entry) => entry.role === 'user')
+    // The import rebuilds each row field by field, so a column it does not name is written as NULL and
+    // the NOT NULL column makes the whole message disappear under INSERT OR IGNORE.
+    expect(restored?.attachments).toEqual([uploaded.attachment.id])
+  })
+
+  it('ignores an attachment id that is not the reader’s own', async () => {
+    const uploaded = await uploadFile('mine.txt', 'private', 'text/plain')
+    asUser(OTHER)
+    const listed = await call<{ files: { id: string }[] }>('GET', '/api/assistant/files')
+    expect(listed.files.map((entry) => entry.id)).not.toContain(uploaded.attachment.id)
+    expect(await status('GET', `/api/assistant/files/${uploaded.attachment.id}`)).toBe(404)
+    expect(await status('DELETE', `/api/assistant/files/${uploaded.attachment.id}`)).toBe(200)
+    asUser(USER)
+    // The other account's row is untouched, and so is its object.
+    expect(chatR2.objects.has(uploaded.attachment.key)).toBe(true)
   })
 })

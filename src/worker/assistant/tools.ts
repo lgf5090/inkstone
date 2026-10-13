@@ -815,6 +815,12 @@ export class ToolExecutor {
     if (definition.permission !== 'destructive') {
       return await definition.run(args, { ...this.ctx, callId })
     }
+    if (this.ctx.settings.autoApproveWrites) {
+      // The same prepare/commit pair the approval card runs, minus the wait: skipping `prepare` would
+      // also skip the lookup that decides what this tool is allowed to touch.
+      const prepared = await definition.prepare(args, { ...this.ctx, callId })
+      return await definition.commit(prepared.targetId, { ...this.ctx, callId })
+    }
     if (!this.ctx.conversationId) throw new ToolError(`"${name}" needs the reader's approval and can only be used in chat.`)
     const prepared = await definition.prepare(args, { ...this.ctx, callId })
     const action = await this.ctx.store.createPendingAction({

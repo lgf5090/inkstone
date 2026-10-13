@@ -13,8 +13,9 @@
  */
 
 import type { AssistantMessage, AssistantProtocol, AssistantSettings, ChatStreamEvent, ToolActivity } from '@shared/assistant'
-import { estimateTokens, titleFromMessage } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, estimateTokens, titleFromMessage } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
+import { expandChatAttachments, type AttachmentPayload } from './attachments'
 import { buildSystemPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
 import type { Env } from '../env'
@@ -49,6 +50,8 @@ export interface RunnerDeps {
 export interface TurnInput {
   conversationId?: string
   message: string
+  /** Attachment ids the reader added to this turn. */
+  attachments?: string[]
   retry?: boolean
   signal: AbortSignal
   /** True once a write to the reader has failed, which is the only disconnect some platforms surface. */
@@ -60,6 +63,7 @@ interface HistoryEntry {
   content: string
   createdAt: number
   calls?: ToolCallRecord[]
+  images?: { mime: string, dataUrl: string }[]
 }
 
 export class AssistantRunner {
@@ -111,7 +115,16 @@ export class AssistantRunner {
         }
         yield { type: 'title', conversationId: conversation.id, title: conversation.title }
       }
-      await this.store.addMessage({ conversationId: conversation.id, role: 'user', content: message })
+      const attached = (input.attachments ?? []).slice(0, MAX_CHAT_ATTACHMENTS)
+      // Only the reader's own words are stored. What a file contributes is worked out on every turn,
+      // against the model that is actually being used, so a row never claims a picture was shown to a
+      // model that cannot see one — and switching models changes what is sent, not what was said.
+      await this.store.addMessage({
+        conversationId: conversation.id,
+        role: 'user',
+        content: message,
+        attachments: attached,
+      })
     }
     const conversationId = conversation.id
     const assistantId = newId()
@@ -151,14 +164,17 @@ export class AssistantRunner {
       const { model, provider } = resolved
       const apiKey = await this.store.providerKey(provider)
       const limits = this.settings.limits
+      // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
+      // composer's context control, and the global limit is what a model without one falls back to.
+      const contextTokens = model.contextTokens ?? limits.maxContextTokens
       if (!(await this.reserve(1, limits.maxRequestsPerDay))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
       }
 
       yield { type: 'stage', stage: 'reading' }
       const selected = await this.recallMemories(userMessage?.content ?? message)
-      const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(limits.maxContextTokens))
-      const history = await this.contextHistory(conversationId)
+      const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
+      const history = await this.contextHistory(conversationId, model.vision)
       const system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
@@ -170,7 +186,7 @@ export class AssistantRunner {
         noteScope: this.settings.noteScope,
         noteScopeLabels: await this.scopeLabels(),
       })
-      const historyBudget = Math.max(500, limits.maxContextTokens - estimateTokens(system) - 600)
+      const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - 600)
       let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
 
       if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
@@ -185,7 +201,12 @@ export class AssistantRunner {
         description: definition.description,
         parameters: parametersSchema(definition.fields),
       }))
-      const turns: ModelTurn[] = window.messages.map((entry) => ({ role: entry.role, content: entry.content, calls: entry.calls }))
+      const turns: ModelTurn[] = window.messages.map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+        calls: entry.calls,
+        images: entry.images,
+      }))
       const usage = { inputTokens: 0, outputTokens: 0 }
       let steps = 0
 
@@ -208,6 +229,7 @@ export class AssistantRunner {
           tools: schemas,
           maxOutputTokens: Math.min(limits.maxOutputTokens, model.maxOutputTokens),
           temperature: model.temperature,
+          reasoning: model.reasoning,
           signal: input.signal,
         }, calls, usage)) {
           if (event.type === 'text') text += event.delta ?? ''
@@ -345,6 +367,8 @@ export class AssistantRunner {
         tools: [],
         maxOutputTokens: 400,
         temperature: 0.2,
+        // A summary is arithmetic on text, not a question: thinking only costs the reader's budget.
+        reasoning: 'off',
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -364,14 +388,23 @@ export class AssistantRunner {
   }
 
   /** Recent turns, oldest first, with the tool outcomes and approval results the model must see. */
-  private async contextHistory(conversationId: string): Promise<HistoryEntry[]> {
+  private async contextHistory(conversationId: string, vision: boolean): Promise<HistoryEntry[]> {
     const messages = await this.store.messages(conversationId, 200)
     const actions = await this.store.actionStatesForConversation(conversationId)
+    const payloads = new Map<string, AttachmentPayload>()
+    for (const entry of messages) {
+      const ids = entry.attachments ?? []
+      if (entry.role !== 'user' || !ids.length || payloads.has(entry.id)) continue
+      payloads.set(entry.id, await expandChatAttachments(this.store, this.deps.env, ids, vision))
+    }
     return messages
       .filter((entry) => entry.role === 'user' || entry.status === 'complete')
       .map((entry) => ({
         role: entry.role,
-        content: withApprovalOutcomes(entry, actions),
+        content: withEntryAttachments(withApprovalOutcomes(entry, actions), entry.role, payloads.get(entry.id)),
+        ...(entry.role === 'user' && payloads.get(entry.id)?.images.length
+          ? { images: payloads.get(entry.id)!.images }
+          : {}),
         createdAt: entry.createdAt,
         ...(entry.role === 'assistant'
           ? {
@@ -501,6 +534,7 @@ export class AssistantRunner {
         tools: [],
         maxOutputTokens: 600,
         temperature: 0,
+        reasoning: 'off',
         signal: controller.signal,
       })) {
         if (event.type === 'text') text += event.delta
@@ -562,6 +596,7 @@ export class AssistantRunner {
         tools: schemas,
         maxOutputTokens: Math.min(limits.maxOutputTokens, 800),
         temperature: this.settings.temperature,
+        reasoning: resolved.model.reasoning,
         signal,
       }, calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''
@@ -657,6 +692,12 @@ export function buildContextWindow(history: HistoryEntry[], maxTokens: number, s
     })),
     overflow: eligible.slice(0, Math.max(0, eligible.length - kept.length)),
   }
+}
+
+/** A user turn is the reader's text plus whatever their attachments contribute to this particular model. */
+function withEntryAttachments(content: string, role: 'user' | 'assistant', payload: AttachmentPayload | undefined): string {
+  if (role !== 'user' || !payload?.block) return content
+  return `${content}\n\n${payload.block}`
 }
 
 function parseVerdict(text: string): { relationship: string, confidence: number, reason: string } | null {

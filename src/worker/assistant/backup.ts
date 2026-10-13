@@ -154,6 +154,9 @@ export async function importAssistant(store: AssistantStore, raw: Record<string,
       role,
       content: textValue(message.content, 200_000),
       tools: typeof message.tools === 'string' ? message.tools : '[]',
+      // Same reason as every other field here: a column this rebuild does not name is written as NULL,
+      // and a NOT NULL column makes INSERT OR IGNORE drop the whole message.
+      attachments: typeof message.attachments === 'string' ? message.attachments : '[]',
       status: ['complete', 'error', 'cancelled'].includes(String(message.status)) ? message.status : 'complete',
       error: typeof message.error === 'string' ? message.error.slice(0, 1000) : null,
       // A restored message is data, never live owner input: the retry path refuses to re-send one.

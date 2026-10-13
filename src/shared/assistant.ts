@@ -81,6 +81,35 @@ export interface AssistantModel {
   temperature: number
   maxOutputTokens: number
   enabled: boolean
+  /** How much the model is asked to think before answering; `auto` leaves the vendor's choice alone. */
+  reasoning: AssistantReasoning
+  /** This model's own context budget, so a 1M model is not fed like a 4K one. Null uses the global limit. */
+  contextTokens: number | null
+  /** Whether the model may be shown a picture. On by default; a text-only upstream is turned off here. */
+  vision: boolean
+}
+
+/**
+ * The thinking levels the composer offers.
+ *
+ * `low`/`medium`/`high` reach the vendor as `reasoning_effort`, which some servers honour and others
+ * ignore, so they also ask for thinking explicitly; `off` is the one level that works everywhere it is
+ * supported, and `auto` sends nothing at all.
+ */
+export type AssistantReasoning = 'auto' | 'off' | 'low' | 'medium' | 'high'
+
+export const ASSISTANT_REASONING_LEVELS: readonly AssistantReasoning[] = ['auto', 'off', 'low', 'medium', 'high']
+
+/** Token budgets a level means for the protocols that take a number rather than a name. */
+export const REASONING_BUDGET_TOKENS: Record<'low' | 'medium' | 'high', number> = { low: 1024, medium: 4096, high: 10_240 }
+
+/** The context budgets the composer's slider snaps to, in tokens. */
+export const CONTEXT_TOKEN_STEPS: readonly number[] = [4096, 8192, 16_384, 32_768, 65_536, 131_072, 262_144]
+
+export function reasoningValue(value: unknown): AssistantReasoning {
+  return typeof value === 'string' && (ASSISTANT_REASONING_LEVELS as readonly string[]).includes(value)
+    ? (value as AssistantReasoning)
+    : 'auto'
 }
 
 export interface AssistantLimits {
@@ -143,6 +172,12 @@ export interface AssistantSettings {
   conflictReview: boolean
   /** Ask the model to double-check an ambiguous conflict. One request per check. */
   aiConflictCheck: boolean
+  /**
+   * Run the assistant's write tools immediately instead of holding each one for approval. Reads never
+   * need approval either way; this is the difference between a chat that edits the notebook while you
+   * watch and one that asks first.
+   */
+  autoApproveWrites: boolean
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -166,6 +201,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoMemory: false,
   conflictReview: true,
   aiConflictCheck: false,
+  autoApproveWrites: false,
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
@@ -253,6 +289,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoMemory: booleanValue(raw.autoMemory, DEFAULT_ASSISTANT_SETTINGS.autoMemory),
     conflictReview: booleanValue(raw.conflictReview, DEFAULT_ASSISTANT_SETTINGS.conflictReview),
     aiConflictCheck: booleanValue(raw.aiConflictCheck, DEFAULT_ASSISTANT_SETTINGS.aiConflictCheck),
+    autoApproveWrites: booleanValue(raw.autoApproveWrites, DEFAULT_ASSISTANT_SETTINGS.autoApproveWrites),
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),
@@ -312,6 +349,21 @@ export interface ConversationTag {
   id: string
   name: string
   color: string | null
+}
+
+/** How many files one message may carry: enough for a comparison, small enough for one request body. */
+export const MAX_CHAT_ATTACHMENTS = 8
+
+/** One uploaded file, as the composer and the transcript both show it. */
+export interface ChatAttachment {
+  id: string
+  kind: 'image' | 'file'
+  filename: string
+  mime: string
+  size: number
+  /** The R2 path (`chat/images/<user>/<id>.png`); the client never needs it, the server always does. */
+  key: string
+  createdAt: number
 }
 
 export interface AssistantConversation {
@@ -418,6 +470,11 @@ export interface AssistantMessage {
   role: 'user' | 'assistant'
   content: string
   tools: ToolActivity[]
+  /**
+   * Attachment ids this message carries, in the order the reader added them. The bytes live under the
+   * chat's own object prefix; the ids are what both the transcript and the model call need.
+   */
+  attachments?: string[]
   status: 'complete' | 'error' | 'cancelled'
   error: string | null
   createdAt: number

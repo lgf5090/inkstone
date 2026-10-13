@@ -755,6 +755,39 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_conversations ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The composer's two per-model capabilities: how much the model is asked to think, and how much
+    // context it is fed. Both were added together, so one database missing either is one from before both.
+    version: 33,
+    skipIfColumnExists: { table: 'chat_models', column: 'reasoning' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN reasoning TEXT NOT NULL DEFAULT 'auto'`,
+    ],
+  },
+  {
+    version: 34,
+    skipIfColumnExists: { table: 'chat_models', column: 'context_tokens' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN context_tokens INTEGER`,
+    ],
+  },
+  {
+    // A message's own attachment ids, so a picture or a file stays with the turn that used it.
+    version: 35,
+    skipIfColumnExists: { table: 'chat_messages', column: 'attachments' },
+    statements: [
+      `ALTER TABLE chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // Whether the model may be shown an image at all. Measured against a live endpoint, not assumed:
+    // a text-only model that is sent a picture answers with an error the reader did not cause.
+    version: 36,
+    skipIfColumnExists: { table: 'chat_models', column: 'vision' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN vision INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

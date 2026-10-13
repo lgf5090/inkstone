@@ -38,6 +38,7 @@ function request(overrides: Partial<UpstreamRequest> = {}): UpstreamRequest {
     tools: [{ name: 'create_task', description: 'd', parameters: { type: 'object', properties: {} } }],
     maxOutputTokens: 512,
     temperature: 0.2,
+    reasoning: 'auto',
     ...overrides,
   } as UpstreamRequest
 }
@@ -250,5 +251,64 @@ describe('readSse', () => {
     const out: string[] = []
     for await (const frame of readSse(sseBody(['data: one\r\n\r\ndata: two\r\n\r\n']), new AbortController().signal)) out.push(frame)
     expect(out).toEqual(['one', 'two'])
+  })
+})
+
+/** The JSON body a protocol would put on the wire for one request. */
+async function sentBody(protocol: AssistantProtocol, overrides: Partial<UpstreamRequest> = {}): Promise<Record<string, unknown>> {
+  let captured = ''
+  vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+    captured = String(init?.body ?? '')
+    return response([protocol === 'anthropic'
+      ? data({ type: 'message_stop' })
+      : protocol === 'gemini'
+        ? data({ candidates: [{ finishReason: 'STOP' }] })
+        : data({ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] })])
+  }))
+  for await (const _event of streamUpstream(protocol, request(overrides))) void _event
+  return JSON.parse(captured || '{}') as Record<string, unknown>
+}
+
+describe('thinking levels on the wire', () => {
+  it('sends nothing when the reader leaves the level on auto', async () => {
+    const body = await sentBody('openai')
+    expect(body.thinking).toBeUndefined()
+    expect(body.reasoning_effort).toBeUndefined()
+  })
+
+  it('sends the one switch that actually stops a DeepSeek-style model, plus the effort name', async () => {
+    const off = await sentBody('openai', { reasoning: 'off' })
+    expect(off.thinking).toEqual({ type: 'disabled' })
+    expect(off.reasoning_effort).toBeUndefined()
+    const low = await sentBody('openai', { reasoning: 'low' })
+    expect(low.thinking).toEqual({ type: 'enabled' })
+    expect(low.reasoning_effort).toBe('low')
+    const high = await sentBody('openai', { reasoning: 'high' })
+    expect(high.reasoning_effort).toBe('high')
+  })
+
+  it('gives Anthropic a budget under the answer ceiling and drops temperature while thinking', async () => {
+    const on = await sentBody('anthropic', { reasoning: 'medium', maxOutputTokens: 4096 })
+    expect(on.thinking).toEqual({ type: 'enabled', budget_tokens: 3072 })
+    expect(on.temperature).toBeUndefined()
+    expect(on.max_tokens).toBe(4096)
+    const off = await sentBody('anthropic', { reasoning: 'off' })
+    expect(off.thinking).toBeUndefined()
+    expect(off.temperature).toBe(0.2)
+  })
+
+  it('keeps a thinking budget at least at the vendor floor', async () => {
+    const tight = await sentBody('anthropic', { reasoning: 'high', maxOutputTokens: 1200 })
+    expect((tight.thinking as { budget_tokens: number }).budget_tokens).toBeGreaterThanOrEqual(1024)
+    expect((tight.thinking as { budget_tokens: number }).budget_tokens).toBeLessThan(1200)
+  })
+
+  it('writes Gemini numbers, not names', async () => {
+    const off = await sentBody('gemini', { reasoning: 'off' })
+    expect((off.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingBudget: 0 })
+    const on = await sentBody('gemini', { reasoning: 'low' })
+    expect((on.generationConfig as Record<string, unknown>).thinkingConfig).toEqual({ thinkingBudget: 1024, includeThoughts: true })
+    const auto = await sentBody('gemini')
+    expect((auto.generationConfig as Record<string, unknown>).thinkingConfig).toBeUndefined()
   })
 })

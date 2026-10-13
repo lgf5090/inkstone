@@ -13,7 +13,8 @@
  */
 
 import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
-import type { AssistantProtocol } from '@shared/assistant'
+import type { AssistantProtocol, AssistantReasoning } from '@shared/assistant'
+import { REASONING_BUDGET_TOKENS } from '@shared/assistant'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 
 export interface ToolSchema {
@@ -36,6 +37,11 @@ export interface ModelTurn {
   role: 'user' | 'assistant'
   content: string
   calls?: ToolCallRecord[]
+  /**
+   * Images the model is shown with this turn, as data URLs. The reader's text stays in `content`; these
+   * ride beside it, which is what each protocol's own multi-part shape expects.
+   */
+  images?: { mime: string, dataUrl: string }[]
 }
 
 export type UpstreamEvent
@@ -53,6 +59,8 @@ export interface UpstreamRequest {
   tools: ToolSchema[]
   maxOutputTokens: number
   temperature: number
+  /** How much the model is asked to think. `auto` sends nothing and lets the vendor decide. */
+  reasoning: AssistantReasoning
   signal: AbortSignal
 }
 
@@ -245,7 +253,7 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
   const messages: Record<string, unknown>[] = [{ role: 'system', content: request.system }]
   for (const turn of request.turns) {
     if (turn.role === 'user') {
-      messages.push({ role: 'user', content: turn.content })
+      messages.push({ role: 'user', content: openAiUserContent(turn) })
       continue
     }
     const calls = turn.calls ?? []
@@ -273,6 +281,7 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
     stream_options: { include_usage: true },
     temperature: request.temperature,
     max_tokens: request.maxOutputTokens,
+    ...openAiReasoning(request),
     ...(request.tools.length
       ? {
           tools: request.tools.map((tool) => ({
@@ -282,6 +291,45 @@ function openAiBody(request: UpstreamRequest): Record<string, unknown> {
         }
       : {}),
   }
+}
+
+/**
+ * What each level costs on the wire, per protocol.
+ *
+ * Measured against a live DeepSeek key: the model thinks unless it is told not to, and
+ * `thinking:{type:'disabled'}` is the only switch that stops it — `reasoning_effort` and
+ * `enable_thinking` come back 200 with the reasoning still attached, i.e. a control that silently did
+ * nothing. So the OpenAI-shaped request carries both: `thinking` for the servers that read it, and
+ * `reasoning_effort` for the ones that read that instead. Unknown fields are ignored upstream, which is
+ * what makes one shape safe across both.
+ */
+/** A user turn with pictures is a part list; one without is the plain string every server accepts. */
+function openAiUserContent(turn: ModelTurn): unknown {
+  if (!turn.images?.length) return turn.content
+  return [
+    { type: 'text', text: turn.content },
+    ...turn.images.map((image) => ({ type: 'image_url', image_url: { url: image.dataUrl } })),
+  ]
+}
+
+function openAiReasoning(request: UpstreamRequest): Record<string, unknown> {
+  if (request.reasoning === 'auto') return {}
+  if (request.reasoning === 'off') return { thinking: { type: 'disabled' } }
+  return { thinking: { type: 'enabled' }, reasoning_effort: request.reasoning }
+}
+
+/** Anthropic wants a token budget under the answer ceiling; 1024 is its own documented floor. */
+function anthropicThinking(request: UpstreamRequest): Record<string, unknown> {
+  if (request.reasoning === 'auto' || request.reasoning === 'off') return {}
+  const budget = Math.min(REASONING_BUDGET_TOKENS[request.reasoning], Math.max(1024, request.maxOutputTokens - 1024))
+  return { thinking: { type: 'enabled', budget_tokens: Math.max(1024, budget) } }
+}
+
+/** Gemini: -1 leaves the decision to the model, 0 turns thinking off, a number asks for that much. */
+function geminiThinking(request: UpstreamRequest): Record<string, unknown> {
+  if (request.reasoning === 'auto') return {}
+  if (request.reasoning === 'off') return { thinkingConfig: { thinkingBudget: 0 } }
+  return { thinkingConfig: { thinkingBudget: REASONING_BUDGET_TOKENS[request.reasoning], includeThoughts: true } }
 }
 
 async function* streamOpenAi(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
@@ -370,7 +418,18 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
   const blocks: Record<string, unknown>[] = []
   for (const turn of request.turns) {
     if (turn.role === 'user') {
-      blocks.push({ role: 'user', content: turn.content })
+      blocks.push({
+        role: 'user',
+        content: turn.images?.length
+          ? [
+              { type: 'text', text: turn.content },
+              ...turn.images.map((image) => ({
+                type: 'image',
+                source: { type: 'base64', media_type: image.mime, data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1) },
+              })),
+            ]
+          : turn.content,
+      })
       continue
     }
     const calls = turn.calls ?? []
@@ -399,7 +458,10 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
         system: request.system,
         messages: blocks,
         max_tokens: request.maxOutputTokens,
-        temperature: request.temperature,
+        // Anthropic refuses a temperature other than 1 while thinking is on, so the level wins and the
+        // reader's sampling setting is left at the vendor's default for that request.
+        ...(anthropicThinking(request).thinking ? {} : { temperature: request.temperature }),
+        ...anthropicThinking(request),
         stream: true,
         ...(request.tools.length
           ? {
@@ -492,6 +554,9 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
   for (const turn of request.turns) {
     const parts: Record<string, unknown>[] = []
     if (turn.content) parts.push({ text: turn.content })
+    for (const image of turn.images ?? []) {
+      parts.push({ inlineData: { mimeType: image.mime, data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1) } })
+    }
     for (const call of turn.calls ?? []) {
       parts.push({ functionCall: { name: call.name, args: (call.args as Record<string, unknown>) ?? {} } })
     }
@@ -512,6 +577,7 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
         generationConfig: {
           temperature: request.temperature,
           maxOutputTokens: request.maxOutputTokens,
+          ...geminiThinking(request),
         },
         ...(request.tools.length
           ? {

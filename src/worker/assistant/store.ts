@@ -19,6 +19,7 @@ import type {
   AssistantModel,
   AssistantNotification,
   AssistantProvider,
+  AssistantReasoning,
   AssistantSettings,
   Automation,
   AutomationKind,
@@ -34,6 +35,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
+import { MAX_CHAT_ATTACHMENTS, reasoningValue, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -223,6 +225,12 @@ function decodeAction(value: unknown): PendingAction | null {
 }
 
 /** A stored `tools` array may hold anything; an entry that is not a tool activity is dropped. */
+/** A stored JSON string list, tolerant of the row that predates the column. */
+export function decodeStringList(value: unknown): string[] {
+  const parsed = parseJson(value)
+  return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
 export function decodeTools(value: unknown): ToolActivity[] {
   const parsed = parseJson(value)
   if (!Array.isArray(parsed)) return []
@@ -250,6 +258,7 @@ interface MessageRow {
   role: string
   content: string
   tools: string | null
+  attachments: string | null
   status: string
   error: string | null
   source: string | null
@@ -259,7 +268,7 @@ interface MessageRow {
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, tools, status, error, source, input_tokens, output_tokens, created_at`
+  = `id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, created_at`
 
 /**
  * Two messages written in the same millisecond are common — a turn saves the reader's line and the
@@ -275,6 +284,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     role: r.role === 'assistant' ? 'assistant' : 'user',
     content: r.content ?? '',
     tools: decodeTools(r.tools),
+    attachments: decodeStringList(r.attachments),
     status: pickEnum(r.status, MESSAGE_STATUSES, 'complete'),
     error: r.error,
     source: r.source === 'import' ? 'import' : 'chat',
@@ -449,7 +459,7 @@ export class AssistantStore {
 
   async listModels(): Promise<AssistantModel[]> {
     const list = await this.rows<ModelRow>(
-      `SELECT id, provider_id, model, label, temperature, max_output_tokens, enabled, position
+      `SELECT id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position
          FROM chat_models WHERE user_id = ?1 ORDER BY position, label`,
       this.userId,
     )
@@ -458,7 +468,7 @@ export class AssistantStore {
 
   async getModel(id: string): Promise<AssistantModel | null> {
     const r = await this.one<ModelRow>(
-      `SELECT id, provider_id, model, label, temperature, max_output_tokens, enabled, position
+      `SELECT id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position
          FROM chat_models WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -471,6 +481,9 @@ export class AssistantStore {
     label?: string
     temperature?: number | null
     maxOutputTokens?: number | null
+    reasoning?: AssistantReasoning
+    contextTokens?: number | null
+    vision?: boolean
   }): Promise<AssistantModel> {
     const id = newId()
     const positionRow = await this.one<{ n: number }>(
@@ -480,17 +493,23 @@ export class AssistantStore {
     const temperature = input.temperature ?? DEFAULT_ASSISTANT_SETTINGS.temperature
     const maxOutputTokens = input.maxOutputTokens ?? DEFAULT_ASSISTANT_SETTINGS.limits.maxOutputTokens
     const label = input.label ?? input.model
+    const reasoning = input.reasoning ?? 'auto'
+    const contextTokens = input.contextTokens ?? null
+    const vision = input.vision ?? true
     await this.write(
-      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, enabled, position)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, 1, ?8)`,
-      id, input.providerId, input.model, label, temperature, maxOutputTokens, positionRow?.n ?? 1,
+      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)`,
+      id, input.providerId, input.model, label, temperature, maxOutputTokens, reasoning, contextTokens, vision ? 1 : 0, positionRow?.n ?? 1,
     )
-    return { id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens, enabled: true }
+    return { id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens, reasoning, contextTokens, vision, enabled: true }
   }
 
   async updateModel(
     id: string,
-    patch: { label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null, enabled?: boolean },
+    patch: {
+      label?: string, model?: string, temperature?: number | null, maxOutputTokens?: number | null,
+      reasoning?: AssistantReasoning, contextTokens?: number | null, vision?: boolean, enabled?: boolean
+    },
   ): Promise<AssistantModel | null> {
     const existing = await this.getModel(id)
     if (!existing) return null
@@ -500,18 +519,96 @@ export class AssistantStore {
       ...(patch.model !== undefined ? { model: patch.model } : {}),
       ...(patch.temperature !== undefined ? { temperature: patch.temperature ?? existing.temperature } : {}),
       ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens ?? existing.maxOutputTokens } : {}),
+      ...(patch.reasoning !== undefined ? { reasoning: patch.reasoning } : {}),
+      ...(patch.contextTokens !== undefined ? { contextTokens: patch.contextTokens } : {}),
+      ...(patch.vision !== undefined ? { vision: patch.vision } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     }
     await this.write(
-      `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5, enabled = ?6
-         WHERE user_id = ?1 AND id = ?7`,
-      next.label, next.model, next.temperature, next.maxOutputTokens, next.enabled ? 1 : 0, id,
+      `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5,
+         reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9
+         WHERE user_id = ?1 AND id = ?10`,
+      next.label, next.model, next.temperature, next.maxOutputTokens,
+      next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
     )
     return next
   }
 
   async deleteModel(id: string): Promise<void> {
     await this.write(`DELETE FROM chat_models WHERE user_id = ?1 AND id = ?2`, id)
+  }
+
+  /**
+   * The reader's own attachment rows, in the order they were asked for.
+   *
+   * The chat composer names files by id, so this is the one place that decides whether an id in a
+   * request belongs to this account: a row that is not the reader's simply never appears, and the
+   * caller says so in the transcript rather than pretending the file arrived.
+   */
+  async attachmentsFor(ids: readonly string[]): Promise<{ id: string, user_id: string, filename: string, mime: string, size: number, storage: string }[]> {
+    if (!ids.length) return []
+    const q = new Query(this.userId)
+    q.inList('id', ids.slice(0, 20))
+    const rows = await this.rows<{ id: string, user_id: string, filename: string, mime: string, size: number, storage: string }>(
+      `SELECT id, user_id, filename, mime, size, storage FROM attachments WHERE ${q.where}`,
+      ...q.binds,
+    )
+    const order = new Map(ids.map((id, index) => [id, index]))
+    return rows.sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0))
+  }
+
+  // ------------------------------------------------------- chat attachments
+
+  /** A row for one uploaded file. The key is the reader's own R2 path, written by the caller. */
+  async createChatAttachment(input: {
+    id: string
+    kind: 'image' | 'file'
+    filename: string
+    mime: string
+    size: number
+    key: string
+  }): Promise<ChatAttachment> {
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO chat_attachments (user_id, id, kind, filename, mime, size, key, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      input.id, input.kind, input.filename, input.mime, input.size, input.key, at,
+    )
+    return { ...input, createdAt: at }
+  }
+
+  /** The reader's own attachment rows, in the order they were named. */
+  async chatAttachments(ids: readonly string[]): Promise<ChatAttachment[]> {
+    if (!ids.length) return []
+    const q = new Query(this.userId)
+    q.inList('id', ids.slice(0, MAX_CHAT_ATTACHMENTS))
+    const rows = await this.rows<ChatAttachmentRow>(
+      `SELECT id, kind, filename, mime, size, key, created_at FROM chat_attachments WHERE ${q.where}`,
+      ...q.binds,
+    )
+    const order = new Map(ids.map((id, index) => [id, index]))
+    return rows
+      .map(toChatAttachment)
+      .sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0))
+  }
+
+  async deleteChatAttachment(id: string): Promise<ChatAttachment | null> {
+    const [row] = await this.chatAttachments([id])
+    if (!row) return null
+    await this.write(`DELETE FROM chat_attachments WHERE user_id = ?1 AND id = ?2`, id)
+    return row
+  }
+
+  /** Every attachment the reader has, newest first — the list the composer's picker walks. */
+  async listChatAttachments(limit = 60): Promise<ChatAttachment[]> {
+    const q = new Query(this.userId)
+    const limitBind = q.add(limit)
+    const rows = await this.rows<ChatAttachmentRow>(
+      `SELECT id, kind, filename, mime, size, key, created_at FROM chat_attachments
+        WHERE ${q.where} ORDER BY created_at DESC LIMIT ${limitBind}`,
+      ...q.binds,
+    )
+    return rows.map(toChatAttachment)
   }
 
   // ----------------------------------------------------------- conversations
@@ -775,6 +872,7 @@ export class AssistantStore {
     role: 'user' | 'assistant'
     content: string
     tools?: ToolActivity[]
+    attachments?: string[]
     status?: AssistantMessage['status']
     error?: string | null
     id?: string
@@ -785,16 +883,17 @@ export class AssistantStore {
     const id = input.id ?? newId()
     const at = input.createdAt ?? Date.now()
     const tools = input.tools ?? []
+    const attachments = (input.attachments ?? []).slice(0, MAX_CHAT_ATTACHMENTS)
     const status = input.status ?? 'complete'
     const error = input.error ?? null
     const source = input.source ?? 'chat'
     const usage = input.usage ?? null
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, tools, status, error, source, input_tokens, output_tokens, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-      id, input.conversationId, input.role, input.content, JSON.stringify(tools), status, error, source,
-      usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, at,
+         (id, user_id, conversation_id, role, content, tools, attachments, status, error, source, input_tokens, output_tokens, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+      id, input.conversationId, input.role, input.content, JSON.stringify(tools), JSON.stringify(attachments),
+      status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, at,
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -806,6 +905,7 @@ export class AssistantStore {
       role: input.role,
       content: input.content,
       tools,
+      attachments,
       status,
       error,
       source,
@@ -1836,7 +1936,7 @@ export class AssistantStore {
 const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_conversation_tags: ['conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
   chat_memories: ['id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'project_id', 'created_at', 'updated_at', 'completed_at'],
   chat_projects: ['id', 'name', 'description', 'created_at', 'updated_at'],
@@ -1953,6 +2053,9 @@ interface ModelRow {
   label: string
   temperature: number | null
   max_output_tokens: number | null
+  reasoning: string | null
+  context_tokens: number | null
+  vision: number | null
   enabled: number
   position: number
 }
@@ -1965,7 +2068,32 @@ function toModel(r: ModelRow): AssistantModel {
     label: r.label || r.model,
     temperature: r.temperature ?? DEFAULT_ASSISTANT_SETTINGS.temperature,
     maxOutputTokens: r.max_output_tokens ?? DEFAULT_ASSISTANT_SETTINGS.limits.maxOutputTokens,
+    reasoning: reasoningValue(r.reasoning),
+    contextTokens: num(r.context_tokens),
+    vision: r.vision === null ? true : bool(r.vision),
     enabled: bool(r.enabled),
+  }
+}
+
+interface ChatAttachmentRow {
+  id: string
+  kind: string
+  filename: string
+  mime: string
+  size: number
+  key: string
+  created_at: number
+}
+
+function toChatAttachment(r: ChatAttachmentRow): ChatAttachment {
+  return {
+    id: r.id,
+    kind: r.kind === 'image' ? 'image' : 'file',
+    filename: r.filename,
+    mime: r.mime,
+    size: r.size,
+    key: r.key,
+    createdAt: r.created_at,
   }
 }
 

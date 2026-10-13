@@ -41,6 +41,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     label TEXT NOT NULL DEFAULT '',
     temperature REAL,
     max_output_tokens INTEGER,
+    reasoning TEXT NOT NULL DEFAULT 'auto',
+    context_tokens INTEGER,
+    vision INTEGER NOT NULL DEFAULT 1,
     enabled INTEGER NOT NULL DEFAULT 1,
     position REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
@@ -66,6 +69,22 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_conversations_folder
      ON chat_conversations(user_id, folder_id, updated_at DESC)`,
 
+  // The chat's own uploads: a pasted picture or a dropped document that feeds one turn. The key column
+  // is the R2 object path, so deleting the row and deleting the object are the same operation.
+  `CREATE TABLE IF NOT EXISTS chat_attachments (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_attachments_user
+     ON chat_attachments(user_id, created_at)`,
+
   // The join table mirrors note_tags: one row in tags, shared by whatever it labels.
   `CREATE TABLE IF NOT EXISTS chat_conversation_tags (
     user_id TEXT NOT NULL,
@@ -84,6 +103,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     role TEXT NOT NULL CHECK (role IN ('user','assistant')),
     content TEXT NOT NULL DEFAULT '',
     tools TEXT NOT NULL DEFAULT '[]',
+    attachments TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'complete',
     error TEXT,
     source TEXT NOT NULL DEFAULT 'chat',
@@ -291,6 +311,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_providers',
   'chat_models',
   'chat_conversations',
+  'chat_attachments',
   'chat_conversation_tags',
   'chat_messages',
   'chat_memories',
@@ -312,6 +333,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_models_provider',
   'idx_chat_conversations_user',
   'idx_chat_conversations_folder',
+  'idx_chat_attachments_user',
   'idx_chat_conversation_tags_tag',
   'idx_chat_messages_conversation',
   'idx_chat_messages_user',
@@ -338,10 +360,11 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
   chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'key_ciphertext', 'created_at', 'updated_at'],
-  chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'enabled', 'position'],
+  chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
+  chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'created_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'created_at', 'updated_at'],
   chat_memory_embeddings: ['user_id', 'memory_id', 'model', 'vector', 'norm', 'updated_at'],
   chat_memory_reviews: ['user_id', 'id', 'memory_id', 'other_id', 'relationship', 'reason', 'created_at'],

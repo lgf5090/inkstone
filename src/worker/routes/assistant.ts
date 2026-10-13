@@ -35,7 +35,7 @@ import { localDayBounds, parseLocalTime } from '@shared/assistant-time'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
-import { JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson } from '../lib/request'
 import { isValidId } from '../lib/id'
 import { AssistantStore } from '../assistant/store'
 import { MemoryHistoryService } from '../assistant/memory-service'
@@ -45,6 +45,49 @@ import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
 import { suggestActiveModel } from '../assistant/model-config'
 import { memoryEmbeddingStatus, reindexMemoryEmbeddings, semanticModel } from '../assistant/semantic'
+import { CONTEXT_TOKEN_STEPS, reasoningValue } from '@shared/assistant'
+import {
+  CHAT_IMAGE_MAX_BYTES,
+  ChatUploadError,
+  deleteChatObject,
+  formatBytes,
+  readChatObject,
+  saveChatUpload,
+} from '../assistant/chat-files'
+import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+
+/** Reads a stream up to a ceiling, so a remote server cannot decide how much memory this request uses. */
+async function readCapped(body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<Uint8Array> {
+  const reader = body?.getReader()
+  if (!reader) return new Uint8Array()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel('payload_too_large')
+      throw ApiError.badRequest(`That file is larger than ${formatBytes(maxBytes)}.`)
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+/** A context budget is the reader's own choice from the composer's slider; null means 'use the global limit'. */
+function contextBudgetValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(number) || number <= 0) return null
+  return Math.min(CONTEXT_TOKEN_STEPS[CONTEXT_TOKEN_STEPS.length - 1]!, Math.trunc(number))
+}
 import { resolveNoteScope } from '../assistant/note-scope'
 
 export const assistantRoutes = new Hono<AppBindings>()
@@ -138,7 +181,15 @@ assistantRoutes.get('/conversations/:id', async (c) => {
   }))
   const withTags = await s.tagsForConversations([id])
   if (conversation) conversation.tags = withTags.get(id) ?? []
-  return c.json({ conversation, messages, streaming: await s.isRunning(id) })
+  // The chips name the files; the bytes only ever travel on the model's turn, so the transcript needs
+  // the rows and not the contents.
+  const wanted = [...new Set(messages.flatMap((entry) => entry.attachments ?? []))]
+  return c.json({
+    conversation,
+    messages,
+    attachments: await s.chatAttachments(wanted),
+    streaming: await s.isRunning(id),
+  })
 })
 
 assistantRoutes.patch('/conversations/:id', async (c) => {
@@ -203,20 +254,24 @@ assistantRoutes.delete('/conversations', async (c) => {
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, attachments?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
     ? undefined
     : requiredId(body.conversationId)
   const message = typeof body.message === 'string' ? body.message : ''
+  // Only ids the reader owns survive: an attachment they cannot name is not fuel for their turn.
+  const attachments = Array.isArray(body.attachments)
+    ? (await store(c).chatAttachments(body.attachments.filter((id): id is string => typeof id === 'string' && isValidId(id))).then((rows) => rows.map((row) => row.id)))
+    : []
 
   if (conversationId) {
     if (!(await s.getConversation(conversationId))) throw ApiError.notFound('Conversation not found')
     if (!(await s.claimRun(conversationId))) {
       throw ApiError.conflict('A reply is already being generated in this conversation.')
     }
-  } else if (!message.trim()) {
+  } else if (!message.trim() && !attachments.length) {
     throw ApiError.badRequest('Write something first.')
   }
 
@@ -263,6 +318,7 @@ assistantRoutes.post('/chat', async (c) => {
       for await (const event of runner.chat({
         conversationId,
         message,
+        attachments,
         retry: body.retry === true,
         signal: controller.signal,
         readerGone: () => readerGone,
@@ -752,6 +808,96 @@ assistantRoutes.patch('/settings', async (c) => {
   return c.json({ settings: next })
 })
 
+// ----------------------------------------------------------- chat attachments
+
+/** The reader's own uploads, newest first; the composer's picker walks this. */
+assistantRoutes.get('/files', async (c) => c.json({ files: await store(c).listChatAttachments() }))
+
+assistantRoutes.post('/files', async (c) => {
+  const s = store(c)
+  const form = await readFormDataWithinLimit(c.req, FORM_BODY_LIMITS.attachment)
+  const file = form.get('file')
+  if (!(file instanceof File)) throw ApiError.badRequest('Missing file field.')
+  try {
+    const attachment = await saveChatUpload(s, c.env, {
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      mime: file.type,
+      filename: file.name,
+    })
+    return c.json({ attachment }, 201)
+  } catch (error) {
+    if (error instanceof ChatUploadError) throw ApiError.badRequest(error.message)
+    throw error
+  }
+})
+
+/**
+ * Pulls a remote file in so the assistant can read it rather than being told a URL it cannot open.
+ *
+ * The endpoint guard is the one the AI proxy uses: https only, no credentials, no link-local target.
+ * A chat message can name any URL the reader types, and this route fetches with the deployment's own
+ * network position, so an unchecked URL is a request forgery with a friendly face.
+ */
+assistantRoutes.post('/files/url', async (c) => {
+  const s = store(c)
+  const body = await readJson<{ url?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const raw = typeof body.url === 'string' ? body.url.trim() : ''
+  let target: URL
+  try {
+    target = assertRelayableEndpoint(raw)
+  } catch {
+    throw ApiError.badRequest('Only a public http(s) URL can be fetched.')
+  }
+  if (target.protocol !== 'https:') throw ApiError.badRequest('Only an https URL can be fetched.')
+  let response: Response
+  try {
+    response = await fetch(target.toString(), { redirect: NO_REDIRECT, headers: { 'user-agent': 'Inkstone-Chat/1.0' } })
+  } catch {
+    throw ApiError.badRequest('That URL could not be reached.')
+  }
+  if (isRedirectResponse(response)) throw ApiError.badRequest('That URL redirects, which fetches refuse.')
+  if (!response.ok) throw ApiError.badRequest(`That URL returned ${response.status}.`)
+  const declared = Number(response.headers.get('content-length') ?? 0)
+  if (declared > CHAT_IMAGE_MAX_BYTES) throw ApiError.badRequest(`That file is ${formatBytes(declared)}, above the limit.`)
+  const bytes = new Uint8Array(await readCapped(response.body, CHAT_IMAGE_MAX_BYTES))
+  const mime = (response.headers.get('content-type') ?? '').split(';')[0]!.trim()
+  const named = decodeURIComponent(target.pathname.split('/').pop() ?? '').slice(0, 160)
+  try {
+    const attachment = await saveChatUpload(s, c.env, { bytes, mime, filename: named || 'remote-file' })
+    return c.json({ attachment }, 201)
+  } catch (error) {
+    if (error instanceof ChatUploadError) throw ApiError.badRequest(error.message)
+    throw error
+  }
+})
+
+assistantRoutes.get('/files/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const [row] = await s.chatAttachments([id])
+  if (!row) throw ApiError.notFound('Attachment not found')
+  const bytes = await readChatObject(c.env, row.key)
+  if (!bytes) throw ApiError.notFound('The stored file is no longer there.')
+  const disposition = c.req.query('download') === '1' ? 'attachment' : 'inline'
+  return new Response(bytes as unknown as BodyInit, {
+    headers: {
+      'content-type': row.mime || 'application/octet-stream',
+      'content-length': String(bytes.byteLength),
+      'content-disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+      'cache-control': 'private, max-age=300',
+    },
+  })
+})
+
+/** The composer's X button: an upload nobody sent is an upload that should stop existing. */
+assistantRoutes.delete('/files/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const removed = await s.deleteChatAttachment(id)
+  if (removed) await deleteChatObject(c.env, removed.key)
+  return c.json({ deleted: Boolean(removed) })
+})
+
 // ------------------------------------------------------------------- semantic
 
 /**
@@ -869,6 +1015,9 @@ assistantRoutes.post('/models', async (c) => {
     maxOutputTokens: typeof body.maxOutputTokens === 'number'
       ? Math.min(8192, Math.max(64, Math.trunc(body.maxOutputTokens)))
       : null,
+    reasoning: reasoningValue(body.reasoning),
+    contextTokens: contextBudgetValue(body.contextTokens),
+    vision: body.vision === undefined ? true : Boolean(body.vision),
   })
   return c.json({ model: created }, 201)
 })
@@ -886,6 +1035,9 @@ assistantRoutes.patch('/models/:id', async (c) => {
     ...(body.maxOutputTokens !== undefined
       ? { maxOutputTokens: body.maxOutputTokens === null ? null : Math.min(8192, Math.max(64, Math.trunc(Number(body.maxOutputTokens)))) }
       : {}),
+    ...(body.reasoning !== undefined ? { reasoning: reasoningValue(body.reasoning) } : {}),
+    ...(body.contextTokens !== undefined ? { contextTokens: contextBudgetValue(body.contextTokens) } : {}),
+    ...(body.vision !== undefined ? { vision: Boolean(body.vision) } : {}),
     ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
   })
   if (!updated) throw ApiError.notFound('Model not found')
