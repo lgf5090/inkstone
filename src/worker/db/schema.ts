@@ -21,6 +21,23 @@ const BACKUP_ARCHIVES_INDEX = `CREATE INDEX IF NOT EXISTS idx_backup_archives_re
  * that fetched them, so what this schema keeps is the subscriptions, the folders, the tags, and the
  * marks a reader made — read, starred, later, hidden, opened, and the note an article became.
  */
+const REWRITE_QUEUE_TABLE = `CREATE TABLE IF NOT EXISTS rewrite_queue (
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  old_value TEXT NOT NULL,
+  new_value TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  claimed_at INTEGER,
+  PRIMARY KEY (user_id, kind, source_id)
+)`
+
+/** Cron claims one account's oldest due row, so the queue is indexed per account. */
+const REWRITE_QUEUE_INDEX = `CREATE INDEX IF NOT EXISTS idx_rewrite_queue_due
+  ON rewrite_queue(user_id, created_at)`
+
+
 const RSS_LIBRARY_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS rss_feed (
     user_id TEXT NOT NULL,
@@ -469,34 +486,23 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
      ON community_templates(created_at DESC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_community_templates_author
      ON community_templates(author_id)`,
+
+  // The rewrite queue is also migration 22 and 24, but a database whose ledger already holds those
+  // numbers for other work would never get them: a required table cannot depend on a version number.
+  REWRITE_QUEUE_TABLE,
+  REWRITE_QUEUE_INDEX,
   ...READER_SCHEMA_STATEMENTS,
 
   ...RSS_LIBRARY_STATEMENTS,
 ]
 
-interface SchemaMigration {
+export interface SchemaMigration {
   version: number
   statements: readonly string[]
   skipIfColumnExists?: { table: string; column: string }
 }
 
-const REWRITE_QUEUE_TABLE = `CREATE TABLE IF NOT EXISTS rewrite_queue (
-  user_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  source_id TEXT NOT NULL,
-  old_value TEXT NOT NULL,
-  new_value TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  claimed_at INTEGER,
-  PRIMARY KEY (user_id, kind, source_id)
-)`
-
-/** Cron claims one account's oldest due row, so the queue is indexed per account. */
-const REWRITE_QUEUE_INDEX = `CREATE INDEX IF NOT EXISTS idx_rewrite_queue_due
-  ON rewrite_queue(user_id, created_at)`
-
-const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     // Explicit whitelist (not a regex over SCHEMA_STATEMENTS) so later
     // additions like mcp_api_keys can never be picked up accidentally.
@@ -861,7 +867,7 @@ const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
   /^\s*CREATE (?:UNIQUE )?INDEX IF NOT EXISTS/.test(statement),
 )
 
-const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_meta: ['key', 'value'],
   schema_migrations: ['version', 'applied_at'],
   users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'rss', 'created_at', 'last_seen_at'],
@@ -1098,12 +1104,14 @@ async function applyMigrations(db: D1Database): Promise<void> {
   const applied = new Set(results.map((row) => row.version))
 
   for (const migration of SCHEMA_MIGRATIONS) {
+    // A database whose ledger says a version ran, but which does not have the shape that version
+    // adds, was written by something else: another branch that spent the same numbers on other
+    // work, or a restore from before it. The shape is the fact and the number is only a note about
+    // it, so the note is corrected afterwards by `repairMissingColumns` rather than trusted here.
     if (applied.has(migration.version)) continue
     let migrationStatements = migration.statements
-    if (migration.skipIfColumnExists) {
-      const { table, column } = migration.skipIfColumnExists
-      const { results: columns } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
-      if (columns.some((entry) => entry.name === column)) migrationStatements = []
+    if (migration.skipIfColumnExists && await hasColumn(db, migration.skipIfColumnExists)) {
+      migrationStatements = []
     }
     const statements = migrationStatements.map((statement) => db.prepare(statement))
     statements.push(
@@ -1112,6 +1120,80 @@ async function applyMigrations(db: D1Database): Promise<void> {
     )
     await db.batch(statements)
   }
+  await repairMissingColumns(db, applied)
+}
+
+/** Whether a table already carries the column a migration guards itself on. */
+async function hasColumn(db: D1Database, guard: { table: string; column: string }): Promise<boolean> {
+  const { results } = await db.prepare(`PRAGMA table_info(${guard.table})`).all<{ name: string }>()
+  return results.some((entry) => entry.name === guard.column)
+}
+
+/**
+ * Add the required columns that the ledger claims already arrived.
+ *
+ * Only two kinds of statement can be replayed safely: `CREATE ... IF NOT EXISTS`, and
+ * `ALTER TABLE ... ADD COLUMN`, which is what every column this schema has ever gained came in
+ * through. Anything else is left alone — replaying an `UPDATE` or an `INSERT` would repeat work the
+ * database has already counted. A column no migration adds stays a gap, and the boot then refuses
+ * the schema out loud rather than serving a half-built database.
+ */
+async function repairMissingColumns(db: D1Database, applied: Set<number>): Promise<void> {
+  const gaps = await missingColumns(db)
+  if (!gaps.size) return
+  const replayable = replayableAdditions(applied)
+  let repaired = 0
+  for (const [table, missing] of [...gaps]) {
+    for (const column of missing) {
+      const definition = replayable.get(`${table}.${column}`) ?? declaredColumn(table, column)
+      if (!definition) continue
+      // Each gap is one column and is visited once, so nothing here can add the same column twice:
+      // a failure is a real schema problem and belongs in the face of whoever deployed.
+      await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${definition}`).run()
+      repaired++
+    }
+  }
+  if (repaired) {
+    console.warn(`[inkstone] Schema repair: added ${repaired} column(s) the migration ledger claimed were there`)
+  }
+}
+
+/**
+ * The `ADD COLUMN` statements this schema's own migrations used, keyed by `table.column`.
+ *
+ * A column that arrived later carries the default its migration chose, which is not always what the
+ * `CREATE TABLE` says — so the migration wins when there is one, and the table definition is the
+ * fallback for columns a branch never numbered at all.
+ */
+function replayableAdditions(applied: Set<number>): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const migration of SCHEMA_MIGRATIONS) {
+    if (!applied.has(migration.version)) continue
+    for (const statement of migration.statements) {
+      const added = /^ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+(.*)$/is.exec(statement.trim())
+      if (!added) continue
+      const key = `${added[1]}.${added[2]}`
+      if (!out.has(key)) out.set(key, `${added[2]} ${added[3]}`.trim())
+    }
+  }
+  return out
+}
+
+/** The column as the `CREATE TABLE` for it declares it, or nothing a safe `ADD COLUMN` can build. */
+function declaredColumn(table: string, column: string): string | null {
+  const statement = TABLE_SCHEMA_STATEMENTS.find((text) => text.includes(`IF NOT EXISTS ${table} (`))
+  if (!statement) return null
+  const body = statement.slice(statement.indexOf('(', statement.indexOf(table)) + 1, statement.lastIndexOf(')'))
+  for (const line of body.split('\n')) {
+    const trimmed = line.trim().replace(/,$/, '')
+    const declared = new RegExp(`^${column}\\s+(.*)$`, 'i').exec(trimmed)
+    if (!declared) continue
+    const definition = declared[1]!.trim()
+    // A primary or unique key cannot be added to a table that already has rows.
+    if (/\\b(PRIMARY|UNIQUE)\\b/i.test(definition)) return null
+    return definition ? `${column} ${definition}` : `${column}`
+  }
+  return null
 }
 
 async function readStoredDatabaseState(db: D1Database): Promise<DatabaseState | null> {
@@ -1140,6 +1222,22 @@ function schemaFingerprint(): string {
   return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
+/** The required columns that an existing table does not have, by table. */
+async function missingColumns(db: D1Database): Promise<Map<string, Set<string>>> {
+  const tableEntries = Object.entries(REQUIRED_COLUMNS)
+  const pragmaStatements = tableEntries.map(([table]) => db.prepare(`PRAGMA table_info(${table})`))
+  const batchResults = await db.batch<{ name: string }>(pragmaStatements)
+  const gaps = new Map<string, Set<string>>()
+  for (let index = 0; index < tableEntries.length; index++) {
+    const [table, required] = tableEntries[index]!
+    const columns = new Set((batchResults[index]!.results ?? []).map((row) => row.name))
+    if (!columns.size) continue
+    const missing = required.filter((column) => !columns.has(column))
+    if (missing.length) gaps.set(table, new Set(missing))
+  }
+  return gaps
+}
+
 async function assertFinalSchema(db: D1Database): Promise<void> {
   const { results: tableRows } = await db
     .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
@@ -1163,18 +1261,11 @@ async function assertFinalSchema(db: D1Database): Promise<void> {
     )
   }
 
-  const tableEntries = Object.entries(REQUIRED_COLUMNS)
-  const pragmaStatements = tableEntries.map(([table]) => db.prepare(`PRAGMA table_info(${table})`))
-  const batchResults = await db.batch<{ name: string }>(pragmaStatements)
-  for (let index = 0; index < tableEntries.length; index++) {
-    const [table, required] = tableEntries[index]!
-    const results = batchResults[index]!.results
-    const columns = new Set(results.map((row) => row.name))
-    const missing = required.filter((column) => !columns.has(column))
-    if (missing.length) {
-      throw new Error(
-        `The database schema is incompatible (${table} is missing ${missing.join(', ')})`,
-      )
-    }
+  const gaps = await missingColumns(db)
+  if (gaps.size) {
+    const first = gaps.entries().next().value as [string, Set<string>]
+    throw new Error(
+      `The database schema is incompatible (${first[0]} is missing ${[...first[1]].join(', ')})`,
+    )
   }
 }

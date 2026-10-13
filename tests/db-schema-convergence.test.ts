@@ -1,0 +1,141 @@
+// @vitest-environment node
+import { DatabaseSync } from 'node:sqlite'
+import { describe, expect, it, vi } from 'vitest'
+import { initializeDatabase, REQUIRED_COLUMNS, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { makeD1 } from './doubles/d1-sqlite'
+
+/**
+ * What a deploy must do when the database it lands on disagrees with it.
+ *
+ * The migration ledger is a note about work done, not the work. Two branches of this app numbered
+ * their migrations independently, so a database built by one reads the other's numbers as already
+ * spent — and a boot that trusted the note would then reject the shape it demands, turning every
+ * request into a 500. These tests drop the shape while leaving the note, which is exactly that
+ * situation, and require the boot to heal it.
+ */
+
+function columnsOf(sqlite: DatabaseSync, table: string): string[] {
+  return sqlite.prepare(`SELECT name FROM pragma_table_info(?)`).all(table).map(row => (row as { name: string }).name)
+}
+
+function tablesOf(sqlite: DatabaseSync): string[] {
+  return sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map(row => (row as { name: string }).name)
+}
+
+const TABLES = SCHEMA_STATEMENTS.filter((text) => /^\s*CREATE TABLE IF NOT EXISTS/.test(text))
+const ADDITIONS = SCHEMA_MIGRATIONS.flatMap((migration) => migration.statements)
+
+async function boot(sqlite: DatabaseSync): Promise<D1Database> {
+  const db = makeD1(sqlite)
+  await initializeDatabase({ DB: db } as never)
+  return db
+}
+
+/**
+ * Boot the way a deploy does.
+ *
+ * A boot whose stored fingerprint still matches the code returns before it looks at the schema, so
+ * this drops that note first: what a new build sees is a database whose shape may have drifted
+ * while nobody was looking at it.
+ */
+function reboot(sqlite: DatabaseSync): Promise<D1Database> {
+  sqlite.exec(`DELETE FROM app_meta WHERE key LIKE 'database-state%'`)
+  return boot(sqlite)
+}
+
+async function installed(): Promise<DatabaseSync> {
+  const sqlite = new DatabaseSync(':memory:')
+  sqlite.exec('PRAGMA journal_mode = OFF')
+  await boot(sqlite)
+  return sqlite
+}
+
+describe('a boot onto a database whose ledger lies', () => {
+  it('re-adds the columns a spent version number would have hidden', async () => {
+    const sqlite = await installed()
+    for (const column of ['rss', 'template_library', 'quickadd']) {
+      sqlite.exec(`ALTER TABLE users DROP COLUMN ${column}`)
+    }
+    expect(columnsOf(sqlite, 'users')).not.toContain('rss')
+    // The other lineage's ledger runs to 60, so every number this one owns reads as spent.
+    for (let version = 35; version <= 60; version++) sqlite.exec(`INSERT INTO schema_migrations VALUES (${version}, 1)`)
+
+    await reboot(sqlite)
+    const users = columnsOf(sqlite, 'users')
+    expect(users).toContain('rss')
+    expect(users).toContain('template_library')
+    expect(users).toContain('quickadd')
+  })
+
+  it('creates a required table whose migration number is already taken', async () => {
+    const sqlite = await installed()
+    sqlite.exec('DROP TABLE rewrite_queue')
+    expect(tablesOf(sqlite)).not.toContain('rewrite_queue')
+    await reboot(sqlite)
+    expect(tablesOf(sqlite)).toContain('rewrite_queue')
+    expect(columnsOf(sqlite, 'rewrite_queue')).toContain('claimed_at')
+  })
+
+  it('keeps the data of the rows it does not touch', async () => {
+    const sqlite = await installed()
+    sqlite.exec(`INSERT INTO users (id, username, password_hash, login, name, role, settings, created_at, last_seen_at)
+      VALUES ('u1', 'keeper', 'x', 'keeper', '', 'owner', '{}', 1, 1)`)
+    sqlite.exec(`INSERT INTO rss_feed (user_id, id, url, title, pinned) VALUES ('u1', 'f1', 'https://a.test/feed', 'A', 1)`)
+    sqlite.exec('ALTER TABLE users DROP COLUMN rss')
+    await reboot(sqlite)
+    const feed = sqlite.prepare(`SELECT title, pinned FROM rss_feed WHERE id = 'f1'`).get() as { title: string; pinned: number }
+    expect(feed).toEqual({ title: 'A', pinned: 1 })
+    expect(columnsOf(sqlite, 'users')).toContain('rss')
+  })
+
+  it('heals two columns that arrived under two different version numbers', async () => {
+    const sqlite = await installed()
+    sqlite.exec('ALTER TABLE rewrite_queue DROP COLUMN attempts')
+    sqlite.exec('ALTER TABLE rewrite_queue DROP COLUMN claimed_at')
+    expect(columnsOf(sqlite, 'rewrite_queue')).not.toContain('attempts')
+    await reboot(sqlite)
+    const queue = columnsOf(sqlite, 'rewrite_queue')
+    expect(queue).toContain('attempts')
+    expect(queue).toContain('claimed_at')
+    expect(queue).toContain('old_value')
+  })
+
+  it('refuses rather than inventing a column nothing in the schema describes', async () => {
+    // The repair can only replay what this file already declares, so a required column must be
+    // findable there: otherwise a branch could add a column to the demand list and to no DDL, and
+    // every boot would then brick the database it landed on.
+    const sqlite = await installed()
+    const declared = new Set<string>()
+    for (const statement of [...TABLES, ...ADDITIONS]) {
+      for (const match of statement.matchAll(/ADD\s+COLUMN\s+(\w+)/gi)) declared.add(match[1])
+      const body = /^CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*)\)/i.exec(statement.trim())
+      if (!body) continue
+      for (const line of body[2].split('\n')) {
+        const column = /^\s*(\w+)\s+/.exec(line.trim())
+        if (column && !/^(PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT)$/i.test(column[1])) declared.add(`${body[1]}.${column[1]}`)
+      }
+    }
+    const missing: string[] = []
+    for (const [table, columns] of Object.entries(REQUIRED_COLUMNS)) {
+      for (const column of columns) {
+        if (!declared.has(`${table}.${column}`) && !declared.has(column)) missing.push(`${table}.${column}`)
+      }
+    }
+    expect(missing).toEqual([])
+    expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM users`).get()).toBeTruthy()
+  })
+
+  it('is a no-op on a database that already matches', async () => {
+    const sqlite = await installed()
+    const before = tablesOf(sqlite).join(',')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await reboot(sqlite)
+      expect(tablesOf(sqlite).join(',')).toBe(before)
+      expect(warn.mock.calls.filter(call => String(call[1] ?? call[0]).includes('Schema repair'))).toHaveLength(0)
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+})
