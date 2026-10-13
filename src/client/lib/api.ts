@@ -1,4 +1,5 @@
 import { CLIENT_HEADER } from '@shared/constants'
+import type { ReaderUsage } from '@shared/types'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
   PublicSharePresence,
@@ -636,6 +637,26 @@ export const api = {
         method: 'POST',
         body: { filename, content },
       }),
+  },
+
+  readerLibrary: {
+    get: () => request<{ ok: true; library: any; usage: ReaderUsage }>('/api/reader/library'),
+    put: (library: unknown) => request<{
+      ok: true
+      updatedAt: number
+      missingBlobs: string[]
+      missingCovers: string[]
+      usage: ReaderUsage
+    }>('/api/reader/library', {
+      method: 'PUT',
+      body: { library },
+    }),
+    remove: (bookId: string) => request<{ ok: true; removed: boolean }>(`/api/reader/books/${encodeURIComponent(bookId)}`, {
+      method: 'DELETE',
+    }),
+    bookUrl: (number: string) => `/api/reader/discovery/book/${encodeURIComponent(number)}`,
+    blobUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/blob`,
+    coverUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/cover`,
   },
 }
 

@@ -36,6 +36,10 @@ const apiCodeMessages: Record<string, MessageKey> = {
     two_factor_not_enabled: 'api.error.two_factor_not_enabled',
     two_factor_setup_expired: 'api.error.two_factor_setup_expired',
     two_factor_unavailable: 'api.error.two_factor_unavailable',
+    reader_space_exceeded: 'api.error.reader_space_exceeded',
+    reader_book_quota_exceeded: 'api.error.reader_book_quota_exceeded',
+    reader_book_too_large: 'api.error.reader_book_too_large',
+    reader_fetch_failed: 'api.error.reader_fetch_failed',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();

@@ -211,7 +211,69 @@ const excalidrawVendorPlugin = (): Plugin => {
   }
 }
 
+/**
+ * PDF.js needs three things it cannot bundle: a module worker, the Adobe CMaps that non-embedded CJK
+ * fonts are decoded with, and the standard-14 fonts a PDF may name without carrying. All three are
+ * fetched at read time by URL, so they are served as vendor assets the same way the drawing engine's
+ * are — and none of them belongs in the offline shell, which is why they are not in
+ * `pwa.config.ts`'s core list. A 1.7 MB cmap directory costs nothing until a PDF asks one of its
+ * files by name.
+ */
+const pdfjsVendorPlugin = (): Plugin => {
+  const dist = './node_modules/pdfjs-dist'
+  const workerPath = r(`${dist}/build/pdf.worker.min.mjs`)
+  const cmapDir = r(`${dist}/cmaps`)
+  const fontDir = r(`${dist}/standard_fonts`)
+  const wasmDir = r(`${dist}/wasm`)
+  const prefix = '/vendor/pdfjs/'
+
+  const listFiles = (dir: string, base: string): { rel: string; full: string }[] => {
+    if (!fs.existsSync(dir)) return []
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name)
+      const rel = base ? `${base}/${entry.name}` : entry.name
+      return entry.isDirectory() ? listFiles(full, rel) : [{ rel, full }]
+    })
+  }
+
+  const mimeFor = (file: string) => (file.endsWith('.mjs') || file.endsWith('.js')
+    ? 'application/javascript'
+    : file.endsWith('.css') ? 'text/css'
+    : file.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream')
+
+  return {
+    name: 'inkstone:pdfjs-vendor',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith(prefix)) return next()
+        const rel = req.url.slice(prefix.length).split('?')[0]
+        // The directory names are part of the URL space pdfjs builds, so only their own files serve.
+        if (rel.includes('..') || rel.startsWith('/') || rel.includes('.mjs.map')) return next()
+        const full = path.join(r(dist), rel)
+        if (!full.startsWith(r(dist)) || !fs.existsSync(full) || !fs.statSync(full).isFile()) return next()
+        res.setHeader('Content-Type', mimeFor(full))
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        res.end(fs.readFileSync(full))
+      })
+    },
+    generateBundle() {
+      const emitted = [
+        ...listFiles(cmapDir, 'cmaps'),
+        ...listFiles(fontDir, 'standard_fonts'),
+        ...listFiles(wasmDir, 'wasm').filter((entry) => /\.(wasm|js)$/.test(entry.full)),
+      ]
+      if (fs.existsSync(workerPath)) {
+        emitted.push({ rel: 'build/pdf.worker.min.mjs', full: workerPath })
+      }
+      for (const { rel, full } of emitted) {
+        this.emitFile({ type: 'asset', fileName: `vendor/pdfjs/${rel}`, source: fs.readFileSync(full) })
+      }
+    },
+  }
+}
+
 const getVendorChunkName = (id: string) => {
+
   if (!id.includes('node_modules') || preservesOnDemandBoundary(id)) return null
 
   const path = normalizeModuleId(id)
@@ -221,6 +283,7 @@ const getVendorChunkName = (id: string) => {
   if (/markdown-it|mdurl|entities|linkify-it|punycode|uc\.micro/.test(path)) {
     return 'vendor-markdown'
   }
+  if (path.includes('/pdfjs-dist/')) return 'vendor-pdfjs'
   if (isReactModule(id)) return 'vendor-react'
 
   return null
@@ -231,6 +294,7 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
     react(),
     katexWoff2Only(),
     excalidrawVendorPlugin(),
+    pdfjsVendorPlugin(),
     tailwindcss(),
     inkstonePwa(),
     ...(mode === 'demo'

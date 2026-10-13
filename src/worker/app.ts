@@ -24,6 +24,9 @@ import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
 import { mcpSettingsRoutes } from './routes/mcp-settings'
 import { aiProxyRoutes } from './routes/ai-proxy'
 import { excalidrawLibraryRoutes } from './routes/excalidraw-library'
+import { readingRoutes } from './routes/reading'
+import { readerLibraryRoutes } from './routes/reader-library'
+import { readerDiscoveryRoutes } from './routes/reader-discovery'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -100,6 +103,9 @@ export function createApp() {
   app.route('/api/ai', aiProxyRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
+  app.route('/api/reading', readingRoutes)
+  app.route('/api/reader/discovery', readerDiscoveryRoutes)
+  app.route('/api/reader', readerLibraryRoutes)
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)

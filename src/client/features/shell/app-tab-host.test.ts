@@ -33,7 +33,16 @@ function clickTab(path: string): void {
 }
 
 function notebook(): HTMLElement | null {
-  return view.container.querySelector('[data-notebook]')
+  return visibleNotebook()
+}
+
+/**
+ * Suspense keeps the tree it replaced mounted but hidden while a lazy container arrives, so a plain
+ * query would report the notebook on a screen that is not showing it.
+ */
+function visibleNotebook(): HTMLElement | null {
+  return [...view.container.querySelectorAll<HTMLElement>('[data-notebook]')]
+    .find((element) => element.style.display !== 'none') ?? null
 }
 
 function placeholderHeading(): string | null {
@@ -82,8 +91,19 @@ describe('the tab host', () => {
 
   it('names the container the address asked for, on both sides of the switch', () => {
     view = renderElement(createElement(AppTabHost))
-    act(() => { navigateToPath('/reading') })
-    expect(placeholderHeading()).toBe(t('app.tabs.reading'))
+    act(() => { navigateToPath('/rss') })
+    expect(placeholderHeading()).toBe(t('app.tabs.rss'))
+    expect(view.container.querySelector('nav a[href="/rss"][aria-current="page"]')).not.toBeNull()
+  })
+
+  it('hands a container its own sub-address instead of falling back to the notebook', () => {
+    view = renderElement(createElement(AppTabHost))
+    act(() => { navigateToPath('/reading/book-42') })
+    // A deep link into an app must stay on that app's tab; the placeholder is the tell, because the
+    // notebook answering this address would look like the route had been forgotten.
+    expect(placeholderHeading()).toBeNull()
+    expect(notebook()).toBeNull()
+    expect(view.container.querySelector('[data-notebook]')).not.toBeNull()
     expect(view.container.querySelector('nav a[href="/reading"][aria-current="page"]')).not.toBeNull()
   })
 

@@ -86,6 +86,7 @@
     "mind-elixir": "^5.15.1",
     "minisearch": "^7.2.0",
     "moment-parseformat": "^4.0.0",
+    "pdfjs-dist": "^6.4.299",
     "pinyin-pro": "^3.29.4",
     "prismjs": "1.30.0",
     "qrcode.react": "^4.2.0",

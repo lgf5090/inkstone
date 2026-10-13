@@ -1,0 +1,781 @@
+/**
+ * The reading surface.
+ *
+ * Two things here are not decoration and are worth the comments, because both look like a bug in the
+ * other direction when they are changed: the column geometry that turns flowing text into pages, and
+ * the HUD's habit of floating over the page instead of reserving a row.
+ */
+
+.reader-stage {
+  /* The measure a scrolling page centres its text to, and the dot a commented mark draws. */
+  --reader-measure: 44rem;
+  --reader-mark-dot: var(--reader-accent);
+  /* How much page the floating bars are allowed to cover. It is reserved whether or not they are
+     showing, so the text does not re-paginate when they retract. */
+  --reader-hud: 52px;
+  /* Vertical panning stays the browser's; a horizontal drag is a page turn. Without this the browser
+     claims the swipe as a scroll, fires pointercancel, and the gesture never reaches the reader. */
+  touch-action: pan-y;
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+  contain: paint;
+}
+
+.reader-stage[data-mode='scroll'] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* A flowing page has no bars over its text at all. */
+  --reader-hud: 0px;
+}
+
+@media (pointer: coarse) {
+  /* A thumb is not a cursor: the bar's own controls grow to a 44px square, and the page has to clear the
+     taller bar that comes with them. Measured, not assumed — the reserve is the bar's height plus its
+     offset from the edge. */
+  .reader-hud button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .reader-stage:not([data-mode='scroll']) {
+    --reader-hud: 64px;
+  }
+}
+
+/**
+ * The column box. `column-fill: auto` with a fixed height is what makes the browser break the text
+ * into pages at all — with `balance` it would squeeze a whole chapter into the visible columns — and
+ * the scroller is moved by `scrollLeft` while `overflow: hidden` keeps a reader from dragging the
+ * page sideways off a column.
+ */
+.reader-columns {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  column-gap: var(--reader-gap);
+  column-width: var(--reader-column-width);
+  column-fill: auto;
+  height: 100%;
+  direction: ltr;
+  /* The page margin and the room the floating bars need belong here, not on the chapter: a fragmented
+     block only paints its own padding on its first and last piece, so a reader's margin would vanish
+     from every page after the first — and a book's `body { padding: 0 }`, which arrives scoped to the
+     chapter, could take the margin from all of them. The measure caps how wide a line of prose gets,
+     centring what is left over as margin, which is the difference between a page and a banner. The bottom
+     reserve carries one extra line: a column's last line box can spill a line past the column height, and
+     the bar would otherwise sit on top of it. */
+  padding-inline: max(var(--reader-margin), calc((100% - var(--reader-measure) * var(--reader-columns, 1)) / 2));
+  padding-block: max(var(--reader-margin), var(--reader-hud, 52px))
+    max(calc(var(--reader-margin) + 12px), calc(var(--reader-hud, 52px) + var(--reader-leading) * var(--reader-size)));
+}
+
+.reader-stage[data-mode='scroll'] .reader-columns {
+  position: static;
+  height: auto;
+  column-count: 1;
+  column-width: auto;
+  overflow: visible;
+}
+
+/* One chapter, laid out inside the column box. Its own box is the reader's: the margin and the space
+   under the bars are painted by the column box, so nothing here has to survive fragmentation. */
+/* Focus mode: the paragraph the reader is on, and a hint of everything else. */
+.reader-doc[data-focus='true'] > * {
+  opacity: 0.26;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reader-doc[data-focus='true'] > .reader-now {
+  opacity: 1;
+}
+
+.reader-doc {
+  break-inside: auto;
+  font-family: var(--reader-font);
+  font-size: var(--reader-size);
+  line-height: var(--reader-leading);
+  letter-spacing: var(--reader-tracking);
+  text-align: var(--reader-align);
+  hyphens: var(--reader-hyphens);
+  word-break: normal;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
+.reader-doc p,
+.reader-doc div,
+.reader-doc li {
+  margin: 0 0 calc(var(--reader-para) * 1em);
+}
+
+.reader-doc p:first-child,
+.reader-doc h1 + p,
+.reader-doc h2 + p,
+.reader-doc h3 + p {
+  margin-top: 0;
+}
+
+.reader-doc :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.7em;
+  break-after: avoid;
+}
+
+.reader-doc :is(h1, h2) {
+  break-before: page;
+}
+
+.reader-doc :first-child {
+  break-before: auto;
+}
+
+.reader-doc blockquote {
+  margin: 0 0 calc(var(--reader-para) * 1em);
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid color-mix(in oklab, var(--reader-fg) 22%, transparent);
+  color: var(--reader-muted);
+}
+
+.reader-doc :is(img, svg, video, figure, table, pre) {
+  max-width: 100%;
+  break-inside: avoid;
+}
+
+.reader-doc img,
+.reader-doc svg {
+  height: auto;
+}
+
+.reader-doc figure {
+  margin: 0 0 calc(var(--reader-para) * 1em);
+  text-align: center;
+}
+
+.reader-doc figcaption {
+  font-size: 0.85em;
+  color: var(--reader-muted);
+  margin-top: 0.4em;
+}
+
+.reader-doc a {
+  color: var(--reader-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.reader-doc code,
+.reader-doc pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.reader-doc pre {
+  white-space: pre-wrap;
+  background: color-mix(in oklab, var(--reader-fg) 6%, transparent);
+  padding: 0.6em 0.8em;
+  border-radius: var(--r-sm);
+}
+
+.reader-doc table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.reader-doc :is(th, td) {
+  border: 1px solid color-mix(in oklab, var(--reader-fg) 20%, transparent);
+  padding: 0.3em 0.5em;
+}
+
+.reader-doc[data-indent='true'] p + p {
+  text-indent: 2em;
+}
+
+.reader-doc[data-figures='false'] :is(img, svg:not(:root), figure) {
+  display: none;
+}
+
+.reader-doc ::selection,
+.reader-doc::selection {
+  background: color-mix(in oklab, var(--reader-accent) 32%, transparent);
+}
+
+/* A mark is painted per text-node segment, so overlapping highlights nest by stacking backgrounds
+   rather than by drawing over each other. */
+.reader-mark {
+  background: var(--reader-mark);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+}
+
+.reader-mark[data-has-comment='true']::after {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-inline-start: 2px;
+  vertical-align: super;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid var(--reader-mark-dot);
+}
+
+.reader-mark[data-orphan='true'] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--reader-mark) 0 6px,
+    color-mix(in oklab, var(--reader-mark) 55%, transparent) 6px 12px
+  );
+}
+
+.reader-search-hit {
+  outline: 2px solid var(--reader-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+.reader-search-hit[data-current='true'] {
+  background: color-mix(in oklab, var(--reader-accent) 30%, transparent);
+}
+
+/**
+ * The HUD. It is an overlay, so retracting it never changes the page geometry — a bar that reserved a
+ * row would re-paginate the book on every idle timer, which reads as the text jumping under the
+ * reader's finger.
+ */
+.reader-hud {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 8px;
+  /* Opaque enough to read against any page, and deliberately without a backdrop blur: this app has
+     measured that a blurred layer over a large area costs more than the animation it decorates. */
+  background: color-mix(in oklab, var(--reader-bg) 94%, transparent);
+  border: 1px solid color-mix(in oklab, var(--reader-fg) 12%, transparent);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 6%),
+    0 8px 24px -12px rgb(0 0 0 / 22%);
+  color: var(--reader-fg);
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+
+.reader-hud[data-edge='top'] {
+  top: max(8px, env(safe-area-inset-top, 0px));
+}
+
+.reader-hud[data-edge='bottom'] {
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  justify-content: space-between;
+}
+
+.reader-hud[data-hidden='true'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-hud[data-edge='top'][data-hidden='true'] {
+  transform: translateY(-140%);
+}
+
+.reader-hud[data-edge='bottom'][data-hidden='true'] {
+  transform: translateY(140%);
+}
+
+.reader-hud button,
+.reader-hud .reader-pill {
+  height: 36px;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--reader-fg) 6%, transparent);
+  border: 1px solid color-mix(in oklab, var(--reader-fg) 10%, transparent);
+  color: var(--reader-fg);
+}
+
+.reader-hud button[aria-pressed='true'],
+.reader-hud button.reader-active {
+  background: color-mix(in oklab, var(--reader-accent) 22%, transparent);
+  border-color: color-mix(in oklab, var(--reader-accent) 45%, transparent);
+  color: var(--reader-fg);
+}
+
+.reader-hud button:disabled {
+  opacity: 0.4;
+}
+
+.reader-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+
+.reader-page-status {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-12);
+  color: var(--reader-muted);
+  padding-inline: 10px;
+}
+
+.reader-progress-rail {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in oklab, var(--reader-fg) 12%, transparent);
+  z-index: 3;
+}
+
+.reader-progress-rail > span {
+  display: block;
+  height: 100%;
+  background: var(--reader-accent);
+  transition: width 160ms var(--ease-out);
+}
+
+/* The bar that follows a text selection. It is positioned by the reader component and only owns its
+   own spacing here. */
+.reader-selection-bar {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-pop);
+}
+
+.reader-selection-bar button {
+  min-width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+}
+
+.reader-selection-bar button:hover {
+  background: var(--bg-hover);
+}
+
+.reader-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  border: 1px solid color-mix(in oklab, var(--text-primary) 22%, transparent);
+}
+
+@media (pointer: coarse) {
+  .reader-selection-bar button {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .reader-hud button {
+    min-height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-hud,
+  .reader-progress-rail > span {
+    transition-duration: 60ms;
+  }
+
+  .reader-hud[data-hidden='true'] {
+    transform: none;
+  }
+}
+
+/* A reader who asks for the page to stop moving gets no animation at all, and the HUD stays put. */
+.reader-stage[data-motion='off'] .reader-hud,
+.reader-stage[data-motion='off'] .reader-progress-rail > span {
+  transition: none;
+}
+
+/*
+ * The shelf's per-book controls.
+ *
+ * Two rules live here rather than as utilities on each surface. The list row reserves a fixed action
+ * column so the progress ring lands on the same x for every book — a row that happens to have a
+ * reading note must not push its ring 28 pixels to the left of its neighbours. And a thumb has no
+ * hover: on a coarse pointer the controls stay put, because otherwise the book menu cannot be
+ * reached from a phone at all.
+ */
+.reader-shelf-actions {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reader-shelf-card:hover .reader-shelf-actions,
+.reader-shelf-row:hover .reader-shelf-actions,
+.reader-shelf-card:focus-within .reader-shelf-actions,
+.reader-shelf-row:focus-within .reader-shelf-actions {
+  opacity: 1;
+}
+
+.reader-shelf-row {
+  padding-inline-end: 56px;
+}
+
+.reader-shelf-row .reader-shelf-actions {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 8px;
+  transform: translateY(-50%);
+}
+
+@media (pointer: coarse) {
+  .reader-shelf-actions {
+    opacity: 1;
+  }
+
+  .reader-shelf-actions button {
+    min-width: 34px;
+    min-height: 34px;
+  }
+
+  .reader-shelf-row {
+    padding-inline-end: 76px;
+  }
+}
+
+/*
+ * The cover wall has no captions, so a hovered cover says its own title. On a thumb there is no hover,
+ * and a wall of covers nobody can name is a wall of guesses — so the strip stays there permanently.
+ */
+.reader-shelf-hover-title {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 14px 76px 5px 6px;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  background: linear-gradient(to top, var(--bg-overlay), transparent);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.reader-shelf-card:hover .reader-shelf-hover-title,
+.reader-shelf-card:focus-within .reader-shelf-hover-title {
+  opacity: 1;
+}
+
+/*
+ * A cover wall on a phone is a wall of thumbnails: naming every one of them would cover the picture,
+ * and the list view exists for readers who need the names. So the strip stays a hover affordance, and
+ * the one floating control a thumb gets is the menu — the note shortcut moves into it.
+ */
+@media (pointer: coarse) {
+  .reader-shelf-card .reader-shelf-note {
+    display: none;
+  }
+}
+
+.reader-shelf-cover {
+  aspect-ratio: 3 / 4;
+  width: 100%;
+  object-fit: cover;
+  background: var(--bg-sunken);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-soft);
+}
+
+.reader-shelf-cover[data-fit='contain'] {
+  object-fit: contain;
+  padding: 6px;
+}
+
+/**
+ * A fixed-layout book: one canvas per page with PDF.js's transparent text over it.
+ *
+ * The text layer has to be sized to the painted viewport, or its absolutely positioned spans land
+ * outside a box the browser will not scroll — which shows up as selectable words that are nowhere to
+ * be seen.
+ */
+.reader-fixed {
+  display: flex;
+  overflow: hidden;
+  /* What the chrome takes off a fixed page: the bar, its offset from the edge, and the progress rail
+     under it — the bars float over the *reader*, not over the stage, so the page has to clear all three.
+     The stage reads this back before it asks PDF.js how tall to paint a page, so the page that is
+     rendered is the page that fits. Plain lengths only: a `calc()` here would reach the reader as text. */
+  --reader-fixed-pad: 82px;
+}
+
+@media (pointer: coarse) {
+  .reader-fixed {
+    --reader-fixed-pad: 94px;
+  }
+}
+
+.reader-fixed[data-mode='scroll'] {
+  overflow-y: auto;
+  display: block;
+}
+
+.reader-fixed-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: var(--reader-fixed-pad) 8px;
+}
+
+.reader-fixed-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: var(--reader-fixed-pad) 8px calc(var(--reader-fixed-pad) + 8px);
+}
+
+.reader-pdf-page {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-height: 100%;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.reader-pdf-page > canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.reader-pdf-image {
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.reader-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  text-align: initial;
+  line-height: 1;
+  transform-origin: 0 0;
+  forced-color-adjust: none;
+}
+
+.reader-pdf-text span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+  color: transparent;
+  pointer-events: auto;
+  white-space: pre;
+  transform-origin: 0 0;
+  cursor: text;
+}
+
+.reader-pdf-text ::selection {
+  background: color-mix(in oklab, var(--reader-fg, #333) 26%, transparent);
+}
+
+.reader-pdf-text .reader-mark {
+  color: transparent;
+}
+
+/** A page with no text layer says so on hover rather than letting a drag select nothing. */
+.reader-pdf-page[data-textable='false'] {
+  cursor: default;
+}
+
+/* The bottom arrows can wait for the pointer; the status between them cannot, or the bar would look
+   empty and the reader would hunt for it. */
+[data-reader-root][data-page-buttons='hover'] .reader-hud[data-edge='bottom'] > button {
+  opacity: 0;
+}
+
+[data-reader-root][data-page-buttons='hover'] .reader-hud[data-edge='bottom']:hover > button,
+[data-reader-root][data-page-buttons='hover'] .reader-hud[data-edge='bottom']:focus-within > button {
+  opacity: 1;
+}
+
+/* A pointer device has room for words on the selection bar; a thumb does not. */
+.reader-action-label {
+  display: none;
+  font-size: var(--text-11-5);
+}
+
+@media (hover: hover) {
+  [data-reader-root][data-selection-labels='true'] .reader-action-label {
+    display: inline;
+  }
+}
+
+/**
+ * The controls a thumb reaches for.
+ *
+ * The scrubber takes the bottom edge and the bar lifts above it, because a slider that overlaps the
+ * page number makes both unreadable; the rail is dropped while the slider is on, since the slider says
+ * the same thing and can be dragged.
+ */
+.reader-scrubber {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--reader-accent);
+}
+
+[data-reader-root][data-scrubber='true'] .reader-hud[data-edge='bottom'] {
+  bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 26px);
+}
+
+[data-reader-root][data-scrubber='true'] .reader-progress-rail {
+  display: none;
+}
+
+.reader-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: #000;
+  pointer-events: none;
+}
+
+/* Fullscreen is the page and nothing else, so the bars get the safe-area padding the rail used to
+   provide and the reader's own background fills the screen edge to edge. */
+[data-reader-root][data-fullscreen='true'] {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* A page turn is acknowledged by the page itself arriving from the direction it was turned to. The
+   offset is small on purpose: sliding a whole column would read as a layout bug, and this has to cost
+   nothing on a slow e-ink refresh. */
+@keyframes reader-turn-next {
+  from { opacity: 0.35; transform: translateX(-22px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes reader-turn-prev {
+  from { opacity: 0.35; transform: translateX(22px); }
+  to { opacity: 1; transform: none; }
+}
+
+.reader-columns[data-turn='next'] {
+  animation: reader-turn-next 180ms var(--ease-out) both;
+}
+
+.reader-columns[data-turn='prev'] {
+  animation: reader-turn-prev 180ms var(--ease-out) both;
+}
+
+.reader-stage[data-motion='off'] .reader-columns[data-turn] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-columns[data-turn] {
+    animation: none;
+  }
+}
+
+/* A scanned page has no words to mark, and the reason has to be on the page rather than behind a hover
+   the reader may never make. */
+.reader-scan-hint {
+  position: absolute;
+  inset-inline: 8px;
+  bottom: 8px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--reader-fg) 12%, transparent);
+  color: var(--reader-fg);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* The one message the reader cannot do without while a book arrives: how much of it is there yet. */
+.reader-downloading {
+  position: absolute;
+  inset-inline: 50%;
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + 60px);
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  max-width: min(420px, calc(100% - 32px));
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-soft);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.reader-downloading-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.reader-downloading-track {
+  display: block;
+  height: 3px;
+  width: 96px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-default);
+}
+
+.reader-downloading-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+/*
+ * The footnote preview. Fixed to the viewport rather than to the stage: the stage scrolls and slides
+ * during a page turn, and a card that travels with the page leaves behind the word it was answering.
+ */
+.reader-note-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 8px 10px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-primary);
+}
