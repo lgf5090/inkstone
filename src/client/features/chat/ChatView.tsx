@@ -589,9 +589,15 @@ function Composer({
   const dropTurnScope = useAssistant((state) => state.dropTurnScope)
   const toast = useUi((state) => state.toast)
   // Translated at render, so a reader who switches language sees the new words without a reload.
+  // Their own saved prompts come first; the built-in openers are the empty library's fallback.
+  const savedPrompts = useAssistant((state) => state.prompts)
+  const loadPrompts = useAssistant((state) => state.loadPrompts)
+  useEffect(() => { void loadPrompts() }, [loadPrompts])
   const quickPrompts = useMemo(
-    () => QUICK_PROMPT_KEYS.map((key, index) => ({ id: String(index), label: t(key) })),
-    [],
+    () => (savedPrompts.length
+      ? savedPrompts.map((prompt) => ({ id: prompt.id, label: prompt.title, text: prompt.content }))
+      : QUICK_PROMPT_KEYS.map((key, index) => ({ id: String(index), label: t(key) }))),
+    [savedPrompts],
   )
   // Only a model the reader marked as answering chat belongs in the picker; an embedding endpoint is
   // not a thing to hold a conversation with.
@@ -796,6 +802,7 @@ function Composer({
               }}
               onNote={() => setPickingNote(true)}
               onPrompt={(text) => setValue((current) => (current.trim() ? `${current.trim()}\n${text}` : text))}
+              onManagePrompts={() => setView('prompts')}
             />
             <IconButton label={t('assistant.attach.add_file')} size="sm" onClick={() => fileRef.current?.click()} className="size-7 rounded-[var(--r-md)]">
               <Paperclip size={14} />

@@ -12,11 +12,12 @@ import type {
   AssistantMemory,
   AssistantProvider,
   AssistantSettings,
+  ChatPrompt,
   Automation,
   ChatStreamEvent,
   Task,
 } from '../src/shared/assistant'
-import { DEFAULT_SEMANTIC_MODEL } from '../src/shared/assistant'
+import { DEFAULT_SEMANTIC_MODEL, MAX_PROMPT_CONTENT_CHARS, MAX_PROMPT_TITLE_CHARS } from '../src/shared/assistant'
 import { makeD1 } from './doubles/d1-sqlite'
 import { AI_EMBEDDING_MODEL } from '../src/worker/mcp/ai-search'
 
@@ -1298,5 +1299,51 @@ describe('model editor fields', () => {
     await settleTurns()
     vi.unstubAllGlobals()
     expect(sent).not.toContain('"tools"')
+  })
+})
+
+describe('prompt library', () => {
+  it('creates, searches, edits and deletes the reader\u2019s own prompts', async () => {
+    const created = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
+      title: '周报', content: '把这周做的事写成周报，按项目分段。', group: '写作',
+    })
+    expect(created.prompt.id).toBeTruthy()
+    expect(created.prompt.group).toBe('写作')
+
+    const found = await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts?q=分段')
+    expect(found.prompts.map((entry) => entry.id)).toEqual([created.prompt.id])
+
+    const edited = await call<{ prompt: ChatPrompt }>('PATCH', `/api/assistant/prompts/${created.prompt.id}`, { title: '每周周报' })
+    expect(edited.prompt.title).toBe('每周周报')
+    expect(edited.prompt.content).toContain('分段')
+
+    expect((await call<{ deleted: boolean }>('DELETE', `/api/assistant/prompts/${created.prompt.id}`)).deleted).toBe(true)
+    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts).toEqual([])
+    expect((await call<{ deleted: boolean }>('DELETE', `/api/assistant/prompts/${created.prompt.id}`)).deleted).toBe(false)
+  })
+
+  it('refuses an empty prompt and an over-long one is cut, not stored whole', async () => {
+    expect(await status('POST', '/api/assistant/prompts', { title: '  ', content: '  ' })).toBe(400)
+    // Either half alone is enough: a paragraph with no name is still a prompt the reader will want back.
+    const contentOnly = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', { content: '只要正文，标题以后再说。' })
+    expect(contentOnly.prompt.content).toContain('只要正文')
+    expect(contentOnly.prompt.title.length).toBeGreaterThan(0)
+    const titleOnly = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', { title: '只有标题' })
+    expect(titleOnly.prompt.title).toBe('只有标题')
+    const long = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', {
+      title: 'x'.repeat(400), content: 'y'.repeat(10_000),
+    })
+    expect(long.prompt.title.length).toBeLessThanOrEqual(MAX_PROMPT_TITLE_CHARS)
+    expect(long.prompt.content.length).toBeLessThanOrEqual(MAX_PROMPT_CONTENT_CHARS)
+  })
+
+  it('keeps one account\u2019s prompts out of another\u2019s list', async () => {
+    const mine = await call<{ prompt: ChatPrompt }>('POST', '/api/assistant/prompts', { title: '只属于我', content: '别读' })
+    asUser('0123456789abcdefghjkmnpqrst')
+    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts).toEqual([])
+    expect(await status('PATCH', `/api/assistant/prompts/${mine.prompt.id}`, { title: '改掉' })).toBe(404)
+    expect(await status('DELETE', `/api/assistant/prompts/${mine.prompt.id}`)).toBe(200)
+    asUser(USER)
+    expect((await call<{ prompts: ChatPrompt[] }>('GET', '/api/assistant/prompts')).prompts.map((entry) => entry.id)).toEqual([mine.prompt.id])
   })
 })

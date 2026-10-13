@@ -18,6 +18,7 @@ import type {
   AssistantMemoryStatus,
   AssistantMessage,
   AssistantModel,
+  ChatPrompt,
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantCustomParam,
@@ -628,6 +629,71 @@ export class AssistantStore {
     if (!row) return null
     await this.write(`DELETE FROM chat_attachments WHERE user_id = ?1 AND id = ?2`, id)
     return row
+  }
+
+  // ------------------------------------------------------------------ prompts
+
+  /** The reader's saved prompts, newest first; `group` narrows to one folder of them. */
+  async listPrompts(options: { query?: string, group?: string, limit?: number } = {}): Promise<ChatPrompt[]> {
+    const q = new Query(this.userId)
+    if (options.group) q.eq(`group_name`, options.group)
+    if (options.query) {
+      const pattern = q.add(containsPattern(options.query))
+      const inBody = q.add(containsPattern(options.query))
+      q.raw(`(title LIKE ${pattern} ESCAPE '\\' OR content LIKE ${inBody} ESCAPE '\\')`)
+    }
+    const limitBind = q.add(options.limit ?? 200)
+    const list = await this.rows<PromptRow>(
+      `SELECT id, title, content, group_name, created_at, updated_at FROM chat_prompts
+        WHERE ${q.where} ORDER BY updated_at DESC LIMIT ${limitBind}`,
+      ...q.binds,
+    )
+    return list.map(toPrompt)
+  }
+
+  async getPrompt(id: string): Promise<ChatPrompt | null> {
+    const r = await this.one<PromptRow>(
+      `SELECT id, title, content, group_name, created_at, updated_at FROM chat_prompts WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return r ? toPrompt(r) : null
+  }
+
+  async insertPrompt(input: { title: string, content: string, group?: string }): Promise<ChatPrompt> {
+    const id = newId()
+    const at = Date.now()
+    const group = input.group?.trim() ?? ''
+    await this.write(
+      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?6)`,
+      id, input.title, input.content, group, at,
+    )
+    return { id, title: input.title, content: input.content, group, createdAt: at, updatedAt: at }
+  }
+
+  async updatePrompt(id: string, patch: { title?: string, content?: string, group?: string }): Promise<ChatPrompt | null> {
+    const existing = await this.getPrompt(id)
+    if (!existing) return null
+    const next: ChatPrompt = {
+      ...existing,
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.content !== undefined ? { content: patch.content } : {}),
+      ...(patch.group !== undefined ? { group: patch.group } : {}),
+      updatedAt: Date.now(),
+    }
+    await this.write(
+      `UPDATE chat_prompts SET title = ?2, content = ?3, group_name = ?4, updated_at = ?5
+         WHERE user_id = ?1 AND id = ?6`,
+      next.title, next.content, next.group, next.updatedAt, id,
+    )
+    return next
+  }
+
+  async deletePrompt(id: string): Promise<boolean> {
+    const existing = await this.getPrompt(id)
+    if (!existing) return false
+    await this.write(`DELETE FROM chat_prompts WHERE user_id = ?1 AND id = ?2`, id)
+    return true
   }
 
   /** Every attachment the reader has, newest first — the list the composer's picker walks. */
@@ -2084,6 +2150,26 @@ function toProvider(r: ProviderRow): AssistantProvider {
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
   reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, top_p,
   custom_params, enabled, position`
+
+interface PromptRow {
+  id: string
+  title: string
+  content: string
+  group_name: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toPrompt(r: PromptRow): ChatPrompt {
+  return {
+    id: r.id,
+    title: r.title,
+    content: r.content,
+    group: r.group_name ?? '',
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  }
+}
 
 interface ModelRow {
   id: string

@@ -837,15 +837,9 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_models ADD COLUMN top_p REAL`,
     ],
   },
-  {
-    // streaming: one version per column. A version number is an identity, and one entry that adds two
-    // columns cannot be retried for the half that failed on an account which already recorded it.
-    version: 43,
-    skipIfColumnExists: { table: 'chat_models', column: 'streaming' },
-    statements: [
-      `ALTER TABLE chat_models ADD COLUMN streaming INTEGER NOT NULL DEFAULT 1`,
-    ],
-  },
+  // Version 43 is spent: it added `chat_models.streaming`, a switch nothing could read, and it was
+  // dropped before release. Do not reuse the number — an account that recorded it would silently skip
+  // whatever else claimed it. The next chat migration is 45.
   {
     // custom_params: one version per column. A version number is an identity, and one entry that adds two
     // columns cannot be retried for the half that failed on an account which already recorded it.
@@ -853,6 +847,24 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_models', column: 'custom_params' },
     statements: [
       `ALTER TABLE chat_models ADD COLUMN custom_params TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // The reader's saved prompts. Created here as well as in the table list so an account that has been
+    // running since before the prompt library exists gets it on the next boot.
+    version: 45,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_prompts (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    group_name TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_prompts_user ON chat_prompts(user_id, updated_at)`,
     ],
   },
 ]

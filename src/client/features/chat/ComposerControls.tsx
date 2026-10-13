@@ -234,15 +234,21 @@ export function PlusMenu({
   onNote,
   onPrompt,
   prompts,
+  onManagePrompts,
 }: {
   onFiles: () => void
   onFolder: () => void
   onUrl: () => void
   onNote: () => void
   onPrompt: (text: string) => void
-  prompts: { id: string, label: string }[]
+  /** `text` is what goes into the box; a saved prompt shows its title and inserts its content. */
+  prompts: { id: string, label: string, text?: string }[]
+  onManagePrompts: () => void
 }) {
   const anchor = useMenuAnchor()
+  // The submenu's own list and the keyboard/search list are built from one array, so the manager entry cannot
+  // appear in one and be missing from the other.
+  const promptRows = [...prompts, { id: '__manage', label: t('assistant.prompts.manage') }]
   const items: MenuItem[] = [
     { id: 'note', label: t('assistant.attach.reference_note'), icon: <MessageSquareQuote size={13} />, onSelect: onNote },
     { id: 'file', label: t('assistant.attach.add_file'), icon: <FilePlus2 size={13} />, onSelect: onFiles },
@@ -253,12 +259,12 @@ export function PlusMenu({
       label: t('assistant.attach.quick_prompts'),
       icon: <Wand2 size={13} />,
       separatorBefore: true,
-      subItems: prompts.map((promptEntry) => ({ id: promptEntry.id, label: promptEntry.label })),
-      submenu: () => prompts.map((promptEntry) => (
+      subItems: [...prompts.map((promptEntry) => ({ id: promptEntry.id, label: promptEntry.label })), { id: '__manage', label: t('assistant.prompts.manage') }],
+      submenu: () => promptRows.map((promptEntry) => (
         <button
           key={promptEntry.id}
           type="button"
-          onClick={() => onPrompt(promptEntry.label)}
+          onClick={() => (promptEntry.id === '__manage' ? onManagePrompts() : onPrompt(promptEntry.text ?? promptEntry.label))}
           className="block w-full truncate rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           {promptEntry.label}

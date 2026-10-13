@@ -33,6 +33,25 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_providers_user
      ON chat_providers(user_id, created_at)`,
 
+  /**
+   * The reader's own saved prompts, the library behind the composer's `/` and ➕ entries.
+   *
+   * `group_name` rather than `group`: the latter is reserved in SQLite's own grammar, and a column that
+   * needs quoting in every hand-written statement is a tax paid forever for a name saved once.
+   */
+  `CREATE TABLE IF NOT EXISTS chat_prompts (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    group_name TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_prompts_user
+     ON chat_prompts(user_id, updated_at)`,
+
   `CREATE TABLE IF NOT EXISTS chat_models (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -361,6 +380,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_actions_pending',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
+  'idx_chat_prompts_user',
 ]
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -384,4 +404,5 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until'],
+  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'created_at', 'updated_at'],
 }

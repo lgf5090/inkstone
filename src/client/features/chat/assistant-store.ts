@@ -31,15 +31,16 @@ import type {
   Task as AssistantTask,
   ToolActivity,
 } from '@shared/assistant'
+import type { ChatPrompt } from '@shared/assistant'
 import { MAX_CHAT_ATTACHMENTS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, type AssistantTurnScope, type ChatAttachment } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { streamAssistantTurn } from './stream'
 import { useUi } from '../../store/ui'
 
-export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'settings'
+export type AssistantView = 'chat' | 'memory' | 'tasks' | 'automations' | 'prompts' | 'settings'
 
-export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'settings']
+export const ASSISTANT_VIEWS: readonly AssistantView[] = ['chat', 'memory', 'tasks', 'automations', 'prompts', 'settings']
 
 /** The four pickers the conversation list's tab strip offers, in the order it draws them. */
 export type ConversationListTab = 'folders' | 'tags' | 'starred' | 'pinned'
@@ -165,6 +166,11 @@ interface AssistantState {
   dropTurnScope: (id: string) => void
   dropAttachment: (localId: string) => Promise<void>
   clearAttachments: () => void
+  prompts: ChatPrompt[]
+  loadPrompts: (query?: string) => Promise<void>
+  createPrompt: (input: { title: string, content: string, group?: string }) => Promise<ChatPrompt | null>
+  savePrompt: (id: string, input: { title?: string, content?: string, group?: string }) => Promise<void>
+  removePrompt: (id: string) => Promise<void>
   stop: () => void
   renameConversation: (id: string, title: string) => Promise<void>
   pinConversation: (id: string, pinned: boolean) => Promise<void>
@@ -263,6 +269,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   unfiledCount: 0,
   tagNodes: [],
   pending: [],
+  prompts: [],
   turnTools: [],
   turnScopes: [],
   fileIndex: {},
@@ -537,6 +544,44 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     set({ pending: [] })
   },
 
+  loadPrompts: async (query) => {
+    try {
+      const { prompts } = await api.assistant.prompts(query)
+      set({ prompts })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  createPrompt: async (input) => {
+    try {
+      const { prompt } = await api.assistant.createPrompt(input)
+      set((state) => ({ prompts: [prompt, ...state.prompts] }))
+      return prompt
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  savePrompt: async (id, input) => {
+    try {
+      const { prompt } = await api.assistant.updatePrompt(id, input)
+      set((state) => ({ prompts: state.prompts.map((entry) => (entry.id === id ? prompt : entry)) }))
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  removePrompt: async (id) => {
+    set((state) => ({ prompts: state.prompts.filter((entry) => entry.id !== id) }))
+    try {
+      await api.assistant.removePrompt(id)
+    } catch (error) {
+      toast(error)
+    }
+  },
+
   addTurnTool: (name) => set((current) => (current.turnTools.includes(name)
     ? current
     : { turnTools: [...current.turnTools, name].slice(0, MAX_TURN_TOOLS) })),
@@ -733,6 +778,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (view === 'tasks') await get().loadTasks()
       if (view === 'memory') await get().loadMemories()
       if (view === 'automations') await get().loadAutomations()
+      if (view === 'prompts') await get().loadPrompts()
     } catch (error) {
       toast(error)
     }

@@ -147,7 +147,7 @@ describe('plus menu', () => {
   it('wires each entry to its own handler', async () => {
     const handlers = { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt: vi.fn() }
     await act(async () => {
-      root.render(createElement(PlusMenu, { ...handlers, prompts: [{ id: 'q1', label: '总结一下' }] }))
+      root.render(createElement(PlusMenu, { ...handlers, onManagePrompts: vi.fn(), prompts: [{ id: 'q1', label: '总结一下' }] }))
     })
     await click(byAria(t('assistant.attach.menu')))
     await click(byText(t('assistant.attach.add_folder')))
@@ -155,6 +155,40 @@ describe('plus menu', () => {
     await click(byAria(t('assistant.attach.menu')))
     await click(byText(t('assistant.attach.reference_note')))
     expect(handlers.onNote).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers saved prompts by their words', async () => {
+    const onPrompt = vi.fn()
+    const onManagePrompts = vi.fn()
+    await act(async () => {
+      root.render(createElement(PlusMenu, {
+        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt, onManagePrompts,
+        prompts: [{ id: 'p1', label: '周报', text: '把这周做的事写成周报' }],
+      }))
+    })
+    await click(byAria(t('assistant.attach.menu')))
+    await click(byText(t('assistant.attach.quick_prompts')))
+    // The submenu is its own portal; its entries are plain buttons inside a group.
+    const rows = [...document.body.querySelectorAll('[role="group"] button')].map((node) => node.textContent?.trim())
+    expect(rows).toEqual(['周报', t('assistant.prompts.manage')])
+    await click([...document.body.querySelectorAll('[role="group"] button')].find((node) => node.textContent?.trim() === '周报'))
+    // Picking a saved prompt inserts what it says, not what it is called.
+    expect(onPrompt).toHaveBeenCalledWith('把这周做的事写成周报')
+  })
+
+  it('opens the prompt manager from the same submenu', async () => {
+    const onPrompt = vi.fn()
+    const onManagePrompts = vi.fn()
+    await act(async () => {
+      root.render(createElement(PlusMenu, {
+        onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt, onManagePrompts,
+        prompts: [{ id: 'p1', label: '周报', text: '把这周做的事写成周报' }],
+      }))
+    })
+    await click(byAria(t('assistant.attach.menu')))
+    await click(byText(t('assistant.attach.quick_prompts')))
+    await click([...document.body.querySelectorAll('[role="group"] button')].find((node) => node.textContent?.trim() === t('assistant.prompts.manage')))
+    expect(onManagePrompts).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -175,7 +209,7 @@ describe('anchored menus', () => {
   it('every composer control hands its element to the menu it opens', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const cases: [string, () => ReactElement][] = [
-      ['plus', () => createElement(PlusMenu, { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt: vi.fn(), prompts: [] })],
+      ['plus', () => createElement(PlusMenu, { onFiles: vi.fn(), onFolder: vi.fn(), onUrl: vi.fn(), onNote: vi.fn(), onPrompt: vi.fn(), prompts: [], onManagePrompts: vi.fn() })],
       ['model', () => createElement(ModelMenu, { models: [model()], activeId: 'm1', onPick: vi.fn(), onManage: vi.fn(), onVision: vi.fn() })],
       ['thinking', () => createElement(ReasoningMenu, { value: 'auto', disabled: false, onChange: vi.fn() })],
       ['context', () => createElement(ContextMenu, { value: null, onPick: vi.fn() })],

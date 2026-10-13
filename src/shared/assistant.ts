@@ -445,6 +445,20 @@ export interface AssistantTurnScope {
   name: string
 }
 
+/** One saved prompt: the reader's own words, kept out of the model's way until asked for. */
+export const MAX_PROMPT_TITLE_CHARS = 120
+export const MAX_PROMPT_CONTENT_CHARS = 8_000
+
+export interface ChatPrompt {
+  id: string
+  title: string
+  content: string
+  /** Free-text grouping; empty means the prompt is unfiled. */
+  group: string
+  createdAt: number
+  updatedAt: number
+}
+
 /** Ceilings for one turn's inline picks, so a composer cannot ask for the whole vault. */
 export const MAX_TURN_TOOLS = 6
 export const MAX_TURN_SCOPES = 6

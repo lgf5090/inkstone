@@ -1,5 +1,7 @@
 import { CLIENT_HEADER } from '@shared/constants'
-import type { ChatAttachment } from '@shared/assistant'
+import type { ChatAttachment,
+  ChatPrompt,
+} from '@shared/assistant'
 import type { MarkdownBackupManifest } from '@shared/backup-format'
 import type {
   PublicSharePresence,
@@ -772,6 +774,13 @@ export const api = {
       downloadChatFileWithProgress(id, onProgress),
     addChatFileFromUrl: (url: string) =>
       request<{ attachment: ChatAttachment }>('/api/assistant/files/url', { method: 'POST', body: { url } }),
+    prompts: (query?: string) =>
+      request<{ prompts: ChatPrompt[] }>(`/api/assistant/prompts${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+    createPrompt: (body: { title: string, content: string, group?: string }) =>
+      request<{ prompt: ChatPrompt }>('/api/assistant/prompts', { method: 'POST', body }),
+    updatePrompt: (id: string, body: { title?: string, content?: string, group?: string }) =>
+      request<{ prompt: ChatPrompt }>(`/api/assistant/prompts/${id}`, { method: 'PATCH', body }),
+    removePrompt: (id: string) => request<{ deleted: boolean }>(`/api/assistant/prompts/${id}`, { method: 'DELETE' }),
     chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
     deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
     starConversation: (id: string, starred: boolean) =>

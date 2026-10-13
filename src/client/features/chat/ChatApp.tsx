@@ -10,7 +10,7 @@
  * schedule in the same breath, and the tab that shows them has to be current the moment it is opened.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Bell, Brain, CheckSquare, LayoutList, MessageSquare, Settings2 } from 'lucide-react'
+import { Bell, BookMarked, Brain, CheckSquare, LayoutList, MessageSquare, Settings2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -22,6 +22,7 @@ import { ChatView } from './ChatView'
 import { MemoryView } from './MemoryView'
 import { TasksView } from './TasksView'
 import { AutomationsView } from './AutomationsView'
+import { PromptsView } from './PromptsView'
 import { AssistantSettingsView } from './AssistantSettingsView'
 import { NotificationCenter } from './NotificationCenter'
 
@@ -30,6 +31,7 @@ const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   memory: Brain,
   tasks: CheckSquare,
   automations: LayoutList,
+  prompts: BookMarked,
   settings: Settings2,
 }
 
@@ -42,6 +44,7 @@ const VIEW_TAB_LABELS: Record<AssistantView, MessageKey> = {
   memory: 'assistant.view.memory',
   tasks: 'assistant.view.tasks',
   automations: 'assistant.view.automations',
+  prompts: 'assistant.view.prompts',
   settings: 'common.settings',
 }
 
@@ -50,6 +53,7 @@ const VIEW_LABELS: Record<AssistantView, MessageKey> = {
   memory: 'assistant.view.memory',
   tasks: 'assistant.view.tasks',
   automations: 'assistant.view.automations',
+  prompts: 'assistant.view.prompts',
   settings: 'assistant.view.settings',
 }
 
@@ -138,6 +142,7 @@ export function ChatApp() {
           {view === 'memory' && <MemoryView />}
           {view === 'tasks' && <TasksView />}
           {view === 'automations' && <AutomationsView />}
+          {view === 'prompts' && <PromptsView />}
           {view === 'settings' && <AssistantSettingsView />}
         </div>
 

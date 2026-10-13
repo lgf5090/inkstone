@@ -24,6 +24,8 @@ import {
   MAX_AUTOMATION_MESSAGE_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MEMORY_CHARS,
+  MAX_PROMPT_CONTENT_CHARS,
+  MAX_PROMPT_TITLE_CHARS,
   MAX_TASK_NOTES_CHARS,
   MAX_TASK_TITLE_CHARS,
   MEMORY_REVIEW_ACTIONS,
@@ -113,6 +115,14 @@ function executionContext(c: Context<AppBindings>): ExecutionContext {
 
 function store(c: Context<AppBindings>): AssistantStore {
   return new AssistantStore(c.env.DB, c.get('userId'), c.env)
+}
+
+
+/** A prompt field: trimmed and capped, and empty is allowed here because the pair is checked together. */
+function optionalPromptText(value: unknown, max: number): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('A text value is required.')
+  return value.trim().slice(0, max)
 }
 
 function text(value: unknown, max: number): string {
@@ -928,6 +938,54 @@ assistantRoutes.delete('/files/:id', async (c) => {
   const removed = await s.deleteChatAttachment(id)
   if (removed) await deleteChatObject(c.env, removed.key)
   return c.json({ deleted: Boolean(removed) })
+})
+
+// -------------------------------------------------------------------- prompts
+
+/** The reader's own prompt library, the words behind the composer's `/` and ➕ entries. */
+assistantRoutes.get('/prompts', async (c) => {
+  const query = c.req.query('q')?.trim().slice(0, 200)
+  const group = c.req.query('group')?.trim().slice(0, 60)
+  const prompts = await store(c).listPrompts({
+    ...(query ? { query } : {}),
+    ...(group ? { group } : {}),
+    limit: Math.min(500, Math.max(1, Number(c.req.query('limit')) || 200)),
+  })
+  return c.json({ prompts })
+})
+
+assistantRoutes.post('/prompts', async (c) => {
+  // A prompt is prose: the small limit is for ids and flags, and 8 KB would refuse a paragraph.
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  // Either half may be empty on its own — a prompt can be a block of text with no name, or a name the
+  // reader fills in later — so neither goes through `text`, which refuses an empty value outright.
+  const title = optionalPromptText(body.title, MAX_PROMPT_TITLE_CHARS)
+  const content = optionalPromptText(body.content, MAX_PROMPT_CONTENT_CHARS)
+  if (!title && !content) throw ApiError.badRequest('A prompt needs a title or the words themselves.')
+  const prompt = await store(c).insertPrompt({
+    title: title || content.slice(0, 40),
+    content,
+    group: body.group === undefined ? '' : optionalPromptText(body.group, 60),
+  })
+  return c.json({ prompt }, 201)
+})
+
+assistantRoutes.patch('/prompts/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const updated = await s.updatePrompt(id, {
+    ...(body.title !== undefined ? { title: text(body.title, MAX_PROMPT_TITLE_CHARS) } : {}),
+    ...(body.content !== undefined ? { content: text(body.content, MAX_PROMPT_CONTENT_CHARS) } : {}),
+    ...(body.group !== undefined ? { group: text(body.group, 60) } : {}),
+  })
+  if (!updated) throw ApiError.notFound('Prompt not found')
+  return c.json({ prompt: updated })
+})
+
+assistantRoutes.delete('/prompts/:id', async (c) => {
+  const removed = await store(c).deletePrompt(requiredId(c.req.param('id')))
+  return c.json({ deleted: removed })
 })
 
 // ------------------------------------------------------------------- semantic
