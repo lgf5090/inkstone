@@ -40,7 +40,7 @@ import type {
   ToolActivity,
   UsageCounters,
 } from '@shared/assistant'
-import { ASSISTANT_MCP_TOOL_MODES, MAX_MCP_LABEL_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, parseModelModalities, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
+import { ASSISTANT_MCP_TOOL_MODES, MAX_MCP_LABEL_CHARS, MAX_ANSWER_VERSIONS, MAX_CHAT_ATTACHMENTS, parseModelModalities, parseProviderEndpoints, reasoningValue, type AssistantAnswerVersion, type AssistantMcpServer, type AssistantMcpToolMode, type AssistantModelModality, type ChatAttachment } from '@shared/assistant'
 import {
   ASSISTANT_MEMORY_CATEGORIES,
   ASSISTANT_PROTOCOLS,
@@ -100,7 +100,7 @@ const MEMORY_COLUMNS
  * `length(key_ciphertext) > 0` answers "is a key stored" without the ciphertext ever leaving the row,
  * so no provider listing can carry a key out even if a route is added carelessly later.
  */
-const PROVIDER_COLUMNS = `id, label, protocol, base_url, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
+const PROVIDER_COLUMNS = `id, label, protocol, base_url, endpoints, length(key_ciphertext) > 0 AS has_key, created_at, updated_at`
 
 function bool(value: unknown): boolean {
   return value === 1 || value === true
@@ -448,7 +448,7 @@ export class AssistantStore {
   /** Includes the ciphertext: only the worker may hold it, and only to sign one upstream request. */
   async providerRecord(id: string): Promise<ProviderRow | null> {
     const stored = await this.one<Omit<ProviderRow, 'protocol'> & { protocol: string }>(
-      `SELECT id, label, protocol, base_url, key_ciphertext, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, key_ciphertext, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -464,21 +464,26 @@ export class AssistantStore {
     return r ? toProvider(r) : null
   }
 
-  async createProvider(input: { label: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string }): Promise<AssistantProvider> {
+  async createProvider(input: {
+    label: string, protocol: AssistantProtocol, baseUrl: string, apiKey: string,
+    endpoints?: Partial<Record<AssistantProtocol, string>>,
+  }): Promise<AssistantProvider> {
     const id = newId()
     const at = Date.now()
     const key = input.apiKey.trim()
     const ciphertext = key ? await encryptAssistantKey(this.env, this.userId, key) : ''
     await this.write(
-      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, key_ciphertext, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      `INSERT INTO chat_providers (id, user_id, label, protocol, base_url, endpoints, key_ciphertext, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?9, ?6, ?7, ?8)`,
       id, input.label, input.protocol, input.baseUrl, ciphertext, at, at,
+      JSON.stringify(input.endpoints ?? {}),
     )
     return {
       id,
       label: input.label,
       protocol: input.protocol,
       baseUrl: input.baseUrl,
+      endpoints: input.endpoints ?? {},
       hasKey: Boolean(ciphertext),
       keyHint: key ? key.slice(-4) : '',
       createdAt: at,
@@ -488,13 +493,17 @@ export class AssistantStore {
 
   async updateProvider(
     id: string,
-    patch: { label?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null },
+    patch: {
+      label?: string, protocol?: AssistantProtocol, baseUrl?: string, apiKey?: string | null,
+      endpoints?: Partial<Record<AssistantProtocol, string>>,
+    },
   ): Promise<AssistantProvider | null> {
     const existing = await this.providerRecord(id)
     if (!existing) return null
     const label = patch.label?.trim().slice(0, 60) || existing.label
     const protocol = patch.protocol ?? pickEnum(existing.protocol, ASSISTANT_PROTOCOLS, 'openai')
     const baseUrl = patch.baseUrl?.trim() || existing.base_url
+    const endpoints = patch.endpoints ?? parseProviderEndpoints(existing.endpoints)
     let ciphertext = existing.key_ciphertext ?? ''
     let hint = ''
     if (patch.apiKey === null) ciphertext = ''
@@ -504,15 +513,16 @@ export class AssistantStore {
     }
     const at = Date.now()
     await this.write(
-      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6
+      `UPDATE chat_providers SET label = ?2, protocol = ?3, base_url = ?4, key_ciphertext = ?5, updated_at = ?6, endpoints = ?8
          WHERE user_id = ?1 AND id = ?7`,
-      label, protocol, baseUrl, ciphertext, at, id,
+      label, protocol, baseUrl, ciphertext, at, id, JSON.stringify(endpoints),
     )
     return {
       id,
       label,
       protocol,
       baseUrl,
+      endpoints,
       hasKey: Boolean(ciphertext),
       keyHint: hint,
       createdAt: existing.created_at,
@@ -535,13 +545,13 @@ export class AssistantStore {
   /**
    * Everything a vendor's own listing endpoint needs, read in one go.
    *
-   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this is the one place
-   * that asks for it, and it hands back a decrypted key only to the caller that is about to make a
-   * vetted outbound request with it.
+   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this reads the row the
+   * way `providerRecord` does and hands a decrypted key only to the caller that is about to make a vetted
+   * outbound request with it.
    */
   async vendorAccess(id: string): Promise<{ protocol: AssistantProtocol, baseUrl: string, apiKey: string } | null> {
     const row = await this.one<ProviderRow>(
-      `SELECT id, label, protocol, base_url, key_ciphertext, created_at, updated_at
+      `SELECT id, label, protocol, base_url, endpoints, key_ciphertext, created_at, updated_at
          FROM chat_providers WHERE user_id = ?1 AND id = ?2`,
       this.userId, id,
     )
@@ -582,6 +592,7 @@ export class AssistantStore {
     reasoning?: AssistantReasoning
     contextTokens?: number | null
     vision?: boolean
+    protocol?: AssistantProtocol | null
   }): Promise<AssistantModel> {
     const id = newId()
     const positionRow = await this.one<{ n: number }>(
@@ -595,15 +606,17 @@ export class AssistantStore {
     const contextTokens = input.contextTokens ?? null
     const vision = input.vision ?? true
     await this.write(
-      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)`,
+      `INSERT INTO chat_models (id, user_id, provider_id, model, label, temperature, max_output_tokens, reasoning, context_tokens, vision, enabled, position, protocol)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12)`,
       id, input.providerId, input.model, label, temperature, maxOutputTokens, reasoning, contextTokens, vision ? 1 : 0, positionRow?.n ?? 1,
+      input.protocol ?? null,
     )
     // The columns keep their defaults, so the object handed back says the same thing the row does.
     return {
       id, providerId: input.providerId, model: input.model, label, temperature, maxOutputTokens,
       reasoning, contextTokens, vision, enabled: true,
       purpose: 'chat', kind: 'text', supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
+      protocol: input.protocol ?? null,
     }
   }
 
@@ -615,6 +628,7 @@ export class AssistantStore {
       purpose?: AssistantModelPurpose, kind?: AssistantModelKind, supportsTools?: boolean,
       maxInputTokens?: number | null, topP?: number | null, customParams?: AssistantCustomParam[],
       modalities?: readonly AssistantModelModality[]
+      protocol?: AssistantProtocol | null
     },
   ): Promise<AssistantModel | null> {
     const existing = await this.getModel(id)
@@ -637,17 +651,18 @@ export class AssistantStore {
       ...(patch.modalities !== undefined ? { modalities: parseModelModalities(patch.modalities) } : {}),
       ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
       ...(patch.customParams !== undefined ? { customParams: parseCustomParams(patch.customParams) } : {}),
+      ...(patch.protocol !== undefined ? { protocol: patch.protocol } : {}),
     }
     await this.write(
       `UPDATE chat_models SET label = ?2, model = ?3, temperature = ?4, max_output_tokens = ?5,
          reasoning = ?6, context_tokens = ?7, vision = ?8, enabled = ?9,
          purpose = ?11, kind = ?12, supports_tools = ?13, max_input_tokens = ?14,
-         modalities = ?17, top_p = ?15, custom_params = ?16
+         modalities = ?17, top_p = ?15, custom_params = ?16, protocol = ?18
          WHERE user_id = ?1 AND id = ?10`,
       next.label, next.model, next.temperature, next.maxOutputTokens,
       next.reasoning, next.contextTokens, next.vision ? 1 : 0, next.enabled ? 1 : 0, id,
       next.purpose, next.kind, next.supportsTools ? 1 : 0, next.maxInputTokens,
-      next.topP, JSON.stringify(next.customParams), JSON.stringify(next.modalities),
+      next.topP, JSON.stringify(next.customParams), JSON.stringify(next.modalities), next.protocol,
     )
     return next
   }
@@ -2447,6 +2462,7 @@ export interface ProviderRow {
   label: string
   protocol: AssistantProtocol
   base_url: string
+  endpoints?: string | null
   key_ciphertext?: string | null
   has_key?: number | null
   created_at: number
@@ -2459,6 +2475,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
     label: r.label,
     protocol: pickEnum(r.protocol, ASSISTANT_PROTOCOLS, 'openai'),
     baseUrl: r.base_url,
+    endpoints: parseProviderEndpoints(r.endpoints),
     hasKey: bool(r.has_key ?? Boolean(r.key_ciphertext)),
     // The ciphertext is never decrypted to build a view, so no listing can carry a key out.
     keyHint: '',
@@ -2473,7 +2490,7 @@ function toProvider(r: ProviderRow): AssistantProvider {
  */
 export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, temperature, max_output_tokens,
   reasoning, context_tokens, vision, purpose, kind, supports_tools, max_input_tokens, modalities, top_p,
-  custom_params, enabled, position`
+  custom_params, protocol, enabled, position`
 
 interface PromptRow {
   id: string
@@ -2512,6 +2529,7 @@ interface ModelRow {
   modalities: string | null
   top_p: number | null
   custom_params: string | null
+  protocol: string | null
   enabled: number
   position: number
 }
@@ -2536,6 +2554,10 @@ function toModel(r: ModelRow): AssistantModel {
     modalities: parseModelModalities(parseJson(r.modalities)),
     topP: num(r.top_p),
     customParams: parseCustomParams(parseJson(r.custom_params)),
+    // Null is "follow the provider", so an unknown value has to read back as null rather than a protocol.
+    protocol: typeof r.protocol === 'string' && (ASSISTANT_PROTOCOLS as readonly string[]).includes(r.protocol)
+      ? r.protocol as AssistantProtocol
+      : null,
     enabled: bool(r.enabled),
   }
 }

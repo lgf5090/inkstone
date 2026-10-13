@@ -153,6 +153,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
   const [addingProvider, setAddingProvider] = useState(false)
   const [addingModel, setAddingModel] = useState<AssistantProvider | null>(null)
   const [picking, setPicking] = useState<AssistantProvider | null>(null)
+  const [editingProvider, setEditingProvider] = useState<AssistantProvider | null>(null)
   const [editing, setEditing] = useState<AssistantModel | null>(null)
 
   const byProvider = useMemo(() => providers.map((provider) => ({
@@ -176,6 +177,9 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
                   {PROTOCOL_LABELS[provider.protocol]?.()} · {provider.baseUrl} · {provider.hasKey ? t('assistant.settings.key_stored') : t('assistant.settings.key_missing')}
                 </p>
               </div>
+              <IconButton label={t('assistant.settings.edit_provider')} size="xs" onClick={() => setEditingProvider(provider)}>
+                <Settings2 size={13} />
+              </IconButton>
               <IconButton label={t('assistant.picker.open')} size="xs" onClick={() => setPicking(provider)}>
                 <Download size={13} />
               </IconButton>
@@ -291,6 +295,7 @@ function ModelTab({ settings }: { settings: AssistantSettings }) {
       </Group>
 
       <ProviderForm open={addingProvider} onClose={() => setAddingProvider(false)} />
+      <ProviderForm open={Boolean(editingProvider)} provider={editingProvider} onClose={() => setEditingProvider(null)} />
       <ModelForm provider={addingModel} onClose={() => setAddingModel(null)} onAdd={addModel} />
       {picking && (
         <ModelPickerDialog
@@ -433,30 +438,44 @@ function McpTab() {
   )
 }
 
-function ProviderForm({ open, onClose }: { open: boolean, onClose: () => void }) {
+function ProviderForm({ open, provider, onClose }: { open: boolean, provider?: AssistantProvider | null, onClose: () => void }) {
   const addProvider = useAssistant((state) => state.addProvider)
+  const updateProvider = useAssistant((state) => state.updateProvider)
+  const editing = provider ?? null
   const [preset, setPreset] = useState(PROVIDER_PRESETS[0]!.id)
   const [label, setLabel] = useState('')
   const [baseUrl, setBaseUrl] = useState(PROVIDER_PRESETS[0]!.baseUrl)
   const [protocol, setProtocol] = useState<string>(PROVIDER_PRESETS[0]!.protocol)
   const [apiKey, setApiKey] = useState('')
   const [models, setModels] = useState(PROVIDER_PRESETS[0]!.models.join(', '))
+  const [extra, setExtra] = useState<Record<string, string>>({})
   const chosen = PROVIDER_PRESETS.find((entry) => entry.id === preset) ?? PROVIDER_PRESETS[0]!
 
   useEffect(() => {
     if (!open) return
+    if (editing) {
+      // An edit starts from what is stored, not from a preset that would overwrite the reader's address.
+      setLabel(editing.label)
+      setBaseUrl(editing.baseUrl)
+      setProtocol(editing.protocol)
+      setExtra(editing.endpoints as Record<string, string>)
+      setModels('')
+      setApiKey('')
+      return
+    }
     setLabel(chosen.label)
     setBaseUrl(chosen.baseUrl)
     setProtocol(chosen.protocol)
     setModels(chosen.models.join(', '))
     setApiKey('')
-  }, [open, chosen])
+    setExtra({})
+  }, [open, chosen, editing])
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={t('assistant.settings.add_provider')}
+      title={editing ? t('assistant.settings.edit_provider') : t('assistant.settings.add_provider')}
       width={520}
       footer={(
         <>
@@ -464,29 +483,42 @@ function ProviderForm({ open, onClose }: { open: boolean, onClose: () => void })
           <Button
             disabled={!label.trim() || !baseUrl.trim()}
             onClick={() => {
+              if (editing) {
+                void updateProvider(editing.id, {
+                  label: label.trim(),
+                  protocol,
+                  baseUrl: baseUrl.trim(),
+                  endpoints: Object.fromEntries(Object.entries(extra).filter(([, url]) => url.trim())),
+                  ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+                }).then(onClose)
+                return
+              }
               void addProvider({
                 label: label.trim(),
                 protocol,
                 baseUrl: baseUrl.trim(),
                 apiKey: apiKey.trim(),
+                endpoints: Object.fromEntries(Object.entries(extra).filter(([, url]) => url.trim())),
                 models: models.split(',').map((entry) => entry.trim()).filter(Boolean),
               }).then(onClose)
             }}
           >
-            {t('assistant.settings.add_provider')}
+            {editing ? t('assistant.settings.edit_provider') : t('assistant.settings.add_provider')}
           </Button>
         </>
       )}
     >
       <div className="flex flex-col gap-3">
-        <Field label={t('assistant.settings.preset')}>
-          <Select
-            value={preset}
-            onChange={(event) => setPreset(event.target.value)}
-          >
-            {PROVIDER_PRESETS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-          </Select>
-        </Field>
+        {!editing && (
+          <Field label={t('assistant.settings.preset')}>
+            <Select
+              value={preset}
+              onChange={(event) => setPreset(event.target.value)}
+            >
+              {PROVIDER_PRESETS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label={t('assistant.settings.provider_name')}>
           <Input value={label} maxLength={60} onChange={(event) => setLabel(event.target.value)} />
         </Field>
@@ -498,6 +530,22 @@ function ProviderForm({ open, onClose }: { open: boolean, onClose: () => void })
         <Field label={t('assistant.settings.base_url')} hint={t('assistant.settings.base_url_hint')}>
           <Input value={baseUrl} maxLength={300} onChange={(event) => setBaseUrl(event.target.value)} className="font-mono text-[12px]" />
         </Field>
+        {ASSISTANT_PROTOCOLS.filter((entry) => entry !== protocol).map((entry) => (
+          <Field
+            key={entry}
+            label={`${t('assistant.settings.endpoint_other')} · ${PROTOCOL_LABELS[entry]?.()}`}
+            hint={t('assistant.settings.endpoint_hint')}
+          >
+            <Input
+              aria-label={`${t('assistant.settings.endpoint_other')} ${PROTOCOL_LABELS[entry]?.()}`}
+              value={extra[entry] ?? ''}
+              maxLength={300}
+              placeholder="https://"
+              onChange={(event) => setExtra((current) => ({ ...current, [entry]: event.target.value }))}
+              className="font-mono text-[12px]"
+            />
+          </Field>
+        ))}
         <Field label={t('assistant.settings.api_key')} hint={t('assistant.settings.api_key_hint')}>
           <Input
             type="password"
@@ -508,9 +556,11 @@ function ProviderForm({ open, onClose }: { open: boolean, onClose: () => void })
             className="font-mono text-[12px]"
           />
         </Field>
-        <Field label={t('assistant.settings.models')} hint={t('assistant.settings.models_hint')}>
-          <Input value={models} onChange={(event) => setModels(event.target.value)} className="font-mono text-[12px]" />
-        </Field>
+        {!editing && (
+          <Field label={t('assistant.settings.models')} hint={t('assistant.settings.models_hint')}>
+            <Input value={models} onChange={(event) => setModels(event.target.value)} className="font-mono text-[12px]" />
+          </Field>
+        )}
       </div>
     </Modal>
   )

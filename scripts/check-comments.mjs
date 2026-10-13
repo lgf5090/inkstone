@@ -710,6 +710,7 @@ const allowed = new Map([
     "// A phone has no room for the name, the badges and the two selects on one line, and",
     "// the row overflowed over the one above it; the name takes the first line there.",
     "// The manual form is the other way in, and the picker has to be out of its way first.",
+    "// An edit starts from what is stored, not from a preset that would overwrite the reader's address.",
   ]],
   ["src/client/features/chat/AutomationsView.tsx", [
     "/**\n * Reminders and routines.\n *\n * The schedule editor builds a `ScheduleSpec` and shows the sentence it means before anything is sent,\n * because the commonest mistake in a scheduler is a form that says one thing and stores another. The\n * sentence is assembled from the locale catalog, so a reader whose interface is Chinese reads the\n * schedule in their own language rather than as an English string pasted next to it.\n *\n * Times are typed as wall-clock readings in the assistant's timezone, which is what \"remind me at 9\"\n * means to the reader; the conversion is the server's job and lives in `assistant-schedule`.\n */",
@@ -826,6 +827,7 @@ const allowed = new Map([
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
     "/**\n * One row of preset buttons under a number field. The reader picks 256K rather than typing 262144,\n * and the field still takes any number the presets do not offer.\n */",
+    "/** Null means the model is called on whatever wire its provider speaks. */",
   ]],
   ["src/client/features/chat/ModelPickerDialog.tsx", [
     "/**\n * The vendor's own model list, ticked into the reader's assistant.\n *\n * Nothing here is a bundled catalogue: the rows are what this key can call right now, and when the listing\n * fails the dialog says so and leaves the manual entry as the way in. Search and the chips are the reader's\n * filters over that list — a service answers with hundreds of ids and the one they want is named something\n * like `deepseek-v3.2-exp`, so the list has to be narrowed without leaving the dialog.\n */",
@@ -12027,6 +12029,9 @@ const allowed = new Map([
     "/** The server's own name for it, which is what `tools/call` must carry. */",
     "/** For `mcp_problem`: which external server failed to list, and why. */",
     "/** One row of a vendor's own listing: what this key can call, named the way the vendor names it. */",
+    "/**\n   * A second address per protocol, for the gateway that answers on more than one wire.\n   *\n   * Only the protocols the reader filled in are here; a model that asks for a protocol this map carries is\n   * called through that address instead of `baseUrl`.\n   */",
+    "/** Tolerant by design: a backup written by an older build must not lose the rest of the provider. */",
+    "/**\n   * Which wire this model is called on. Null follows the provider; a value is what lets one gateway key\n   * serve an Anthropic-shaped model beside an OpenAI-shaped one.\n   */",
   ]],
   ["src/shared/backup-format.ts", [
     "/** The account's own template library, absent from a backup taken before it was worth keeping. */",
@@ -12465,6 +12470,7 @@ const allowed = new Map([
     "/** Why nothing was resolved, so the UI can say which of the two rows to fix. */",
     "/** The first usable model, for the moment a reader adds a provider and has not picked yet. */",
     "/**\n * Which model answers.\n *\n * The reader picks one row of `chat_models`; the provider it belongs to supplies the address,\n * the protocol and the key. A model whose provider has gone away, or a stale id left behind by an\n * import, reads as \"nothing configured\" rather than throwing — the settings screen has to be able to\n * show a half-configured assistant so the reader can fix it.\n */",
+    "/**\n * Which door this model is called through.\n *\n * A gateway can answer on more than one wire with the same key, so the model names the protocol and the\n * provider supplies the address for it. A protocol with no address of its own falls back to the provider's\n * base URL, which is what every provider written before this column had.\n */",
   ]],
   ["src/worker/assistant/note-scope.ts", [
     "/**\n * Which notes the assistant may see.\n *\n * A reader can point the assistant at a few folders instead of the whole vault. That is a permission,\n * so it is enforced at the one place every note tool passes through rather than in the prompt: a model\n * that ignores an instruction in its system prompt is a normal Tuesday, and the note it then reads is\n * the one the reader had excluded.\n */",
@@ -12684,7 +12690,8 @@ const allowed = new Map([
     "/** Enabled servers only: a disabled one must not reach the model through any path. */",
     "/** Kept so an external call can be replayed after the reader approves it. */",
     "/** A JSON column that should hold an object; anything else reads as no arguments. */",
-    "/**\n   * Everything a vendor's own listing endpoint needs, read in one go.\n   *\n   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this is the one place\n   * that asks for it, and it hands back a decrypted key only to the caller that is about to make a\n   * vetted outbound request with it.\n   */",
+    "/**\n   * Everything a vendor's own listing endpoint needs, read in one go.\n   *\n   * `PROVIDER_COLUMNS` deliberately leaves the ciphertext out of every listing, so this reads the row the\n   * way `providerRecord` does and hands a decrypted key only to the caller that is about to make a vetted\n   * outbound request with it.\n   */",
+    "// Null is \"follow the provider\", so an unknown value has to read back as null rather than a protocol.",
   ]],
   ["src/worker/assistant/tools.ts", [
     "/**\n * The tools the assistant can reach, and the executor that runs them.\n *\n * Three things are enforced here rather than asked of the model, because a model that is confident and\n * wrong is the failure mode this app has to survive:\n *  - **budgets** — a per-turn call cap, a per-tool cap and a duplicate-call refusal, so a reasoning\n *    loop cannot spend the reader's AI quota or write a hundred tasks;\n *  - **validation** — arguments are checked against the same declaration that generates the JSON\n *    Schema the provider is given, so the two can never disagree;\n *  - **approval** — a destructive tool never runs during the turn. `prepare` resolves the exact target\n *    and writes a pending action; `commit` runs only when the reader presses Approve, once, on that\n *    target. The model can propose; it cannot delete.\n *\n * Scheduled runs get read-only tools plus `notify_reader`, so a routine that has drifted cannot edit\n * the vault while nobody is watching.\n */",
@@ -12892,6 +12899,8 @@ const allowed = new Map([
     "// has been running since before this existed gets it on the next boot.",
     "// An external tool call cannot be replayed from a target id the way deleting a note can: its",
     "// arguments are the whole proposal, so the approved row has to carry them.",
+    "// One gateway can answer on more than one wire, so the other addresses belong to the provider.",
+    "// Which of those wires a model is called on; null keeps following the provider.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -13111,6 +13120,8 @@ const allowed = new Map([
     "// the call itself is refused later if the server turned out not to offer it.",
     "/**\n * The settings screen's \"test\" button: connect, handshake, list.\n *\n * The token is taken from the stored row when the body does not carry a new one, so a reader can test what\n * they already saved without retyping it — and the response still never echoes it back.\n */",
     "/**\n * What the reader's key can actually call, straight from the vendor.\n *\n * The picker offers these ids rather than a bundled list, so a model that is not on this account never\n * looks like a bug. A failure is reported in the body rather than as a status the client has to\n * special-case: the screen still has to open, with the manual entry as the way forward.\n */",
+    "/**\n * The extra addresses a provider answers on, each vetted exactly like the primary one.\n *\n * A gateway that speaks three wires still may not be pointed inside the network, so an entry that fails\n * the guard fails the save rather than being dropped in silence.\n */",
+    "// Null is a value here: it is the reader putting the model back on the provider's own protocol.",
   ]],
   ["src/worker/routes/auth.ts", [
     "// Account-wide cap so a distributed botnet cannot retry one account",
@@ -13313,6 +13324,9 @@ const allowed = new Map([
     "/**\n * The external MCP client and the rules around it.\n *\n * Two things are pinned that a browser probe cannot: the address check that keeps the worker from being\n * pointed at the network it runs inside, and the fact that a stored token never comes back out.\n */",
     "// An automation has no reader to press Approve, so an approval-gated remote tool must not be offered.",
   ]],
+  ["tests/assistant-model-endpoint.test.ts", [
+    "/**\n * Which address a model is called on.\n *\n * One gateway key can answer on three wires, so the model names the protocol and the provider supplies\n * the address for it. What is pinned is the fallback order — a model that follows the provider, an\n * endpoint that was never filled in, and a stored map written by an older backup.\n */",
+  ]],
   ["tests/assistant-routes.test.ts", [
     "/** Reads the SSE body of a chat turn into its events. */",
     "// The DO harness serialises this on the state, not on storage; the vault's master key is read",
@@ -13396,6 +13410,10 @@ const allowed = new Map([
     "/** Records what the runner put on the wire, while the MCP handshake still gets answered. */",
     "// The absence is only in the prompt line: the server's tool remains in the schema list, so a",
     "// green here cannot come from the whole server having vanished.",
+    "// The provider's protocol is openai, so this address can only come from the model's own override.",
+    "// An edit that never mentions the endpoints must not wipe them, exactly like the MCP token.",
+    "// The POST answers from the object it built, so only a re-read proves the column was written.",
+    "// The same override decides what the web-search switch can ask for: only Anthropic has that tool.",
   ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",

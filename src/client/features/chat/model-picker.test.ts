@@ -29,7 +29,7 @@ vi.mock('../../lib/api', () => ({
 }))
 
 const PROVIDER: AssistantProvider = {
-  id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com',
+  id: 'p1', label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', endpoints: {},
   hasKey: true, keyHint: '', createdAt: 1, updatedAt: 1,
 }
 
@@ -41,7 +41,7 @@ function model(id: string, vendorId: string): AssistantModel {
   return {
     id, providerId: 'p1', model: vendorId, label: vendorId, temperature: null, maxOutputTokens: 4096,
     enabled: true, reasoning: 'auto', contextTokens: null, vision: true, purpose: 'chat', kind: 'text',
-    supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [],
+    supportsTools: true, maxInputTokens: null, modalities: [], topP: null, customParams: [], protocol: null,
   }
 }
 

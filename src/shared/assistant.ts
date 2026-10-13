@@ -66,11 +66,38 @@ export interface AssistantProvider {
   label: string
   protocol: AssistantProtocol
   baseUrl: string
+  /**
+   * A second address per protocol, for the gateway that answers on more than one wire.
+   *
+   * Only the protocols the reader filled in are here; a model that asks for a protocol this map carries is
+   * called through that address instead of `baseUrl`.
+   */
+  endpoints: Partial<Record<AssistantProtocol, string>>
   hasKey: boolean
   /** Last four characters, for the settings row that has to prove which key is stored. */
   keyHint: string
   createdAt: number
   updatedAt: number
+}
+
+/** Tolerant by design: a backup written by an older build must not lose the rest of the provider. */
+export function parseProviderEndpoints(value: unknown): Partial<Record<AssistantProtocol, string>> {
+  let record: unknown = value
+  if (typeof value === 'string') {
+    try {
+      record = JSON.parse(value)
+    } catch {
+      return {}
+    }
+  }
+  if (typeof record !== 'object' || record === null) return {}
+  const out: Partial<Record<AssistantProtocol, string>> = {}
+  for (const [protocol, url] of Object.entries(record as Record<string, unknown>)) {
+    if (!(ASSISTANT_PROTOCOLS as readonly string[]).includes(protocol)) continue
+    if (typeof url !== 'string' || !url.trim()) continue
+    out[protocol as AssistantProtocol] = url.trim().slice(0, 300)
+  }
+  return out
 }
 
 /** One row of a vendor's own listing: what this key can call, named the way the vendor names it. */
@@ -201,6 +228,11 @@ export interface AssistantModel {
   /** Null leaves the vendor default alone, which is what the Top-P switch off means. */
   topP: number | null
   customParams: AssistantCustomParam[]
+  /**
+   * Which wire this model is called on. Null follows the provider; a value is what lets one gateway key
+   * serve an Anthropic-shaped model beside an OpenAI-shaped one.
+   */
+  protocol: AssistantProtocol | null
 }
 
 /**

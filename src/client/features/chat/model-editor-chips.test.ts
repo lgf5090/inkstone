@@ -33,6 +33,7 @@ function model(over: Partial<AssistantModel> = {}): AssistantModel {
         modalities: [],
         topP: null,
         customParams: [],
+        protocol: null,
         ...over,
     }
 }
@@ -144,5 +145,29 @@ describe('the model list badges', () => {
         expect(modelBadges(model({ reasoning: 'high', supportsTools: false, vision: false, modalities: [] })).map((badge) => badge.label))
             .toEqual([t('assistant.model.reasoning_short')])
         expect(modelBadges(model({ reasoning: 'off', supportsTools: false, vision: false, modalities: [] }))).toEqual([])
+    })
+})
+
+describe('the wire protocol a model is called on', () => {
+    const protocolSelect = () => document.body.querySelector<HTMLSelectElement>(
+        `select[aria-label="${t('assistant.model.protocol')}"]`,
+    )
+
+    it('starts on the provider and sends what the reader picks', () => {
+        const { saved } = open()
+        expect(protocolSelect()?.value).toBe('')
+        expect(protocolSelect()?.querySelector('option')?.textContent).toBe(t('assistant.model.protocol.follow'))
+        act(() => {
+            const node = protocolSelect()!
+            node.value = 'anthropic'
+            node.dispatchEvent(new Event('change', { bubbles: true }))
+        })
+        save()
+        expect(saved.mock.calls[0]?.[0].protocol).toBe('anthropic')
+    })
+
+    it('reads back a model that already names one', () => {
+        open({ protocol: 'gemini' })
+        expect(protocolSelect()?.value).toBe('gemini')
     })
 })

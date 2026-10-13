@@ -25,6 +25,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     label TEXT NOT NULL,
     protocol TEXT NOT NULL,
     base_url TEXT NOT NULL,
+    endpoints TEXT NOT NULL DEFAULT '{}',
     key_ciphertext TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -70,6 +71,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     modalities TEXT NOT NULL DEFAULT '[]',
     top_p REAL,
     custom_params TEXT NOT NULL DEFAULT '[]',
+    protocol TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     position REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
@@ -436,9 +438,9 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
-  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'key_ciphertext', 'created_at', 'updated_at'],
+  chat_providers: ['user_id', 'id', 'label', 'protocol', 'base_url', 'endpoints', 'key_ciphertext', 'created_at', 'updated_at'],
   chat_models: ['user_id', 'id', 'provider_id', 'model', 'label', 'temperature', 'max_output_tokens', 'reasoning', 'context_tokens', 'vision',
-    'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'enabled', 'position'],
+    'purpose', 'kind', 'supports_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'enabled', 'position'],
   chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'folder_id', 'created_at', 'updated_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'filename', 'mime', 'size', 'key', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],

@@ -29,7 +29,7 @@ import { AutomationService } from './automations'
 import { resolveNoteScope, type NoteScope } from './note-scope'
 import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamError, type UpstreamRequest } from './upstream'
-import { loadModelAndProvider } from './model-config'
+import { loadModelAndProvider, modelEndpoint } from './model-config'
 import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semantic'
 
 /** The two protocols with a vendor-side web search that can simply be asked for. */
@@ -215,6 +215,7 @@ export class AssistantRunner {
         throw ApiError.badRequest('No model is configured yet. Pick one under Assistant settings, or turn on offline mode.')
       }
       const { model, provider } = resolved
+      const call = modelEndpoint(model, provider)
       modelLabel = model.label
       const apiKey = await this.store.providerKey(provider)
       const limits = this.settings.limits
@@ -235,7 +236,7 @@ export class AssistantRunner {
       // the model, which only lands if the prompt has not been built yet. A server that is slow or down is
       // reported to the settings screen rather than failing the answer.
       const external: ExternalToolsResult = await loadExternalTools(this.store)
-      this.webSearchNative = this.webSearchRequested && SEARCH_NATIVE_PROTOCOLS.has(provider.protocol)
+      this.webSearchNative = this.webSearchRequested && SEARCH_NATIVE_PROTOCOLS.has(call.protocol)
       if (this.webSearchRequested && !this.webSearchNative) {
         // No vendor-side search on this protocol: the next best thing that is actually true is a remote
         // tool that can search, named for the model in the same line the reader's own pins use.
@@ -298,8 +299,8 @@ export class AssistantRunner {
         if (!(await this.store.isRunning(conversationId))) throw new AbortError()
         const calls: ToolCallRecord[] = []
         let eventsSeen = 0
-        for await (const event of this.step(provider.protocol, {
-          baseUrl: provider.base_url,
+        for await (const event of this.step(call.protocol, {
+          baseUrl: call.baseUrl,
           apiKey,
           model: model.model,
           system,
@@ -432,6 +433,7 @@ export class AssistantRunner {
   ): Promise<{ upto: number } | null> {
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) return null
+    const call = modelEndpoint(resolved.model, resolved.provider)
     const transcript = overflow
       .map((entry) => `${entry.role === 'user' ? 'Reader' : 'Assistant'}: ${entry.content.slice(0, 1500)}`)
       .join('\n')
@@ -440,8 +442,8 @@ export class AssistantRunner {
     let text = ''
     try {
       if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
-      for await (const event of streamUpstream(resolved.provider.protocol, {
-        baseUrl: resolved.provider.base_url,
+      for await (const event of streamUpstream(call.protocol, {
+        baseUrl: call.baseUrl,
         apiKey: await this.store.providerKey(resolved.provider),
         model: resolved.model.model,
         system: promptCatalog(this.settings.language).summarizer_system,
@@ -604,14 +606,15 @@ export class AssistantRunner {
   private judgeConflict: ConflictJudge = async (older, newer) => {
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) return null
+    const call = modelEndpoint(resolved.model, resolved.provider)
     if (!(await this.reserve(1, this.settings.limits.maxRequestsPerDay))) return null
     const catalog = promptCatalog(this.settings.language)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 30_000)
     let text = ''
     try {
-      for await (const event of streamUpstream(resolved.provider.protocol, {
-        baseUrl: resolved.provider.base_url,
+      for await (const event of streamUpstream(call.protocol, {
+        baseUrl: call.baseUrl,
         apiKey: await this.store.providerKey(resolved.provider),
         model: resolved.model.model,
         system: catalog.conflict_system,
@@ -671,14 +674,15 @@ export class AssistantRunner {
       parameters: parametersSchema(definition.fields),
     }))
     const turns: ModelTurn[] = [{ role: 'user', content: prompt }]
+    const call = modelEndpoint(resolved.model, resolved.provider)
     const usage = { inputTokens: 0, outputTokens: 0 }
     let text = ''
     let steps = 0
     for (;;) {
       steps++
       const calls: ToolCallRecord[] = []
-      for await (const event of this.step(resolved.provider.protocol, {
-        baseUrl: resolved.provider.base_url,
+      for await (const event of this.step(call.protocol, {
+        baseUrl: call.baseUrl,
         apiKey: await this.store.providerKey(resolved.provider),
         model: resolved.model.model,
         system,

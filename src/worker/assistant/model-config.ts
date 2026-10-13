@@ -7,9 +7,27 @@
  * show a half-configured assistant so the reader can fix it.
  */
 
-import type { AssistantModel, AssistantSettings } from '@shared/assistant'
+import type { AssistantModel, AssistantProtocol, AssistantSettings } from '@shared/assistant'
+import { parseProviderEndpoints } from '@shared/assistant'
 import type { AssistantStore } from './store'
 import type { ProviderRow } from './store'
+
+/**
+ * Which door this model is called through.
+ *
+ * A gateway can answer on more than one wire with the same key, so the model names the protocol and the
+ * provider supplies the address for it. A protocol with no address of its own falls back to the provider's
+ * base URL, which is what every provider written before this column had.
+ */
+export function modelEndpoint(model: AssistantModel, provider: ProviderRow): { protocol: AssistantProtocol, baseUrl: string } {
+  const protocol = model.protocol ?? pickProtocol(provider.protocol)
+  const endpoints = parseProviderEndpoints(provider.endpoints)
+  return { protocol, baseUrl: endpoints[protocol] || provider.base_url }
+}
+
+function pickProtocol(value: string): AssistantProtocol {
+  return value === 'anthropic' || value === 'gemini' || value === 'openai' ? value : 'openai'
+}
 
 export interface ResolvedModel {
   model: AssistantModel | null

@@ -1174,7 +1174,7 @@ assistantRoutes.post('/providers', async (c) => {
   const label = text(body.label, 60)
   const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
   if (apiKey.length > 4096) throw ApiError.badRequest('That API key is too long to store.')
-  const provider = await s.createProvider({ label, protocol, baseUrl, apiKey })
+  const provider = await s.createProvider({ label, protocol, baseUrl, apiKey, endpoints: vetEndpoints(body.endpoints) })
   const models = Array.isArray(body.models) ? body.models : []
   for (const entry of models.slice(0, 20)) {
     const model = typeof entry === 'string' ? entry : (entry as { model?: unknown })?.model
@@ -1196,6 +1196,7 @@ assistantRoutes.patch('/providers/:id', async (c) => {
     ...(body.protocol !== undefined ? { protocol: asProtocol(body.protocol) } : {}),
     ...(body.baseUrl !== undefined ? { baseUrl: vetBaseUrl(body.baseUrl) } : {}),
     ...(body.apiKey === null ? { apiKey: null } : typeof body.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
+    ...(body.endpoints !== undefined ? { endpoints: vetEndpoints(body.endpoints) } : {}),
   })
   if (!provider) throw ApiError.notFound('Provider not found')
   return c.json({ provider })
@@ -1234,6 +1235,23 @@ function asProtocol(value: unknown): AssistantProtocol {
  * The reader types the address, so it is vetted the same way the existing AI relay vets one: a private
  * or link-local target would let the worker be pointed at whatever the deployment itself can reach.
  */
+/**
+ * The extra addresses a provider answers on, each vetted exactly like the primary one.
+ *
+ * A gateway that speaks three wires still may not be pointed inside the network, so an entry that fails
+ * the guard fails the save rather than being dropped in silence.
+ */
+function vetEndpoints(value: unknown): Partial<Record<AssistantProtocol, string>> {
+  if (typeof value !== 'object' || value === null) return {}
+  const out: Partial<Record<AssistantProtocol, string>> = {}
+  for (const [protocol, url] of Object.entries(value as Record<string, unknown>)) {
+    if (!(ASSISTANT_PROTOCOLS as readonly string[]).includes(protocol)) continue
+    if (typeof url !== 'string' || !url.trim()) continue
+    out[protocol as AssistantProtocol] = vetBaseUrl(url)
+  }
+  return out
+}
+
 function vetBaseUrl(value: unknown): string {
   if (typeof value !== 'string') throw ApiError.badRequest('A provider address is required.')
   const trimmed = value.trim()
@@ -1266,6 +1284,7 @@ assistantRoutes.post('/models', async (c) => {
     reasoning: reasoningValue(body.reasoning),
     contextTokens: contextBudgetValue(body.contextTokens),
     vision: body.vision === undefined ? true : Boolean(body.vision),
+    protocol: pickValue(body.protocol, ASSISTANT_PROTOCOLS) ?? null,
   })
   return c.json({ model: created }, 201)
 })
@@ -1299,6 +1318,8 @@ assistantRoutes.patch('/models/:id', async (c) => {
     // what the reader had already chosen.
     ...(pickValue(body.purpose, ASSISTANT_MODEL_PURPOSES) !== undefined ? { purpose: pickValue(body.purpose, ASSISTANT_MODEL_PURPOSES) } : {}),
     ...(pickValue(body.kind, ASSISTANT_MODEL_KINDS) !== undefined ? { kind: pickValue(body.kind, ASSISTANT_MODEL_KINDS) } : {}),
+    // Null is a value here: it is the reader putting the model back on the provider's own protocol.
+    ...(body.protocol !== undefined ? { protocol: pickValue(body.protocol, ASSISTANT_PROTOCOLS) ?? null } : {}),
     ...(body.supportsTools !== undefined ? { supportsTools: Boolean(body.supportsTools) } : {}),
     ...(body.maxInputTokens !== undefined ? { maxInputTokens: clampTokens(body.maxInputTokens, 1, 4_000_000) } : {}),
     // An unknown modality is dropped, not defaulted: a list of one typo must not silently reset the

@@ -16,8 +16,8 @@ import type {
   AssistantModelPurpose,
   AssistantParamType,
 } from '@shared/assistant'
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, CONTEXT_WINDOW_STEPS, MAX_INPUT_STEPS, MAX_OUTPUT_STEPS, formatTokenStep } from '@shared/assistant'
-import type { AssistantModelModality } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_MODALITIES, ASSISTANT_MODEL_PURPOSES, ASSISTANT_PROTOCOLS, CONTEXT_WINDOW_STEPS, MAX_INPUT_STEPS, MAX_OUTPUT_STEPS, formatTokenStep } from '@shared/assistant'
+import type { AssistantModelModality, AssistantProtocol } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Field, Input, Segmented, Select, SettingRow, Slider, Switch } from '../../components/form'
@@ -28,6 +28,12 @@ const PURPOSE_KEYS: Record<AssistantModelPurpose, Parameters<typeof t>[0]> = {
   chat: 'assistant.model.purpose.chat',
   image_generate: 'assistant.model.purpose.image_generate',
   image_edit: 'assistant.model.purpose.image_edit',
+}
+
+const PROTOCOL_NAMES: Record<AssistantProtocol, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
 }
 
 const KIND_KEYS: Record<AssistantModelKind, Parameters<typeof t>[0]> = {
@@ -55,6 +61,8 @@ export interface ModelDraft {
   temperature: number | null
   topP: number | null
   customParams: AssistantCustomParam[]
+  /** Null means the model is called on whatever wire its provider speaks. */
+  protocol: AssistantProtocol | null
 }
 
 export function draftFromModel(model: AssistantModel): ModelDraft {
@@ -70,6 +78,7 @@ export function draftFromModel(model: AssistantModel): ModelDraft {
     temperature: model.temperature,
     topP: model.topP,
     customParams: model.customParams.map((param) => ({ ...param })),
+    protocol: model.protocol,
   }
 }
 
@@ -184,6 +193,17 @@ export function ModelEditorDialog({
                 options={ASSISTANT_MODEL_KINDS.map((kind) => ({ value: kind, label: t(KIND_KEYS[kind]) }))}
                 onChange={(kind) => patch({ kind })}
               />
+            </Field>
+
+            <Field label={t('assistant.model.protocol')} hint={t('assistant.model.protocol_hint')}>
+              <Select
+                aria-label={t('assistant.model.protocol')}
+                value={draft.protocol ?? ''}
+                onChange={(event) => patch({ protocol: (event.target.value || null) as AssistantProtocol | null })}
+              >
+                <option value="">{t('assistant.model.protocol.follow')}</option>
+                {ASSISTANT_PROTOCOLS.map((entry) => <option key={entry} value={entry}>{PROTOCOL_NAMES[entry]}</option>)}
+              </Select>
             </Field>
 
             <SettingRow title={t('assistant.model.tools')} description={t('assistant.model.tools_hint')}>

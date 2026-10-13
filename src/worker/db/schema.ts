@@ -939,6 +939,22 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE chat_pending_actions ADD COLUMN args TEXT NOT NULL DEFAULT '{}'`,
     ],
   },
+  {
+    // One gateway can answer on more than one wire, so the other addresses belong to the provider.
+    version: 52,
+    skipIfColumnExists: { table: 'chat_providers', column: 'endpoints' },
+    statements: [
+      `ALTER TABLE chat_providers ADD COLUMN endpoints TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
+  {
+    // Which of those wires a model is called on; null keeps following the provider.
+    version: 53,
+    skipIfColumnExists: { table: 'chat_models', column: 'protocol' },
+    statements: [
+      `ALTER TABLE chat_models ADD COLUMN protocol TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

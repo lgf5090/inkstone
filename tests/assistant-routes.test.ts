@@ -506,6 +506,83 @@ describe('the vendor’s own model list', () => {
   })
 })
 
+describe('per-protocol provider endpoints', () => {
+  async function addGateway(): Promise<AssistantProvider> {
+    const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Gateway',
+      protocol: 'openai',
+      baseUrl: 'https://gw.test/v1',
+      apiKey: 'sk-gateway-secret-1',
+      models: ['gateway-large'],
+    })
+    return created.provider
+  }
+
+  it('saves each address, refuses one inside the network, and drops a name that is not a protocol', async () => {
+    const provider = await addGateway()
+    const patched = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${provider.id}`, {
+      endpoints: { anthropic: 'https://gw.test/anthropic/v1', gemini: '   ', nonsense: 'https://ok.test/v1' },
+    })
+    expect(patched.provider.endpoints).toEqual({ anthropic: 'https://gw.test/anthropic/v1' })
+    expect(await status('PATCH', `/api/assistant/providers/${provider.id}`, { endpoints: { gemini: 'http://127.0.0.1:11434' } })).toBe(400)
+    const listed = await call<{ providers: AssistantProvider[] }>('GET', '/api/assistant/providers')
+    expect(listed.providers[0]?.endpoints?.anthropic).toBe('https://gw.test/anthropic/v1')
+    // An edit that never mentions the endpoints must not wipe them, exactly like the MCP token.
+    const renamed = await call<{ provider: AssistantProvider }>('PATCH', `/api/assistant/providers/${provider.id}`, { label: 'Renamed' })
+    expect(renamed.provider.endpoints?.anthropic, 'an unrelated edit cleared the extra addresses').toBe('https://gw.test/anthropic/v1')
+  })
+
+  it('keeps a protocol written by hand out of the model, and one the route accepts in it', async () => {
+    const provider = await addGateway()
+    const created = await call<{ model: AssistantModel }>('POST', '/api/assistant/models', {
+      providerId: provider.id, model: 'gateway-anthropic-shaped', protocol: 'anthropic',
+    })
+    expect(created.model.protocol).toBe('anthropic')
+    // The POST answers from the object it built, so only a re-read proves the column was written.
+    const reread = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    expect(reread.models.find((entry) => entry.id === created.model.id)?.protocol).toBe('anthropic')
+    sqlite.prepare('UPDATE chat_models SET protocol = ? WHERE id = ?').run('mistral', created.model.id)
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    expect(models.models.find((entry) => entry.id === created.model.id)?.protocol).toBeNull()
+  })
+
+  it('calls a model through the endpoint its own protocol names', async () => {
+    const provider = await addGateway()
+    await call('PATCH', `/api/assistant/providers/${provider.id}`, { endpoints: { anthropic: 'https://gw.test/anthropic' } })
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const updated = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { protocol: 'anthropic' })
+    expect(updated.model.protocol).toBe('anthropic')
+    const urls: string[] = []
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      urls.push(String(url))
+      bodies.push(String(init?.body ?? ''))
+      return new Response(sse([`data: ${JSON.stringify({ type: 'message_stop' })}\n\n`]), { headers: { 'content-type': 'text/event-stream' } })
+    }))
+    const events = await chatEvents({ message: 'hi' })
+    await settleTurns()
+    expect(events.some((event) => event.type === 'done')).toBe(true)
+    // The provider's protocol is openai, so this address can only come from the model's own override.
+    expect(urls).toEqual(['https://gw.test/anthropic/v1/messages'])
+    // The same override decides what the web-search switch can ask for: only Anthropic has that tool.
+    await chatEvents({ message: 'hi again', webSearch: true })
+    await settleTurns()
+    vi.unstubAllGlobals()
+    expect(bodies.at(-1)).toContain('web_search_20250305')
+  })
+
+  it('keeps a model following the provider when the protocol asked for is not one', async () => {
+    await addGateway()
+    const models = await call<{ models: AssistantModel[] }>('GET', '/api/assistant/models')
+    const updated = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { protocol: 'mistral' })
+    expect(updated.model.protocol).toBeNull()
+    const back = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { protocol: 'gemini' })
+    expect(back.model.protocol).toBe('gemini')
+    const cleared = await call<{ model: AssistantModel }>('PATCH', `/api/assistant/models/${models.models[0]!.id}`, { protocol: null })
+    expect(cleared.model.protocol).toBeNull()
+  })
+})
+
 describe('offline chat', () => {
   it('streams the same events and persists both messages', async () => {
     await call('PATCH', '/api/assistant/settings', { offlineMode: true })
