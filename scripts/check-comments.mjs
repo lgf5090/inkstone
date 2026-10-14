@@ -122,17 +122,22 @@ const allowed = new Map([
     "/**\n * The picture viewer, hosted above the container switch.\n *\n * Any container can ask to enlarge an image — the notebook's preview and the chat's attachment chips\n * both do — and `useUi().lightbox` is one global slot. Mounted inside one container it was reachable\n * from that container only, and a chip elsewhere set the state with nothing left to render it: the\n * click did nothing at all, with nothing in the console to say so.\n */",
   ]],
   ["src/client/components/DrawerSearchField.tsx", [
-    "/**\n * The search box a drawer puts above its list: the sticky header, the icon, a label the screen\n * reader reads, and the one filter reading every other listing in the app offers.\n *\n * Two drawers that list the whole notebook — the folder picker and the mindmap's note picker —\n * drew this box twice, character for character, and each stopped at the raw matcher instead of\n * {@link compileQuery}. A pattern that worked in every sidebar listing therefore quietly did\n * nothing here, and neither box could say why a refused one had. The compiled query is handed in\n * rather than compiled here so a caller filters with the same object the box is describing.\n *\n * Escape clears a box that is not empty and is swallowed there, so the drawer it sits in stays\n * open; an empty box lets the key through, which is the drawer's own close.\n */",
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
+    "/**\n * The search box a drawer puts above its list: the sticky header it hangs in, and the one filter every\n * other listing in the app offers — drawn by {@link FilterInput}, because the box, its keys and its\n * refusal message are that component's, and only the header belongs to a drawer.\n *\n * Escape clears a box that is not empty and is swallowed there, so the drawer it sits in stays open;\n * an empty box lets the key through, which is the drawer's own close. The compiled query is handed in\n * rather than compiled here so a caller filters with the same object the box is describing.\n */",
   ]],
   ["src/client/components/FilterInput.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",
-    "/** `panel` is the bordered, full-height box a modal or settings page draws; `sidebar` is the quiet one. */",
     "/** For the listing that moves the caret back into the box when its last row goes away. */",
     "/** A control the listing keeps beside the box, drawn inside it. */",
-    "/**\n * The filter box every sidebar listing uses: it searches by fuzzily-matched letters, by the reading\n * of a Chinese label, and by a `/regular expression/`, and it is the one place that says so when a\n * pattern is refused.\n */",
-    "// The box owns its keys: a shortcut that fires while the reader is typing a name would",
-    "// take the keystroke, and the listing above answers arrows of its own.",
+    "/** What the box does with an Escape it decided to answer: take the text back out. */",
+    "/**\n     * The compiled text the box holds. Its refusal is what `aria-invalid` and the described-by hint\n     * point at, and a box that filters by something other than a compiled query has nothing to refuse.\n     */",
+    "/**\n     * What an Escape on an already-empty box costs. `blur` keeps the reader out of a listing they were\n     * not looking at; `release` hands the key to the panel behind the box, which is how a modal or a\n     * drawer is dismissed, and is the only reason a caller would rather not draw the box itself.\n     */",
+    "/** The listing's own arrows and Enter, asked before the box makes its decision. */",
+    "/** A ref the listing keeps so it can move the caret back into the box. */",
+    "/**\n * The keyboard and accessibility contract every filter box in the app answers to, separated from the\n * box's drawing so a listing with arrows and Enter of its own can take the contract without taking the\n * chrome — which is the only reason a box would rather not use {@link FilterInput}.\n *\n * Escape clears a box that has something to clear and swallows the key, so the panel behind it does not\n * close underneath the reader; an empty box does what `escapeWhenEmpty` says. Every other key is\n * stopped here, because a shortcut that fires while the reader is typing a name would take the\n * keystroke, and the listing above answers arrows of its own. Spread the result onto the `input` and\n * call `clear` from the box's own clear control, which puts the caret back where the reader was.\n */",
+    "/**\n     * `sidebar` is the quiet box the file and tag rails draw, `panel` the bordered, full-height one a\n     * modal or a settings page draws, and `drawer` the large box above the list inside a drawer — three\n     * measurements of the same control, because each sits in a row of its own height.\n     */",
+    "/** An Escape on an already-empty box: the box loses focus, or the panel behind it is dismissed. */",
+    "/**\n * The filter box every listing in the app uses: it searches by fuzzily-matched letters, by the reading\n * of a Chinese label, and by a `/regular expression/`, and it is the one place that says so when a\n * pattern is refused. Its keys and ARIA come from {@link useFilterInput}, so a listing that has to keep\n * its own arrows draws a different box over the same contract instead of writing the contract again.\n */",
   ]],
   ["src/client/components/activity-calendar-almanac.test.ts", [
     "// What the calendar must paint under each day number, spelled the way a reader reads it.",
@@ -5798,6 +5803,10 @@ const allowed = new Map([
     "// The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds",
     "// and has opened two still has 40 feeds on disk, and the reader is asking about the disk.",
   ]],
+  ["src/client/features/settings/SharedNotes.tsx", [
+    "// One matcher for both fields: a row that answers the title by its initials and the address by",
+    "// literal characters would look like a filter that works on one column and not the other.",
+  ]],
   ["src/client/features/settings/quick-add-settings.test.ts", [
     "/**\n * The app labels every control, so a test can look one up by the name a screen reader would read:\n * an `aria-label`, the `<label>` a `Field` wires with `aria-labelledby`, or a button's own text.\n */",
     "/** The library is stored in `position` order, so a test has to read it the way the UI does. */",
@@ -6809,12 +6818,8 @@ const allowed = new Map([
     "/**\n * The object a query sees for this page: `file.*` for the note itself, then every inline field at the\n * top level. A field never displaces `file`, matching the reference.\n */",
   ]],
   ["src/client/lib/dataview/regex.ts", [
-    "/**\n * A gate in front of every regular expression a note can write.\n *\n * `regextest`, `regexmatch`, `regexreplace` and `split` all compile author text, and a query block\n * runs on every preview of every reader of a shared note — so one catastrophic pattern in a template\n * would freeze tabs rather than the author's own. The rule is the same one the sidebar's regex filter\n * uses: refuse a group that repeats while repeating something inside it, or a repeated alternation\n * whose branches can start with the same character. Refusing costs the reader one error message; a\n * miss costs a hung tab that no timeout can interrupt.\n */",
     "/** Compiled and cached, because a table cell reuses its pattern across every row. */",
-    "/**\n * Walk the pattern once, pairing parentheses, and reject a group whose quantifier applies to a body\n * that itself ends in a quantifier — `(a+)+`, `(\\w*)*`, `((x|xy)+)*`. Nested groups are found by\n * scanning from the innermost close, so a quantifier on an inner group is visible to its parent.\n */",
-    "/** Every `( … )` in the pattern with the index of its closing parenthesis; null when they do not balance. */",
-    "/** A quantifier — `*`, `+`, `?`, `{n,m}` — directly after the character at `at`. */",
-    "/** The `|`-separated branches of a group body, ignoring separators inside nested groups or classes. */",
+    "/**\n * A gate in front of every regular expression a note can write.\n *\n * `regextest`, `regexmatch`, `regexreplace` and `split` all compile author text, and a query block\n * runs on every preview of every reader of a shared note — so one catastrophic pattern in a template\n * would freeze tabs rather than the author's own. The rule is not written here: it is `patternSafety`,\n * the same ceiling and the same shape the sidebar's regex filter and the linter's replacements are\n * checked against, because a pattern cannot be safe to compile in one feature and dangerous in\n * another. Refusing costs the reader one error message; a miss costs a hung tab that no timeout can\n * interrupt.\n */",
   ]],
   ["src/client/lib/dataview/render.test.ts", [
     "// `new URL()` is what decides the spelling, so the host is what is pinned rather than the",
@@ -11900,10 +11905,18 @@ const allowed = new Map([
   ["src/client/lib/query-match.test.ts", [
     "// The dictionary is lazy in the browser; here the literal is what a reader can type without it.",
     "// The same shape, run for real, is the thing the guard is for: it is unbounded, not merely slow.",
+    "// The box recompiles per keystroke, so it refuses at 160 while the shared default allows 1_000.",
+    "// Both numbers are pinned here: loosening either is a threat-model change, not a refactor.",
+    "/**\n * The one keep-or-drop answer every listing asks. A refused expression is not a search that found\n * nothing, so the rows stay and the filter box is the only thing that speaks — spelled here once so a\n * shelf, a picker and a settings page cannot each decide differently about the same refusal.\n */",
   ]],
   ["src/client/lib/query-match.ts", [
     "/**\n * What a listing's filter box was asked for. `/body/flags` is a regular expression and anything\n * else is the fuzzy matcher, which reads Chinese labels by their initials; both answer in the same\n * shape, so a row can underline either without knowing which it got.\n */",
     "/**\n * Where the query lands in a label, or null when it does not. A repeated group's own failure is what\n * makes backtracking explode, so the expression is handed a capped slice: this compares names, and a\n * listing that hands it a body instead of a title is answered from the part of it a reader can see\n * anyway. The fuzzy matcher needs no such ceiling — a scan cannot blow up on length.\n */",
+    "// Tighter than the shared ceiling on purpose: this box recompiles on every keystroke, so refusing a",
+    "// long expression costs the reader one keystroke, while compiling it costs the tab. Exported so the",
+    "// test pins the number instead of restating it.",
+    "/**\n * Whether the box has nothing to filter by, or a pattern it refused: either way every row stays.\n *\n * A refused expression is not a search that found nothing. The listing that empties at the same moment\n * the box says it would not compile has given the reader two answers to one question, and the one they\n * act on — \"there are no notes called that\" — is the wrong one. So the rows stay, and the box is the\n * only thing that speaks. This is the fast-path shape of {@link queryKeeps}, for a caller that would\n * otherwise scan a whole body per row.\n */",
+    "/** Whether one row survives the box, ranges for the underline included. */",
   ]],
   ["src/client/lib/quickadd/capture.ts", [
     "/**\n * The Capture choice engine: a formatted snippet placed into a note — at the bottom, at the top of\n * the body, under or above a heading line, at the caret, or into a property.\n *\n * Two rules carry most of the complexity. Placement is computed against the note as it read a moment\n * ago, then written as a whole-document replace, because a capture that lost a race with the reader's\n * own typing must not silently eat their edit. And the heading anchor is matched with the same rules\n * whether it is being found or being created, so a second run of the same capture finds the heading\n * the first run wrote.\n */",
@@ -13359,13 +13372,14 @@ const allowed = new Map([
     "/**\n * What an editor step does to the note on screen. `pasteWithFormat` from the reference has no twin\n * here: this app has no rich-text paste to reach for, and its “paste as link” is an app command a\n * `command` step can already name.\n */",
   ]],
   ["src/shared/regex-safety.ts", [
-    "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Two features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`) and the linter's custom replacements and file-ignore patterns. Both need the same\n * answer before compiling, so the structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",
     "/** Why an expression was not compiled: it does not parse, or it can hang the page on a long input. */",
     "/** Every `( … )` in the pattern, inner text included; null when the parentheses do not nest. */",
-    "/**\n * Whether a stand-alone pattern may be compiled at all. A caller that already knows the difference\n * between a broken expression and a dangerous one reads `findGroups` and `repeatsCatastrophically`\n * itself; this is the answer for a feature that only has to refuse.\n */",
     "/** Whether the atom ending at `close` is repeated more than twice, or an unknown number of times. */",
     "/** Any quantifier that is not inside a class, not a group prefix, and not a fixed `{1}` or `{2}`. */",
     "/** The group body cut at every `|` that is not inside a nested group or a class. */",
+    "/**\n * The static half of “do not let a typed expression freeze the tab”.\n *\n * Three features hand a reader's regular expression to `RegExp`: a listing's filter box (through\n * `query-match`), the linter's custom replacements and file-ignore patterns, and the dataview functions\n * a note block runs — `regextest`, `regexmatch`, `regexreplace` and `split`, which execute author text\n * on every preview of every reader of a shared note. All need the same answer before compiling, so the\n * structural reading of the pattern lives here once. A group that\n * repeats while repeating something inside itself multiplies its own backtracking, and so does a\n * repeated alternation whose branches start alike; nothing can stop a match once it has started, so\n * the price of a refusal has to be paid at the keystroke, not at the freeze — and a pattern that\n * arrived through a restored backup has to be refused at the run as well, where there is no\n * keystroke left to charge.\n */",
+    "/**\n * The longest expression a caller compiles when it has no opinion of its own.\n *\n * The ceiling is part of the guard, not a tuning knob, so it is a named constant rather than a number\n * at each call site. A caller may still ask for a tighter one, and says so out loud — see\n * `MAX_FILTER_PATTERN_CHARS` in `query-match`, where the cost of a refusal is one keystroke rather\n * than one saved block.\n */",
+    "/**\n * Whether a stand-alone pattern may be compiled at all: too long to answer for, unbalanced, or\n * shaped so a long input could make it spin.\n *\n * Every feature that hands typed text to `RegExp` asks this and nothing else, so the structural\n * reading exists once. The ceiling is a parameter because the features genuinely differ in how much\n * they are willing to refuse: a filter box is re-checked on every keystroke and can afford to be\n * strict, while a dataview block is authored once, cached, and read back from a restored backup.\n * Passing a ceiling is a threat-model decision, which is why there is no single value to inherit.\n */",
   ]],
   ["src/shared/rss/marks.ts", [
     "/**\n * The reading marks, as rows.\n *\n * Six arrays and two maps inside the library — what has been read, starred, saved for later,\n * dismissed, opened, and the note an article became — are one table with a `kind` column. This\n * module is the only place that knows how the two shapes map onto each other, so the Worker's row\n * store and the client's change set cannot drift apart into two different ideas of what a mark is.\n */",

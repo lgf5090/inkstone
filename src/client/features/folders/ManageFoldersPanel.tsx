@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { FolderOpen, Inbox, Palette, Plus, Search, Smile, Trash2, Eraser, Pencil } from 'lucide-react';
+import { FolderOpen, Inbox, Palette, Plus, Smile, Trash2, Eraser, Pencil } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
 import { Button, IconButton } from '../../components/primitives';
 import { Input } from '../../components/form';
+import { FilterInput } from '../../components/FilterInput';
 import { Empty } from '../../components/feedback';
 import { Modal, Tooltip, confirm } from '../../components/overlay';
 import { folderPathLabel, openFolderView } from '../../lib/folders';
@@ -11,7 +12,7 @@ import { t } from '../../lib/i18n';
 import { useNotes } from '../../store/notes';
 import { useUi } from '../../store/ui';
 import { FolderColorMenu, FolderIconMenu } from './FolderAppearanceMenus';
-import { matchesQuery } from '../../lib/fuzzy'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 
 interface FolderChoice {
@@ -50,13 +51,11 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
     const [iconPickerId, setIconPickerId] = useState<string | null>(null);
     const counts = useMemo(() => directNoteCounts(notes), [notes]);
     const pinyinVersion = usePinyinVersion()
-    const choices = useMemo<FolderChoice[]>(() => {
-        const normalized = query.trim();
-        return folders
-            .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
-            .filter(({ path }) => !normalized || matchesQuery(path, normalized))
-            .sort((a, b) => a.path.localeCompare(b.path));
-    }, [folders, query, pinyinVersion]);
+    const compiled = useMemo(() => compileQuery(query), [query, pinyinVersion])
+    const choices = useMemo<FolderChoice[]>(() => folders
+        .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
+        .filter(({ path }) => queryKeeps(compiled, path))
+        .sort((a, b) => a.path.localeCompare(b.path)), [compiled, folders, pinyinVersion]);
     const emptyFolders = useMemo(() => folders.filter((folder) => isRemovable(folder, counts, folders)), [counts, folders]);
     const submitDraft = () => {
         const name = draftName.trim();
@@ -116,10 +115,19 @@ export function ManageFoldersPanel({ onClose }: { onClose: () => void }) {
     return (<Modal open onClose={onClose} title={t("folders.manage_folders")} description={t("folders.manage_description")} width={680}>
       <div className="space-y-3 pt-1">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-[180px] flex-1">
-            <span className="sr-only">{t("folders.search")}</span>
-            <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("folders.search")} leading={<Search size={14} aria-hidden="true"/>}/>
-          </label>
+          <div className="min-w-[180px] flex-1">
+            <FilterInput
+              size="panel"
+              className="mt-0"
+              autoFocus
+              escapeWhenEmpty="release"
+              value={query}
+              onChange={setQuery}
+              query={compiled}
+              label={t("folders.search")}
+              placeholder={t("folders.search")}
+            />
+          </div>
           <Button icon={<Plus size={13}/>} onClick={() => {
             setCreating((value) => !value);
             setDraftName('');

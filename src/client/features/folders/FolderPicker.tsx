@@ -6,7 +6,7 @@ import { DrawerSearchField } from '../../components/DrawerSearchField';
 import { cn } from '../../lib/cn';
 import { t } from '../../lib/i18n';
 import { folderPathLabel } from '../../lib/folders';
-import { compileQuery, queryMatches } from '../../lib/query-match'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 
 export function FolderPicker({
@@ -33,13 +33,10 @@ export function FolderPicker({
     const [query, setQuery] = useState('');
     const pinyinVersion = usePinyinVersion()
     const compiled = useMemo(() => compileQuery(query), [query, pinyinVersion]);
-    const choices = useMemo(() => {
-        const normalized = query.trim();
-        return (folders ?? [])
-            .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
-            .filter(({ folder, path }) => !excludedIds?.has(folder.id) && (compiled.error || !normalized || queryMatches(compiled, path) !== null))
-            .sort((a, b) => a.path.localeCompare(b.path));
-    }, [compiled, excludedIds, folders, query, pinyinVersion]);
+    const choices = useMemo(() => (folders ?? [])
+        .map((folder) => ({ folder, path: folderPathLabel(folders, folder.id) }))
+        .filter(({ folder, path }) => !excludedIds?.has(folder.id) && queryKeeps(compiled, path))
+        .sort((a, b) => a.path.localeCompare(b.path)), [compiled, excludedIds, folders, pinyinVersion]);
     const choose = (folderId: string | null) => {
         if (folderId !== currentId)
             onSelect(folderId);

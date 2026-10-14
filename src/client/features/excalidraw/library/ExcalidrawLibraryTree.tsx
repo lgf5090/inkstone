@@ -23,7 +23,7 @@ import {
 import { FilterInput } from '../../../components/FilterInput'
 import { Menu, MenuSubmenuList, useContextMenu } from '../../../components/overlay'
 import type { MenuItem } from '../../../components/overlay'
-import { compileQuery, queryMatches } from '../../../lib/query-match'
+import { compileQuery, queryKeepsRows, queryMatches } from '../../../lib/query-match'
 import { leftDropTarget } from '../../../lib/note-drag'
 import { useDropState } from '../../../lib/drop-state'
 import { useMediaQuery } from '../../../lib/hooks'
@@ -335,7 +335,7 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
   const moveTree = useMemo(() => toMoveTree(tree), [tree])
 
   const visibleFolders = useMemo(() => {
-    if (!searchText.trim()) return tree
+    if (queryKeepsRows(compiledQuery)) return tree
     function filterNode(node: LibraryFolderNode): LibraryFolderNode | null {
       const nameMatch = queryMatches(compiledQuery, node.name)
       const matchingChildren: LibraryFolderNode[] = []

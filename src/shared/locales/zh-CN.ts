@@ -5853,7 +5853,6 @@ console.log(\`Hello, \${name}!\`)
     "rss.search_all_placeholder": "标题、摘要或来源",
     "rss.search_idle": "这台设备上可搜索的文章共 {n} 篇。",
     "rss.search_indexing": "正在读取本机缓存...",
-    "rss.search_invalid": "这个正则表达式不合法。",
     "rss.add_to_daily": "加入今日笔记",
     "rss.bulk_daily_added": "已加入今日笔记 {n} 篇",
     "rss.bulk_notes_saved": "已存为笔记 {n} 篇",

@@ -9,7 +9,8 @@
 import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { BookOpen, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
 import { Button } from '../../components/primitives'
-import { Input, Segmented } from '../../components/form'
+import { Segmented } from '../../components/form'
+import { FilterInput } from '../../components/FilterInput'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -29,7 +30,7 @@ import { groupsHolding, sortGroups } from './book-groups'
 import { SHELF_NARROW_QUERY, resolveShelfView, type ShelfViewMode } from './shelf-view'
 import { useReaderSettings } from './store/reader-settings'
 import { useMediaQuery } from '../../lib/hooks'
-import { compileQuery, queryMatches } from '../../lib/query-match'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { SyncLine } from './SyncLine'
@@ -102,7 +103,7 @@ export function LibraryView() {
   const bookQuery = useMemo(() => compileQuery(query), [query])
 
   const visible = useMemo(() => {
-    const list = books.filter((book) => queryMatches(bookQuery, `${book.title} ${book.author} ${book.filename}`) !== null)
+    const list = books.filter((book) => queryKeeps(bookQuery, `${book.title} ${book.author} ${book.filename}`))
       .filter((book) => !groupFilter || (groups.find((one) => one.id === groupFilter)?.bookIds.includes(book.id) ?? false))
       .filter((book) => {
         const state = progress[book.id]
@@ -396,11 +397,14 @@ export function LibraryView() {
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <div className="min-w-[160px] flex-1 md:max-w-[280px]">
-          <Input
+          <FilterInput
+            size="panel"
+            className="mt-0"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={setQuery}
+            query={bookQuery}
+            label={t('reading.search_shelf')}
             placeholder={t('reading.search_shelf_placeholder')}
-            aria-label={t('reading.search_shelf')}
           />
         </div>
         <Segmented

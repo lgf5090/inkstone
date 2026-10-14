@@ -5,7 +5,7 @@ import { Drawer } from '../../components/overlay';
 import { DrawerSearchField } from '../../components/DrawerSearchField';
 import { t } from '../../lib/i18n';
 import { folderPathLabel } from '../../lib/folders';
-import { compileQuery, queryMatches } from '../../lib/query-match';
+import { compileQuery, queryKeepsRows, queryMatches } from '../../lib/query-match';
 import { usePinyinVersion } from '../../lib/pinyin';
 import { useNotes } from '../../store/notes';
 
@@ -74,13 +74,12 @@ export function MindmapNotePicker({ open, title, initialQuery, excludeNoteId, on
     }, [excludeNoteId, folders, notes, open]);
 
     const visible = useMemo(() => {
-        const text = query.trim();
         // Every note is matched, and the cap is taken afterwards: stopping at the first N
         // matches would hide the note the reader was about to type, because the store's order
         // is by recency and this list is ordered by name.
-        const found = !text || compiled.error ? rows : rows.filter((row) => queryMatches(compiled, row.label) !== null);
+        const found = queryKeepsRows(compiled) ? rows : rows.filter((row) => queryMatches(compiled, row.label) !== null);
         return found.slice(0, MAX_ROWS);
-    }, [compiled, pinyinVersion, query, rows]);
+    }, [compiled, pinyinVersion, rows]);
 
     const close = () => {
         setQuery('');

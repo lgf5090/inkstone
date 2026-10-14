@@ -14,14 +14,15 @@ import { confirm } from '../../components/overlay'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { t, useLocale, type MessageKey } from '../../lib/i18n'
-import { compileQuery, queryMatches } from '../../lib/query-match'
+import { FilterInput } from '../../components/FilterInput'
+import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { patternSafety } from '@shared/regex-safety'
 import { LinterRuleTitle } from './LinterRuleTitles'
 import { RuleType, type Rule } from '../../lib/linter/rules'
 import type { RuleOption } from '../../lib/linter/option'
 import type { LinterSettings as StoredSettings } from '../../lib/linter/settings-data'
-import { ChevronDown, Plus, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, RotateCcw, Trash2 } from 'lucide-react'
 
 const RULE_TYPES: RuleType[] = [RuleType.YAML, RuleType.HEADING, RuleType.FOOTNOTE, RuleType.CONTENT, RuleType.SPACING, RuleType.PASTE]
 
@@ -118,7 +119,7 @@ export function LinterSettings() {
         ...rule.options.map((option) => t(option.nameKey)),
       ].join('\n')
 
-      return queryMatches(ruleQuery, haystack) !== null
+      return queryKeeps(ruleQuery, haystack)
     }
 
     return rules.filter(matches)
@@ -231,14 +232,16 @@ export function LinterSettings() {
 
       <section>
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[180px] flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={14} aria-hidden="true" />
-            <Input
-              aria-label={t('linter.search_rules')}
-              className="w-full pl-8"
+          <div className="min-w-[180px] flex-1">
+            <FilterInput
+              size="panel"
+              className="mt-0"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('linter.search_rules')} />
+              onChange={setQuery}
+              query={ruleQuery}
+              label={t('linter.search_rules')}
+              placeholder={t('linter.search_rules')}
+            />
           </div>
           <Select aria-label={t('linter.filter_by_type')} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as RuleType | 'all')}>
             <option value="all">{t('linter.type.all')}</option>
