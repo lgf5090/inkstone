@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { UserRound, X } from 'lucide-react'
 import { useClickOutside, useEscape } from '../../../../components/overlay'
+import { useFilterInput } from '../../../../components/FilterInput'
 import { t } from '../../../i18n'
 import { kanbanPersonInitials, kanbanPersonName } from '../person'
 import type { RefObject } from 'react'
@@ -133,6 +134,8 @@ interface PersonPanelProps {
   addable: string
   onQuery: (query: string) => void
   onPick: (name: string) => void
+  /** Puts the panel away the way the overlay's own Escape handler would. */
+  onClose: () => void
 }
 
 function PersonPanel({
@@ -145,14 +148,36 @@ function PersonPanel({
   addable,
   onQuery,
   onPick,
+  onClose,
 }: PersonPanelProps) {
+  // Enter still commits the first name the search leaves, and a near-duplicate spelling only when the
+  // roster holds nothing that matches. The keys themselves are the app-wide filter contract's: asked
+  // for here, answered by `useFilterInput` only if this handler leaves them alone, so a candidate
+  // picked out of an IME's list is never read as the reader's Enter.
   const handleQueryKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      // A panel with text in it gives the key to the contract, which takes the text out; an empty one
+      // closes here, because the field marks itself `data-owns-escape` and the overlay layers stand
+      // aside for it.
+      if (query) return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+      return
+    }
     if (event.key !== 'Enter') return
     // A search that still leaves a teammate on screen means that teammate; creating a near-duplicate
     // spelling of them is what the separate add button is for.
     if (visible.length > 0) onPick(visible[0]!)
     else if (addable) onPick(addable)
   }
+
+  const { field } = useFilterInput({
+    value: query,
+    onClear: () => onQuery(''),
+    escapeWhenEmpty: 'release',
+    onKeyDown: handleQueryKey,
+  })
 
   return (
     <div
@@ -168,12 +193,13 @@ function PersonPanel({
       <input
         type='search'
         autoFocus
+        data-owns-escape='true'
         value={query}
+        {...field}
         onChange={(e) => onQuery(e.target.value)}
-        onKeyDown={handleQueryKey}
         aria-label={t('preview.kanban_person_search')}
         placeholder={t('preview.kanban_person_search')}
-        className='h-7 w-full rounded-[var(--r-xs)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]'
+        className='h-7 w-full rounded-[var(--r-xs)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 text-[length:var(--text-12)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] [&::-webkit-search-cancel-button]:hidden'
       />
       {visible.map((name) => (
         <PersonChoiceRow key={name} name={name} current={name === person} onPick={onPick} />
@@ -225,6 +251,7 @@ function usePersonPanel(value: unknown, candidates: string[], onPick: (name: str
     panelId,
     panelRef,
     triggerRef,
+    close,
     onQuery: setQuery,
     toggle: () => setOpen((o) => !o),
     pick: (name: string) => {
@@ -257,6 +284,7 @@ export function KanbanPersonPicker({ propertyName, value, candidates = [], onCha
           addable={panel.addable}
           onQuery={panel.onQuery}
           onPick={panel.pick}
+          onClose={panel.close}
         />
       )}
     </div>
