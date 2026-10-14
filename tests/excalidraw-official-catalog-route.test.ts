@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppBindings } from '../src/worker/env'
+import { testBindings, testD1, testR2Bucket } from './doubles/bindings'
+import type { AppBindings, Env } from '../src/worker/env'
 
 vi.mock('../src/worker/middleware/auth', () => ({
     requireAuth: async (c: { set: (key: string, value: string) => void }, next: () => Promise<void>) => {
@@ -21,23 +22,9 @@ function ctx() {
     } as unknown as ExecutionContext
 }
 
-function r2() {
-    const store = new Map<string, string>()
-    return {
-        store,
-        put: async (key: string, value: unknown) => {
-            store.set(key, typeof value === 'string' ? value : String(value))
-            return { key }
-        },
-        get: async () => null,
-    }
-}
-
-function env() {
-    return {
-        FILES: r2(),
-        DB: { prepare: () => ({ bind: () => ({ first: async () => null, run: async () => ({ success: true }) }) }) },
-    } as never
+/** These two endpoints archive into R2 and read nothing from D1, so an empty database answers them. */
+function env(): Env {
+    return testBindings(testD1(), { FILES: testR2Bucket() })
 }
 
 /** The route caches the catalog in module scope, so every test needs a freshly imported module. */
@@ -83,7 +70,7 @@ afterEach(() => {
 describe('the official catalog endpoint', () => {
     it('answers with the fields the browser reads, and says they may be cached', async () => {
         const fetchSpy = vi.fn(async () => catalogResponse([ENTRY]))
-        globalThis.fetch = fetchSpy as never
+        globalThis.fetch = fetchSpy
         const app = await freshApp()
 
         const res = await app.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
@@ -98,7 +85,7 @@ describe('the official catalog endpoint', () => {
 
     it('answers the next reader from the cache instead of the upstream', async () => {
         const fetchSpy = vi.fn(async () => catalogResponse([ENTRY]))
-        globalThis.fetch = fetchSpy as never
+        globalThis.fetch = fetchSpy
         const app = await freshApp()
 
         await app.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
@@ -112,7 +99,7 @@ describe('the official catalog endpoint', () => {
         // Spied with fetch's own signature: the assertion below reads the second argument, and a
         // zero-parameter mock types every call as an empty tuple, where that argument is undefined.
         const fetchSpy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 302, headers: { location: 'https://evil.test/x.json' } }))
-        globalThis.fetch = fetchSpy as never
+        globalThis.fetch = fetchSpy
         const app = await freshApp()
 
         const res = await app.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
@@ -129,14 +116,14 @@ describe('the official catalog endpoint', () => {
     it('serves stale data immediately and refreshes behind the response', async () => {
         const app0 = await freshApp()
         const ok = vi.fn(async () => catalogResponse([ENTRY]))
-        globalThis.fetch = ok as never
+        globalThis.fetch = ok
         await app0.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
 
         // Backdate by pushing a failing upstream after the window: the first call still answers.
         vi.useFakeTimers()
         vi.setSystemTime(Date.now() + 2 * 3600_000)
         const flaky = vi.fn(async () => { throw new Error('upstream down') })
-        globalThis.fetch = flaky as never
+        globalThis.fetch = flaky
         const res = await app0.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
         vi.useRealTimers()
 
@@ -156,7 +143,7 @@ describe('the official catalog endpoint', () => {
             if (calls === 1) return catalogResponse([ENTRY])
             await gate
             return catalogResponse([{ ...ENTRY, name: 'Refreshed' }])
-        }) as never
+        })
 
         await app.request('/api/excalidraw/library/official-catalog', {}, env(), ctx())
         expect(calls).toBe(1)
@@ -182,7 +169,7 @@ describe('the official catalog endpoint', () => {
 describe('the official download endpoint', () => {
     it('refuses a library file that redirects away from the official host', async () => {
         const fetchSpy = vi.fn(async () => new Response(null, { status: 307, headers: { location: 'https://evil.test/x.excalidrawlib' } }))
-        globalThis.fetch = fetchSpy as never
+        globalThis.fetch = fetchSpy
         const app = await freshApp()
 
         const res = await app.request('/api/excalidraw/library/official-download', {
@@ -201,7 +188,7 @@ describe('the official download endpoint', () => {
         globalThis.fetch = vi.fn(async () => new Response('x'.repeat(OFFICIAL_FETCH_MAX_BYTES + 1), {
             status: 200,
             headers: { 'content-type': 'application/json' },
-        })) as never
+        }))
         const app = await freshApp()
 
         const res = await app.request('/api/excalidraw/library/official-download', {
@@ -221,9 +208,10 @@ describe('the official download endpoint', () => {
             status: 200,
             headers: { 'content-type': 'application/json' },
         }))
-        globalThis.fetch = fetchSpy as never
+        globalThis.fetch = fetchSpy
         const app = await freshApp()
-        const e = env()
+        const files = testR2Bucket()
+        const e = testBindings(testD1(), { FILES: files })
 
         const res = await app.request('/api/excalidraw/library/official-download', {
             method: 'POST',
@@ -235,7 +223,7 @@ describe('the official download endpoint', () => {
         expect(((await res.json()) as { data: unknown }).data).toMatchObject({ libraryItems: [[{ id: 'a' }]] })
         expect(waitUntilCalls).toHaveLength(1)
         await Promise.allSettled(waitUntilCalls)
-        expect([...(e as never as { FILES: { store: Map<string, string> } }).FILES.store.keys()])
+        expect([...files.objects.keys()])
             .toEqual(['excalidraw/libraries/user-1/snowflake.excalidrawlib'])
     })
 })

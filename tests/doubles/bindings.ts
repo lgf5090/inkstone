@@ -365,22 +365,34 @@ export function testKVNamespace(): KVNamespace<string> {
 }
 
 /**
+ * A `Fetcher`: the binding shape, a `fetch` that answers plus the socket method no test opens.
+ *
+ * `Env.ASSETS` is this shape rather than a bare function, so the object carries `connect` as well and
+ * says out loud when a route asks it for a socket.
+ */
+function fetcherOf(fetch: (input: RequestInfo | URL, init?: RequestInit) => Response | Promise<Response>): Fetcher {
+  return {
+    async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      return await fetch(input, init)
+    },
+    connect(): never {
+      throw new TypeError('the test fetcher does not open sockets')
+    },
+  }
+}
+
+/**
  * The static-asset fetcher: every route that reaches for an asset is looking for a file the test
  * never uploaded, so the honest answer is a miss that says which one.
  */
 export function testAssets(): Fetcher {
-  return {
-    async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-      const request = new Request(input instanceof Request ? input : String(input), init)
-      return new Response(`No asset configured for ${request.url}`, {
-        status: 404,
-        headers: { 'content-type': 'text/plain; charset=utf-8' },
-      })
-    },
-    connect(): never {
-      throw new TypeError('the test asset fetcher does not open sockets')
-    },
-  }
+  return fetcherOf(async (input, init) => {
+    const request = new Request(input instanceof Request ? input : String(input), init)
+    return new Response(`No asset configured for ${request.url}`, {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  })
 }
 
 function emptyMeta() {
