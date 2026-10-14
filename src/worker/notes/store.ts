@@ -32,8 +32,13 @@ import {
   type NoteRow,
   type NoteTagRow,
 } from '../db/rows'
-import { buildNoteDerivedStatements, shiftSqlPlaceholders } from '../db/writes'
-import { noteIndexQueueStatement } from '../mcp/ai-search'
+import {
+  FTS_QUEUE_CONFLICT_SQL,
+  LINK_TARGET_SUBQUERY,
+  buildNoteDerivedStatements,
+  shiftSqlPlaceholders,
+} from '../db/writes'
+import { aiDeleteNeededSql, noteIndexQueueStatement } from '../mcp/ai-search'
 import { newId } from '../lib/id'
 
 /**
@@ -156,6 +161,20 @@ export interface VersionRestoreInput {
   chars: number
   contentHash: string
   now: number
+}
+
+/** The row the caller read, plus the revision and timestamp its response already advertises. */
+export interface NoteTrashInput {
+  current: NoteRow
+  now: number
+  nextRev: number
+}
+
+/** The same shape for a restore: the guard is on the trashed revision, the write lands on the next. */
+export interface NoteRestoreInput {
+  current: NoteRow
+  now: number
+  nextRev: number
 }
 
 export class NotesStore {
@@ -609,4 +628,293 @@ export class NotesStore {
       applied: Boolean(batchResults[0]?.meta.changes),
     }
   }
+
+  // ------------------------------------------------------------ trash, restore
+
+  /** The next page of trashed ids, keyset-paged: a bulk purge must never hold the whole trash. */
+  async trashedNoteIdsAfter(afterId: string, limit: number): Promise<string[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id > ?2
+          ORDER BY id ASC LIMIT ?3`,
+      )
+      .bind(this.userId, afterId, limit)
+      .all<{ id: string }>()
+    return (results ?? []).map((row) => row.id)
+  }
+
+  /**
+   * The newest change of any kind for this account.
+   *
+   * `undefined` when the account has none, which the caller passes on as "no cursor to report" —
+   * not `0`, which would tell every other device to replay from the start of time.
+   */
+  async latestChangeSeq(): Promise<number | undefined> {
+    const row = await this.db
+      .prepare(`SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`)
+      .bind(this.userId)
+      .first<{ seq: number }>()
+    return row?.seq
+  }
+
+  /**
+   * Purge one page of trashed notes through every dependent table.
+   *
+   * The caller reads the page, hands the ids over and gets the batch results back, because it counts
+   * the notes actually deleted — the last statement of the batch, not the first.
+   */
+  async purgeTrashed(ids: string[], now: number): Promise<D1Result<unknown>[]> {
+    return await this.db.batch(
+      trashPurgeStatements(this.db, this.userId, JSON.stringify(ids), now, this.ftsEnabled),
+    ) as D1Result<unknown>[]
+  }
+
+  /**
+   * Move a live note to the trash.
+   *
+   * No readback: the caller answers with the row it already held, patched with the same `deleted_at`,
+   * `updated_at` and `rev` this batch wrote, so the client's revision matches without a second query.
+   */
+  async trash(input: NoteTrashInput): Promise<NoteMutationResult> {
+    const { current, now, nextRev } = input
+    const id = current.id
+    const guard = `EXISTS (SELECT 1 FROM notes
+      WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
+    const statements = [
+      this.db.prepare(
+        `UPDATE notes SET deleted_at = ?1, updated_at = ?1, rev = ?2
+          WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NULL`,
+      ).bind(now, nextRev, id, this.userId, current.rev),
+      this.db.prepare(`DELETE FROM links WHERE source_note_id = ?1 AND ${shiftSqlPlaceholders(guard, 1)}`)
+        .bind(id, id, this.userId, nextRev),
+      this.db.prepare(
+        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+          WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(id, this.userId, id, this.userId, nextRev),
+    ]
+    if (this.ftsEnabled) {
+      statements.push(
+        this.db.prepare(
+           `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+            SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+            ${FTS_QUEUE_CONFLICT_SQL}`,
+        ).bind(this.userId, id, now, id, this.userId, nextRev),
+      )
+    }
+    statements.push(
+      this.db.prepare(
+        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+           AND ${aiDeleteNeededSql('?1', '?2')}`,
+      ).bind(this.userId, id, now, id, this.userId, nextRev),
+    )
+    statements.push(
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+         RETURNING seq`,
+      ).bind(this.userId, id, now, id, this.userId, nextRev),
+    )
+    const results = await this.db.batch(statements)
+    return {
+      row: null,
+      changeSeq: (results.at(-1) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      applied: Boolean(results[0]?.meta.changes),
+    }
+  }
+
+  /**
+   * Bring a trashed note back, rebuilding the derived rows the trash dropped.
+   *
+   * The restore re-derives tags, links and index rows from the body as if the title had changed, so a
+   * note that comes back is searchable again without the client having to save it once more.
+   */
+  async restore(input: NoteRestoreInput): Promise<NoteMutationResult> {
+    const { current, now, nextRev } = input
+    const update = this.db.prepare(
+      `UPDATE notes SET deleted_at = NULL, updated_at = ?1, rev = ?2
+        WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NOT NULL`,
+    ).bind(now, nextRev, current.id, this.userId, current.rev)
+    const derived = buildNoteDerivedStatements({
+      db: this.db,
+      userId: this.userId,
+      noteId: current.id,
+      title: current.title,
+      content: current.content,
+      ftsEnabled: this.ftsEnabled,
+      titleChanged: true,
+      expectedRev: nextRev,
+      expectedContentHash: current.content_hash,
+      expectedTitle: current.title,
+      expectedUpdatedAt: now,
+    }).statements
+    const change = this.db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', ?2, 'upsert', ?3
+        WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)
+       RETURNING seq`,
+    ).bind(this.userId, current.id, now, nextRev)
+    const readback = this.db.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    ).bind(current.id, this.userId)
+    const batchResults = await this.db.batch([
+      update,
+      ...derived,
+      noteIndexQueueStatement(this.db, this.userId, current.id, 'embed', now),
+      change,
+      readback,
+    ])
+    return {
+      row: (batchResults.at(-1) as D1Result<NoteRow>).results?.[0] ?? null,
+      changeSeq: (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      applied: Boolean(batchResults[0]?.meta.changes),
+    }
+  }
+
+  /**
+   * Delete a trashed note for good, along with everything that pointed at it.
+   *
+   * Every statement is guarded on the same `id`/`user_id`/`rev`/`deleted_at` shape and the note delete
+   * rides in the same batch, so a note that came back to life mid-request loses nothing. The orphaned
+   * tags are pruned last: they can only be judged once this note's rows are gone.
+   */
+  async purge(current: NoteRow): Promise<{ changeSeq: number | undefined; deleted: boolean }> {
+    const id = current.id
+    const guard = `EXISTS (SELECT 1 FROM notes
+      WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
+    const guarded = (sql: string) => this.db
+      .prepare(`${sql} AND ${shiftSqlPlaceholders(guard, 1)}`)
+      .bind(id, id, this.userId, current.rev)
+    const statements: D1PreparedStatement[] = [
+      guarded(`DELETE FROM note_tags WHERE note_id = ?1`),
+      guarded(`DELETE FROM links WHERE source_note_id = ?1`),
+      this.db.prepare(
+        `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+          WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(id, this.userId, id, this.userId, current.rev),
+      guarded(`DELETE FROM note_versions WHERE note_id = ?1`),
+      this.db.prepare(
+        `DELETE FROM mcp_operations
+          WHERE user_id = ?1 AND instr(response_json, ?2) > 0
+            AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(this.userId, id, id, this.userId, current.rev),
+      this.db.prepare(
+        `DELETE FROM share_asset_sessions
+          WHERE slug IN (SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2)
+            AND ${shiftSqlPlaceholders(guard, 2)}`,
+      ).bind(id, this.userId, id, this.userId, current.rev),
+      guarded(`DELETE FROM shares WHERE note_id = ?1`),
+      guarded(`UPDATE attachments SET note_id = NULL WHERE note_id = ?1`),
+      this.db.prepare(
+        `DELETE FROM import_mappings
+          WHERE user_id = ?1 AND entity = 'note' AND target_id = ?2
+            AND EXISTS (SELECT 1 FROM notes
+              WHERE id = ?2 AND user_id = ?1 AND rev = ?3 AND deleted_at IS NOT NULL)`,
+      ).bind(this.userId, id, current.rev),
+    ]
+    if (this.ftsEnabled) {
+      statements.push(
+        this.db.prepare(
+           `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+            SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+            ${FTS_QUEUE_CONFLICT_SQL}`,
+        ).bind(this.userId, id, Date.now(), id, this.userId, current.rev),
+      )
+    }
+    statements.push(
+      this.db.prepare(
+        `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+           AND ${aiDeleteNeededSql('?1', '?2')}`,
+      ).bind(this.userId, id, Date.now(), id, this.userId, current.rev),
+    )
+    statements.push(
+      this.db.prepare(
+        `INSERT INTO changes (user_id, entity, entity_id, op, at)
+         SELECT ?1, 'note', ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
+         RETURNING seq`,
+      ).bind(this.userId, id, Date.now(), id, this.userId, current.rev),
+      this.db.prepare(
+        `DELETE FROM notes WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL`,
+      ).bind(id, this.userId, current.rev),
+      this.db.prepare(`DELETE FROM tags
+        WHERE user_id = ?1 AND is_manual = 0
+          AND NOT EXISTS (SELECT 1 FROM note_tags WHERE tag_id = tags.id)`)
+        .bind(this.userId),
+    )
+    const results = await this.db.batch(statements)
+    return {
+      changeSeq: (results.at(-3) as D1Result<{ seq: number }>).results?.[0]?.seq,
+      deleted: Boolean(results.at(-2)?.meta.changes),
+    }
+  }
+}
+
+/**
+ * The dependent-table cleanup for one page of trashed note ids, in the order the cascade
+ * needs: link retargeting before the notes go, share sessions before their shares.
+ * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account
+ * column to filter, so it takes the id page as `?1`), `?3` = timestamp.
+ *
+ * A free function rather than a method because the bulk purge builds it per page and the batch test
+ * builds it directly: neither wants a store that exists only to hold a connection.
+ */
+export function trashPurgeStatements(
+  db: D1Database,
+  userId: string,
+  idsJson: string,
+  now: number,
+  ftsEnabled: boolean,
+): D1PreparedStatement[] {
+  const inTrash = `IN (SELECT value FROM json_each(?2))`
+  const statements = [
+    db.prepare(
+      `DELETE FROM mcp_operations WHERE user_id = ?1 AND EXISTS (
+         SELECT 1 FROM json_each(?2) e WHERE instr(mcp_operations.response_json, e.value) > 0)`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM note_tags WHERE note_id IN (SELECT value FROM json_each(?1))`).bind(idsJson),
+    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND source_note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
+        WHERE user_id = ?1 AND target_note_id ${inTrash}`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM note_versions WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `DELETE FROM share_asset_sessions WHERE slug IN (
+         SELECT slug FROM shares WHERE user_id = ?1 AND note_id ${inTrash}
+       )`,
+    ).bind(userId, idsJson),
+    db.prepare(`DELETE FROM shares WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(`UPDATE attachments SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
+    db.prepare(
+      `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
+    ).bind(userId, idsJson),
+  ]
+  if (ftsEnabled) {
+    statements.push(
+      db.prepare(
+        `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
+         SELECT ?1, id, 'delete', ?3
+           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
+         ${FTS_QUEUE_CONFLICT_SQL}`,
+      ).bind(userId, idsJson, now),
+    )
+  }
+  statements.push(
+    db.prepare(
+      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
+       SELECT ?1, id, 'delete', ?3
+         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
+           AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
+    ).bind(userId, idsJson, now),
+    db.prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at)
+       SELECT ?1, 'note', id, 'delete', ?3
+         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
+    ).bind(userId, idsJson, now),
+    db.prepare(
+      `DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
+    ).bind(userId, idsJson),
+  )
+  return statements
 }

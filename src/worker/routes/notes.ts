@@ -28,7 +28,6 @@ import {
   buildNoteDerivedStatements,
   rebuildDerivedFields,
   INLINE_REWRITE_LIMIT,
-  FTS_QUEUE_CONFLICT_SQL,
   REWRITE_CONCURRENCY,
   REWRITE_LOAD_CHUNK,
   rewriteQueueStatement,
@@ -42,7 +41,7 @@ import { isValidId, newId } from '../lib/id'
 import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { aiDeleteNeededSql, noteIndexQueueStatement, scheduleAiDrainForNote } from '../mcp/ai-search'
+import { noteIndexQueueStatement, scheduleAiDrainForNote } from '../mcp/ai-search'
 
 export const notesRoutes = new Hono<AppBindings>()
 
@@ -114,34 +113,24 @@ notesRoutes.get('/', async (c) => {
 
 notesRoutes.post('/trash/empty', async (c) => {
   const userId = c.get('userId')
-  const { ftsEnabled } = c.get('database')
+  const s = store(c)
   let purged = 0
   let deletionCursor: number | undefined
 
   // One statement per dependent table, over 500 ids at a time. The old shape inlined the same
   // unbounded `SELECT id FROM notes WHERE deleted_at IS NOT NULL` into 8 statements, so a 20k
   // note trash walked 8×20k rows inside a single D1 request and hit its CPU ceiling.
-  const trashedIds = c.env.DB.prepare(
-    `SELECT id FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id > ?2
-      ORDER BY id ASC LIMIT ?3`,
-  )
   let cursor = ''
   for (;;) {
-    const { results } = await trashedIds.bind(userId, cursor, TRASH_EMPTY_BATCH).all<{ id: string }>()
-    if (!results.length) break
-    const ids = results.map((row) => row.id)
+    const ids = await s.trashedNoteIdsAfter(cursor, TRASH_EMPTY_BATCH)
+    if (!ids.length) break
     cursor = ids[ids.length - 1]!
-    const idsJson = JSON.stringify(ids)
-    const statements = trashPurgeStatements(c.env.DB, userId, idsJson, Date.now(), ftsEnabled)
-    const batchResults = await c.env.DB.batch(statements)
+    const batchResults = await s.purgeTrashed(ids, Date.now())
     purged += batchResults.at(-1)?.meta.changes ?? 0
-    if (results.length < TRASH_EMPTY_BATCH) break
+    if (ids.length < TRASH_EMPTY_BATCH) break
   }
   if (purged) {
-    const latest = await c.env.DB.prepare(
-      `SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1`,
-    ).bind(userId).first<{ seq: number }>()
-    deletionCursor = latest?.seq
+    deletionCursor = await s.latestChangeSeq()
     scheduleFtsDrain(c)
   }
   await pruneOrphanTags(c.env.DB, userId)
@@ -150,71 +139,10 @@ notesRoutes.post('/trash/empty', async (c) => {
 })
 
 /**
- * The dependent-table cleanup for one page of trashed note ids, in the order the cascade
- * needs: link retargeting before the notes go, share sessions before their shares.
- * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account
- * column to filter, so it takes the id page as `?1`), `?3` = timestamp.
+ * The trashed notes of one account are purged page by page; `notesRoutes.post('/trash/empty')` is the
+ * only HTTP caller, and `tests/trash-purge-batch.test.ts` builds the statements directly.
  */
-export function trashPurgeStatements(
-  db: D1Database,
-  userId: string,
-  idsJson: string,
-  now: number,
-  ftsEnabled: boolean,
-): D1PreparedStatement[] {
-  const inTrash = `IN (SELECT value FROM json_each(?2))`
-  const statements = [
-    db.prepare(
-      `DELETE FROM mcp_operations WHERE user_id = ?1 AND EXISTS (
-         SELECT 1 FROM json_each(?2) e WHERE instr(mcp_operations.response_json, e.value) > 0)`,
-    ).bind(userId, idsJson),
-    db.prepare(`DELETE FROM note_tags WHERE note_id IN (SELECT value FROM json_each(?1))`).bind(idsJson),
-    db.prepare(`DELETE FROM links WHERE user_id = ?1 AND source_note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(
-      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-        WHERE user_id = ?1 AND target_note_id ${inTrash}`,
-    ).bind(userId, idsJson),
-    db.prepare(`DELETE FROM note_versions WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(
-      `DELETE FROM share_asset_sessions WHERE slug IN (
-         SELECT slug FROM shares WHERE user_id = ?1 AND note_id ${inTrash}
-       )`,
-    ).bind(userId, idsJson),
-    db.prepare(`DELETE FROM shares WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(`UPDATE attachments SET note_id = NULL WHERE user_id = ?1 AND note_id ${inTrash}`).bind(userId, idsJson),
-    db.prepare(
-      `DELETE FROM import_mappings WHERE user_id = ?1 AND entity = 'note' AND target_id ${inTrash}`,
-    ).bind(userId, idsJson),
-  ]
-  if (ftsEnabled) {
-    statements.push(
-      db.prepare(
-        `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-         SELECT ?1, id, 'delete', ?3
-           FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
-         ${FTS_QUEUE_CONFLICT_SQL}`,
-      ).bind(userId, idsJson, now),
-    )
-  }
-  statements.push(
-    db.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, id, 'delete', ?3
-         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}
-           AND ${aiDeleteNeededSql('?1', 'notes.id')}`,
-    ).bind(userId, idsJson, now),
-    db.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', id, 'delete', ?3
-         FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
-    ).bind(userId, idsJson, now),
-    db.prepare(
-      `DELETE FROM notes WHERE user_id = ?1 AND deleted_at IS NOT NULL AND id ${inTrash}`,
-    ).bind(userId, idsJson),
-  )
-  return statements
-}
-
+export { trashPurgeStatements } from '../notes/store'
 
 notesRoutes.get('/:id', async (c) => {
   return c.json(await loadNote(store(c), c.req.param('id')))
@@ -514,58 +442,17 @@ notesRoutes.patch('/:id', async (c) => {
 })
 
 notesRoutes.delete('/:id', async (c) => {
-  const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
-
-  const row = await loadNoteRow(store(c), id)
+  const s = store(c)
+  const row = await loadNoteRow(s, id)
   if (row.deleted_at !== null) throw ApiError.notFound('The note does not exist or is in the trash')
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1
-  const guard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
-  const statements = [
-    c.env.DB.prepare(
-      `UPDATE notes SET deleted_at = ?1, updated_at = ?1, rev = ?2
-        WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NULL`,
-    ).bind(now, nextRev, id, userId, row.rev),
-    c.env.DB.prepare(`DELETE FROM links WHERE source_note_id = ?1 AND ${shiftSqlPlaceholders(guard, 1)}`)
-      .bind(id, id, userId, nextRev),
-    c.env.DB.prepare(
-      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-        WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(id, userId, id, userId, nextRev),
-  ]
-  if (ftsEnabled) {
-    statements.push(
-      c.env.DB.prepare(
-         `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-          SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-          ${FTS_QUEUE_CONFLICT_SQL}`,
-      ).bind(userId, id, now, id, userId, nextRev),
-    )
+  const { applied, changeSeq } = await s.trash({ current: row, now, nextRev })
+  if (!applied) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-         AND ${aiDeleteNeededSql('?1', '?2')}`,
-    ).bind(userId, id, now, id, userId, nextRev),
-  )
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'upsert', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-       RETURNING seq`,
-    ).bind(userId, id, now, id, userId, nextRev),
-  )
-  const results = await c.env.DB.batch(statements)
-  const updated = results[0]
-  if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(store(c), id) })
-  }
-  const changeResult = results.at(-1) as D1Result<{ seq: number }> | undefined
-  await broadcastCursor(c, changeResult?.results?.[0]?.seq)
+  await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   const note = toNote({ ...row, deleted_at: now, updated_at: now, rev: nextRev })
   return c.json(note)
@@ -574,132 +461,32 @@ notesRoutes.delete('/:id', async (c) => {
 notesRoutes.post('/:id/restore', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
-  const row = await loadNoteRow(store(c), id)
+  const s = store(c)
+  const row = await loadNoteRow(s, id)
   if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
   await assertNoteQuota(c.env.DB, userId)
 
   const now = Math.max(Date.now(), row.updated_at + 1)
   const nextRev = row.rev + 1
-  const update = c.env.DB.prepare(
-    `UPDATE notes SET deleted_at = NULL, updated_at = ?1, rev = ?2
-      WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NOT NULL`,
-  ).bind(now, nextRev, id, userId, row.rev)
-  const derived = buildNoteDerivedStatements({
-    db: c.env.DB,
-    userId,
-    noteId: id,
-    title: row.title,
-    content: row.content,
-    ftsEnabled,
-    titleChanged: true,
-    expectedRev: nextRev,
-    expectedContentHash: row.content_hash,
-    expectedTitle: row.title,
-    expectedUpdatedAt: now,
-  }).statements
-  const change = c.env.DB.prepare(
-    `INSERT INTO changes (user_id, entity, entity_id, op, at)
-     SELECT ?1, 'note', ?2, 'upsert', ?3
-      WHERE EXISTS (SELECT 1 FROM notes WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND deleted_at IS NULL)
-     RETURNING seq`,
-  ).bind(userId, id, now, nextRev)
-  const readback = c.env.DB.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId)
-  const batchResults = await c.env.DB.batch([
-    update,
-    ...derived,
-    noteIndexQueueStatement(c.env.DB, userId, id, 'embed', now),
-    change,
-    readback,
-  ])
-  const updated = batchResults[0]
-  if (!updated?.meta.changes) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(store(c), id) })
+  const { applied, row: restored, changeSeq } = await s.restore({ current: row, now, nextRev })
+  if (!applied) {
+    throw ApiError.conflict('This note was modified elsewhere', { server: await loadNote(s, id) })
   }
-  const changeSeq = (batchResults.at(-2) as D1Result<{ seq: number }>).results?.[0]?.seq
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
-  const note = toNote((batchResults.at(-1) as D1Result<NoteRow>).results[0]!)
-  return c.json(note)
+  return c.json(toNote(restored!))
 })
 
 notesRoutes.delete('/:id/purge', async (c) => {
-  const userId = c.get('userId')
   const id = c.req.param('id')
-  const { ftsEnabled } = c.get('database')
-  const row = await loadNoteRow(store(c), id)
+  const s = store(c)
+  const row = await loadNoteRow(s, id)
   if (row.deleted_at === null) throw ApiError.notFound('The note does not exist or is not in the trash')
-  const guard = `EXISTS (SELECT 1 FROM notes
-    WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL)`
-  const guarded = (sql: string) => c.env.DB
-    .prepare(`${sql} AND ${shiftSqlPlaceholders(guard, 1)}`)
-    .bind(id, id, userId, row.rev)
-  const statements: D1PreparedStatement[] = [
-    guarded(`DELETE FROM note_tags WHERE note_id = ?1`),
-    guarded(`DELETE FROM links WHERE source_note_id = ?1`),
-    c.env.DB.prepare(
-      `UPDATE links SET target_note_id = ${LINK_TARGET_SUBQUERY}
-        WHERE target_note_id = ?1 AND user_id = ?2 AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(id, userId, id, userId, row.rev),
-    guarded(`DELETE FROM note_versions WHERE note_id = ?1`),
-    c.env.DB.prepare(
-      `DELETE FROM mcp_operations
-        WHERE user_id = ?1 AND instr(response_json, ?2) > 0
-          AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(userId, id, id, userId, row.rev),
-    c.env.DB.prepare(
-      `DELETE FROM share_asset_sessions
-        WHERE slug IN (SELECT slug FROM shares WHERE note_id = ?1 AND user_id = ?2)
-          AND ${shiftSqlPlaceholders(guard, 2)}`,
-    ).bind(id, userId, id, userId, row.rev),
-    guarded(`DELETE FROM shares WHERE note_id = ?1`),
-    guarded(`UPDATE attachments SET note_id = NULL WHERE note_id = ?1`),
-    c.env.DB.prepare(
-      `DELETE FROM import_mappings
-        WHERE user_id = ?1 AND entity = 'note' AND target_id = ?2
-          AND EXISTS (SELECT 1 FROM notes
-            WHERE id = ?2 AND user_id = ?1 AND rev = ?3 AND deleted_at IS NOT NULL)`,
-    ).bind(userId, id, row.rev),
-  ]
-  if (ftsEnabled) {
-    statements.push(
-      c.env.DB.prepare(
-         `INSERT INTO fts_index_queue (user_id, note_id, kind, created_at)
-          SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-          ${FTS_QUEUE_CONFLICT_SQL}`,
-      ).bind(userId, id, Date.now(), id, userId, row.rev),
-    )
-  }
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-         AND ${aiDeleteNeededSql('?1', '?2')}`,
-    ).bind(userId, id, Date.now(), id, userId, row.rev),
-  )
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at)
-       SELECT ?1, 'note', ?2, 'delete', ?3 WHERE ${shiftSqlPlaceholders(guard, 3)}
-       RETURNING seq`,
-    ).bind(userId, id, Date.now(), id, userId, row.rev),
-    c.env.DB.prepare(
-      `DELETE FROM notes WHERE id = ?1 AND user_id = ?2 AND rev = ?3 AND deleted_at IS NOT NULL`,
-    ).bind(id, userId, row.rev),
-    c.env.DB.prepare(`DELETE FROM tags
-      WHERE user_id = ?1 AND is_manual = 0
-        AND NOT EXISTS (SELECT 1 FROM note_tags WHERE tag_id = tags.id)`)
-      .bind(userId),
-  )
-  const results = await c.env.DB.batch(statements)
-  const changeResult = results.at(-3) as D1Result<{ seq: number }> | undefined
-  const deleted = results.at(-2)
-  if (!deleted?.meta.changes) throw ApiError.conflict('Note state changed. Refresh and try again')
-  const broadcastedCursor = await broadcastCursor(c, changeResult?.results?.[0]?.seq)
-  const deletionCursor = changeResult?.results[0]?.seq
+  const { changeSeq, deleted } = await s.purge(row)
+  if (!deleted) throw ApiError.conflict('Note state changed. Refresh and try again')
+  const broadcastedCursor = await broadcastCursor(c, changeSeq)
+  const deletionCursor = changeSeq
   scheduleFtsDrain(c)
   return c.json({
     ok: true,
