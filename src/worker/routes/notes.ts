@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt, extractTags, foldCase, foldIndexOf, likePattern, linkFirstMention, normalizeLinkKey, plainLinkText, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
+import { countText, deriveExcerpt, extractTags, foldCase, foldIndexOf, linkFirstMention, normalizeLinkKey, plainLinkText, replaceWikiLinkTarget, trimFrontMatterLead } from '@shared/markdown-utils'
 import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
@@ -13,8 +14,13 @@ import type {
 } from '@shared/types'
 import { buildFtsQuery } from './search'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, tagScopePredicate, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
+import { NOTE_COLUMNS_FULL, splitTags, toNote, toNoteSummary, type NoteRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
+import {
+  NotesStore,
+  type NotesListCursor,
+  type ParsedNotesListCursor,
+} from '../notes/store'
 import { acquireLease } from '../lib/lease'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import {
@@ -45,28 +51,23 @@ const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
 
 const SNAPSHOT_DIFF_THRESHOLD = 400
 
-interface NotesListCursor {
-  view: ViewKind
-  sort: SortKey
-  order: SortOrder
-  pinned: number
-  value: string | number
-  id: string
-}
-
-type ParsedNotesListCursor =
-  | { kind: 'first' }
-  | { kind: 'legacy'; offset: number }
-  | { kind: 'keyset'; cursor: NotesListCursor }
-
 const NOTE_VIEWS = new Set<ViewKind>(['all', 'recent', 'starred', 'unfiled', 'untagged', 'archived', 'trash', 'folder', 'tag'])
 const NOTE_SORTS = new Set<SortKey>(['updated', 'created', 'title'])
 /** Ids per dependent-table delete when emptying the trash. */
 const TRASH_EMPTY_BATCH = 500
 
+/**
+ * The persistence layer for these routes, bound to the account the request authenticated as.
+ *
+ * Same shape as `assistant.ts`: the route parses and validates, asks the store for a record, and
+ * turns that record into a response; no statement is built here.
+ */
+function store(c: Context<AppBindings>): NotesStore {
+  return new NotesStore(c.env.DB, c.get('userId'))
+}
+
 
 notesRoutes.get('/', async (c) => {
-  const userId = c.get('userId')
   const requestedView = c.req.query('view') as ViewKind | undefined
   const requestedSort = c.req.query('sort') as SortKey | undefined
   const view = requestedView && NOTE_VIEWS.has(requestedView) ? requestedView : 'all'
@@ -75,141 +76,27 @@ notesRoutes.get('/', async (c) => {
   const limit = clampInt(c.req.query('limit'), 1, 1000, 500)
   const cursor = parseNotesListCursor(c.req.query('cursor'), view, sort, order)
 
-  const binds: unknown[] = [userId]
-  let where = 'n.user_id = ?1'
+  const folderId = view === 'folder' ? c.req.query('folderId') : undefined
+  if (view === 'folder' && !folderId) throw ApiError.badRequest('Missing folderId')
 
-  if (view === 'trash') {
-    where += ' AND n.deleted_at IS NOT NULL'
-  } else {
-    where += ' AND n.deleted_at IS NULL'
-    where += view === 'archived' ? ' AND n.is_archived = 1' : ' AND n.is_archived = 0'
-  }
-
-  if (view === 'starred') where += ' AND n.is_starred = 1'
-  if (view === 'unfiled') where += ' AND n.folder_id IS NULL'
-  if (view === 'untagged') {
-    where += ' AND NOT EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id)'
-  }
-
-  if (view === 'folder') {
-    const folderId = c.req.query('folderId')
-    if (!folderId) throw ApiError.badRequest('Missing folderId')
-    binds.push(folderId)
-    where += ` AND n.folder_id = ?${binds.length}`
-  }
-
-  // Several `tag` params combine with AND, and each one also matches its whole subtree so the
-  // rolled-up count in the sidebar and the result set agree. Both halves have to stay in step
-  // with tagInScope(), which spells the same rule in TypeScript for the offline shell.
-  const excludedScopes = [...new Set(new URL(c.req.url).searchParams.getAll('excludeTag'))]
+  const excludeTags = [...new Set(new URL(c.req.url).searchParams.getAll('excludeTag'))]
     .map((value) => value.trim())
     .filter(Boolean)
     .slice(0, LIMITS.tagFilterMax)
-  for (const scope of excludedScopes) {
-    binds.push(scope.trim(), likePattern(`${scope.trim()}/`))
-    const nameBind = binds.length - 1
-    const prefixBind = binds.length
-    where += ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-                   WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
-  }
 
+  let tags: string[] | undefined
   if (view === 'tag') {
-    const tags = [...new Set(new URL(c.req.url).searchParams.getAll('tag'))]
+    tags = [...new Set(new URL(c.req.url).searchParams.getAll('tag'))]
       .map((value) => value.trim())
       .filter(Boolean)
       .slice(0, LIMITS.tagFilterMax)
     if (!tags.length) throw ApiError.badRequest('Missing tag')
-    for (const tag of tags) {
-      binds.push(tag, likePattern(`${tag}/`))
-      const nameBind = binds.length - 1
-      const prefixBind = binds.length
-      where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-                   WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
-    }
   }
 
-  const countWhere = where
-  const countBinds = [...binds]
+  // The store returns one row past the page so the route can decide `nextCursor` from the row it
+  // would have dropped, and keeps the total only when a fresh count was worth the scan.
+  const { rows, total } = await store(c).list({ view, sort, order, limit, cursor, folderId, tags, excludeTags })
 
-  const dir = order === 'asc' ? 'ASC' : 'DESC'
-  const valueColumn = view === 'trash'
-    ? 'n.deleted_at'
-    : sort === 'created'
-      ? 'n.created_at'
-      : sort === 'title'
-        ? 'n.title'
-        : 'n.updated_at'
-  const valueCollation = sort === 'title' && view !== 'trash' ? ' COLLATE NOCASE' : ''
-  const orderBy =
-    view === 'trash'
-      ? `n.deleted_at ${dir}, n.id ASC`
-      : ({
-          updated: `n.is_pinned DESC, n.updated_at ${dir}, n.id ASC`,
-          created: `n.is_pinned DESC, n.created_at ${dir}, n.id ASC`,
-          title: `n.is_pinned DESC, n.title COLLATE NOCASE ${dir}, n.id ASC`,
-        }[sort] ?? `n.is_pinned DESC, n.updated_at ${dir}, n.id ASC`)
-
-  if (cursor.kind === 'keyset') {
-    const comparison = order === 'asc' ? '>' : '<'
-    if (view === 'trash') {
-      binds.push(cursor.cursor.value, cursor.cursor.value, cursor.cursor.id)
-      const valueBind = binds.length - 2
-      const repeatedValueBind = binds.length - 1
-      const idBind = binds.length
-      where += ` AND (${valueColumn}${valueCollation} ${comparison} ?${valueBind}
-        OR (${valueColumn}${valueCollation} = ?${repeatedValueBind} AND n.id > ?${idBind}))`
-    } else {
-      binds.push(
-        cursor.cursor.pinned,
-        cursor.cursor.pinned,
-        cursor.cursor.value,
-        cursor.cursor.value,
-        cursor.cursor.id,
-      )
-      const firstPinnedBind = binds.length - 4
-      const repeatedPinnedBind = binds.length - 3
-      const valueBind = binds.length - 2
-      const repeatedValueBind = binds.length - 1
-      const idBind = binds.length
-      where += ` AND (n.is_pinned < ?${firstPinnedBind}
-        OR (n.is_pinned = ?${repeatedPinnedBind} AND (
-          ${valueColumn}${valueCollation} ${comparison} ?${valueBind}
-          OR (${valueColumn}${valueCollation} = ?${repeatedValueBind} AND n.id > ?${idBind})
-        )))`
-    }
-  }
-
-  const pageFrom = cursor.kind === 'legacy'
-    ? `FROM notes n WHERE ${where} ORDER BY ${orderBy}
-       LIMIT ?${binds.length + 1} OFFSET ?${binds.length + 2}`
-    : `FROM notes n WHERE ${where} ORDER BY ${orderBy}
-       LIMIT ?${binds.length + 1}`
-  const pageBinds = cursor.kind === 'legacy'
-    ? [...binds, limit + 1, cursor.offset]
-    : [...binds, limit + 1]
-  const listStatement = c.env.DB.prepare(`SELECT ${NOTE_COLUMNS_NOTAGS} ${pageFrom}`).bind(...pageBinds)
-  const tagStatement = c.env.DB.prepare(noteTagsQueryForPage(pageFrom)).bind(...pageBinds)
-  // A keyset page continues a listing the client already counted; re-counting scans every
-  // visible row (up to LIMITS.notesMaxPerUser) again on each page turn.
-  const countTotal = cursor.kind !== 'keyset'
-  const results = await c.env.DB.batch(countTotal
-    ? [
-        c.env.DB.prepare(`SELECT COUNT(*) AS total FROM notes n WHERE ${countWhere}`).bind(...countBinds),
-        listStatement,
-        tagStatement,
-      ]
-    : [listStatement, tagStatement])
-  const [countResult, listResult, tagResult] = countTotal
-    ? results
-    : [undefined, results[0], results[1]]
-
-  const total = countTotal
-    ? Number((countResult?.results?.[0] as { total?: unknown } | undefined)?.total ?? 0)
-    : null
-  const rows = listResult?.results as NoteRow[] | undefined ?? []
-  attachNoteTags(rows, (tagResult?.results as NoteTagRow[] | undefined) ?? [])
   const pageRows = rows.slice(0, limit)
   const notes = pageRows.map(toNoteSummary)
   const body: ListNotesResponse = {
