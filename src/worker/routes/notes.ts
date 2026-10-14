@@ -13,7 +13,7 @@ import type {
 } from '@shared/types'
 import { buildFtsQuery } from './search'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
+import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, tagScopePredicate, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
 import { acquireLease } from '../lib/lease'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
@@ -111,8 +111,7 @@ notesRoutes.get('/', async (c) => {
     const prefixBind = binds.length
     where += ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
                    WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND (t.name = ?${nameBind} COLLATE NOCASE
-                       OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`
+                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
   }
 
   if (view === 'tag') {
@@ -127,8 +126,7 @@ notesRoutes.get('/', async (c) => {
       const prefixBind = binds.length
       where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
                    WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND (t.name = ?${nameBind} COLLATE NOCASE
-                       OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`
+                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
     }
   }
 

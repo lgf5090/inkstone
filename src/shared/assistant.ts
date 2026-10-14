@@ -493,11 +493,19 @@ export function titleFromMessage(message: string): string {
   return breakAt > 0 ? cut.slice(0, breakAt) : cut
 }
 
-/** One of the reader's own tags, as the chat list shows it. Tags live in the note tag table. */
+/**
+ * One of the reader's own tags, as the chat list shows it. Tags live in the note tag table.
+ *
+ * `isPinned` is optional because the two producers are different reads of that table: the filter list
+ * carries it so the assistant can pin like the notebook sidebar does, while the chips shown on a
+ * conversation are just its labels. A consumer that has to sort or group on it should treat a missing
+ * value as unpinned rather than guess.
+ */
 export interface ConversationTag {
   id: string
   name: string
   color: string | null
+  isPinned?: boolean
 }
 
 /** How many files one message may carry: enough for a comparison, small enough for one request body. */

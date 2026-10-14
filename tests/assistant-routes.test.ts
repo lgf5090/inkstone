@@ -949,6 +949,39 @@ describe('filing conversations', () => {
     expect(left.n).toBe(0)
   })
 
+  it('narrows a tag filter to the whole subtree, the way the folder filter does', async () => {
+    const TAG_WORKFLOW = oid('tw1')
+    addTag(TAG_RED, 'work')
+    addTag(TAG_BLUE, 'work/meeting')
+    addTag(TAG_WORKFLOW, 'workflow')
+    const parent = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Roadmap' })
+    const child = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Standup' })
+    const unrelated = await call<{ conversation: AssistantConversation }>('POST', '/api/assistant/conversations', { title: 'Groceries' })
+    await call('POST', `/api/assistant/conversations/${parent.conversation.id}/tags`, { tagId: TAG_RED })
+    await call('POST', `/api/assistant/conversations/${child.conversation.id}/tags`, { tagId: TAG_BLUE })
+    await call('POST', `/api/assistant/conversations/${unrelated.conversation.id}/tags`, { tagId: TAG_WORKFLOW })
+
+    // `work` now answers for `work/meeting` too, and a tag that merely starts with the same letters
+    // stays out: the `/` boundary is what separates the two.
+    const subtree = await call<{ conversations: AssistantConversation[] }>('GET', `/api/assistant/conversations?tag=${TAG_RED}`)
+    expect(subtree.conversations.map((entry) => entry.id).sort()).toEqual(
+      [child.conversation.id, parent.conversation.id].sort(),
+    )
+    const exact = await call<{ conversations: AssistantConversation[] }>('GET', `/api/assistant/conversations?tag=${TAG_BLUE}`)
+    expect(exact.conversations.map((entry) => entry.id)).toEqual([child.conversation.id])
+  })
+
+  it('orders the chat tag list case-insensitively and reports which tags are pinned', async () => {
+    addTag(TAG_RED, 'Zebra')
+    addTag(TAG_BLUE, 'apple')
+    sqlite.prepare('UPDATE tags SET is_pinned = 1 WHERE id = ?1 AND user_id = ?2').run(TAG_BLUE, USER)
+
+    const tags = await call<{ tags: { id: string, name: string, isPinned?: boolean }[] }>('GET', '/api/assistant/tags')
+    expect(tags.tags.map((tag) => tag.name)).toEqual(['apple', 'Zebra'])
+    expect(tags.tags.find((tag) => tag.name === 'apple')?.isPinned).toBe(true)
+    expect(tags.tags.find((tag) => tag.name === 'Zebra')?.isPinned).toBe(false)
+  })
+
   it('carries the folder and the tags through a backup round-trip', async () => {
     addFolder(FOLDER_A, '项目')
     addTag(TAG_RED, 'urgent')

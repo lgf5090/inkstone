@@ -5,7 +5,7 @@ import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { assertOrganizerQuota } from '../db/quota'
-import { toTag, tagSelectQuery, type TagRow } from '../db/rows'
+import { toTag, tagSelectQuery, tagScopePredicate, type TagRow } from '../db/rows'
 import {
   buildNoteDerivedStatements,
   INLINE_REWRITE_LIMIT,
@@ -403,7 +403,7 @@ export async function planTagFamily(
 ): Promise<TagFamilyStep[]> {
   const { results: family } = await db.prepare(
     `SELECT id, name FROM tags
-      WHERE user_id = ?1 AND (name = ?2 COLLATE NOCASE OR name LIKE ?3 COLLATE NOCASE ESCAPE '\\')
+      WHERE user_id = ?1 AND ${tagScopePredicate('name', '?2', '?3')}
       ORDER BY length(name) DESC, name COLLATE NOCASE`,
   ).bind(userId, root.name, likePattern(`${root.name}/`)).all<{ id: string; name: string }>()
 

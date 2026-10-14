@@ -7,7 +7,7 @@ import { emptyParsedQuery, parseQuery, type ParsedQuery } from '@shared/search-q
 import type { GraphResponse, SearchDocumentItem, SearchDocumentsResponse, SearchHit, SearchResponse } from '@shared/types'
 import type { AppBindings } from '../env'
 import { FTS_DRAIN_ALL_BATCH, purgeStaleFtsRows, queueAllNotesForFtsIndex } from '../db/fts'
-import { NOTE_COLUMNS, toNoteSummary, type NoteRow } from '../db/rows'
+import { NOTE_COLUMNS, tagScopePredicate, toNoteSummary, type NoteRow } from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { acquireLease } from '../lib/lease'
@@ -249,7 +249,7 @@ function applyFilters(q: ParsedQuery, binds: unknown[], userIdParam: number, app
     append(
       ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
           WHERE nt.note_id = n.id AND t.user_id = n.user_id
-            AND (t.name = ?${nameBind} COLLATE NOCASE OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`,
+            AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`,
     )
   }
   for (const tag of q.excludedTags) {
@@ -259,7 +259,7 @@ function applyFilters(q: ParsedQuery, binds: unknown[], userIdParam: number, app
     append(
       ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
           WHERE nt.note_id = n.id AND t.user_id = n.user_id
-            AND (t.name = ?${nameBind} COLLATE NOCASE OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`,
+            AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`,
     )
   }
   if (q.folder) {
