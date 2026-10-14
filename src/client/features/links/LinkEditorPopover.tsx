@@ -8,6 +8,7 @@ import { usePinyinVersion } from '../../lib/pinyin'
 import { getVisibleViewport } from '../../lib/viewport'
 import { Z_INDEX } from '../../lib/z-index'
 import { placePanel } from '../../components/popover-placement'
+import { useFilterInput } from '../../components/FilterInput'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { isSafeExternalUrl } from '../workspace/context-menu/line-edits'
@@ -390,13 +391,36 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
   const missing = targetState === 'missing-note' || targetState === 'missing-heading'
   const draft = { text, target }
   const listId = `link-editor-suggestions-${request.from}`
+  // Escape belongs to the panel while the target box is empty — it gives the whole edit back. Once the
+  // reader has typed something, the first Escape only takes that back out, and the second discards.
+  const onTargetKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Escape' && target)
+      return
+    onKeyDown(event)
+  }
+  // The suggestion box answers its own keys through the shared filter contract, which stops a key it
+  // took, so the panel below must not run the same step a second time for an event that started there.
+  const onPanelKeyDown = (event: React.KeyboardEvent): void => {
+    if (event.target !== targetRef.current)
+      onKeyDown(event)
+  }
+  const { field } = useFilterInput({
+    value: target,
+    inputRef: targetRef,
+    escapeWhenEmpty: 'release',
+    onClear: () => {
+      setTarget('')
+      setActive(-1)
+    },
+    onKeyDown: onTargetKeyDown,
+  })
 
   return createPortal(
     <div
       ref={panelRef}
       role="dialog"
       aria-label={t('links.editor')}
-      onKeyDown={onKeyDown}
+      onKeyDown={onPanelKeyDown}
       className={cn(
         'anim-pop fixed flex w-[330px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-[var(--r-lg)]',
         'border border-[var(--border-default)] bg-[var(--bg-overlay)] shadow-[var(--shadow-pop)]',
@@ -434,7 +458,7 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
         />
         <div className="relative">
           <input
-            ref={targetRef}
+            {...field}
             type="text"
             value={target}
             onChange={(event) => {
@@ -451,7 +475,9 @@ function LinkEditorPanel({ request }: { request: LinkEditorRequest }) {
             spellCheck={false}
             autoComplete="off"
             className={cn(
-              'h-7 w-full rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 pr-7 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-quaternary)]',
+              'h-7 w-full rounded-[var(--r-sm)] border bg-[var(--bg-base)] px-2 pr-7 text-[12.5px] text-[var(--text-primary)]',
+              'transition-[border-color,box-shadow] duration-[var(--dur-fast)] placeholder:text-[var(--text-quaternary)]',
+              'focus:shadow-[var(--shadow-ring-focus)] focus:outline-none',
               missing ? 'border-[var(--danger)]' : 'border-[var(--border-subtle)] focus:border-[var(--accent)]',
             )}
           />

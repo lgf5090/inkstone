@@ -7,6 +7,7 @@ import { Tooltip } from '../../components/overlay'
 import { t, useLocale } from '../../lib/i18n'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { sortCommunityItems, templateMatchesQuery, type CommunitySort } from './gallery-derived'
+import { TemplateTag } from './template-tag'
 
 export function CommunityPanel({ items, query, loading, isError, hasMore, myId, onRefresh, onLoadMore, onUse, onImport, onUnpublish }: {
   items: CommunityTemplate[]
@@ -110,7 +111,7 @@ function CommunityCard({ item, mine, onUse, onImport, onUnpublish }: {
     </div>
     {item.description && <p className='mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]'>{item.description}</p>}
     {item.tags.length > 0 && (<div className='mt-1.5 flex min-w-0 flex-wrap items-center gap-1'>
-      {item.tags.map((tag) => (<span key={tag} className='rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[10px] text-[var(--text-tertiary)]'>#{tag}</span>))}
+      {item.tags.map((tag) => (<TemplateTag key={tag} tag={tag}/>))}
     </div>)}
     <div className='relative z-10 mt-auto flex items-center gap-2 pt-2.5'>
       <span className='truncate text-[10.5px] text-[var(--text-quaternary)]'>{item.authorName}</span>

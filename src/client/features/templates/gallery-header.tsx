@@ -1,6 +1,7 @@
-import { type RefObject } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { HelpCircle, LayoutTemplate, MoreHorizontal, Plus, Search, SquareCheck, X } from 'lucide-react'
 import { Button, IconButton, Kbd } from '../../components/primitives'
+import { useFilterInput } from '../../components/FilterInput'
 import { Tooltip } from '../../components/overlay'
 import { useMediaQuery } from '../../lib/hooks'
 import { t } from '../../lib/i18n'
@@ -21,6 +22,11 @@ interface GalleryHeaderProps {
   onQueryChange: (value: string) => void
   searchRef: RefObject<HTMLInputElement | null>
   onSearchFocusChange: (focused: boolean) => void
+  /**
+   * The gallery's own keys, asked for before the shared filter contract decides what to do with the
+   * keystroke: ArrowDown is how the caret walks out of this box and into the grid below it.
+   */
+  onSearchKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   selectMode: boolean
   onToggleSelectMode: () => void
   onOpenHelp: () => void
@@ -35,6 +41,7 @@ export function GalleryHeader({
   onQueryChange,
   searchRef,
   onSearchFocusChange,
+  onSearchKeyDown,
   selectMode,
   onToggleSelectMode,
   onOpenHelp,
@@ -44,16 +51,26 @@ export function GalleryHeader({
   onClose,
 }: GalleryHeaderProps) {
   const roomy = useGalleryHeaderRoom()
+  // The app-wide filter contract for the keys, the gallery's own chrome for the box: Escape takes the
+  // query back out and only an empty box lets the dialog close, which is what the `data-owns-escape`
+  // mark below says to the overlay layers.
+  const { field, clear } = useFilterInput({
+    value: query,
+    inputRef: searchRef,
+    escapeWhenEmpty: 'release',
+    onClear: () => onQueryChange(''),
+    onKeyDown: onSearchKeyDown,
+  })
   return (
     <header className='flex shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] px-[var(--sp-4)] py-2.5 sm:gap-2.5'>
       <LayoutTemplate size={16} className='shrink-0 text-[var(--text-quaternary)]'/>
       {roomy && <h2 className='shrink-0 text-[14px] font-semibold tracking-[-0.012em] text-[var(--text-primary)]'>{t('templates.template_library')}</h2>}
       <div className='relative min-w-0 flex-1'>
         <Search size={13} aria-hidden='true' className='pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-quaternary)]'/>
-        <input ref={searchRef} data-owns-escape={query ? '1' : undefined} aria-label={t('templates.search_templates')} value={query} onChange={(event) => onQueryChange(event.target.value)} onFocus={() => onSearchFocusChange(true)} onBlur={() => onSearchFocusChange(false)} placeholder={t('templates.search_templates')} className='h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-8 pl-8 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none'/>
-        {query && (<button type='button' aria-label={t('common.clear')} onClick={() => onQueryChange('')} className='absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]'>
+        <input {...field} data-owns-escape={query ? '1' : undefined} type='search' aria-label={t('templates.search_templates')} value={query} onChange={(event) => onQueryChange(event.target.value)} onFocus={() => onSearchFocusChange(true)} onBlur={() => onSearchFocusChange(false)} placeholder={t('templates.search_templates')} className='h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-8 pl-8 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none [&::-webkit-search-cancel-button]:hidden'/>
+        {query && (<IconButton label={t('common.clear')} size='sm' onClick={clear} className='absolute top-1/2 right-1.5 -translate-y-1/2'>
           <X size={13}/>
-        </button>)}
+        </IconButton>)}
       </div>
       {roomy && (<Tooltip label={t('templates.select_mode')}>
         <IconButton label={t('templates.select_mode')} size='sm' active={selectMode} onClick={onToggleSelectMode} className='shrink-0'>

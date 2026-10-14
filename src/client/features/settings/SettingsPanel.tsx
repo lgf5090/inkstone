@@ -5,6 +5,7 @@ import { ACCENTS } from '@shared/constants';
 import { cn } from '../../lib/cn';
 import { splitByRanges } from '../../lib/fuzzy';
 import { Input } from '../../components/form';
+import { useFilterInput } from '../../components/FilterInput';
 import { Tooltip, useDialogFocus, useEscape, useLockScroll } from '../../components/overlay';
 import { Button, IconButton } from '../../components/primitives';
 import { SettingsLoading } from './SettingsLoading';
@@ -102,9 +103,9 @@ export function SettingsPanel({ onClose }: {
       .map((item) => ({ item, rows: hits.filter((hit) => hit.entry.section === item.id) }))
       .filter((group) => group.rows.length > 0), [hits]);
     const titleId = useId();
-    const clearSearch = () => {
-        setQuery('');
+    const focusSearch = () => {
         searchRef.current?.focus();
+        searchRef.current?.select();
     };
     const openHit = (hit: SettingsSearchHit) => {
         setQuery('');
@@ -123,9 +124,35 @@ export function SettingsPanel({ onClose }: {
         next?.focus();
         return true;
     };
+    // The box takes the app-wide filter contract — Escape takes the text back out, a composing input
+    // method keeps its own keys, and no other keystroke reaches a shortcut while a term is being typed
+    // — and keeps the panel's own arrows: ArrowDown and Enter walk into the result list. Escape with
+    // nothing to clear belongs to the dialog, so it is released rather than swallowed.
+    const { field, clear } = useFilterInput({
+        value: query,
+        inputRef: searchRef,
+        escapeWhenEmpty: 'release',
+        onClear: () => setQuery(''),
+        onKeyDown: (event) => {
+            if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
+                event.preventDefault();
+                focusSearch();
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                if (focusResults(1))
+                    event.preventDefault();
+                return;
+            }
+            if (event.key === 'Enter' && hits[0]) {
+                event.preventDefault();
+                openHit(hits[0]);
+            }
+        },
+    });
     useEscape(true, () => {
         if (searching)
-            clearSearch();
+            clear();
         else
             onClose();
     });
@@ -174,32 +201,17 @@ export function SettingsPanel({ onClose }: {
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
         if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
             event.preventDefault();
-            searchRef.current?.focus();
-            searchRef.current?.select();
+            focusSearch();
         }
       }} className="anim-pop relative flex h-full w-full max-w-[880px] flex-col overflow-hidden bg-[var(--bg-overlay)] pt-[env(safe-area-inset-top)] shadow-[var(--shadow-modal)] outline-none md:max-h-[720px] md:flex-row md:rounded-[var(--r-2xl)] md:border md:border-[var(--border-default)] md:pt-0">
         { }
         <nav className="flex w-full shrink-0 flex-col border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 md:w-[172px] md:border-r md:border-b-0">
           <div id={titleId} className="px-2 py-1.5 text-[13.5px] font-semibold tracking-[-0.012em] md:py-2.5">{t("common.settings")}</div>
           <div className="mb-2 md:mb-2.5">
-            <Input ref={searchRef} type="text" value={query} spellCheck={false} autoComplete="off" placeholder={t("settings.search_placeholder")} aria-label={t("settings.search_placeholder")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
-              if (event.key === 'Escape' && query) {
-                  event.stopPropagation();
-                  clearSearch();
-                  return;
-              }
-              if (event.key === 'ArrowDown' || event.key === 'Enter') {
-                  if (event.key === 'ArrowDown' && focusResults(1))
-                      event.preventDefault();
-                  else if (event.key === 'Enter' && hits[0]) {
-                      event.preventDefault();
-                      openHit(hits[0]);
-                  }
-              }
-            }} leading={<Search size={13} aria-hidden="true" className="pointer-events-none"/>} trailing={searching
-              ? <button type="button" aria-label={t("settings.search_clear")} onClick={clearSearch} className="flex size-4 items-center justify-center rounded-full text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
-                  <X size={12} aria-hidden="true"/>
-                </button>
+            <Input {...field} type="text" value={query} spellCheck={false} autoComplete="off" placeholder={t("settings.search_placeholder")} aria-label={t("settings.search_placeholder")} onChange={(event) => setQuery(event.target.value)} leading={<Search size={13} aria-hidden="true" className="pointer-events-none"/>} trailing={searching
+              ? <IconButton label={t("settings.search_clear")} size="sm" onClick={clear}>
+                  <X size={12}/>
+                </IconButton>
               : null}/>
           </div>
           <div className="flex gap-1 overflow-x-auto pb-1 md:block md:space-y-px md:overflow-visible md:pb-0">

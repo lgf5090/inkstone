@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ChevronDown, Clock, Search, X } from 'lucide-react';
 import { Tooltip } from '../../components/overlay';
+import { IconButton } from '../../components/primitives';
+import { useFilterInput } from '../../components/FilterInput';
 import { cn } from '../../lib/cn';
 import { t, useLocale, type MessageKey } from '../../lib/i18n';
 import { usePinyinVersion } from '../../lib/pinyin';
@@ -99,6 +101,7 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
         onInsert(tile.glyph, tile.entry?.code || null);
     };
 
+    // What the picker does with a navigation key, whichever control it was pressed on.
     const onKeyDown = (event: ReactKeyboardEvent) => {
         const moves: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: COLUMNS, ArrowUp: -COLUMNS };
         const delta = moves[event.key];
@@ -126,6 +129,18 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
         }
     };
 
+    // The shared filter contract over the picker's own box: Escape takes the typed name back out, and
+    // an empty box releases the key to the popover behind it. The picker's arrows and Enter are asked
+    // for here rather than by the event bubbling to the container below, because the contract stops a
+    // key it answers, and the container stands down for anything that started in the box.
+    const { field, clear } = useFilterInput({
+        value: query,
+        inputRef,
+        escapeWhenEmpty: 'release',
+        onClear: () => setQuery(''),
+        onKeyDown,
+    });
+
     const navItems = [
         ...(recentEmojis.length ? [{ id: RECENT_GROUP, label: t('emoji.recent'), icon: <Clock size={14}/>, tone: false }] : []),
         ...groups.map((item) => ({
@@ -136,18 +151,21 @@ export function EmojiPicker({ tone, onTone, onInsert }: {
         })),
     ];
 
-    return (<div className="flex flex-col" onKeyDown={onKeyDown}>
+    return (<div className="flex flex-col" onKeyDown={(event) => {
+        // The box answers its own navigation keys through the contract above, so the same step must not
+        // run a second time when the key reaches this container.
+        if (event.target === inputRef.current)
+            return;
+        onKeyDown(event);
+    }}>
       <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5">
         <label className="relative min-w-0 flex-1">
           <span className="sr-only">{t('emoji.search')}</span>
           <Search size={13} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-[var(--text-quaternary)]"/>
-          <input ref={inputRef} type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('emoji.search')} role="combobox" aria-expanded={true} aria-controls="emoji-grid" aria-activedescendant={tiles.length ? `${uid}-${active}` : undefined} autoComplete="off" spellCheck={false} className="h-8 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] pr-7 pl-7 text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)]"/>
-          {query && (<button type="button" aria-label={t('emoji.clear_search')} onClick={() => {
-                    setQuery('');
-                    inputRef.current?.focus();
-                }} className="absolute top-1/2 right-1.5 flex size-5 -translate-y-1/2 items-center justify-center rounded-full text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
-                <X size={11}/>
-              </button>)}
+          <input {...field} data-owns-escape={query ? '1' : undefined} type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('emoji.search')} role="combobox" aria-expanded={true} aria-controls="emoji-grid" aria-activedescendant={tiles.length ? `${uid}-${active}` : undefined} autoComplete="off" spellCheck={false} className="h-8 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] pr-7 pl-7 text-[12.5px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-[var(--accent)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"/>
+          {query && (<IconButton label={t('emoji.clear_search')} size="sm" onClick={clear} className="absolute top-1/2 right-1.5 -translate-y-1/2">
+            <X size={11}/>
+          </IconButton>)}
         </label>
         <Tooltip label={t('emoji.skin_tone')} side="bottom">
           <button type="button" aria-label={t('emoji.skin_tone')} aria-haspopup="true" aria-expanded={toneOpen} onClick={() => setToneOpen((current) => !current)} className="flex h-8 shrink-0 items-center gap-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-1.5 text-[14px] leading-none text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]">

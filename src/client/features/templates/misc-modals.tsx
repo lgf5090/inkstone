@@ -6,6 +6,7 @@ import { useUi } from '../../store/ui'
 import { Button, Kbd } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { t } from '../../lib/i18n'
+import { TemplateTag } from './template-tag'
 
 const HELP_MODAL_WIDTH = 440
 const PUBLISH_MODAL_WIDTH = 600
@@ -84,7 +85,7 @@ export function PublishTemplateDialog({ template, category, onClose, onPublished
           <span className='shrink-0 text-[10.5px] text-[var(--text-quaternary)]'>{category}</span>
         </div>
         {template.tags.length > 0 && (<div className='mt-1.5 flex flex-wrap items-center gap-1'>
-          {template.tags.map((tag) => (<span key={tag} className='rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[10px] text-[var(--text-tertiary)]'>#{tag}</span>))}
+          {template.tags.map((tag) => (<TemplateTag key={tag} tag={tag}/>))}
         </div>)}
         {template.description && <p className='mt-1.5 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]'>{template.description}</p>}
         <pre className='mt-2 max-h-55 overflow-y-auto text-[11px] leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)]'>{template.content}</pre>

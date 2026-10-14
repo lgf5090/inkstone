@@ -7,6 +7,7 @@ import { IconButton } from '../../components/primitives'
 import { Menu, Tooltip, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { cardClickAction } from './gallery-actions'
+import { TemplateTag } from './template-tag'
 
 const MENU_WIDTH = 200
 const CLOSED_MENU_ITEMS: MenuItem[] = []
@@ -230,9 +231,7 @@ function CardTagList({ tags }: { tags: string[] }) {
   return (
     <div className='pointer-events-none relative z-10 mt-1.5 flex min-w-0 flex-wrap items-center gap-1'>
       {tags.map((tag) => (
-        <span key={tag} className='rounded-full bg-[var(--bg-raised)] px-1.5 py-px text-[10px] text-[var(--text-tertiary)]'>
-          #{tag}
-        </span>
+        <TemplateTag key={tag} tag={tag}/>
       ))}
     </div>
   )

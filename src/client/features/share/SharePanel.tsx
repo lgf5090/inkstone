@@ -218,7 +218,7 @@ export function SharePanel({ onClose, targetNote, onChanged }: {
           {share && (<div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
               <div className="flex items-center gap-2">
                 <Link2 size={13} className="shrink-0 text-[var(--accent)]"/>
-                <input aria-label={t("share.public_link")} readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 bg-transparent font-mono text-[11.5px] text-[var(--text-secondary)] focus:outline-none"/>
+                <input aria-label={t("share.public_link")} readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 rounded-[var(--r-sm)] bg-transparent font-mono text-[11.5px] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"/>
                 <Button size="sm" variant={copied ? 'ghost' : 'secondary'} icon={copied ? <Check size={12} className="text-[var(--success)]"/> : <Copy size={12}/>} onClick={() => void copy()}>
                   {copied ? t("common.copied") : t("common.copy")}
                 </Button>
