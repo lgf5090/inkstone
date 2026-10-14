@@ -15,6 +15,7 @@ import { truncateText } from '@shared/text-utils'
 import type { Folder, Tag } from '@shared/types'
 import { Button, IconButton } from '../../../components/primitives'
 import { Swatch } from '../../../components/color-swatch'
+import { useFilterInput } from '../../../components/FilterInput'
 import { TagChip } from '../../../components/TagChip'
 import { Select, Segmented, Slider, Switch } from '../../../components/form'
 import { Drawer } from '../../../components/overlay'
@@ -183,10 +184,22 @@ function ColorRuleRow({ group, onChange, onRemove }: {
   onRemove: () => void
 }) {
   const labelId = useId()
+  // The rule's own box keeps the `<label htmlFor>` it already answers to and the row's geometry, and
+  // takes only the app-wide filter contract's keys: a key that arrives while an input method is
+  // composing an answer is not the drawer's to answer, and a keystroke spent writing a rule must not
+  // reach the graph's shortcuts behind it. Escape stays the drawer's — its `useEscape` listens on
+  // window in the capture phase and answers before this field is reached — so the field says
+  // `release` from its own side, and clearing is the delete control at the row's end rather than a
+  // second `X` inside the box.
+  const { field } = useFilterInput({
+    value: group.query,
+    onClear: () => onChange({ query: '' }),
+    escapeWhenEmpty: 'release',
+  })
   return <div className="space-y-1.5">
     <div className="flex items-center gap-1.5">
       <label htmlFor={labelId} className="sr-only">{t('graph.color_rule_query')}</label>
-      <input id={labelId} type="text" value={group.query} placeholder={t('graph.color_rule_query_hint')}
+      <input id={labelId} type="text" {...field} value={group.query} placeholder={t('graph.color_rule_query_hint')}
         onChange={(event) => onChange({ query: truncateText(event.target.value, GRAPH_COLOR_QUERY_MAX) })}
         className="h-8 min-w-0 flex-1 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2 text-[12px] outline-none placeholder:text-[var(--text-tertiary)]"/>
       <IconButton size="sm" label={t('common.delete')} onClick={onRemove}><Trash2 size={12}/></IconButton>

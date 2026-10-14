@@ -19,10 +19,12 @@ import {
   X,
 } from 'lucide-react'
 import type { GraphQuery, GraphResponse } from '@shared/types'
+import { DEBOUNCE } from '@shared/constants'
 import { deriveExcerpt } from '@shared/markdown-utils'
 import { api } from '../../lib/api'
 import { Button, IconButton } from '../../components/primitives'
 import { TagChip } from '../../components/TagChip'
+import { useFilterInput } from '../../components/FilterInput'
 import { Segmented } from '../../components/form'
 import { Menu, Tooltip, useDialogFocus, useEscape, useLockScroll, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -41,9 +43,7 @@ import {
 } from '../../lib/graph-settings'
 import {
   GRAPH_LEGEND_MAX,
-  GRAPH_PREFS_DEBOUNCE_MS,
   GRAPH_PREVIEW_SHOW_MS,
-  GRAPH_SEARCH_DEBOUNCE_MS,
 } from './graph-panel/constants'
 import { GraphCanvas } from './graph-panel/canvas'
 import { createGraphState } from './graph-panel/canvas'
@@ -72,7 +72,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const pinyinVersion = usePinyinVersion()
-  const query = useDebounced(search.trim(), GRAPH_SEARCH_DEBOUNCE_MS)
+  const query = useDebounced(search.trim(), DEBOUNCE.search)
   const [data, setData] = useState<GraphResponse | null>(null)
   const [pending, setPending] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -103,7 +103,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   useDialogFocus(true, panelRef)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => persistPreferences(prefs), GRAPH_PREFS_DEBOUNCE_MS)
+    const timer = window.setTimeout(() => persistPreferences(prefs), DEBOUNCE.persist)
     return () => window.clearTimeout(timer)
   }, [prefs])
 
@@ -350,6 +350,18 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     : undefined
   const firstHit = searchHits ? data?.nodes.find((node) => searchHits.has(node.id))?.id ?? null : null
 
+  // The header's box takes the app-wide filter contract for its keys — a key that arrives while an
+  // input method is composing an answer is not the panel's to answer, and no keystroke spent typing a
+  // term reaches the shortcuts behind it — and keeps its own chrome: the labelled pill it has always
+  // drawn and the status line beside it. Escape stays the panel's: `useEscape` above listens on window
+  // in the capture phase, so it answers the key before this field is reached, and `release` is what
+  // the field says from its own side, the same way the command palette's box does.
+  const { field: searchField, clear: clearSearch } = useFilterInput({
+    value: search,
+    onClear: () => setSearch(''),
+    escapeWhenEmpty: 'release',
+  })
+
   return createPortal(<div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     className="app-viewport-fixed fixed z-[230] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none md:py-0">
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 md:px-4">
@@ -382,9 +394,9 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
       <label className="flex h-8 min-w-[150px] flex-1 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-inset)] px-2.5 md:max-w-[320px]">
         <Search size={13} className="shrink-0 text-[var(--text-tertiary)]"/>
         <span className="sr-only">{t('graph.search_notes')}</span>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('graph.search_notes')}
-          className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--text-tertiary)]"/>
-        {search && <button type="button" aria-label={t('common.clear')} onClick={() => setSearch('')}><X size={12}/></button>}
+        <input type="search" {...searchField} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('graph.search_notes')}
+          className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:hidden"/>
+        {search && <IconButton label={t('common.clear')} size="sm" onClick={clearSearch}><X size={12}/></IconButton>}
       </label>
       {query && <div className="flex shrink-0 items-center gap-1">
         <span role="status" data-graph-search-status="" className="whitespace-nowrap text-[11.5px] text-[var(--text-tertiary)]">
