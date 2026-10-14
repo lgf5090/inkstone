@@ -157,6 +157,15 @@ const OVERLAY_SPEC: BlockOverlaySpec = {
     materialize: materializeFilter,
 };
 
+/**
+ * The filter box's ceiling, in characters.
+ *
+ * One number for two jobs: it is the `maxlength` the input carries and the length the delegated `input`
+ * handler slices the text to before writing it into the block's state. Those two disagreed in writing
+ * only, which is how a box ends up promising a length its own state then trims to something else.
+ */
+const FILTER_INPUT_MAX = 200;
+
 function materializeFilter(block: HTMLElement): void {
     if (block.querySelector(':scope > [data-json-filter]'))
         return;
@@ -168,7 +177,7 @@ function materializeFilter(block: HTMLElement): void {
     row.className = 'json-filter';
     row.dataset.jsonFilter = '';
     row.hidden = true;
-    row.innerHTML = `<input type="search" class="json-filter-input" data-json-filter-input placeholder="${escapeAttr(label)}" aria-label="${escapeAttr(label)}" maxlength="200">`;
+    row.innerHTML = `<input type="search" class="json-filter-input" data-json-filter-input placeholder="${escapeAttr(label)}" aria-label="${escapeAttr(label)}" maxlength="${FILTER_INPUT_MAX}">`;
     head.insertAdjacentElement('afterend', row);
 }
 
@@ -298,7 +307,7 @@ function wireFilter(block: HTMLElement): void {
         if (!ctx)
             return;
         const state = jsonBlockState(block, { view: 'source', fold: 2 }, ctx.sourceNoteId);
-        state.filter = input.value.slice(0, 200);
+        state.filter = input.value.slice(0, FILTER_INPUT_MAX);
         // The redraw guard in `draw` keys on mode|body|filter, so the state write above is what makes the
         // next pass real; clearing the signature is not needed and would defeat the guard for a body edit.
         window.clearTimeout(filterTimers.get(block));
