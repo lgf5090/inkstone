@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react'
 import { useClickOutside, useEscape } from '../../../../components/overlay'
 import { TagChip } from '../../../../components/TagChip'
 import { t } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 import { getKanbanTagStyle, KANBAN_COLOR_NAMES, resolveKanbanTagColor } from '../colors'
 import { formatKanbanColorName, formatKanbanOptionLabel } from '../i18n-helpers'
 import type { KanbanColorName, KanbanOption } from '../types'
@@ -125,6 +126,7 @@ function TagInputField({
   onClose: () => void
 }) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isImeComposing(e)) return
     if (e.key === 'Enter' && tagName.trim()) {
       e.preventDefault()
       onAddTag(tagName.trim(), tagColor)

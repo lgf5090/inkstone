@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 import { Pencil, Send, Trash2 } from 'lucide-react'
 import { fullTime, shortTime } from '../../../time'
 import { t } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 import {
   KANBAN_COMMENT_MAX_CHARS,
   kanbanAddComment,
@@ -155,6 +156,7 @@ function CommentComposer({
         onChange={(e) => box.write(e.target.value)}
         // Enter stays a newline here as it does in the description; the chord is what means send.
         onKeyDown={(e) => {
+          if (isImeComposing(e)) return
           if (e.key === 'Escape') box.clear()
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault()
@@ -191,6 +193,7 @@ function CommentEditor({
         rows={3}
         onChange={(e) => box.write(e.target.value)}
         onKeyDown={(e) => {
+          if (isImeComposing(e)) return
           if (e.key === 'Escape') onCancel()
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault()

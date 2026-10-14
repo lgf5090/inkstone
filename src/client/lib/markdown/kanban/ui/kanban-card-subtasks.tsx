@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from 'react'
 import { Check, ChevronDown, ChevronRight, ListTodo, Plus } from 'lucide-react'
 import { t } from '../../../i18n'
+import { isImeComposing } from '../../../ime'
 import { createKanbanId } from '../id'
 import type { KanbanSubtask } from '../types'
 import { KanbanIconBadge } from './kanban-icon-badge'
@@ -64,6 +65,7 @@ function AddSubtaskInput({
   const [val, setVal] = useState('')
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(e)) return
     if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
