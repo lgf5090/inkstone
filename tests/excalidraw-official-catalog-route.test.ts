@@ -109,7 +109,9 @@ describe('the official catalog endpoint', () => {
 
     it('refuses an upstream redirect rather than following it', async () => {
         // The guard is the point, not the option literal: workerd never had 'error' at all.
-        const fetchSpy = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://evil.test/x.json' } }))
+        // Spied with fetch's own signature: the assertion below reads the second argument, and a
+        // zero-parameter mock types every call as an empty tuple, where that argument is undefined.
+        const fetchSpy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 302, headers: { location: 'https://evil.test/x.json' } }))
         globalThis.fetch = fetchSpy as never
         const app = await freshApp()
 
@@ -121,7 +123,7 @@ describe('the official catalog endpoint', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(1)
         // What the old literal-string test could never see: workerd rejects 'error' before the
         // request is even made, so the option this app passes has to be one it accepts.
-        expect((fetchSpy.mock.calls[0][1] as RequestInit).redirect).toBe('manual')
+        expect(fetchSpy.mock.calls[0][1]?.redirect).toBe('manual')
     })
 
     it('serves stale data immediately and refreshes behind the response', async () => {
