@@ -22,7 +22,7 @@ import { loadRssLibrary, storeRssLibrary } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
-import { JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { JSON_BODY_LIMITS, readJson, readStreamTextWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 
@@ -67,32 +67,6 @@ function headerOnly(value: unknown, max: number): string {
   // A validator header is copied into an outbound request, so anything a newline could smuggle
   // has to go before it leaves.
   return value.replace(/[\r\n\0]/g, '').slice(0, max)
-}
-
-async function readCapped(body: ReadableStream<Uint8Array> | null): Promise<string | null> {
-  if (!body) return ''
-  const reader = body.getReader()
-  const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: false })
-  let received = 0
-  let text = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!value) continue
-      received += value.byteLength
-      if (received > MAX_FEED_BYTES) {
-        await reader.cancel()
-        return null
-      }
-      text += decoder.decode(value, { stream: true })
-    }
-    text += decoder.decode()
-  }
-  finally {
-    reader.releaseLock()
-  }
-  return text
 }
 
 /** The content types a feed document may arrive as. HTML means the address is a web page, not a feed. */
@@ -148,7 +122,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
       if (!looksLikeFeed(response.headers.get('content-type') || '')) {
         return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
       }
-      const xml = await readCapped(response.body)
+      const xml = await readStreamTextWithinLimit(response.body, MAX_FEED_BYTES)
       if (xml === null) return { url: requested, status: response.status, ok: false, reason: 'too-large' }
       if (!xml.trim()) return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
       return {

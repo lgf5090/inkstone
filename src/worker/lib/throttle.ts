@@ -5,6 +5,17 @@ import { ApiError } from './errors'
 const DEFAULT_FREE_FAILS = 5
 const WINDOW_MS = 60 * 60 * 1000
 
+/**
+ * The lock each failure past the free budget buys, doubling while it still means something.
+ *
+ * Entry n is the lock for the (n + 1)-th failure beyond `freeFails`; `LOCKOUT_MAX_MS` holds for every
+ * failure after the ladder runs out, so the attempt rate stays bounded instead of doubling forever.
+ * `recordLoginFailure` builds its SQL from these, so the numbers live in one place.
+ */
+const LOCKOUT_LADDER_MS = [60_000, 120_000, 240_000, 480_000] as const
+/** The lock every failure after the ladder is served. */
+const LOCKOUT_MAX_MS = 900_000
+
 export interface ThrottleTarget {
   key: string
   freeFails?: number
@@ -138,6 +149,12 @@ export async function recordLoginFailure(
   const targets = normalizeTargets(inputs)
   if (!targets.length) return
   const now = Date.now()
+  // The ladder is bound rather than spliced into the text: ?5..?8 are its steps and ?9 the lock they
+  // stop at, so `LOCKOUT_LADDER_MS` stays the only place a duration is written down.
+  const ladderStart = 5
+  const rungs = LOCKOUT_LADDER_MS.map((_, step) =>
+    `        WHEN login_attempts.fails + 1 = ?4 + ${step} THEN ?2 + ?${ladderStart + step}`,
+  ).join('\n')
   const sql = `
     INSERT INTO login_attempts (key, fails, last_fail_at, locked_until)
     VALUES (?1, 1, ?2, NULL)
@@ -150,14 +167,11 @@ export async function recordLoginFailure(
       locked_until = CASE
         WHEN ?2 - login_attempts.last_fail_at > ?3 THEN NULL
         WHEN login_attempts.fails + 1 < ?4 THEN NULL
-        WHEN login_attempts.fails + 1 = ?4 THEN ?2 + 60000
-        WHEN login_attempts.fails + 1 = ?4 + 1 THEN ?2 + 120000
-        WHEN login_attempts.fails + 1 = ?4 + 2 THEN ?2 + 240000
-        WHEN login_attempts.fails + 1 = ?4 + 3 THEN ?2 + 480000
-        ELSE ?2 + 900000
+${rungs}
+        ELSE ?2 + ?${ladderStart + LOCKOUT_LADDER_MS.length}
       END`
   const statements = targets.map((target) =>
-    db.prepare(sql).bind(target.key, now, WINDOW_MS, target.freeFails),
+    db.prepare(sql).bind(target.key, now, WINDOW_MS, target.freeFails, ...LOCKOUT_LADDER_MS, LOCKOUT_MAX_MS),
   )
   await db.batch(statements)
 }

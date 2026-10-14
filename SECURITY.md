@@ -44,6 +44,14 @@ Inkstone is self-hosted software, not a hosted service. Deployment owners are re
   defense-in-depth around the vault's decrypt capability. A blank value is
   reported as a misconfiguration (HTTP 500) instead of quietly leaving the
   guard off.
+- **`AI_CONNECT_HOSTS` (optional var).** Comma-separated bare hostnames (optionally
+  with a port) added to the CSP `connect-src` list. AI requests go from the
+  reader's browser straight to the provider, so a host that is not listed here is
+  silently blocked and the reader loses the feature. The five built-in provider
+  presets are always allowed and cannot be removed by this variable; a reader who
+  typed a custom `openai-compatible` endpoint needs their deployment to add that
+  host. Entries that are not a bare hostname are dropped and reported on the
+  Worker log rather than pasted into the policy.
 - **Sessions.** A session lives 90 days with sliding renewal, hard-capped at 180
   days from creation. Changing the password or the TOTP state revokes other
   sessions *and* every MCP API key and OAuth grant on the account, so rotating

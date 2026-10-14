@@ -65,7 +65,7 @@ it('keeps the OAuth/MCP responses inside the same header policy as the app', asy
   expect((await hardened.json()).error).toBe('invalid_request')
 
   const index = read('../src/worker/index.ts')
-  expect(index).toContain('withSecurityHeaders(response, oauthRequest.url)')
+  expect(index).toContain('withSecurityHeaders(response, oauthRequest.url,')
   expect(index).not.toContain('error_description: error.message')
 })
 

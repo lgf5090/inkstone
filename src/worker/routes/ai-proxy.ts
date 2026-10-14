@@ -4,15 +4,13 @@ import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { readJson } from '../lib/request'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
-import { assertRelayableEndpoint, isBlockedTarget, pickRelayHeaders } from '@shared/ai-proxy-guard'
+import { assertRelayableEndpoint, pickRelayHeaders } from '@shared/ai-proxy-guard'
 
 interface AIProxyPayload {
   endpoint?: string
   headers?: Record<string, string>
   body?: unknown
 }
-
-export { isBlockedTarget }
 
 export const aiProxyRoutes = new Hono<AppBindings>()
 aiProxyRoutes.use('*', requireAuth)

@@ -5,6 +5,7 @@ import type { Snapshot } from './snapshot'
 import { backupArchivePath, createBackupArchive } from './archive'
 import {
   BACKUP_USER_AGENT,
+  discardBody,
   friendlyError,
   readResponseBytesWithinLimit,
   type DeliverResult,
@@ -76,6 +77,8 @@ export async function s3Deliver(
   const key = joinKey(prefix, backupArchivePath(snapshot))
   const archive = createBackupArchive(snapshot)
   if (await s3ArchiveMatches(aws, config, key, archive.byteLengthNumber, snapshot.stamp, signal)) {
+    // The archive is already stored, so the bytes this run generated are thrown away. `cancel()` can
+    // reject because the reader upstream is gone; that says nothing about a delivery that just succeeded.
     await archive.stream.cancel().catch(() => {})
     return { files: 1, bytes: archive.byteLengthNumber }
   }
@@ -112,13 +115,13 @@ async function s3ArchiveMatches(
     redirect: 'manual',
   })
   if (response.status === 403 || response.status === 404) {
-    await response.body?.cancel().catch(() => {})
+    await discardBody(response.body)
     return false
   }
   if (!response.ok) throw new Error(await describeError(response, key))
   const size = Number(response.headers.get('Content-Length'))
   const storedStamp = response.headers.get('X-Amz-Meta-Inkstone-Snapshot')
-  await response.body?.cancel().catch(() => {})
+  await discardBody(response.body)
   return size === expectedBytes && (!storedStamp || storedStamp === stamp)
 }
 
@@ -147,7 +150,7 @@ async function putArchive(
     redirect: 'manual',
   })
   if (!response.ok) throw new Error(await describeError(response, key))
-  await response.body?.cancel().catch(() => {})
+  await discardBody(response.body)
 }
 
 interface UploadedPart {
@@ -196,7 +199,7 @@ async function multipartUpload(
       })
       if (!uploaded.ok) throw new Error(await describeError(uploaded, key))
       const etag = uploaded.headers.get('ETag')
-      await uploaded.body?.cancel().catch(() => {})
+      await discardBody(uploaded.body)
       if (!etag) throw new Error(`S3 did not return an ETag for part ${partNumber} (${key})`)
       parts.push({ partNumber, etag })
       uploadedBytes += body.byteLength
@@ -244,7 +247,7 @@ async function abortMultipart(
       signal: AbortSignal.timeout(10_000),
       redirect: 'manual',
     })
-    await response.body?.cancel().catch(() => {})
+    await discardBody(response.body)
     if (!response.ok && response.status !== 404) {
       console.warn(`[inkstone] S3 multipart cleanup failed: HTTP ${response.status} (${key})`)
     }
@@ -298,6 +301,8 @@ async function* streamParts(
     if (used) yield buffer.slice(0, used)
     completed = true
   } finally {
+    // Only on the paths that did not read the stream to its end. Whatever the consumer already threw is
+    // the reason this run failed, and a second error from unwinding the source would bury it.
     if (!completed) await reader.cancel().catch(() => {})
     reader.releaseLock()
   }
@@ -378,7 +383,7 @@ export async function s3Test(
       })
       if (!put.ok) return { ok: false, message: await describeError(put, key) }
       written = true
-      await put.body?.cancel().catch(() => {})
+      await discardBody(put.body)
 
       const get = await aws.fetch(url, { method: 'GET', signal, redirect: 'manual' })
       if (!get.ok) {
@@ -406,7 +411,7 @@ export async function s3Test(
             signal: AbortSignal.timeout(5_000),
             redirect: 'manual',
           })
-          await removed.body?.cancel().catch(() => {})
+          await discardBody(removed.body)
           if (!removed.ok && removed.status !== 404) {
             cleanupError = new Error(`The test file could not be removed: HTTP ${removed.status}`)
           }
@@ -463,5 +468,5 @@ export async function s3DeleteArchive(
     method: 'DELETE', signal, redirect: 'manual',
   })
   if (!response.ok && response.status !== 404) throw new Error(await describeError(response, key))
-  await response.body?.cancel().catch(() => {})
+  await discardBody(response.body)
 }

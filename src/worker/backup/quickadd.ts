@@ -4,18 +4,10 @@ import {
   QUICKADD_VERSION,
   quickAddLibraryFromStored,
 } from '@shared/quickadd'
+import { parseStoredJson } from '../lib/json'
 
 export interface BackupQuickAddSummary {
   choices: number
-}
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  }
-  catch {
-    return null
-  }
 }
 
 /**
@@ -42,7 +34,7 @@ export async function applyBackupQuickAdd(
   userId: string,
   carried: unknown,
 ): Promise<BackupQuickAddSummary> {
-  const library = typeof carried === 'string' ? parseJson(carried) : carried
+  const library = typeof carried === 'string' ? parseStoredJson(carried) : carried
   const parsed = parseQuickAddRecord(library)
   if (!parsed.data) throw new Error('The export contains no readable QuickAdd library')
   if (parsed.dropped > 0 || parsed.truncated) {

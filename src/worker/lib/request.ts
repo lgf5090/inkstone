@@ -132,10 +132,22 @@ async function readTextWithinLimit(
   return new TextDecoder().decode(await readBytesWithinLimit(stream, maxBytes))
 }
 
-export async function readBytesWithinLimit(
+/**
+ * The one capped stream reader.
+ *
+ * The request-body reader, the chat attachment fetch, the RSS relay, the update check and the backup
+ * transports each carried their own copy of the same loop — `getReader`, add up `byteLength`, cancel
+ * once the total passes the ceiling, join the chunks back. The loop is the same in all five and only
+ * the answer differs, so this holds the loop and answers with `null` when the ceiling is passed: the
+ * caller turns that into its own status, its own message, or its own "no body" value.
+ *
+ * Counting while streaming is the point. Reading the whole body and checking its length afterwards
+ * lets whoever is on the other side decide how much memory this request holds.
+ */
+export async function readStreamWithinLimit(
   stream: ReadableStream<Uint8Array> | null | undefined,
   maxBytes: number,
-): Promise<Uint8Array> {
+): Promise<Uint8Array | null> {
   if (!stream) return new Uint8Array()
 
   const reader = stream.getReader()
@@ -145,10 +157,17 @@ export async function readBytesWithinLimit(
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
+      if (!value) continue
       total += value.byteLength
       if (total > maxBytes) {
-        await reader.cancel('payload_too_large')
-        throw ApiError.tooLarge('The request body is too large')
+        // Best-effort: the payload is already refused, and a `cancel()` that itself rejects would
+        // replace the caller's honest overflow answer with a stream plumbing error.
+        try {
+          await reader.cancel('payload_too_large')
+        } catch {
+          // The reader is released below and the source is dropped with it.
+        }
+        return null
       }
       chunks.push(value)
     }
@@ -163,6 +182,24 @@ export async function readBytesWithinLimit(
     offset += chunk.byteLength
   }
   return bytes
+}
+
+export async function readBytesWithinLimit(
+  stream: ReadableStream<Uint8Array> | null | undefined,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  const bytes = await readStreamWithinLimit(stream, maxBytes)
+  if (bytes === null) throw ApiError.tooLarge('The request body is too large')
+  return bytes
+}
+
+/** The same ceiling read as text: `null` means the far side sent more than `maxBytes`. */
+export async function readStreamTextWithinLimit(
+  stream: ReadableStream<Uint8Array> | null | undefined,
+  maxBytes: number,
+): Promise<string | null> {
+  const bytes = await readStreamWithinLimit(stream, maxBytes)
+  return bytes === null ? null : new TextDecoder().decode(bytes)
 }
 
 

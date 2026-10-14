@@ -38,13 +38,14 @@ export default {
           { status: error.status },
         ),
         request.url,
+        { aiConnectHosts: env.AI_CONNECT_HOSTS },
       )
     }
     const provider = createOAuthProvider(oauthRequest, env)
     const response = new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA
       ? await oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
       : await provider.fetch(oauthRequest, env, ctx)
-    return withSecurityHeaders(response, oauthRequest.url)
+    return withSecurityHeaders(response, oauthRequest.url, { aiConnectHosts: env.AI_CONNECT_HOSTS })
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

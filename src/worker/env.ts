@@ -27,6 +27,12 @@ export interface Env {
 
   DO_AUTH_KEY?: string
 
+  /**
+   * Comma-separated bare provider hosts added to CSP `connect-src`, for a deployment whose readers
+   * call an AI endpoint of their own. Optional; blank keeps the built-in preset hosts.
+   */
+  AI_CONNECT_HOSTS?: string
+
   /** Workers AI binding for semantic search; optional so AI search degrades gracefully. */
   AI?: {
     run: <T = unknown>(model: string, inputs: unknown) => Promise<T>

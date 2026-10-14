@@ -191,3 +191,20 @@ export function tagSelectQuery(whereClause: string): string {
    WHERE ${whereClause}
    GROUP BY t.id, t.name, t.color, t.is_pinned, t.created_at`
 }
+
+/**
+ * The tag subtree rule, written once.
+ *
+ * A tag covers everything beneath it, so filtering or counting `work` also means `work/meeting`; the
+ * caller supplies the second bind as `likePattern(`${scope}/`)`, and the `/` in that pattern is what
+ * stops `work` from claiming the unrelated sibling `workshop`. Both halves are the SQL spelling of
+ * `tagInScope()`, which the offline shell applies in TypeScript, and `COLLATE NOCASE` is the collation
+ * `idx_tags_name_nocase` is built on — a filter that folded differently would disagree with the
+ * sidebar count it is supposed to match.
+ *
+ * `nameParam` and `prefixParam` are placeholders already numbered against the caller's own bind list,
+ * because these predicates are spliced into a query whose parameter numbers are counted by hand.
+ */
+export function tagScopePredicate(column: string, nameParam: string, prefixParam: string): string {
+  return `(${column} = ${nameParam} COLLATE NOCASE OR ${column} LIKE ${prefixParam} COLLATE NOCASE ESCAPE '\\')`
+}

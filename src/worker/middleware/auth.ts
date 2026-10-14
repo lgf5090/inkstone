@@ -27,6 +27,15 @@ export const USER_COLUMNS = `id, username, login, name, avatar_url, role, settin
 
 const USER_COLUMNS_ALIASED = USER_COLUMNS.split(', ').map((column) => `u.${column}`).join(', ')
 
+/**
+ * How stale `users.last_seen_at` may get before a request writes a fresh one.
+ *
+ * A reader's every request would otherwise take a write to the `users` row, so the bump is rate-limited
+ * to one per interval; the same number is the guard in the `UPDATE` so two concurrent requests cannot
+ * both decide they were the one that crossed the interval.
+ */
+const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000
+
 export function rowToUser(row: UserRow): Variables['user'] {
   return {
     id: row.id,
@@ -87,9 +96,10 @@ export const loadSession = createMiddleware<AppBindings>(async (c, next) => {
           clearLegacySessionCookie(c)
         }
         const now = Date.now()
-        if (row.last_seen_at < now - 5 * 60 * 1000) c.executionCtx?.waitUntil(
+        const lastSeenFloor = now - LAST_SEEN_WRITE_INTERVAL_MS
+        if (row.last_seen_at < lastSeenFloor) c.executionCtx?.waitUntil(
           c.env.DB.prepare(`UPDATE users SET last_seen_at = ?1 WHERE id = ?2 AND last_seen_at < ?3`)
-            .bind(now, row.id, now - 5 * 60 * 1000)
+            .bind(now, row.id, lastSeenFloor)
             .run()
             .catch(() => {}),
         )

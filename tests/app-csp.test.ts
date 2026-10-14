@@ -64,6 +64,15 @@ async function fetchAuthorize(authenticated: boolean): Promise<Response> {
   return createApp().fetch(new Request(authorizeUrl, { headers }), env)
 }
 
+async function cspOf(url: string, overrides: Partial<Env> = {}): Promise<string> {
+  const response = await createApp().fetch(new Request(url), { ...env, ...overrides } as Env)
+  return response.headers.get('Content-Security-Policy') ?? ''
+}
+
+function directive(csp: string, name: string): string {
+  return new RegExp(`(?:^|; )${name}([^;]*)`).exec(csp)?.[1]?.trim() ?? ''
+}
+
 it('serves the asset fallback with a self-only form-action', async () => {
   const response = await createApp().fetch(new Request('http://localhost/robots.txt'), env)
   const csp = response.headers.get('Content-Security-Policy') ?? ''
@@ -107,6 +116,56 @@ it('serves a CSP without script-src unsafe-inline', async () => {
   const scriptSrc = /script-src([^;]*)/.exec(csp)?.[1] ?? ''
   expect(scriptSrc).not.toContain("'unsafe-inline'")
   expect(scriptSrc).toContain("'self'")
+})
+
+/**
+ * Every base URL a built-in provider preset hands the reader has to be reachable from the browser,
+ * because the key stays in the reader's own browser and the request goes straight to the provider.
+ * A preset added to the settings table without a matching `connect-src` host is a feature that
+ * silently never works for whoever picks it, so the guard reads the table rather than a copy of it.
+ */
+it('allows the browser to reach every built-in provider preset', async () => {
+  const sources = directive(await cspOf('http://localhost/robots.txt'), 'connect-src')
+  const presets = readFileSync('src/client/features/settings/ExcalidrawSettings.tsx', 'utf8')
+    .match(/defaultBaseURL: '(https:\/\/[^']+)'/g) ?? []
+  expect(presets.length).toBeGreaterThanOrEqual(5)
+  for (const preset of presets) {
+    const url = /'(https:\/\/[^']+)'/.exec(preset)![1]
+    expect(sources, `connect-src is missing the preset origin ${url}`).toContain(new URL(url).origin)
+  }
+  expect(sources).toContain("'self'")
+})
+
+it('lets a deployment name its own AI host without losing the built-in presets', async () => {
+  const sources = directive(
+    await cspOf('http://localhost/robots.txt', { AI_CONNECT_HOSTS: 'gateway.internal.example:8787' }),
+    'connect-src',
+  )
+  expect(sources).toContain('https://gateway.internal.example:8787')
+  expect(sources).toContain('https://api.openai.com')
+})
+
+it('refuses an AI_CONNECT_HOSTS entry that is not a bare host', async () => {
+  const sources = directive(
+    await cspOf('http://localhost/robots.txt', {
+      AI_CONNECT_HOSTS: 'https://evil.example/ai, evil.example; object-src *, ok.example',
+    }),
+    'connect-src',
+  )
+  expect(sources).toContain('https://ok.example')
+  expect(sources).not.toContain('evil.example')
+  expect(sources).not.toContain('object-src')
+  expect(sources).toContain('https://api.openai.com')
+})
+
+it('keeps the built-in presets when every AI_CONNECT_HOSTS entry is malformed', async () => {
+  const sources = directive(
+    await cspOf('http://localhost/robots.txt', { AI_CONNECT_HOSTS: 'https://evil.example/ai' }),
+    'connect-src',
+  )
+  expect(sources).toContain('https://api.deepseek.com')
+  expect(sources).toContain('https://api.x.ai')
+  expect(sources).not.toContain('evil.example')
 })
 
 it('ships the index boot as an external script instead of inline', () => {

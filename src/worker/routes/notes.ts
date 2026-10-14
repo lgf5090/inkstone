@@ -13,7 +13,7 @@ import type {
 } from '@shared/types'
 import { buildFtsQuery } from './search'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
+import { NOTE_COLUMNS_FULL, NOTE_COLUMNS_NOTAGS, attachNoteTags, noteTagsQueryForPage, splitTags, tagScopePredicate, toNote, toNoteSummary, type NoteRow, type NoteTagRow } from '../db/rows'
 import { assertNoteQuota } from '../db/quota'
 import { acquireLease } from '../lib/lease'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
@@ -22,6 +22,8 @@ import {
   rebuildDerivedFields,
   INLINE_REWRITE_LIMIT,
   FTS_QUEUE_CONFLICT_SQL,
+  REWRITE_CONCURRENCY,
+  REWRITE_LOAD_CHUNK,
   rewriteQueueStatement,
   LINK_TARGET_SUBQUERY,
   pruneOrphanTags,
@@ -109,8 +111,7 @@ notesRoutes.get('/', async (c) => {
     const prefixBind = binds.length
     where += ` AND NOT EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
                    WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND (t.name = ?${nameBind} COLLATE NOCASE
-                       OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`
+                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
   }
 
   if (view === 'tag') {
@@ -125,8 +126,7 @@ notesRoutes.get('/', async (c) => {
       const prefixBind = binds.length
       where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
                    WHERE nt.note_id = n.id AND t.user_id = n.user_id
-                     AND (t.name = ?${nameBind} COLLATE NOCASE
-                       OR t.name LIKE ?${prefixBind} COLLATE NOCASE ESCAPE '\\'))`
+                     AND ${tagScopePredicate('t.name', `?${nameBind}`, `?${prefixBind}`)})`
     }
   }
 
@@ -1464,8 +1464,6 @@ export async function rewriteInboundWikiLinks(
   const candidateIds = candidates.map((c) => c.id)
   const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds
   const remaining = candidateIds.length - plan.length
-  const LOAD_CHUNK = 10
-  const CONCURRENCY_LIMIT = 5
   type CandidateNoteRecord = {
     id: string
     title: string
@@ -1476,9 +1474,9 @@ export async function rewriteInboundWikiLinks(
     deleted_at: number | null
   }
   // Load and rewrite in small windows: a hub note referenced by thousands of others must
-  // not hold every candidate body in the isolate at once.
-  for (let start = 0; start < plan.length; start += LOAD_CHUNK) {
-    const windowIds = plan.slice(start, start + LOAD_CHUNK)
+  // not pin every candidate body in the isolate before the first write happens.
+  for (let start = 0; start < plan.length; start += REWRITE_LOAD_CHUNK) {
+    const windowIds = plan.slice(start, start + REWRITE_LOAD_CHUNK)
     const placeholders = windowIds.map((_, idx) => `?${idx + 2}`).join(', ')
     const { results: loaded } = await db.prepare(
       `SELECT id, title, content, content_hash, rev, updated_at, deleted_at
@@ -1487,8 +1485,8 @@ export async function rewriteInboundWikiLinks(
     const notesToRewrite = loaded.filter((note) => note.deleted_at === null
       && replaceWikiLinkTarget(note.content, fromTitle, toTitle) !== note.content)
     skipped += loaded.length - notesToRewrite.length
-    for (let i = 0; i < notesToRewrite.length; i += CONCURRENCY_LIMIT) {
-      const batch = notesToRewrite.slice(i, i + CONCURRENCY_LIMIT)
+    for (let i = 0; i < notesToRewrite.length; i += REWRITE_CONCURRENCY) {
+      const batch = notesToRewrite.slice(i, i + REWRITE_CONCURRENCY)
       const outcomes = await Promise.all(
         batch.map(async (initialNote) => {
           let currentNote: CandidateNoteRecord | null = initialNote
@@ -1629,11 +1627,6 @@ export function restoredVersionTitle(title: string): string {
 
 export function resolveNoteTitle(title: string | undefined, current = ''): string {
   return title === undefined ? current : truncateText(title.trim(), LIMITS.titleMaxLength)
-}
-
-export function nextNotesCursor(offset: number, returned: number, total: number): string | null {
-  const next = offset + returned
-  return returned > 0 && next < total ? String(next) : null
 }
 
 export function encodeNotesListCursor(

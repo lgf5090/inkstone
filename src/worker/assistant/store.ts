@@ -53,8 +53,11 @@ import {
   type PendingActionStatus,
 } from '@shared/assistant'
 import { parseScheduleSpec, type ScheduleSpec } from '@shared/assistant-schedule'
+import { likePattern } from '@shared/markdown-utils'
 import type { Env } from '../env'
+import { tagScopePredicate } from '../db/rows'
 import { newId } from '../lib/id'
+import { parseStoredJson } from '../lib/json'
 import { decryptAssistantKey, encryptAssistantKey } from '../lib/crypto'
 
 /** How long a reader has to approve a destructive proposal. */
@@ -136,13 +139,15 @@ function containsPattern(term: string): string {
   return `%${literal.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
 }
 
+/**
+ * A JSON column that may not be there at all.
+ *
+ * The parse itself belongs to `parseStoredJson`; what this adds is the row that predates the column,
+ * where the value is null or a stray number rather than text. Every consumer below treats a
+ * non-object as "nothing stored", so both failures read the same way.
+ */
 function parseJson(value: unknown): unknown {
-  if (typeof value !== 'string') return null
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
+  return typeof value === 'string' ? parseStoredJson(value) : null
 }
 
 /**
@@ -812,10 +817,12 @@ export class AssistantStore {
   // ----------------------------------------------------------- conversations
 
   /**
-   * The list, optionally narrowed to one folder (with its subfolders) or one tag.
+   * The list, optionally narrowed to one folder (with its subfolders) or one tag (with its subtree).
    *
-   * A folder's view includes what its children hold: a reader who files things underneath a project
-   * folder expects its parent to show the lot, the same way the notebook's folder rows do.
+   * Both halves nest for the same reason: a reader who files things underneath a project, or labels
+   * them `work/meeting`, expects the parent to show the lot — which is how the notebook's folder rows
+   * and the notes list already behave. A tag filter that matched the exact id alone hid the
+   * conversations it was supposed to gather.
    */
   async listConversations(
     query?: string,
@@ -832,9 +839,16 @@ export class AssistantStore {
     if (filter.starred) q.raw('starred = 1')
     if (filter.pinned) q.raw('pinned = 1')
     if (filter.tagId) {
-      const tag = q.add(filter.tagId)
+      const scope = await this.tagName(filter.tagId)
+      // An id the reader does not own scopes nothing, and the answer is an empty list rather than an
+      // unfiltered one.
+      if (scope === null) return []
+      const nameParam = q.add(scope)
+      const prefixParam = q.add(likePattern(`${scope}/`))
       q.raw(`EXISTS (SELECT 1 FROM chat_conversation_tags ct
-        WHERE ct.user_id = ?1 AND ct.conversation_id = c.id AND ct.tag_id = ${tag})`)
+        JOIN tags t ON t.id = ct.tag_id AND t.user_id = ct.user_id
+        WHERE ct.user_id = ?1 AND ct.conversation_id = c.id
+          AND ${tagScopePredicate('t.name', nameParam, prefixParam)})`)
     }
     if (query) {
       const pattern = q.add(containsPattern(query))
@@ -956,11 +970,18 @@ export class AssistantStore {
 
   /** The reader's own tags, straight from the notebook's tag table. */
   async conversationTags(): Promise<ConversationTag[]> {
-    const rows = await this.rows<{ id: string, name: string, color: string | null }>(
-      `SELECT id, name, color FROM tags WHERE user_id = ?1 ORDER BY name`,
+    const rows = await this.rows<{ id: string, name: string, color: string | null, is_pinned: number }>(
+      // `COLLATE NOCASE` is what the notes tag list orders by, and without it `"Zebra"` beats
+      // `"apple"`, which is the one ordering a reader notices.
+      `SELECT id, name, color, is_pinned FROM tags WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
       this.userId,
     )
-    return rows.map((row) => ({ id: row.id, name: row.name, color: row.color ?? null }))
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      color: row.color ?? null,
+      isPinned: row.is_pinned === 1,
+    }))
   }
 
   /** A folder the reader actually owns and has not deleted; the route turns a false into a 400. */
@@ -973,6 +994,21 @@ export class AssistantStore {
 
   async knownTag(tagId: string): Promise<boolean> {
     return !!(await this.one<{ id: string }>(`SELECT id FROM tags WHERE user_id = ?1 AND id = ?2`, this.userId, tagId))
+  }
+
+  /**
+   * The name a tag id carries, or `null` when the reader has no such tag.
+   *
+   * A chat filter arrives as an id, but the tag subtree is spelled in names, so the id has to become
+   * its name before `tagScopePredicate()` can gather the descendants. `null` rather than a throw:
+   * a filter naming a tag the reader does not own answers "nothing", which is what the route wants.
+   */
+  private async tagName(tagId: string): Promise<string | null> {
+    const row = await this.one<{ name: string }>(
+      `SELECT name FROM tags WHERE user_id = ?1 AND id = ?2`,
+      this.userId, tagId,
+    )
+    return row?.name ?? null
   }
 
   /** How many conversations carry each tag, for the filter row. */

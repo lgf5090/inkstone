@@ -3,6 +3,7 @@ import type { PublicUser, SessionInfo, SiteInfo } from '@shared/types'
 import { selectAttachmentStorage } from '../attachments/backend'
 import type { Env, Variables } from '../env'
 import { rowToUser, USER_COLUMNS } from '../middleware/auth'
+import { storedObject } from './json'
 import { KEY_REGISTRATION_OPEN } from './instance-settings'
 
 export async function buildSiteInfo(env: Env, detailed = true): Promise<SiteInfo> {
@@ -47,14 +48,6 @@ export async function sessionInfo(env: Env, user: Variables['user']): Promise<Se
   return {
     user: publicUser(user),
     site: await buildSiteInfo(env),
-    settings: mergeSettings(safeParse(user.settingsRaw)),
-  }
-}
-
-function safeParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return {}
+    settings: mergeSettings(storedObject(user.settingsRaw)),
   }
 }

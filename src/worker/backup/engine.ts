@@ -11,6 +11,7 @@ import type {
 import type { Env } from '../env'
 import { decryptSecret } from '../lib/crypto'
 import { newId } from '../lib/id'
+import { storedObject } from '../lib/json'
 import { acquireLease } from '../lib/lease'
 import { buildSnapshot, type Snapshot } from './snapshot'
 import { friendlyError, isTransientBackupError } from './common'
@@ -40,7 +41,7 @@ export function toBackupTarget(row: TargetRow): BackupTarget {
     type: row.type,
     name: row.name,
     enabled: row.enabled === 1,
-    config: safeParse(row.config),
+    config: targetConfig(row.config),
     hasSecret: Boolean(row.secret),
     lastRunAt: row.last_run_at,
     lastStatus: (row.last_status as 'success' | 'failed' | null) ?? null,
@@ -50,15 +51,15 @@ export function toBackupTarget(row: TargetRow): BackupTarget {
   }
 }
 
-function safeParse(raw: string): S3Config & WebdavConfig {
-  try {
-    const value = JSON.parse(raw) as unknown
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as S3Config & WebdavConfig)
-      : ({} as S3Config & WebdavConfig)
-  } catch {
-    return {} as S3Config & WebdavConfig
-  }
+/**
+ * The non-secret config a target row carries. A row written by an older build or edited by hand
+ * reads as an empty config rather than failing the run — the credential check downstream is what
+ * refuses a target with nothing set.
+ */
+function targetConfig(raw: string): S3Config & WebdavConfig {
+  // `storedObject` cannot know which of the two shapes a row carries, and the callers were written
+  // against both at once — every field they read off it is accessed optionally.
+  return storedObject(raw) as unknown as S3Config & WebdavConfig
 }
 
 const TARGET_TIMEOUT_MIN_MS = 12 * 60_000
@@ -152,7 +153,7 @@ async function runBackupUnlocked(
   }
 
   const user = await env.DB.prepare(`SELECT settings FROM users WHERE id = ?1`).bind(userId).first<{ settings: string }>()
-  const retentionCount = mergeSettings(user ? safeParse(user.settings) : {}).backup.retentionCount
+  const retentionCount = mergeSettings(user ? storedObject(user.settings) : {}).backup.retentionCount
   const results = new Array<BackupTargetResult>(targets.length)
   await forEachConcurrent(targets, 2, async (target, index) => {
     results[index] = await deliverToTarget(env, target, snapshot, retentionCount)
@@ -189,7 +190,7 @@ async function deliverToTarget(
   }
 
   try {
-    const config = safeParse(target.config)
+    const config = targetConfig(target.config)
     const secret = target.secret
       ? await decryptSecret<S3Secret & WebdavSecret>(env, target.id, target.secret)
       : null
@@ -338,7 +339,7 @@ export async function testTarget(
   target: TargetRow,
   overrideSecret?: S3Secret & WebdavSecret,
 ): Promise<TestConnectionResult> {
-  const config = safeParse(target.config)
+  const config = targetConfig(target.config)
   const secret =
     overrideSecret ??
     (target.secret ? await decryptSecret<S3Secret & WebdavSecret>(env, target.id, target.secret) : null)
