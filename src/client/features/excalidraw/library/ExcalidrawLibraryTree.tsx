@@ -838,6 +838,10 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                       ? extractItemName(item, idx, item.name || 'Item')
                       : item.name
                   return (
+                    // The card is a container: it is the drag source and the box the hover toolbar
+                    // floats inside. Inserting is the button's own click, so the tile needs no
+                    // `stopPropagation` guard under it any more - a press on the rename field or the
+                    // toolbar cannot reach an ancestor that does nothing.
                     <div
                       key={item.id}
                       draggable
@@ -847,19 +851,30 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                           JSON.stringify(item.elements),
                         )
                       }}
-                      onClick={() => insertItemToCanvas(item, api)}
-                      className="group relative flex flex-col rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 hover:border-[var(--accent)] hover:shadow-xs cursor-pointer transition-all gap-1.5"
-                      title={t('excalidraw.click_to_insert')}
+                      className="group relative flex flex-col rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 hover:border-[var(--accent)] hover:shadow-xs transition-all gap-1.5"
                     >
-                      <div className="h-20 w-full flex items-center justify-center bg-[var(--bg-sunken)]/60 rounded overflow-hidden p-1">
-                        <StencilItemPreview item={item} lib={activeLib} api={api} />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => insertItemToCanvas(item, api)}
+                        title={t('excalidraw.click_to_insert')}
+                        className="flex min-w-0 flex-col items-stretch gap-1.5 text-left cursor-pointer"
+                      >
+                        <div className="h-20 w-full flex items-center justify-center bg-[var(--bg-sunken)]/60 rounded overflow-hidden p-1">
+                          <StencilItemPreview item={item} lib={activeLib} api={api} />
+                        </div>
 
-                      {isItemEditing ? (
-                        <div
-                          className="flex items-center gap-1 pt-0.5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        {!isItemEditing && (
+                          <span
+                            className="text-xs truncate text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] font-medium"
+                            title={itemTitle}
+                          >
+                            {itemTitle}
+                          </span>
+                        )}
+                      </button>
+
+                      {isItemEditing && (
+                        <div className="flex items-center gap-1 pt-0.5">
                           <input
                             type="text"
                             autoFocus
@@ -887,19 +902,9 @@ export const ExcalidrawLibraryTree: React.FC<ExcalidrawLibraryTreeProps> = ({
                             <Check size={11} />
                           </button>
                         </div>
-                      ) : (
-                        <span
-                          className="text-xs truncate text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] font-medium"
-                          title={itemTitle}
-                        >
-                          {itemTitle}
-                        </span>
                       )}
 
-                      <div
-                        className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-surface)] rounded shadow-xs p-0.5"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-surface)] rounded shadow-xs p-0.5">
                         <button
                           type="button"
                           title={t('excalidraw.rename_item')}
