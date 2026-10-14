@@ -375,7 +375,8 @@ describe('the cover of a book', () => {
 
   it('counts a cover against the budget it replaces', async () => {
     await send('PUT', '/library', { library: library({ books: [book({ hasCover: true })] }) })
-    const put = (bytes: Uint8Array) => app.request('/api/reader/books/book-1/cover', {
+    // A body has to sit on a non-shared buffer, which is what `pngOf` below hands back.
+    const put = (bytes: Uint8Array<ArrayBuffer>) => app.request('/api/reader/books/book-1/cover', {
       method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: bytes,
     }, { DB: db, FILES: r2 } as unknown as AppBindings['Bindings'])
     // Sized covers, with a real header on the front, because the route now reads it.

@@ -46,7 +46,8 @@ it('posts credentials with the client header and reloads on success', async () =
     '<p id="error" class="error"></p><button class="primary" type="submit">go</button></form>',
   ].join('')
   const reload = vi.fn()
-  const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+  // Declared with the two arguments `fetch` is called with, so reading the call's `init` is checked.
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{}', { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('location', { reload })
   new Function(authorizeScript)()
