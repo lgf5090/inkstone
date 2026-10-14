@@ -12,7 +12,7 @@ import { useUi } from '../../store/ui';
 import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { writeNoteDrag } from '../../lib/note-drag';
-import { collapseOrLeave, moveTreeFocus } from '../../lib/tree';
+import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { noteFolderOwner } from '../../lib/folders';
 import { splitByRanges } from '../../lib/fuzzy';
 import { queryMatches, type Query } from '../../lib/query-match';
@@ -54,7 +54,7 @@ function titleWithHighlight(note: NoteSummary, highlight?: Query): React.ReactNo
 
 // Every explorer row subscribes to several store slices; without memoising the row, a note
 // change re-renders every visible row in the explorer.
-function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode; highlight?: Query }) {
+function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setSize, posInSet }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode; highlight?: Query; setSize?: number; posInSet?: number }) {
     const active = useUi((s) => s.activeNoteId === note.id);
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);
@@ -65,6 +65,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
     const contextMenu = useContextMenu();
     const [menuOpen, setMenuOpen] = useState(false);
     const [moving, setMoving] = useState(false);
+    const onKeyDown = useTreeKeyboard();
     const open = (side = false) => {
         useUi.getState().openExplorer(folders.some((folder) => folder.id === note.folderId) ? note.folderId : null);
         void openNote(note.id, side ? { pane: 'secondary' } : undefined);
@@ -81,11 +82,11 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
     ];
     const isDrawing = note.title.endsWith('.excalidraw');
     const isMindmap = isMindmapDocumentTitle(note.title);
-    return <div role="treeitem" aria-level={depth + 1} aria-selected={active} data-tree-note-id={note.id}>
+    return <div {...treeItemProps({ level: depth + 1, selected: active, setSize, posInSet })} data-tree-note-id={note.id}>
         <div ref={anchor} draggable onDragStart={(event) => {
             const selected = useUi.getState().selectedIds;
             writeNoteDrag(event, selected.length > 1 && selected.includes(note.id) ? selected : [note.id]);
-        }} onContextMenu={(event) => { setMenuOpen(false); contextMenu.onContextMenu(event); }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', active ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: 6 + depth * 13 }}>
+        }} onContextMenu={(event) => { setMenuOpen(false); contextMenu.onContextMenu(event); }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', active ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(depth) }}>
             <span className="w-8 shrink-0 md:w-4"/>
             {isDrawing ? (
                 <Brush size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
@@ -94,16 +95,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight }: { 
             ) : (
                 <FileText size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             )}
-            <button type="button" data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={note.title || t('common.untitled_note')} onClick={() => open()} onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
-                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                    if (moveTreeFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1)) event.preventDefault();
-                    return;
-                }
-                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                    if (collapseOrLeave(event.currentTarget)) event.preventDefault();
-                }
-            }} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[12.5px]">
+            <button type="button" data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={note.title || t('common.untitled_note')} onClick={() => open()} onKeyDown={onKeyDown} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[12.5px]">
                 {titleWithHighlight(note, highlight)}
             </button>
             {trailing}

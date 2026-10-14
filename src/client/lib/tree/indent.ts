@@ -1,10 +1,15 @@
 /**
  * The one source of truth for how far a tree row steps in per depth level.
  *
- * The sidebar folders, the tag tree, the stencil library and the move picker all draw the same row
- * geometry, so the step lives here rather than being re-derived as `6 + depth * 13` — and the four
- * other constants that grew beside it (`4 + depth * 13`, `6 + depth * 14`, `4 + depth * 12`). Rows
- * apply it as an inline `paddingLeft`, which is the runtime-value case the style rule allows.
+ * The sidebar folders, the tag tree, the calendar/todo and inbox trees and the move picker all draw
+ * the same row geometry, so the base and the step live here and a row calls `treeIndent(depth)`
+ * instead of re-deriving `base + depth * step` inline. Rows apply the result as an inline
+ * `paddingLeft`, which is the runtime-value case the style rule allows.
+ *
+ * This is the contract to converge on, not a claim that it already holds everywhere: a few rows — a
+ * chat taxonomy list and the like — still hand-write their own `n + depth * m` and will drift from
+ * these constants until they call `treeIndent`. Until they do, this module defines the step; it does
+ * not prove that nothing else computes one.
  */
 export const TREE_INDENT_BASE = 6
 export const TREE_INDENT_STEP = 13
